@@ -33,47 +33,51 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-export function createWslPathEdge(input: { distro: string; driveMountRoot: string | null }): WslPathEdge {
-  const { distro, driveMountRoot } = input
-  // Each root handed in, by its Linux spelling, so a root handed back reads
+/**
+ * How a client spells one server's paths. The typed path fields the router
+ * forwards are translated with it, both ways (`createPathEdge`).
+ */
+export type PathSpelling = {
+  /** Whether a path is in the client's own spelling, and so is translated. */
+  isClientPath(path: string): boolean
+  /** A client path as the server takes it. Throws in words for one the server cannot open. */
+  toServer(path: string): string
+  /** A server path as the client reads it. */
+  pathOut(path: string): string
+  /** The machine a handed-off terminal runs the CLI on, when the client names one. */
+  handoffHostId?: ExecutionHostId
+}
+
+export type PathEdge = Omit<WslPathEdge, 'distro'>
+
+/** The typed-field translation both kinds of server share: a WSL distribution's, an SSH machine's. */
+export function createPathEdge(spelling: PathSpelling): PathEdge {
+  // Each root handed in, by its server spelling, so a root handed back reads
   // exactly as its caller wrote it (`\\wsl$\…` stays `\\wsl$\…`).
   const spelled = new Map<string, string>()
 
-  const toLinux = (path: string): string => {
-    if (!isWindowsPath(path)) return path
-    const uncDistro = distroOfUncPath(path)
-    if (uncDistro !== null) {
-      if (uncDistro.toLowerCase() !== distro.toLowerCase())
-        throw new WslEdgeError(`${path} is in WSL: ${uncDistro}, not in ${distro}.`)
-      return toWslPath(path)
-    }
-    if (path.startsWith('\\\\')) throw new WslEdgeError(`${path} is a network share, which WSL: ${distro} cannot open.`)
-    if (driveMountRoot === null)
-      throw new WslEdgeError(
-        `WSL: ${distro} mounts no Windows drives (automount is off in its /etc/wsl.conf), so a chat in ${path} cannot run there.`,
-      )
-    return toWslPath(path, { driveMountRoot })
-  }
-
   const rootIn = (root: string): string => {
-    const linux = toLinux(root)
-    spelled.set(linux, root)
-    return linux
+    if (!spelling.isClientPath(root)) return root
+    const server = spelling.toServer(root)
+    spelled.set(server, root)
+    return server
   }
 
   const pathOut = (path: string): string => {
     if (!path.startsWith('/')) return path
     const exact = spelled.get(path)
     if (exact) return exact
-    for (const [linux, windows] of spelled) {
-      if (path.startsWith(`${linux}/`)) {
-        const rest = path.slice(linux.length + 1)
-        const separator = windows.includes('\\') ? '\\' : '/'
-        return `${windows.replace(/[\\/]+$/u, '')}${separator}${rest.split('/').join(separator)}`
+    for (const [server, client] of spelled) {
+      if (path.startsWith(`${server}/`)) {
+        const rest = path.slice(server.length + 1)
+        const separator = client.includes('\\') ? '\\' : '/'
+        return `${client.replace(/[\\/]+$/u, '')}${separator}${rest.split('/').join(separator)}`
       }
     }
-    return wslToWindowsPath(path, { distro, ...(driveMountRoot ? { driveMountRoot } : {}) })
+    return spelling.pathOut(path)
   }
+
+  const toServer = (path: string): string => (spelling.isClientPath(path) ? spelling.toServer(path) : path)
 
   const keyIn = (key: unknown): unknown =>
     isRecord(key) && typeof key.workspaceRoot === 'string' ? { ...key, workspaceRoot: rootIn(key.workspaceRoot) } : key
@@ -84,13 +88,9 @@ export function createWslPathEdge(input: { distro: string; driveMountRoot: strin
           isRecord(server) && server.transport === 'stdio'
             ? {
                 ...server,
-                ...(typeof server.command === 'string' ? { command: toLinux(server.command) } : {}),
+                ...(typeof server.command === 'string' ? { command: toServer(server.command) } : {}),
                 ...(Array.isArray(server.args)
-                  ? {
-                      args: server.args.map((arg) =>
-                        typeof arg === 'string' && isWindowsPath(arg) ? toLinux(arg) : arg,
-                      ),
-                    }
+                  ? { args: server.args.map((arg) => (typeof arg === 'string' ? toServer(arg) : arg)) }
                   : {}),
               }
             : server,
@@ -109,8 +109,8 @@ export function createWslPathEdge(input: { distro: string; driveMountRoot: strin
         next = {
           ...next,
           mentions: next.mentions.map((mention) =>
-            isRecord(mention) && typeof mention.path === 'string' && isWindowsPath(mention.path)
-              ? { ...mention, path: toLinux(mention.path) }
+            isRecord(mention) && typeof mention.path === 'string'
+              ? { ...mention, path: toServer(mention.path) }
               : mention,
           ),
         }
@@ -118,8 +118,8 @@ export function createWslPathEdge(input: { distro: string; driveMountRoot: strin
         next = {
           ...next,
           skills: next.skills.map((skill) =>
-            isRecord(skill) && typeof skill.sourcePath === 'string' && isWindowsPath(skill.sourcePath)
-              ? { ...skill, sourcePath: toLinux(skill.sourcePath) }
+            isRecord(skill) && typeof skill.sourcePath === 'string'
+              ? { ...skill, sourcePath: toServer(skill.sourcePath) }
               : skill,
           ),
         }
@@ -128,7 +128,6 @@ export function createWslPathEdge(input: { distro: string; driveMountRoot: strin
   }
 
   return {
-    distro,
     rootIn,
     pathOut,
     args(member, args) {
@@ -141,15 +140,16 @@ export function createWslPathEdge(input: { distro: string; driveMountRoot: strin
         return { ...value, path: pathOut(value.path) }
       if (member === 'terminalHandoffTarget' && value.ok === true && isRecord(value.target)) {
         const target = value.target
-        const cliRuntimes = isRecord(target.cliRuntimes)
-          ? Object.fromEntries(
-              Object.entries(target.cliRuntimes).map(([cli, runtime]) => [
-                cli,
-                // The server ran it locally; the terminal that takes over runs it in this distribution.
-                isRecord(runtime) ? { ...runtime, hostId: `wsl:${distro}` as ExecutionHostId } : runtime,
-              ]),
-            )
-          : target.cliRuntimes
+        const cliRuntimes =
+          isRecord(target.cliRuntimes) && spelling.handoffHostId
+            ? Object.fromEntries(
+                Object.entries(target.cliRuntimes).map(([cli, runtime]) => [
+                  cli,
+                  // The server ran it locally; the terminal that takes over runs it on that machine.
+                  isRecord(runtime) ? { ...runtime, hostId: spelling.handoffHostId } : runtime,
+                ]),
+              )
+            : target.cliRuntimes
         return {
           ...value,
           target: {
@@ -170,5 +170,32 @@ export function createWslPathEdge(input: { distro: string; driveMountRoot: strin
         }
       return value
     },
+  }
+}
+
+export function createWslPathEdge(input: { distro: string; driveMountRoot: string | null }): WslPathEdge {
+  const { distro, driveMountRoot } = input
+  const toLinux = (path: string): string => {
+    const uncDistro = distroOfUncPath(path)
+    if (uncDistro !== null) {
+      if (uncDistro.toLowerCase() !== distro.toLowerCase())
+        throw new WslEdgeError(`${path} is in WSL: ${uncDistro}, not in ${distro}.`)
+      return toWslPath(path)
+    }
+    if (path.startsWith('\\\\')) throw new WslEdgeError(`${path} is a network share, which WSL: ${distro} cannot open.`)
+    if (driveMountRoot === null)
+      throw new WslEdgeError(
+        `WSL: ${distro} mounts no Windows drives (automount is off in its /etc/wsl.conf), so a chat in ${path} cannot run there.`,
+      )
+    return toWslPath(path, { driveMountRoot })
+  }
+  return {
+    distro,
+    ...createPathEdge({
+      isClientPath: isWindowsPath,
+      toServer: toLinux,
+      pathOut: (path) => wslToWindowsPath(path, { distro, ...(driveMountRoot ? { driveMountRoot } : {}) }),
+      handoffHostId: `wsl:${distro}` as ExecutionHostId,
+    }),
   }
 }

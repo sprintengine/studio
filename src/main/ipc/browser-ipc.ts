@@ -13,7 +13,10 @@ function tabIdOf(input: unknown): string | null {
 }
 
 export function registerBrowserIpc(ipcMain: IpcMain, manager: BrowserManager): void {
-  ipcMain.handle('browser:config', () => manager.getConfig())
+  ipcMain.handle('browser:config', (_event, input: unknown) => {
+    const workspaceId = (input as { workspaceId?: unknown } | null)?.workspaceId
+    return manager.getConfig(typeof workspaceId === 'string' && workspaceId ? workspaceId : undefined)
+  })
 
   ipcMain.handle('browser:register', (event: IpcMainInvokeEvent, input: BrowserRegisterInput) => {
     if (

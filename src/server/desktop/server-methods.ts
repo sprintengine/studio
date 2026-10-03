@@ -49,6 +49,12 @@ export const SHELL_METHODS = {
    * so a bridge that reconnects the moment the socket is back is proven.
    */
   liveLaunchTokens: 'shell.launch-tokens.live',
+  /**
+   * `{ key, purpose }` → `{ clientId, label }`: a stream on an SSH machine's
+   * relay (phase 8), which main holds; its port follows on the control
+   * channel as an `ssh-stream` attach with that client id.
+   */
+  sshOpen: 'shell.ssh.open',
 } as const
 
 /** One-way, either direction. */
@@ -77,6 +83,8 @@ export const SERVER_EVENTS = {
    * the list is every live one, sent to a server that has just started.
    */
   launchTokens: 'gateway.launch-tokens',
+  /** Shell → server: an SSH machine connected or reconnected `{ key }`; the server follows its chats (phase 8). */
+  sshConnected: 'ssh.connected',
   /** Shell → server hints (6.3). */
   hintPower: 'hint.power',
   hintVisibility: 'hint.visibility',

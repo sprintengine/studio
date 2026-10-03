@@ -149,6 +149,9 @@ export function createWebApi(): ElectronApi {
     platform: browserPlatform(),
     hostPlatform: servedHostPlatform(),
     clientCapabilities: browserCapabilities(),
+    // SSH machines are the desktop's: it holds their sessions and asks their
+    // questions, so a tab neither lists them nor offers them in New chat.
+    sshMachinesEnabled: false,
     isDevelopment: import.meta.env.DEV,
     isDiagnosticsEnabled: diagnosticsOnLoopback(),
     diagnosticsGetIpcStats: () => ({ sampledAt: Date.now(), channels: [] }),

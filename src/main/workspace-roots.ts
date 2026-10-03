@@ -1,4 +1,6 @@
 import { resolve } from 'path'
+
+import { isMachinePath } from '../shared/machine-paths'
 import type { WorkspaceSyncSnapshot } from '../shared/workspace-sync'
 
 /**
@@ -20,13 +22,15 @@ export function listKnownWorkspaceRoots(snapshot: WorkspaceSyncSnapshot): string
 
 /**
  * Resolve, drop the empty ones, and dedupe, so two spellings of one folder
- * never become two scans.
+ * never become two scans. A folder on an SSH machine (`ssh://…`) is not one
+ * of this computer's and is dropped too: resolved here, it would name a
+ * folder under this process's working directory.
  */
 export function uniqueResolvedRoots(roots: ReadonlyArray<string | null | undefined>): string[] {
   const seen = new Set<string>()
   const unique: string[] = []
   for (const root of roots) {
-    if (typeof root !== 'string' || !root.trim()) continue
+    if (typeof root !== 'string' || !root.trim() || isMachinePath(root)) continue
     const resolved = resolve(root)
     if (seen.has(resolved)) continue
     seen.add(resolved)

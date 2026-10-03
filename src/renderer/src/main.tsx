@@ -5,6 +5,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './assets/index.css'
 import { ConfirmDialogProvider } from './components/ui'
+import { SshPromptDialogHost } from './components/environments/SshPromptDialog'
 import AuxWindowApp from './components/auxWindows/AuxWindowApp'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
 import { RootErrorBoundary } from './components/workspace/RootErrorBoundary'
@@ -176,6 +177,7 @@ if (isDiagnosticsWindow) {
       <RootErrorBoundary>
         <ConfirmDialogProvider>
           <WorkspaceManager />
+          <SshPromptDialogHost />
         </ConfirmDialogProvider>
       </RootErrorBoundary>,
     )

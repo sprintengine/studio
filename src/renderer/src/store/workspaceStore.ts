@@ -318,6 +318,8 @@ export interface WorkspaceStore
       remoteOrigin?: import('../types/workspace').WorkspaceRemoteOrigin | null
       // The machine on this computer the workspace runs on; see Workspace.hostId.
       hostId?: import('../../../shared/execution-host').ExecutionHostId | null
+      // The SSH machine it is on; see Workspace.environment.
+      environment?: import('../types/workspace').WorkspaceEnvironmentRef | null
       worktree?: WorkspaceWorktree | null
       templateAgentCli?: AgentCli | null
       seedAgent?: SoloChatSeed | null

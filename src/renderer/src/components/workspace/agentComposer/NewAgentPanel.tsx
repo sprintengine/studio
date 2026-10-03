@@ -1,3 +1,4 @@
+import { parseMachinePath } from '../../../../../shared/machine-paths'
 import React from 'react'
 import { AttachmentChip } from '../../ui/AttachmentChip'
 import type { AgentCli, CliPermissionPreset, WorkspaceSkill } from '../../../../../shared/electron-api'
@@ -19,6 +20,8 @@ import {
 } from '../../../../../shared/execution-host'
 import type { AgentCliAvailabilityMap } from '../../../../../shared/electron-api'
 import { useExecutionHosts } from '../../../hooks/useExecutionHosts'
+import type { SshEnvironmentSummary } from '../../../../../shared/ssh-environments'
+import { useSshMachines } from '../../settings/SshMachinesSection'
 import { FolderIdentityIcon } from '../FolderIdentityIcon'
 import { useProjectColor, useProjectColors } from '../../../hooks/useProjectColors'
 import { projectColorKey, resolveProjectColor, type ProjectColor } from '../../../utils/projectColor'
@@ -123,6 +126,12 @@ export type NewAgentLaunch = AgentComposerConfirm & {
    * the project.
    */
   extension?: { id: string }
+  /**
+   * A chat on an SSH machine (phase 8): its label, and the folder on it the
+   * chat runs in, as that machine spells it. A chat only: the machine's server
+   * runs no terminals.
+   */
+  environment?: { kind: 'ssh'; id: string; label: string; folder: string }
 }
 
 /**
@@ -343,11 +352,16 @@ let lastPickedMachineId: string | null = null
 // The same, for a machine on this computer (a WSL distribution). Null follows
 // the folder: a folder inside a distribution runs there, anything else here.
 let lastPickedHostId: ExecutionHostId | null = null
+// The SSH machine picked last, and the folder typed for each, for this session.
+let lastPickedSshId: string | null = null
+const lastSshFolders = new Map<string, string>()
 
 /** Test seam: forget the session's remembered machine. */
 export function resetRememberedMachineForTests(): void {
   lastPickedMachineId = null
   lastPickedHostId = null
+  lastPickedSshId = null
+  lastSshFolders.clear()
 }
 
 /**
@@ -465,7 +479,27 @@ export default function NewAgentPanel({
     const remembered = next === LOCAL_HOST_ID ? null : next
     lastPickedHostId = remembered
     setPickedHostId(remembered)
+    pickSsh(null)
   }
+  // SSH machines (phase 8): offered where a launch creates its workspace, as
+  // the machines on this computer are. A chat there runs in a folder on that
+  // machine, typed here; nothing on this computer is browsed for it.
+  const { machines: sshMachinesAll } = useSshMachines(
+    hostChoosable && window.api?.sshMachinesEnabled ? window.api : null,
+  )
+  const sshMachines = hostChoosable && !editing ? sshMachinesAll : []
+  const [pickedSshId, setPickedSshId] = React.useState<string | null>(() => (editing ? null : lastPickedSshId))
+  const pickedSsh = sshMachines.find((machine) => machine.id === pickedSshId) ?? null
+  const [sshFolder, setSshFolder] = React.useState(() => (pickedSshId ? (lastSshFolders.get(pickedSshId) ?? '') : ''))
+  const pickSsh = (id: string | null): void => {
+    lastPickedSshId = id
+    setPickedSshId(id)
+    setSshFolder(id ? (lastSshFolders.get(id) ?? '') : '')
+  }
+  const sshFolderProblem =
+    pickedSsh && !/^\/[^\0\n]*$/u.test(sshFolder.trim())
+      ? `Type the folder's full path on ${pickedSsh.label}, such as /home/dev/repo.`
+      : null
   // Which agent CLIs the chosen WSL machine has: its own probe, one process
   // for the lot, asked when the machine is picked — never on focus. This
   // machine's answer stays the store's, exactly as before.
@@ -904,7 +938,11 @@ export default function NewAgentPanel({
     })
   }, [draftKey, prompt, images, selection, composer.openingEngine, composer.skills, composer.mcpServers])
 
-  const insertPromptPath = (path: string) => {
+  const insertPromptPath = (dropped: string) => {
+    // A file from the SSH machine this chat starts on is typed as that
+    // machine spells it: the agent runs there, not on this computer.
+    const onMachine = pickedSsh ? parseMachinePath(dropped) : null
+    const path = onMachine && onMachine.id === pickedSsh?.id ? onMachine.path : dropped
     setPrompt((current) =>
       current.length === 0 || /\s$/.test(current) ? `${current}${quotePath(path)} ` : `${current} ${quotePath(path)} `,
     )
@@ -1320,6 +1358,38 @@ export default function NewAgentPanel({
       void schedule(text)
       return
     }
+    if (pickedSsh) {
+      if (sshFolderProblem) {
+        showToast({ tone: 'warn', title: 'Which folder?', description: sshFolderProblem })
+        return
+      }
+      const confirm = composer.buildConfirm(selection)
+      if (confirm.kind === 'conversation') {
+        const providerId = confirm.cli ? conversationProviderForCli(confirm.cli) : null
+        if (!providerId) return
+        confirm.provider = {
+          providerId,
+          modelId: confirm.model ?? CONVERSATION_DEFAULT_MODEL_ID,
+          modelLabel: engineNames.modelLabel ?? engineNames.cliLabel,
+        }
+      }
+      if (images.length > 0) {
+        showToast({
+          tone: 'warn',
+          title: 'That chat cannot travel yet',
+          description: `Remove the attached images to start on ${pickedSsh.label}; they are files on this computer.`,
+        })
+        return
+      }
+      const folder = sshFolder.trim().replace(/(.)\/+$/u, '$1')
+      lastSshFolders.set(pickedSsh.id, folder)
+      onLaunch({
+        ...confirm,
+        prompt: text.trim(),
+        environment: { kind: 'ssh', id: pickedSsh.id, label: pickedSsh.label, folder },
+      })
+      return
+    }
     if (remoteTarget) {
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
       const confirm = composer.buildConfirm(selection)
@@ -1537,14 +1607,23 @@ export default function NewAgentPanel({
                 — no separate Local/Remote switch). Shown whenever a remote
                 launch is possible and a machine is paired; on This device the
                 line reads exactly as it always did. */}
-            {(remoteSelectable && remoteMachines.length > 0) || localHosts.length > 1 ? (
+            {(remoteSelectable && remoteMachines.length > 0) || localHosts.length > 1 || sshMachines.length > 0 ? (
               <MachineScopePicker
                 // A scheduled agent runs on this computer or one of its WSL
                 // distributions: the scheduler is this computer's, and a paired
                 // machine's chat would need its own.
                 machines={remoteSelectable && !chatOnly ? remoteMachines : []}
                 selected={remoteTarget?.connection ?? null}
-                onSelect={(connection) => pickRemoteMachine(connection)}
+                onSelect={(connection) => {
+                  pickSsh(null)
+                  pickRemoteMachine(connection)
+                }}
+                sshMachines={scheduled ? [] : sshMachines}
+                selectedSshId={pickedSsh?.id ?? null}
+                onSelectSsh={(id) => {
+                  pickRemoteMachine(null)
+                  pickSsh(id)
+                }}
                 localHosts={localHosts}
                 selectedHostId={hostId}
                 onSelectHost={(next) => {
@@ -1578,7 +1657,18 @@ export default function NewAgentPanel({
                 projectName={activeIdentity?.name ?? null}
               />
             ) : null}
-            {remoteTarget ? (
+            {pickedSsh ? (
+              <Input
+                aria-label={`Folder on ${pickedSsh.label}`}
+                value={sshFolder}
+                onChange={(event) => setSshFolder(event.target.value)}
+                placeholder={`Folder on ${pickedSsh.label}, such as /home/dev/repo`}
+                size="sm"
+                variant="well"
+                fullWidth={false}
+                className="w-72 max-w-full font-mono"
+              />
+            ) : remoteTarget ? (
               <RemoteProjectPicker
                 target={remoteTarget}
                 color={scopeProjectColor}
@@ -2095,6 +2185,9 @@ function MachineScopePicker({
   machines,
   selected,
   onSelect,
+  sshMachines = [],
+  selectedSshId = null,
+  onSelectSsh,
   localHosts = [],
   selectedHostId = LOCAL_HOST_ID,
   onSelectHost,
@@ -2117,8 +2210,13 @@ function MachineScopePicker({
   onOpen?: () => void
   /** The project in hand, named in the dimmed rows' reasons and the list's heading. */
   projectName?: string | null
+  /** SSH machines (phase 8), after this computer's: each its own Studio server. */
+  sshMachines?: SshEnvironmentSummary[]
+  selectedSshId?: string | null
+  onSelectSsh?: (id: string) => void
 }) {
   const [open, setOpen] = React.useState(false)
+  const selectedSsh = sshMachines.find((machine) => machine.id === selectedSshId) ?? null
   const availabilityOf = (machine: MeshConnection): MachineAvailability => availability?.(machine) ?? { state: 'none' }
   const chosen = (machine: MeshConnection): boolean => {
     const state = availabilityOf(machine).state
@@ -2127,8 +2225,9 @@ function MachineScopePicker({
   const rowKey = (event: React.KeyboardEvent<HTMLButtonElement>, activate: () => void) =>
     menuRadioRowKeyDown(event, '[data-machine-option="true"]', activate)
   const hostRows = localHosts.length > 1 ? localHosts : []
-  const selectedHost = selected ? null : (hostRows.find((host) => host.id === selectedHostId) ?? null)
-  const localSelected = selected === null && (hostRows.length === 0 || selectedHostId === LOCAL_HOST_ID)
+  const selectedHost = selected || selectedSsh ? null : (hostRows.find((host) => host.id === selectedHostId) ?? null)
+  const localSelected =
+    selected === null && selectedSsh === null && (hostRows.length === 0 || selectedHostId === LOCAL_HOST_ID)
   // This machine can be ruled out too: a folder inside a distribution runs there.
   const localReason = hostRows[0] ? (hostDisabledReason?.(hostRows[0]) ?? null) : null
   const activateLocal = (): void => {
@@ -2165,9 +2264,15 @@ function MachineScopePicker({
         // hover ink: one of the launch row's controls, so it stands on the
         // same edge and height as the model and skills chips beside it.
         <ChipButton ref={ref} variant="raised" onClick={togglePopover} data-machine-trigger="true" {...triggerProps}>
-          {selected ? <RemoteMachineGlyph className="icon-xs shrink-0" /> : null}
+          {selected || selectedSsh ? <RemoteMachineGlyph className="icon-xs shrink-0" /> : null}
           {!selected && selectedHost?.kind === 'wsl' ? <WslMachineGlyph className="icon-xs shrink-0" /> : null}
-          {selected ? selected.machineName : selectedHost && hostRows.length > 0 ? selectedHost.label : 'This device'}
+          {selected
+            ? selected.machineName
+            : selectedSsh
+              ? selectedSsh.label
+              : selectedHost && hostRows.length > 0
+                ? selectedHost.label
+                : 'This device'}
           <ChevronGlyph />
         </ChipButton>
       )}
@@ -2231,7 +2336,40 @@ function MachineScopePicker({
             </MenuOption>
           )
         })}
-      {hostRows.length > 0 && machines.length > 0 ? <div className={MENU_DIVIDER_CLASS} role="separator" /> : null}
+      {sshMachines.length > 0 ? <div className={MENU_DIVIDER_CLASS} role="separator" /> : null}
+      {sshMachines.map((machine) => {
+        // A machine Studio cannot run on, or whose server this app cannot
+        // speak to, is listed with why, and cannot be picked.
+        const reason = machine.state === 'unsupported' || machine.state === 'version-blocked' ? machine.stateText : null
+        const isSelected = selected === null && machine.id === selectedSshId
+        const hint = reason ?? (machine.state === 'connected' ? null : machine.stateText)
+        const activate = () => {
+          if (reason) return
+          onSelectSsh?.(machine.id)
+          setOpen(false)
+        }
+        return (
+          <MenuOption
+            key={machine.id}
+            role="menuitemradio"
+            selected={isSelected}
+            stacked={Boolean(hint)}
+            disabled={Boolean(reason)}
+            data-machine-option="true"
+            data-machine-ssh={machine.id}
+            tabIndex={isSelected ? 0 : -1}
+            onKeyDown={(event) => rowKey(event, activate)}
+            onClick={activate}
+            icon={<RemoteMachineGlyph className={`icon-xs shrink-0${hint ? ' mt-0.5' : ''}`} />}
+          >
+            <span className={hint ? 'block truncate text-body font-medium' : 'block truncate'}>{machine.label}</span>
+            {hint ? <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span> : null}
+          </MenuOption>
+        )
+      })}
+      {(hostRows.length > 0 || sshMachines.length > 0) && machines.length > 0 ? (
+        <div className={MENU_DIVIDER_CLASS} role="separator" />
+      ) : null}
       {machines.map((machine) => {
         const state = availabilityOf(machine)
         const pickable = chosen(machine)

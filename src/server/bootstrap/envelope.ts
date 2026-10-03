@@ -106,6 +106,21 @@ export type ServerBootstrapEnvelope = {
   secrets: ServerSecretsMode
   /** Set for a server inside a WSL distribution: which one, as the Windows side names it. */
   wsl?: { distro: string }
+  /**
+   * Set for a server that outlives whoever started it (an SSH machine's
+   * managed server, phase 8): its starter's stdin ending is not its parent
+   * gone, so it keeps running, and stops when a signal asks or when it has
+   * been idle `idleMs` (no front-door connection and no chat working; null
+   * keeps it running). It writes `run/server.json` for the next client to
+   * find, and removes it when it stops.
+   */
+  detached?: {
+    idleMs: number | null
+    /** `bootstrap`: started by a desktop, which may upgrade it. Anything else is external and never replaced. */
+    origin: 'bootstrap' | 'cli' | 'systemd' | 'launchd'
+    /** The client that started it, as "Studio on dev-macbook-air", for Settings. */
+    startedBy: string
+  }
   /** `SPRINTENGINE_*` switches the server would otherwise read from its own environment. */
   flags: Record<string, boolean>
 }
@@ -176,10 +191,11 @@ export type SupervisorToServer =
       windowId: string | null
       /**
        * A window's IPC tunnel; a chat view's Studio protocol connection (its
-       * ticket follows as the answer to `studio.connect`); or the shell's own
-       * session, which offers its toolsets.
+       * ticket follows as the answer to `studio.connect`); the shell's own
+       * session, which offers its toolsets; or a stream on an SSH machine's
+       * relay, which main holds (phase 8).
        */
-      kind: 'desktop-window' | 'studio-connection' | 'shell'
+      kind: 'desktop-window' | 'studio-connection' | 'shell' | 'ssh-stream'
       /** A workspace window (not Diagnostics or an aux view): the `workspace-windows` push target. */
       workspaceWindow?: boolean
     }
@@ -234,6 +250,17 @@ export function parseServerBootstrapEnvelope(value: unknown): EnvelopeParseResul
     if (listeners.tailnet !== 'off') return fail('a server with a front door never listens on the tailnet.')
     if (typeof owner.tokenHash !== 'string' || !/^[0-9a-f]{64}$/u.test(owner.tokenHash))
       return fail('a front door needs the owner token hash its proofs are keyed by.')
+  }
+  if (value.detached !== undefined) {
+    const detached = value.detached
+    if (!isRecord(detached)) return fail('detached is malformed.')
+    if (value.role !== 'headless') return fail('only a headless server runs detached.')
+    if (detached.idleMs !== null && !(typeof detached.idleMs === 'number' && detached.idleMs > 0))
+      return fail('detached.idleMs must be a positive number or null.')
+    if (!['bootstrap', 'cli', 'systemd', 'launchd'].includes(String(detached.origin)))
+      return fail('detached.origin is unknown.')
+    if (typeof detached.startedBy !== 'string' || detached.startedBy.length > 200)
+      return fail('detached.startedBy must be a short label.')
   }
   if (value.wsl !== undefined) {
     if (!isRecord(value.wsl) || typeof value.wsl.distro !== 'string' || !/^[A-Za-z0-9._-]+$/u.test(value.wsl.distro))

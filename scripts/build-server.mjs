@@ -8,7 +8,8 @@
 // node_modules beside the checkout (or the app archive) rather than inlined.
 //
 // `--wsl` builds the other shape: the tree a WSL distribution runs
-// (`out/wsl-server/`, phase 7), which has no node_modules to load from. There
+// (`out/wsl-server/`, phase 7), and an SSH machine too (phase 8), which has
+// no node_modules to load from. There
 // every dependency is inlined, the two runtime packages a chat loads on first
 // use included, and the tree carries the resources the core reads from an
 // installed build's resources directory, the stdio bridge's relay, and its
@@ -112,7 +113,10 @@ export async function buildWslServerTree({ outDir = DEFAULT_WSL_SERVER_DIR } = {
     banner: { js: "const __studioImportMetaUrl = require('node:url').pathToFileURL(__filename).href;" },
   })
   writeFileSync(join(outDir, 'build.json'), `${JSON.stringify(identity, null, 2)}\n`)
-  cpSync(join(ROOT, 'resources', 'wsl-server', 'bridge.mjs'), join(outDir, 'bridge.mjs'))
+  // The relay: WSL's stdio bridge, and an SSH machine's multiplexing relay
+  // (`bridge.mjs --mux`, phase 8), which imports its codec from beside it.
+  for (const name of ['bridge.mjs', 'relay-mux.mjs'])
+    cpSync(join(ROOT, 'resources', 'wsl-server', name), join(outDir, name))
   for (const name of WSL_RESOURCES) {
     cpSync(join(ROOT, 'resources', name), join(outDir, 'resources', name), { recursive: true })
   }

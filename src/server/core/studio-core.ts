@@ -31,8 +31,12 @@ import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
 import { createPullRequestDomain } from '../pull-requests/pull-request-domain'
-import { localConversationBackend, type ConversationBackend } from './conversation-backend'
-import { createRoutedConversationBackend } from './routed-conversation-backend'
+import { localConversationBackend, refuseMachinePaths, type ConversationBackend } from './conversation-backend'
+import {
+  createRoutedConversationBackend,
+  type SshRoutedConnection,
+  type SshRoutedServers,
+} from './routed-conversation-backend'
 import type { WslServers } from '../wsl/desktop-wsl-servers'
 import type { StudioRole } from './data-dir'
 import { takeDataDir } from './take-data-dir'
@@ -90,6 +94,15 @@ export type StudioCoreOptions = {
    * that sends a distribution's chats to its server when its switch is on.
    */
   wslServers?: (deps: { readHostSettings: () => Partial<Record<ExecutionHostId, ExecutionHostSettings>> }) => WslServers
+  /**
+   * The desktop's SSH machines (phase 8), held by Electron main, which shows
+   * their prompts. Given, a workspace recorded on one runs its chats there.
+   * In process only: out of process, main's sessions are not this core's.
+   */
+  sshServers?: {
+    servers: SshRoutedServers
+    onConnected(listener: (connection: SshRoutedConnection) => void): void
+  }
 }
 
 export { StudioDataDirBusyError, StudioDataDirUnusableError } from './take-data-dir'
@@ -222,22 +235,28 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   // What every caller drives chats through; the runtime itself is only for
   // what its owner does (the idle sweep, flush, shutdown). On Windows, with
   // WSL servers, a router in front of it sends a distribution's chats there.
-  const localConversations = localConversationBackend(conversationRuntime)
+  // A chat whose folder is on an SSH machine never runs in this process.
+  const localConversations = refuseMachinePaths(localConversationBackend(conversationRuntime))
   let conversations: ConversationBackend = localConversations
-  if (wslServers) {
-    wslServersForHosts = wslServers
-    // Settings › Machines reads the server's state with the machine list.
-    wslServers.onStatus(() => hosts.notifyChanged())
+  const sshServers = options.sshServers ?? null
+  if (wslServers || sshServers) {
+    if (wslServers) {
+      wslServersForHosts = wslServers
+      // Settings › Machines reads the server's state with the machine list.
+      wslServers.onStatus(() => hosts.notifyChanged())
+    }
     const routed = createRoutedConversationBackend({
       local: localConversations,
       workspace: (workspaceId) => workspaceRegistry.getRecord(workspaceId) ?? null,
-      chatServerOn: (distro) => wslServers.chatServerOn(distro),
-      servers: wslServers.manager,
+      chatServerOn: (distro) => wslServers?.chatServerOn(distro) ?? false,
+      servers: wslServers?.manager ?? null,
+      ssh: sshServers?.servers ?? null,
       log: (message) => {
-        void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'WSL server', message })
+        void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Remote server', message })
       },
     })
-    wslServers.onConnected((connection) => routed.attach(connection))
+    wslServers?.onConnected((connection) => routed.attach(connection))
+    sshServers?.onConnected((connection) => routed.attach(connection))
     conversations = routed
   }
 

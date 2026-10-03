@@ -15,7 +15,7 @@
 // Run `npx electron-vite build` first. On macOS the app is started with
 // Chromium's mock keychain, so a run never waits on a keychain prompt.
 //
-//   node scripts/smoke-server-mode.mjs [--keep-profile]
+//   [SPRINTENGINE_SSH_MACHINES=on] node scripts/smoke-server-mode.mjs [--keep-profile]
 
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -47,7 +47,20 @@ if (!existsSync(join(ROOT, 'out', 'main', 'studio-server.js'))) {
 
 function launch(profileDir, mode) {
   const env = {}
-  for (const key of ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'DISPLAY', 'XDG_RUNTIME_DIR']) {
+  // SPRINTENGINE_SSH_MACHINES passes through, so the same run checks both
+  // modes with the SSH machines preview on (`=on`) or off.
+  for (const key of [
+    'PATH',
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'SHELL',
+    'TMPDIR',
+    'LANG',
+    'DISPLAY',
+    'XDG_RUNTIME_DIR',
+    'SPRINTENGINE_SSH_MACHINES',
+  ]) {
     if (process.env[key] !== undefined) env[key] = process.env[key]
   }
   env.SPRINTENGINE_USER_DATA_DIR = profileDir

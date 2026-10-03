@@ -33,6 +33,43 @@ export const RELAYED_TOOLSETS = ['browser', 'canvas', 'editor', 'tour', 'termina
 
 export type WslToolRelay = { close(): void }
 
+/**
+ * A server the desktop's toolsets are offered to: a WSL distribution's, or
+ * an SSH machine's (phase 8), whose agents get the pane's browser (its tabs
+ * reach that machine's network) and the canvas, and none of the toolsets
+ * that act on this computer's files or processes.
+ */
+export type RelayTarget = {
+  /** `wsl:<distro>` or `ssh:<id>`: the gateway connection id's prefix. */
+  key: string
+  /** For the log: "WSL: Ubuntu", "build-box". */
+  name: string
+  backend: { isOpen(): boolean; onClose(listener: (reason: string) => void): void }
+  open(purpose: 'studio'): Promise<Duplex>
+  toolsets: readonly string[]
+  /** A call's arguments as the desktop reads them; throws `RelayPathError` for a path it cannot open. */
+  args(toolset: string, args: Record<string, unknown>): Record<string, unknown>
+}
+
+/** The toolsets offered to an SSH machine's server: none that act on this computer's files or processes. */
+export const SSH_RELAYED_TOOLSETS = ['browser', 'canvas'] as const
+
+/** A WSL server as a relay target, its editor paths respelled for Windows. */
+export function wslRelayTarget(connection: WslServerConnection): RelayTarget {
+  return {
+    key: `wsl:${connection.distro}`,
+    name: `WSL: ${connection.distro}`,
+    backend: connection.backend,
+    open: (purpose) => connection.open(purpose),
+    toolsets: RELAYED_TOOLSETS,
+    args: (toolset, args) => relayedToolArgs(toolset, args, connection),
+  }
+}
+
+function asTarget(connection: WslServerConnection | RelayTarget): RelayTarget {
+  return 'distro' in connection ? wslRelayTarget(connection) : connection
+}
+
 /** Thrown for an input path the Windows side cannot open; the call answers with it in words. */
 class RelayPathError extends Error {}
 
@@ -149,7 +186,7 @@ export function readTicket(stream: Duplex, timeoutMs = 10_000): Promise<string> 
  * to, and keep the offers in step with the shell's.
  */
 export function relayShellToolsets(input: {
-  onConnected(listener: (connection: WslServerConnection) => void): void
+  onConnected(listener: (connection: WslServerConnection | RelayTarget) => void): void
   registry: ClientToolRegistry
   log?: (message: string) => void
   /** Stands in for the SDK's `connect` in tests. */
@@ -160,14 +197,14 @@ export function relayShellToolsets(input: {
   let closed = false
 
   /** What the shell offers now, toolset by toolset, as the Windows registry describes it. */
-  const shellToolsets = () => {
+  const shellToolsets = (allowed: readonly string[]) => {
     const visible = input.registry.visibleTools({
       gatewayConnectionId: 'wsl-relay',
       metadata: { kind: 'studio-agent' },
     })
     const sets = new Map<string, { title: string; description?: string; tools: (typeof visible)[number]['tool'][] }>()
     for (const definition of visible) {
-      if (!definition.builtIn || !(RELAYED_TOOLSETS as readonly string[]).includes(definition.toolset)) continue
+      if (!definition.builtIn || !allowed.includes(definition.toolset)) continue
       const entry = sets.get(definition.toolset) ?? {
         title: definition.title,
         ...(definition.description ? { description: definition.description } : {}),
@@ -180,12 +217,11 @@ export function relayShellToolsets(input: {
   }
 
   const relayTo =
-    (connection: WslServerConnection, toolset: string, tool: { name: string }): ToolDefinition['handler'] =>
+    (connection: RelayTarget, toolset: string, tool: { name: string }): ToolDefinition['handler'] =>
     async (args, call) => {
-      const distro = connection.distro
       let windowsArgs: Record<string, unknown>
       try {
-        windowsArgs = relayedToolArgs(toolset, args as Record<string, unknown>, connection)
+        windowsArgs = connection.args(toolset, args as Record<string, unknown>)
       } catch (error) {
         if (error instanceof RelayPathError) return toolError('invalid_path', error.message)
         throw error
@@ -194,7 +230,7 @@ export function relayShellToolsets(input: {
         caller: {
           // One gateway connection per WSL agent connection, for the Windows
           // side's affinity and in-flight bounds.
-          gatewayConnectionId: `wsl:${distro}:${call.context.connection.workspaceId ?? ''}:${call.context.connection.agentId ?? call.id}`,
+          gatewayConnectionId: `${connection.key}:${call.context.connection.workspaceId ?? ''}:${call.context.connection.agentId ?? call.id}`,
           metadata: { ...call.context.connection, kind: call.context.connection.kind },
           ...(call.context.conversation ? { conversation: call.context.conversation } : {}),
         },
@@ -207,10 +243,10 @@ export function relayShellToolsets(input: {
       return outcome.result
     }
 
-  async function sync(connection: WslServerConnection): Promise<void> {
-    const entry = open.get(connection.distro)
+  async function sync(connection: RelayTarget): Promise<void> {
+    const entry = open.get(connection.key)
     if (!entry) return
-    const wanted = shellToolsets()
+    const wanted = shellToolsets(connection.toolsets)
     for (const [name, offered] of entry.offered) {
       if (wanted.has(name)) continue
       entry.offered.delete(name)
@@ -238,15 +274,16 @@ export function relayShellToolsets(input: {
       } catch (error) {
         // A family the WSL server serves itself is refused, and stays its own.
         log(
-          `The ${name} toolset was not offered to WSL: ${connection.distro}: ${error instanceof Error ? error.message : String(error)}`,
+          `The ${name} toolset was not offered to ${connection.name}: ${error instanceof Error ? error.message : String(error)}`,
         )
       }
     }
   }
 
-  input.onConnected((connection) => {
+  input.onConnected((offered) => {
     if (closed) return
-    open.get(connection.distro)?.stop()
+    const connection = asTarget(offered)
+    open.get(connection.key)?.stop()
     const doConnect = input.connectClient ?? connect
     void doConnect({
       transport: async () => {
@@ -264,23 +301,23 @@ export function relayShellToolsets(input: {
           return
         }
         const unsubscribe = input.registry.subscribe(() => void sync(connection))
-        open.set(connection.distro, {
+        open.set(connection.key, {
           client,
           offered: new Map(),
           stop: () => {
             unsubscribe()
             client.close()
-            open.delete(connection.distro)
+            open.delete(connection.key)
           },
         })
         connection.backend.onClose(
-          () => open.get(connection.distro)?.client === client && open.get(connection.distro)?.stop(),
+          () => open.get(connection.key)?.client === client && open.get(connection.key)?.stop(),
         )
         void sync(connection)
       },
       (error: unknown) =>
         log(
-          `The desktop's tools could not be offered to WSL: ${connection.distro}: ${error instanceof Error ? error.message : String(error)}`,
+          `The desktop's tools could not be offered to ${connection.name}: ${error instanceof Error ? error.message : String(error)}`,
         ),
     )
   })

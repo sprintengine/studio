@@ -177,12 +177,28 @@ function sendLine(stream: Duplex, message: Record<string, unknown>): void {
  * and say which purpose it asked for. A connection that does not is closed,
  * having learned only the server's proof for a nonce it chose.
  */
+/**
+ * Who came in, for the server's audit log: an SSH machine's relay says so
+ * (`via: 'ssh-relay'`), with the SSH client's address and its own pid. Only
+ * ever logged, never trusted: the proof is what admits a connection.
+ */
+export type FrontDoorVia = { via: string; client: string | null; relayPid: number | null }
+
+function viaOf(message: Record<string, unknown>): FrontDoorVia | null {
+  if (typeof message.via !== 'string' || !/^[a-z-]{1,32}$/u.test(message.via)) return null
+  const client =
+    typeof message.client === 'string' && /^[0-9A-Fa-f.:%a-z-]{1,64}$/u.test(message.client) ? message.client : null
+  const relayPid = Number.isInteger(message.relayPid) ? (message.relayPid as number) : null
+  return { via: message.via, client, relayPid }
+}
+
 export async function admitFrontDoor(
   stream: Duplex,
   options: { tokenHash: string; timeoutMs?: number; serverNonce?: string },
-): Promise<{ purpose: FrontDoorPurpose }> {
+): Promise<{ purpose: FrontDoorPurpose; via: FrontDoorVia | null }> {
   const serverNonce = options.serverNonce ?? freshNonce()
   let nonce = ''
+  let via: FrontDoorVia | null = null
   let purpose: FrontDoorPurpose | null = null
   try {
     await readPreamble(stream, options.timeoutMs ?? DEFAULT_FRONT_DOOR_TIMEOUT_MS, (message) => {
@@ -197,6 +213,7 @@ export async function admitFrontDoor(
           throw new FrontDoorRefusedError('The front door asked for nothing this server serves.')
         nonce = message.nonce
         purpose = message.purpose as FrontDoorPurpose
+        via = viaOf(message)
         sendLine(stream, {
           t: 'challenge',
           serverNonce,
@@ -216,7 +233,7 @@ export async function admitFrontDoor(
     stream.destroy()
     throw error
   }
-  return { purpose: purpose as unknown as FrontDoorPurpose }
+  return { purpose: purpose as unknown as FrontDoorPurpose, via }
 }
 
 /**

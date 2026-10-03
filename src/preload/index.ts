@@ -4,6 +4,7 @@ import { DESKTOP_CLIENT_CAPABILITIES } from '../shared/client-capabilities'
 import { readStudioEnv } from '../shared/studio-env'
 import { instrumentApi, snapshotIpcStats } from './ipcStats'
 import { apiModules } from './api-surface'
+import { sshPreviewFromArgv } from '../shared/ssh-preview'
 
 const diagnosticsEnabled = process.env.NODE_ENV === 'development' || readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1'
 
@@ -12,6 +13,8 @@ const api = {
   // The desktop's server runs on this machine, in process or beside it.
   hostPlatform: process.platform,
   clientCapabilities: DESKTOP_CLIENT_CAPABILITIES,
+  // SSH machines, a preview fixed for the session (shared/ssh-preview.ts).
+  sshMachinesEnabled: sshPreviewFromArgv(process.argv),
   isDevelopment: process.env.NODE_ENV === 'development',
   isDiagnosticsEnabled: readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1',
   diagnosticsGetIpcStats: snapshotIpcStats,

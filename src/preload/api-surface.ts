@@ -36,6 +36,7 @@ import { pluginsApi } from './api/plugins'
 import { skillsApi } from './api/skills'
 import { launchSettingsApi } from './api/launch-settings'
 import { hostsApi } from './api/hosts'
+import { sshEnvironmentsApi } from './api/ssh-environments'
 import { splashApi } from './api/splash'
 import { startupApi } from './api/startup'
 import { terminalApi } from './api/terminal'
@@ -54,7 +55,7 @@ import { previewsApi } from './api/previews'
 import { webDevicesApi } from './api/web-devices'
 
 // Every `window.api` member the preload builds from its api modules: all of
-// them but the four values it computes from its own process. One list, which
+// them but the values it computes from its own process. One list, which
 // the preload and the web client both spread, so a member added here reaches
 // both and the compiler holds each to `ElectronApi`.
 
@@ -63,6 +64,7 @@ export type ComputedApiMembers =
   | 'platform'
   | 'hostPlatform'
   | 'clientCapabilities'
+  | 'sshMachinesEnabled'
   | 'isDevelopment'
   | 'isDiagnosticsEnabled'
   | 'diagnosticsGetIpcStats'
@@ -97,6 +99,7 @@ export const apiModules = {
   ...filesystemApi,
   ...launchSettingsApi,
   ...hostsApi,
+  ...sshEnvironmentsApi,
   ...gitApi,
   ...marketplaceApi,
   ...memoryActivityApi,

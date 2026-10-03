@@ -952,11 +952,14 @@ sources:
 
 ### 9.4 Remote
 
-- **SSH.** The server binds only the owner socket and, if asked, loopback on
-  the remote. The desktop forwards a local socket or port to it with
-  `ssh -N -L`, reads the owner token over an SSH exec channel (the person's SSH
-  login is the proof of being that user), and connects through the tunnel as an
-  owner. Nothing is exposed on the remote's network.
+- **SSH.** The server binds only its owner socket and its front door's
+  bridge socket on the remote, no TCP port. The desktop runs one relay over
+  the SSH session's own stdio (decision R21; phase 8 spec, 5.4): no `ssh -L`
+  and no local listener for the protocol. The relay reads the owner token on
+  the remote and proves itself to the server with it, so the token never
+  reaches the desktop (R22). The person's SSH login is the proof of being that
+  user. The audit log names such a connection `via ssh-relay` with the SSH
+  client's address. Nothing is exposed on the remote's network.
 - **Tailnet.** The existing listener moves into the server unchanged: pairing
   by offer or by approval with a typed comparison code, device tokens stored as
   hashes, scopes read live, `whois` binding, single-use tickets, revocation
@@ -1065,10 +1068,21 @@ same shape as the WSL install):
    by this client and survives this client's disconnect). Otherwise start one
    with `setsid nohup`, the envelope on stdin, owner socket only, and mark it
    **managed**.
-5. **Connect**: read the owner token over an exec channel, open
-   `ssh -N -L <local socket or port>:<remote owner socket>` with
-   `ExitOnForwardFailure=yes` and `ServerAliveInterval=15`, and `hello` through
-   it as an owner.
+5. **Connect**: the same session becomes the relay (`bridge.mjs --mux`): a
+   multiplexer over its stdio, each stream a connection to the server's front
+   door proven with the owner token on the remote, or a TCP connection made
+   there for the desktop's browser pane. An SSH route is an environment, not
+   an execution host: `ExecutionHostId` stays `local | wsl:<distro>`, and on
+   the remote server every process is its `local`.
+
+As built in phase 8 (2026-10-03), the bootstrap is one script per session, a
+probe and then one decision after `@@SPRINTENGINE_SEND` (install, attach,
+start, upgrade, stop), so a connect is one authentication and a first install
+two. The marker rule is the same one stdin envelopes need everywhere: nothing
+is written to a remote shell before it asks, or it is run as a command. The
+install lock is a `mkdir` lock (macOS has no `flock`), and a managed server is
+a detached process (no `setsid`, no systemd unit unasked, R29). The detail is
+in `docs/design/studio-server/phase-8-ssh-remotes.md`.
 
 **Lifecycle and upgrade**
 

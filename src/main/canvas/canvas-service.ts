@@ -34,6 +34,7 @@ import type {
   CanvasScenePush,
 } from '../../shared/canvas/types'
 import { canvasFail, canvasOk } from '../../shared/canvas/types'
+import { isMachinePath } from '../../shared/machine-paths'
 import {
   CANVAS_LIST_MAX_BOARDS,
   canvasBoardIsInStore,
@@ -359,6 +360,8 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
 
   const platform = deps.platform ?? process.platform
   const paths: CanvasPathApi = deps.path ?? nodePath
+  /** Whether a workspace's project folder is one this computer can read and write. */
+  const projectRootIsHere = (root: string): boolean => !isMachinePath(root) && paths.isAbsolute(root)
   /** `child` strictly under `parent`, compared as the paths name them: symlinks are not followed. */
   const strictlyInside = (parent: string, child: string): boolean => {
     const rel = paths.relative(paths.resolve(parent), paths.resolve(child))
@@ -397,6 +400,15 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     // A board with no folder is one of the store's, which lives outside the
     // project; one with a folder is that file in the project.
     const inStore = canvasBoardIsInStore(normalized.value)
+    // A project folder this computer cannot write (one on an SSH machine,
+    // spelled `ssh://…`): resolved here it would name a folder under this
+    // process's working directory, so a board inside it is refused.
+    if (!inStore && !projectRootIsHere(root)) {
+      return canvasFail(
+        'forbidden',
+        "Boards inside a folder on an SSH machine are not available yet. Name the board without a folder to keep it in this computer's board store.",
+      )
+    }
     const base = inStore ? deps.resolveBoardStore?.(workspaceId, root) : root
     if (!base) {
       return canvasFail('unknown_workspace', `Workspace ${workspaceId} has no board store to keep ${ref.path} in.`)
@@ -1153,7 +1165,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     // that names them everywhere else.
     const store = deps.resolveBoardStore?.(id, root)
     if (store) await listStore(store, found)
-    await walk(root, root, 0, found)
+    if (projectRootIsHere(root)) await walk(root, root, 0, found)
     // Newest first, and only THEN capped: the walk's own order is the
     // filesystem's, and capping on that would hide the board somebody edited a
     // minute ago behind two hundred they have not opened in a year.

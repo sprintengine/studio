@@ -1,6 +1,6 @@
 # Phase 8 — Remote environments over SSH
 
-Status: scoped, 2026-10-01. Nothing here is implemented. This expands phase 8
+Status: scoped, 2026-10-01; built 2026-10-03 as section 14 says. This expands phase 8
 of `docs/design/studio-server.md` (section 13) and sections 9.4 and 10.3 that it
 builds on. Where this file and the parent disagree, section 12 below lists what
 the parent should change. When code and this file disagree, fix one of them in
@@ -185,6 +185,38 @@ shows it once and uses whichever route is up.
   1.6.0, this app speaks 1.8–1.9", "Can't run here: Alpine (musl) is not
   supported yet". The working mark shows only while a step is running.
 
+As built (2026-10-03):
+
+- Saved machines live in `userData/ssh-environments.json` (0600): id, label,
+  destination, the `ssh -G` route, the server's environment id once seen,
+  and settings (`keepRunning`, `paneTraffic`, `installDir`, `remoteDownload`).
+  No credential. `src/main/environments/ssh/ssh-environments.ts` holds them in
+  main with one state machine each, and answers the renderer over
+  `environments:ssh:*` (`src/main/ipc/ssh-environments-ipc.ts`).
+- A workspace on an SSH machine is recorded with
+  `environment: { kind: 'ssh', id, label }` and the folder as that machine
+  spells it; `hostId` stays absent (this computer's `local`), as change 1 in
+  section 12 asks. The router in the core (`RoutedConversationBackend`, phase
+  7's) sends such a workspace's chats to `ssh:<id>`, on any platform. Main's
+  sessions reach the core in process only: with the desktop's server out of
+  process, machines are listed and connected, but their chats are not routed
+  yet.
+- Settings › Machines shows on every platform now, with an "SSH machines"
+  section: the add field (suggestions from the plain `Host` names of
+  `~/.ssh/config`, then the resolved route shown before saving), each machine
+  with its state in words and the working mark only while a step runs,
+  Connect, Disconnect, Update (asks first, for an older external server),
+  Stop server (managed only), Diagnostics (redacted) and Forget.
+- New chat's machine menu lists the SSH machines after this computer's; one
+  that cannot be used (unsupported, version-blocked) is listed with why.
+  Picking one replaces the project picker with a field for the folder's full
+  path on that machine; only a chat can start there.
+- The sidebar files an SSH machine's chats under that machine's folder, with
+  the machine's name, as a paired machine's are; nothing on this computer
+  checks that folder (it is not this computer's).
+- Not built: the remote's file explorer, Git pane, @-mention search and
+  previews for an SSH workspace, which read this computer's disk today.
+
 ## 5. The bootstrap
 
 ### 5.1 How ssh is run
@@ -251,6 +283,21 @@ The probe prints, as `@@SPRINTENGINE_PROBE key=value` lines (E3):
 | `cli` | `command -v` for the agent CLIs (`claude`, `codex`, `cursor-agent`, `opencode`, `gemini`, `grok`) through a login shell's `PATH` | the Agents tab before the server is up |
 | `proxy` | whether `HTTPS_PROXY`/`https_proxy` is set | diagnostics; the server inherits it |
 
+As built (2026-10-03), `src/main/environments/ssh/ssh-connect-script.ts`:
+every session runs one script, the probe and then one decision line, so a
+connect is one authentication and an install two (the archive must be the
+last thing on a session's stdin). The decisions are `install`,
+`install-fetch`, `attach`, `start <idle|keep> <label>`, `upgrade <idle|keep>
+<label>` and `stop`; anything else ends the session having changed nothing.
+`start` and `upgrade` check their two words against fixed character sets with
+globbing off before using them. `RemoteSession.send` throws before
+`@@SPRINTENGINE_SEND`, so the marker rule is enforced in one place.
+
+The probe as built drops the `cli` line: a login shell's `PATH` is slow and
+noisy to read in the probe, and the server's own CLI detection answers as soon
+as it is up. It adds `user`, `hostname` (for the NFS check against the run
+lock's host), and the run lock's pid, host and liveness (`kill -0`).
+
 ### 5.3 Install
 
 Two sources, the same commit:
@@ -297,9 +344,38 @@ WSL and SSH):
   desktop already ships under `resources/runtime/npm`; either is fine, one
   must be chosen (decision D9).
 
+As built: the remote download covers the pinned Node only. Its URL and
+digest for each of the four targets are written into the script itself and
+chosen by `uname`, so nothing a client sends names what the remote fetches;
+`curl` or `wget` fetches, `sha256sum` or `shasum -a 256` checks, and a
+mismatch fails with both digests. The server tree is always streamed: no
+published release archive of it exists yet (decision R08 publishes one later).
+
 Targets in v1: `linux-x64`, `linux-arm64` (glibc ≥ 2.28), `darwin-arm64`,
 `darwin-x64`. musl (Alpine) is refused with a sentence naming the reason
 (decision D3).
+
+As built (2026-10-03), `src/main/hosts/remote-install.ts`:
+
+- The layout is phase 7's as built, not the one above: the server tree is
+  `server-<version>/` beside `runtime/node-<v>/` and `data/`, so a WSL
+  distribution and an SSH machine hold the same tree in the same place, and
+  each kind of install prunes only its own (`PRUNE_GLOBS`).
+- The lock, the liveness check and the move are shared with WSL, whose commit
+  now takes the `mkdir` lock too instead of `flock`. A lock is reclaimed when
+  its pid is gone, when it never got a pid and is two minutes old, or when it
+  is half an hour old (a pid reused by another process of the same user).
+  Liveness reads `/proc` where there is one and `ps` otherwise; when neither
+  answers, a tree counts as in use and is never pruned on a guess.
+- The SSH install is one session: `buildStreamInstallScript` stages, says
+  `@@SPRINTENGINE_SEND`, reads the decision line and then the archive to its
+  end, and commits the runtime and the server tree it holds under one lock.
+  The runtime in that archive is the pinned binary alone
+  (`runtime/node-<v>/bin/node`, 0700), repacked on the desktop; its marker
+  holds the digest of the pinned archive it came from, as on WSL.
+- Tested under dash, bash, zsh in sh emulation and the macOS `/bin/sh`, and
+  under busybox in an Alpine container when `STUDIO_TEST_DOCKER=1`
+  (`remote-install.test.ts`); `shellcheck -s sh` where it is installed.
 
 ### 5.4 Transport: the relay over the session's stdio
 
@@ -344,6 +420,30 @@ environment through main as it reaches any other (section 12, change 4).
 `ssh -W <owner socket>` (E1.13) is kept as a diagnostic only: it shows whether
 stream-local forwarding is allowed, which is useful in a support report.
 
+As built (2026-10-03), by decision R21 the relay is phase 7's stdio bridge,
+not a `server.mjs relay` entry: `bridge.mjs --mux <runDir>` from the
+installed tree, with its multiplexer in `relay-mux.mjs` beside it, plain Node
+with no dependencies. The desktop imports the same file for its end, so the
+two ends share one codec. The ready line is
+`@@SPRINTENGINE_RELAY {mux, pid, server}`, where `server` is what the server's
+record (`run/server.json`) says about it, or null when none runs.
+
+- Frames are a 9-byte header (u32 length, u8 type, u32 stream id) and a
+  payload: `open`, `opened`, `refused`, `data` (at most 32 KiB), `credit`,
+  `fin`, `close`. Each stream starts with a 256 KiB window both ways.
+- An `owner` stream is a connection to the server's front-door socket (phase
+  7's bridge door, `run/front-door.sock`), on which the relay runs the front
+  door's half of the mutual proof with the owner token it reads from
+  `run/owner-token`, fresh for each stream. The token never leaves the
+  machine (R22). The opening line carries `via: 'ssh-relay'`, the
+  `SSH_CONNECTION` client address and the relay's pid, which the server writes
+  in its log when it admits the connection. The purposes are phase 7's,
+  `backend` (the private conversation wire) and `studio` (the shell role).
+- Refusal codes are `refused`, `unreachable`, `timeout`, `limit`,
+  `no-server` (no record or socket) and `closed`.
+- On exit the relay writes one line to stderr with its counts: streams of each
+  kind, refusals, bytes each way, and up to 64 `host:port` targets.
+
 ### 5.5 Prompts: the askpass shim
 
 `SSH_ASKPASS` points at a tiny shim shipped with the app
@@ -370,6 +470,32 @@ environment says "Sign-in to build-box timed out"). Background reconnects run
 with `BatchMode=yes` (E1.4): if they need a prompt, they stop and the
 environment shows "Needs you to sign in" with a Connect button, instead of
 raising a dialog over whatever the person is doing.
+
+As built (2026-10-03), `src/main/environments/ssh/askpass.ts` and
+`src/renderer/src/components/environments/SshPromptDialog.tsx`:
+
+- The shim is not shipped in `resources/`: main writes it when it first needs
+  it into a fresh private directory in the system temp directory (0700), a
+  `#!/bin/sh` line that runs the app's own binary as Node on a script beside
+  it (`askpass.cmd` on Windows), and listens on a socket in the same
+  directory (0600). Nothing depends on an executable bit surviving packaging.
+- Keyboard-interactive questions are the remote's text, and OpenSSH 8.4 and
+  later prefixes them with `(user@host) `. Any question so prefixed, or one
+  that matches none of ssh's own, is shown as the remote's, verbatim, in a
+  frame that says "build-box asks:". A remote that writes "Enter passphrase
+  for key …" after the prefix gets the remote frame, never the passphrase
+  dialog. On OpenSSH before 8.4 there is no prefix (Windows 10's own ssh is
+  8.1), so main reads `ssh -V` once, and on such a client (or one it cannot
+  read) a passphrase or password question is shown verbatim in a frame
+  titled "ssh or build-box asks", saying Studio cannot tell who asks. Such
+  clients are not refused.
+- `SSH_ASKPASS_PROMPT=none` (a security key's touch) shows a notice with only
+  Cancel, taken down when ssh kills the shim; `confirm` is Allow / Cancel.
+- The host-key dialog's Trust button is never the focused default.
+- Tested against the dockerized sshd: a refused host key leaves
+  `known_hosts` untouched and ssh exits 255; a trusted one is written by ssh
+  itself; a key's passphrase goes through the shim (`askpass.test.ts`).
+  The Windows shim is written but not run anywhere yet (9.4).
 
 ### 5.6 The state machine
 
@@ -413,6 +539,41 @@ never run two bootstraps at once.
 | Handshaking | `welcome` | 10 s | window mismatch → VersionBlocked |
 | Reconnecting | Connected | backoff 1, 2, 4 … 30 s, reset on wake or network change | after 10 min: Disconnected with "last reached …" |
 
+As built (2026-10-03), `src/main/environments/ssh/ssh-environment.ts`:
+
+- The states are the table's, named for Settings: `connecting` (Resolving and
+  Authenticating: `ssh -G` runs when a machine is added, not on every
+  connect), `probing`, `installing`, `starting`, `upgrading`, `connected`,
+  `reconnecting`, `needs-sign-in`, `version-blocked`, `unsupported`,
+  `failed`, `disconnected`. The Relaying and Handshaking steps are timed in
+  the diagnostics but not shown as states of their own.
+- A reconnect that ssh refuses because it would need a prompt (a key's
+  passphrase not in the agent, a password, an unknown host) stops at
+  `needs-sign-in`, "build-box needs you to sign in.", and no background
+  attempt runs until the person connects. A changed host key stops at
+  `failed` with the `ssh-keygen -R` line.
+- The window is one app version: a server of another version is attached
+  only when it is this version, upgraded when it is an older managed one,
+  and otherwise refused in words (newer: "Update this app"; an older external
+  one: an Update button that asks first, R31). The backend wire is private
+  and changes with the app, so "inside the window" is exactly "this version"
+  until it is published.
+- Resume, as built: the private backend wire has no stream cursors. A new
+  wire re-reads the server's sessions (`refresh`), and a call that carries a
+  `commandId` is answered once by the server's receipts, so repeating it after
+  a reconnect joins the turn still running there instead of starting another
+  (`ssh-environment.docker.test.ts` drops a session mid-turn and shows it).
+  Events emitted while the wire was down are caught up by the subscription
+  itself: when the router attaches a new wire for a server it followed
+  before, it says so (`onRouteResumed`), and every `ConversationSessionApi`
+  subscription to a chat that server holds joins again from its own cursor
+  and generation, with live events held back meanwhile. A log the server
+  vouches for hands over just the missed events; a rewritten one a reset
+  snapshot. The chat view needs no reload and sees nothing twice
+  (`ssh-resume.test.ts`: the session dropped, another client ending the turn
+  meanwhile, the open subscription handed the rest). WSL servers' chats get
+  the same.
+
 Locating decides between four outcomes:
 
 | Found on the remote | Action |
@@ -452,6 +613,36 @@ uses `systemd-run --user --unit=sprintengine-studio --collect` around the same
 command, so the server is supervised, its logs go to the journal too, and it
 survives the session. Otherwise the detached fork, with the honest caveat in
 6.4.
+
+As built (2026-10-03):
+
+- `start --detach` is an entry of `server.cjs` (`src/server/bootstrap/
+  detached-start.ts`), run by the connect script with stdin on `/dev/null`.
+  It takes a start lock (`run/start.lock`, a directory), so two desktops
+  connecting at once start one server. A running server on this machine is
+  reported (`attached: true`), or with `--replace` sent SIGTERM and given 60 s
+  to drain (then SIGKILL). A run lock and record naming another machine are
+  refused (R25).
+- The starter, not the server, mints the owner token: 32 random bytes into
+  `run/owner-token` (0600, renamed into place). The server is handed only its
+  hash in the envelope, as on WSL, so phase 7's front door and proof are reused
+  unchanged.
+- The server is the ordinary `--bootstrap stdio` server, forked with Node's
+  `detached` (its own session, no `setsid` needed), its stderr appended to
+  `~/.local/state/sprintengine-studio/logs/<data>/server-<date>.log`. The
+  envelope gains `detached: { idleMs, origin, startedBy }`: stdin ending is
+  then not the parent gone, SIGHUP is ignored, and SIGTERM or SIGINT drain
+  with a 60 s budget. The front door opens its bridge socket only
+  (`loopback: false`), so the server listens on no TCP port.
+- The server writes `run/server.json` itself once its doors are open (pid,
+  version, origin, startedBy, hostId, environmentId, socketPath,
+  `backendWire`, dataDir; 0600) and removes it when it stops.
+- Idle: with no admitted front-door connection for `idleMs` (default five
+  minutes; `--keep-running` for none) and no chat working, it stops itself.
+- No systemd unit is used: decision R29 rules that out unasked, so the managed
+  server is always the detached process, with the caveat of 6.4.
+- The "protocol window" is the private backend wire's version
+  (`BACKEND_WIRE_VERSION`) together with the app version (5.6, as built).
 
 ## 6. The remote, in detail
 
@@ -569,12 +760,18 @@ makes `localhost` in that environment's tabs mean the remote, with no
 Chromium on the remote and no screencast: the desktop's own pane, its network
 sent through the SSH connection the desktop already holds.
 
+Amended 2026-10-03 for decision R75 (owner ruling 2026-10-02): the local
+end is an HTTP proxy that demands a per-forward credential, not a SOCKS5
+listener. Where the text below still says SOCKS5, read this paragraph and the
+"As built" notes at the end of this section.
+
 ```
  pane tab of a build-box workspace, partition persist:env-<environment.id>
-   │  Chromium: proxyRules socks5://127.0.0.1:<p>, proxyBypassRules '<-loopback>'
+   │  Chromium: proxyRules 127.0.0.1:<p> (an HTTP proxy), proxyBypassRules '<-loopback>'
+   │  Proxy-Authorization answered by main through Electron's `login` event
    ▼
- main: SshPaneForward for build-box, a SOCKS5 listener on 127.0.0.1:<p>
-   │  one multiplexer stream per CONNECT: open { kind: 'tcp', host, port }
+ main: SshPaneForward for build-box, an HTTP proxy on 127.0.0.1:<p>
+   │  one multiplexer stream per CONNECT or plain request: open { kind: 'tcp', host, port }
    ▼
  the environment's SSH session: the relay's stdio (5.4)
    ▼
@@ -712,6 +909,69 @@ one per SSH environment, in main:
 - **The page is untrusted**, exactly as a local dev page in today's pane: the
   pane's guest isolation is unchanged, and the partition holds no Studio
   credential.
+
+**As built (2026-10-03), by decision R75.**
+
+- The local end is `SshPaneForward` (`src/main/environments/ssh/
+  pane-forward.ts`): an HTTP proxy bound to the literal `127.0.0.1` on a port
+  the OS picks. Every request and every `CONNECT` must carry
+  `Proxy-Authorization: Basic` with this forward's own credential (random per
+  forward); without it the answer is `407` and nothing reaches the relay.
+  Chromium asks for the credential through Electron's `login` event, and main
+  answers only when the request comes from that machine's partition and names
+  that forward's port (`PanePartitions.answerLogin`). No SOCKS5 listener
+  exists, and the Linux uid check of the SOCKS design is not needed.
+- `CONNECT` carries HTTPS and WebSockets (Chromium tunnels `ws://` through an
+  HTTP proxy too). A plain `http://` request in absolute form is passed on
+  once, in origin form, without the proxy's headers and with
+  `Connection: close`, as raw bytes over its own tcp stream.
+- A plain request is passed on once: only its own body (its
+  `Content-Length`; any other framing is refused with `501`), and every
+  response head, early hints included, says `Connection: close`, so
+  Chromium never sends its next request, for another site, down a
+  connection the first site answered.
+- Refusals are said in words in the response body: `502` (refused,
+  unreachable), `504` (timeout), `503` (the relay's limit, or "build-box is
+  reconnecting. This tab's network goes through it." after ten seconds).
+- `PanePartitions` (`pane-partitions.ts`) opens the forward when a tab of the
+  machine's workspace asks for its partition (`browser:config` with the
+  workspace), sets the session's proxy before that tab is made, and closes the
+  forward five seconds after the machine's last tab. A later tab opens a new
+  forward and points the session at it first. A `<webview>` may attach to a
+  machine's partition only once its proxy is set (`guest-policy.ts`).
+- The partition is `persist:env-<environment id>`, or
+  `persist:env-ssh-<saved id>` until the machine's server has been reached.
+- A machine whose `paneTraffic` is `off` gives its tabs this computer's
+  partition. `loopback` sends loopback targets through the machine and the
+  rest from this computer.
+- `browser.status` reports `network: 'remote'` for those tabs; their guests run
+  with `webRTCIPHandlingPolicy: 'disable_non_proxied_udp'`.
+- A site cannot reach the machine's loopback (V-P3): before any tab loads,
+  the partition's session cancels, through `webRequest.onBeforeRequest`, a
+  subresource, frame, WebSocket or non-GET navigation to a loopback host
+  (`localhost`, `*.localhost`, `127.x`, `[::1]`, `0.0.0.0`, `::`, an
+  IPv4-mapped `127.x`) whose initiator is a web origin that is not itself
+  loopback, or an opaque one. Allowed: requests with no initiator (a typed
+  URL, an agent's `browser.open`), a loopback page's own requests, the
+  developer tools', and a top-level GET link (`pane-partitions.ts`,
+  `blocksForeignLoopback`). The same addresses count as loopback for
+  `paneTraffic: 'loopback'`, so none of them is ever connected from this
+  computer.
+- After a machine's last tab its forward closes and its partition stops
+  being one a guest may attach to until a new forward is open.
+- The desktop's `browser` and `canvas` toolsets are offered to the machine's
+  server (`relayShellToolsets` with an SSH target), so an agent there can open
+  its dev server in the person's pane. The editor, tour, terminal and agent
+  toolsets are not: they act on this computer's files and processes.
+- Checked in Electron (a throwaway script against the dockerized sshd with
+  `AllowTcpForwarding no`, not kept in the tree): a page served on the
+  container's `127.0.0.1:5173` loaded in the machine's partition for
+  `http://localhost:5173/` and `http://127.0.0.1:5173/`, while a page this
+  computer was serving on its own `127.0.0.1:5173` loaded in a local
+  partition; `http://[::1]:5173/` reached the container too (refused there,
+  since the dev server bound IPv4 only), which confirms V-P1 for all three
+  loopback names. Chromium raised the proxy's `login` once and was answered;
+  a request without the credential got `407`. V-P2 to V-P4 were not run.
 
 ## 7. Connection resilience
 
@@ -860,6 +1120,29 @@ before the forward ships:
 - **V-P4.** `webRTCIPHandlingPolicy: 'disable_non_proxied_udp'` set on the
   partition's guests sends no UDP from the laptop.
 
+Checked 2026-10-03 in Electron, through the HTTP-proxy forward (R75) and
+the dockerized sshd (a throwaway script, not kept in the tree):
+
+- **V-P1** holds: `localhost` and `127.0.0.1` reached the machine's dev
+  server, `[::1]` went to the machine as well (refused there: the dev server
+  bound IPv4 only), and this computer's own server on the same port was
+  never reached from that partition.
+- **V-P2** holds: `https://www.google.com/` loaded through the forward over
+  `h2` (`nextHopProtocol`); no QUIC.
+- **V-P3**: a public page (`https://example.com/`) in the machine's partition
+  could send a `no-cors` request to the machine's `http://localhost:5173/`
+  (an opaque answer came back); a CORS read was refused, by CORS. This
+  Chromium does not block private-network requests made through the proxy,
+  so a site the person opens in that machine's tabs can reach the machine's
+  loopback services blind, as a site in a local browser without
+  private-network checks could reach the laptop's. Decided at review
+  (2026-10-03): blocked, as a local browser keeps public sites off the
+  laptop's loopback, with a `webRequest` rule on the machine's partition
+  (6.8, as built). Not re-run in Electron since; the rule's cases are unit
+  tested.
+- **V-P4** holds: with `disable_non_proxied_udp`, a peer connection with a
+  STUN server gathered no candidates at all.
+
 ### 9.6 Skew tests
 
 A fake server advertising `protocolVersion` at each edge of the window and
@@ -880,6 +1163,7 @@ features, VersionBlocked with both numbers named.
 | Two clients on different versions fighting over one remote | Low / high | Never downgrade, never stop an external or newer server (5.6) |
 | Login-shell noise or a broken profile | Medium / low | Markers: nothing before the first `@@SPRINTENGINE_` line is parsed (E4.1), and it is kept for diagnostics |
 | Agents on the remote that need a terminal (`agent.launch`, `backlog.work`) | Certain / medium | Not offered on SSH servers (parent 6.3), and the UI says why |
+| A public site open in an SSH machine's tabs can send blind requests to that machine's loopback services (V-P3) | Low / medium | Blocked by a rule on the machine's partition (6.8, as built): a request to a loopback host from a non-loopback web origin is cancelled; a top-level GET link still goes. The machine's private network (other than loopback) is not covered, as Chromium's private-network checks would for a laptop |
 | The pane's SOCKS listener on the laptop is reachable by other local users while it is open | Low on single-user laptops / high where it applies | Loopback only, open only while a tab of that environment exists, a uid check on Linux; decision D13 offers an authenticated local end |
 | Pane traffic leaving from the remote surprises the person (no egress there, a proxy it needs, a site that geolocates) | Medium / low | Said in Settings and in the pane's reconnecting line; `paneTraffic: 'loopback'` or `'off'` per machine |
 | Agents on an SSH server lose the browser and canvas when the laptop sleeps | Certain / medium | The ruling's intent: they are the desktop's toolsets. Calls answer `client_unavailable` naming the fix (phase 5); the headless client is the later answer |
@@ -900,7 +1184,7 @@ features, VersionBlocked with both numbers named.
 | D10 | Use a systemd user unit when lingering is on, without asking? | **Yes**, and show it in Settings. Without linger, the detached process; never run `loginctl enable-linger` ourselves |
 | D11 | macOS remotes in v1? | **Yes** (both arches): the experiments ran the whole path on macOS without root. A `launchd` agent comes later |
 | D12 | When a desktop finds an older external server, offer the upgrade in place? | **Offer, ask first, drain the same way** — never automatic |
-| D13 | The pane forward's local end (6.8): Chromium speaks SOCKS5 without authentication, so a SOCKS listener on the laptop's loopback can be reached by other local users while it is open. Keep SOCKS5 as ruled, or give the same forward an HTTP-proxy local end with a per-session credential that Chromium answers through Electron's `login` event? | **SOCKS5 as ruled, narrowed** (loopback, open only while a tab needs it, a uid check on Linux), until the owner says goal 4 must hold on multi-user Macs and Windows PCs too; then the HTTP-proxy end, which changes nothing else |
+| D13 | *(Ruled 2026-10-02, R75: the HTTP-proxy local end with a per-session credential; no SOCKS5.)* The pane forward's local end (6.8): Chromium speaks SOCKS5 without authentication, so a SOCKS listener on the laptop's loopback can be reached by other local users while it is open. Keep SOCKS5 as ruled, or give the same forward an HTTP-proxy local end with a per-session credential that Chromium answers through Electron's `login` event? | **SOCKS5 as ruled, narrowed** (loopback, open only while a tab needs it, a uid check on Linux), until the owner says goal 4 must hold on multi-user Macs and Windows PCs too; then the HTTP-proxy end, which changes nothing else |
 | D14 | The pane's partition for an SSH machine, and what goes through the remote | **One persistent partition per environment** (`persist:env-<environment.id>`), and **all of its traffic** through the remote by default, with `paneTraffic` per machine |
 
 ## 12. Changes the parent design needs
@@ -991,3 +1275,138 @@ spawn and envelope, the WSL stdio transport).
 11. **`docs(design): fold phase 8's changes into the Studio server design`** —
     the section 12 edits to the parent, and a `docs/compatibility.md` note on
     the relay and its framing version.
+
+## 14. Implementation status (2026-10-03)
+
+Built behind a preview switch, off by default (Settings › Agents › Studio
+server › "SSH machines (preview)", or `SPRINTENGINE_SSH_MACHINES=on|off`),
+read once at launch like the server's own process switch. With it off no SSH
+code runs: main builds no machines, no askpass broker, no pane partitions
+and no IPC for them, the core gets no SSH servers, and the Machines tab is
+Windows-only as before. Two guards run either way, and change nothing for a
+folder on this computer: the file, git and folder channels refuse a path
+argument spelled `ssh://` in words (text such as a file's contents, a
+search or a commit message is never read as one), and this process's
+runtime refuses a chat whose folder is spelled so. A machine's workspace
+left from a session with the preview on then offers no sign-in and no
+terminal. The server tree ships in every installer (about
+5 MB unpacked), used only by WSL distributions and SSH machines; a macOS or
+Linux build needs it only for the preview. With the switch on:
+
+- Commits 1–10 of section 13, each with its "As built" notes above:
+  the shared POSIX install, the relay and the detached start, the ssh command
+  builder, askpass and its dialogs, the probe and the one-session install,
+  the state machine, Settings, New chat and the sidebar, the pane's forward
+  (an HTTP proxy by R75), and the dockerized sshd suites with their CI job.
+- Section 12's changes 1, 2, 3 and 11 are folded into the parent design and
+  `docs/compatibility.md` notes the private wires.
+
+Files and git for a workspace on an SSH machine (the owner's ruling: the
+server holds raw access to its machine, clients build the views). Such a
+workspace keeps its folder spelled `ssh://<saved id>/home/dev/repo`
+(`shared/machine-paths.ts`), so nothing on this computer can mistake it for
+one of its own folders. The desktop's file, git, terminal and folder IPC
+registrations go through `machineAwareIpc` (`src/main/environments/ssh/
+machine-ipc.ts`): an invoke that names a machine path is never handed to this
+computer's file system or git. The machine channels
+(`shared/machine-channels.ts`: reading directories and files, image data,
+stat, the folder check, @-mention search; git's repository root, status,
+ignore checks, file bases and revisions, hunks, change summaries, branch
+steps, branches, history and identity; staging, unstaging and committing) go
+to that machine's server on the backend wire (`backend.machine`, wire version
+2), which answers with the same modules the desktop answers its own folders
+with (`src/server/machine/machine-channels.ts`), and the paths in the answer
+are spelled again (fields named for paths, and path-keyed maps; never file
+contents). A watch is answered that there is none; every other channel is
+refused with "Not available for SSH machines yet (<channel>)". So the
+explorer, the editor's and previews' reads, @-mentions, git status and diffs
+in the Git pane, and staging and committing work, read and run on the
+machine. The router translates a chat's root at its edge as it does for WSL
+(`createPathEdge`, shared now by both). This process's own runtime refuses a
+chat whose folder is spelled for a machine, in words, and local root scans
+drop such folders, so turning the preview off never makes this computer
+read or write a folder named after one (`machine-files.test.ts` against the
+real relay, with a decoy local folder of the same plain path).
+
+Signing a chat's CLI in on an SSH machine, with no terminal (decision R34,
+`src/server/machine/machine-sign-in.ts`): the chat's Sign in runs the CLI's
+own login on the machine as a plain child of its server (`backend.sign-in`
+on the wire: start, paste, wait, cancel), read for its link, its one-time
+code and whether it waits for a pasted code. Read from each CLI's output
+with no terminal attached: `codex login --device-auth` (a device code),
+`cursor-agent login` with `NO_OPEN_BROWSER` (a link it polls), `claude auth
+login` (a link, then a code pasted back). Main shows it in the prompt dialog
+(`kind: 'sign-in'`): the link with Open in browser, the code, a field for a
+pasted code; the dialog closes itself when the login finishes. Any other CLI
+is told the exact command, `ssh -t <destination> <its login>`. A login still
+waiting ends with its server.
+
+Out of process (phase 6's switch), main still holds the SSH sessions. The
+desktop's server asks main for each relay stream it needs
+(`shell.ssh.open { key, purpose }`); main opens it on the machine's session
+and hands the server a message port spliced onto it (an `ssh-stream`
+attach), over which the server reads its conversation wire and relays the
+desktop's browser and canvas toolsets. Main tells the server when a machine
+connects or reconnects (`ssh.connected`), and again for every connected
+machine when a restarted server comes up, so its router follows that
+machine's chats as the in-process core does
+(`src/server/desktop/shell-ssh-servers.ts`).
+
+The jump-host and password variants of 9.3 ran against containers' sshd
+(`ssh-variants.docker.test.ts`): a machine reachable only through a bastion
+by `ProxyJump` in the config, both host keys asked and checked, the server
+started on the target and nothing on the bastion; and `AuthenticationMethods
+publickey,password`, the key's passphrase and then the password asked through
+the shim in order, a wrong password said in words.
+
+Ran against a real `sshd` (Ubuntu 24.04 in Docker on an arm64 Mac, forwarding
+of every kind off): the host-key question and a key's passphrase through the
+askpass shim, a refusal that leaves `known_hosts` untouched, the pinned Linux
+Node downloaded and checked on the desktop and streamed with the server tree,
+a managed server started and attached, a chat on the mock provider, the
+session killed mid-turn and the background reconnect stopping at
+`needs-sign-in` (the key is not in an agent), the person's reconnect joining
+the same turn by its command id, a `noexec` home refused in words, and the
+relay reaching the remote's `localhost`. The install scripts ran under dash,
+bash, zsh as sh and macOS `sh`, and under busybox in Alpine. An Electron check
+loaded the remote's page through the forward (section 6.8, "As built").
+
+Changed at review (2026-10-03): the pane's forward passes a plain request
+on once and tells Chromium every connection closes (6.8); the V-P3 rule
+(6.8, 9.5); an install directory checked through a symlink and refused
+when anyone may write in it; the `ssh-keygen -R` line offered only for a
+plain host name, since a remote's banner shares ssh's stderr; questions an
+older ssh cannot attribute shown as such (5.5); prereleases ordered when
+deciding to upgrade, so an older nightly never replaces a newer one's
+server; background connects joining the reconnect's backoff instead of
+starting their own; the out-of-process `shell.ssh.open` given as long as a
+first install takes, and an unclaimed stream's port closed; a sign-in's
+login ended with its process group; and nothing of a machine's workspace
+written on this computer (a board inside its folder, a terminal launch's
+`.mcp.json` and skills, a chat launch's skills).
+
+Not built yet:
+
+- **Sign-in, the rest of R34**: credential fields, a browser callback the
+  desktop catches, and the sign-in-only terminal (the server bundle carries
+  no pty). A CLI with none of the three flows above (opencode's provider
+  picker, an API-key CLI) is answered with the command to run once over the
+  person's own SSH session. The flows were read from each CLI's output on a
+  Mac with no terminal attached; no CLI was signed in on a remote.
+- **Not tested in the running app**: the New chat SSH flow, the Settings
+  section, the chat view's sign-in and the explorer and Git pane on a
+  machine's workspace have unit and wire-level tests; the app itself booted
+  with the preview on in both server modes (`smoke-server-mode.mjs`), but was
+  not driven through them.
+- **Files**: no watch on a machine's folder (the views refresh when asked
+  again), no file writes from the editor, and from the Git pane only staging
+  and committing: push, pull, branches, stashes, worktrees, changelists,
+  conflict resolution and patches answer "Not available for SSH machines
+  yet". Terminals and agent launches in a terminal answer the same.
+- `auth.sessions.list` for SSH sessions, `server.logs.tail` in Diagnostics
+  (they show the bootstrap's steps, the probe and ssh's words), `ssh -W` as a
+  diagnostic, the Windows job
+  (9.4; the Windows shim is written but has not run).
+- A published release archive of the server tree, so the remote download
+  covers the Node runtime only (5.3).
+

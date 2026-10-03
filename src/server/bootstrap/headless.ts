@@ -1,14 +1,17 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { captureLoginEnv } from '../../../resources/wsl-helper/lib/login-env.mjs'
 import { readStudioEnvironmentId } from '../../main/studio-rpc/studio-rpc-service'
 import { driveMountRootFromMounts, driveMountRootFromWslConf } from '../../shared/host-paths'
 import { startStudioServer, type StudioServer, type StudioServerOptions } from '../studio-server'
-import { serveConversationBackend } from '../wsl/backend-wire'
+import { BACKEND_WIRE_VERSION, serveConversationBackend } from '../wsl/backend-wire'
+import type { SignIns } from '../machine/machine-sign-in'
 import { startFrontDoorListeners, type FrontDoorListeners } from '../wsl/front-door-listener'
 import type { FrontDoorPurpose } from '../wsl/front-door-proof'
 import { SERVER_EXIT, type FrontDoorReady, type ServerBootstrapEnvelope } from './envelope'
 import { runShutdownLegs, type ServerStart } from './serve'
+import { readHostId, writeServerRecord } from './server-record'
 import type { Duplex } from 'node:stream'
 
 // A headless server's start from its envelope: the same core, gateway and
@@ -54,6 +57,22 @@ function readText(path: string): string | null {
   }
 }
 
+// Loaded on first use, not at start: the desktop's bundle loads its
+// dependencies from node_modules, and a server that never serves a machine's
+// files must not need them to start.
+let signInTable: SignIns | null = null
+const signInsLoaded = (): Promise<SignIns> =>
+  import('../machine/machine-sign-in').then(
+    ({ createSignIns, resolveOnPath }) => (signInTable ??= createSignIns({ resolve: resolveOnPath })),
+  )
+
+// Made once, on first use: a server whose clients never ask reads nothing.
+let machineTable: Promise<(channel: string, args: unknown[]) => Promise<unknown>> | null = null
+const machineChannels = (channel: string, args: unknown[]): Promise<unknown> =>
+  (machineTable ??= import('../machine/machine-channels').then(({ createMachineChannels }) =>
+    createMachineChannels(),
+  )).then((answer) => answer(channel, args))
+
 /** Hand an admitted front-door connection to what it asked for. */
 export function serveFrontDoorPurpose(
   server: Pick<StudioServer, 'core' | 'rpc'>,
@@ -62,7 +81,11 @@ export function serveFrontDoorPurpose(
   log: (message: string) => void,
 ): void {
   if (purpose === 'backend') {
-    serveConversationBackend(server.core.conversations, stream, { log })
+    serveConversationBackend(server.core.conversations, stream, {
+      log,
+      machine: machineChannels,
+      signIns: signInsLoaded,
+    })
     return
   }
   // The ticket goes first, on its own line, before the Studio protocol starts:
@@ -86,9 +109,64 @@ async function adoptLoginEnvironment(log: (message: string) => void): Promise<vo
     log(`The login profile took ${Math.round(took / 1000)} s to read; chats use what it had set by then.`)
 }
 
+type Sessions = Pick<StudioServer['core']['conversations'], 'listSessions'>
+
+/** Whether a chat is working: starting, mid-turn, waiting on a person, or running background agents. */
+export function chatsAreWorking(conversations: Sessions): boolean {
+  const listed = conversations.listSessions()
+  if (!listed.ok) return false
+  return listed.sessions.some(
+    (session) =>
+      session.status === 'starting' ||
+      session.status === 'active' ||
+      session.status === 'awaiting_approval' ||
+      session.turnStartedAt !== undefined ||
+      (session.backgroundAgents ?? 0) > 0,
+  )
+}
+
+/**
+ * A detached server's idle rule (decision R32): it stops once no client has
+ * been connected for `idleMs` and no chat is working, and never while one is.
+ */
+export function createIdleRule(input: { idleMs: number; working: () => boolean; stop: (reason: string) => void }): {
+  connections(count: number): void
+  dispose(): void
+} {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const arm = () => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
+      if (input.working()) {
+        arm()
+        return
+      }
+      input.stop(`No client for ${Math.round(input.idleMs / 60_000)} minutes and no chat working; stopping.`)
+    }, input.idleMs)
+    timer.unref?.()
+  }
+  arm()
+  return {
+    connections(count) {
+      if (count > 0) {
+        if (timer) clearTimeout(timer)
+        timer = null
+      } else arm()
+    },
+    dispose() {
+      if (timer) clearTimeout(timer)
+      timer = null
+    },
+  }
+}
+
 export const startHeadlessServer: ServerStart = async ({ envelope, log, requestExit }) => {
-  // In parallel with the start: nothing spawns a CLI before `ready`.
-  const loginEnvironment = envelope.wsl ? adoptLoginEnvironment(log).catch(() => undefined) : Promise.resolve()
+  // In parallel with the start: nothing spawns a CLI before `ready`. A server
+  // started over `wsl.exe --exec` or an SSH session has run no profile, so
+  // PATH lacks where the person's CLIs live.
+  const loginEnvironment =
+    envelope.wsl || envelope.detached ? adoptLoginEnvironment(log).catch(() => undefined) : Promise.resolve()
   const server = await startStudioServer({
     ...headlessServerOptions(envelope, log),
     // The desktop opened this directory and took its lock: it is the one
@@ -99,6 +177,15 @@ export const startHeadlessServer: ServerStart = async ({ envelope, log, requestE
 
   let doors: FrontDoorListeners | null = null
   let frontDoor: FrontDoorReady | undefined
+  const detached = envelope.detached
+  const idle =
+    detached && detached.idleMs !== null
+      ? createIdleRule({
+          idleMs: detached.idleMs,
+          working: () => chatsAreWorking(server.core.conversations),
+          stop: (reason) => requestExit(SERVER_EXIT.ok, reason),
+        })
+      : null
   const door = envelope.listeners.frontDoor
   if (door && envelope.owner.tokenHash) {
     try {
@@ -107,9 +194,11 @@ export const startHeadlessServer: ServerStart = async ({ envelope, log, requestE
         runDir: envelope.runDir,
         loopback: door.loopback,
         onAdmitted: (purpose, stream) => serveFrontDoorPurpose(server, purpose, stream, log),
+        ...(idle ? { onOpenCount: (count: number) => idle.connections(count) } : {}),
         log,
       })
     } catch (error) {
+      idle?.dispose()
       await server.stop()
       throw error
     }
@@ -131,12 +220,36 @@ export const startHeadlessServer: ServerStart = async ({ envelope, log, requestE
   }
 
   await loginEnvironment
+  const environmentId = readStudioEnvironmentId(envelope.dataDir)
+  // The record the next client's probe and relay read. Written once the doors
+  // are open, removed first when the server stops, so a record names a
+  // server that can be reached (a crash leaves one, which the run lock's
+  // dead holder tells apart).
+  if (detached && frontDoor?.socketPath) {
+    writeServerRecord(envelope.runDir, {
+      v: 1,
+      pid: process.pid,
+      version: envelope.app.version,
+      origin: detached.origin,
+      startedBy: detached.startedBy,
+      startedAt: new Date().toISOString(),
+      hostId: readHostId(),
+      environmentId,
+      socketPath: frontDoor.socketPath,
+      backendWire: BACKEND_WIRE_VERSION,
+      dataDir: envelope.dataDir,
+    })
+  }
   return {
-    environmentId: readStudioEnvironmentId(envelope.dataDir),
+    environmentId,
     gatewaySocket: server.ready.gatewaySocket,
     tailnetBound: null,
     ...(frontDoor ? { frontDoor } : {}),
     stop: async ({ onLeg }) => {
+      idle?.dispose()
+      // A login still waiting on a person ends with the server.
+      signInTable?.stopAll()
+      if (detached) rmSync(join(envelope.runDir, 'server.json'), { force: true })
       // The front door first, so nothing new arrives while the core closes.
       if (doors) await runShutdownLegs([['front door', () => doors?.close()]], onLeg)
       await server.stop(onLeg)

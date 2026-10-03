@@ -13,6 +13,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { WslMachineGlyph } from '../AppIcons'
 import { GhostButton, InlineNotice, Input, OutlineButton, ProviderRow, ProviderStateId, Select, Textarea } from '../ui'
 import { SettingCard, SettingsPageHeader, SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
+import { SshMachinesSection } from './SshMachinesSection'
 
 const ROW_FIELD = 'w-60 max-w-full font-mono'
 
@@ -77,9 +78,15 @@ export function chatServerWords(server: WslChatServerSummary): string {
   }
 }
 
+/** This computer's own row, by the platform it runs. */
+function thisComputerLabel(platform: string | undefined): string {
+  return platform === 'win32' ? 'This PC (Windows)' : platform === 'darwin' ? 'This Mac' : 'This computer'
+}
+
 /**
- * Settings ▸ Machines (Windows only): the machines on this computer a
- * workspace can run on. This PC always is; each WSL distribution becomes one
+ * Settings ▸ Machines: the machines a workspace can run on. On every
+ * platform, the SSH machines a person added (phase 8). On Windows, also the
+ * machines on this computer This PC always is; each WSL distribution becomes one
  * when it is turned on here, and then appears in the New chat machine
  * dropdown as "WSL: <name>". A workspace whose folder is inside a
  * distribution runs there whether or not it is turned on — the switch only
@@ -140,9 +147,15 @@ export function MachinesSettingsTab({
             as="li"
             surface="card"
             icon={<span aria-hidden="true" className="size-icon-lg" />}
-            name="This PC (Windows)"
+            name={thisComputerLabel(window.api?.platform)}
             stateLine="Always available."
-            actions={<AgentClisLink hostId={LOCAL_HOST_ID} label="This PC (Windows)" onShow={onShowAgentClis} />}
+            actions={
+              <AgentClisLink
+                hostId={LOCAL_HOST_ID}
+                label={thisComputerLabel(window.api?.platform)}
+                onShow={onShowAgentClis}
+              />
+            }
           />
           {wslHosts.map((host) => {
             const own = settingsOf(host.id)
@@ -178,6 +191,8 @@ export function MachinesSettingsTab({
           </p>
         ) : null}
       </section>
+
+      {window.api?.sshMachinesEnabled ? <SshMachinesSection /> : null}
     </div>
   )
 }

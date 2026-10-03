@@ -32,6 +32,7 @@ import type { ModuleRegistrySnapshot } from '../../shared/modules/registry-snaps
 import { SERVER_EXIT } from '../bootstrap/envelope'
 import type { RunningServer, ServerStart } from '../bootstrap/serve'
 import { runShutdownLegs } from '../bootstrap/serve'
+import { ControlRpcError } from '../bootstrap/control-rpc'
 import {
   createStudioCore,
   StudioDataDirBusyError,
@@ -60,7 +61,8 @@ import {
 } from './server-methods'
 import { createServerModules } from './server-modules'
 import { createDesktopWslServers } from '../wsl/desktop-wsl-servers'
-import { relayShellToolsets } from '../wsl/wsl-tool-relay'
+import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../wsl/wsl-tool-relay'
+import { createShellSshServers } from './shell-ssh-servers'
 import { readStudioEnv } from '../../shared/studio-env'
 
 // The desktop's own Studio server, out of process (phase 6 spec): the core,
@@ -143,9 +145,47 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
     await Promise.all([gateway?.whenGatewayReady(), bridge.integrationsReady()])
   }
 
+  // SSH machines (phase 8), when the preview is on: main holds their sessions
+  // and hands this process a port per relay stream it needs.
+  const sshPorts = new Map<string, TunnelPort>()
+  const shellSsh = envelope.flags.sshMachines
+    ? createShellSshServers({
+        // Main may connect, install and start the machine's server first:
+        // as long as a first install takes, not the control channel's default.
+        open: (key, purpose) =>
+          rpc
+            .call<{ clientId: string; label: string }>(
+              SHELL_METHODS.sshOpen,
+              { key, purpose },
+              { timeoutMs: SSH_OPEN_TIMEOUT_MS },
+            )
+            .catch((error: unknown) => {
+              if (error instanceof ControlRpcError && error.code === 'timeout')
+                throw new Error('The SSH machine did not connect in time. Check it in Settings › Machines.')
+              throw error
+            }),
+        takePort: (clientId) => {
+          const port = sshPorts.get(clientId) ?? null
+          sshPorts.delete(clientId)
+          return port
+        },
+        log: (message) => {
+          void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'SSH machine', message })
+        },
+      })
+    : null
+  if (shellSsh)
+    rpc.on(SERVER_EVENTS.sshConnected, (payload) => {
+      const key = (payload as { key?: unknown } | null)?.key
+      if (typeof key === 'string' && /^ssh:[A-Za-z0-9_-]+$/u.test(key)) shellSsh.machineConnected(key)
+    })
+
   let core: ReturnType<typeof createStudioCore>
   try {
     core = createStudioCore(platform, {
+      ...(shellSsh
+        ? { sshServers: { servers: shellSsh.servers, onConnected: (listener) => shellSsh.onConnected(listener) } }
+        : {}),
       role: 'desktop',
       // An agent may start agents only at its own preset or stricter; the
       // terminal agents it is read for are the shell's.
@@ -275,6 +315,25 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
         void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'WSL server', message })
       },
     })
+  // An SSH machine's agents get the desktop's browser and canvas (phase 8).
+  if (shellSsh)
+    relayShellToolsets({
+      onConnected: (listener) =>
+        shellSsh.onConnected((connection) =>
+          listener({
+            key: connection.key,
+            name: connection.label,
+            backend: connection.backend,
+            open: (purpose: 'studio') => connection.open(purpose),
+            toolsets: SSH_RELAYED_TOOLSETS,
+            args: (_toolset, args) => args,
+          }),
+        ),
+      registry: gateway.clientTools,
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'SSH machine', message })
+      },
+    })
   const studioRpc = createStudioRpc(core, gateway)
   const githubTokenStore = new GitHubTokenStore()
   const workspaceBackup = createWorkspaceBackupService({
@@ -388,6 +447,23 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
         )
         return
       }
+      if (attach.kind === 'ssh-stream') {
+        // Taken by the `shell.ssh.open` answer that names this client id; one
+        // nobody takes (its call gave up, or no SSH machines this session) is
+        // closed, so the machine's stream does not stay open behind it.
+        const sshPort = port as TunnelPort
+        if (!shellSsh) {
+          sshPort.close()
+          return
+        }
+        sshPorts.set(attach.clientId, sshPort)
+        setTimeout(() => {
+          if (sshPorts.get(attach.clientId) !== sshPort) return
+          sshPorts.delete(attach.clientId)
+          sshPort.close()
+        }, SSH_PORT_UNCLAIMED_MS).unref?.()
+        return
+      }
       if (attach.kind === 'studio-connection' || attach.kind === 'shell') {
         // A chat view's protocol connection, or the shell's own: answered with
         // its ticket by the `studio.connect` or `studio.connect-shell` request
@@ -445,6 +521,11 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
 }
 
 const BOOT_MODEL_DISCOVERY_DELAY_MS = 10_000
+
+/** How long main may take to open an SSH machine's stream: a first connect may install and start its server. */
+const SSH_OPEN_TIMEOUT_MS = 20 * 60_000
+/** An SSH stream's port that no `shell.ssh.open` answer claims within this is closed. */
+const SSH_PORT_UNCLAIMED_MS = 10_000
 
 function serveShellRequests(deps: {
   rpc: Parameters<ServerStart>[0]['rpc']

@@ -104,11 +104,23 @@ export type BrowserManagerDeps = {
   runPs?: () => Promise<string | null>
   runLsofListening?: () => Promise<string | null>
   probeServer?: (url: string) => Promise<boolean>
+  /**
+   * SSH machines' partitions (phase 8): a workspace on one gets that
+   * machine's, behind its forward; null keeps this computer's.
+   */
+  machinePartitions?: {
+    forWorkspace(workspaceId: string): Promise<{ partition: string; label: string } | null>
+    isMachinePartition(partition: string): boolean
+    tabOpened(partition: string, tabId: string): void
+    tabClosed(tabId: string): void
+  }
 }
 
 type BrowserTab = {
   tabId: string
   workspaceId: string
+  /** The partition its guest runs in: this computer's, or an SSH machine's (phase 8). */
+  partition: string
   wc: WebContents
   host: WebContents
   state: BrowserTabState
@@ -354,18 +366,26 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     claim(tab, 'human')
     for (const listener of humanInputListeners) listener(tab.tabId)
   }
-  let browserSession: Session | null = null
+  const browserSessions = new Map<string, Session>()
 
-  function ensureSession(): Session {
-    if (browserSession) return browserSession
-    const created = session.fromPartition(BROWSER_PARTITION)
+  /** A partition's session, with the pane's permission policy and user agent; this computer's by default. */
+  function ensureSession(partition: string = BROWSER_PARTITION): Session {
+    const known = browserSessions.get(partition)
+    if (known) return known
+    const created = session.fromPartition(partition)
     created.setUserAgent(stripUserAgent(created.getUserAgent()))
     created.setPermissionRequestHandler((_wc, permission, callback) => {
       callback(ALLOWED_PERMISSIONS.has(permission))
     })
     created.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission))
-    browserSession = created
+    browserSessions.set(partition, created)
     return created
+  }
+
+  /** The partition a guest's session is, by asking each one this manager made. */
+  function partitionOf(wc: WebContents): string {
+    for (const [partition, known] of browserSessions) if (known === wc.session) return partition
+    return BROWSER_PARTITION
   }
 
   function publish(tab: BrowserTab): void {
@@ -545,7 +565,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
               contextIsolation: true,
               nodeIntegration: false,
               sandbox: true,
-              partition: BROWSER_PARTITION,
+              partition: tab.partition,
               // A webview embedder's popups inherit its last webPreferences,
               // picker preload included; only the pane's guest runs the picker.
               preload: undefined,
@@ -561,6 +581,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     })
     on('destroyed', () => {
       tabs.delete(tab.tabId)
+      deps.machinePartitions?.tabClosed(tab.tabId)
     })
 
     return () => {
@@ -578,7 +599,19 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
   }
 
   return {
-    getConfig() {
+    async getConfig(workspaceId?: string) {
+      // A workspace on an SSH machine: that machine's partition, its forward
+      // open and its proxy set before the guest is made (phase 8 spec, 6.8).
+      const machine = workspaceId ? await deps.machinePartitions?.forWorkspace(workspaceId) : null
+      if (machine) {
+        ensureSession(machine.partition)
+        return {
+          partition: machine.partition,
+          preloadUrl: guestPreloadUrl(),
+          network: 'remote' as const,
+          machine: machine.label,
+        }
+      }
       ensureSession()
       return { partition: BROWSER_PARTITION, preloadUrl: guestPreloadUrl() }
     },
@@ -608,9 +641,18 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
         tabs.delete(input.tabId)
       }
       ensureSession()
+      const partition = partitionOf(wc)
+      const remote = partition !== BROWSER_PARTITION && (deps.machinePartitions?.isMachinePartition(partition) ?? false)
+      if (remote) {
+        // UDP cannot ride the forward: a page neither leaks this computer's
+        // addresses nor goes around the machine (spec 6.8).
+        wc.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
+        deps.machinePartitions?.tabOpened(partition, input.tabId)
+      }
       const tab: BrowserTab = {
         tabId: input.tabId,
         workspaceId: input.workspaceId,
+        partition,
         wc,
         host,
         state: {
@@ -624,6 +666,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
           colorScheme: 'system',
           devToolsOpen: wc.isDevToolsOpened(),
           controller: 'none',
+          network: remote ? 'remote' : 'local',
         },
         dispose: () => {},
         epoch: 0,
@@ -643,6 +686,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       if (tab.controllerTimer) clearTimeout(tab.controllerTimer)
       tab.dispose()
       tabs.delete(tabId)
+      deps.machinePartitions?.tabClosed(tabId)
       if (activeTabByWorkspace.get(tab.workspaceId) === tabId) activeTabByWorkspace.delete(tab.workspaceId)
       // A closed tab releases every agent holding it, so the next call resolves
       // afresh rather than failing against a tab that is gone.
@@ -932,7 +976,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
         minHeight: 240,
         title: tab.state.title || url,
         webPreferences: {
-          partition: BROWSER_PARTITION,
+          partition: tab.partition,
           sandbox: true,
           contextIsolation: true,
           nodeIntegration: false,

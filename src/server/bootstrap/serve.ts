@@ -77,6 +77,8 @@ export type ServeOptions = {
 export type ServerState = 'booting' | 'starting' | 'serving' | 'draining' | 'exited'
 
 const DEFAULT_STOP_BUDGET_MS = 8_000
+/** How long a detached server's turns get to finish when it is asked to stop (an upgrade, `studio-server stop`). */
+export const DETACHED_STOP_BUDGET_MS = 60_000
 
 /**
  * Serve on `channel` until the server should exit; resolves to the exit code.
@@ -200,9 +202,26 @@ export async function serveOnChannel(channel: ServerControlChannel, options: Ser
         return
     }
   })
-  // The parent is gone (stdin ended): nothing can be shown, so the stop does
-  // only what cannot be lost, and does not wait long.
-  channel.onClose(() => stop({ drain: false, budgetMs: options.defaultStopBudgetMs ?? DEFAULT_STOP_BUDGET_MS }))
+  if (envelope.detached) {
+    // A detached server's starter leaves once it has said `ready`; that is
+    // not the end of the server, which runs on until a signal or its idle
+    // rule stops it. A signal drains: the turns a person left running get
+    // the drain budget to finish or suspend (phase 8 spec, 5.6).
+    channel.onClose(() => options.log('The starter has gone; this server runs on, detached.'))
+    // A hangup is the session it was started from ending, which it outlives.
+    process.on('SIGHUP', () => options.log('The session that started this server ended; it runs on.'))
+    for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+      process.on(signal, () => {
+        if (state === 'draining' || state === 'exited') return
+        options.log(`Asked to stop (${signal}).`)
+        stop({ drain: true, budgetMs: DETACHED_STOP_BUDGET_MS })
+      })
+    }
+  } else {
+    // The parent is gone (stdin ended): nothing can be shown, so the stop does
+    // only what cannot be lost, and does not wait long.
+    channel.onClose(() => stop({ drain: false, budgetMs: options.defaultStopBudgetMs ?? DEFAULT_STOP_BUDGET_MS }))
+  }
 
   const startedAt = performance.now()
   try {

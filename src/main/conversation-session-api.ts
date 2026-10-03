@@ -18,6 +18,12 @@ import type {
 } from '../shared/conversation-runtime'
 import type { ConversationBackend } from '../server/core/conversation-backend'
 
+/** What a router of chats across servers adds (routed-conversation-backend.ts). */
+type ResumableBackend = {
+  routeOf(workspaceId: string, workspaceRoot?: string): string | null
+  onRouteResumed(listener: (key: string) => void): () => void
+}
+
 /** Transport-independent replay, subscription and command boundary. */
 export class ConversationSessionApi {
   constructor(private readonly runtime: ConversationBackend) {}
@@ -47,12 +53,15 @@ export class ConversationSessionApi {
     let disposed = false
     let joining = true
     let seen = input.afterSeq ?? 0
+    let generation = input.generation
     const queued: ConversationEvent[] = []
     let unsubscribe = () => {}
+    let stopResume = () => {}
     const dispose = () => {
       if (disposed) return
       disposed = true
       unsubscribe()
+      stopResume()
     }
     const deliver = (frame: ConversationSessionFrame) => {
       if (disposed) return
@@ -72,16 +81,20 @@ export class ConversationSessionApi {
       seen = event.seq!
       deliver({ type: 'event', event })
     }
-    // Subscribe before any asynchronous read so the join has no blind window.
-    // An event is published only after it is on disk, so each one either is in
-    // the read below or arrives here afterwards; the sequence filter drops the
-    // overlap.
-    unsubscribe = this.runtime.onEvent(live)
-    const ready = (async () => {
+    /**
+     * Read the log from a cursor and hand over what this subscriber lacks,
+     * live events held back meanwhile: the first join, and a catch-up after
+     * the server holding the chat was out of reach (its wire dropped and came
+     * back), using the same cursor and generation rules a client's resubscribe
+     * does: the events after the cursor when the log vouches for it, else a
+     * reset snapshot.
+     */
+    const join = async (afterSeq: number | undefined, joinGeneration: string | undefined): Promise<void> => {
+      joining = true
       await this.runtime.recoverTranscript(input.key)
       const sync = await this.runtime.readConversationSync(input.key, {
-        afterSeq: input.afterSeq,
-        generation: input.generation,
+        afterSeq,
+        generation: joinGeneration,
         turnLimit: input.turnLimit,
       })
       if (disposed) return
@@ -97,21 +110,40 @@ export class ConversationSessionApi {
           type: 'snapshot',
           page: sync.page,
           generation: sync.generation,
-          ...(input.afterSeq !== undefined ? { reset: true as const } : {}),
+          ...(afterSeq !== undefined ? { reset: true as const } : {}),
         })
       }
       seen = sync.head
+      generation = sync.generation
       deliver({ type: 'synchronized', seq: seen, generation: sync.generation })
       joining = false
       for (const event of queued.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))) live(event)
       queued.length = 0
-    })().catch((error) => {
+    }
+    const fail = (error: unknown) => {
       deliver({
         type: 'error',
         message: error instanceof Error ? error.message : 'Conversation could not synchronize.',
       })
       dispose()
-    })
+    }
+    // Subscribe before any asynchronous read so the join has no blind window.
+    // An event is published only after it is on disk, so each one either is in
+    // the read below or arrives here afterwards; the sequence filter drops the
+    // overlap.
+    unsubscribe = this.runtime.onEvent(live)
+    let joined: Promise<void> = join(input.afterSeq, input.generation)
+    const ready = joined.catch(fail)
+    // A chat on another server (a WSL distribution's, an SSH machine's): when
+    // the wire to it comes back, catch up from where this subscriber is.
+    const routed = this.runtime as ConversationBackend & Partial<ResumableBackend>
+    if (typeof routed.onRouteResumed === 'function' && typeof routed.routeOf === 'function') {
+      stopResume = routed.onRouteResumed((key) => {
+        if (disposed || routed.routeOf!(input.key.workspaceId, input.key.workspaceRoot) !== key) return
+        joined = joined.catch(() => undefined).then(() => (disposed ? undefined : join(seen, generation)))
+        joined.catch(fail)
+      })
+    }
     return { dispose, ready }
   }
 

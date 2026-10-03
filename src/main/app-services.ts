@@ -16,7 +16,11 @@ import { createAgentStateService } from './agent-state-service'
 import { primeDefaultWslDistro } from './hosts/wsl-distro'
 import { configureWslHelpers } from './hosts/wsl-helper-runtime'
 import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
-import { relayShellToolsets } from '../server/wsl/wsl-tool-relay'
+import { createDesktopSsh, type DesktopSsh } from './environments/ssh/desktop-ssh'
+import { isMachinePath } from '../shared/machine-paths'
+import type { WorkspaceEnvironmentRef } from '../renderer/src/types/workspace'
+import { sessionSshPreview } from './environments/ssh/ssh-preview'
+import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../server/wsl/wsl-tool-relay'
 import { cliTakesLaunchPlugins } from './agent-launch-render'
 import { resolveSocketPath as resolveAutomationSocketPath } from './automation/automation-service'
 import { invalidateCliAvailabilityOnHost, subscribeKnownCliAvailability } from './cli-availability'
@@ -526,7 +530,9 @@ export function createAppServices(
         workspaceRegistry
           .getState()
           .workspaces.flatMap((workspace) =>
-            workspace.folderPath && hostIdForPath(workspace.folderPath) === 'local'
+            workspace.folderPath &&
+            !isMachinePath(workspace.folderPath) &&
+            hostIdForPath(workspace.folderPath) === 'local'
               ? [{ path: workspace.folderPath, hostId: 'local' }]
               : [],
           ),
@@ -600,6 +606,22 @@ export function createAppServices(
   // server builds under plain Node (src/server/core/studio-core.ts); built here
   // because a chat's agent is handed this app's gateway and the launch
   // cap reads this app's terminals.
+  // SSH machines (phase 8), a preview off by default: with it off, none of
+  // this exists. Main holds their sessions, because their prompts are dialogs
+  // and the pane's forward is a session proxy.
+  // Read lazily: the registry is the core's, built just below.
+  const workspaceRegistryOf = (): {
+    getRecord(id: string): { environment?: WorkspaceEnvironmentRef | null } | null | undefined
+  } => core.workspaceRegistry
+  const ssh: DesktopSsh | null = sessionSshPreview()
+    ? createDesktopSsh({
+        version: platform.identity.version(),
+        server,
+        workspaceEnvironment: (workspaceId: string): WorkspaceEnvironmentRef | null =>
+          workspaceRegistryOf().getRecord(workspaceId)?.environment ?? null,
+      })
+    : null
+
   const core = server
     ? createRemoteCore(server)
     : createStudioCore(platform, {
@@ -635,6 +657,15 @@ export function createAppServices(
           })),
         // A distribution turned on or off adds or drops its CLI updates.
         onHostSettingsChanged: () => scheduleCliVersionRead(),
+        ...(ssh
+          ? {
+              sshServers: {
+                servers: ssh.environments.routed,
+                onConnected: (listener: Parameters<typeof ssh.environments.onConnected>[0]) =>
+                  ssh.environments.onConnected(listener),
+              },
+            }
+          : {}),
         // A distribution whose chats run on a Studio server inside it (phase
         // 7, off unless the person turns it on in Settings › Machines).
         wslServers: ({ readHostSettings }) =>
@@ -1222,6 +1253,7 @@ export function createAppServices(
     resolveWorkspaceRoot: (workspaceId) =>
       workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
         ?.folderPath ?? null,
+    ...(ssh ? { machinePartitions: ssh.panes } : {}),
   })
   const browserControl = createBrowserControl(browserManager)
   browserManager.onUnregister((tabId) => browserControl.forget(tabId))
@@ -1452,6 +1484,26 @@ export function createAppServices(
   // A chat agent in WSL reaches its own server's gateway: the desktop's
   // toolsets are offered there too, and run here (phase 7).
   const wslServersOfCore = 'wslServers' in core ? core.wslServers : null
+  // An SSH machine's agents get the pane's browser, whose tabs reach that
+  // machine's network, and the canvas (phase 8).
+  if (automationService && ssh)
+    relayShellToolsets({
+      onConnected: (listener) =>
+        ssh.environments.onConnected((connection) =>
+          listener({
+            key: connection.key,
+            name: connection.label,
+            backend: connection.backend,
+            open: (purpose: 'studio') => connection.open(purpose),
+            toolsets: SSH_RELAYED_TOOLSETS,
+            args: (_toolset, args) => args,
+          }),
+        ),
+      registry: automationService.clientTools,
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', title: 'SSH machine', message, source: 'workspace' })
+      },
+    })
   if (automationService && wslServersOfCore)
     relayShellToolsets({
       onConnected: (listener) => wslServersOfCore.onConnected(listener),
@@ -1820,6 +1872,8 @@ export function createAppServices(
   }
 
   return {
+    /** SSH machines (phase 8), when their preview is on this session. */
+    ssh,
     shellBridge,
     /** The shell's client of its server: stopped first at quit, so the server's goodbye is not answered. */
     desktopShell,

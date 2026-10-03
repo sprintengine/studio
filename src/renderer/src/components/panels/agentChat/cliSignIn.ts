@@ -15,8 +15,12 @@ export async function openCliSignInTerminal(input: {
   workspaceId: string
   providerId: string
   cliRuntimes?: ConversationCliRuntimeOverrides
+  /** The SSH machine the chat's workspace is on, by its saved id. */
+  machineId?: string | null
   now?: () => number
 }): Promise<{ ok: true } | { ok: false; message: string }> {
+  // A chat on an SSH machine signs in there, with no terminal here (phase 8).
+  if (input.machineId) return window.api.sshSignIn(input.machineId, input.providerId)
   const resolved = await window.api.conversationProviderSignIn({
     providerId: input.providerId,
     ...(input.cliRuntimes ? { cliRuntimes: input.cliRuntimes } : {}),

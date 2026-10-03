@@ -65,6 +65,8 @@ export type FrontDoorListenerOptions = {
   loopback: boolean
   /** A connection proved itself and asked for `purpose`; the stream is paused, ready for that protocol. */
   onAdmitted(purpose: FrontDoorPurpose, stream: Duplex): void
+  /** How many admitted connections are open now, after one opened or closed (a detached server's idle rule). */
+  onOpenCount?(count: number): void
   log?: (message: string) => void
   /** Stands in for `net.createServer().listen` in tests (a forced EADDRINUSE, say). */
   listenTcp?: (server: Server, host: string) => Promise<void>
@@ -110,6 +112,7 @@ export function frontDoorSocketPath(runDir: string, temporaryDir: string = tmpdi
 export async function startFrontDoorListeners(options: FrontDoorListenerOptions): Promise<FrontDoorListeners> {
   const log = options.log ?? (() => undefined)
   const unproven = { loopback: 0, bridge: 0 }
+  let admitted = 0
   const servers: Server[] = []
   const open = new Set<Socket>()
 
@@ -126,8 +129,23 @@ export async function startFrontDoorListeners(options: FrontDoorListenerOptions)
       tokenHash: options.tokenHash,
       ...(options.proofTimeoutMs ? { timeoutMs: options.proofTimeoutMs } : {}),
     }).then(
-      ({ purpose }) => {
+      ({ purpose, via }) => {
         unproven[door]--
+        // The audit line: which door, what for, and, through an SSH
+        // machine's relay, from which SSH client. Never what is said.
+        log(
+          `Admitted a ${purpose} connection on the ${door} door` +
+            (via
+              ? ` via ${via.via}${via.client ? ` from ${via.client}` : ''}${via.relayPid ? ` (relay pid ${via.relayPid})` : ''}`
+              : '') +
+            '.',
+        )
+        admitted++
+        options.onOpenCount?.(admitted)
+        socket.once('close', () => {
+          admitted--
+          options.onOpenCount?.(admitted)
+        })
         options.onAdmitted(purpose, socket)
       },
       (error: unknown) => {

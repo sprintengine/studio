@@ -72,6 +72,43 @@ export function wslNodePackage(arch: WslNodeArch, compression: Compression): Wsl
   }
 }
 
+// ── SSH machines (phase 8): Linux and macOS, both architectures ────────────
+
+/** Where a remote can run the pinned Node (decisions R30, R33). musl and Windows have no entry. */
+export type RemoteNodeTarget = 'linux-x64' | 'linux-arm64' | 'darwin-x64' | 'darwin-arm64'
+
+// From https://nodejs.org/dist/v24.21.0/SHASUMS256.txt, as the Linux pins above.
+const DARWIN_SHA256: Record<WslNodeArch, Record<Compression, string>> = {
+  x64: {
+    xz: '0ae5a24c24bb7d015cd816c5036b3f90f2945aa872fcf54e58da054753b3a299',
+    gz: '1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097',
+  },
+  arm64: {
+    xz: '6239d4cf92d864487ec8cd3615038f7b67e7f58b77b21cd2f09ea9fbd68065fe',
+    gz: 'bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057',
+  },
+}
+
+/** The gzipped archive for a remote target: what the desktop downloads, or the remote fetches itself. */
+export function remoteNodePackage(target: RemoteNodeTarget): WslNodePackage {
+  const [os, arch] = target.split('-') as ['linux' | 'darwin', WslNodeArch]
+  const dirName = `node-${WSL_NODE_VERSION}-${os}-${arch}`
+  const fileName = `${dirName}.tar.gz`
+  return {
+    arch,
+    compression: 'gz',
+    dirName,
+    fileName,
+    url: `https://nodejs.org/dist/${WSL_NODE_VERSION}/${fileName}`,
+    sha256: (os === 'darwin' ? DARWIN_SHA256 : SHA256)[arch].gz,
+  }
+}
+
+/** Every pinned digest a remote's runtime marker may hold, for any target. */
+export function remoteNodeDigests(): string[] {
+  return [SHA256, DARWIN_SHA256].flatMap((table) => Object.values(table).flatMap((sums) => Object.values(sums)))
+}
+
 async function sha256OfFile(path: string): Promise<string | null> {
   try {
     const hash = createHash('sha256')
@@ -89,6 +126,8 @@ export type NodeDownloadDeps = {
   /** The whole download, and the longest it may go without a byte. */
   totalTimeoutMs?: number
   stallTimeoutMs?: number
+  /** Who needs it, for the messages: "WSL" by default, an SSH machine's label otherwise. */
+  subject?: string
 }
 
 const DOWNLOAD_TIMEOUT_MS = 15 * 60_000
@@ -100,6 +139,7 @@ const DOWNLOAD_STALL_MS = 60_000
  * not match the pinned sum is deleted and reported, never used.
  */
 export async function ensureWslNodeArchive(pkg: WslNodePackage, deps: NodeDownloadDeps): Promise<string> {
+  const subject = deps.subject ?? 'WSL'
   const target = join(deps.cacheDir, pkg.fileName)
   if ((await sha256OfFile(target)) === pkg.sha256) return target
   await mkdir(deps.cacheDir, { recursive: true })
@@ -125,13 +165,13 @@ export async function ensureWslNodeArchive(pkg: WslNodePackage, deps: NodeDownlo
       response = await doFetch(pkg.url, { signal: controller.signal })
     } catch (error) {
       throw new WslSetupError(
-        `Couldn't set up WSL: no network to download Node.js (${describe(error)}). WSL machines need it once, on first use.`,
+        `Couldn't set up ${subject}: no network to download Node.js (${describe(error)}). It is needed once, on first use.`,
         { fatal: true, code: 'node-download' },
       )
     }
     if (!response.ok || !response.body) {
       throw new WslSetupError(
-        `Couldn't set up WSL: downloading Node.js failed (${response.status} ${response.statusText}).`,
+        `Couldn't set up ${subject}: downloading Node.js failed (${response.status} ${response.statusText}).`,
         { fatal: true, code: 'node-download' },
       )
     }
@@ -144,16 +184,19 @@ export async function ensureWslNodeArchive(pkg: WslNodePackage, deps: NodeDownlo
     try {
       await pipeline(body, createWriteStream(temp))
     } catch (error) {
-      throw new WslSetupError(`Couldn't set up WSL: the Node.js download was interrupted (${describe(error)}).`, {
-        fatal: true,
-        code: 'node-download',
-      })
+      throw new WslSetupError(
+        `Couldn't set up ${subject}: the Node.js download was interrupted (${describe(error)}).`,
+        {
+          fatal: true,
+          code: 'node-download',
+        },
+      )
     }
     const digest = hash.digest('hex')
     if (digest !== pkg.sha256) {
       throw new WslSetupError(
-        `Couldn't set up WSL: the Node.js download did not match its checksum (got ${digest.slice(0, 12)}…). ` +
-          'Something between this PC and nodejs.org changed it.',
+        `Couldn't set up ${subject}: the Node.js download did not match its checksum (got ${digest.slice(0, 12)}…). ` +
+          'Something between this computer and nodejs.org changed it.',
         { fatal: true, code: 'node-checksum' },
       )
     }

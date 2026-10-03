@@ -29,6 +29,19 @@ Alongside the tailnet version is `TAILNET_CAPABILITIES` — a list of named,
 additive features. It is not a version and does not follow one; see
 "Capabilities, not version arithmetic" below.
 
+Three wires between this app and the Studio server trees it installs on a WSL
+distribution or an SSH machine are private and are not in this table: the
+bootstrap envelope, the front door's proof preamble (`FRONT_DOOR_PROOF_VERSION`)
+and the conversation backend wire (`BACKEND_WIRE_VERSION`), and the SSH
+relay's multiplexer (`MUX_VERSION` in `resources/wsl-server/relay-mux.mjs`).
+Both ends are this app's own build: the tree is installed per app version and
+checked by digest. An SSH machine can run another version's server (a newer
+desktop installed it); the desktop then speaks to it only when it is this
+version, upgrades an older managed one, and otherwise refuses in words
+(`locateServer` in `src/main/environments/ssh/ssh-connect-script.ts`). Bump
+`BACKEND_WIRE_VERSION` whenever a forwarded member's arguments or answer
+change, and `MUX_VERSION` whenever a frame does.
+
 ## The support window
 
 Both integer wires accept **one version of slack**: the current version and the

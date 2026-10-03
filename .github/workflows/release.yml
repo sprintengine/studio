@@ -246,11 +246,11 @@ jobs:
       - name: Build renderer and main process
         run: npm run build
 
-      # The Studio server a WSL distribution runs (phase 7), shipped in the
-      # Windows installer's resources. Guarded like the icon step: a promotion
-      # may build a commit from before the script could build it.
-      - name: Build the WSL server tree (Windows only)
-        if: runner.os == 'Windows'
+      # The Studio server a WSL distribution (phase 7) or an SSH machine
+      # (phase 8) runs, shipped in every installer's resources. Guarded like
+      # the icon step: a promotion may build a commit from before the script
+      # could build it.
+      - name: Build the server tree
         shell: bash
         run: |
           if grep -q -- "--wsl" scripts/build-server.mjs 2>/dev/null; then
