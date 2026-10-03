@@ -36,7 +36,7 @@ function resolveTheme(theme: AppTheme): ResolvedAppTheme {
 // bare :root is light, ours is Dark), so a `data-theme` written without a
 // matching `data-mode` resolves every aliased surface to the wrong mode.
 //
-// The boot script in src/renderer/index.html stamps the same pair before any
+// The boot script in src/renderer/public/boot-theme.js stamps the same pair before any
 // CSS evaluates; it cannot import this module, so it repeats the rule.
 function applyThemeAttributes(resolved: ResolvedAppTheme): void {
   if (typeof document === 'undefined') return
@@ -121,7 +121,7 @@ export function applyChatAppearance(root: HTMLElement, contrast: number, width: 
 
 // Drives the <html data-theme="…"> attribute from the persisted preference.
 // Mount once near the root of the React tree. The boot-time script in
-// index.html applies the same logic synchronously to avoid a flash of the
+// public/boot-theme.js applies the same logic synchronously to avoid a flash of the
 // wrong theme before React mounts.
 export function useAppTheme(): void {
   const theme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
@@ -133,7 +133,7 @@ export function useAppTheme(): void {
     applyWindowMaterial(windowMaterial)
   }, [windowMaterial])
 
-  // Before paint, as the boot script in index.html stamps them before the
+  // Before paint, as the boot script (public/boot-theme.js) stamps them before the
   // first one: a chat must not draw a frame at the old width or contrast.
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return
