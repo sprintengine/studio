@@ -57,6 +57,11 @@ export function registerSshEnvironmentsIpc(ipcMain: IpcMain, machines: SshEnviro
   byId(SSH_ENV_CHANNELS.stopServer, (id) => machines.stopServer(id))
   byId(SSH_ENV_CHANNELS.upgradeServer, (id) => machines.upgradeServer(id))
   byId(SSH_ENV_CHANNELS.diagnostics, (id) => machines.diagnostics(id))
+  byId(SSH_ENV_CHANNELS.signIn, (id, payload) =>
+    typeof payload.providerId === 'string'
+      ? machines.signIn(id, payload.providerId)
+      : { ok: false, message: 'Which chat to sign in was not said.' },
+  )
   byId(SSH_ENV_CHANNELS.forget, (id, payload) =>
     machines.forget(id, {
       stopServer: payload.stopServer === true,
@@ -81,6 +86,7 @@ export function registerSshEnvironmentsIpc(ipcMain: IpcMain, machines: SshEnviro
       SSH_ENV_CHANNELS.stopServer,
       SSH_ENV_CHANNELS.upgradeServer,
       SSH_ENV_CHANNELS.diagnostics,
+      SSH_ENV_CHANNELS.signIn,
       SSH_ENV_CHANNELS.forget,
     ])
       ipcMain.removeHandler(channel)

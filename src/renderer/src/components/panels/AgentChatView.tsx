@@ -1863,8 +1863,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   }
   // Only this machine's Claude chat signs in through its CLI; a paired
   // machine's chat would need signing in over there.
+  // A chat on an SSH machine signs in there, whichever CLI it runs (phase 8).
+  const machineId = useWorkspaceStore((state) => {
+    const environment = state.workspaces.find((workspace) => workspace.id === workspaceId)?.environment
+    return environment?.kind === 'ssh' ? environment.id : null
+  })
   const signInProviderId =
-    transport.kind === 'local' && cliForConversationProvider(conversation?.providerId) === 'claude-code'
+    transport.kind === 'local' &&
+    (machineId
+      ? cliForConversationProvider(conversation?.providerId)
+      : cliForConversationProvider(conversation?.providerId) === 'claude-code')
       ? conversation?.providerId
       : undefined
   const signIn = useCallback(async () => {
@@ -1874,12 +1882,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         workspaceId,
         providerId: signInProviderId,
         cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides,
+        machineId,
       })
       if (!result.ok) setActionError(result.message)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Could not open the sign-in terminal.')
     }
-  }, [signInProviderId, workspaceId, cliRuntimes])
+  }, [signInProviderId, workspaceId, cliRuntimes, machineId])
   const onSignIn = signInProviderId ? signIn : undefined
 
   // "Edit from here" went back to before a message: it returns to the

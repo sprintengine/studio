@@ -7,6 +7,7 @@ import { driveMountRootFromMounts, driveMountRootFromWslConf } from '../../share
 import { startStudioServer, type StudioServer, type StudioServerOptions } from '../studio-server'
 import { BACKEND_WIRE_VERSION, serveConversationBackend } from '../wsl/backend-wire'
 import { createMachineChannels } from '../machine/machine-channels'
+import { createSignIns, resolveOnPath, type SignIns } from '../machine/machine-sign-in'
 import { startFrontDoorListeners, type FrontDoorListeners } from '../wsl/front-door-listener'
 import type { FrontDoorPurpose } from '../wsl/front-door-proof'
 import { SERVER_EXIT, type FrontDoorReady, type ServerBootstrapEnvelope } from './envelope'
@@ -57,6 +58,9 @@ function readText(path: string): string | null {
   }
 }
 
+let signInTable: SignIns | null = null
+const signIns = (): SignIns => (signInTable ??= createSignIns({ resolve: resolveOnPath }))
+
 // Made once, on first use: a server whose clients never ask reads nothing.
 let machineTable: ReturnType<typeof createMachineChannels> | null = null
 const machineChannels = (): ReturnType<typeof createMachineChannels> => (machineTable ??= createMachineChannels())
@@ -69,7 +73,7 @@ export function serveFrontDoorPurpose(
   log: (message: string) => void,
 ): void {
   if (purpose === 'backend') {
-    serveConversationBackend(server.core.conversations, stream, { log, machine: machineChannels() })
+    serveConversationBackend(server.core.conversations, stream, { log, machine: machineChannels(), signIns })
     return
   }
   // The ticket goes first, on its own line, before the Studio protocol starts:
@@ -231,6 +235,8 @@ export const startHeadlessServer: ServerStart = async ({ envelope, log, requestE
     ...(frontDoor ? { frontDoor } : {}),
     stop: async ({ onLeg }) => {
       idle?.dispose()
+      // A login still waiting on a person ends with the server.
+      signInTable?.stopAll()
       if (detached) rmSync(join(envelope.runDir, 'server.json'), { force: true })
       // The front door first, so nothing new arrives while the core closes.
       if (doors) await runShutdownLegs([['front door', () => doors?.close()]], onLeg)

@@ -19,6 +19,8 @@ import {
   type SshResolveResult,
 } from '../../../shared/ssh-environments'
 import { wslProfileId } from '../../hosts/wsl-helper-runtime'
+import { cliForConversationProvider } from '../../../shared/conversation-harness'
+import { SIGN_IN_FLOWS } from '../../../server/machine/machine-sign-in'
 import { ASKPASS_TIMEOUT_MS, createAskpassBroker, type AskpassBroker, type AskpassRequest } from './askpass'
 import {
   configHostNames,
@@ -92,6 +94,25 @@ export function redactDiagnostics(text: string, user: string | null): string {
   out = out.replace(/seown_[A-Za-z0-9_-]+|[A-Za-z0-9_-]{43}(?=\s|$)/gu, '<token>')
   if (user && user.length > 1) out = out.split(user).join('<user>')
   return out
+}
+
+/** Each CLI's own login, as a person types it in a terminal on the machine. */
+const LOGIN_COMMANDS: Readonly<Record<string, string>> = {
+  'claude-code': 'claude auth login',
+  codex: 'codex login --device-auth',
+  cursor: 'cursor-agent login',
+  opencode: 'opencode auth login',
+  gemini: 'gemini',
+}
+
+/** The words for a CLI Studio cannot sign in without a terminal: the exact command, over the person's own SSH. */
+export function signInOverSsh(cli: string, saved: Pick<SavedSshEnvironment, 'destination' | 'label'>): string {
+  const parsed = parseDestination(saved.destination)
+  const destination = parsed.ok ? parsed.destination.argv : saved.destination
+  const login = LOGIN_COMMANDS[cli]
+  if (!login)
+    return `${cli} signs in with an API key: set it for the chat, or sign it in on ${saved.label} as its own documentation says.`
+  return `Sign ${cli} in once on ${saved.label} over your own SSH session: ssh -t ${destination} ${login}`
 }
 
 export class SshEnvironments {
@@ -184,7 +205,10 @@ export class SshEnvironments {
   }
 
   /** Show ssh's question in every window; the first answer wins, the others close. */
-  private ask(request: AskpassRequest, signal: AbortSignal): Promise<string | null> {
+  private ask(
+    request: AskpassRequest & { signIn?: SshPromptRequest['signIn'] },
+    signal: AbortSignal,
+  ): Promise<string | null> {
     const id = randomUUID()
     const shown: SshPromptRequest = {
       id,
@@ -192,7 +216,9 @@ export class SshEnvironments {
       kind: request.kind,
       text: request.text,
       ...(request.hostKey ? { hostKey: request.hostKey } : {}),
-      expiresAt: Date.now() + ASKPASS_TIMEOUT_MS,
+      ...(request.signIn ? { signIn: request.signIn } : {}),
+      // A login waits on a person in a browser: as long as its code lasts.
+      expiresAt: Date.now() + (request.signIn ? 15 * 60_000 : ASKPASS_TIMEOUT_MS),
     }
     return new Promise((resolve) => {
       const finish = (answer: string | null) => {
@@ -418,6 +444,47 @@ export class SshEnvironments {
     const connection = this.connection(id)
     if (!connection) throw new Error(`${saved.label} is not connected. Connect it in Settings › Machines.`)
     return connection.backend.machine(channel, args)
+  }
+
+  /**
+   * Sign a chat's CLI in on the machine, with no terminal (decision R34):
+   * the login runs on the machine, its link and code are shown in a dialog,
+   * a pasted code goes back. A CLI with no such flow is answered with the
+   * command to run once over the person's own SSH session.
+   */
+  async signIn(id: string, providerId: string): Promise<SshEnvironmentResult> {
+    const saved = this.get(id)
+    if (!saved) return { ok: false, message: 'That SSH machine is no longer saved in Settings › Machines.' }
+    const cli = cliForConversationProvider(providerId)
+    if (!cli) return { ok: false, message: 'This chat has no CLI to sign in.' }
+    const over = signInOverSsh(cli, saved)
+    if (!SIGN_IN_FLOWS[cli]) return { ok: false, message: over }
+    if (!this.connection(id) && !(await this.connectQuietly(id, 20_000)))
+      return { ok: false, message: `${saved.label} is not connected. Connect it in Settings › Machines.` }
+    const connection = this.connection(id)
+    if (!connection) return { ok: false, message: `${saved.label} is not connected.` }
+    await this.askpass()
+    const started = await connection.backend.signIn({ op: 'start', cli })
+    if (!started.ok) return { ok: false, message: `${started.message} ${over}` }
+    const finished = new AbortController()
+    const waiting = connection.backend.signIn({ op: 'wait', id: started.id }).finally(() => finished.abort())
+    const answer = await this.ask(
+      {
+        kind: 'sign-in',
+        label: saved.label,
+        text: `Sign in to ${SIGN_IN_FLOWS[cli]!.binary} on ${saved.label}.`,
+        signIn: { cli, url: started.url, code: started.code, paste: started.paste },
+      },
+      finished.signal,
+    )
+    if (finished.signal.aborted) return waiting
+    if (answer === null) {
+      await connection.backend.signIn({ op: 'cancel', id: started.id }).catch(() => undefined)
+      return { ok: false, message: 'Sign-in cancelled.' }
+    }
+    if (started.paste && answer !== 'done')
+      await connection.backend.signIn({ op: 'paste', id: started.id, code: answer })
+    return waiting
   }
 
   /** The keys of the machines connected now. */

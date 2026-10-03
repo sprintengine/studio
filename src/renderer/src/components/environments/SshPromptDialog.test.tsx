@@ -90,3 +90,40 @@ test('a password is typed and sent once; a prompt main closed goes away', () => 
   act(() => close('p4'))
   expect(document.body.textContent).not.toContain('Touch your security key')
 })
+
+test("a sign-in shows the machine's link and code; a paste-back sends the code; a device code closes on its own", () => {
+  act(() =>
+    emit({
+      id: 's1',
+      label: 'build-box',
+      kind: 'sign-in',
+      text: 'Sign in to codex on build-box.',
+      signIn: { cli: 'codex', url: 'https://auth.openai.com/codex/device', code: 'ABCD-EFGHI', paste: false },
+      expiresAt: later,
+    }),
+  )
+  expect(document.querySelector('[data-testid="ssh-sign-in-url"]')?.textContent).toBe(
+    'https://auth.openai.com/codex/device',
+  )
+  expect(document.querySelector('[data-testid="ssh-sign-in-code"]')?.textContent).toBe('ABCD-EFGHI')
+  expect(button('Continue')).toBeUndefined()
+  act(() => close('s1'))
+  act(() =>
+    emit({
+      id: 's2',
+      label: 'build-box',
+      kind: 'sign-in',
+      text: 'Sign in to claude on build-box.',
+      signIn: { cli: 'claude-code', url: 'https://claude.com/cai/oauth/authorize', code: null, paste: true },
+      expiresAt: later,
+    }),
+  )
+  const input = document.querySelector('input') as HTMLInputElement
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+  act(() => {
+    setter.call(input, 'pasted-code')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  act(() => button('Continue').click())
+  expect(answers).toContainEqual(['s2', 'pasted-code'])
+})

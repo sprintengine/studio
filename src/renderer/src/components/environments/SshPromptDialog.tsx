@@ -34,11 +34,18 @@ function titleFor(request: SshPromptRequest): string {
       return 'Touch your security key'
     case 'remote':
       return `${request.label} asks`
+    case 'sign-in':
+      return `Sign in on ${request.label}`
   }
 }
 
 function needsInput(request: SshPromptRequest): boolean {
-  return request.kind === 'passphrase' || request.kind === 'password' || request.kind === 'remote'
+  return (
+    request.kind === 'passphrase' ||
+    request.kind === 'password' ||
+    request.kind === 'remote' ||
+    (request.kind === 'sign-in' && request.signIn?.paste === true)
+  )
 }
 
 export function SshPromptDialogBody({
@@ -86,6 +93,31 @@ export function SshPromptDialogBody({
           {request.kind === 'touch' ? (
             <p className={TEXT}>Touch your security key to sign in to {request.label}.</p>
           ) : null}
+          {request.kind === 'sign-in' && request.signIn ? (
+            <>
+              <p className={TEXT}>{request.text}</p>
+              <p className={MUTED}>
+                {request.signIn.code
+                  ? 'Open the link in your browser here, sign in, and enter this code there:'
+                  : request.signIn.paste
+                    ? 'Open the link in your browser here, sign in, and paste the code the page shows below.'
+                    : 'Open the link in your browser here and sign in. This closes by itself when the machine is signed in.'}
+              </p>
+              <div className={FRAME}>
+                <p className={`${TEXT} break-all font-mono`} data-testid="ssh-sign-in-url">
+                  {request.signIn.url}
+                </p>
+              </div>
+              {request.signIn.code ? (
+                <p className={`${TEXT} font-mono`} data-testid="ssh-sign-in-code">
+                  {request.signIn.code}
+                </p>
+              ) : null}
+              <ModalButton type="button" onClick={() => void window.api?.openExternal?.(request.signIn!.url)}>
+                Open in browser
+              </ModalButton>
+            </>
+          ) : null}
           {request.kind === 'remote' ? (
             <>
               <p className={MUTED}>{request.label} asks:</p>
@@ -103,7 +135,7 @@ export function SshPromptDialogBody({
             >
               <Input
                 id={inputId}
-                type="password"
+                type={request.kind === 'sign-in' ? 'text' : 'password'}
                 autoComplete="off"
                 autoFocus
                 value={value}
@@ -119,7 +151,7 @@ export function SshPromptDialogBody({
           <ModalButton type="button" onClick={cancel} autoFocus={!needsInput(request)}>
             Cancel
           </ModalButton>
-          {request.kind === 'touch' ? null : (
+          {request.kind === 'touch' || (request.kind === 'sign-in' && !request.signIn?.paste) ? null : (
             <ModalButton type="submit" variant="primary">
               {request.kind === 'host-key' ? 'Trust and connect' : request.kind === 'confirm' ? 'Allow' : 'Continue'}
             </ModalButton>

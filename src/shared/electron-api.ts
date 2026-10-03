@@ -1137,6 +1137,8 @@ export type ElectronApi = {
     options?: { stopServer?: boolean; clearBrowsingData?: boolean },
   ) => Promise<SshEnvironmentResult>
   sshEnvironmentDiagnostics: (id: string) => Promise<{ ok: true; text: string } | { ok: false; message: string }>
+  /** Sign a chat's CLI in on an SSH machine, with no terminal (decision R34). */
+  sshSignIn: (id: string, providerId: string) => Promise<SshEnvironmentResult>
   onSshEnvironmentsChanged: (cb: () => void) => () => void
   /** ssh asks something; answer with `sshPromptAnswer`. */
   onSshPrompt: (cb: (request: SshPromptRequest) => void) => () => void

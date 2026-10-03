@@ -4,6 +4,7 @@ import { StringDecoder } from 'node:string_decoder'
 import type { ConversationEvent, ConversationSessionSummary } from '../../shared/conversation-runtime'
 import { createControlRpc, type ControlRpc, type ControlRpcFrame } from '../bootstrap/control-rpc'
 import type { ConversationBackend, ConversationBackendMember } from '../core/conversation-backend'
+import type { SignIns, SignInDone, SignInStarted } from '../machine/machine-sign-in'
 
 // The conversation backend across the front door: a WSL server's chats, as
 // the Windows side's router drives them (phase 7 spec, 5.1).
@@ -81,6 +82,8 @@ export const BACKEND_WIRE = {
   sessions: 'backend.sessions',
   /** `{ channel, args }` → the answer: a machine channel (shared/machine-channels.ts), answered on the server's machine. */
   machine: 'backend.machine',
+  /** `{ op: 'start' | 'paste' | 'wait' | 'cancel', ... }`: a CLI's sign-in on the server's machine (R34). */
+  signIn: 'backend.sign-in',
 } as const
 
 /** A pushed chat event, with its session as the server sees it once the event is published. */
@@ -175,10 +178,25 @@ export function serveConversationBackend(
     log?: (message: string) => void
     /** The machine channels, for a client whose workspace is on this server's machine (an SSH machine's, phase 8). */
     machine?: (channel: string, args: unknown[]) => Promise<unknown>
+    /** CLI sign-ins on this server's machine, with no terminal (decision R34). */
+    signIns?: () => SignIns
   } = {},
 ): { close(): void } {
   const frames = lineFrames(stream)
   const rpc = rpcOver(frames, options.log)
+  const signIns = options.signIns
+  if (signIns)
+    rpc.handle(BACKEND_WIRE.signIn, async (params) => {
+      const { op, cli, id, code } = (params ?? {}) as { op?: unknown; cli?: unknown; id?: unknown; code?: unknown }
+      if (op === 'start' && typeof cli === 'string') return signIns().start(cli)
+      if (op === 'paste' && typeof id === 'string' && typeof code === 'string') return signIns().paste(id, code)
+      if (op === 'wait' && typeof id === 'string') return signIns().wait(id)
+      if (op === 'cancel' && typeof id === 'string') {
+        signIns().cancel(id)
+        return { ok: true }
+      }
+      throw new Error('That is not a sign-in step.')
+    })
   const machine = options.machine
   if (machine)
     rpc.handle(BACKEND_WIRE.machine, async (params) => {
@@ -229,6 +247,11 @@ export type RemoteConversationBackend = Pick<ConversationBackend, RemoteBackendM
   refresh(): Promise<void>
   /** A machine channel answered on the server's machine (shared/machine-channels.ts). */
   machine(channel: string, args: unknown[]): Promise<unknown>
+  /** A step of a CLI's sign-in on the server's machine (decision R34). */
+  signIn(params: { op: 'start'; cli: string }): Promise<SignInStarted>
+  signIn(params: { op: 'paste'; id: string; code: string }): Promise<{ ok: boolean }>
+  signIn(params: { op: 'wait'; id: string }): Promise<SignInDone>
+  signIn(params: { op: 'cancel'; id: string }): Promise<{ ok: boolean }>
   /** Whether the wire is up. */
   isOpen(): boolean
   onClose(listener: (reason: string) => void): void
@@ -315,6 +338,9 @@ export function connectRemoteConversationBackend(
       replace(snapshot?.sessions)
     },
     machine: (channel, args) => rpc.call(BACKEND_WIRE.machine, { channel, args }, { timeoutMs: 120_000 }),
+    // A sign-in waits on a person in a browser: as long as the login itself allows.
+    signIn: ((params: { op: string }) =>
+      rpc.call(BACKEND_WIRE.signIn, params, { timeoutMs: 20 * 60_000 })) as RemoteConversationBackend['signIn'],
     isOpen: () => open,
     onClose: (listener) => frames.onClose(listener),
     close: () => frames.close(),

@@ -1277,6 +1277,19 @@ drop such folders, so turning the preview off never makes this computer
 read or write a folder named after one (`machine-files.test.ts` against the
 real relay, with a decoy local folder of the same plain path).
 
+Signing a chat's CLI in on an SSH machine, with no terminal (decision R34,
+`src/server/machine/machine-sign-in.ts`): the chat's Sign in runs the CLI's
+own login on the machine as a plain child of its server (`backend.sign-in`
+on the wire: start, paste, wait, cancel), read for its link, its one-time
+code and whether it waits for a pasted code. Read from each CLI's output
+with no terminal attached: `codex login --device-auth` (a device code),
+`cursor-agent login` with `NO_OPEN_BROWSER` (a link it polls), `claude auth
+login` (a link, then a code pasted back). Main shows it in the prompt dialog
+(`kind: 'sign-in'`): the link with Open in browser, the code, a field for a
+pasted code; the dialog closes itself when the login finishes. Any other CLI
+is told the exact command, `ssh -t <destination> <its login>`. A login still
+waiting ends with its server.
+
 Out of process (phase 6's switch), main still holds the SSH sessions. The
 desktop's server asks main for each relay stream it needs
 (`shell.ssh.open { key, purpose }`); main opens it on the machine's session
@@ -1302,10 +1315,11 @@ loaded the remote's page through the forward (section 6.8, "As built").
 
 Not built yet:
 
-- **Sign-in on an SSH machine (commit 8, decision R34).** `providers.signIn`
-  with its four interactions, and the sign-in-only terminal on the server,
-  which needs a pty the server bundle does not carry. A CLI on an SSH machine
-  is signed in from a terminal there by hand for now.
+- **Sign-in, the rest of R34**: credential fields, a browser callback the
+  desktop catches, and the sign-in-only terminal (the server bundle carries
+  no pty). A CLI with none of the three flows below (opencode's provider
+  picker, an API-key CLI) is answered with the command to run once over the
+  person's own SSH session.
 - **Files**: no watch on a machine's folder (the views refresh when asked
   again), no file writes from the editor, and from the Git pane only staging
   and committing: push, pull, branches, stashes, worktrees, changelists,

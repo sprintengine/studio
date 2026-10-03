@@ -38,6 +38,8 @@ export const sshEnvironmentsApi = {
   ): Promise<SshEnvironmentResult> => ipcRenderer.invoke(SSH_ENV_CHANNELS.forget, { id, ...options }),
   sshEnvironmentDiagnostics: (id: string): Promise<{ ok: true; text: string } | { ok: false; message: string }> =>
     ipcRenderer.invoke(SSH_ENV_CHANNELS.diagnostics, { id }),
+  sshSignIn: (id: string, providerId: string): Promise<SshEnvironmentResult> =>
+    ipcRenderer.invoke(SSH_ENV_CHANNELS.signIn, { id, providerId }),
   onSshEnvironmentsChanged: (cb: () => void): (() => void) => {
     const handler = () => cb()
     ipcRenderer.on(SSH_ENV_CHANNELS.changed, handler)

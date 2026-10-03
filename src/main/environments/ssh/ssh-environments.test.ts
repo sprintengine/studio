@@ -120,3 +120,12 @@ test('diagnostics leave out addresses, tokens and the remote user name', () => {
   assert.ok(!text.includes('fe80::1:2'))
   assert.ok(!text.includes('seown_abcdef'))
 })
+
+test('a CLI Studio cannot sign in without a terminal is told the exact command, over the person own SSH', async () => {
+  const { signInOverSsh } = await import('./ssh-environments')
+  assert.equal(
+    signInOverSsh('opencode', { destination: 'dev@build-box.example.com:2222', label: 'build-box' }),
+    'Sign opencode in once on build-box over your own SSH session: ssh -t ssh://dev@build-box.example.com:2222 opencode auth login',
+  )
+  assert.match(signInOverSsh('grok', { destination: 'build-box', label: 'build-box' }), /API key/u)
+})

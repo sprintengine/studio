@@ -27,6 +27,8 @@ export const SSH_ENV_CHANNELS = {
   upgradeServer: 'environments:ssh:upgrade-server',
   /** renderer → main: forget a machine `{ id, stopServer?, clearBrowsingData? }`. */
   forget: 'environments:ssh:forget',
+  /** renderer → main: sign a chat's CLI in on the machine `{ id, providerId }` (decision R34). */
+  signIn: 'environments:ssh:sign-in',
   /** renderer → main: the diagnostics for one machine `{ id }`, redacted for copying. */
   diagnostics: 'environments:ssh:diagnostics',
   /** main → renderer: the list changed; carries nothing, a window asks again. */
@@ -103,7 +105,7 @@ export type SshEnvironmentSummary = SavedSshEnvironment & {
   notes: string[]
 }
 
-export type SshPromptKind = 'host-key' | 'passphrase' | 'password' | 'confirm' | 'touch' | 'remote'
+export type SshPromptKind = 'host-key' | 'passphrase' | 'password' | 'confirm' | 'touch' | 'remote' | 'sign-in'
 
 /** Something ssh asks, shown in a Studio dialog (phase 8 spec, 5.5). */
 export type SshPromptRequest = {
@@ -119,6 +121,12 @@ export type SshPromptRequest = {
   text: string
   /** `host-key` only, from ssh's fixed question. */
   hostKey?: { host: string; keyType: string; fingerprint: string }
+  /**
+   * `sign-in` only: a CLI's login running on the machine. The link opens in
+   * this computer's browser; a device code is typed there; a pasted code is
+   * this dialog's answer. The dialog closes itself when the login finishes.
+   */
+  signIn?: { cli: string; url: string; code: string | null; paste: boolean }
   /** When the dialog gives up and answers nothing. */
   expiresAt: number
 }
