@@ -185,6 +185,38 @@ shows it once and uses whichever route is up.
   1.6.0, this app speaks 1.8–1.9", "Can't run here: Alpine (musl) is not
   supported yet". The working mark shows only while a step is running.
 
+As built (2026-10-03):
+
+- Saved machines live in `userData/ssh-environments.json` (0600): id, label,
+  destination, the `ssh -G` route, the server's environment id once seen,
+  and settings (`keepRunning`, `paneTraffic`, `installDir`, `remoteDownload`).
+  No credential. `src/main/environments/ssh/ssh-environments.ts` holds them in
+  main with one state machine each, and answers the renderer over
+  `environments:ssh:*` (`src/main/ipc/ssh-environments-ipc.ts`).
+- A workspace on an SSH machine is recorded with
+  `environment: { kind: 'ssh', id, label }` and the folder as that machine
+  spells it; `hostId` stays absent (this computer's `local`), as change 1 in
+  section 12 asks. The router in the core (`RoutedConversationBackend`, phase
+  7's) sends such a workspace's chats to `ssh:<id>`, on any platform. Main's
+  sessions reach the core in process only: with the desktop's server out of
+  process, machines are listed and connected, but their chats are not routed
+  yet.
+- Settings › Machines shows on every platform now, with an "SSH machines"
+  section: the add field (suggestions from the plain `Host` names of
+  `~/.ssh/config`, then the resolved route shown before saving), each machine
+  with its state in words and the working mark only while a step runs,
+  Connect, Disconnect, Update (asks first, for an older external server),
+  Stop server (managed only), Diagnostics (redacted) and Forget.
+- New chat's machine menu lists the SSH machines after this computer's; one
+  that cannot be used (unsupported, version-blocked) is listed with why.
+  Picking one replaces the project picker with a field for the folder's full
+  path on that machine; only a chat can start there.
+- The sidebar files an SSH machine's chats under that machine's folder, with
+  the machine's name, as a paired machine's are; nothing on this computer
+  checks that folder (it is not this computer's).
+- Not built: the remote's file explorer, Git pane, @-mention search and
+  previews for an SSH workspace, which read this computer's disk today.
+
 ## 5. The bootstrap
 
 ### 5.1 How ssh is run

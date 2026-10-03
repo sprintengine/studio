@@ -1,8 +1,8 @@
 import type { ConversationEvent, ConversationSessionSummary } from '../../shared/conversation-runtime'
 import { distroOfHostId } from '../../shared/execution-host'
 import { distroOfUncPath } from '../../shared/host-paths'
-import type { RemoteBackendMember } from '../wsl/backend-wire'
-import { createWslPathEdge, type WslPathEdge } from '../wsl/wsl-path-edge'
+import type { RemoteBackendMember, RemoteConversationBackend } from '../wsl/backend-wire'
+import { createWslPathEdge } from '../wsl/wsl-path-edge'
 import type { WslEnvironmentManager, WslServerConnection } from '../wsl/wsl-environment-manager'
 import type { ConversationBackend } from './conversation-backend'
 
@@ -25,23 +25,43 @@ import type { ConversationBackend } from './conversation-backend'
 // that span every chat (sessions, approval rules) merge this process's with
 // those of the servers already running; they never start one.
 
+/**
+ * An SSH machine's server, as the router reaches it (phase 8): keyed
+ * `ssh:<saved id>`, its paths already the server's own (a workspace on an SSH
+ * machine is recorded with the remote's spelling), and reached through main's
+ * SSH connection, which reconnects on its own.
+ */
+export type SshRoutedConnection = { key: string; label: string; backend: RemoteConversationBackend }
+
+export type SshRoutedServers = {
+  connect(key: string): Promise<SshRoutedConnection>
+  current(key: string): SshRoutedConnection | null
+  touch(key: string): void
+}
+
 export type RoutedConversationBackendDeps = {
   local: ConversationBackend
   /** The workspace's machine and folder, from the front door's registry. */
-  workspace(workspaceId: string): { hostId?: string | null; folderPath?: string | null } | null
+  workspace(
+    workspaceId: string,
+  ): { hostId?: string | null; folderPath?: string | null; environment?: { kind: 'ssh'; id: string } | null } | null
   /** Whether a distribution's chats run on its server (the per-distribution switch). */
   chatServerOn(distro: string): boolean
-  servers: Pick<WslEnvironmentManager, 'connect' | 'current' | 'touch'>
+  servers?: Pick<WslEnvironmentManager, 'connect' | 'current' | 'touch'> | null
+  /** SSH machines' servers, keyed `ssh:<id>`: a workspace recorded on one always runs there. */
+  ssh?: SshRoutedServers | null
   platform?: NodeJS.Platform
   log?: (message: string) => void
 }
 
 export type RoutedConversationBackend = ConversationBackend & {
-  /** A distribution's server connected (or reconnected): its events join the stream. */
-  attach(connection: WslServerConnection): void
-  /** Where a workspace's chats run now: `null` for this process, or the distribution. */
+  /** A server connected (or reconnected): its events join the stream. */
+  attach(connection: WslServerConnection | SshRoutedConnection): void
+  /** Where a workspace's chats run now: `null` for this process, a distribution, or `ssh:<id>`. */
   routeOf(workspaceId: string, workspaceRoot?: string): string | null
 }
+
+const SSH_KEY = /^ssh:[A-Za-z0-9_-]+$/u
 
 // Members whose answer is `{ ok: false, message }` when they fail; the router
 // answers a server it cannot reach the same way, in words.
@@ -73,7 +93,20 @@ const RESULT_MEMBERS: ReadonlySet<string> = new Set([
   'forkAtTurn',
 ])
 
-type Remote = { connection: WslServerConnection; edge: WslPathEdge; unsubscribe: () => void }
+type PathEdge = { args(member: string, args: unknown[]): unknown[]; result(member: string, value: unknown): unknown }
+type Remote = { connection: WslServerConnection | SshRoutedConnection; edge: PathEdge; unsubscribe: () => void }
+
+/** An SSH machine's paths are the server's own: nothing to respell. */
+const IDENTITY_EDGE: PathEdge = { args: (_member, args) => args, result: (_member, value) => value }
+
+// A call that carries a command id is answered once by the server's receipts,
+// so after a lost SSH session it is sent again, and joins the turn still
+// running there rather than start another (phase 8 spec, 7).
+const RETRIES_AFTER_LOST_WIRE = 2
+
+function keyOf(connection: WslServerConnection | SshRoutedConnection): string {
+  return 'distro' in connection ? connection.distro : connection.key
+}
 
 function workspaceKeyOf(first: unknown): { workspaceId?: string; workspaceRoot?: string } {
   if (typeof first !== 'object' || first === null) return {}
@@ -111,19 +144,36 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
   }
   local.onEvent(dispatch)
 
-  function attach(connection: WslServerConnection): void {
-    remotes.get(connection.distro)?.unsubscribe()
-    const edge = createWslPathEdge({ distro: connection.distro, driveMountRoot: connection.driveMountRoot })
+  function attach(connection: WslServerConnection | SshRoutedConnection): void {
+    const key = keyOf(connection)
+    remotes.get(key)?.unsubscribe()
+    const edge =
+      'distro' in connection
+        ? createWslPathEdge({ distro: connection.distro, driveMountRoot: connection.driveMountRoot })
+        : IDENTITY_EDGE
     const unsubscribe = connection.backend.onEvent((event) => {
-      sessionDistro.set(event.sessionId, connection.distro)
+      sessionDistro.set(event.sessionId, key)
       dispatch(event)
     })
-    remotes.set(connection.distro, { connection, edge, unsubscribe })
+    remotes.set(key, { connection, edge, unsubscribe })
+  }
+
+  /** The servers a key belongs to: an SSH machine's, or the WSL distributions'. */
+  function serversOf(key: string) {
+    const servers = SSH_KEY.test(key) ? deps.ssh : deps.servers
+    if (!servers) throw new Error('That machine is not available in this app.')
+    return servers as {
+      connect(key: string): Promise<WslServerConnection | SshRoutedConnection>
+      current(key: string): WslServerConnection | SshRoutedConnection | null
+      touch(key: string): void
+    }
   }
 
   function routeOf(workspaceId: string, workspaceRoot?: string): string | null {
-    if (platform !== 'win32') return null
     const record = deps.workspace(workspaceId)
+    // A workspace on an SSH machine runs there, whatever this computer is.
+    if (record?.environment?.kind === 'ssh' && deps.ssh) return `ssh:${record.environment.id}`
+    if (platform !== 'win32' || !deps.servers) return null
     const folder = record?.folderPath ?? workspaceRoot ?? null
     // A folder inside a distribution belongs to it, whatever the machine says
     // (the git resolver's order); otherwise the machine decides.
@@ -133,7 +183,12 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
 
   function liveRemote(distro: string): Remote | null {
     const remote = remotes.get(distro)
-    if (!remote || deps.servers.current(distro) !== remote.connection) return null
+    if (!remote) return null
+    try {
+      if (serversOf(distro).current(distro) !== remote.connection) return null
+    } catch {
+      return null
+    }
     return remote
   }
 
@@ -148,18 +203,30 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
   }
 
   async function callRemote(distro: string, member: RemoteBackendMember, args: unknown[]): Promise<unknown> {
-    deps.servers.touch(distro)
-    const connection = await deps.servers.connect(distro)
-    let remote = remotes.get(distro)
-    if (!remote || remote.connection !== connection) {
-      attach(connection)
-      remote = remotes.get(distro)!
+    const servers = serversOf(distro)
+    const repeatable =
+      SSH_KEY.test(distro) && typeof (args[0] as { commandId?: unknown } | null)?.commandId === 'string'
+    for (let attempt = 0; ; attempt++) {
+      servers.touch(distro)
+      const connection = await servers.connect(distro)
+      let remote = remotes.get(distro)
+      if (!remote || remote.connection !== connection) {
+        attach(connection)
+        remote = remotes.get(distro)!
+      }
+      const method = (connection.backend as unknown as Record<string, (...input: unknown[]) => unknown>)[member]
+      try {
+        const value = await method.apply(connection.backend, remote.edge.args(member, args))
+        const session = (value as { session?: ConversationSessionSummary } | null)?.session
+        if (session?.sessionId) sessionDistro.set(session.sessionId, distro)
+        return remote.edge.result(member, value)
+      } catch (error) {
+        // The wire went under the call (a dropped SSH session): sent again
+        // once the machine is back, the same command id is answered once.
+        if (!repeatable || connection.backend.isOpen() || attempt >= RETRIES_AFTER_LOST_WIRE) throw error
+        log(`${member} on ${distro}: the connection was lost mid-call; sending it again once it is back.`)
+      }
     }
-    const method = (connection.backend as unknown as Record<string, (...input: unknown[]) => unknown>)[member]
-    const value = await method.apply(connection.backend, remote.edge.args(member, args))
-    const session = (value as { session?: ConversationSessionSummary } | null)?.session
-    if (session?.sessionId) sessionDistro.set(session.sessionId, distro)
-    return remote.edge.result(member, value)
   }
 
   /** A call to a distribution's server, failing the way the member fails when the server cannot be reached. */
@@ -169,7 +236,7 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
     } catch (error) {
       if (!RESULT_MEMBERS.has(member) && member !== 'getToolDetail') throw error
       const message = failureMessage(error)
-      log(`${member} in WSL: ${distro} failed: ${message}`)
+      log(`${member} on ${SSH_KEY.test(distro) ? distro : `WSL: ${distro}`} failed: ${message}`)
       return member === 'getToolDetail' ? { ok: false, code: 'unavailable', message } : { ok: false, message }
     }
   }

@@ -1,3 +1,4 @@
+import { hostname } from 'node:os'
 import { app, BrowserWindow, ipcMain, net, powerMonitor, safeStorage } from 'electron'
 import { createHash } from 'crypto'
 import { existsSync } from 'fs'
@@ -16,6 +17,8 @@ import { createAgentStateService } from './agent-state-service'
 import { primeDefaultWslDistro } from './hosts/wsl-distro'
 import { configureWslHelpers } from './hosts/wsl-helper-runtime'
 import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
+import { SshEnvironments } from './environments/ssh/ssh-environments'
+import { registerSshEnvironmentsIpc } from './ipc/ssh-environments-ipc'
 import { relayShellToolsets } from '../server/wsl/wsl-tool-relay'
 import { cliTakesLaunchPlugins } from './agent-launch-render'
 import { resolveSocketPath as resolveAutomationSocketPath } from './automation/automation-service'
@@ -601,6 +604,48 @@ export function createAppServices(
   // server builds under plain Node (src/server/core/studio-core.ts); built here
   // because a chat's agent is handed this app's gateway and the launch
   // cap reads this app's terminals.
+  // SSH machines (phase 8): main holds their sessions, because their
+  // prompts are dialogs and the pane's forward is a session proxy. Their
+  // chats are routed by the in-process core; out of process, the machines are
+  // listed and connected but a chat on one is not routed yet.
+  const sshEnvironments = new SshEnvironments({
+    userDataDir: app.getPath('userData'),
+    app: {
+      version: platform.identity.version(),
+      channel: channelForVersion(app.getVersion()) === 'nightly' ? 'nightly' : 'latest',
+    },
+    packaged: app.isPackaged,
+    resourcesDir: app.isPackaged ? process.resourcesPath : null,
+    appRoot: app.getAppPath(),
+    isDefaultProfile: app.isPackaged && !readStudioEnv('SPRINTENGINE_USER_DATA_DIR')?.trim(),
+    startedBy: `Studio on ${hostname()}`,
+    fetch: (url, init) => net.fetch(url, init),
+    broadcast: (channel, payload) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send(channel, payload)
+      }
+    },
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'info', title: 'SSH machine', message, source: 'workspace' })
+    },
+  })
+  registerSshEnvironmentsIpc(ipcMain, sshEnvironments)
+  app.on('before-quit', () => sshEnvironments.shutdown())
+  void app.whenReady().then(() => {
+    // Asleep or on another network, a session's socket is dead: restart now
+    // rather than wait out the keepalive (phase 8 spec, 7).
+    const wake = () => sshEnvironments.wake()
+    powerMonitor.on('resume', wake)
+    powerMonitor.on('unlock-screen', wake)
+    let online = net.isOnline()
+    const poll = setInterval(() => {
+      const now = net.isOnline()
+      if (now && !online) wake()
+      online = now
+    }, 5_000)
+    poll.unref?.()
+  })
+
   const core = server
     ? createRemoteCore(server)
     : createStudioCore(platform, {
@@ -636,6 +681,10 @@ export function createAppServices(
           })),
         // A distribution turned on or off adds or drops its CLI updates.
         onHostSettingsChanged: () => scheduleCliVersionRead(),
+        sshServers: {
+          servers: sshEnvironments.routed,
+          onConnected: (listener) => sshEnvironments.onConnected(listener),
+        },
         // A distribution whose chats run on a Studio server inside it (phase
         // 7, off unless the person turns it on in Settings › Machines).
         wslServers: ({ readHostSettings }) =>

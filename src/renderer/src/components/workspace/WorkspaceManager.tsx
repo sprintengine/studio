@@ -61,6 +61,7 @@ import type {
   WorkspaceId,
   WorkspaceWindowId,
   WorkspaceWorktree,
+  WorkspaceEnvironmentRef,
 } from '../../types/workspace'
 import {
   agentWorktreePaths,
@@ -135,7 +136,7 @@ import { SidebarChrome } from './SidebarChrome'
 import { useStableCallback } from '../../hooks/useStableCallback'
 import { remotePaneTabName, remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
-import type { NewAgentPanelMode, RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
+import type { NewAgentLaunch, NewAgentPanelMode, RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
 import { useScheduledAgents } from '../../store/scheduledAgentsStore'
 import { formatRunTimes } from './agentComposer/schedule/scheduleEditor'
 import { scheduledAgentScheduleWords } from '../../../../shared/scheduled-agents'
@@ -1199,6 +1200,8 @@ export default function WorkspaceManager() {
       // confirming, else the active workspace's when the folder is inherited
       // from it, else the distribution the folder lives in, else this machine.
       hostId?: ExecutionHostId | null
+      // The SSH machine it is on (phase 8): its folder is that machine's path.
+      environment?: WorkspaceEnvironmentRef | null
     }): WorkspaceId | null => {
       if (!SOLO_CHAT_TEMPLATE) {
         publishDiagnosticSync({
@@ -1210,11 +1213,12 @@ export default function WorkspaceManager() {
         return null
       }
       const targetFolderPath = opts.folderPath === undefined ? (activeWorkspace?.folderPath ?? null) : opts.folderPath
-      const hostId =
-        opts.hostId ??
-        newChatHostRef.current ??
-        (opts.folderPath === undefined ? activeWorkspace?.hostId : null) ??
-        hostIdForFolder(targetFolderPath)
+      const hostId = opts.environment
+        ? null
+        : (opts.hostId ??
+          newChatHostRef.current ??
+          (opts.folderPath === undefined ? activeWorkspace?.hostId : null) ??
+          hostIdForFolder(targetFolderPath))
       // The id is returned so a caller that must reach the agent it just seeded —
       // the Backlog handoff, which records the item ↔ agent link — can find it
       // without racing the mount. Every other caller ignores it.
@@ -1226,7 +1230,14 @@ export default function WorkspaceManager() {
         seedAgent: opts.seedAgent,
         ...(opts.worktree ? { worktree: opts.worktree } : {}),
         ...(hostId ? { hostId } : {}),
+        ...(opts.environment ? { environment: opts.environment } : {}),
       })
+      // A remote machine's folder is not this computer's: nothing here to adopt.
+      if (opts.environment) {
+        closeSettingsOverlay()
+        setNotificationsOpen(false)
+        return createdId
+      }
       // A real workspace root now exists — for a fresh profile this is the first
       // one — which is the earliest point an existing agent config can be
       // adopted. Guarded once-per-profile inside; a chat with no project, or a
@@ -2539,6 +2550,37 @@ export default function WorkspaceManager() {
   // conversation runtime patch instead of a CLI. The seed names no tab, so the
   // solo workspace names the agent from the shared pool as it does a terminal
   // agent's. The prompt rides the seed as the chat's first message.
+  // A chat on an SSH machine (phase 8): a solo workspace on that machine, in
+  // the folder typed for it there; its chat runs on that machine's server.
+  // Only a chat goes there: the server runs no terminals (ruling a).
+  const confirmSshNewChat = (
+    confirm: AgentComposerConfirm,
+    environment: NonNullable<NewAgentLaunch['environment']>,
+    startupPrompt?: string,
+  ) => {
+    if (confirm.kind !== 'conversation') {
+      showToast({
+        tone: 'warn',
+        title: `Only a chat runs on ${environment.label}`,
+        description: 'Terminals run on this computer. Pick a chat engine to start on that machine.',
+      })
+      return
+    }
+    const seed = conversationNewChatSeed(confirm, {
+      prompt: startupPrompt,
+      permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
+      ...cliPermissionModeLaunch(confirm.cli),
+    })
+    if (!seed) return
+    setLastNewChatAgent({ kind: 'conversation' })
+    createSoloChatWorkspace({
+      folderPath: environment.folder,
+      seedAgent: { agentPatch: seed.agentPatch },
+      environment: { kind: 'ssh', id: environment.id, label: environment.label },
+    })
+    closeNewChatPanel()
+  }
+
   const openConversationInNewChat = (
     folderPath: string | null | undefined,
     confirm: Parameters<typeof conversationNewChatSeed>[0] & { cli?: AgentCli },
@@ -4585,7 +4627,11 @@ export default function WorkspaceManager() {
                               initialSelection={newChatPanelState.forcedSelection ?? lastNewChatAgent}
                               forceSelection={newChatPanelState.forcedSelection}
                               permissionPreset={agentSpawnPermissionPreset}
-                              onLaunch={({ prompt, extension, ...confirm }) => {
+                              onLaunch={({ prompt, extension, environment, ...confirm }) => {
+                                if (environment) {
+                                  confirmSshNewChat(confirm, environment, prompt)
+                                  return
+                                }
                                 // confirmNewChat closes the panel (and forgets the draft) itself.
                                 void confirmNewChat(confirm, newChatPanelState.folderPath, prompt, extension)
                               }}

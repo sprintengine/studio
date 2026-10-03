@@ -20,7 +20,12 @@ export type WorkspaceFolderStatus = {
 }
 
 export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderStatus {
-  const folderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
+  // A folder on an SSH machine (phase 8) is that machine's: this computer
+  // cannot look at it, and must not mark it missing for not finding it here.
+  const folderPath = useWorkspaceStore((s) => {
+    const workspace = s.workspaces.find((w) => w.id === workspaceId)
+    return workspace?.environment ? null : (workspace?.folderPath ?? null)
+  })
   const persistedMissing = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderMissing ?? false,
   )
