@@ -471,6 +471,12 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     return null
   }
 
+  function appToolsetCount(instance: Instance): number {
+    let count = 0
+    for (const offered of instance.offers.values()) if (!offered.builtIn) count++
+    return count
+  }
+
   function appToolCount(except: string): number {
     let count = 0
     const counted = new Set<string>()
@@ -518,7 +524,10 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         `Toolsets may be offered or withdrawn ${STUDIO_TOOL_LIMITS.offersPerMinute} times a minute.`,
         retryAfterMs,
       )
-    if (!instance.offers.has(name) && instance.offers.size >= STUDIO_TOOL_LIMITS.toolsetsPerConnection)
+    // The bound is on a client's own toolsets. The reserved names the shell
+    // offers are a fixed list, and the WSL front door offers a server more of
+    // them than the bound holds: the shell's six and the Windows side's own.
+    if (!builtIn && !instance.offers.has(name) && appToolsetCount(instance) >= STUDIO_TOOL_LIMITS.toolsetsPerConnection)
       return refuse('too_large', `A client may offer at most ${STUDIO_TOOL_LIMITS.toolsetsPerConnection} toolsets.`)
     if (!builtIn && appToolCount(name) + toolset.tools.length > STUDIO_TOOL_LIMITS.appToolsPerServer)
       return refuse('busy', `Apps may give agents at most ${STUDIO_TOOL_LIMITS.appToolsPerServer} tools in all.`)

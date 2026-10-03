@@ -4,32 +4,63 @@ import { StringDecoder } from 'node:string_decoder'
 import { connect, type StudioClient } from '../../../packages/agent-sdk/src/client'
 import type { OfferedToolset, ToolDefinition } from '../../../packages/agent-sdk/src/tools'
 import type { StudioTransport } from '../../../packages/agent-sdk/src/transport'
+import {
+  STUDIO_RESERVED_TOOLSET_NAMES,
+  STUDIO_TOOL_NAME_PATTERN,
+  STUDIO_TOOLSET_NAME_PATTERN,
+} from '../../../packages/studio-protocol/src/public'
+import { connectionContextOf, gatewayToolTimeoutMs } from '../../main/automation/offer-gateway-tools'
+import { isStudioGatewayMutation } from '../../main/automation/studio-gateway-tools'
 import { wslToWindowsPath } from '../../shared/host-paths'
-import { toolError } from '../../shared/modules/mcp-tools'
+import { toolError, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import type { ClientToolRegistry } from '../tools/client-tool-registry'
 import type { WslServerConnection } from './wsl-environment-manager'
 
 // The desktop's toolsets, for a chat agent in WSL (phase 7 spec, 3.7). An
 // agent there reaches its own server's gateway, which serves the core's tools
-// but has no browser, canvas, editor, tour, terminals or agent launches: those
-// are the desktop shell's, offered to the Windows-side server as its client
-// toolsets. So the front door is a client of each WSL server too, with the
-// shell role, and offers it the same toolsets; each call it is sent is run
-// through the Windows side's own registry, which hands it to the shell, and
-// the answer goes back the same way. An agent in WSL lists the tools an agent
-// on Windows does.
+// but has no browser, canvas, editor, tour, terminals or agent launches, and
+// none of what the Windows side keeps: the person's workspace list, the
+// backlog, scheduled agents, modules. So the front door is a client of each
+// WSL server too, with the shell role, and offers it those as toolsets: the
+// ones the desktop's shell offers the Windows-side server, each call run
+// through that side's registry, which hands it to the shell; and the
+// Windows-side server's own tools of those families, each call run by the
+// tool's own handler there, as the shell runs its tools out of process. The
+// answer goes back the same way. An agent in WSL lists the tools an agent on
+// Windows does, but for two families: `conversation`, which the WSL server
+// serves itself, and `tailnet`, which is served on the Windows side's
+// owner-only socket and nowhere else (`tailnet-tools.ts`).
+//
+// In process the shell offers only the browser and the canvas, and the
+// editor, tours, terminals and agent launches are the Windows gateway's own
+// tools; out of process the shell offers all six (decision R78). Either way
+// each family is offered once, from whichever of the two holds it.
 //
 // The offers follow the Windows side's: a toolset the shell offers later is
-// offered on, one it withdraws is withdrawn. Tool inputs cross as the agent
-// wrote them, except the file paths the editor's tools take: those open on
-// Windows, so an absolute Linux path is respelled the way Windows opens it
-// (`/home/dev/a.ts` as `\\wsl.localhost\<distro>\home\dev\a.ts`, a path
-// under the drive mount as the drive's), and a `~` path, whose home Windows
-// cannot know, is refused in words. A relative path stays relative to the
-// workspace, which is how the Windows side reads it.
+// offered on, one it withdraws is withdrawn. A tool named with a second dot
+// (`cli.runtime.list`) crosses with its later dots as underscores, since a
+// protocol tool name has none; an agent that rewrites dots reads the same
+// name either way. A module's tool (`review_list_pending`) crosses in a
+// toolset named for the part before its first underscore.
+//
+// Tool inputs cross as the agent wrote them, except the file paths the
+// editor's tools take and the folder `workspace.create` opens: those are
+// read on Windows, so an absolute Linux path is respelled the way Windows
+// opens it (`/home/dev/a.ts` as `\\wsl.localhost\<distro>\home\dev\a.ts`,
+// a path under the drive mount as the drive's), and a `~` path, whose home
+// Windows cannot know, is refused in words. A relative path stays relative to
+// the workspace, which is how the Windows side reads it.
 
-/** The toolsets the desktop's shell offers (decision R78), the ones relayed. */
+/** The toolsets the desktop's shell offers (decision R78). */
 export const RELAYED_TOOLSETS = ['browser', 'canvas', 'editor', 'tour', 'terminal', 'agent'] as const
+
+/**
+ * The families of Studio's own tools whose data the Windows side keeps, which
+ * a WSL server cannot serve: the backlog (phase 7, 3.7), and the workspace
+ * list, scheduled agents, the CLI catalog, modules and the marketplace, which
+ * an agent on Windows is listed beside it.
+ */
+export const WINDOWS_SIDE_TOOLSETS = ['backlog', 'workspace', 'schedule', 'cli', 'module', 'marketplace'] as const
 
 export type WslToolRelay = { close(): void }
 
@@ -47,6 +78,8 @@ export type RelayTarget = {
   backend: { isOpen(): boolean; onClose(listener: (reason: string) => void): void }
   open(purpose: 'studio'): Promise<Duplex>
   toolsets: readonly string[]
+  /** Whether the tools modules add on the Windows side are offered too (phase 5, 7.2). */
+  moduleTools?: boolean
   /** A call's arguments as the desktop reads them; throws `RelayPathError` for a path it cannot open. */
   args(toolset: string, args: Record<string, unknown>): Record<string, unknown>
 }
@@ -54,14 +87,15 @@ export type RelayTarget = {
 /** The toolsets offered to an SSH machine's server: none that act on this computer's files or processes. */
 export const SSH_RELAYED_TOOLSETS = ['browser', 'canvas'] as const
 
-/** A WSL server as a relay target, its editor paths respelled for Windows. */
+/** A WSL server as a relay target, its editor and workspace paths respelled for Windows. */
 export function wslRelayTarget(connection: WslServerConnection): RelayTarget {
   return {
     key: `wsl:${connection.distro}`,
     name: `WSL: ${connection.distro}`,
     backend: connection.backend,
     open: (purpose) => connection.open(purpose),
-    toolsets: RELAYED_TOOLSETS,
+    toolsets: [...RELAYED_TOOLSETS, ...WINDOWS_SIDE_TOOLSETS],
+    moduleTools: true,
     args: (toolset, args) => relayedToolArgs(toolset, args, connection),
   }
 }
@@ -75,14 +109,15 @@ class RelayPathError extends Error {}
 
 /**
  * A relayed tool's arguments as the Windows side reads them: the editor's
- * file paths in Windows spelling. Throws `RelayPathError` for a `~` path.
+ * file paths and a new workspace's folder in Windows spelling. Throws
+ * `RelayPathError` for a `~` path.
  */
 export function relayedToolArgs(
   toolset: string,
   args: Record<string, unknown>,
   where: { distro: string; driveMountRoot: string | null },
 ): Record<string, unknown> {
-  if (toolset !== 'editor') return args
+  if (toolset !== 'editor' && toolset !== 'workspace') return args
   const respell = (path: unknown): unknown => {
     if (typeof path !== 'string') return path
     const trimmed = path.trim()
@@ -101,6 +136,10 @@ export function relayedToolArgs(
       ? { ...value, path: respell((value as { path: unknown }).path) }
       : value
   const next: Record<string, unknown> = { ...args }
+  if (toolset === 'workspace') {
+    if (args.folderPath !== undefined) next.folderPath = respell(args.folderPath)
+    return next
+  }
   if (Array.isArray(args.files)) next.files = args.files.map(location)
   if (Array.isArray(args.paths)) next.paths = args.paths.map(respell)
   if (args.focus !== undefined) next.focus = location(args.focus)
@@ -182,50 +221,104 @@ export function readTicket(stream: Duplex, timeoutMs = 10_000): Promise<string> 
 }
 
 /**
+ * The toolset and tool name one of Studio's own tools crosses under: its
+ * family and the rest, the rest's dots as underscores, or the part of a
+ * module's tool before its first underscore and the rest. Null for a name the
+ * protocol cannot carry.
+ */
+export function relayedToolName(name: string): { toolset: string; tool: string } | null {
+  const dot = name.indexOf('.')
+  const split = dot === -1 ? name.indexOf('_') : dot
+  if (split === -1) return null
+  const toolset = name.slice(0, split)
+  const tool = name.slice(split + 1).replace(/\./gu, '_')
+  return STUDIO_TOOLSET_NAME_PATTERN.test(toolset) && STUDIO_TOOL_NAME_PATTERN.test(tool) ? { toolset, tool } : null
+}
+
+type RelayedToolset = {
+  title: string
+  description?: string
+  tools: Array<Omit<ToolDefinition, 'handler'> & { run: ToolDefinition['handler'] }>
+}
+
+/**
  * Offer the desktop's toolsets to every WSL server the Windows side connects
  * to, and keep the offers in step with the shell's.
  */
 export function relayShellToolsets(input: {
   onConnected(listener: (connection: WslServerConnection | RelayTarget) => void): void
   registry: ClientToolRegistry
+  /**
+   * The Windows-side server's own tools, core and module. A family a target
+   * takes that no client offers here is offered from these.
+   */
+  gatewayTools?: () => McpToolRegistration[]
   log?: (message: string) => void
   /** Stands in for the SDK's `connect` in tests. */
   connectClient?: typeof connect
 }): WslToolRelay {
   const log = input.log ?? (() => undefined)
-  const open = new Map<string, { client: StudioClient; offered: Map<string, OfferedToolset>; stop(): void }>()
+  const open = new Map<
+    string,
+    { client: StudioClient; offered: Map<string, OfferedToolset>; syncing: Promise<void>; stop(): void }
+  >()
   let closed = false
 
-  /** What the shell offers now, toolset by toolset, as the Windows registry describes it. */
-  const shellToolsets = (allowed: readonly string[]) => {
+  /**
+   * What a target is offered now, toolset by toolset: the shell's, as the
+   * Windows registry describes them, then this side's own.
+   */
+  const wantedToolsets = (target: RelayTarget) => {
     const visible = input.registry.visibleTools({
       gatewayConnectionId: 'wsl-relay',
       metadata: { kind: 'studio-agent' },
     })
-    const sets = new Map<string, { title: string; description?: string; tools: (typeof visible)[number]['tool'][] }>()
+    const sets = new Map<string, RelayedToolset>()
     for (const definition of visible) {
-      if (!definition.builtIn || !allowed.includes(definition.toolset)) continue
+      if (!definition.builtIn || !target.toolsets.includes(definition.toolset)) continue
       const entry = sets.get(definition.toolset) ?? {
         title: definition.title,
         ...(definition.description ? { description: definition.description } : {}),
         tools: [],
       }
-      entry.tools.push(definition.tool)
+      const { tool } = definition
+      entry.tools.push({
+        name: tool.name,
+        description: tool.description ?? '',
+        inputSchema: tool.inputSchema,
+        ...(tool.mutates !== undefined ? { mutates: tool.mutates } : {}),
+        ...(tool.timeoutMs !== undefined ? { timeoutMs: tool.timeoutMs } : {}),
+        run: onRegistry(target, definition.toolset, tool.name),
+      })
       sets.set(definition.toolset, entry)
+    }
+    const offeredByClients = new Set(sets.keys())
+    for (const registration of input.gatewayTools?.() ?? []) {
+      const named = relayedToolName(registration.name)
+      if (!named || offeredByClients.has(named.toolset)) continue
+      const taken =
+        target.toolsets.includes(named.toolset) ||
+        (target.moduleTools === true && !STUDIO_RESERVED_TOOLSET_NAMES.includes(named.toolset))
+      if (!taken) continue
+      const entry = sets.get(named.toolset) ?? { title: named.toolset, tools: [] }
+      entry.tools.push({
+        name: named.tool,
+        description: registration.description,
+        inputSchema: registration.inputSchema,
+        // Classified as the Windows gateway classifies it for its own audit.
+        mutates: registration.mutates ?? isStudioGatewayMutation(registration.name),
+        timeoutMs: gatewayToolTimeoutMs(registration.name),
+        run: (args, call) => registration.handler(args, connectionContextOf(call)),
+      })
+      sets.set(named.toolset, entry)
     }
     return sets
   }
 
-  const relayTo =
-    (connection: RelayTarget, toolset: string, tool: { name: string }): ToolDefinition['handler'] =>
+  /** A shell tool's call, run through the Windows registry as the calling agent's own. */
+  const onRegistry =
+    (connection: RelayTarget, toolset: string, tool: string): ToolDefinition['handler'] =>
     async (args, call) => {
-      let windowsArgs: Record<string, unknown>
-      try {
-        windowsArgs = connection.args(toolset, args as Record<string, unknown>)
-      } catch (error) {
-        if (error instanceof RelayPathError) return toolError('invalid_path', error.message)
-        throw error
-      }
       const outcome = await input.registry.call({
         caller: {
           // One gateway connection per WSL agent connection, for the Windows
@@ -235,18 +328,46 @@ export function relayShellToolsets(input: {
           ...(call.context.conversation ? { conversation: call.context.conversation } : {}),
         },
         toolset,
-        tool: tool.name,
-        args: windowsArgs,
+        tool,
+        args,
         signal: call.signal,
         onProgress: (progress) => call.progress(progress),
       })
       return outcome.result
     }
 
-  async function sync(connection: RelayTarget): Promise<void> {
+  /** A call's arguments read as the Windows side reads them, then run; a path it cannot open is answered in words. */
+  const relayTo =
+    (connection: RelayTarget, toolset: string, run: ToolDefinition['handler']): ToolDefinition['handler'] =>
+    async (args, call) => {
+      let windowsArgs: Record<string, unknown>
+      try {
+        windowsArgs = connection.args(toolset, args as Record<string, unknown>)
+      } catch (error) {
+        if (error instanceof RelayPathError) return toolError('invalid_path', error.message)
+        throw error
+      }
+      return run(windowsArgs, call)
+    }
+
+  /** One sync at a time per server: two at once would offer a toolset twice, against its offer budget. */
+  function sync(connection: RelayTarget): Promise<void> {
+    const entry = open.get(connection.key)
+    if (!entry) return Promise.resolve()
+    entry.syncing = entry.syncing
+      .then(() => syncNow(connection))
+      .catch((error: unknown) =>
+        log(
+          `The desktop's tools could not be offered to ${connection.name}: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      )
+    return entry.syncing
+  }
+
+  async function syncNow(connection: RelayTarget): Promise<void> {
     const entry = open.get(connection.key)
     if (!entry) return
-    const wanted = shellToolsets(connection.toolsets)
+    const wanted = wantedToolsets(connection)
     for (const [name, offered] of entry.offered) {
       if (wanted.has(name)) continue
       entry.offered.delete(name)
@@ -261,14 +382,10 @@ export function relayShellToolsets(input: {
           name,
           title: set.title,
           ...(set.description ? { description: set.description } : {}),
-          tools: set.tools.map((tool) => ({
-            name: tool.name,
-            description: tool.description ?? '',
-            inputSchema: tool.inputSchema,
-            ...(tool.mutates !== undefined ? { mutates: tool.mutates } : {}),
-            ...(tool.timeoutMs !== undefined ? { timeoutMs: tool.timeoutMs } : {}),
-            handler: relayTo(connection, name, tool),
-          })),
+          // A module's family is no reserved name on the WSL server, so the
+          // offer names its reach: every agent there, as on Windows.
+          reach: 'all',
+          tools: set.tools.map(({ run, ...tool }) => ({ ...tool, handler: relayTo(connection, name, run) })),
         })
         entry.offered.set(name, offered)
       } catch (error) {
@@ -304,6 +421,7 @@ export function relayShellToolsets(input: {
         open.set(connection.key, {
           client,
           offered: new Map(),
+          syncing: Promise.resolve(),
           stop: () => {
             unsubscribe()
             client.close()

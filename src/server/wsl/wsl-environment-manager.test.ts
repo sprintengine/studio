@@ -14,6 +14,8 @@ import { WSL_NODE_VERSION } from '../../main/hosts/wsl-node-runtime'
 import type { WslRunner } from '../../main/hosts/wsl-runner'
 import type { RunOutcome } from '../../main/process-run'
 import { connect } from '../../../packages/agent-sdk/src/client'
+import { createConnection } from 'node:net'
+import { desktopToolParts } from '../../main/automation/gateway-tools-parity.test-helper'
 import type { ClientToolRegistry } from '../tools/client-tool-registry'
 import {
   createWslEnvironmentManager,
@@ -171,6 +173,112 @@ test('a first chat installs the server tree, starts it, and reaches it over loop
     'the drain let the lock go',
   )
 })
+
+/** One newline-delimited JSON-RPC exchange per call, on an MCP connection of an agent's own to a server's gateway. */
+async function agentSession(socketPath: string) {
+  const socket = createConnection(socketPath)
+  await new Promise<void>((resolve, reject) => socket.once('connect', resolve).once('error', reject))
+  socket.setEncoding('utf8')
+  const waiting = new Map<number, (message: Record<string, any>) => void>()
+  let buffer = ''
+  socket.on('data', (chunk: string) => {
+    buffer += chunk
+    for (let newline = buffer.indexOf('\n'); newline !== -1; newline = buffer.indexOf('\n')) {
+      const message = JSON.parse(buffer.slice(0, newline)) as Record<string, any>
+      buffer = buffer.slice(newline + 1)
+      waiting.get(message.id as number)?.(message)
+    }
+  })
+  let id = 0
+  return {
+    call: (method: string, params: Record<string, unknown> = {}) =>
+      new Promise<Record<string, any>>((resolve) => {
+        const next = ++id
+        waiting.set(next, resolve)
+        socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: next, method, params })}\n`)
+      }),
+    close: () => socket.end(),
+  }
+}
+
+test("a WSL agent lists the editor, tours, terminals and agent launches, which in process are the Windows gateway's own", async () => {
+  const home = fakeHome('own-tools')
+  const listeners: Array<(connection: WslServerConnection) => void> = []
+  // In process the shell offers the browser and the canvas to the Windows
+  // side's registry, and every other tool is that side's gateway's own.
+  const registry = {
+    visibleTools: () =>
+      (['browser', 'canvas'] as const).map((toolset) => ({
+        toolset,
+        builtIn: true,
+        title: toolset,
+        tool: { name: 'status', description: 'Look.', inputSchema: { type: 'object' } },
+        wireName: `${toolset}.status`,
+        mutates: false,
+      })),
+    subscribe: () => () => undefined,
+    call: async () => ({ result: { content: [{ type: 'text', text: 'done' }] } }),
+  } as unknown as ClientToolRegistry
+  const parts = desktopToolParts()
+  const workspaceList = {
+    name: 'workspace.list',
+    description: 'The workspaces.',
+    inputSchema: { type: 'object' },
+    handler: async (_args: Record<string, unknown>, context?: { metadata: { kind: string } }) => ({
+      content: [{ type: 'text' as const, text: `the workspaces, for ${context?.metadata.kind}` }],
+    }),
+  }
+  const relay = relayShellToolsets({
+    onConnected: (listener) => listeners.push(listener),
+    registry,
+    gatewayTools: () => [
+      ...parts.editor,
+      ...parts.tour,
+      ...parts.core,
+      ...parts.automation.map((tool) => (tool.name === 'workspace.list' ? workspaceList : tool)),
+      ...parts.tailnet,
+    ],
+  })
+  cleanups.push(() => relay.close())
+  const { manager: wsl } = manager({
+    homes: { Ubuntu: home },
+    connected: (connection) => listeners.forEach((listener) => listener(connection)),
+  })
+  await wsl.connect('Ubuntu')
+  const { socketPath } = JSON.parse(
+    readFileSync(join(home, WSL_DATA_REL, 'data-0123456789ab', 'sprintengine-studio-mcp-info.json'), 'utf8'),
+  ) as { socketPath: string }
+
+  // The offers land one toolset after another; a new connection lists what is offered by then.
+  const wanted = ['browser', 'canvas', 'editor', 'tour', 'terminal', 'agent']
+  wanted.push('backlog', 'workspace', 'schedule', 'cli', 'module', 'marketplace')
+  let names: string[] = []
+  await waitFor(
+    () => wanted.every((toolset) => names.some((name) => name.startsWith(`${toolset}.`))),
+    15_000,
+    async () => {
+      const agent = await agentSession(socketPath)
+      await agent.call('initialize', { protocolVersion: '2025-06-18', capabilities: {} })
+      const listed = await agent.call('tools/list')
+      names = (listed.result?.tools as Array<{ name: string }>).map((tool) => tool.name)
+      agent.close()
+    },
+  )
+  for (const name of ['editor.open', 'tour.create', 'terminal.create', 'agent.launch', 'agent.status'])
+    assert.ok(names.includes(name), `${name} is listed; listed: ${names.join(', ')}`)
+  for (const name of ['backlog.work', 'workspace.list', 'schedule.list', 'cli.runtime_list', 'module.list'])
+    assert.ok(names.includes(name), `${name} is listed`)
+  assert.ok(names.includes('marketplace.list'))
+  assert.ok(names.includes('conversation.create'), 'the WSL server’s own')
+  assert.ok(!names.some((name) => name.startsWith('tailnet.')), 'remote control stays on the Windows socket')
+
+  const agent = await agentSession(socketPath)
+  await agent.call('initialize', { protocolVersion: '2025-06-18', capabilities: {} })
+  await agent.call('tools/list')
+  const called = await agent.call('tools/call', { name: 'workspace.list', arguments: {} })
+  agent.close()
+  assert.equal(called.result?.content?.[0]?.text, 'the workspaces, for external-local', JSON.stringify(called))
+}, 60_000)
 
 test('a server that is not the build this app ships is refused before it is handed anything', async () => {
   assert.ok(treeBuild, 'the tree says which build it is')

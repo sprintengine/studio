@@ -1482,7 +1482,8 @@ export function createAppServices(
       })
   tailnetToolsFrontDoor = automationService
   // A chat agent in WSL reaches its own server's gateway: the desktop's
-  // toolsets are offered there too, and run here (phase 7).
+  // toolsets, and this side's own tools of the families the WSL server cannot
+  // serve, are offered there too, and run here (phase 7).
   const wslServersOfCore = 'wslServers' in core ? core.wslServers : null
   // An SSH machine's agents get the pane's browser, whose tabs reach that
   // machine's network, and the canvas (phase 8).
@@ -1508,6 +1509,7 @@ export function createAppServices(
     relayShellToolsets({
       onConnected: (listener) => wslServersOfCore.onConnected(listener),
       registry: automationService.clientTools,
+      gatewayTools: () => automationService.ownTools(),
       log: (message) => {
         void writeDiagnosticLog({ level: 'info', title: 'WSL server', message, source: 'workspace' })
       },

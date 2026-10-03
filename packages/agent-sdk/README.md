@@ -195,7 +195,7 @@ await game.withdraw()
   A string answers as one text part; `toolResult.text`, `.image` and `.error`
   build the rest. Throw a `StudioToolError(code, message)` for a failure the
   agent should read; anything else thrown answers `tool_failed`.
-- **Limits.** 32 tools a toolset, 8 toolsets a connection, a schema of 16 KiB
+- **Limits.** 32 tools a toolset, 8 toolsets of your own a connection, a schema of 16 KiB
   whose root is an object, and an answer of at most 960 KiB, which fails in
   your process when it is over. A tool's deadline is 60 s unless it names one
   (1 s to 600 s). `STUDIO_TOOL_LIMITS` has them all.

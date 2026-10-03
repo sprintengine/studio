@@ -199,6 +199,12 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
     ...automationService,
     /** The client toolsets offered over the Studio RPC. */
     clientTools,
+    /**
+     * Studio's own tools, core and module, without any a client offers: what
+     * a WSL server's agents are offered of this side beside the shell's
+     * toolsets (phase 7, 3.7).
+     */
+    ownTools: (): McpToolRegistration[] => resolveGatewayTools(),
     /** Link in what the registry reads from the RPC that pairs apps. */
     linkClientTools: (links: ClientToolLinks) => Object.assign(clientToolLinks, links),
     shutdown: async () => {
