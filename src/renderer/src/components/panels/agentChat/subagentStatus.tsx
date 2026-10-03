@@ -119,7 +119,7 @@ export function useSubagentTypeDescription(type: string | undefined): string | u
   return sentence.length > 180 ? `${sentence.slice(0, 179).trimEnd()}…` : sentence
 }
 
-function formatTokens(count: number): string {
+export function formatTokens(count: number): string {
   return count >= 1000 ? `${Math.round(count / 1000)}k tokens` : `${count} tokens`
 }
 
@@ -181,6 +181,9 @@ export function AgentLaneSummary({ lane }: { lane: TranscriptToolEntry }): JSX.E
   const task = laneTask(lane)
   const now = lane.agent?.progressSummary ?? (lane.agent?.lastToolName ? `Using ${lane.agent.lastToolName}` : '')
   const detail = running ? now : lane.agent?.error || subagentResultPreview(lane.output)
+  // What the agent has spent so far, live while it works, under its status so
+  // agents can be compared down the list.
+  const tokens = lane.agent?.usage?.totalTokens
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
       <span className="flex min-w-0 items-center gap-2 text-meta">
@@ -193,12 +196,21 @@ export function AgentLaneSummary({ lane }: { lane: TranscriptToolEntry }): JSX.E
           <LaneStatus lane={lane} />
         </span>
       </span>
-      {detail ? (
-        <TruncatedText
-          as="span"
-          text={detail}
-          className={`min-w-0 pl-6 text-micro ${lane.agent?.error && !running ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}`}
-        />
+      {detail || tokens ? (
+        <span className="flex min-w-0 items-center gap-2 pl-6 text-micro">
+          {detail ? (
+            <TruncatedText
+              as="span"
+              text={detail}
+              className={`min-w-0 ${lane.agent?.error && !running ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}`}
+            />
+          ) : null}
+          {tokens ? (
+            <span className="ml-auto shrink-0 pl-2 tabular-nums text-[color:var(--text-subtle)]">
+              {formatTokens(tokens)}
+            </span>
+          ) : null}
+        </span>
       ) : null}
     </span>
   )
