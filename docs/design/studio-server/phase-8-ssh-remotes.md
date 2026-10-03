@@ -1,6 +1,6 @@
 # Phase 8 — Remote environments over SSH
 
-Status: scoped, 2026-10-01. Nothing here is implemented. This expands phase 8
+Status: scoped, 2026-10-01; built 2026-10-03 as section 14 says. This expands phase 8
 of `docs/design/studio-server.md` (section 13) and sections 9.4 and 10.3 that it
 builds on. Where this file and the parent disagree, section 12 below lists what
 the parent should change. When code and this file disagree, fix one of them in
@@ -1221,3 +1221,50 @@ spawn and envelope, the WSL stdio transport).
 11. **`docs(design): fold phase 8's changes into the Studio server design`** —
     the section 12 edits to the parent, and a `docs/compatibility.md` note on
     the relay and its framing version.
+
+## 14. Implementation status (2026-10-03)
+
+Built, and nothing changes for a person who adds no SSH machine (the Machines
+tab now shows on every platform, with an empty SSH section):
+
+- Commits 1–7 and 9–10 of section 13, each with its "As built" notes above:
+  the shared POSIX install, the relay and the detached start, the ssh command
+  builder, askpass and its dialogs, the probe and the one-session install,
+  the state machine, Settings, New chat and the sidebar, the pane's forward
+  (an HTTP proxy by R75), and the dockerized sshd suites with their CI job.
+- Section 12's changes 1, 2, 3 and 11 are folded into the parent design and
+  `docs/compatibility.md` notes the private wires.
+
+Ran against a real `sshd` (Ubuntu 24.04 in Docker on an arm64 Mac, forwarding
+of every kind off): the host-key question and a key's passphrase through the
+askpass shim, a refusal that leaves `known_hosts` untouched, the pinned Linux
+Node downloaded and checked on the desktop and streamed with the server tree,
+a managed server started and attached, a chat on the mock provider, the
+session killed mid-turn and the background reconnect stopping at
+`needs-sign-in` (the key is not in an agent), the person's reconnect joining
+the same turn by its command id, a `noexec` home refused in words, and the
+relay reaching the remote's `localhost`. The install scripts ran under dash,
+bash, zsh as sh and macOS `sh`, and under busybox in Alpine. An Electron check
+loaded the remote's page through the forward (section 6.8, "As built").
+
+Not built yet:
+
+- **Sign-in on an SSH machine (commit 8, decision R34).** `providers.signIn`
+  with its four interactions, and the sign-in-only terminal on the server,
+  which needs a pty the server bundle does not carry. A CLI on an SSH machine
+  is signed in from a terminal there by hand for now.
+- **Out of process**: main's SSH sessions do not reach the desktop's server
+  process, so a chat on an SSH machine is not routed when the server runs out
+  of process.
+- **Files at the edge**: the file explorer, Git pane, @-mention search and
+  image previews for an SSH workspace read this computer's disk.
+- **Resume from cursors**: the private backend wire has none. A command id
+  makes a repeated call safe, but events emitted while the wire was down are
+  not replayed to a chat view that was open.
+- `auth.sessions.list` for SSH sessions, `server.logs.tail` in Diagnostics
+  (they show the bootstrap's steps, the probe and ssh's words), `ssh -W` as a
+  diagnostic, the jump-host and password variants of 9.3, the Windows job
+  (9.4; the Windows shim is written but has not run), and V-P2 to V-P4 (9.5).
+- A published release archive of the server tree, so the remote download
+  covers the Node runtime only (5.3).
+
