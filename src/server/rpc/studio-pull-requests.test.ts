@@ -17,6 +17,10 @@ afterEach(async () => {
 
 function stubPullRequests() {
   const listeners = new Set<(change: PullRequestsChanged) => void>()
+  let listening: () => void = () => undefined
+  const subscribed = new Promise<void>((resolve) => {
+    listening = resolve
+  })
   const noted: Array<StudioPullRequestsMethodMap['pullRequests.noteWork']['params']> = []
   const stub: StudioPullRequests = {
     list: async (target): Promise<StudioPullRequestsMethodMap['pullRequests.list']['result']> => ({
@@ -45,10 +49,16 @@ function stubPullRequests() {
     },
     onChanged: (listener) => {
       listeners.add(listener)
+      listening()
       return () => listeners.delete(listener)
     },
   }
-  return { stub, noted, emit: (change: PullRequestsChanged) => listeners.forEach((listener) => listener(change)) }
+  return {
+    stub,
+    noted,
+    subscribed,
+    emit: (change: PullRequestsChanged) => listeners.forEach((listener) => listener(change)),
+  }
 }
 
 async function ownerOver(pullRequests?: StudioPullRequests) {
@@ -132,11 +142,11 @@ test('a paired app is refused, whatever it holds', async () => {
 })
 
 test('the stream names what moved, never the lists', async () => {
-  const { stub, emit } = stubPullRequests()
+  const { stub, emit, subscribed } = stubPullRequests()
   const { owner } = await ownerOver(stub)
   owner.send({ t: 'sub', id: 's1', topic: 'pullRequests.changed' })
-  // The subscription is registered as the frame is read; give it a turn.
-  await new Promise((resolve) => setTimeout(resolve, 20))
+  // The subscription is registered as the frame is read: the stub hears it.
+  await subscribed
   emit({ workspaceIds: ['ws-1'], conversations: [{ workspaceId: 'ws-1', agentId: 'agent-1' }] })
   const pushed = await owner.next((frame) => frame.t === 'push' && frame.sub === 's1')
   assert.deepEqual(pushed.t === 'push' && pushed.payload, {
