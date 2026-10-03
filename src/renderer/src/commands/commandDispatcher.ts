@@ -8,6 +8,7 @@ import {
   type KeybindingStroke,
 } from './keybindings'
 import type { CommandContribution, CommandScope, ModuleCommandContext } from './types'
+import { defaultKeybindingsHere } from './browserKeymap'
 
 export type CommandDispatcherKeyEvent = {
   key: string
@@ -236,7 +237,7 @@ function effectiveKeybindings(
 ): readonly string[] {
   const legacyId = LEGACY_COMMAND_ID_ALIASES[command.id]
   const override = overrides?.[command.id] ?? (legacyId ? overrides?.[legacyId] : undefined)
-  return override && override.length > 0 ? override : (command.defaultKeybindings ?? [])
+  return override && override.length > 0 ? override : defaultKeybindingsHere(command.defaultKeybindings ?? [])
 }
 
 function activeBindings(context: CommandDispatcherContext): ActiveBinding[] {

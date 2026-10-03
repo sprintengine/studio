@@ -12,6 +12,9 @@ import { startHeadlessServer } from './bootstrap/headless'
 import { serveOnChannel } from './bootstrap/serve'
 import { stdioChannel } from './bootstrap/stdio'
 import type { ServerBoot } from './bootstrap/envelope'
+import { readWebRunFile } from './web/web-run-file'
+import { normalizeOrigin } from './web/web-origins'
+import { checkTailscaleServePort, DEFAULT_TAILSCALE_SERVE_PORT } from './web/web-tailscale-serve'
 import {
   EXIT_DATA_DIR_BUSY,
   EXIT_FAILED,
@@ -29,6 +32,15 @@ import {
 //        [--share-desktop-data-dir] [--stdio]
 //   node out/server/server.cjs --bootstrap stdio
 //   node out/server/server.cjs --version
+//   node out/server/server.cjs serve --web [--web-port <n>] [--public-origin <url>]…
+//        [--tailscale-serve [--tailscale-serve-port <n>]]
+//   node out/server/server.cjs pair [--data-dir <dir>] [--origin <url>]
+//   node out/server/server.cjs embed --workspace <id> --agent <id> [--frame-origin <url>]… [--ttl-hours <n>]
+//   node out/server/server.cjs embed --list | --revoke <embed id>
+//
+// `--web` turns on the web client's listener on a loopback port (phase 9),
+// off by default. `pair` asks the server running on a data directory for a
+// one-time link that pairs a browser, and prints it.
 //
 // Once its gateway is listening it prints one JSON line on stdout,
 // `{"ready":{…}}`, and keeps stdout for such lines; everything said to a person
@@ -69,7 +81,27 @@ const USAGE = `Usage: studio-server [serve] [options]
   --share-desktop-data-dir   Run against the desktop app's data directory, with saved keys off
   --stdio                    Driven by a parent over stdin: stop on {"t":"shutdown"} or when stdin closes
   --bootstrap stdio          Read a bootstrap envelope on stdin and speak control frames on stdout
+  --web                      Serve the web client on a loopback port (off by default)
+  --web-port <n>             The web listener's port (default 4791; 0 picks one)
+  --public-origin <url>      An HTTPS origin a proxy serves the web client on, such as the
+                             tailscale serve name (repeatable). Never plain HTTP off loopback.
+  --tailscale-serve          Publish the web client on this machine's tailnet name over HTTPS
+                             with tailscale serve; the listener stays on loopback
+  --tailscale-serve-port <n> The HTTPS port serve publishes it on (default 443)
+  --web-root <dir>           Where the web bundle is (default: out/web beside this bundle)
   --version                  Print the version and exit
+
+Usage: studio-server pair [--data-dir <dir>] [--origin <url>]
+
+  Print a one-time link that pairs a browser with the server running on the data
+  directory. The link works once, within five minutes.
+
+Usage: studio-server embed --workspace <id> --agent <id> [--frame-origin <url>]... [--ttl-hours <n>]
+       studio-server embed --list
+       studio-server embed --revoke <embed id>
+
+  Print a link that shows one conversation, read-only, in another page's iframe;
+  list the embeds the server holds; or revoke one, which closes it at once.
 `
 
 function bundledBuild(): { version: string; commit: string | null; builtAt: string } | null {
@@ -97,6 +129,17 @@ function versionFrom(appRoot: string | null): string {
 type Command =
   | { kind: 'version' }
   | { kind: 'help' }
+  | { kind: 'pair'; dataDir: string; origin: string | null }
+  | { kind: 'embed-list'; dataDir: string }
+  | { kind: 'embed-revoke'; dataDir: string; embedId: string }
+  | {
+      kind: 'embed'
+      dataDir: string
+      workspaceId: string
+      agentId: string
+      frameOrigins: string[]
+      ttlHours: number | null
+    }
   | { kind: 'bootstrap'; carrier: 'stdio' }
   | { kind: 'serve'; options: StudioServerOptions; stdio: boolean }
 
@@ -116,6 +159,19 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
       bootstrap: { type: 'string' },
       version: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
+      web: { type: 'boolean' },
+      'web-port': { type: 'string' },
+      'public-origin': { type: 'string', multiple: true },
+      'web-root': { type: 'string' },
+      'tailscale-serve': { type: 'boolean' },
+      'tailscale-serve-port': { type: 'string' },
+      origin: { type: 'string' },
+      workspace: { type: 'string' },
+      agent: { type: 'string' },
+      'frame-origin': { type: 'string', multiple: true },
+      'ttl-hours': { type: 'string' },
+      list: { type: 'boolean' },
+      revoke: { type: 'string' },
     },
   })
   if (values.version) return { kind: 'version' }
@@ -129,7 +185,8 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
     return { kind: 'bootstrap', carrier: 'stdio' }
   }
   const [command = 'serve', ...rest] = positionals
-  if (command !== 'serve' || rest.length > 0) throw new Error(`Unknown command: ${positionals.join(' ')}`)
+  if ((command !== 'serve' && command !== 'pair' && command !== 'embed') || rest.length > 0)
+    throw new Error(`Unknown command: ${positionals.join(' ')}`)
   if (values.packaged && !values['resources-dir']) throw new Error('--packaged needs --resources-dir.')
 
   const defaults = defaultServerLocations({ env })
@@ -139,6 +196,23 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
   // A server pointed at a directory keeps everything in it; one on the default
   // locations logs where XDG puts state.
   const dataDir = resolve(chosenDataDir ?? defaults.dataDir)
+  if (command === 'pair') return { kind: 'pair', dataDir, origin: values.origin ?? null }
+  if (command === 'embed') {
+    if (values.list === true) return { kind: 'embed-list', dataDir }
+    if (values.revoke !== undefined) return { kind: 'embed-revoke', dataDir, embedId: values.revoke }
+    if (!values.workspace || !values.agent) throw new Error('embed needs --workspace and --agent.')
+    const ttlHours = values['ttl-hours'] === undefined ? null : Number(values['ttl-hours'])
+    if (ttlHours !== null && !(ttlHours > 0)) throw new Error('--ttl-hours takes a positive number.')
+    return {
+      kind: 'embed',
+      dataDir,
+      workspaceId: values.workspace,
+      agentId: values.agent,
+      frameOrigins: values['frame-origin'] ?? [],
+      ttlHours,
+    }
+  }
+  const web = values.web === true ? parseWebOptions(values) : null
   return {
     kind: 'serve',
     stdio: values.stdio === true,
@@ -150,7 +224,168 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
       resourcesDir: values['resources-dir'] ? resolve(values['resources-dir']) : null,
       appRoot,
       shareDesktopDataDir: values['share-desktop-data-dir'] === true,
+      web,
     },
+  }
+}
+
+const DEFAULT_WEB_PORT = 4791
+
+function parseWebOptions(values: {
+  'web-port'?: string
+  'public-origin'?: string[]
+  'web-root'?: string
+  'tailscale-serve'?: boolean
+  'tailscale-serve-port'?: string
+}): NonNullable<StudioServerOptions['web']> {
+  const port = values['web-port'] === undefined ? DEFAULT_WEB_PORT : Number(values['web-port'])
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--web-port takes a port number.')
+  const publicOrigins = (values['public-origin'] ?? []).map((value) => {
+    const origin = normalizeOrigin(value)
+    // Off loopback the web client is served over HTTPS or not at all (R19):
+    // plain HTTP is not a secure context, and the cookie could not be Secure.
+    if (!origin || !origin.startsWith('https://'))
+      throw new Error(`--public-origin takes an https:// origin with no path: ${value}`)
+    return origin
+  })
+  if (values['tailscale-serve-port'] !== undefined && values['tailscale-serve'] !== true)
+    throw new Error('--tailscale-serve-port goes with --tailscale-serve.')
+  let tailscaleServe: { port: number } | null = null
+  if (values['tailscale-serve'] === true) {
+    const servePort =
+      values['tailscale-serve-port'] === undefined
+        ? DEFAULT_TAILSCALE_SERVE_PORT
+        : Number(values['tailscale-serve-port'])
+    const refused = checkTailscaleServePort(servePort)
+    if (refused) throw new Error(refused)
+    tailscaleServe = { port: servePort }
+  }
+  return {
+    port,
+    publicOrigins,
+    staticDir: resolve(values['web-root'] ?? join(__dirname, '..', 'web')),
+    tailscaleServe,
+  }
+}
+
+/** `studio-server embed`: a link to one conversation, read-only, for another page to frame. */
+async function mintEmbed(command: Extract<Command, { kind: 'embed' }>): Promise<number> {
+  const run = readWebRunFile(command.dataDir)
+  if (!run) {
+    say(
+      `No Studio server with its web listener on is running on ${command.dataDir}. Start one with: studio-server serve --web`,
+    )
+    return EXIT_FAILED
+  }
+  try {
+    const response = await fetch(`${run.url}/embed/mint`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${run.mintKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceId: command.workspaceId,
+        agentId: command.agentId,
+        origins: command.frameOrigins,
+        ...(command.ttlHours === null ? {} : { ttlMs: command.ttlHours * 60 * 60 * 1000 }),
+      }),
+    })
+    const body = (await response.json()) as {
+      ok?: boolean
+      url?: string
+      message?: string
+      embed?: { expiresAt?: string }
+    }
+    if (!response.ok || !body.ok || typeof body.url !== 'string') {
+      say(body.message ?? `The server refused (${response.status}).`)
+      return EXIT_FAILED
+    }
+    process.stdout.write(`${body.url}\n`)
+    say(`Anyone with the link can read this conversation until ${body.embed?.expiresAt ?? 'it expires'}.`)
+    return 0
+  } catch (error) {
+    say(`The server on ${run.url} did not answer: ${error instanceof Error ? error.message : String(error)}`)
+    return EXIT_FAILED
+  }
+}
+
+/** `studio-server embed --list` and `--revoke`: the embeds a server holds, and taking one back. */
+async function manageEmbeds(
+  command: Extract<Command, { kind: 'embed-list' } | { kind: 'embed-revoke' }>,
+): Promise<number> {
+  const run = readWebRunFile(command.dataDir)
+  if (!run) {
+    say(
+      `No Studio server with its web listener on is running on ${command.dataDir}. Start one with: studio-server serve --web`,
+    )
+    return EXIT_FAILED
+  }
+  const listing = command.kind === 'embed-list'
+  try {
+    const response = await fetch(`${run.url}/embed/${listing ? 'list' : 'revoke'}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${run.mintKey}`, 'Content-Type': 'application/json' },
+      body: listing ? '{}' : JSON.stringify({ embedId: command.embedId }),
+    })
+    const body = (await response.json()) as {
+      ok?: boolean
+      message?: string
+      embeds?: Array<{
+        embedId: string
+        conversation: { workspaceId: string; agentId: string }
+        origins: string[]
+        expiresAt: string
+      }>
+    }
+    if (!response.ok || !body.ok) {
+      say(body.message ?? `The server refused (${response.status}).`)
+      return EXIT_FAILED
+    }
+    if (!listing) {
+      say(`Embed ${command.embedId} was revoked; pages showing it lost it at once.`)
+      return 0
+    }
+    for (const embed of body.embeds ?? []) {
+      process.stdout.write(
+        `${embed.embedId}  ${embed.conversation.workspaceId}/${embed.conversation.agentId}  until ${embed.expiresAt}  ` +
+          `framed by ${embed.origins.length > 0 ? embed.origins.join(' ') : 'no page'}\n`,
+      )
+    }
+    if ((body.embeds ?? []).length === 0) say('No embeds.')
+    return 0
+  } catch (error) {
+    say(`The server on ${run.url} did not answer: ${error instanceof Error ? error.message : String(error)}`)
+    return EXIT_FAILED
+  }
+}
+
+/** `studio-server pair`: a one-time pairing link from the server running on a data directory. */
+async function pairBrowser(dataDir: string, origin: string | null): Promise<number> {
+  const run = readWebRunFile(dataDir)
+  if (!run) {
+    say(`No Studio server with its web listener on is running on ${dataDir}. Start one with: studio-server serve --web`)
+    return EXIT_FAILED
+  }
+  const target = origin ? normalizeOrigin(origin) : null
+  if (origin && (!target || !run.origins.includes(target))) {
+    say(`${origin} is not one of the server's origins: ${run.origins.join(', ')}`)
+    return EXIT_USAGE
+  }
+  try {
+    const response = await fetch(`${run.url}/pair/mint`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${run.mintKey}` },
+    })
+    const body = (await response.json()) as { ok?: boolean; url?: string; expiresAt?: string; message?: string }
+    if (!response.ok || !body.ok || typeof body.url !== 'string') {
+      say(body.message ?? `The server refused (${response.status}).`)
+      return EXIT_FAILED
+    }
+    const link = target ? body.url.replace(run.url, target) : body.url
+    process.stdout.write(`${link}\n`)
+    say(`Open the link in the browser to pair. It works once, until ${body.expiresAt ?? 'five minutes from now'}.`)
+    return 0
+  } catch (error) {
+    say(`The server on ${run.url} did not answer: ${error instanceof Error ? error.message : String(error)}`)
+    return EXIT_FAILED
   }
 }
 
@@ -180,6 +415,9 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
   if (command.kind === 'bootstrap') return serveOverStdio()
+  if (command.kind === 'pair') return pairBrowser(command.dataDir, command.origin)
+  if (command.kind === 'embed') return mintEmbed(command)
+  if (command.kind === 'embed-list' || command.kind === 'embed-revoke') return manageEmbeds(command)
 
   // Installed before the server starts, so a signal or a closed stdin during
   // startup is not lost: the stop waits for the start to finish, then runs.
@@ -272,6 +510,11 @@ async function main(argv: string[]): Promise<number> {
     `ready: ${ready.dataDir}, gateway ${ready.gatewaySocket ?? 'not running'}` +
       (ready.secrets ? '' : ', saved keys off (desktop data directory)'),
   )
+  if (server.web) {
+    // No pairing code is printed here: stderr may be a service's log, which
+    // keeps it. `studio-server pair` prints one link to whoever asks.
+    say(`web client on ${server.web.url}; pair a browser with: studio-server pair --data-dir ${ready.dataDir}`)
+  }
   const asked = pending as { reason: string; code: number } | null
   if (asked) stop(asked.reason, asked.code)
   return exited

@@ -168,6 +168,12 @@ export type StudioRequestContext = {
    * failure below is told in its own words, as the IPC tells it.
    */
   ownWindow: boolean
+  /**
+   * Whether its mutations are audited. Unset, a client's are and a window's
+   * are not; an owner's web tab is Studio's own view but a client of the
+   * server all the same, and is audited (phase 9 spec, 14.8).
+   */
+  audited?: boolean
 }
 
 export type StudioAuthOutcome = { ok: true; grant: StudioGrant; pairingToken?: string } | { ok: false; message: string }

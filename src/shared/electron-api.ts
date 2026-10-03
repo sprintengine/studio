@@ -1,3 +1,5 @@
+import type { ClientCapability } from './client-capabilities'
+import type { PreviewOpenAnswer, PreviewPort, PreviewSummary, WebDevicesStatus } from './web-client'
 import type { ServerMode } from './server-mode'
 import type { StudioServerInfo, StudioServerStatus } from './studio-server-status'
 import type { EditorRevealAck, EditorRevealRequest, EditorStateQuery, EditorStateReply } from './editor-reveal'
@@ -475,7 +477,37 @@ export type * from './ipc/app'
 export type * from './ipc/backlog'
 
 export type ElectronApi = {
+  /**
+   * The OS of the machine the person is at: the client. It decides the
+   * Primary modifier, the keyboard's labels and the window chrome. In a
+   * desktop window it is the preload's `process.platform`; in a browser tab,
+   * the browser's own (phase 9 spec, 3.3).
+   */
   platform: string
+  /**
+   * The OS of the machine the Studio server runs on. It decides path syntax,
+   * the "Reveal in Finder/Explorer" wording and CLI hints. The same as
+   * `platform` for a desktop window on its own server.
+   */
+  hostPlatform: string
+  /** What this shell can do (src/shared/client-capabilities.ts); ask `clientSupports`, not `typeof`. */
+  clientCapabilities: readonly ClientCapability[]
+  /** The ports the server's agents listen on, for a preview (web client only; `previews`). */
+  previewsList: () => Promise<{ ports: PreviewPort[] }>
+  /** Open a preview of a port on the server's loopback, on an origin of its own. */
+  previewsOpen: (input: { port: number; typed?: boolean }) => Promise<PreviewOpenAnswer>
+  previewsClose: (previewId: string) => Promise<boolean>
+  onPreviewsChanged: (cb: (previews: PreviewSummary[]) => void) => () => void
+  /** The browsers paired with this server's web listener, and the ones asking (web client only). */
+  webDevicesStatus: () => Promise<WebDevicesStatus>
+  webDevicesRevoke: (id: string) => Promise<boolean>
+  webDevicesRename: (id: string, name: string) => Promise<boolean>
+  /** A one-time link that pairs another browser, on one of the server's origins. */
+  webDevicesLink: (origin?: string) => Promise<{ url: string; expiresAt: string }>
+  /** Let a browser in by the six digits it shows. Three wrong tries decline it. */
+  webDevicesApprove: (requestId: string, code: string) => Promise<{ ok: true } | { ok: false; message: string }>
+  webDevicesDecline: (requestId: string) => Promise<boolean>
+  onWebDevicesChanged: (cb: (status: WebDevicesStatus) => void) => () => void
   isDevelopment: boolean
   isDiagnosticsEnabled: boolean
   windowMinimize: () => Promise<void>
@@ -902,6 +934,8 @@ export type ElectronApi = {
   pathExists: (path: string) => Promise<boolean>
   statPath: (path: string) => Promise<FileSystemStat>
   getPathForFile: (file: unknown) => string
+  /** Send dropped files that have no path to the server; answers a path there for each (`file-uploads`). */
+  uploadFiles: (files: File[]) => Promise<string[]>
   checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>
   detectProjectLogo: (folderPath: string) => Promise<ProjectLogo | null>
   memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryRootStatus>

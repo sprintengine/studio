@@ -199,7 +199,8 @@ A `clientCapabilities` record (renderer-only) answers what the current shell
 can do: `native-dialogs`, `reveal-in-folder`, `open-in-app`, `os-clipboard`,
 `os-notifications`, `aux-windows`, `multi-window`, `window-controls`,
 `terminals`, `browser-pane` (the desktop's native pane), `previews` (the web
-client's preview pane, 3.6), `app-menu`, `deep-links`, `drag-paths`. The desktop sets them from the
+client's preview pane, 3.6), `app-menu`, `deep-links`, `drag-paths`, `file-uploads`
+(the web client's, 14.14). The desktop sets them from the
 preload. The web shim sets them from feature detection, including
 `isSecureContext`. UI hides or swaps a control by asking
 `clientSupports('reveal-in-folder')`, never by `typeof window.api.X`.
@@ -240,10 +241,11 @@ client `terminals` and a server that advertises them.
 - **Reload.** Cursors live in memory. A reload takes a fresh snapshot, which
   is paged (10 turns), so this costs one page.
 - **Version skew.** The page is served by the server it talks to, so they
-  match at load. After a server upgrade, `welcome.server.buildStamp` differs
-  from the page's own stamp. The page then shows "Studio was updated —
-  reload" and keeps working inside the protocol window. This reuses
-  `reportBuildStamp`'s comparison.
+  match at load. After a server upgrade, or a rebuild of its web client, the
+  bundle the server serves differs from the one the page was loaded from. The
+  page then shows "Studio was updated" with Reload and keeps working inside
+  the protocol window. As built (14.11) the comparison is of web bundle ids,
+  read from `/api/session`, not of `welcome.server.buildStamp`.
 - **Unload.** Today's flushes on `beforeunload` also run on `pagehide` and
   `visibilitychange` to hidden, because mobile browsers do not fire
   `beforeunload` reliably.
@@ -1286,3 +1288,420 @@ parent's "Phase 9 (M)" is low; with the embed this is L.
 | 12 | Service worker | **None in v1**; a manifest only |
 | 13 | How the web client shows an agent's dev server (3.6) | **`previews`**: a listener and an origin per preview on the server's loopback, its own one-time code and cookie, Studio's cookies stripped, WebSocket upgrades passed through; offered ports are the agents' listeners plus an owner-typed port, never Studio's own |
 | 14 | The web client offers `canvas` (3.8) | **Yes, from owner sessions** (`kind: 'web'`); never from a tailnet browser pairing in v1 |
+
+## 14. As built
+
+Where building phase 9 forced a change to the sections above, the change is
+recorded here, with the commit that made it.
+
+### 14.1 The web listener (2026-10-03)
+
+- **Off unless asked for.** `studio-server serve --web` starts the listener on
+  `127.0.0.1:4791` (`--web-port`, 0 picks one). It binds loopback only.
+  `--public-origin https://…` (repeatable) adds the HTTPS name a proxy serves
+  it under, such as `tailscale serve`'s; an `http://` public origin is
+  refused at start (R19). The desktop's own server does not start it.
+- **Session lifetime is R18's, not 6.3's:** 30 days from pairing, absolute,
+  with no sliding window.
+- **`studio-server pair`** reads `run/web.json` (0600 in the owner-only
+  `run/`), which the running listener writes with its port, origins and a
+  per-run key, and posts the key to `/pair/mint` with no `Origin`. A browser
+  cannot send that request (it always sends `Origin` on a POST, and it cannot
+  read the file), and the listener refuses the route when `Origin` is
+  present. `--origin` prints the link on a public origin instead. The server
+  does not print a pairing link at start: stderr may be a service's log.
+- **Tailnet pairing by approval (6.2, the six-digit flow) is not built.** A
+  browser on another tailnet device pairs with a one-time link minted for the
+  public origin (`studio-server pair --origin https://<node>.ts.net`). A
+  session paired on a public origin is never an owner session and never holds
+  `tools:offer`, whatever the code was minted for.
+- **Two sockets per tab, not one.** `/ws` carries the Studio protocol as
+  specified. `/ws/ipc` carries the `window.api` domains the server owns, over
+  the same IPC tunnel a desktop window uses when its server runs out of
+  process (phase 6, 6.2), as JSON frames. It admits owner sessions only, since
+  the tunnelled handlers have no scopes of their own. It goes away with the
+  tunnel, when phase 10 empties `SERVER_IPC_CHANNELS`. This is what the
+  parent's `createServerBackedApi` is on the web until then.
+- **A cookie-authenticated socket's hello** carries a placeholder credential;
+  the session cookie, checked with the exact `Origin` at the upgrade, is the
+  proof, and the connection's authenticator reads the session live (a revoked
+  or expired session is refused on its next frame, and its sockets are closed
+  with 4401 at once). An owner's tab is served as Studio's own view
+  (`ownWindow`): unredacted, with a window's request bounds.
+- **App routes.** Only `/` serves the app. Deep routes
+  (`/w/<id>/c/<id>`) are not built; `/api/*` and `/ws*` that match nothing
+  answer 404 rather than the app.
+- **The folder browser (6.5)** is a tunnelled channel, `web:browse-folders`,
+  that only a web tab's tunnel registers, rather than a `files.browse`
+  protocol method: an owner session is the only caller in v1, and it becomes a
+  method when the file domain moves in phase 10.
+
+### 14.2 The web build and the web `window.api` (2026-10-03)
+
+- **`npm run build:web`** builds `vite.web.config.ts` into `out/web/`, on the
+  renderer config the desktop build shares (`renderer.vite.config.ts`). It
+  builds `index`, `pair` (the pairing page, standalone) and `canvas-worker`,
+  and precompresses with brotli and gzip. CI builds it beside the desktop.
+  The server finds it at `out/web/` beside `out/server/` (`--web-root`
+  overrides). Not built: the boot skeleton, the web manifest, the dev-server
+  proxy (`--dev`).
+- **How the tab's `window.api` is installed.** Not by `STUDIO_CLIENT` alone:
+  an `import` of the shim from `main.tsx` is bundled into the app's entry
+  chunk, whose imports of shared chunks evaluate first, and the workspace
+  store reads `window.api` as its chunk loads. The web build makes the shim
+  an entry of its own (`web/installWebApi.ts`) and puts its module script
+  ahead of the app's in `index.html`; module scripts run in document order,
+  each graph whole. `STUDIO_CLIENT` remains, read where only a build can know
+  (the Electron paste bridge is not bound in a browser).
+- **`createWebApi`** spreads the preload's own api modules
+  (`src/preload/api-surface.ts`), whose IPC in the web build is the tab's
+  router (`web/webIpcRouter.ts`, swapped for `src/preload/ipc-router.ts` at
+  build time, as `electron` is swapped for a stand-in). The router is the
+  desktop's out-of-process router: a channel in `SERVER_IPC_CHANNELS` goes
+  over `/ws/ipc`, and every other channel is refused with
+  `UnsupportedOnThisClient`, noted once per channel (the missing-member
+  report, `window.__studioWebRefusals()`). Members a browser can do are
+  replaced, typed: the clipboard and links (R56), `openDir` (the folder
+  browser), the Studio ports (over `/ws`), "New window" (a new tab), and the
+  empty states the boot reads (no terminals, no window placement, signed out,
+  no third-party renderer entries (R61), no shell caches).
+- **Tabs and windows (3.5).** A plain tab is the server's `primary` workspace
+  window, as the desktop's first window is, so every plain tab shows the same
+  workspaces. "New window" opens a tab whose address carries a window id of
+  its own (`?windowId=`), which the renderer and the tunnel both read, and a
+  reload keeps. Minting a fresh id per tab would leave every new tab with an
+  empty sidebar.
+- **Reconnect** follows 3.5: the tunnel and the protocol client reconnect
+  with backoff, and at once on `online`, visible and `pageshow`. A 4401 close
+  returns the tab to `/pair`.
+
+### 14.3 Platforms and client capabilities (2026-10-03)
+
+- **`platform` stays, and means the client.** Rather than rename 53
+  references, `window.api.platform` is documented as the client's OS (the
+  browser's, in a tab) and `window.api.hostPlatform` is added for the
+  server's. The host-side reads (paths and their case rules, "Reveal in
+  Finder/Explorer", CLI hints and install commands, the WSL rules, terminals'
+  paths, the local machine's label) go through `hostPlatform()`; the keyboard,
+  modifier and window-chrome reads keep `platform`. The served page carries
+  the server's OS in a meta tag, which the tab's shim reads at install.
+- **`clientSupports()`** reads `window.api.clientCapabilities`; a `window.api`
+  that does not declare them (an older preload, a test's stand-in) is a
+  desktop window's. Converted in this pass: the window chrome (traffic-light
+  reserve, caption buttons, the menubar button, window material), the New
+  chat roster (no Agent or Terminal rows without `terminals`), paste and
+  resume in a terminal, and reveal in folder on the chat route. The rest of
+  the `typeof window.api.X` guards are unchanged; on the web their members
+  exist and refuse.
+
+### 14.4 Previews (2026-10-03)
+
+- **Tunnelled channels, not a `previews` namespace.** `previews.list`,
+  `open` and `close` are `web:previews:*` channels on a web tab's tunnel, with
+  `web:previews:changed` pushed to the session's tabs, for the reason 14.1
+  gives the folder browser: only an owner's tab calls them in v1, which is
+  R77's "owner sessions". A `previews:open` grant for tailnet pairings comes
+  with the protocol namespace.
+- **The listener checks `Host`** as Studio's does: a request that names
+  another host is answered 421 before the cookie is read.
+- **Ports.** `list` walks the server process's own descendants (the agents'
+  CLIs and what they started); an owner may type any port from 1024 that is
+  not one of the server's. Opening a port the session already previews
+  returns that preview with a fresh entry code.
+- **The pane.** Where a desktop window shows its browser pane, a tab whose
+  shell has `previews` and no `browser-pane` shows the preview pane: a port
+  picker (and a typed port), the path field, Reload and "Open in a new tab".
+  Not built: "Open in the desktop app", and HTTPS ports through
+  `tailscale serve` for a preview reached off loopback.
+
+### 14.5 The embed (2026-10-03)
+
+- **Built:** embed tokens (`mcemb_…`, kept as a hash, one conversation by
+  workspace and agent, read-only, 24 hours by default and 30 days at most,
+  revocable, closing their sockets with 4401); the iframe route
+  `/embed/conversation/<id>`, whose `frame-ancestors` is read from the embed
+  on every load (none: it cannot be framed); `POST /embed/session`, trading
+  the token for a single-use ticket; the `postMessage` wire with its row in
+  `docs/compatibility.md`; and `studio-server embed`, which mints one from the
+  command line (`--list` and `--revoke <id>` added in review, so an embed
+  made anywhere can be seen and taken back). An owner's tab can create, list and revoke embeds over its
+  tunnel (`web:embeds:*`), as 14.1 says of the folder browser; there is no
+  Settings surface for them yet.
+- **Held three ways.** The socket's grant is `conversation:read` and not an
+  owner's, so the router refuses every write and redacts what it reads; a
+  gate on the socket passes only `hello`, `unsub`, the one conversation's
+  `conversation.session` stream and its `loadEarlier`, `toolDetail` and
+  `turnDiff`, by workspace and agent and never by folder, and closes the
+  socket on anything else; and the embed expires.
+- **The packages are in 14.10.** The iframe page draws with the app's own
+  rows, under a read-only transport, so a row fixed in the chat is fixed in
+  the embed; the theme message carries the mode alone.
+- **Not built: frozen embeds** (`live: false`); asking for one is refused.
+
+### 14.6 The browser keymap (2026-10-03)
+
+As 4.2 says, with these as built: the swaps are applied where a command's
+defaults are read (the dispatcher, the effective-binding labels, the shortcut
+sheet and its conflict check), keyed on `clientSupports('app-menu')`; a
+person's own binding still wins. `Primary+Shift+P` is dropped rather than
+swapped (the palette keeps `Primary+K`), and the next and previous workspace
+chords become `Alt+Shift+]` and `Alt+Shift+[`. The installed-app (PWA) case
+keeps the same swaps, since the browser's own window still takes
+`Primary+W`.
+
+### 14.7 The web client's `canvas` (2026-10-03)
+
+- **As 3.8, with these as built.** An owner's tab, once the app has loaded,
+  opens a Studio connection of its own (`kind: 'web'`) and offers `canvas`
+  with the desktop's tool definitions, answered by the portable canvas
+  service running in the page over the server's `files.*` (boards followed
+  with `files.watch`). The worker is the bundle's `canvas-worker.html` in a
+  hidden same-origin frame, spoken to over `postMessage` (each end accepts
+  only the other's window on its own origin); the listener serves that page
+  with `frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`, every other
+  page keeping `'none'`. The service's two Node imports are swapped at build
+  time for browser stand-ins (a synchronous SHA-256, since Web Crypto's digest
+  is asynchronous, and POSIX paths); the board filesystem no longer uses
+  `Buffer`. The toolset is withdrawn on `pagehide` and offered again on a
+  restored `pageshow`, and `tools.focus` follows the tab's visibility.
+- **Not built here; the Canvas pane is in 14.16.** Export to a local folder; the canvas module's enable switch, read
+  as on; the canvas suite run through the web toolset, and the hidden-tab
+  test.
+
+### 14.8 What an owner's tab reaches, and the audit (2026-10-03)
+
+- **An allow-list, held on both sides.** An owner's web tab reaches the
+  tunnelled domains the web client draws: workspace sync and the registry,
+  launch settings, machines, the chats (`conversation:*`), command lists,
+  model discovery, backlog files, workspace backups, the automation status,
+  and the reads `credential:secrets:status`, `github:token-status`,
+  `github:list-repos`, `scheduled-agents:list` and `mark-seen`. It does not
+  reach, and the desktop app alone offers: pairing local apps
+  (`studio-local-apps:*`), the tailnet lane's administration (`tailnet:*`),
+  other machines (`mesh:*`), setting or clearing provider keys
+  (`conversation:secrets:set`/`clear`, `credential:secrets:set`/`clear`),
+  the GitHub token and clone, a provider's CLI sign-in, terminal hand-off,
+  scheduled agents' changes (they launch terminals), and the module bridge.
+  The spec names none of these for the web client, so v1 keeps them on the
+  desktop. The tab's router sends only allowed channels to the tunnel (the
+  rest are refused in the page and land in the missing-member report); the
+  server answers any other channel `DesktopOnly` before a handler sees it
+  (`src/shared/web-client.ts`, `src/server/web/web-tunnel-guard.ts`).
+- **Audited as a client.** An owner's tab is Studio's own view (unredacted,
+  a window's request bounds), but a client of the server all the same: its
+  protocol mutations are audited (`audited` on the connection), and so is
+  every tunnel call that changes something, under `web:<session>` and the
+  browser's name.
+- **JSON, out loud.** A value JSON would change (a `Date`, a `Map`, bytes,
+  `NaN`, a hole in a list) is refused where it is sent: in the tab, the call
+  that carried it fails; on the server, a result becomes the failed call it
+  is and a push is dropped with a log line naming the member.
+- **Subscriptions survive a reconnect.** The router keeps the window's live
+  conversation subscriptions and makes them again on each new port, in a
+  desktop window whose out-of-process server restarted as in a tab whose
+  socket came back.
+
+### 14.9 Devices, and pairing by approval (2026-10-03)
+
+- **Settings → Remote → Browsers**, in an owner's tab: every paired browser,
+  with where it paired from, when it was last seen and when its pairing ends,
+  and Remove, which closes its connections at once (a removed tab goes back
+  to `/pair`). "Pair another browser" makes a one-time link on one of the
+  server's origins, shown as text and as a QR code (the repo's own encoder).
+  Pending requests wait here.
+- **Pairing by approval (6.2)**, as specified, with the owner's prompt in
+  that Settings section rather than the desktop's: the pairing page asks
+  (`POST /pair/request`, the exact-Origin rule applies), shows six digits,
+  and polls `POST /pair/request/collect` with a secret only it holds, kept in
+  the tab's session storage; the owner types the digits; three wrong tries
+  decline; a request lives five minutes; eight wait at most. The session is
+  handed over once, with the cookie, on the first poll after approval.
+- **A browser paired over the tailnet is the owner's** (it reaches the
+  tunnel's allow-list, 14.8), because a session without the tunnel cannot
+  run the app at all. What 6.5, R77 and R79 withhold from tailnet pairings is
+  held where it is served: such a session never holds `tools:offer`, opens no
+  preview, and browses no folders (it chooses among the workspaces the server
+  knows). The pairing-link route keeps the same rule.
+- **The tailnet lane's and local apps' Settings are the desktop's**: a tab
+  hides them (`clientSupports('tailnet-admin')`, a capability added for it).
+- **Not built: "Open in browser" on the desktop.** The desktop's own server
+  runs no web listener (in process it cannot, and out of process it is not
+  composed with one), so there is no link for it to open; the Browsers
+  section is where a link and its QR code are made.
+
+### 14.10 The timeline and view packages (2026-10-03)
+
+- **`@sprintengine/conversation-timeline`** holds the projection, the
+  incremental projection, the timeline, the session event log, the todo
+  progress, the turn folds and step durations, moved unchanged with their
+  tests, and the helpers they read (records, mentions, the API-key source,
+  the prompt cache, subagents, and the two attachment types). The app's old
+  paths are one-line re-exports, so there is one implementation.
+  `stepWentWrong` moved out of the tool row first (`stepOutcome.ts`). Its
+  types are the conversation protocol's; `presentToolItem` and its kin are
+  now exported from that package's entry (the phone's pinned files are
+  unchanged). It adds `createConversationFollower`, the non-visual half of a
+  view over any source that follows a conversation (an agent SDK client's
+  `conversations`), and the protocol window check of 5.5. Not extracted: the
+  app's own session store in `useConversationSession.ts`, which the app keeps;
+  the follower is a new, smaller one for other clients.
+- **`@sprintengine/conversation-view`** is a React component over the
+  follower, read-only, in a shadow root it makes (or under `@layer
+  sprintengine` with `isolation="none"`), themed through `--se-*` tokens. Its
+  rows are its own compact ones, not the app's: the app's rows depend on
+  Studio's design system, Monaco-free but not Tailwind-free, and drawing them
+  outside the app is a larger move. Prose is drawn as React elements from a
+  small markdown subset, never as HTML. The token defaults are the semantic
+  tokens' values at release, written in the package rather than generated.
+- Both have a build, a README, a changelog and a pack check
+  (`test:studio-packages:pack`, which also compiles the view's example
+  against the packed tarballs), and an import-graph test. `docs/embedding-a-conversation.md`
+  covers the iframe and the component.
+
+### 14.11 The reload prompt (2026-10-03)
+
+- **What is compared** is the web bundle, not the server's commit. The web
+  build writes one id (the commit and a nonce) into every page as
+  `<meta name="sprintengine-web-build">`; `/api/session` answers the id of
+  the `index.html` served now, re-read when the file changes. A commit
+  comparison would miss a rebuild of the same commit, whose chunk names
+  differ, and would prompt for ever, reload or not, when the server and its
+  web bundle were built from different commits. The welcome frame and the
+  Studio protocol are unchanged.
+- **When the tab asks:** when its tunnel opens again after a drop (the
+  router dispatches `sprintengine:web-tunnel-reopened`), when the page comes
+  back online, visible or out of the back/forward cache, and every ten
+  minutes while it is seen. It offers once per new bundle.
+- **The prompt** is the app-update toast's browser form, recorded in the
+  toast's component.md: "Studio was updated", Later and Reload, kept until
+  answered.
+- Verified in Chromium: a tab open while `build:web` rewrote the bundle
+  showed the toast on its next check, and Reload loaded the new bundle.
+
+### 14.12 `tailscale serve` (2026-10-03)
+
+- **`studio-server serve --web --tailscale-serve [--tailscale-serve-port <n>]`**
+  asks tailscaled to publish the loopback listener at
+  `https://<node>.<tailnet>.ts.net` (port 443 unless asked otherwise) with
+  `tailscale serve --bg --https=<n> http://127.0.0.1:<port>`, through
+  `tailscale-serve.ts`. The listener stays on loopback and nothing is ever
+  published as plain HTTP or through funnel (R19). The published name joins
+  the listener's origins and the run file's, so `studio-server pair --origin`
+  and the Browsers settings' link work on it.
+- **Serve's configuration is not this server's to replace.** A port already
+  serving something else stops the start, with the `tailscale serve ... off`
+  command that frees it; the dev-server shares' ports (8443, 10000, ...) are
+  refused outright. The one exception is this server's own mapping from an
+  earlier run, recorded in `run/web-tailscale.json`, which a crash leaves
+  pointing at a port the listener no longer holds. A clean stop turns the
+  mapping off, only while it still points at this run's listener.
+- **Identity headers label, they do not admit.** `Tailscale-User-Login` (and
+  `-Name`, RFC 2047 words decoded) are read only on serve's own host name,
+  after this server set serve up; the loopback socket is the only way in, so
+  the remaining forger is a local program, which the six digits still stop.
+  A pairing request through serve shows "signed in to Tailscale as ..." in
+  the owner's Browsers settings. Sessions do not record the login.
+- **Not smoke-tested against a live tailscaled** on the build machine: serve
+  configuration outlives the process and the machine is shared. The tests
+  drive a stand-in daemon that keeps a serve table; the CLI refusals were run
+  against the built server.
+
+### 14.13 The browser smoke test (2026-10-03)
+
+- **`npm run test:web:smoke`** (`scripts/web-smoke.mjs`, and the CI job
+  `web-smoke`) runs the built server, on a fresh data directory, serving the
+  built web bundle to headless Chromium through `playwright-core`. It walks
+  a subset of 8.3: pairing by fragment (the code leaves the address and the
+  history; the cookie is HttpOnly and SameSite=Strict), the boot under CSP
+  with no page error and only the known refusals (a member refused at boot
+  that the list does not name fails it), pairing by approval with a wrong
+  code refused first, removal sending the tab to `/pair` at once, and the
+  reload prompt for a bundle replaced under an open tab. A drop on the
+  composer is in it since 14.14.
+- **axe** (`axe-core`, WCAG 2 A and AA) runs on the pairing page and the
+  app's first screen and fails on anything critical; serious findings are
+  printed. Its first run found three critical ones in the sidebar, shared
+  with the desktop, fixed here: the resize separator is focusable, so it
+  says its position (`aria-valuenow` and its bounds), and the sidebar tree's
+  sections are its groups, so its rows sit in a tree.
+- **Not covered yet:** the chat round trip with the mock provider, the
+  socket killed mid-turn, two tabs, the embed framed cross-origin,
+  previews and the canvas, and WebKit and Firefox. Those were checked by
+  hand in Chromium while building (14.2 to 14.7) and stay on the 8.3 list.
+
+### 14.14 Dropped files without a path (2026-10-03)
+
+- **`POST /api/upload?name=<file name>`** takes one file's bytes as the
+  body, from an owner session only (a non-owner session is refused 403, no
+  session 401, and the exact-origin rule applies as to every POST), 50 MB at
+  most, refused by its declared length or as it arrives. It answers
+  `{ ok, path, bytes }`. The file is saved at
+  `<data dir>/web-uploads/<session id>/<date>-<random>/<name>`, 0600 in a
+  0700 directory, with the file's own name made a safe single segment.
+  Uploads are kept a week and pruned when the next is saved; removing a
+  browser removes its uploads. Tickets are not accepted: the route is for a
+  tab, and an SDK client sends paths it already has.
+- **The client capability `file-uploads`** (web only) and
+  `window.api.uploadFiles(files)`, which a desktop window refuses. Both
+  composers (the chat's and New chat's) sort a drop as before: paths typed,
+  images attached as base64. A file with no path, which in a tab is every
+  non-image file, is uploaded where `file-uploads` is supported and its
+  server path typed into the message, quoted as a dropped path is; the
+  desktop keeps its refusal message. An upload's refusal shows where the
+  refusal did.
+- Not built: drops onto a terminal or the file explorer in a tab, which the
+  desktop serves by path and a tab refuses; the paste of a file.
+- Verified in Chromium against the built server: a text file dropped on the
+  chat composer and on New chat's was saved and its path typed (the smoke
+  test's drop step).
+
+### 14.15 The narrow layout (2026-10-03)
+
+- **Below 640 px** (`useNarrowViewport`, `(max-width: 639px)`) the shell's
+  row switches layout with the same components (owner decision 5): the
+  content (the chat) has the full width, and the sidebar toggle shows the
+  sidebar, with the rail beside it, at the full width instead. Choosing a
+  chat, opening New chat or another surface, or crossing back over 640 px
+  shows the content again.
+- **Not a drawer over the page.** The design system's drawer comes from the
+  right and covers the page on a scrim; a left drawer would be a new
+  component argued in the principles first. Taking turns at the full width
+  needs no overlay, no scrim and no focus trap, and a phone shows one of the
+  two at a time either way.
+- The sidebar stays mounted while the content has the screen, so the tree
+  keeps its scroll and folds; on a wide window its wrapper is
+  `display: contents`, so the desktop's row is unchanged. The desktop's
+  persisted `sidebarCollapsed` is not touched, so a phone does not fold the
+  sidebar of the desktop app sharing the server's settings.
+- Not built: anchoring the composer to `visualViewport` under a software
+  keyboard (7.2); any surface other than the chat route reworked for a
+  phone. The smoke test walks the switch at 390 px.
+
+### 14.16 The Canvas pane in a tab (2026-10-03)
+
+- **The pane speaks to the service the tab already runs.** A desktop
+  window's Canvas pane reaches the shell's canvas service over `canvas:*`
+  IPC; a tab runs the same service in the page for its `canvas` toolset
+  (14.7), so `createWebApi` answers the pane's members from it
+  (`web/canvas/webCanvasPane.ts`) and no `canvas:*` channel is refused. The
+  tab is the service's one subscriber: scene and presence pushes and an
+  agent's `canvas.open` reach the pane's listeners in the page, so
+  `canvas.open` now reveals the board in the tab. A call made before the
+  toolset starts waits for it; a tab that runs no service (not an owner's,
+  or a server without board files) is answered `forbidden` with a sentence.
+- **One set of checks.** The path, shape and size checks the desktop's IPC
+  made on what the pane sends moved to `shared/canvas/commit-checks.ts`
+  (`canvasRefOf`, `canvasCommitOf`), which both paths call; the IPC's
+  behaviour is unchanged.
+- **Refused in a tab:** export to a folder (the server's folders are not
+  the person's to pick from a browser, and a browser download is not built)
+  and reveal in a file manager.
+- Verified in Chromium against the built server: an agent's `canvas.open`
+  over MCP revealed a new board in the tab's pane and its `canvas.edit`
+  appeared there. The editor's last-resort font source, a public CDN, is
+  refused by the page's CSP as intended. The CJK face (Xiaolai) was not in
+  the bundle; in review it was added to the web build alone, as R48 rules
+  (its 209 unicode-range subsets, about 12 MB, under `fonts/Xiaolai/`, of
+  which a page fetches only what its text needs). The desktop renderer still
+  leaves it out: that is twelve megabytes in every installer, R48's own
+  change rather than the web client's.

@@ -49,6 +49,10 @@ export const filesystemApi = {
       return ''
     }
   },
+  // A desktop window reads a dropped file's own path; only a browser uploads.
+  uploadFiles: async (): Promise<string[]> => {
+    throw new Error('Uploading is the web client’s; a desktop window reads a dropped file by its path.')
+  },
   checkWorkspaceFolder: (path: string): Promise<WorkspaceFolderCheckResult> =>
     ipcRenderer.invoke('fs:check-workspace-folder', path),
   detectProjectLogo: (folderPath: string): Promise<ProjectLogo | null> =>
@@ -124,6 +128,7 @@ export const filesystemApi = {
   | 'pathExists'
   | 'statPath'
   | 'getPathForFile'
+  | 'uploadFiles'
   | 'checkWorkspaceFolder'
   | 'detectProjectLogo'
   | 'memoryResolveRoot'

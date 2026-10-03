@@ -11,8 +11,18 @@
 //
 // `retry: 'once'` marks an idempotent read the preload sends again, once, on
 // the next port when the server restarts under it.
+//
+// `subscription` marks a channel that registers a subscription on the server,
+// keyed to the window's port: a new port (the server restarted, a web tab's
+// socket reconnected) starts with none, so the router makes each live one
+// again on the next port. The id it is undone by is either one the caller
+// chose (in the first argument's `subscriptionId`) or one the server answered
+// with; for the latter, the router keeps the caller's id and sends the
+// server's current one when it is undone.
 
-export type ServerIpcChannel = { retry?: 'once' }
+export type ServerIpcSubscription = { unsubscribe: string; id: 'argument' | 'result' }
+
+export type ServerIpcChannel = { retry?: 'once'; subscription?: ServerIpcSubscription }
 
 export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   'automation:get-status': { retry: 'once' },
@@ -39,7 +49,9 @@ export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   'conversation:approval-rules:revoke': {},
   'conversation:attachment': { retry: 'once' },
   'conversation:delete': {},
-  'conversation:events:subscribe': {},
+  'conversation:events:subscribe': {
+    subscription: { unsubscribe: 'conversation:events:unsubscribe', id: 'result' },
+  },
   'conversation:events:unsubscribe': {},
   'conversation:plan-document': { retry: 'once' },
   'conversation:providers:list': { retry: 'once' },
@@ -52,7 +64,9 @@ export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   'conversation:secrets:set': {},
   'conversation:secrets:status': { retry: 'once' },
   'conversation:session:earlier': { retry: 'once' },
-  'conversation:session:subscribe': {},
+  'conversation:session:subscribe': {
+    subscription: { unsubscribe: 'conversation:session:unsubscribe', id: 'argument' },
+  },
   'conversation:session:unsubscribe': {},
   'conversation:sessions:interrupt': {},
   'conversation:sessions:list': { retry: 'once' },

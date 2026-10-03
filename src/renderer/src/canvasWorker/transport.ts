@@ -22,6 +22,7 @@ import type {
   CanvasWorkerResponse,
 } from '../../../shared/canvas/worker-protocol'
 import { isRecord } from '../../../shared/records'
+import { hasSameOriginParent, startParentFrameTransport } from '../web/canvas/parentFrameTransport'
 
 export type CanvasWorkerHandler = (request: CanvasWorkerRequest) => Promise<CanvasWorkerResponse>
 
@@ -30,8 +31,10 @@ export type CanvasWorkerTransport = { attached: boolean; detach: () => void }
 /**
  * Subscribe, then announce readiness.
  *
- * Returns without attaching when there is no preload — which is how this page
- * is opened in a plain browser to be driven through `window.__canvasWorker`.
+ * With no preload, the document is either a web tab's hidden frame, which
+ * serves its parent page over `postMessage` (phase 9 spec, 3.8), or a page
+ * opened in a plain browser to be driven through `window.__canvasWorker`,
+ * which attaches nothing.
  */
 export function startCanvasWorkerTransport(
   handle: CanvasWorkerHandler,
@@ -39,6 +42,10 @@ export function startCanvasWorkerTransport(
 ): CanvasWorkerTransport {
   const api = typeof window === 'undefined' ? undefined : window.api
   if (!api || typeof api.onCanvasWorkerRequest !== 'function' || typeof api.canvasWorkerReady !== 'function') {
+    if (typeof window !== 'undefined' && hasSameOriginParent(window)) {
+      const detach = startParentFrameTransport((request, respond) => serve(handle, respond, request), report)
+      return { attached: true, detach }
+    }
     return { attached: false, detach: () => {} }
   }
 

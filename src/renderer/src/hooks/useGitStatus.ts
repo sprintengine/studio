@@ -3,6 +3,7 @@ import { logPerfEvent } from '../utils/perfDiagnostics'
 import { isWindowVisible, onWindowVisibilityChange } from '../utils/windowActivity'
 import { isWatchEventIgnored } from '../../../shared/file-watch-event'
 import type { FileWatchEvent } from '../../../shared/ipc/filesystem'
+import { hostPlatform } from '../clientCapabilities'
 
 type UseGitStatusResult = {
   repoRoot: string | null
@@ -325,7 +326,7 @@ export function gitStatusWatchRefreshDelay(now: number, lastWatchRefreshAt: numb
 
 function startGitStatusWatch(subscription: GitStatusSubscription): void {
   if (subscription.watchStarting || subscription.stopWatching || typeof window.api.watchPath !== 'function') return
-  if (window.api.platform === 'win32') {
+  if (hostPlatform() === 'win32') {
     logPerfEvent('GitStatus', 'watch-disabled', {
       repoRoot: subscription.repoRoot,
       reason: 'Windows recursive fs.watch can retrigger Git status refresh loops.',

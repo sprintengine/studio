@@ -170,7 +170,7 @@ export function WorkspaceHeader<MenuItem extends string>({
         ) : null}
         {sidebarCollapsed ? (
           <div className="flex shrink-0 items-center gap-0.5 pl-1.5">
-            {!isMac ? <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} /> : null}
+            {!isMac && menuItems.length > 0 ? <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} /> : null}
             <OpenSidebarButton onToggle={onToggleSidebar} />
             <LauncherSearchButton onOpen={onOpenSearch} />
             <NewChatButton onClick={onNewChat} />

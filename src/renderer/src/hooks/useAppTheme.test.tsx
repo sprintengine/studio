@@ -63,8 +63,7 @@ test('the mounted hook follows the store as the settings change', async () => {
 })
 
 test('the boot script stamps the persisted chat appearance before the first paint, as the hook would', () => {
-  const page = readFileSync(join(process.cwd(), 'src', 'renderer', 'index.html'), 'utf8')
-  const boot = /<script>([\s\S]*?)<\/script>/.exec(page)![1]!
+  const boot = readFileSync(join(process.cwd(), 'src', 'renderer', 'public', 'boot-theme.js'), 'utf8')
   const stamped = (appearance: Record<string, unknown>) => {
     applyChatAppearance(html, 100, 'full')
     html.removeAttribute('data-chat-width')

@@ -38,6 +38,7 @@ import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalFindBar } from '../terminal/TerminalFindBar'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
+import { hostPlatform } from '../../clientCapabilities'
 
 interface Props {
   workspaceId: string
@@ -293,7 +294,7 @@ export default function PlainTerminalPanel({
         // way; a folder inside a distribution's share says which one.
         wslDistro: () =>
           terminalWslDistro({
-            platform: window.api.platform,
+            platform: hostPlatform(),
             roots: [oscExecutionRoot ?? launchExecutionRoot, linkRoots.workspaceRoot],
           }),
         inspectPath,

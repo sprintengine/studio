@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Conversation · SprintEngine Studio</title>
+    <!--
+      The embeddable conversation view (phase 9 spec, 5.4): one conversation,
+      read-only, in an iframe another page frames. The server serves it at
+      /embed/conversation/<id>, framed only by the embed's own origins. Its
+      token arrives in the fragment (or from the framing page by postMessage)
+      and is traded for a single-use socket ticket.
+    -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/web/embed/embedMain.tsx"></script>
+  </body>
+</html>

@@ -43,7 +43,7 @@ import {
   dataTransferHasFiles,
   imageFilesFromDataTransfer,
   pastedImagePaths,
-  pathlessDropMessage,
+  pathsForPathlessFiles,
   quotePromptPath,
   readPastedImagePaths,
   sortDroppedFiles,
@@ -200,6 +200,7 @@ export type {
   TranscriptToolEntry,
   UserTurn,
 } from './agentChat/conversationProjection'
+import { hostPlatform } from '../../clientCapabilities'
 
 // The DataTransfer plumbing lives in utils/imageFileTransfer (shared with the
 // new-chat launch surface); re-exported here because this module declared it
@@ -2336,7 +2337,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           onRetry: retry,
           retryDisabled: composerDisabled,
           onSignIn,
-          platform: window.api.platform,
+          platform: hostPlatform(),
           checkpointsEnabled: capabilities?.checkpoints === true,
           conversationRunning: projection.activeTurn,
           checkpointSeqs: stableCheckpointSeqs,
@@ -2459,7 +2460,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       const { paths, images, pathless } = sortDroppedFiles(event.dataTransfer, imagesEnabled)
       if (paths.length > 0) insertComposerPaths(paths)
       if (images.length > 0) void attachFiles(images)
-      else setActionError(pathless.length > 0 ? pathlessDropMessage(pathless) : null)
+      else setActionError(null)
+      // No path here: a browser uploads them and types the server's paths.
+      if (pathless.length > 0)
+        void pathsForPathlessFiles(pathless).then(({ paths: uploaded, message }) => {
+          if (uploaded.length > 0) insertComposerPaths(uploaded)
+          if (message && images.length === 0) setActionError(message)
+        })
       composerRef.current?.focus()
     },
   }

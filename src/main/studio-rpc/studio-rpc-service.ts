@@ -87,6 +87,17 @@ export type StudioRpcService = {
    * `connectShell` serves the desktop's, for a ticket good once.
    */
   connectShellStream(stream: Duplex): { connectionId: string; ticket: string }
+  /**
+   * Serve a browser's socket from the web listener (phase 9): a web tab that
+   * proved its session cookie at the upgrade, or a client that spent a
+   * ticket. The authenticator is the session's or the ticket's; `ownWindow`
+   * is true only for an owner's web tab, which is the app's own chat view in a
+   * browser and asks what a window asks.
+   */
+  connectWeb(
+    stream: Duplex,
+    input: { authenticator: StudioAuthenticator; ownWindow: boolean },
+  ): { connectionId: string }
   /** The chat surface, from the handlers the app's own IPC serves its windows with. */
   provideChat(chat: StudioChatBackend): void
   /** Which agents a paired app's tools reach. */
@@ -432,6 +443,15 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
         shell: true,
       })
       return { connectionId: connection.connectionId, ticket }
+    },
+    connectWeb(stream, input) {
+      // A browser is a client of this server, whatever view it draws: audited.
+      const connection = hub().attach(stream, {
+        authenticator: input.authenticator,
+        ownWindow: input.ownWindow,
+        audited: true,
+      })
+      return { connectionId: connection.connectionId }
     },
     provideChat(next) {
       chat = next

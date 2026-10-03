@@ -9,6 +9,7 @@ import { bracketedPaste } from '../../utils/terminalDrop'
 import { GhostButton, OutlineButton } from '../ui/Buttons'
 import { RowButton } from '../ui/RowButton'
 import { WorkingMark } from '../ui/WorkingMark'
+import { hostPlatform } from '../../clientCapabilities'
 
 /** The listbox the palette's field controls while the Skills tab is showing. */
 export const INSTALLED_SKILLS_RESULTS_ID = 'installed-skills-results'
@@ -116,7 +117,7 @@ export const InstalledSkillsPanel = forwardRef<InstalledSkillsPanelHandle, Props
   // reads only when told. The session says where it runs; without one, the
   // workspace's machine does.
   const hostId = session ? session.hostId : workspaceHostId
-  const wsl = session ? session.pathStyle === 'wsl' : window.api.platform === 'win32' && isWslHostId(workspaceHostId)
+  const wsl = session ? session.pathStyle === 'wsl' : hostPlatform() === 'win32' && isWslHostId(workspaceHostId)
   const contextKey = JSON.stringify([root, pluginId, wsl, hostId ?? null])
   const request = (): InstalledSkillsInput => ({
     workspaceRoot: root,

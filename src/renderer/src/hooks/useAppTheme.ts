@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { clientSupports } from '../clientCapabilities'
 import {
   colorSchemeForResolvedTheme,
   DEFAULT_CHAT_CONTRAST,
@@ -36,7 +37,7 @@ function resolveTheme(theme: AppTheme): ResolvedAppTheme {
 // bare :root is light, ours is Dark), so a `data-theme` written without a
 // matching `data-mode` resolves every aliased surface to the wrong mode.
 //
-// The boot script in src/renderer/index.html stamps the same pair before any
+// The boot script in src/renderer/public/boot-theme.js stamps the same pair before any
 // CSS evaluates; it cannot import this module, so it repeats the rule.
 function applyThemeAttributes(resolved: ResolvedAppTheme): void {
   if (typeof document === 'undefined') return
@@ -67,8 +68,14 @@ function themeCanvasColor(): string | undefined {
   return /^#[0-9a-f]{6}$/i.test(value) ? value : undefined
 }
 
+// A shell with no native window to dress (a browser tab) is always solid:
+// glass there would be a transparent canvas over nothing.
+function windowMaterialHere(material: WindowMaterial): WindowMaterial {
+  return clientSupports('window-controls') ? effectiveWindowMaterial(material, window.api?.platform) : 'solid'
+}
+
 function pushWindowMaterial(material: WindowMaterial): void {
-  const effective = effectiveWindowMaterial(material, window.api?.platform)
+  const effective = windowMaterialHere(material)
   // Mirror to main: persists for pre-boot application on the next launch and
   // re-applies the window-level material to live windows. Best-effort outside
   // Electron.
@@ -79,7 +86,7 @@ function applyWindowMaterial(material: WindowMaterial): void {
   if (typeof document === 'undefined') return
   // Glass is macOS-only and resolves to tinted elsewhere, so a synced/copied
   // profile can never leave a translucent canvas over a non-vibrant window.
-  const effective = effectiveWindowMaterial(material, window.api?.platform)
+  const effective = windowMaterialHere(material)
   if (effective === 'solid') {
     document.documentElement.removeAttribute('data-window-material')
   } else {
@@ -121,7 +128,7 @@ export function applyChatAppearance(root: HTMLElement, contrast: number, width: 
 
 // Drives the <html data-theme="…"> attribute from the persisted preference.
 // Mount once near the root of the React tree. The boot-time script in
-// index.html applies the same logic synchronously to avoid a flash of the
+// public/boot-theme.js applies the same logic synchronously to avoid a flash of the
 // wrong theme before React mounts.
 export function useAppTheme(): void {
   const theme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
@@ -133,7 +140,7 @@ export function useAppTheme(): void {
     applyWindowMaterial(windowMaterial)
   }, [windowMaterial])
 
-  // Before paint, as the boot script in index.html stamps them before the
+  // Before paint, as the boot script (public/boot-theme.js) stamps them before the
   // first one: a chat must not draw a frame at the old width or contrast.
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return

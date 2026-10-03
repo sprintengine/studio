@@ -84,7 +84,11 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'unit',
-          include: ['src/**/*.test.{ts,tsx}', 'packages/*/test/**/*.test.ts', 'resources/marketplace/**/*.test.ts'],
+          include: [
+            'src/**/*.test.{ts,tsx}',
+            'packages/*/test/**/*.test.{ts,tsx}',
+            'resources/marketplace/**/*.test.ts',
+          ],
           exclude: ['**/node_modules/**', '**/dist/**', ...SERIAL],
         },
       },

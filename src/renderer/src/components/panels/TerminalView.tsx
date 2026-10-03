@@ -65,6 +65,7 @@ import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
+import { hostPlatform } from '../../clientCapabilities'
 
 interface Props {
   workspaceId: string
@@ -574,7 +575,7 @@ export default function TerminalView({
         // the root.
         wslDistro: () =>
           terminalWslDistro({
-            platform: window.api.platform,
+            platform: hostPlatform(),
             hostId: currentContext().hostId,
             roots: [launchExecutionRoot, linkRoots.workspaceRoot],
           }),

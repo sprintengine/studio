@@ -12,6 +12,7 @@ import {
 import { normalizeSelectedCli } from '../../../store/slices/settingsSlice'
 import { conversationProviderForCli } from '../../../../../shared/conversation-harness'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
+import { clientSupports } from '../../../clientCapabilities'
 
 // The agent a composer surface picks. The engine (CLI/model) is bound to the
 // selection and read from the store's remembered defaults, so a confirm only
@@ -76,14 +77,17 @@ export function composerRosterRows({
   showTerminal,
   conversationAvailable,
   noAgentCliInstalled,
+  terminals = true,
 }: {
   showTerminal: boolean
   conversationAvailable: boolean
   noAgentCliInstalled: boolean
+  /** Whether this shell has terminals at all. A browser tab does not (ruling a): only the chat row is offered there. */
+  terminals?: boolean
 }): ComposerRow[] {
   const rows: ComposerRow[] = []
-  if (showTerminal) rows.push({ key: 'terminal', kind: 'terminal' })
-  if (!noAgentCliInstalled) rows.push({ key: 'general', kind: 'general' })
+  if (showTerminal && terminals) rows.push({ key: 'terminal', kind: 'terminal' })
+  if (!noAgentCliInstalled && terminals) rows.push({ key: 'general', kind: 'general' })
   if (conversationAvailable) rows.push({ key: 'conversation', kind: 'conversation' })
   return rows
 }
@@ -236,7 +240,13 @@ export function useAgentComposer({
   const noAgentCliInstalled = pluginCatalogStatus === 'ready' && agentCliOptions.length === 0
 
   const allRows = React.useMemo<ComposerRow[]>(
-    () => composerRosterRows({ showTerminal, conversationAvailable, noAgentCliInstalled }),
+    () =>
+      composerRosterRows({
+        showTerminal,
+        conversationAvailable,
+        noAgentCliInstalled,
+        terminals: clientSupports('terminals'),
+      }),
     [showTerminal, conversationAvailable, noAgentCliInstalled],
   )
 

@@ -18,6 +18,7 @@ a private data structure, and changing one is not a local edit.**
 | MCP                                                                                   | dated strings, newest first              | every entry in the list                              | `src/shared/mcp/protocol.ts`                    |
 | Module host API — an installed extension built against `@sprintengine/module-sdk`     | `HOST_API_VERSION` (integer)             | `HOST_API_MIN_SUPPORTED` .. current                  | `src/shared/modules/host-api.ts`                |
 | Studio protocol — a client on Studio's owner socket (`@sprintengine/studio-protocol`) | `STUDIO_PROTOCOL_VERSION` (integer)      | `STUDIO_PROTOCOL_MIN_SUPPORTED` .. current           | `packages/studio-protocol/src/handshake.ts`     |
+| Embed `postMessage` — a page framing an embedded conversation (`se.embed`)            | `EMBED_PROTOCOL_VERSION` (integer, `v`)  | current only (one version of slack when 2 ships)     | `src/renderer/src/web/embed/embedProtocol.ts`   |
 
 One more version number is near these and is **not** a wire window: the
 backlog item schema version is a file format, and is not negotiated with a peer.
@@ -222,6 +223,26 @@ typed over the method map so a method without one does not compile.
 The pack check (`npm run test:studio-packages:pack`) installs the packed
 tarball beside the conversation protocol's and checks both module systems and
 Node16 declarations.
+
+### The embed's `postMessage` wire
+
+A page that frames Studio's embedded conversation view
+(`/embed/conversation/<id>`) talks to the frame by `postMessage`, and the two
+update separately: the frame is served by whichever Studio the embed points
+at, the page by whoever wrote it. Every message carries an integer `v`, now 1.
+
+- The frame posts `ready` (with the embed's id), `resize` (its content
+  height), `link` (a link the person clicked, for the page to open), `state`
+  (how many turns, and whether one is running) and `error` (a code). It posts
+  only to the embed's registered origins, never `'*'`.
+- The page may post `theme` (`light`, `dark` or `system`), `token` (the
+  embed's token, for a page that keeps it out of the frame's address) and
+  `scrollTo` (a turn). The frame accepts a message only from its parent and
+  from a registered origin; it ignores a `type` it does not know and answers
+  a `v` it does not know with `error { code: 'unsupported_version' }`.
+- No message makes the frame send, answer or navigate. A new message type is
+  additive and needs no bump; a change to an existing message's meaning bumps
+  `v`, and the frame then accepts the old and the new for one version.
 
 ## Changing a wire format
 

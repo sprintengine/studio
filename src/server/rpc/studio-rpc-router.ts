@@ -900,7 +900,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       // Every mutation is audited, a refused one included: a refusal at the
       // scope or the ceiling is what this log exists to show. Studio's own
       // windows are the app rather than a client of it, and are left out.
-      if (spec.mutation && !context.ownWindow) {
+      if (spec.mutation && (context.audited ?? !context.ownWindow)) {
         const created =
           answer.ok && method === 'conversation.create'
             ? (answer.result as StudioMethodResult<'conversation.create'>).conversation
