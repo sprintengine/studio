@@ -116,3 +116,77 @@ test("serve's identity headers are believed only on serve's own name", () => {
     tailnetIdentityOf({ 'tailscale-user-login': 'a\u0007b' }, 'mac-mini.tail1234.ts.net', ['mac-mini.tail1234.ts.net']),
   ).toEqual({ login: 'ab', name: null })
 })
+
+function serveStatusWith(port: number, extra: Record<string, unknown>) {
+  return {
+    async read(args: readonly string[]) {
+      if (args[0] === 'status')
+        return JSON.stringify({
+          BackendState: 'Running',
+          Self: {
+            ID: 'self',
+            HostName: 'mac-mini',
+            DNSName: 'mac-mini.tail1234.ts.net.',
+            TailscaleIPs: ['100.64.0.1'],
+          },
+          Peer: {},
+        })
+      if (args[0] === 'serve') return JSON.stringify(extra)
+      return null
+    },
+    runs: [] as string[],
+    async run(args: readonly string[]): Promise<TailscaleRun> {
+      this.runs.push(args.join(' '))
+      return { ok: true, stdout: '' }
+    },
+    port,
+  }
+}
+
+test('a port whose serve config holds more than one root proxy is never written to', async () => {
+  const host = 'mac-mini.tail1234.ts.net:443'
+  for (const config of [
+    // A handler on a path: `serve --https=443 <target>` would keep it, and `off` would clear it.
+    { TCP: { 443: { HTTPS: true } }, Web: { [host]: { Handlers: { '/docs': { Path: '/srv/docs' } } } } },
+    // A root that is not a loopback proxy.
+    { TCP: { 443: { HTTPS: true } }, Web: { [host]: { Handlers: { '/': { Proxy: 'http://192.168.1.20:80' } } } } },
+    // A raw TCP forward on the port.
+    { TCP: { 443: { TCPForward: '127.0.0.1:22' } } },
+    // A foreground session's config.
+    { Foreground: { s1: { Web: { [host]: { Handlers: { '/': { Text: 'hi' } } } } } } },
+  ]) {
+    const daemon = serveStatusWith(443, config)
+    await expect(
+      serveWebOnTailnet({ localPort: 4791, servePort: 443, runDir, deps: daemon as unknown as TailscaleServeDeps }),
+    ).rejects.toThrow(/already serves something else/u)
+    expect(daemon.runs).toEqual([])
+  }
+})
+
+test('a port with funnel on is refused: Studio is never on the internet', async () => {
+  const host = 'mac-mini.tail1234.ts.net:443'
+  const daemon = serveStatusWith(443, { AllowFunnel: { [host]: true } })
+  await expect(
+    serveWebOnTailnet({ localPort: 4791, servePort: 443, runDir, deps: daemon as unknown as TailscaleServeDeps }),
+  ).rejects.toThrow(/funnel is on/u)
+  expect(daemon.runs).toEqual([])
+})
+
+test('the port is left on at stop when someone added to it since', async () => {
+  const daemon = fakeTailscale()
+  const serve = await serveWebOnTailnet({ localPort: 4791, servePort: 443, runDir, deps: daemon.deps })
+  const read = daemon.deps.read!
+  daemon.deps.read = async (args, timeoutMs) => {
+    if (args[0] === 'serve' && args[1] === 'status')
+      return JSON.stringify({
+        Web: {
+          'mac-mini.tail1234.ts.net:443': {
+            Handlers: { '/': { Proxy: 'http://127.0.0.1:4791' }, '/docs': { Path: '/srv/docs' } },
+          },
+        },
+      })
+    return read(args, timeoutMs)
+  }
+  await serve.stop()
+  expect(daemon.calls.some((call) => call.endsWith('off'))).toBe(false)
+})

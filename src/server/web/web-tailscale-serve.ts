@@ -1,14 +1,15 @@
 import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { runTailscale } from '../../main/automation/tailnet/tailscale-cli'
 import {
   describeServeDiagnostic,
-  readServedPortsOrNull,
   SERVE_PORT_LADDER,
   shareLocalPort,
   unshareServePort,
   type TailscaleServeDeps,
 } from '../../main/automation/tailnet/tailscale-serve'
+import { isRecord } from '../../shared/records'
 
 // The web client on the tailnet, over HTTPS (R19; phase 9 spec, 6.6).
 // `studio-server serve --web --tailscale-serve` asks tailscaled to publish the
@@ -25,8 +26,15 @@ import {
 // (recorded in `run/web-tailscale.json`), which a crash can leave behind
 // pointing at a port the listener no longer holds.
 //
-// On a clean stop the mapping is turned off, and only while it still points
-// at this run's listener.
+// "Something else" is anything serve holds on the port beyond one root proxy
+// to this listener: another root target, a handler on a path, a raw TCP
+// forward, or funnel. `serve --https=<n> <target>` replaces the root of a
+// port and `serve --https=<n> off` clears the whole port, so a port that
+// carries more than our one mapping is never written to; and a port with
+// funnel on would publish Studio on the internet, which R19 forbids.
+//
+// On a clean stop the mapping is turned off, and only while it is still this
+// run's listener alone on the port.
 
 export const DEFAULT_TAILSCALE_SERVE_PORT = 443
 const RECORD_FILENAME = 'web-tailscale.json'
@@ -74,6 +82,77 @@ function forgetRecord(runDir: string): void {
   }
 }
 
+const SERVE_STATUS_TIMEOUT_MS = 4000
+
+/** What serve holds on one HTTPS port, read from `tailscale serve status --json`. */
+export type ServePortUse = {
+  /** The loopback port the root of the port proxies to, when it does. */
+  rootLoopbackPort: number | null
+  /** Anything else on the port: a path handler, a non-loopback or non-proxy root, a TCP forward. */
+  others: boolean
+  /** Funnel is on for the port: what it serves is on the internet. */
+  funnel: boolean
+}
+
+/** Exported for the test: one port's use across serve's config, its foreground sessions included. */
+export function servePortUse(raw: string, servePort: number): ServePortUse {
+  const use: ServePortUse = { rootLoopbackPort: null, others: false, funnel: false }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    // Unreadable is not "free": the caller refuses.
+    return { ...use, others: true }
+  }
+  if (!isRecord(parsed)) return use
+  const configs: Record<string, unknown>[] = [parsed]
+  if (isRecord(parsed.Foreground))
+    for (const value of Object.values(parsed.Foreground)) if (isRecord(value)) configs.push(value)
+  const onPort = (key: string) => key.slice(key.lastIndexOf(':') + 1) === String(servePort)
+  for (const config of configs) {
+    if (isRecord(config.TCP)) {
+      const tcp = config.TCP[String(servePort)]
+      // `HTTPS: true` is what a web handler on the port looks like; anything else forwards raw TCP.
+      if (isRecord(tcp) && (tcp.HTTPS !== true || tcp.TCPForward !== undefined)) use.others = true
+    }
+    if (isRecord(config.AllowFunnel)) {
+      for (const [key, on] of Object.entries(config.AllowFunnel)) if (onPort(key) && on === true) use.funnel = true
+    }
+    if (!isRecord(config.Web)) continue
+    for (const [key, entry] of Object.entries(config.Web)) {
+      if (!onPort(key)) continue
+      const handlers = isRecord(entry) && isRecord(entry.Handlers) ? entry.Handlers : {}
+      for (const [path, handler] of Object.entries(handlers)) {
+        const rootPort =
+          path === '/' && isRecord(handler) && typeof handler.Proxy === 'string' ? loopbackPortOf(handler.Proxy) : null
+        if (rootPort !== null && use.rootLoopbackPort === null) use.rootLoopbackPort = rootPort
+        else use.others = true
+      }
+    }
+  }
+  return use
+}
+
+function loopbackPortOf(proxy: string): number | null {
+  let url: URL
+  try {
+    url = new URL(proxy)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'http:') return null
+  if (url.hostname !== '127.0.0.1' && url.hostname !== 'localhost' && url.hostname !== '[::1]') return null
+  if (url.pathname !== '/' && url.pathname !== '') return null
+  const port = Number(url.port)
+  return Number.isInteger(port) && port > 0 ? port : null
+}
+
+async function readServePortUse(servePort: number, deps?: TailscaleServeDeps): Promise<ServePortUse | null> {
+  const read = deps?.read ?? runTailscale
+  const raw = await read(['serve', 'status', '--json'], SERVE_STATUS_TIMEOUT_MS)
+  return raw === null ? null : servePortUse(raw, servePort)
+}
+
 export async function serveWebOnTailnet(input: {
   localPort: number
   servePort: number
@@ -83,12 +162,17 @@ export async function serveWebOnTailnet(input: {
   deps?: TailscaleServeDeps
 }): Promise<WebTailscaleServe> {
   const { localPort, servePort, runDir } = input
-  const served = await readServedPortsOrNull(input.deps)
-  if (served === null) throw new Error(describeServeDiagnostic('unavailable'))
-  const current = served.get(servePort)
-  if (current !== undefined && current !== localPort) {
+  const use = await readServePortUse(servePort, input.deps)
+  if (use === null) throw new Error(describeServeDiagnostic('unavailable'))
+  if (use.funnel)
+    throw new Error(
+      `Tailscale funnel is on for HTTPS port ${servePort} of this machine, which would put Studio on the internet. ` +
+        `Pick another port with --tailscale-serve-port, or turn funnel off with: tailscale funnel --https=${servePort} off`,
+    )
+  const current = use.rootLoopbackPort
+  if (use.others || (current !== null && current !== localPort)) {
     const recorded = readRecord(runDir)
-    const ours = recorded?.servePort === servePort && recorded.localPort === current
+    const ours = !use.others && recorded?.servePort === servePort && recorded.localPort === current
     if (!ours)
       throw new Error(
         `Tailscale already serves something else on HTTPS port ${servePort} of this machine. ` +
@@ -108,10 +192,13 @@ export async function serveWebOnTailnet(input: {
     async stop() {
       if (stopped) return
       stopped = true
-      const now = await readServedPortsOrNull(input.deps)
-      // Someone pointed the port elsewhere since: theirs now, and left alone.
-      if (now !== null && now.get(servePort) !== localPort) {
+      const now = await readServePortUse(servePort, input.deps)
+      // Someone pointed the port elsewhere, or added to it, since: `off`
+      // would clear what is theirs, so the port is left as it is.
+      if (now !== null && (now.rootLoopbackPort !== localPort || now.others || now.funnel)) {
         if (readRecord(runDir)?.localPort === localPort) forgetRecord(runDir)
+        if (now.rootLoopbackPort === localPort)
+          input.log?.(`[web] tailscale serve on port ${servePort} carries more than Studio now; left on`)
         return
       }
       const result = await unshareServePort({ servePort }, input.deps)
