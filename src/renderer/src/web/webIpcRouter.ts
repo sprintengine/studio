@@ -3,7 +3,7 @@ import { SERVER_IPC_CHANNELS } from '../../../shared/ipc-channel-owners'
 import { assertJsonSafe } from '../../../shared/json-safe'
 import { WEB_TUNNEL_CHANNELS, webTunnelAllows } from '../../../shared/web-client'
 import { WEB_CLOSE_REVOKED, WEB_TUNNEL_REOPENED_EVENT, watchWebReconnectTriggers } from './webReconnect'
-import { returnToPairing, webSocketUrl, webWindowId } from './webLocation'
+import { returnToPairing, webPageUrl, webSocketUrl, webWindowId } from './webLocation'
 import { webShellIpc } from './webShellIpc'
 
 // A web tab's IPC router: what `src/preload/ipc-router.ts` is in a desktop
@@ -17,7 +17,8 @@ import { webShellIpc } from './webShellIpc'
 // comes back online or to the foreground. While it is down, invokes wait in
 // the router's queue and the idempotent reads go out again on the next socket,
 // as across a server restart on the desktop. A close with 4401 means this
-// browser was removed in Studio: the tab goes back to pairing.
+// browser was removed in Studio: the tab goes back to pairing, as it does when
+// a socket is refused and the session says the browser is no longer paired.
 
 export * from '../../../preload/ipc-router-core'
 
@@ -70,7 +71,9 @@ function connect(): void {
   if (current && current.readyState <= WebSocket.OPEN) return
   const socket = new WebSocket(webSocketUrl('ws/ipc', { windowId: webWindowId() }))
   current = socket
+  let opened = false
   socket.addEventListener('open', () => {
+    opened = true
     attempt = 0
     router.attachPort(socketPort(socket))
     if (everOpened) window.dispatchEvent(new Event(WEB_TUNNEL_REOPENED_EVENT))
@@ -82,8 +85,21 @@ function connect(): void {
       returnToPairing()
       return
     }
+    // A socket refused at its upgrade closes without a code a page can read.
+    // A browser removed while it was offline (asleep, out of range) is
+    // refused there on every try, and never hears 4401: ask the session.
+    if (!opened) void checkStillPaired()
     schedule()
   })
+}
+
+async function checkStillPaired(): Promise<void> {
+  try {
+    const response = await fetch(webPageUrl('api/session'), { credentials: 'same-origin', cache: 'no-store' })
+    if (response.status === 401) returnToPairing()
+  } catch {
+    // The server is not there: the backoff keeps trying.
+  }
 }
 
 function schedule(): void {
