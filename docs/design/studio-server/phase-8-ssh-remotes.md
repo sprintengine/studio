@@ -1262,7 +1262,7 @@ Windows-only as before. The server tree ships in every installer (about
 5 MB unpacked), used only by WSL distributions and SSH machines; a macOS or
 Linux build needs it only for the preview. With the switch on:
 
-- Commits 1–7 and 9–10 of section 13, each with its "As built" notes above:
+- Commits 1–10 of section 13, each with its "As built" notes above:
   the shared POSIX install, the relay and the detached start, the ssh command
   builder, askpass and its dialogs, the probe and the one-session install,
   the state machine, Settings, New chat and the sidebar, the pane's forward
@@ -1344,9 +1344,15 @@ Not built yet:
 
 - **Sign-in, the rest of R34**: credential fields, a browser callback the
   desktop catches, and the sign-in-only terminal (the server bundle carries
-  no pty). A CLI with none of the three flows below (opencode's provider
+  no pty). A CLI with none of the three flows above (opencode's provider
   picker, an API-key CLI) is answered with the command to run once over the
-  person's own SSH session.
+  person's own SSH session. The flows were read from each CLI's output on a
+  Mac with no terminal attached; no CLI was signed in on a remote.
+- **Not tested in the running app**: the New chat SSH flow, the Settings
+  section, the chat view's sign-in and the explorer and Git pane on a
+  machine's workspace have unit and wire-level tests; the app itself booted
+  with the preview on in both server modes (`smoke-server-mode.mjs`), but was
+  not driven through them.
 - **Files**: no watch on a machine's folder (the views refresh when asked
   again), no file writes from the editor, and from the Git pane only staging
   and committing: push, pull, branches, stashes, worktrees, changelists,
