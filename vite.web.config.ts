@@ -33,11 +33,14 @@ import { WEB_BUILD_META } from './src/shared/web-client'
 // - every text file compressed with brotli and gzip at build time, which the
 //   server picks by `Accept-Encoding` and never compresses per request.
 
+// Rollup hands importers over with forward slashes on every OS, where
+// `resolve` gives Windows backslashes, so both sides are compared in one form.
+const posix = (path: string): string => path.replace(/\\/g, '/')
 const ROOT = resolve('.')
-const PRELOAD_DIR = resolve('src/preload')
+const PRELOAD_DIR = posix(resolve('src/preload'))
 const WEB_DIR = resolve('src/renderer/src/web')
 const OUT_DIR = resolve('out/web')
-const SRC_DIR = resolve('src')
+const SRC_DIR = posix(resolve('src'))
 const NODE_STAND_INS: Readonly<Record<string, string>> = {
   'node:crypto': join(WEB_DIR, 'canvas', 'nodeCryptoShim.ts'),
   'node:path': join(WEB_DIR, 'canvas', 'nodePathShim.ts'),
@@ -51,8 +54,8 @@ function browserShellModules(): Plugin {
     resolveId(source, importer) {
       if (source === 'electron') return join(WEB_DIR, 'electronShim.ts')
       // The app's own modules only: a dependency that imports a Node module is not ours to stand in for.
-      if (NODE_STAND_INS[source] && importer?.startsWith(SRC_DIR)) return NODE_STAND_INS[source]
-      if (source === '../ipc-router' && importer && dirname(importer).startsWith(PRELOAD_DIR)) {
+      if (NODE_STAND_INS[source] && importer && posix(importer).startsWith(SRC_DIR)) return NODE_STAND_INS[source]
+      if (source === '../ipc-router' && importer && posix(dirname(importer)).startsWith(PRELOAD_DIR)) {
         return join(WEB_DIR, 'webIpcRouter.ts')
       }
       return null
