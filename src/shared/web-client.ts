@@ -13,12 +13,20 @@ export const WEB_PREVIEWS_CLOSE_CHANNEL = 'web:previews:close'
 /** Pushed to a session's tabs: its open previews, whole, on every change. */
 export const WEB_PREVIEWS_CHANGED_CHANNEL = 'web:previews:changed'
 
+/** Embeds of one conversation, read-only, for another page to frame (phase 9 spec, 5.4; R58, R59). */
+export const WEB_EMBEDS_CREATE_CHANNEL = 'web:embeds:create'
+export const WEB_EMBEDS_LIST_CHANNEL = 'web:embeds:list'
+export const WEB_EMBEDS_REVOKE_CHANNEL = 'web:embeds:revoke'
+
 /** The channels the web front door adds to a tab's tunnel, beside the server's own (SERVER_IPC_CHANNELS). */
 export const WEB_TUNNEL_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   [WEB_BROWSE_FOLDERS_CHANNEL]: { retry: 'once' },
   [WEB_PREVIEWS_LIST_CHANNEL]: { retry: 'once' },
   [WEB_PREVIEWS_OPEN_CHANNEL]: {},
   [WEB_PREVIEWS_CLOSE_CHANNEL]: {},
+  [WEB_EMBEDS_CREATE_CHANNEL]: {},
+  [WEB_EMBEDS_LIST_CHANNEL]: { retry: 'once' },
+  [WEB_EMBEDS_REVOKE_CHANNEL]: {},
 }
 
 /** A port an agent of the server listens on, offered for a preview. */

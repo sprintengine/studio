@@ -95,6 +95,10 @@ export type WebListener = {
   port(): number | null
   /** The origins this listener answers as (loopback names first). */
   origins(): string[]
+  /** Close every socket an embed's tickets opened, with 4401: it was revoked or ran out. */
+  closeEmbedSockets(embedId: string): void
+  /** The page headers for a document this listener serves, framed only by `frameAncestors`. */
+  pageHeaders(origin: string, frameAncestors?: readonly string[]): Record<string, string>
   /** A pairing URL for a fresh code, on the given origin (loopback by default). */
   pairingUrl(origin?: string): { url: string; expiresAt: string }
 }
@@ -168,10 +172,10 @@ export function createWebListener(options: WebListenerOptions): WebListener {
     const method = request.method ?? 'GET'
     const originHeader = typeof request.headers.origin === 'string' ? request.headers.origin : undefined
 
-    // `studio-server pair`: a program on this machine that read the run file.
+    // `studio-server pair` and `embed`: a program on this machine that read the run file.
     // It sends no `Origin` (a browser always would on a POST), and its key is
     // the proof; the Host check below still applies.
-    const minting = method === 'POST' && url.pathname === '/pair/mint'
+    const minting = method === 'POST' && (url.pathname === '/pair/mint' || url.pathname === '/embed/mint')
     const gate = gateWebRequest(
       { method, host, origin: originHeader, upgrade: false, ticket: minting && originHeader === undefined },
       policy(),
@@ -182,7 +186,7 @@ export function createWebListener(options: WebListenerOptions): WebListener {
     }
     const origin = requestOrigin(host, policy())
 
-    if (minting) {
+    if (minting && url.pathname === '/pair/mint') {
       const presented = /^Bearer (.+)$/u.exec(request.headers.authorization ?? '')?.[1] ?? ''
       if (originHeader !== undefined || !secretsMatch(presented, options.mintKey)) {
         sendJson(response, 403, { ok: false, message: 'Not allowed.' })
@@ -351,7 +355,7 @@ export function createWebListener(options: WebListenerOptions): WebListener {
         const subject = options.sessions.redeemTicket(ticket)
         if (!subject) return refuseUpgrade(socket, 401, 'ticket_spent_or_expired')
         const peer = acceptWebSocket(socket, key.key, head)
-        if (subject.kind === 'session') hold(subject.sessionId, peer)
+        hold(subject.kind === 'session' ? subject.sessionId : `embed:${subject.embedId}`, peer)
         options.studio.connect(webSocketStream(peer), { ticket: subject })
         return
       }
@@ -438,6 +442,13 @@ export function createWebListener(options: WebListenerOptions): WebListener {
       })
     },
     port: () => boundPort,
+    closeEmbedSockets(embedId) {
+      const key = `embed:${embedId}`
+      for (const peer of socketsBySession.get(key) ?? []) peer.close(WEB_CLOSE_REVOKED, 'This embed was revoked.')
+      socketsBySession.delete(key)
+    },
+    pageHeaders: (origin, frameAncestors) =>
+      pageHeaders({ origin, blobScripts: options.thirdPartyModules?.() === true, frameAncestors }),
     origins: () => {
       const port = boundPort ?? options.port
       return [

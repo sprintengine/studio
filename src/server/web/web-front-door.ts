@@ -15,6 +15,9 @@ import type { LocalClientBus } from '../platform/client-bus'
 import type { StudioAuthenticator } from '../rpc/studio-rpc-types'
 import {
   WEB_BROWSE_FOLDERS_CHANNEL,
+  WEB_EMBEDS_CREATE_CHANNEL,
+  WEB_EMBEDS_LIST_CHANNEL,
+  WEB_EMBEDS_REVOKE_CHANNEL,
   WEB_PREVIEWS_CHANGED_CHANNEL,
   WEB_PREVIEWS_CLOSE_CHANNEL,
   WEB_PREVIEWS_LIST_CHANNEL,
@@ -22,9 +25,11 @@ import {
 } from '../../shared/web-client'
 import { createPreviewService } from './preview-service'
 import { browseFolders, type FolderBrowserInput } from './folder-browser'
-import { createWebListener, type WebExtraRoute, type WebListener } from './web-listener'
-import { createWebSessionStore, type WebSessionStore, type WebTicketSubject } from './web-sessions'
-import { openWebStaticRoot } from './web-static'
+import { createWebListener, type WebListener } from './web-listener'
+import { createWebSessionStore, type WebSessionStore } from './web-sessions'
+import { openWebStaticRoot, type WebStaticRoot } from './web-static'
+import { createEmbedRoutes } from './embed-routes'
+import { createEmbedStore, gateEmbedFrames, type EmbedCreateInput, type EmbedStore } from './embeds'
 import { WEB_RUN_FILENAME, readWebRunFile, type WebRunFile } from './web-run-file'
 
 // The web client's side of a standalone server (phase 9): the web listener,
@@ -65,6 +70,23 @@ export type WebFrontDoor = {
   stop(): Promise<void>
 }
 
+/** The authenticator an embed's socket says hello under: its ticket was the proof, and the embed is read live. */
+export function embedAuthenticator(embeds: EmbedStore, embedId: string): StudioAuthenticator {
+  const clientId = `embed:${embedId}`
+  return {
+    authenticate() {
+      const grant = embeds.grantFor(embedId)
+      return grant ? { ok: true, grant } : { ok: false, message: 'This embed was revoked or has expired.' }
+    },
+    grantFor: (id) => (id === clientId ? embeds.grantFor(embedId) : null),
+    onRevoked: (listener) =>
+      embeds.onRevoked((revoked) => {
+        if (revoked === embedId) listener(clientId)
+      }),
+    onGrantChanged: () => () => undefined,
+  }
+}
+
 /** The authenticator a session's socket says hello under: the cookie was the proof, at the upgrade. */
 export function sessionAuthenticator(sessions: WebSessionStore, sessionId: string): StudioAuthenticator {
   const clientId = `web:${sessionId}`
@@ -93,9 +115,6 @@ export async function startWebFrontDoor(input: {
   environmentId: string
   version: string
   options: WebFrontDoorOptions
-  /** Authenticators for tickets that are not a session's (the embed's). */
-  ticketAuthenticator?: (subject: WebTicketSubject) => StudioAuthenticator | null
-  extraRoutes?: readonly WebExtraRoute[]
   log?: (message: string) => void
 }): Promise<WebFrontDoor> {
   const { core, gateway, rpc } = input
@@ -161,13 +180,34 @@ export async function startWebFrontDoor(input: {
   // A removed browser's previews close with it.
   const stopPreviewRevocations = sessions.onRevoked((sessionId) => void previews.closeSession(sessionId))
 
+  // Embeds: one conversation, read-only, framed by the pages their owner named.
+  const embeds = createEmbedStore({ dataDir, log: input.log })
+  tunnel.registry.handle(WEB_EMBEDS_CREATE_CHANNEL, (_event, request: EmbedCreateInput & { origin?: unknown }) => {
+    const created = embeds.create(request ?? { conversation: {} })
+    if (!created.ok) return created
+    const base =
+      typeof request?.origin === 'string' && listener.origins().includes(request.origin) ? request.origin : null
+    return {
+      ok: true,
+      embed: created.embed,
+      token: created.token,
+      url: `${base ?? listener.origins()[0]}/embed/conversation/${created.embed.embedId}#token=${created.token}`,
+    }
+  })
+  tunnel.registry.handle(WEB_EMBEDS_LIST_CHANNEL, () => embeds.list())
+  tunnel.registry.handle(WEB_EMBEDS_REVOKE_CHANNEL, (_event, request: { embedId?: unknown } | null) =>
+    typeof request?.embedId === 'string' ? embeds.revoke(request.embedId) : false,
+  )
+  const stopEmbedRevocations = embeds.onRevoked((embedId) => listener.closeEmbedSockets(embedId))
+
   const mintKey = randomBytes(32).toString('base64url')
+  let staticRoot: WebStaticRoot | null = null
   const listener = createWebListener({
     sessions,
-    staticRoot:
+    staticRoot: (staticRoot =
       input.options.staticDir && existsSync(input.options.staticDir)
         ? openWebStaticRoot(input.options.staticDir)
-        : null,
+        : null),
     port: input.options.port,
     publicOrigins: input.options.publicOrigins,
     devOrigin: input.options.devOrigin ?? null,
@@ -183,15 +223,23 @@ export async function startWebFrontDoor(input: {
           })
           return
         }
-        const authenticator =
-          who.ticket.kind === 'session'
-            ? sessionAuthenticator(sessions, who.ticket.sessionId)
-            : (input.ticketAuthenticator?.(who.ticket) ?? null)
-        if (!authenticator) {
+        if (who.ticket.kind === 'session') {
+          rpc.connectWeb(stream, {
+            authenticator: sessionAuthenticator(sessions, who.ticket.sessionId),
+            ownWindow: false,
+          })
+          return
+        }
+        const embed = embeds.get(who.ticket.embedId)
+        if (!embed) {
           stream.destroy()
           return
         }
-        rpc.connectWeb(stream, { authenticator, ownWindow: false })
+        // Read-only by its grant, and held to its one conversation by the gate.
+        rpc.connectWeb(gateEmbedFrames(stream, embed.conversation), {
+          authenticator: embedAuthenticator(embeds, embed.embedId),
+          ownWindow: false,
+        })
       },
     },
     tunnel: {
@@ -204,7 +252,15 @@ export async function startWebFrontDoor(input: {
         tunnel.detach(clientId)
       },
     },
-    extraRoutes: input.extraRoutes,
+    extraRoutes: [
+      createEmbedRoutes({
+        embeds,
+        sessions,
+        staticRoot: () => staticRoot,
+        pageHeaders: (origin, frameAncestors) => listener.pageHeaders(origin, frameAncestors),
+        mintKey,
+      }),
+    ],
     log: input.log,
   })
   const { port } = await listener.start()
@@ -226,6 +282,7 @@ export async function startWebFrontDoor(input: {
       stopForwarding()
       stopPreviewPushes()
       stopPreviewRevocations()
+      stopEmbedRevocations()
       await previews.stop()
       await listener.stop()
       for (const client of tunnel.clients()) tunnel.detach(client.clientId)

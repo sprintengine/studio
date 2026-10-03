@@ -41,6 +41,8 @@ export type WebStaticRoot = {
   indexHtml(): string | null
   /** The canvas worker's page, when the build carries it (the web client's `canvas` toolset). */
   canvasWorkerHtml(): string | null
+  /** The embeddable conversation view's page. */
+  embedHtml(): string | null
 }
 
 export function openWebStaticRoot(directory: string): WebStaticRoot {
@@ -63,6 +65,7 @@ export function openWebStaticRoot(directory: string): WebStaticRoot {
     directory,
     indexHtml: () => read('index.html'),
     canvasWorkerHtml: () => read('canvas-worker.html'),
+    embedHtml: () => read('embed.html'),
   }
 }
 

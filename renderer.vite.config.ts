@@ -190,7 +190,8 @@ export type StudioClient = 'desktop' | 'web'
 // here the packaged build simply would not emit it, since electron-vite
 // otherwise infers the single implicit `src/renderer/index.html`. The web's
 // `pair` is the pairing page a browser sees before it holds a session, also
-// standalone. The hidden canvas worker document is in both: the desktop's
+// standalone, and `embed` is the read-only conversation view another page
+// frames. The hidden canvas worker document is in both: the desktop's
 // worker window loads it, and the web client loads it in a hidden frame to
 // offer the `canvas` toolset. It needs nothing else from this config, since
 // the scene fonts sit beside every document and the asset-path bootstrap is a
@@ -205,6 +206,7 @@ function rendererInputs(client: StudioClient): Record<string, string> {
     : {
         index: resolve('src/renderer/index.html'),
         pair: resolve('src/renderer/pair.html'),
+        embed: resolve('src/renderer/embed.html'),
         'canvas-worker': resolve('src/renderer/canvas-worker.html'),
       }
 }

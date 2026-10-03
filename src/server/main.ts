@@ -31,6 +31,7 @@ import {
 //   node out/server/server.cjs --version
 //   node out/server/server.cjs serve --web [--web-port <n>] [--public-origin <url>]…
 //   node out/server/server.cjs pair [--data-dir <dir>] [--origin <url>]
+//   node out/server/server.cjs embed --workspace <id> --agent <id> [--frame-origin <url>]… [--ttl-hours <n>]
 //
 // `--web` turns on the web client's listener on a loopback port (phase 9),
 // off by default. `pair` asks the server running on a data directory for a
@@ -114,6 +115,14 @@ type Command =
   | { kind: 'version' }
   | { kind: 'help' }
   | { kind: 'pair'; dataDir: string; origin: string | null }
+  | {
+      kind: 'embed'
+      dataDir: string
+      workspaceId: string
+      agentId: string
+      frameOrigins: string[]
+      ttlHours: number | null
+    }
   | { kind: 'bootstrap'; carrier: 'stdio' }
   | { kind: 'serve'; options: StudioServerOptions; stdio: boolean }
 
@@ -138,6 +147,10 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
       'public-origin': { type: 'string', multiple: true },
       'web-root': { type: 'string' },
       origin: { type: 'string' },
+      workspace: { type: 'string' },
+      agent: { type: 'string' },
+      'frame-origin': { type: 'string', multiple: true },
+      'ttl-hours': { type: 'string' },
     },
   })
   if (values.version) return { kind: 'version' }
@@ -151,7 +164,7 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
     return { kind: 'bootstrap', carrier: 'stdio' }
   }
   const [command = 'serve', ...rest] = positionals
-  if ((command !== 'serve' && command !== 'pair') || rest.length > 0)
+  if ((command !== 'serve' && command !== 'pair' && command !== 'embed') || rest.length > 0)
     throw new Error(`Unknown command: ${positionals.join(' ')}`)
   if (values.packaged && !values['resources-dir']) throw new Error('--packaged needs --resources-dir.')
 
@@ -163,6 +176,19 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
   // locations logs where XDG puts state.
   const dataDir = resolve(chosenDataDir ?? defaults.dataDir)
   if (command === 'pair') return { kind: 'pair', dataDir, origin: values.origin ?? null }
+  if (command === 'embed') {
+    if (!values.workspace || !values.agent) throw new Error('embed needs --workspace and --agent.')
+    const ttlHours = values['ttl-hours'] === undefined ? null : Number(values['ttl-hours'])
+    if (ttlHours !== null && !(ttlHours > 0)) throw new Error('--ttl-hours takes a positive number.')
+    return {
+      kind: 'embed',
+      dataDir,
+      workspaceId: values.workspace,
+      agentId: values.agent,
+      frameOrigins: values['frame-origin'] ?? [],
+      ttlHours,
+    }
+  }
   const web = values.web === true ? parseWebOptions(values) : null
   return {
     kind: 'serve',
@@ -201,6 +227,45 @@ function parseWebOptions(values: {
     port,
     publicOrigins,
     staticDir: resolve(values['web-root'] ?? join(__dirname, '..', 'web')),
+  }
+}
+
+/** `studio-server embed`: a link to one conversation, read-only, for another page to frame. */
+async function mintEmbed(command: Extract<Command, { kind: 'embed' }>): Promise<number> {
+  const run = readWebRunFile(command.dataDir)
+  if (!run) {
+    say(
+      `No Studio server with its web listener on is running on ${command.dataDir}. Start one with: studio-server serve --web`,
+    )
+    return EXIT_FAILED
+  }
+  try {
+    const response = await fetch(`${run.url}/embed/mint`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${run.mintKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceId: command.workspaceId,
+        agentId: command.agentId,
+        origins: command.frameOrigins,
+        ...(command.ttlHours === null ? {} : { ttlMs: command.ttlHours * 60 * 60 * 1000 }),
+      }),
+    })
+    const body = (await response.json()) as {
+      ok?: boolean
+      url?: string
+      message?: string
+      embed?: { expiresAt?: string }
+    }
+    if (!response.ok || !body.ok || typeof body.url !== 'string') {
+      say(body.message ?? `The server refused (${response.status}).`)
+      return EXIT_FAILED
+    }
+    process.stdout.write(`${body.url}\n`)
+    say(`Anyone with the link can read this conversation until ${body.embed?.expiresAt ?? 'it expires'}.`)
+    return 0
+  } catch (error) {
+    say(`The server on ${run.url} did not answer: ${error instanceof Error ? error.message : String(error)}`)
+    return EXIT_FAILED
   }
 }
 
@@ -263,6 +328,7 @@ async function main(argv: string[]): Promise<number> {
   }
   if (command.kind === 'bootstrap') return serveOverStdio()
   if (command.kind === 'pair') return pairBrowser(command.dataDir, command.origin)
+  if (command.kind === 'embed') return mintEmbed(command)
 
   // Installed before the server starts, so a signal or a closed stdin during
   // startup is not lost: the stop waits for the start to finish, then runs.

@@ -1411,3 +1411,32 @@ recorded here, with the commit that made it.
   picker (and a typed port), the path field, Reload and "Open in a new tab".
   Not built: "Open in the desktop app", and HTTPS ports through
   `tailscale serve` for a preview reached off loopback.
+
+### 14.5 The embed (2026-10-03)
+
+- **Built:** embed tokens (`mcemb_…`, kept as a hash, one conversation by
+  workspace and agent, read-only, 24 hours by default and 30 days at most,
+  revocable, closing their sockets with 4401); the iframe route
+  `/embed/conversation/<id>`, whose `frame-ancestors` is read from the embed
+  on every load (none: it cannot be framed); `POST /embed/session`, trading
+  the token for a single-use ticket; the `postMessage` wire with its row in
+  `docs/compatibility.md`; and `studio-server embed`, which mints one from the
+  command line. An owner's tab can create, list and revoke embeds over its
+  tunnel (`web:embeds:*`), as 14.1 says of the folder browser; there is no
+  Settings surface for them yet.
+- **Held three ways.** The socket's grant is `conversation:read` and not an
+  owner's, so the router refuses every write and redacts what it reads; a
+  gate on the socket passes only `hello`, `unsub`, the one conversation's
+  `conversation.session` stream and its `loadEarlier`, `toolDetail` and
+  `turnDiff`, by workspace and agent and never by folder, and closes the
+  socket on anything else; and the embed expires.
+- **Not built: the two packages (5.1).** The embed page uses the app's own
+  projection, timeline and rows in place, under a read-only transport, so a
+  row fixed in the chat is fixed in the embed. Extracting
+  `@sprintengine/conversation-timeline` means moving the projection off
+  `src/shared/conversation-runtime`'s types onto the conversation protocol's,
+  which is its own change; `@sprintengine/conversation-view` (shadow root,
+  generated `--se-*` tokens) follows it. Until then there is no React
+  component for other apps, only the iframe, and the theme message carries
+  the mode alone.
+- **Not built: frozen embeds** (`live: false`); asking for one is refused.
