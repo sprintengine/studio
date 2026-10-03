@@ -238,6 +238,27 @@ fails, when the handshake proof fails (a port squatter, 4.2), or when the
 person forces it (`ExecutionHostSettings.serverTransport: 'auto' | 'stdio'`).
 The choice and its reason go in `server.info` and in Settings.
 
+**As built (2026-10-03).** Both doors are the front door's alone, and both
+open on the mutual proof (4.2) before anything else is said
+(`src/server/wsl/front-door-*.ts`):
+
+- The TCP door binds the literal `127.0.0.1` behind
+  `assertFrontDoorBindAddress`, retries a fresh port on `EADDRINUSE` up to
+  five times, and lets at most eight unproven connections wait, each for ten
+  seconds.
+- The bridge does not splice onto the owner socket. It splices onto a
+  second socket in the private run directory (`run/front-door.sock`, 0600 in
+  0700, moved to a private temp directory when the path is long), which
+  speaks the proof first. The owner socket stays what it is for paired local
+  apps, which say hello with a token.
+- The relay is `resources/wsl-server/bridge.mjs`. It prints a ready line
+  before it reads a byte, so the `sh` that exec'd it cannot swallow what
+  follows as script (the same guard as the helper's `boot`), then takes the
+  socket path on its first stdin line.
+- The owner socket speaks NDJSON frames, uploads included (`uploads.*`), not
+  HTTP, so one byte pipe carries everything a connection needs without the
+  HTTP surface 12.2 asked for.
+
 **Renderers.** With the front door routing (section 5), renderers in phase 7
 talk only to the local server. A desktop or web client that later connects to a
 WSL server directly (phase 8 and later) uses TCP with a ticket. Over the bridge,
@@ -444,6 +465,15 @@ So on loopback:
   ticket bound to that `nonce`).
 - An impostor learns nothing it can replay, and the client never takes a fake
   approval prompt from one.
+
+As built (2026-10-03), the exchange is a preamble on the front door's own
+doors, before whatever the connection is for, and not a change to the Studio
+protocol's `hello`: `front-door` (version, purpose, nonce), `challenge`
+(server nonce, proof), `prove`, `admitted`. The proofs are
+`HMAC-SHA256(sha256(ownerToken), side ‖ nonces ‖ purpose)`, so the server
+holds only the token's hash (the envelope's existing `owner.tokenHash`), and
+a proof for one purpose is not one for the other. A Studio protocol
+connection that follows says hello with a ticket the server mints for it.
 
 Renderers that hold no token get `{ ticket, nonce, expectedProof }` from main,
 which computes the proof itself. The same exchange runs over the stdio bridge.
