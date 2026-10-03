@@ -24,7 +24,10 @@ import type { CanvasDirectoryWatcher, CanvasFs, CanvasPathApi } from './canvas-s
 // the server's writer is atomic and leaves no temp behind. A board too large
 // for one frame is staged with `uploads.*` first.
 
-export type ProtocolCanvasClient = Pick<StudioClient, 'request' | 'subscribe'>
+export type ProtocolCanvasClient = Pick<StudioClient, 'request' | 'subscribe'> & {
+  /** The connected Studio's welcome: the server's platform is read from it. */
+  readonly welcome?: StudioClient['welcome']
+}
 
 /** Where a workspace's two roots are, as the service names them. */
 export function protocolCanvasRoots(workspaceId: string): { workspace: string; boards: string } {
@@ -60,6 +63,14 @@ export type ProtocolCanvasFs = {
   resolveWorkspaceRoot(workspaceId: string): string
   /** A workspace's board store, as the service resolves it: its virtual root. */
   resolveBoardStore(workspaceId: string): string
+  /**
+   * The platform the boards' disk is on, the server's and not this process's,
+   * for the canvas service's `platform`: whether two spellings of a board's
+   * path are one board is the server's filesystem's rule. Read once the client
+   * is connected; a client not yet welcomed says `linux`, the case-sensitive
+   * rule, which never merges two boards.
+   */
+  platform(): string
 }
 
 export function createProtocolCanvasFs(
@@ -70,6 +81,8 @@ export function createProtocolCanvasFs(
      * folder is read once more: a change made while it was away is not missed.
      */
     onReconnect?: (listener: () => void) => () => void
+    /** The server's platform, when the caller knows it some other way. */
+    platform?: string
   } = {},
 ): ProtocolCanvasFs {
   const locate = (path: string) => {
@@ -201,6 +214,14 @@ export function createProtocolCanvasFs(
   return {
     fs,
     path: posix,
+    platform() {
+      if (options.platform) return options.platform
+      try {
+        return client.welcome?.environment.os || 'linux'
+      } catch {
+        return 'linux'
+      }
+    },
     resolveWorkspaceRoot: (workspaceId) => protocolCanvasRoots(workspaceId).workspace,
     resolveBoardStore: (workspaceId) => protocolCanvasRoots(workspaceId).boards,
     watch(directory, onChange) {

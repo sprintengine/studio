@@ -255,6 +255,7 @@ function protocolService(client: StudioClient): Omit<Rig, 'onDisk' | 'writeOutsi
     resolveWorkspaceRoot: (workspaceId) => remote.resolveWorkspaceRoot(workspaceId),
     resolveBoardStore: (workspaceId) => remote.resolveBoardStore(workspaceId),
     watch: (directory, onChange) => remote.watch(directory, onChange),
+    platform: remote.platform(),
   })
 }
 
@@ -503,4 +504,14 @@ describe('a conditional write another client got in ahead of', () => {
     assert.equal(rig.conflicts(), 1)
     assert.deepEqual(ids(readScene(rig.file)), ['a', 'b', 'other'])
   })
+})
+
+test("the protocol filesystem names the server's platform, not this process's", async () => {
+  const served = await studioServing()
+  const client = await attach(served)
+  const remote = createProtocolCanvasFs(client)
+  assert.equal(remote.platform(), client.welcome.environment.os)
+  assert.equal(createProtocolCanvasFs(client, { platform: 'win32' }).platform(), 'win32')
+  // Before a welcome there is no server to ask: the case-sensitive rule.
+  assert.equal(createProtocolCanvasFs({ request: client.request, subscribe: client.subscribe }).platform(), 'linux')
 })
