@@ -225,9 +225,15 @@ demand:
 
 As built (2026-10-03):
 
-- The `boot` frame is `{ t: 'boot', pid, version, buildStamp, home, uid,
-  execPath, appDir }`, said by every `--bootstrap stdio` server. The front door
-  builds the phase 6 envelope from it, with Linux paths under `home`
+- The `boot` frame is `{ t: 'boot', pid, version, buildStamp, builtAt, home,
+  uid, execPath, appDir }`, said by every `--bootstrap stdio` server. The
+  envelope's own `app.buildStamp` is empty, so the build is checked here: the
+  front door refuses a server whose `appDir` is not this version's tree, or
+  whose `builtAt` is not the one in the shipped tree's `build.json` (another
+  copy of the app of the same version replaced the tree between the launch
+  script's digest check and its `exec`). That refusal is retried, and the
+  retry's launch script installs this build's tree. The front door then
+  builds the phase 6 envelope from the frame, with Linux paths under `home`
   (`data/` or `data-<profileId>/`, decision R68), `role: 'headless'`,
   `secrets: key-file`, `owner.tokenHash` (the owner token itself never
   crosses), `listeners: { gateway: true, tailnet: 'off', frontDoor: { loopback
