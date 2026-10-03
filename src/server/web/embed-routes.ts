@@ -12,6 +12,8 @@ import type { WebStaticRoot } from './web-static'
 //   GET  /embed/conversation/<embedId>   the iframe page, framed only by the embed's origins
 //   POST /embed/session                   an embed token for a single-use socket ticket
 //   POST /embed/mint                      a new embed, for `studio-server embed` (the run file's key)
+//   POST /embed/list                      the embeds, for `studio-server embed --list` (the run file's key)
+//   POST /embed/revoke                    revoke one, for `studio-server embed --revoke` (the run file's key)
 //
 // The page is the web bundle's `embed.html`, served with a
 // Content-Security-Policy whose `frame-ancestors` is read from the embed on
@@ -84,7 +86,8 @@ export function createEmbedRoutes(options: {
       return true
     }
 
-    if (url.pathname === '/embed/mint' && method === 'POST') {
+    const command = /^\/embed\/(mint|list|revoke)$/u.exec(url.pathname)?.[1]
+    if (command && method === 'POST') {
       // `studio-server embed`, like `pair`: a program that read the run file,
       // sending no Origin. The listener let it through the Origin rule for
       // that reason only; a request with an Origin is a page, and is refused.
@@ -93,7 +96,21 @@ export function createEmbedRoutes(options: {
         sendJson(response, 403, { ok: false, message: 'Not allowed.' })
         return true
       }
+      if (command === 'list') {
+        sendJson(response, 200, { ok: true, embeds: options.embeds.list() })
+        return true
+      }
       const body = await json(request)
+      if (command === 'revoke') {
+        const embedId = typeof body?.embedId === 'string' ? body.embedId : ''
+        const revoked = embedId !== '' && options.embeds.revoke(embedId)
+        sendJson(
+          response,
+          revoked ? 200 : 404,
+          revoked ? { ok: true } : { ok: false, message: 'No embed by that id: it was revoked, or it expired.' },
+        )
+        return true
+      }
       const created = options.embeds.create({
         conversation: { workspaceId: body?.workspaceId, agentId: body?.agentId },
         origins: body?.origins,

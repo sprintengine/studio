@@ -1423,7 +1423,8 @@ recorded here, with the commit that made it.
   on every load (none: it cannot be framed); `POST /embed/session`, trading
   the token for a single-use ticket; the `postMessage` wire with its row in
   `docs/compatibility.md`; and `studio-server embed`, which mints one from the
-  command line. An owner's tab can create, list and revoke embeds over its
+  command line (`--list` and `--revoke <id>` added in review, so an embed
+  made anywhere can be seen and taken back). An owner's tab can create, list and revoke embeds over its
   tunnel (`web:embeds:*`), as 14.1 says of the folder browser; there is no
   Settings surface for them yet.
 - **Held three ways.** The socket's grant is `conversation:read` and not an

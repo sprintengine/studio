@@ -34,6 +34,7 @@ import {
 //        [--tailscale-serve [--tailscale-serve-port <n>]]
 //   node out/server/server.cjs pair [--data-dir <dir>] [--origin <url>]
 //   node out/server/server.cjs embed --workspace <id> --agent <id> [--frame-origin <url>]… [--ttl-hours <n>]
+//   node out/server/server.cjs embed --list | --revoke <embed id>
 //
 // `--web` turns on the web client's listener on a loopback port (phase 9),
 // off by default. `pair` asks the server running on a data directory for a
@@ -92,6 +93,13 @@ Usage: studio-server pair [--data-dir <dir>] [--origin <url>]
 
   Print a one-time link that pairs a browser with the server running on the data
   directory. The link works once, within five minutes.
+
+Usage: studio-server embed --workspace <id> --agent <id> [--frame-origin <url>]... [--ttl-hours <n>]
+       studio-server embed --list
+       studio-server embed --revoke <embed id>
+
+  Print a link that shows one conversation, read-only, in another page's iframe;
+  list the embeds the server holds; or revoke one, which closes it at once.
 `
 
 function bundledBuild(): { version: string; commit: string | null; builtAt: string } | null {
@@ -120,6 +128,8 @@ type Command =
   | { kind: 'version' }
   | { kind: 'help' }
   | { kind: 'pair'; dataDir: string; origin: string | null }
+  | { kind: 'embed-list'; dataDir: string }
+  | { kind: 'embed-revoke'; dataDir: string; embedId: string }
   | {
       kind: 'embed'
       dataDir: string
@@ -158,6 +168,8 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
       agent: { type: 'string' },
       'frame-origin': { type: 'string', multiple: true },
       'ttl-hours': { type: 'string' },
+      list: { type: 'boolean' },
+      revoke: { type: 'string' },
     },
   })
   if (values.version) return { kind: 'version' }
@@ -184,6 +196,8 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
   const dataDir = resolve(chosenDataDir ?? defaults.dataDir)
   if (command === 'pair') return { kind: 'pair', dataDir, origin: values.origin ?? null }
   if (command === 'embed') {
+    if (values.list === true) return { kind: 'embed-list', dataDir }
+    if (values.revoke !== undefined) return { kind: 'embed-revoke', dataDir, embedId: values.revoke }
     if (!values.workspace || !values.agent) throw new Error('embed needs --workspace and --agent.')
     const ttlHours = values['ttl-hours'] === undefined ? null : Number(values['ttl-hours'])
     if (ttlHours !== null && !(ttlHours > 0)) throw new Error('--ttl-hours takes a positive number.')
@@ -291,6 +305,56 @@ async function mintEmbed(command: Extract<Command, { kind: 'embed' }>): Promise<
   }
 }
 
+/** `studio-server embed --list` and `--revoke`: the embeds a server holds, and taking one back. */
+async function manageEmbeds(
+  command: Extract<Command, { kind: 'embed-list' } | { kind: 'embed-revoke' }>,
+): Promise<number> {
+  const run = readWebRunFile(command.dataDir)
+  if (!run) {
+    say(
+      `No Studio server with its web listener on is running on ${command.dataDir}. Start one with: studio-server serve --web`,
+    )
+    return EXIT_FAILED
+  }
+  const listing = command.kind === 'embed-list'
+  try {
+    const response = await fetch(`${run.url}/embed/${listing ? 'list' : 'revoke'}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${run.mintKey}`, 'Content-Type': 'application/json' },
+      body: listing ? '{}' : JSON.stringify({ embedId: command.embedId }),
+    })
+    const body = (await response.json()) as {
+      ok?: boolean
+      message?: string
+      embeds?: Array<{
+        embedId: string
+        conversation: { workspaceId: string; agentId: string }
+        origins: string[]
+        expiresAt: string
+      }>
+    }
+    if (!response.ok || !body.ok) {
+      say(body.message ?? `The server refused (${response.status}).`)
+      return EXIT_FAILED
+    }
+    if (!listing) {
+      say(`Embed ${command.embedId} was revoked; pages showing it lost it at once.`)
+      return 0
+    }
+    for (const embed of body.embeds ?? []) {
+      process.stdout.write(
+        `${embed.embedId}  ${embed.conversation.workspaceId}/${embed.conversation.agentId}  until ${embed.expiresAt}  ` +
+          `framed by ${embed.origins.length > 0 ? embed.origins.join(' ') : 'no page'}\n`,
+      )
+    }
+    if ((body.embeds ?? []).length === 0) say('No embeds.')
+    return 0
+  } catch (error) {
+    say(`The server on ${run.url} did not answer: ${error instanceof Error ? error.message : String(error)}`)
+    return EXIT_FAILED
+  }
+}
+
 /** `studio-server pair`: a one-time pairing link from the server running on a data directory. */
 async function pairBrowser(dataDir: string, origin: string | null): Promise<number> {
   const run = readWebRunFile(dataDir)
@@ -351,6 +415,7 @@ async function main(argv: string[]): Promise<number> {
   if (command.kind === 'bootstrap') return serveOverStdio()
   if (command.kind === 'pair') return pairBrowser(command.dataDir, command.origin)
   if (command.kind === 'embed') return mintEmbed(command)
+  if (command.kind === 'embed-list' || command.kind === 'embed-revoke') return manageEmbeds(command)
 
   // Installed before the server starts, so a signal or a closed stdin during
   // startup is not lost: the stop waits for the start to finish, then runs.

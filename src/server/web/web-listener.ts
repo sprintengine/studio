@@ -192,10 +192,10 @@ export function createWebListener(options: WebListenerOptions): WebListener {
     const method = request.method ?? 'GET'
     const originHeader = typeof request.headers.origin === 'string' ? request.headers.origin : undefined
 
-    // `studio-server pair` and `embed`: a program on this machine that read the run file.
+    // `studio-server pair` and `embed` (and its `--list`, `--revoke`): a program on this machine that read the run file.
     // It sends no `Origin` (a browser always would on a POST), and its key is
     // the proof; the Host check below still applies.
-    const minting = method === 'POST' && (url.pathname === '/pair/mint' || url.pathname === '/embed/mint')
+    const minting = method === 'POST' && /^\/(pair\/mint|embed\/(mint|list|revoke))$/u.test(url.pathname)
     const gate = gateWebRequest(
       { method, host, origin: originHeader, upgrade: false, ticket: minting && originHeader === undefined },
       policy(),

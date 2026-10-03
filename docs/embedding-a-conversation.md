@@ -32,9 +32,10 @@ Frame it:
 - **What the token can do** is follow and page through that one
   conversation: its connection is read-only, refused anything else, and the
   server redacts what it reads as it does for any app.
-- **It expires** after 24 hours unless asked for longer (30 days at most),
-  and an owner revokes it from a paired browser's tab. Revoking closes its
-  connections at once.
+- **It expires** after 24 hours unless asked for longer (30 days at most).
+  `studio-server embed --list` prints every embed the server holds, and
+  `studio-server embed --revoke <embed id>` takes one back. Revoking closes
+  its connections at once. There is no Settings surface for embeds yet.
 
 ### Talking to the frame
 

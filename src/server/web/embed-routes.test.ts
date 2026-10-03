@@ -156,3 +156,29 @@ test('studio-server embed mints with the run file key; a page cannot', async () 
   })
   expect(fromPage.status).toBe(403)
 })
+
+test('studio-server embed --list and --revoke see and take back every embed; a page cannot', async () => {
+  const body = JSON.stringify({ workspaceId: 'ws-1', agentId: 'agent-1' })
+  const minted = await ask('/embed/mint', { method: 'POST', headers: { Authorization: `Bearer ${MINT_KEY}` }, body })
+  const embedId = (JSON.parse(minted.body) as { embed: { embedId: string } }).embed.embedId
+  const listed = await ask('/embed/list', { method: 'POST', headers: { Authorization: `Bearer ${MINT_KEY}` } })
+  expect(listed.status).toBe(200)
+  expect((JSON.parse(listed.body) as { embeds: Array<{ embedId: string }> }).embeds.map((e) => e.embedId)).toContain(
+    embedId,
+  )
+  const fromPage = await ask('/embed/revoke', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${MINT_KEY}`, Origin: own() },
+    body: JSON.stringify({ embedId }),
+  })
+  expect(fromPage.status).toBe(403)
+  const withoutKey = await ask('/embed/list', { method: 'POST' })
+  expect(withoutKey.status).toBe(403)
+  const revoked = await ask('/embed/revoke', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${MINT_KEY}` },
+    body: JSON.stringify({ embedId }),
+  })
+  expect(revoked.status).toBe(200)
+  expect((await ask(`/embed/conversation/${embedId}`)).status).toBe(404)
+})

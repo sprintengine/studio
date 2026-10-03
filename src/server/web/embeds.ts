@@ -92,7 +92,10 @@ export function createEmbedStore(options: {
           typeof value.expiresAt === 'string' &&
           typeof value.conversation?.workspaceId === 'string' &&
           typeof value.conversation.agentId === 'string' &&
-          Array.isArray(value.origins)
+          Array.isArray(value.origins) &&
+          // An origin a policy could not carry as written is not served, from
+          // a file an older build wrote included.
+          value.origins.every((origin) => typeof origin === 'string' && normalizeOrigin(origin) === origin)
         )
       })
     } catch {
