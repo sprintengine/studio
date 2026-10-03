@@ -1,3 +1,4 @@
+import { parseMachinePath } from '../../../../../shared/machine-paths'
 import React from 'react'
 import { AttachmentChip } from '../../ui/AttachmentChip'
 import type { AgentCli, CliPermissionPreset, WorkspaceSkill } from '../../../../../shared/electron-api'
@@ -936,7 +937,11 @@ export default function NewAgentPanel({
     })
   }, [draftKey, prompt, images, selection, composer.openingEngine, composer.skills, composer.mcpServers])
 
-  const insertPromptPath = (path: string) => {
+  const insertPromptPath = (dropped: string) => {
+    // A file from the SSH machine this chat starts on is typed as that
+    // machine spells it: the agent runs there, not on this computer.
+    const onMachine = pickedSsh ? parseMachinePath(dropped) : null
+    const path = onMachine && onMachine.id === pickedSsh?.id ? onMachine.path : dropped
     setPrompt((current) =>
       current.length === 0 || /\s$/.test(current) ? `${current}${quotePath(path)} ` : `${current} ${quotePath(path)} `,
     )

@@ -11,6 +11,7 @@
 // AgentChatView.test.ts so the streaming/approval/interrupt/failure states have
 // node-level coverage without rendering.
 
+import { parseMachinePath } from '../../../../shared/machine-paths'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import {
@@ -2430,7 +2431,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     const selectionEnd = field?.selectionEnd ?? selectionStart
     const before = draft.slice(0, selectionStart)
     const lead = before.length > 0 && !/\s$/.test(before) ? ' ' : ''
-    replaceComposerSelection({ selectionStart, selectionEnd }, `${lead}${paths.map(quotePromptPath).join(' ')} `)
+    // A file from this chat's own SSH machine is typed as that machine spells
+    // it: the agent runs there and cannot read this computer's `ssh://` form.
+    const spelled = paths.map((path) => {
+      const onMachine = machineId ? parseMachinePath(path) : null
+      return onMachine && onMachine.id === machineId ? onMachine.path : path
+    })
+    replaceComposerSelection({ selectionStart, selectionEnd }, `${lead}${spelled.map(quotePromptPath).join(' ')} `)
   }
 
   // A file dropped anywhere on the chat lands in the composer — over the

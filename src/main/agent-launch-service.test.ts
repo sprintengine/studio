@@ -272,6 +272,17 @@ test('agent-launch-service', async () => {
     assert.equal(app.spawns.length, 0)
   })
 
+  run('a workspace on an SSH machine is refused in words, and nothing is spawned here', async () => {
+    const app = harness({
+      workspaces: [workspace({ folderPath: 'ssh://e1/home/dev/repo' })],
+      settings: settings({ lastSelectedCli: 'codex' }),
+    })
+    const launched = await app.service.launch({ workspaceId: 'ws-1' })
+    assert.equal(!launched.ok && launched.code, 'workspace_on_ssh_machine')
+    assert.match(!launched.ok ? launched.message : '', /is on an SSH machine/u)
+    assert.equal(app.spawns.length, 0)
+  })
+
   // The connector is resolved from the installed MCP settings alone since the
   // bundled catalogue was retired (2026-09-08): there is no template
   // left to launch a server the person never installed, so "installed and
