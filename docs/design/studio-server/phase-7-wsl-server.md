@@ -126,6 +126,18 @@ Three facts from that reading shape this phase:
   versioned Studio protocol. Folding the helper into the server is phase 10
   work (D8).
 
+As built (2026-10-03): the server tree is `server-<appVersion>/` beside the
+helper's `<appVersion>/`, not inside it. The helper's commit replaces its
+whole version directory, so a server tree inside it would be deleted by a
+helper reinstall, and the reverse. Each kind prunes only its own trees
+(`PRUNE_GLOBS`: `runtime/node-*`, `[0-9]*`, `server-*`), and a test pins that
+none of them matches `data` or `data-<profile>`. The tree holds `server.cjs`
+(every dependency inlined, the two runtime packages a chat loads included),
+`bridge.mjs`, and `resources/` laid out as an installed build's (automation,
+hooks, plugins, studio-plugin, builtin-skills). It carries no ripgrep: file
+search for a WSL workspace stays on the Windows side in this phase (5.3). Logs
+go to `~/.local/state/sprintengine-studio/logs/<data name>/`.
+
 ### 3.2 Install
 
 - The server tree is installed exactly like the helper payload: stage, `tar`
@@ -149,6 +161,20 @@ Three facts from that reading shape this phase:
   `"$rt/bin/node" "$stage/server/server.mjs" --version` and requires this
   build's version. A bundle that cannot load on this distro (for example, a
   missing optional library) fails here with the reason, not on first chat.
+
+As built (2026-10-03): `npm run build:server:wsl` builds the tree into
+`out/wsl-server/`, the Windows installer ships it as `resources/wsl-server`,
+and the release workflow builds it on the Windows leg. The launch script's
+`entry: 'server'` checks `server-<version>/server.cjs` and its marker and
+reports a missing tree as `app`, so the same `NEED` report drives both
+entries. The commit check runs `server.cjs --version` on the pinned Node and
+requires this app's version (`server-run`, `server-version` in the failure).
+`startWslEntry` was not extracted from the helper client: the helper's start
+is interleaved with its hello and channel relay, and the server's start
+(`src/server/wsl/wsl-server-starter.ts`) is short enough to stand alone. What
+both share moved out instead: the install steps take a `WslRunner`
+(`src/main/hosts/wsl-runner.ts`: a shell, a script, an argv with a body), so a
+plain `sh` stands in for `wsl.exe` in the server's tests as in the helper's.
 
 ### 3.3 Bootstrap sequence
 
@@ -191,6 +217,26 @@ demand:
    of what it has been asked to serve, not the person's list (5.4).
 10. **Route.** The front door's `RoutedConversationBackend` starts sending
     this distro's conversation calls to the server.
+
+As built (2026-10-03):
+
+- The `boot` frame is `{ t: 'boot', pid, version, buildStamp, home, uid,
+  execPath, appDir }`, said by every `--bootstrap stdio` server. The front door
+  builds the phase 6 envelope from it, with Linux paths under `home`
+  (`data/` or `data-<profileId>/`, decision R68), `role: 'headless'`,
+  `secrets: key-file`, `owner.tokenHash` (the owner token itself never
+  crosses), `listeners: { gateway: true, tailnet: 'off', frontDoor: { loopback
+  } }` and `wsl: { distro }`. The envelope parser refuses a front door without
+  a token hash, beside a tailnet listener, or on a role other than headless.
+- `ready` gains `frontDoor: { port, socketPath, driveMountRoot }`.
+- The owner token is minted per server start and held only in the front
+  door's memory. A front door that restarts finds no server to reattach to:
+  the lease's end stopped it (step 6), so 8.29's read of `run/owner-token` is
+  not built, and nothing writes that file.
+- The lease is the starter's stdio control channel: `ping` every fifteen
+  seconds, `shutdown` to drain.
+- Step 8's `environment.id` check and step 9's `workspaces.ensure` are not
+  built (5.4).
 
 A restart after a crash runs steps 2–8 again and resumes subscriptions from
 their cursors. A start that fails before `ready` with a fatal code (`node-run`,

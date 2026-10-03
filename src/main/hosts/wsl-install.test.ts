@@ -21,6 +21,7 @@ import { afterAll, beforeAll, test } from 'vitest'
 
 import {
   buildAppPayload,
+  buildBridgeScript,
   buildCommitScript,
   buildLaunchScript,
   buildStageScript,
@@ -30,6 +31,8 @@ import {
   commitFailure,
   NEEDS_INSTALL_EXIT,
   parseNeedReport,
+  PRUNE_GLOBS,
+  serverTreeName,
   STAGED_MARKER,
   tarArgs,
   WSL_DATA_REL,
@@ -297,3 +300,77 @@ test.skipIf(!existsSync('/proc/self/cmdline'))('pruning skips a runtime a runnin
     running.kill('SIGKILL')
   }
 })
+
+test("no install's prune ever reaches a server's data directory", () => {
+  // `data/` and `data-<profile>/` hold a person's chats on a WSL server.
+  const matches = (glob: string, name: string) => {
+    const pattern = glob.replace(/"\$base"\//u, '')
+    const regex = new RegExp(
+      `^${pattern
+        .replace(/[.+^${}()|]/gu, '\\$&')
+        .replace(/\[0-9\]/gu, '[0-9]')
+        .replace(/\*/gu, '.*')}$`,
+      'u',
+    )
+    return regex.test(name)
+  }
+  for (const glob of Object.values(PRUNE_GLOBS)) {
+    for (const name of ['data', 'data-0123456789ab', 'runtime'])
+      assert.equal(matches(glob, name), false, `${glob} ${name}`)
+  }
+  assert.equal(matches(PRUNE_GLOBS.server, 'server-0.4.0'), true)
+  assert.equal(matches(PRUNE_GLOBS.app, '0.4.0'), true)
+  assert.equal(matches(PRUNE_GLOBS.app, 'server-0.4.0'), false, "the helper's prune leaves the server tree alone")
+  for (const kind of ['app', 'server'] as const) {
+    const script = buildCommitScript({ kind, stageId: 'stage1', digest: 'ab', appVersion: '0.4.0' })
+    assert.ok(script.includes(`for d in ${PRUNE_GLOBS[kind]}; do`), kind)
+  }
+})
+
+test('the server entry starts the server tree, and reports it missing as the app', () => {
+  const script = buildLaunchScript({
+    appVersion: '0.4.0',
+    nodeDigests: ['aa'],
+    appDigest: 'bb',
+    profile: 'abc123def456',
+    entry: 'server',
+  })
+  assert.ok(script.includes('app="$base/server-0.4.0"'))
+  assert.ok(script.includes('[ -f "$app/server.cjs" ]'))
+  assert.ok(script.trimEnd().endsWith('exec "$rt/bin/node" "$app/server.cjs" --bootstrap stdio'))
+  assert.ok(!script.includes('helper.mjs'))
+  const needed = sh(script)
+  assert.equal(needed.code, NEEDS_INSTALL_EXIT)
+  assert.deepEqual(parseNeedReport(needed.stdout)?.app, true)
+  assert.equal(serverTreeName('0.4.0'), 'server-0.4.0')
+  assert.throws(() => serverTreeName('0.4.0; rm -rf ~'), /plain token/u)
+  assert.ok(buildBridgeScript('0.4.0').includes('/server-0.4.0/bridge.mjs"'))
+})
+
+test.skipIf(!HAS_TAR)(
+  'a server tree is committed only when its bundle runs on the pinned Node and says this version',
+  () => {
+    const runtime = join(home, WSL_DATA_REL, 'runtime', `node-${WSL_NODE_VERSION}`, 'bin')
+    mkdirSync(runtime, { recursive: true })
+    if (!existsSync(join(runtime, 'node'))) {
+      writeFileSync(join(runtime, 'node'), `#!/bin/sh\nexec '${process.execPath}' "$@"\n`)
+      chmodSync(join(runtime, 'node'), 0o755)
+    }
+    const stage = (id: string, version: string) => {
+      sh(buildStageScript(id))
+      const dir = join(home, WSL_DATA_REL, '.stage', id)
+      writeFileSync(join(dir, 'server.cjs'), `if (process.argv[2] === '--version') console.log('${version}')\n`)
+      writeFileSync(join(dir, 'bridge.mjs'), '')
+    }
+    stage('srvok', '0.4.0')
+    const ok = sh(buildCommitScript({ kind: 'server', stageId: 'srvok', digest: 'cd', appVersion: '0.4.0' }))
+    assert.ok(ok.stdout.includes(COMMITTED_MARKER), ok.stdout + ok.stderr)
+    assert.equal(readFileSync(join(home, WSL_DATA_REL, 'server-0.4.0', '.ready'), 'utf8'), 'cd')
+
+    stage('srvold', '0.3.9')
+    const skewed = sh(buildCommitScript({ kind: 'server', stageId: 'srvold', digest: 'ef', appVersion: '0.4.1' }))
+    assert.ok(!skewed.stdout.includes(COMMITTED_MARKER))
+    assert.match(commitFailure(skewed.stdout, skewed.stderr), /^server-version 0\.3\.9/u)
+    assert.ok(existsSync(join(home, WSL_DATA_REL, 'server-0.4.0')), 'the tree in place is untouched')
+  },
+)
