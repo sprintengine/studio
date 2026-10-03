@@ -1,4 +1,4 @@
-import { NotOnMachineYet, useWorkspaceMachine } from './NotOnMachineYet'
+import { NotOnMachineYet, useWorkspaceMachine } from '../environments/NotOnMachineYet'
 import React, { useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'

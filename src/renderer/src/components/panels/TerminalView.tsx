@@ -1,4 +1,4 @@
-import { NotOnMachineYet, useWorkspaceMachine } from './NotOnMachineYet'
+import { NotOnMachineYet, useWorkspaceMachine } from '../environments/NotOnMachineYet'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { hostIdForFolder, isWslHostId } from '../../../../shared/execution-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
