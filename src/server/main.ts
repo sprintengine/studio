@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { parseArgs } from 'node:util'
 
@@ -11,6 +11,7 @@ import { installFatalHandlers } from './bootstrap/fatal'
 import { startHeadlessServer } from './bootstrap/headless'
 import { serveOnChannel } from './bootstrap/serve'
 import { stdioChannel } from './bootstrap/stdio'
+import { startDetached } from './bootstrap/detached-start'
 import type { ServerBoot } from './bootstrap/envelope'
 import {
   EXIT_DATA_DIR_BUSY,
@@ -28,6 +29,8 @@ import {
 //        [--app-root <dir>] [--resources-dir <dir> --packaged]
 //        [--share-desktop-data-dir] [--stdio]
 //   node out/server/server.cjs --bootstrap stdio
+//   node out/server/server.cjs start --detach --data-dir <dir> [--idle-ms <n> | --keep-running]
+//        [--started-by-b64 <label>] [--replace] [--channel latest|nightly]
 //   node out/server/server.cjs --version
 //
 // Once its gateway is listening it prints one JSON line on stdout,
@@ -70,7 +73,21 @@ const USAGE = `Usage: studio-server [serve] [options]
   --stdio                    Driven by a parent over stdin: stop on {"t":"shutdown"} or when stdin closes
   --bootstrap stdio          Read a bootstrap envelope on stdin and speak control frames on stdout
   --version                  Print the version and exit
+
+Usage: studio-server start --detach --data-dir <dir> [options]
+
+  Start a server that outlives this command (an SSH machine's managed server),
+  or report the one already running on that data directory.
+
+  --idle-ms <n>              Stop after this long with no client and no chat working (default 5 minutes)
+  --keep-running             Never stop for being idle
+  --started-by-b64 <label>   Who started it, base64url, for Settings ("Studio on dev-macbook-air")
+  --replace                  Drain and stop a running server first (an upgrade)
+  --channel <latest|nightly> The release channel of the client that starts it
 `
+
+/** How long a managed server on an SSH machine waits with no client and no chat working (phase 8 spec, 6.4). */
+const DEFAULT_DETACHED_IDLE_MS = 5 * 60_000
 
 function bundledBuild(): { version: string; commit: string | null; builtAt: string } | null {
   return typeof __STUDIO_SERVER_BUILD__ === 'undefined' ? null : __STUDIO_SERVER_BUILD__
@@ -98,6 +115,15 @@ type Command =
   | { kind: 'version' }
   | { kind: 'help' }
   | { kind: 'bootstrap'; carrier: 'stdio' }
+  | {
+      kind: 'start-detached'
+      dataDir: string
+      logsDir: string
+      idleMs: number | null
+      startedBy: string
+      replace: boolean
+      channel: 'latest' | 'nightly'
+    }
   | { kind: 'serve'; options: StudioServerOptions; stdio: boolean }
 
 export function parseServerArgs(argv: string[], env = process.env): Command {
@@ -114,6 +140,12 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
       'share-desktop-data-dir': { type: 'boolean' },
       stdio: { type: 'boolean' },
       bootstrap: { type: 'string' },
+      detach: { type: 'boolean' },
+      'idle-ms': { type: 'string' },
+      'keep-running': { type: 'boolean' },
+      'started-by-b64': { type: 'string' },
+      replace: { type: 'boolean' },
+      channel: { type: 'string' },
       version: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -129,6 +161,10 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
     return { kind: 'bootstrap', carrier: 'stdio' }
   }
   const [command = 'serve', ...rest] = positionals
+  if (command === 'start' && rest.length === 0) return parseDetachedStart(values)
+  for (const name of ['detach', 'idle-ms', 'keep-running', 'started-by-b64', 'replace', 'channel'] as const) {
+    if (values[name] !== undefined) throw new Error(`--${name} goes with start --detach.`)
+  }
   if (command !== 'serve' || rest.length > 0) throw new Error(`Unknown command: ${positionals.join(' ')}`)
   if (values.packaged && !values['resources-dir']) throw new Error('--packaged needs --resources-dir.')
 
@@ -151,6 +187,38 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
       appRoot,
       shareDesktopDataDir: values['share-desktop-data-dir'] === true,
     },
+  }
+}
+
+function parseDetachedStart(values: Record<string, string | boolean | undefined>): Command {
+  if (values.detach !== true) throw new Error('start runs a server detached: give --detach.')
+  const dataDir = values['data-dir']
+  if (typeof dataDir !== 'string' || !dataDir.startsWith('/'))
+    throw new Error('start --detach needs an absolute --data-dir.')
+  let idleMs: number | null = DEFAULT_DETACHED_IDLE_MS
+  if (values['keep-running'] === true) idleMs = null
+  else if (typeof values['idle-ms'] === 'string') {
+    idleMs = Number(values['idle-ms'])
+    if (!Number.isInteger(idleMs) || idleMs <= 0) throw new Error('--idle-ms must be a whole number of milliseconds.')
+  }
+  const label = values['started-by-b64']
+  if (label !== undefined && (typeof label !== 'string' || !/^[A-Za-z0-9_-]{0,400}$/u.test(label)))
+    throw new Error('--started-by-b64 must be base64url.')
+  const channel = values.channel ?? 'latest'
+  if (channel !== 'latest' && channel !== 'nightly') throw new Error('--channel is latest or nightly.')
+  const resolved = resolve(dataDir)
+  const logsDir =
+    typeof values['logs-dir'] === 'string'
+      ? resolve(values['logs-dir'])
+      : join(homedir(), '.local', 'state', 'sprintengine-studio', 'logs', basename(resolved))
+  return {
+    kind: 'start-detached',
+    dataDir: resolved,
+    logsDir,
+    idleMs,
+    startedBy: label ? Buffer.from(label, 'base64url').toString('utf8').slice(0, 200) : '',
+    replace: values.replace === true,
+    channel,
   }
 }
 
@@ -180,6 +248,15 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
   if (command.kind === 'bootstrap') return serveOverStdio()
+  if (command.kind === 'start-detached')
+    return startDetached({
+      ...command,
+      entry: __filename,
+      execPath: process.execPath,
+      appDir: __dirname,
+      version: versionFrom(defaultAppRoot()),
+      print: (line) => process.stdout.write(`${line}\n`),
+    })
 
   // Installed before the server starts, so a signal or a closed stdin during
   // startup is not lost: the stop waits for the start to finish, then runs.

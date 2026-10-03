@@ -25,6 +25,15 @@ import type { ConversationBackend, ConversationBackendMember } from '../core/con
 //
 // One JSON frame per line, the control RPC's own frames (`req`, `res`, `event`).
 
+/**
+ * The wire's own version. A WSL server is always this build, so it is never
+ * read there; an SSH machine's server can be another app version (one a
+ * newer desktop installed, one somebody started by hand), and a client
+ * speaks to one only when this matches what its record says (phase 8 spec,
+ * 5.6). Bump it whenever a forwarded member's arguments or answer change.
+ */
+export const BACKEND_WIRE_VERSION = 1
+
 /** Members answered over the wire. The synchronous ones are the router's to answer (from the mirror, or locally). */
 export const REMOTE_BACKEND_MEMBERS = [
   'startSession',

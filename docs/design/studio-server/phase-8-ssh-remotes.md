@@ -366,6 +366,30 @@ environment through main as it reaches any other (section 12, change 4).
 `ssh -W <owner socket>` (E1.13) is kept as a diagnostic only: it shows whether
 stream-local forwarding is allowed, which is useful in a support report.
 
+As built (2026-10-03), by decision R21 the relay is phase 7's stdio bridge,
+not a `server.mjs relay` entry: `bridge.mjs --mux <runDir>` from the
+installed tree, with its multiplexer in `relay-mux.mjs` beside it, plain Node
+with no dependencies. The desktop imports the same file for its end, so the
+two ends share one codec. The ready line is
+`@@SPRINTENGINE_RELAY {mux, pid, server}`, where `server` is what the server's
+record (`run/server.json`) says about it, or null when none runs.
+
+- Frames are a 9-byte header (u32 length, u8 type, u32 stream id) and a
+  payload: `open`, `opened`, `refused`, `data` (at most 32 KiB), `credit`,
+  `fin`, `close`. Each stream starts with a 256 KiB window both ways.
+- An `owner` stream is a connection to the server's front-door socket (phase
+  7's bridge door, `run/front-door.sock`), on which the relay runs the front
+  door's half of the mutual proof with the owner token it reads from
+  `run/owner-token`, fresh for each stream. The token never leaves the
+  machine (R22). The opening line carries `via: 'ssh-relay'`, the
+  `SSH_CONNECTION` client address and the relay's pid, which the server writes
+  in its log when it admits the connection. The purposes are phase 7's,
+  `backend` (the private conversation wire) and `studio` (the shell role).
+- Refusal codes are `refused`, `unreachable`, `timeout`, `limit`,
+  `no-server` (no record or socket) and `closed`.
+- On exit the relay writes one line to stderr with its counts: streams of each
+  kind, refusals, bytes each way, and up to 64 `host:port` targets.
+
 ### 5.5 Prompts: the askpass shim
 
 `SSH_ASKPASS` points at a tiny shim shipped with the app
@@ -474,6 +498,36 @@ uses `systemd-run --user --unit=sprintengine-studio --collect` around the same
 command, so the server is supervised, its logs go to the journal too, and it
 survives the session. Otherwise the detached fork, with the honest caveat in
 6.4.
+
+As built (2026-10-03):
+
+- `start --detach` is an entry of `server.cjs` (`src/server/bootstrap/
+  detached-start.ts`), run by the connect script with stdin on `/dev/null`.
+  It takes a start lock (`run/start.lock`, a directory), so two desktops
+  connecting at once start one server. A running server on this machine is
+  reported (`attached: true`), or with `--replace` sent SIGTERM and given 60 s
+  to drain (then SIGKILL). A run lock and record naming another machine are
+  refused (R25).
+- The starter, not the server, mints the owner token: 32 random bytes into
+  `run/owner-token` (0600, renamed into place). The server is handed only its
+  hash in the envelope, as on WSL, so phase 7's front door and proof are reused
+  unchanged.
+- The server is the ordinary `--bootstrap stdio` server, forked with Node's
+  `detached` (its own session, no `setsid` needed), its stderr appended to
+  `~/.local/state/sprintengine-studio/logs/<data>/server-<date>.log`. The
+  envelope gains `detached: { idleMs, origin, startedBy }`: stdin ending is
+  then not the parent gone, SIGHUP is ignored, and SIGTERM or SIGINT drain
+  with a 60 s budget. The front door opens its bridge socket only
+  (`loopback: false`), so the server listens on no TCP port.
+- The server writes `run/server.json` itself once its doors are open (pid,
+  version, origin, startedBy, hostId, environmentId, socketPath,
+  `backendWire`, dataDir; 0600) and removes it when it stops.
+- Idle: with no admitted front-door connection for `idleMs` (default five
+  minutes; `--keep-running` for none) and no chat working, it stops itself.
+- No systemd unit is used: decision R29 rules that out unasked, so the managed
+  server is always the detached process, with the caveat of 6.4.
+- The "protocol window" is the private backend wire's version
+  (`BACKEND_WIRE_VERSION`) together with the app version (5.6, as built).
 
 ## 6. The remote, in detail
 

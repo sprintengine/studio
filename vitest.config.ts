@@ -23,6 +23,8 @@ const SERIAL = [
   // Builds the WSL server tree and runs real servers through a stand-in for
   // wsl.exe: heavy enough to starve the timing suites it would share a CPU with.
   'src/server/wsl/wsl-environment-manager.test.ts',
+  // Builds the same tree and runs detached servers and the SSH relay for real.
+  'src/server/bootstrap/detached-start.test.ts',
   'src/renderer/src/components/workspace/ConversationPeekPopover.test.tsx',
   'src/renderer/src/hooks/useSharedBacklogScan.test.ts',
   'src/renderer/src/modules/backlog-reader.test.ts',
