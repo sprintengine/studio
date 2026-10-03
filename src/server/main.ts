@@ -10,6 +10,8 @@ import { installFatalHandlers } from './bootstrap/fatal'
 import { startHeadlessServer } from './bootstrap/headless'
 import { serveOnChannel } from './bootstrap/serve'
 import { stdioChannel } from './bootstrap/stdio'
+import { readWebRunFile } from './web/web-run-file'
+import { normalizeOrigin } from './web/web-origins'
 import {
   EXIT_DATA_DIR_BUSY,
   EXIT_FAILED,
@@ -27,6 +29,12 @@ import {
 //        [--share-desktop-data-dir] [--stdio]
 //   node out/server/server.cjs --bootstrap stdio
 //   node out/server/server.cjs --version
+//   node out/server/server.cjs serve --web [--web-port <n>] [--public-origin <url>]…
+//   node out/server/server.cjs pair [--data-dir <dir>] [--origin <url>]
+//
+// `--web` turns on the web client's listener on a loopback port (phase 9),
+// off by default. `pair` asks the server running on a data directory for a
+// one-time link that pairs a browser, and prints it.
 //
 // Once its gateway is listening it prints one JSON line on stdout,
 // `{"ready":{…}}`, and keeps stdout for such lines; everything said to a person
@@ -67,7 +75,17 @@ const USAGE = `Usage: studio-server [serve] [options]
   --share-desktop-data-dir   Run against the desktop app's data directory, with saved keys off
   --stdio                    Driven by a parent over stdin: stop on {"t":"shutdown"} or when stdin closes
   --bootstrap stdio          Read a bootstrap envelope on stdin and speak control frames on stdout
+  --web                      Serve the web client on a loopback port (off by default)
+  --web-port <n>             The web listener's port (default 4791; 0 picks one)
+  --public-origin <url>      An HTTPS origin a proxy serves the web client on, such as the
+                             tailscale serve name (repeatable). Never plain HTTP off loopback.
+  --web-root <dir>           Where the web bundle is (default: out/web beside this bundle)
   --version                  Print the version and exit
+
+Usage: studio-server pair [--data-dir <dir>] [--origin <url>]
+
+  Print a one-time link that pairs a browser with the server running on the data
+  directory. The link works once, within five minutes.
 `
 
 function bundledBuild(): { version: string; commit: string | null; builtAt: string } | null {
@@ -95,6 +113,7 @@ function versionFrom(appRoot: string | null): string {
 type Command =
   | { kind: 'version' }
   | { kind: 'help' }
+  | { kind: 'pair'; dataDir: string; origin: string | null }
   | { kind: 'bootstrap'; carrier: 'stdio' }
   | { kind: 'serve'; options: StudioServerOptions; stdio: boolean }
 
@@ -114,6 +133,11 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
       bootstrap: { type: 'string' },
       version: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
+      web: { type: 'boolean' },
+      'web-port': { type: 'string' },
+      'public-origin': { type: 'string', multiple: true },
+      'web-root': { type: 'string' },
+      origin: { type: 'string' },
     },
   })
   if (values.version) return { kind: 'version' }
@@ -127,7 +151,8 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
     return { kind: 'bootstrap', carrier: 'stdio' }
   }
   const [command = 'serve', ...rest] = positionals
-  if (command !== 'serve' || rest.length > 0) throw new Error(`Unknown command: ${positionals.join(' ')}`)
+  if ((command !== 'serve' && command !== 'pair') || rest.length > 0)
+    throw new Error(`Unknown command: ${positionals.join(' ')}`)
   if (values.packaged && !values['resources-dir']) throw new Error('--packaged needs --resources-dir.')
 
   const defaults = defaultServerLocations({ env })
@@ -137,6 +162,8 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
   // A server pointed at a directory keeps everything in it; one on the default
   // locations logs where XDG puts state.
   const dataDir = resolve(chosenDataDir ?? defaults.dataDir)
+  if (command === 'pair') return { kind: 'pair', dataDir, origin: values.origin ?? null }
+  const web = values.web === true ? parseWebOptions(values) : null
   return {
     kind: 'serve',
     stdio: values.stdio === true,
@@ -148,7 +175,64 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
       resourcesDir: values['resources-dir'] ? resolve(values['resources-dir']) : null,
       appRoot,
       shareDesktopDataDir: values['share-desktop-data-dir'] === true,
+      web,
     },
+  }
+}
+
+const DEFAULT_WEB_PORT = 4791
+
+function parseWebOptions(values: {
+  'web-port'?: string
+  'public-origin'?: string[]
+  'web-root'?: string
+}): NonNullable<StudioServerOptions['web']> {
+  const port = values['web-port'] === undefined ? DEFAULT_WEB_PORT : Number(values['web-port'])
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--web-port takes a port number.')
+  const publicOrigins = (values['public-origin'] ?? []).map((value) => {
+    const origin = normalizeOrigin(value)
+    // Off loopback the web client is served over HTTPS or not at all (R19):
+    // plain HTTP is not a secure context, and the cookie could not be Secure.
+    if (!origin || !origin.startsWith('https://'))
+      throw new Error(`--public-origin takes an https:// origin with no path: ${value}`)
+    return origin
+  })
+  return {
+    port,
+    publicOrigins,
+    staticDir: resolve(values['web-root'] ?? join(__dirname, '..', 'web')),
+  }
+}
+
+/** `studio-server pair`: a one-time pairing link from the server running on a data directory. */
+async function pairBrowser(dataDir: string, origin: string | null): Promise<number> {
+  const run = readWebRunFile(dataDir)
+  if (!run) {
+    say(`No Studio server with its web listener on is running on ${dataDir}. Start one with: studio-server serve --web`)
+    return EXIT_FAILED
+  }
+  const target = origin ? normalizeOrigin(origin) : null
+  if (origin && (!target || !run.origins.includes(target))) {
+    say(`${origin} is not one of the server's origins: ${run.origins.join(', ')}`)
+    return EXIT_USAGE
+  }
+  try {
+    const response = await fetch(`${run.url}/pair/mint`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${run.mintKey}` },
+    })
+    const body = (await response.json()) as { ok?: boolean; url?: string; expiresAt?: string; message?: string }
+    if (!response.ok || !body.ok || typeof body.url !== 'string') {
+      say(body.message ?? `The server refused (${response.status}).`)
+      return EXIT_FAILED
+    }
+    const link = target ? body.url.replace(run.url, target) : body.url
+    process.stdout.write(`${link}\n`)
+    say(`Open the link in the browser to pair. It works once, until ${body.expiresAt ?? 'five minutes from now'}.`)
+    return 0
+  } catch (error) {
+    say(`The server on ${run.url} did not answer: ${error instanceof Error ? error.message : String(error)}`)
+    return EXIT_FAILED
   }
 }
 
@@ -178,6 +262,7 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
   if (command.kind === 'bootstrap') return serveOverStdio()
+  if (command.kind === 'pair') return pairBrowser(command.dataDir, command.origin)
 
   // Installed before the server starts, so a signal or a closed stdin during
   // startup is not lost: the stop waits for the start to finish, then runs.
@@ -270,6 +355,11 @@ async function main(argv: string[]): Promise<number> {
     `ready: ${ready.dataDir}, gateway ${ready.gatewaySocket ?? 'not running'}` +
       (ready.secrets ? '' : ', saved keys off (desktop data directory)'),
   )
+  if (server.web) {
+    // No pairing code is printed here: stderr may be a service's log, which
+    // keeps it. `studio-server pair` prints one link to whoever asks.
+    say(`web client on ${server.web.url}; pair a browser with: studio-server pair --data-dir ${ready.dataDir}`)
+  }
   const asked = pending as { reason: string; code: number } | null
   if (asked) stop(asked.reason, asked.code)
   return exited

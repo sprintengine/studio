@@ -1286,3 +1286,50 @@ parent's "Phase 9 (M)" is low; with the embed this is L.
 | 12 | Service worker | **None in v1**; a manifest only |
 | 13 | How the web client shows an agent's dev server (3.6) | **`previews`**: a listener and an origin per preview on the server's loopback, its own one-time code and cookie, Studio's cookies stripped, WebSocket upgrades passed through; offered ports are the agents' listeners plus an owner-typed port, never Studio's own |
 | 14 | The web client offers `canvas` (3.8) | **Yes, from owner sessions** (`kind: 'web'`); never from a tailnet browser pairing in v1 |
+
+## 14. As built
+
+Where building phase 9 forced a change to the sections above, the change is
+recorded here, with the commit that made it.
+
+### 14.1 The web listener (2026-10-03)
+
+- **Off unless asked for.** `studio-server serve --web` starts the listener on
+  `127.0.0.1:4791` (`--web-port`, 0 picks one). It binds loopback only.
+  `--public-origin https://…` (repeatable) adds the HTTPS name a proxy serves
+  it under, such as `tailscale serve`'s; an `http://` public origin is
+  refused at start (R19). The desktop's own server does not start it.
+- **Session lifetime is R18's, not 6.3's:** 30 days from pairing, absolute,
+  with no sliding window.
+- **`studio-server pair`** reads `run/web.json` (0600 in the owner-only
+  `run/`), which the running listener writes with its port, origins and a
+  per-run key, and posts the key to `/pair/mint` with no `Origin`. A browser
+  cannot send that request (it always sends `Origin` on a POST, and it cannot
+  read the file), and the listener refuses the route when `Origin` is
+  present. `--origin` prints the link on a public origin instead. The server
+  does not print a pairing link at start: stderr may be a service's log.
+- **Tailnet pairing by approval (6.2, the six-digit flow) is not built.** A
+  browser on another tailnet device pairs with a one-time link minted for the
+  public origin (`studio-server pair --origin https://<node>.ts.net`). A
+  session paired on a public origin is never an owner session and never holds
+  `tools:offer`, whatever the code was minted for.
+- **Two sockets per tab, not one.** `/ws` carries the Studio protocol as
+  specified. `/ws/ipc` carries the `window.api` domains the server owns, over
+  the same IPC tunnel a desktop window uses when its server runs out of
+  process (phase 6, 6.2), as JSON frames. It admits owner sessions only, since
+  the tunnelled handlers have no scopes of their own. It goes away with the
+  tunnel, when phase 10 empties `SERVER_IPC_CHANNELS`. This is what the
+  parent's `createServerBackedApi` is on the web until then.
+- **A cookie-authenticated socket's hello** carries a placeholder credential;
+  the session cookie, checked with the exact `Origin` at the upgrade, is the
+  proof, and the connection's authenticator reads the session live (a revoked
+  or expired session is refused on its next frame, and its sockets are closed
+  with 4401 at once). An owner's tab is served as Studio's own view
+  (`ownWindow`): unredacted, with a window's request bounds.
+- **App routes.** Only `/` serves the app. Deep routes
+  (`/w/<id>/c/<id>`) are not built; `/api/*` and `/ws*` that match nothing
+  answer 404 rather than the app.
+- **The folder browser (6.5)** is a tunnelled channel, `web:browse-folders`,
+  that only a web tab's tunnel registers, rather than a `files.browse`
+  protocol method: an owner session is the only caller in v1, and it becomes a
+  method when the file domain moves in phase 10.

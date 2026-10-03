@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { Duplex } from 'node:stream'
 
 import { toolError, toolSuccess } from '../../shared/modules/mcp-tools'
 import {
@@ -79,6 +80,17 @@ export type StudioRpcService = {
    * for a ticket good once, as `shellTransport` gives it in process.
    */
   connectShell(port: StudioFramePort): { connectionId: string; ticket: string }
+  /**
+   * Serve a browser's socket from the web listener (phase 9): a web tab that
+   * proved its session cookie at the upgrade, or a client that spent a
+   * ticket. The authenticator is the session's or the ticket's; `ownWindow`
+   * is true only for an owner's web tab, which is the app's own chat view in a
+   * browser and asks what a window asks.
+   */
+  connectWeb(
+    stream: Duplex,
+    input: { authenticator: StudioAuthenticator; ownWindow: boolean },
+  ): { connectionId: string }
   /** The chat surface, from the handlers the app's own IPC serves its windows with. */
   provideChat(chat: StudioChatBackend): void
   /** Which agents a paired app's tools reach. */
@@ -412,6 +424,10 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
         shell: true,
       })
       return { connectionId: connection.connectionId, ticket }
+    },
+    connectWeb(stream, input) {
+      const connection = hub().attach(stream, { authenticator: input.authenticator, ownWindow: input.ownWindow })
+      return { connectionId: connection.connectionId }
     },
     provideChat(next) {
       chat = next

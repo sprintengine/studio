@@ -18,6 +18,8 @@ import { createNodeStudioPlatform, type NodeStudioPlatform } from './platform/pl
 import { createUnavailableSecretCipher } from './platform/secret-cipher'
 import { SERVER_EXIT } from './bootstrap/envelope'
 import { runShutdownLegs, type ShutdownLegProgress } from './bootstrap/serve'
+import { readStudioEnvironmentId } from '../main/studio-rpc/studio-rpc-service'
+import type { WebFrontDoor, WebFrontDoorOptions } from './web/web-front-door'
 
 // A Studio server under plain Node: the core and its gateway, with nothing of
 // Electron. The `studio-server` entry (main.ts) runs it from a shell; a later
@@ -60,6 +62,11 @@ export type StudioServerOptions = {
    * only to be driven over its control channel (the seam tests); default on.
    */
   listen?: boolean
+  /**
+   * Serve the web client on a loopback port (phase 9). Off unless given: a
+   * server nobody opened a browser to answers no HTTP.
+   */
+  web?: WebFrontDoorOptions | null
 }
 
 export type StudioServerReady = {
@@ -72,6 +79,8 @@ export type StudioServerReady = {
   rpcSocket: string | null
   /** False when the data directory's secrets cannot be opened here (a shared desktop directory). */
   secrets: boolean
+  /** The web listener's loopback URL, when it was asked for and started. */
+  web: string | null
 }
 
 export type StudioServer = {
@@ -79,6 +88,8 @@ export type StudioServer = {
   gateway: StudioGateway
   rpc: StudioRpcService
   platform: NodeStudioPlatform
+  /** The web listener, when `web` was given. */
+  web: WebFrontDoor | null
   ready: StudioServerReady
   /**
    * Stop the RPC, the gateway, then the core, saying each leg as it ends.
@@ -234,11 +245,38 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     throw error
   }
 
+  let web: WebFrontDoor | null = null
+  if (options.web && options.listen !== false) {
+    try {
+      // Loaded only when asked for: a server with no web listener loads none of it.
+      const { startWebFrontDoor } = await import('./web/web-front-door')
+      web = await startWebFrontDoor({
+        core,
+        gateway: started,
+        rpc,
+        clients: platform.clients,
+        environmentId: readStudioEnvironmentId(options.dataDir),
+        version: options.version,
+        options: options.web,
+        log: options.log,
+      })
+    } catch (error) {
+      await rpc.stop().catch(() => undefined)
+      await started.shutdown().catch(() => undefined)
+      await core.shutdown()
+      throw new StudioServerStartError(
+        `The web listener did not start: ${error instanceof Error ? error.message : String(error)}`,
+        EXIT_FAILED,
+      )
+    }
+  }
+
   let stopping: Promise<void> | null = null
   const stop = (onLeg?: (progress: ShutdownLegProgress) => void): Promise<void> => {
     clearInterval(lockWatch)
     stopping ??= runShutdownLegs(
       [
+        ...(web ? ([['web', () => web?.stop()]] as const) : []),
         ['studio-rpc', () => rpc.stop()],
         ['gateway', () => started.shutdown()],
         ['core', () => core.shutdown()],
@@ -264,6 +302,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     gateway: started,
     rpc,
     platform,
+    web,
     ready: {
       pid: process.pid,
       version: options.version,
@@ -271,6 +310,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       gatewaySocket: status.running ? (status.socketPath ?? resolveSocketPath(options.dataDir)) : null,
       rpcSocket: rpc.getStatus().running ? rpc.getStatus().socketPath : null,
       secrets: platform.secrets.available(),
+      web: web?.url ?? null,
     },
     stop,
   }

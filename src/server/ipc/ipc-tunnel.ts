@@ -22,7 +22,7 @@ import type { ClientBus, ClientTarget } from '../platform/client-bus'
 // for the window itself fails loudly in a test rather than quietly doing
 // nothing in the server.
 
-export type CallerKind = 'desktop-window' | 'shell'
+export type CallerKind = 'desktop-window' | 'web-tab' | 'shell'
 
 /** Who sent a tunnelled request. */
 export type CallerContext = {
