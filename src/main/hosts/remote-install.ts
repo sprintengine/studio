@@ -223,7 +223,7 @@ export type StreamInstallInput = {
  * `runtime/node-<v>/bin/node` when the runtime is needed, and
  * `server-<appVersion>/…` when the server is.
  */
-export function streamInstallLines(input: StreamInstallInput): string[] {
+export function streamInstallLines(input: StreamInstallInput & { beforeUnpack?: readonly string[] }): string[] {
   const id = plainToken(input.stageId, 'The stage id')
   const server = serverTreeName(input.appVersion)
   const nodeDigest = hexToken(input.nodeDigest, 'The Node digest')
@@ -240,6 +240,7 @@ export function streamInstallLines(input: StreamInstallInput): string[] {
     'mkdir "$stage" || fail stage',
     // A staging directory older than a day belongs to an install that died.
     'find "$base/.stage" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null',
+    ...(input.beforeUnpack ?? []),
     `tar -xzf - -C "$stage" 2>"$stage.err" || fail "unpack $(tail -n 2 "$stage.err" 2>/dev/null | tr '\\n' ' ')"`,
     'rm -f "$stage.err"',
     'lock_take || fail "lock timeout"',

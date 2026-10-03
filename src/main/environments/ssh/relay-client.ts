@@ -81,5 +81,7 @@ export function attachRelay(
     )
     stdout.on('data', onData)
     stdout.once('end', onEnd)
+    // A session that paused it to hand it over: flowing again, from the bytes it kept.
+    stdout.resume()
   })
 }

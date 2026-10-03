@@ -251,6 +251,21 @@ The probe prints, as `@@SPRINTENGINE_PROBE key=value` lines (E3):
 | `cli` | `command -v` for the agent CLIs (`claude`, `codex`, `cursor-agent`, `opencode`, `gemini`, `grok`) through a login shell's `PATH` | the Agents tab before the server is up |
 | `proxy` | whether `HTTPS_PROXY`/`https_proxy` is set | diagnostics; the server inherits it |
 
+As built (2026-10-03), `src/main/environments/ssh/ssh-connect-script.ts`:
+every session runs one script, the probe and then one decision line, so a
+connect is one authentication and an install two (the archive must be the
+last thing on a session's stdin). The decisions are `install`,
+`install-fetch`, `attach`, `start <idle|keep> <label>`, `upgrade <idle|keep>
+<label>` and `stop`; anything else ends the session having changed nothing.
+`start` and `upgrade` check their two words against fixed character sets with
+globbing off before using them. `RemoteSession.send` throws before
+`@@SPRINTENGINE_SEND`, so the marker rule is enforced in one place.
+
+The probe as built drops the `cli` line: a login shell's `PATH` is slow and
+noisy to read in the probe, and the server's own CLI detection answers as soon
+as it is up. It adds `user`, `hostname` (for the NFS check against the run
+lock's host), and the run lock's pid, host and liveness (`kill -0`).
+
 ### 5.3 Install
 
 Two sources, the same commit:
@@ -296,6 +311,13 @@ WSL and SSH):
   server's own Node. Alternatively the bundle carries the pure-JS npm the
   desktop already ships under `resources/runtime/npm`; either is fine, one
   must be chosen (decision D9).
+
+As built: the remote download covers the pinned Node only. Its URL and
+digest for each of the four targets are written into the script itself and
+chosen by `uname`, so nothing a client sends names what the remote fetches;
+`curl` or `wget` fetches, `sha256sum` or `shasum -a 256` checks, and a
+mismatch fails with both digests. The server tree is always streamed: no
+published release archive of it exists yet (decision R08 publishes one later).
 
 Targets in v1: `linux-x64`, `linux-arm64` (glibc ≥ 2.28), `darwin-arm64`,
 `darwin-x64`. musl (Alpine) is refused with a sentence naming the reason
