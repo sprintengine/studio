@@ -61,6 +61,13 @@ export type RoutedConversationBackend = ConversationBackend & {
   attach(connection: WslServerConnection | SshRoutedConnection): void
   /** Where a workspace's chats run now: `null` for this process, a distribution, or `ssh:<id>`. */
   routeOf(workspaceId: string, workspaceRoot?: string): string | null
+  /**
+   * A server's wire came back after it was lost (`key` as `routeOf` names
+   * it). What that server published meanwhile reached nobody here, so every
+   * subscription to one of its chats catches up from its cursor
+   * (ConversationSessionApi).
+   */
+  onRouteResumed(listener: (key: string) => void): () => void
 }
 
 const SSH_KEY = /^ssh:[A-Za-z0-9_-]+$/u
@@ -158,9 +165,13 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
   }
   local.onEvent(dispatch)
 
+  const resumedListeners = new Set<(key: string) => void>()
+
   function attach(connection: WslServerConnection | SshRoutedConnection): void {
     const key = keyOf(connection)
-    remotes.get(key)?.unsubscribe()
+    const previous = remotes.get(key)
+    if (previous?.connection === connection) return
+    previous?.unsubscribe()
     const edge =
       'distro' in connection
         ? createWslPathEdge({ distro: connection.distro, driveMountRoot: connection.driveMountRoot })
@@ -170,6 +181,16 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
       dispatch(event)
     })
     remotes.set(key, { connection, edge, unsubscribe })
+    // A new wire to a server this router followed before: tell every
+    // subscription to its chats to catch up.
+    if (previous)
+      for (const listener of [...resumedListeners]) {
+        try {
+          listener(key)
+        } catch (error) {
+          log(`A resume listener threw: ${failureMessage(error)}`)
+        }
+      }
   }
 
   /** The servers a key belongs to: an SSH machine's, or the WSL distributions'. */
@@ -294,6 +315,10 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
   const backend = {
     attach,
     routeOf,
+    onRouteResumed(listener: (key: string) => void) {
+      resumedListeners.add(listener)
+      return () => resumedListeners.delete(listener)
+    },
     onEvent(listener: (event: ConversationEvent) => void) {
       listeners.add(listener)
       return () => listeners.delete(listener)

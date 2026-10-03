@@ -560,7 +560,16 @@ As built (2026-10-03), `src/main/environments/ssh/ssh-environment.ts`:
   `commandId` is answered once by the server's receipts, so repeating it after
   a reconnect joins the turn still running there instead of starting another
   (`ssh-environment.docker.test.ts` drops a session mid-turn and shows it).
-  Events emitted while the wire was down are not replayed to the live view.
+  Events emitted while the wire was down are caught up by the subscription
+  itself: when the router attaches a new wire for a server it followed
+  before, it says so (`onRouteResumed`), and every `ConversationSessionApi`
+  subscription to a chat that server holds joins again from its own cursor
+  and generation, with live events held back meanwhile. A log the server
+  vouches for hands over just the missed events; a rewritten one a reset
+  snapshot. The chat view needs no reload and sees nothing twice
+  (`ssh-resume.test.ts`: the session dropped, another client ending the turn
+  meanwhile, the open subscription handed the rest). WSL servers' chats get
+  the same.
 
 Locating decides between four outcomes:
 
@@ -1272,9 +1281,6 @@ Not built yet:
   is signed in from a terminal there by hand for now.
 - **Files at the edge**: the file explorer, Git pane, @-mention search and
   image previews for an SSH workspace read this computer's disk.
-- **Resume from cursors**: the private backend wire has none. A command id
-  makes a repeated call safe, but events emitted while the wire was down are
-  not replayed to a chat view that was open.
 - `auth.sessions.list` for SSH sessions, `server.logs.tail` in Diagnostics
   (they show the bootstrap's steps, the probe and ssh's words), `ssh -W` as a
   diagnostic, the jump-host and password variants of 9.3, the Windows job
