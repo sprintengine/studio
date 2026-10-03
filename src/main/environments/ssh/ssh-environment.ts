@@ -280,6 +280,8 @@ export class SshEnvironment {
           decision = `start ${idle} ${by}`
           deadline = this.timing.startMs
         } else decision = 'attach'
+        // The probe's end and SEND can come in two reads: wait for SEND itself.
+        await session.waitForSend(10_000)
         session.send(decision)
         const relay = await timed('relay', () =>
           session.relay(deadline).catch((error: unknown) => {
