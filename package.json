@@ -27,10 +27,10 @@
     "build:conversation-protocol": "node packages/conversation-protocol/build.mjs",
     "build:studio-protocol": "node packages/studio-protocol/build.mjs",
     "build:agent-sdk": "node packages/agent-sdk/build.mjs",
-    "dist": "npm run runtimes:fetch && npm run build && electron-builder",
+    "dist": "npm run runtimes:fetch && npm run build && npm run build:server:wsl && electron-builder",
     "dist:win": "npm run runtimes:fetch -- --platform win32 && npm run build && npm run build:server:wsl && electron-builder --win",
-    "dist:mac": "npm run runtimes:fetch -- --platform darwin && npm run build && electron-builder --mac",
-    "dist:linux": "npm run runtimes:fetch -- --platform linux && npm run build && electron-builder --linux",
+    "dist:mac": "npm run runtimes:fetch -- --platform darwin && npm run build && npm run build:server:wsl && electron-builder --mac",
+    "dist:linux": "npm run runtimes:fetch -- --platform linux && npm run build && npm run build:server:wsl && electron-builder --linux",
     "runtimes:fetch": "node scripts/fetch-runtimes.mjs",
     "icons": "node scripts/generate-icons.js",
     "test": "vitest run",
@@ -177,6 +177,13 @@
         "filter": [
           "templates/**"
         ]
+      },
+      {
+        "from": "out/wsl-server",
+        "to": "wsl-server",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
@@ -188,16 +195,7 @@
           ]
         }
       ],
-      "icon": "resources/icon.ico",
-      "extraResources": [
-        {
-          "from": "out/wsl-server",
-          "to": "wsl-server",
-          "filter": [
-            "**/*"
-          ]
-        }
-      ]
+      "icon": "resources/icon.ico"
     },
     "mac": {
       "target": [

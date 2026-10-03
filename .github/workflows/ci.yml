@@ -127,3 +127,38 @@ jobs:
       # release time is a release that cannot ship.
       - name: Validate marketplace registry and plugin signatures
         run: npm run verify:marketplace-registry
+
+  # SSH machines against a real sshd (phase 8 spec, 9.3): a container with
+  # forwarding turned off, the system ssh, the askpass shim, the pinned Node
+  # downloaded and streamed, a managed server started, a session dropped
+  # mid-turn, and the relay's tcp streams; and the install scripts under
+  # busybox. Docker is on the hosted Linux runners.
+  ssh-machines:
+    name: SSH machines (dockerized sshd)
+    if: ${{ inputs.release_gate || github.event_name == 'workflow_dispatch' || github.event.repository.private == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: SSH machine suites
+        env:
+          STUDIO_TEST_DOCKER: '1'
+        run: >-
+          npx vitest run
+          src/main/hosts/remote-install.test.ts
+          src/main/environments/ssh/askpass.test.ts
+          src/main/environments/ssh/ssh-environment.docker.test.ts
