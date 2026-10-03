@@ -50,6 +50,13 @@
     // The Windows ACL tool; the server's secret key file is made the current
     // user's only with it. Not an npm binary.
     "icacls",
+    // OpenSSH's own tools: the SSH machine suites make a throwaway key and
+    // wait for a container's sshd with them. Not npm binaries.
+    "ssh-keygen",
+    "ssh-keyscan",
+    // The shell linter the install-script suites run every generated script
+    // through, where it is installed. Not an npm binary.
+    "shellcheck",
   ],
   "ignoreDependencies": [
     // Imported from CSS (`@import "tailwindcss"`), which knip does not read.

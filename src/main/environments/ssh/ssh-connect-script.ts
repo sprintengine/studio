@@ -103,6 +103,8 @@ export function buildConnectScript(input: ConnectScriptInput): string {
     beforeUnpack: fetchLines(),
   })
   const indent = (lines: readonly string[]) => lines.map((line) => `    ${line}`)
+  // Never run a program from a tree another user could have put there.
+  const ownedCheck = `    { owned "$base" && owned "$app"; } || { printf '%sFAIL base-owner %s\\n' "$P" "$base"; exit 7; }`
   return compoundScript([
     'set -u',
     `P='${MARK}'`,
@@ -167,6 +169,7 @@ export function buildConnectScript(input: ConnectScriptInput): string {
     ...indent(installFetch),
     '    ;;',
     '  attach)',
+    ownedCheck,
     `    ${relay}`,
     '    ;;',
     '  "start "*|"upgrade "*)',
@@ -177,6 +180,7 @@ export function buildConnectScript(input: ConnectScriptInput): string {
     '    case "$label" in *[!A-Za-z0-9_-]*) exit 6 ;; esac',
     "    replace=''",
     '    [ "$1" = upgrade ] && replace=--replace',
+    ownedCheck,
     `    "$rt/bin/node" "$app/server.cjs" start --detach --data-dir "$data" "$idle_arg" --started-by-b64="$label" --channel ${channel} $replace </dev/null || exit 5`,
     `    ${relay}`,
     '    ;;',

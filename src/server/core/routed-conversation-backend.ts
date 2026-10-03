@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import type { ConversationEvent, ConversationSessionSummary } from '../../shared/conversation-runtime'
 import { distroOfHostId } from '../../shared/execution-host'
 import { distroOfUncPath } from '../../shared/host-paths'
@@ -104,6 +106,18 @@ const IDENTITY_EDGE: PathEdge = { args: (_member, args) => args, result: (_membe
 // running there rather than start another (phase 8 spec, 7).
 const RETRIES_AFTER_LOST_WIRE = 2
 
+// The members the runtime answers once per command id. A call to an SSH
+// machine that came without one (a window's IPC sends none) is given one
+// here, so a session lost under it can be repeated safely.
+const COMMAND_MEMBERS: ReadonlySet<string> = new Set([
+  'sendTurn',
+  'respondToRequest',
+  'setPermission',
+  'setModel',
+  'interrupt',
+  'stopSession',
+])
+
 function keyOf(connection: WslServerConnection | SshRoutedConnection): string {
   return 'distro' in connection ? connection.distro : connection.key
 }
@@ -202,8 +216,17 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
     return sessionDistro.get(sessionId) ?? null
   }
 
-  async function callRemote(distro: string, member: RemoteBackendMember, args: unknown[]): Promise<unknown> {
+  async function callRemote(distro: string, member: RemoteBackendMember, given: unknown[]): Promise<unknown> {
     const servers = serversOf(distro)
+    const first = given[0] as { commandId?: unknown } | null | undefined
+    const args =
+      SSH_KEY.test(distro) &&
+      COMMAND_MEMBERS.has(member) &&
+      typeof first === 'object' &&
+      first !== null &&
+      typeof first.commandId !== 'string'
+        ? [{ ...first, commandId: `route-${randomUUID()}` }, ...given.slice(1)]
+        : given
     const repeatable =
       SSH_KEY.test(distro) && typeof (args[0] as { commandId?: unknown } | null)?.commandId === 'string'
     for (let attempt = 0; ; attempt++) {

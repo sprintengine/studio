@@ -399,7 +399,10 @@ export class SshEnvironment {
     const fail = session.lines.find((line) => line.startsWith('@@SPRINTENGINE_FAIL '))
     if (fail) {
       const [, code = '', ...words] = fail.split(' ')
-      const message = words.join(' ')
+      const message =
+        code === 'base-owner'
+          ? `${words.join(' ')} on ${label} belongs to another user, so Studio will not run programs from it. Choose an install directory of your own.`
+          : words.join(' ')
       return new StepError(
         code === 'other-host' ? 'version-blocked' : 'failed',
         message || `The Studio server on ${label} did not start.`,
@@ -611,5 +614,7 @@ export function installFailureWords(reason: string, label: string): string {
   if (reason.startsWith('fetch'))
     return `${label} couldn't download Node.js (${reason.slice(6)}). Check its network, or turn the remote download off.`
   if (reason === 'lock timeout') return `Another install on ${label} has not finished after two minutes.`
+  if (reason.startsWith('base-owner'))
+    return `${reason.slice('base-owner'.length).trim()} on ${label} belongs to another user, so Studio will not install there. Choose an install directory of your own.`
   return `Installing Studio on ${label} failed: ${reason || 'no reason given'}.`
 }

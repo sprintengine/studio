@@ -58,7 +58,7 @@ export const NODE_RUNTIME_REL = `runtime/node-${WSL_NODE_VERSION}`
 
 /**
  * The shell functions an install uses, defined once per script: `live`,
- * `lock_take`, `lock_drop` and `place`. They read `$base` (the data root) and
+ * `lock_take`, `lock_drop`, `owned` and `place`. They read `$base` (the data root) and
  * `$id` (this install's stage id), which the script sets first.
  */
 export function posixInstallFunctions(): string[] {
@@ -102,6 +102,8 @@ export function posixInstallFunctions(): string[] {
     '  echo "$$" > "$lk/pid"',
     '}',
     'lock_drop() { rm -rf "$base/.install.lock"; }',
+    // Whether this user owns a path (`test -O` is not POSIX; `find -user` is).
+    'owned() { [ -n "$(find "$1" -prune -user "$(id -u)" 2>/dev/null)" ]; }',
     // $1: the staged tree; $2: where it goes.
     'place() {',
     '  if [ -e "$2" ]; then',
@@ -243,6 +245,9 @@ export function streamInstallLines(input: StreamInstallInput & { beforeUnpack?: 
     `fail() { printf '${FAIL_MARKER} %s\\n' "$*"; rm -rf "$stage" "$stage.err"; [ "$locked" = 1 ] && lock_drop; exit 4; }`,
     'umask 077',
     'mkdir -p "$base/.stage" || fail "mkdir $base"',
+    // Programs are run from here: a directory another user owns (a shared
+    // install directory) could have them replaced under us.
+    'owned "$base" || fail "base-owner $base"',
     'rm -rf "$stage"',
     'mkdir "$stage" || fail stage',
     // A staging directory older than a day belongs to an install that died.

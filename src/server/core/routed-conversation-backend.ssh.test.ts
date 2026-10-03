@@ -132,3 +132,27 @@ test("a remote machine's events reach every caller", async () => {
   back.emit({ type: 'turn_started', sessionId: 's', workspaceId: 'ws-ssh', agentId: 'a' } as ConversationEvent)
   assert.deepEqual(seen, ['turn_started'])
 })
+
+test("a turn sent with no command id (a window's IPC sends none) is given one; a read is not", async () => {
+  const local = fakeBackend('local')
+  const machine = fakeBackend('ssh', (member) =>
+    member === 'startSession' ? { ok: true, session: { sessionId: 'remote-1' } } : { ok: true, from: 'ssh' },
+  )
+  const connection: SshRoutedConnection = { key: 'ssh:e1', label: 'build-box', backend: machine.backend }
+  const router = createRoutedConversationBackend({
+    local: local.backend,
+    workspace: () => ({ folderPath: '/home/dev/repo', environment: { kind: 'ssh', id: 'e1' } }),
+    chatServerOn: () => false,
+    ssh: { connect: async () => connection, current: () => connection, touch: () => undefined },
+    platform: 'linux',
+  })
+  await router.startSession({ workspaceId: 'ws-ssh', agentId: 'a', workspaceRoot: '/home/dev/repo' } as never)
+  await router.sendTurn({ sessionId: 'remote-1', message: 'hello' } as never)
+  const sent = machine.calls.find((call) => call.member === 'sendTurn')
+  assert.match(String((sent?.args[0] as { commandId?: string }).commandId), /^route-/u)
+  await router.sendTurn({ sessionId: 'remote-1', message: 'again', commandId: 'mine' } as never)
+  assert.equal((machine.calls.at(-1)?.args[0] as { commandId?: string }).commandId, 'mine', 'a given id is kept')
+  await router.readTranscript({ workspaceId: 'ws-ssh', agentId: 'a', workspaceRoot: '/home/dev/repo' } as never)
+  assert.equal((machine.calls.at(-1)?.args[0] as { commandId?: string }).commandId, undefined, 'a read carries none')
+  assert.equal(local.calls.length, 0)
+})
