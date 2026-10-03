@@ -23,7 +23,9 @@ export function portDuplex(port: TunnelPort): Duplex {
         callback(new Error('The port is closed.'))
         return
       }
-      port.postMessage({ b: new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength) } satisfies PortMessage)
+      // A copy of this chunk alone: a view on a pooled Buffer would clone the
+      // whole pool, other streams' bytes with it.
+      port.postMessage({ b: Uint8Array.prototype.slice.call(chunk) } satisfies PortMessage)
       callback()
     },
     final(callback) {

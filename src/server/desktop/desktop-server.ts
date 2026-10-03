@@ -32,6 +32,7 @@ import type { ModuleRegistrySnapshot } from '../../shared/modules/registry-snaps
 import { SERVER_EXIT } from '../bootstrap/envelope'
 import type { RunningServer, ServerStart } from '../bootstrap/serve'
 import { runShutdownLegs } from '../bootstrap/serve'
+import { ControlRpcError } from '../bootstrap/control-rpc'
 import {
   createStudioCore,
   StudioDataDirBusyError,
@@ -149,7 +150,20 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
   const sshPorts = new Map<string, TunnelPort>()
   const shellSsh = envelope.flags.sshMachines
     ? createShellSshServers({
-        open: (key, purpose) => rpc.call<{ clientId: string; label: string }>(SHELL_METHODS.sshOpen, { key, purpose }),
+        // Main may connect, install and start the machine's server first:
+        // as long as a first install takes, not the control channel's default.
+        open: (key, purpose) =>
+          rpc
+            .call<{ clientId: string; label: string }>(
+              SHELL_METHODS.sshOpen,
+              { key, purpose },
+              { timeoutMs: SSH_OPEN_TIMEOUT_MS },
+            )
+            .catch((error: unknown) => {
+              if (error instanceof ControlRpcError && error.code === 'timeout')
+                throw new Error('The SSH machine did not connect in time. Check it in Settings › Machines.')
+              throw error
+            }),
         takePort: (clientId) => {
           const port = sshPorts.get(clientId) ?? null
           sshPorts.delete(clientId)
@@ -434,8 +448,20 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
         return
       }
       if (attach.kind === 'ssh-stream') {
-        // Taken by the `shell.ssh.open` answer that names this client id.
-        sshPorts.set(attach.clientId, port as TunnelPort)
+        // Taken by the `shell.ssh.open` answer that names this client id; one
+        // nobody takes (its call gave up, or no SSH machines this session) is
+        // closed, so the machine's stream does not stay open behind it.
+        const sshPort = port as TunnelPort
+        if (!shellSsh) {
+          sshPort.close()
+          return
+        }
+        sshPorts.set(attach.clientId, sshPort)
+        setTimeout(() => {
+          if (sshPorts.get(attach.clientId) !== sshPort) return
+          sshPorts.delete(attach.clientId)
+          sshPort.close()
+        }, SSH_PORT_UNCLAIMED_MS).unref?.()
         return
       }
       if (attach.kind === 'studio-connection' || attach.kind === 'shell') {
@@ -486,6 +512,11 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
 }
 
 const BOOT_MODEL_DISCOVERY_DELAY_MS = 10_000
+
+/** How long main may take to open an SSH machine's stream: a first connect may install and start its server. */
+const SSH_OPEN_TIMEOUT_MS = 20 * 60_000
+/** An SSH stream's port that no `shell.ssh.open` answer claims within this is closed. */
+const SSH_PORT_UNCLAIMED_MS = 10_000
 
 function serveShellRequests(deps: {
   rpc: Parameters<ServerStart>[0]['rpc']
