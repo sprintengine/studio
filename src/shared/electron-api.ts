@@ -1,3 +1,10 @@
+import type {
+  SshEnvironmentResult,
+  SshEnvironmentSettings,
+  SshEnvironmentSummary,
+  SshPromptRequest,
+  SshResolveResult,
+} from './ssh-environments'
 import type { ServerMode } from './server-mode'
 import type { StudioServerInfo, StudioServerStatus } from './studio-server-status'
 import type { EditorRevealAck, EditorRevealRequest, EditorStateQuery, EditorStateReply } from './editor-reveal'
@@ -1105,6 +1112,33 @@ export type ElectronApi = {
   hostsHome: (hostId: ExecutionHostId) => Promise<HostHomeResult>
   /** The machine list may read differently now; ask again. Returns the unsubscribe. */
   onHostsChanged: (cb: () => void) => () => void
+  /** SSH machines (phase 8): saved, with their state in words. */
+  sshEnvironmentsList: () => Promise<SshEnvironmentSummary[]>
+  /** What `ssh -G` makes of a destination, shown before it is saved. */
+  sshEnvironmentResolve: (destination: string) => Promise<SshResolveResult>
+  /** The plain `Host` names in the person's SSH config. */
+  sshEnvironmentSuggestions: () => Promise<string[]>
+  sshEnvironmentAdd: (input: { destination: string; label?: string }) => Promise<SshEnvironmentResult & { id?: string }>
+  sshEnvironmentUpdate: (
+    id: string,
+    patch: Partial<SshEnvironmentSettings> & { label?: string },
+  ) => Promise<SshEnvironmentResult>
+  /** Connect now, as the person asked: ssh's questions may be shown. */
+  sshEnvironmentConnect: (id: string) => Promise<SshEnvironmentResult>
+  sshEnvironmentDisconnect: (id: string) => Promise<SshEnvironmentResult>
+  sshEnvironmentStopServer: (id: string) => Promise<SshEnvironmentResult>
+  sshEnvironmentUpgradeServer: (id: string) => Promise<SshEnvironmentResult>
+  sshEnvironmentForget: (
+    id: string,
+    options?: { stopServer?: boolean; clearBrowsingData?: boolean },
+  ) => Promise<SshEnvironmentResult>
+  sshEnvironmentDiagnostics: (id: string) => Promise<{ ok: true; text: string } | { ok: false; message: string }>
+  onSshEnvironmentsChanged: (cb: () => void) => () => void
+  /** ssh asks something; answer with `sshPromptAnswer`. */
+  onSshPrompt: (cb: (request: SshPromptRequest) => void) => () => void
+  /** A prompt is over without this window's answer (timed out, answered elsewhere, ssh gave up). */
+  onSshPromptClosed: (cb: (id: string) => void) => () => void
+  sshPromptAnswer: (id: string, answer: string | null) => void
   writefile: (path: string, content: string) => Promise<void>
   /**
    * Save one pasted/dropped image that exists only as bytes (a clipboard

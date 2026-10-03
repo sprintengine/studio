@@ -22,8 +22,9 @@ const VERSION = (JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as
 let scratch = ''
 let tree = ''
 beforeAll(() => {
-  // Short: the front door's socket lives under each home's run directory.
-  scratch = mkdtempSync(join(existsSync('/tmp') ? '/tmp' : tmpdir(), 'se-det-'))
+  // A long home moves the front door's socket to a private directory in the
+  // system temp directory, which the server checks is this user's.
+  scratch = mkdtempSync(join(tmpdir(), 'se-det-'))
   tree = join(scratch, 'tree')
   execFileSync(process.execPath, [join(ROOT, 'scripts', 'build-server.mjs'), '--wsl', '--out-dir', tree], {
     cwd: ROOT,

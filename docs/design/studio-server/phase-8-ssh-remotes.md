@@ -417,6 +417,29 @@ with `BatchMode=yes` (E1.4): if they need a prompt, they stop and the
 environment shows "Needs you to sign in" with a Connect button, instead of
 raising a dialog over whatever the person is doing.
 
+As built (2026-10-03), `src/main/environments/ssh/askpass.ts` and
+`src/renderer/src/components/environments/SshPromptDialog.tsx`:
+
+- The shim is not shipped in `resources/`: main writes it when it first needs
+  it into a fresh private directory in the system temp directory (0700), a
+  `#!/bin/sh` line that runs the app's own binary as Node on a script beside
+  it (`askpass.cmd` on Windows), and listens on a socket in the same
+  directory (0600). Nothing depends on an executable bit surviving packaging.
+- Keyboard-interactive questions are the remote's text, and OpenSSH 8.4 and
+  later prefixes them with `(user@host) `. Any question so prefixed, or one
+  that matches none of ssh's own, is shown as the remote's, verbatim, in a
+  frame that says "build-box asks:". A remote that writes "Enter passphrase
+  for key …" after the prefix gets the remote frame, never the passphrase
+  dialog. On OpenSSH before 8.4 there is no prefix, and that guarantee is
+  weaker; such clients are not refused.
+- `SSH_ASKPASS_PROMPT=none` (a security key's touch) shows a notice with only
+  Cancel, taken down when ssh kills the shim; `confirm` is Allow / Cancel.
+- The host-key dialog's Trust button is never the focused default.
+- Tested against the dockerized sshd: a refused host key leaves
+  `known_hosts` untouched and ssh exits 255; a trusted one is written by ssh
+  itself; a key's passphrase goes through the shim (`askpass.test.ts`).
+  The Windows shim is written but not run anywhere yet (9.4).
+
 ### 5.6 The state machine
 
 One state machine per saved SSH environment, in main

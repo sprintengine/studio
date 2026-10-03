@@ -119,14 +119,29 @@ export const SSH_FIXED_OPTIONS = [
   'ConnectTimeout=20',
 ] as const
 
-/** The argv of one session: `ssh <fixed> [-o BatchMode=yes] -- <destination> sh -s`. */
-export function buildSshArgs(destination: SshDestination, options: { batch: boolean }): string[] {
-  return [...SSH_FIXED_OPTIONS, ...(options.batch ? ['-o', 'BatchMode=yes'] : []), '--', destination.argv, 'sh', '-s']
+/**
+ * The argv of one session: `ssh <fixed> [-o BatchMode=yes] -- <destination> sh -s`.
+ * `configFile` is `-F`: a config other than the person's own (the
+ * integration suites' fixture; never set in the app today).
+ */
+export function buildSshArgs(
+  destination: SshDestination,
+  options: { batch: boolean; configFile?: string | null },
+): string[] {
+  return [
+    ...(options.configFile ? ['-F', options.configFile] : []),
+    ...SSH_FIXED_OPTIONS,
+    ...(options.batch ? ['-o', 'BatchMode=yes'] : []),
+    '--',
+    destination.argv,
+    'sh',
+    '-s',
+  ]
 }
 
 /** The argv that only resolves: `ssh -G -- <destination>`, which connects to nothing. */
-export function buildResolveArgs(destination: SshDestination): string[] {
-  return ['-G', '--', destination.argv]
+export function buildResolveArgs(destination: SshDestination, configFile?: string | null): string[] {
+  return [...(configFile ? ['-F', configFile] : []), '-G', '--', destination.argv]
 }
 
 export type SshAskpassEnv = { program: string; socket: string; token: string }
@@ -219,10 +234,10 @@ export function parseSshG(output: string): SshResolved | null {
 export function resolveDestination(
   ssh: string,
   destination: SshDestination,
-  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv } = {},
+  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; configFile?: string | null } = {},
 ): Promise<{ ok: true; resolved: SshResolved } | { ok: false; message: string }> {
   return new Promise((resolve) => {
-    const child = spawn(ssh, buildResolveArgs(destination), {
+    const child = spawn(ssh, buildResolveArgs(destination, options.configFile), {
       env: sshEnvironment(options.env ?? process.env, null),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,

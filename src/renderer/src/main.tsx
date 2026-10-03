@@ -5,6 +5,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './assets/index.css'
 import { ConfirmDialogProvider } from './components/ui'
+import { SshPromptDialogHost } from './components/environments/SshPromptDialog'
 import AuxWindowApp from './components/auxWindows/AuxWindowApp'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
 import { loadThirdPartyRendererModules } from './modules'
@@ -169,6 +170,7 @@ if (isDiagnosticsWindow) {
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <ConfirmDialogProvider>
         <WorkspaceManager />
+        <SshPromptDialogHost />
       </ConfirmDialogProvider>,
     )
     markStartup('renderer.root-rendered')
