@@ -208,7 +208,7 @@ test('PullRequestMark', async () => {
         isDraft: false,
         openedAt: NOW,
         stateAt: NOW,
-        openedBySessionId: 'session-a',
+        openedByWorkspaceId: 'ws-1',
       }
       const copy = peekMarkCopy([captured], NOW)
       const state = pullRequestStateLabel(captured)

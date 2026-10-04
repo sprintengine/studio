@@ -1,4 +1,4 @@
-// The machine each chat runs on, and the pull requests its branches have, as
+// The machine each chat runs on, and the pull requests it opened, as
 // the tailnet lane's conversation list names them to a paired phone.
 //
 // Both are read from what this desktop already holds: the workspace record

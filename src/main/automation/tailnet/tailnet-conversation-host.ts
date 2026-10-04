@@ -171,7 +171,7 @@ export type ConversationGatewayCommandResult = {
 
 /**
  * What a listed chat carries beside its conversation: the machine it runs on
- * and the pull requests its branches have. Both are read from records this
+ * and the pull requests it opened. Both are read from records this
  * desktop already keeps, so listing never starts a process or asks GitHub.
  */
 export type ConversationListMarks = {

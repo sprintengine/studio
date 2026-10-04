@@ -2142,3 +2142,30 @@ test('only a start its own stop could have overtaken is taken as closed', () => 
   assert.equal(backgroundStartAlreadyClosed(1_700, 1_600), false, 'a later subagent')
   assert.equal(backgroundStartAlreadyClosed(1_600 - 60_000, 1_600), false, 'long-running work behind an unrelated stop')
 })
+
+test('a forwarded tool call is bounded, and a bad one drops the field, never the frame', () => {
+  const frameWith = (toolCall: unknown) =>
+    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, toolCall }, 999)
+  assert.deepEqual(
+    frameWith({ name: 'Bash', command: 'gh pr create', output: 'https://github.com/acme/app/pull/1' })?.toolCall,
+    {
+      name: 'Bash',
+      command: 'gh pr create',
+      output: 'https://github.com/acme/app/pull/1',
+    },
+  )
+  assert.equal(frameWith({ name: 'Bash', output: 'x', failed: true })?.toolCall?.failed, true)
+  for (const bad of [
+    null,
+    'gh pr create',
+    { name: '', output: 'x' },
+    { name: 'Bash', output: 42 },
+    { name: 'Bash', output: 'x'.repeat(32 * 1024 + 1) },
+    { name: 'Bash', command: 'x'.repeat(4097), output: 'x' },
+    { name: 'Ba\u0000sh', output: 'x' },
+  ]) {
+    const frame = frameWith(bad)
+    assert.ok(frame, 'the frame survives')
+    assert.equal(frame.toolCall, undefined, JSON.stringify(bad)?.slice(0, 60))
+  }
+})

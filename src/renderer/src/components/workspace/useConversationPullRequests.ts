@@ -34,9 +34,9 @@ export type ConversationPullRequests = Readonly<Record<string, readonly BranchPu
 const NONE: ConversationPullRequests = {}
 
 /**
- * One ask per changed set, coalesced across a burst. A record change can move
- * several branches at once (a lookup merging a list), and each one pushes; the
- * sidebar must not send a request per push.
+ * One ask per changed set, coalesced across a burst. Several pull requests can
+ * move at once (a window's return re-reads every stale one), and each one
+ * pushes; the sidebar must not send a request per push.
  */
 const COALESCE_MS = 250
 

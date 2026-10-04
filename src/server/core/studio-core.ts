@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import { gitHostIdForPath, type ExecutionHostId, type ExecutionHostSettings } from '../../shared/execution-host'
-import { distroOfUncPath } from '../../shared/host-paths'
 import { ensureSkillInstalled } from '../../main/builtin-skills'
 import { cliResumeCapabilities } from '../../main/cli-resume-capabilities'
 import {
@@ -301,22 +300,15 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     },
   })
 
-  // The pull requests the conversations' branches have (pull-request-domain.ts):
-  // looked up when a chat's turn ends, when a client says one of its own agents
-  // did work, on a slow poll and when a client asks. Every client reads it
-  // through `pullRequests.*`. With no `gh` on this machine it has nothing to
-  // say, and says nothing.
+  // The pull requests the conversations opened (pull-request-domain.ts): heard
+  // from a chat's create calls, from a client's forwarded terminal tool calls,
+  // and from the gateway's `pull_request.link`. Every client reads it through
+  // `pullRequests.*`. With no `gh` on this machine it shows what it has, as
+  // last read.
   const pullRequests = createPullRequestDomain({
     dataDir,
     conversations,
     workspaceFolder: (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
-    isSuspended: () => powerActivity.isSuspended(),
-    // A distribution the person shut down stays down until a chat there is
-    // sent to: reading a checkout in it would start WSL again.
-    pathAsleep: (path) => {
-      const distro = distroOfUncPath(path)
-      return Boolean(distro && wslServers?.manager.status(distro).state === 'shut-down')
-    },
     log: (message, error) => {
       void writeDiagnosticLog({
         level: 'warning',

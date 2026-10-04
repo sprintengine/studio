@@ -398,14 +398,16 @@ Notes:
 
 ### 5.2 The pull request record moves to the server (2026-10-03)
 
-Owner rulings 2026-10-03: what reacts to chats lives in the server, and a
-pull request mark comes only from a branch lookup. The record is composed by
+Owner rulings 2026-10-03: what reacts to chats lives in the server. (A mark
+then came only from a branch lookup; since 2026-10-04 a conversation owns the
+pull requests its agent opened, design section 6.8.) The record is composed by
 the core (`createStudioCore`, `src/server/pull-requests/`), so the in-process
 and out-of-process modes build the same one, and the shell builds none. It is
 a server domain with no tunnelled channel: clients read it through the Studio
 protocol's `pullRequests.*` (design section 6.8). The shell keeps its
 terminals, so it tells the server where each terminal agent works
-(`pullRequests.noteWork`) over a Studio client of its own, the same in both
+(`pullRequests.noteWork`) and forwards the tool calls their reporters saw
+(`pullRequests.noteToolCall`) over a Studio client of its own, the same in both
 modes, and puts the lists the server answers on the terminal snapshot. The one
 shell channel left is `pullRequest:refreshForSession`, a hover on a terminal
 line, which the shell forwards as `pullRequests.refresh`. At quit the server
@@ -1100,7 +1102,7 @@ decision O4 and is not part of phase 6.
 | git | static (`registerGitIpc` 55 handlers, repo watch) | save dialog in `git-ipc.ts`, focus checks in repo watch | phase 6: git for chat only. Phase 10: read models, changelists, repo watch, panel data | panel; dialogs | 10 |
 | design system | static; `utilityProcess.fork` for bundle scripts | `utilityProcess`, `templates-path.ts` | phase 10: a `ScriptRunner` with a Node implementation (`child_process.fork` on the server's Node; `helperExecPath` runs as Node, E6) | panel | 10 |
 | memory, tours, skills, marketplace | static | windows (tours), dialogs | phase 10, domain by domain | panels | 10 |
-| pull requests | the core (`src/server/pull-requests/`), since 2026-10-03 | none | the record, its lookups and `pullRequests.*` | the sidebar marks, peek and tooltips; the shell's terminal notes | 6 (5.2) |
+| pull requests | the core (`src/server/pull-requests/`), since 2026-10-03 | none | the record, its state reads and `pullRequests.*` | the sidebar marks, peek and tooltips; the shell's terminal notes | 6 (5.2) |
 | review | no main-side code in this tree | — | — | — | — |
 
 ### 12.2 `MainHost` inside the server (phase 6)

@@ -1,31 +1,37 @@
 import type { StudioErrorCode } from './envelope.js'
-import { STUDIO_PULL_REQUESTS_CAPABILITY } from './handshake.js'
+import { STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY, STUDIO_PULL_REQUESTS_CAPABILITY } from './handshake.js'
 import type { StudioScope } from './scopes.js'
 
-// The pull requests a Studio knows its conversations have. A Studio finds them
-// by asking its host "is there a pull request for this branch?" for every
-// checkout a conversation worked in (its own, and each other repository its
-// agent changed files in), keeps what GitHub answered, and watches the open
-// ones until they land. A client only displays them: a sidebar's mark, a
-// tooltip, a peek's menu.
+// The pull requests a Studio's conversations opened. A conversation owns a
+// pull request when its agent opened it: a create command or tool whose output
+// named it, or the agent saying so through the Studio's MCP gateway. A Studio
+// reads each one's state from its host (GitHub, through `gh`) and watches the
+// open ones until they land; one on another forge is shown as opened. A client
+// only displays them: a sidebar's mark, a tooltip, a peek's menu.
 //
 // Two ways to ask, by workspace (every conversation in it, and every agent it
 // ever had) and by conversation (one agent). `pullRequests.changed` names what
 // moved, never the lists themselves, so a client asks again for what it is
 // showing. A Studio with no way to ask its host (no `gh`, or not signed in)
-// answers with empty lists and never fails for it.
+// answers with what it last read and never fails for it.
 //
-// `pullRequests.noteWork` is for a client that runs agents the Studio does not:
-// the desktop's terminal agents. It says where such an agent did work, and the
-// Studio looks those branches up as it does for its own chats.
+// `pullRequests.noteToolCall` and `pullRequests.noteWork` are for a client that
+// runs agents the Studio does not: the desktop's terminal agents. The first
+// forwards a tool call such an agent made, which the Studio reads exactly as
+// it reads its own chats' calls; the second says which checkout the agent is
+// in, which decides which of its pull requests are from the branch it is on.
 //
-// Owners only in this version, behind the `pull-requests` capability.
+// Owners only in this version, behind the `pull-requests` capability, and
+// `pullRequests.noteToolCall` behind `pull-request-tool-calls`.
 
 export type StudioPullRequestState = 'open' | 'merged' | 'closed'
 
+/** The forges besides GitHub a pull request can be on. */
+export type StudioPullRequestForge = 'gitlab' | 'gitea' | 'bitbucket' | 'azure-devops'
+
 /** One pull request, as its host last answered for it. */
 export type StudioPullRequest = {
-  /** Canonical: `https://<host>/<owner>/<repo>/pull/<n>`. */
+  /** Canonical: `https://<host>/<owner>/<repo>/pull/<n>` on GitHub, the forge's own shape elsewhere. */
   url: string
   /** The repository it is in, `host/owner/name`. Not always the conversation's own. */
   repoKey: string
@@ -37,8 +43,13 @@ export type StudioPullRequest = {
   isDraft: boolean
   /** When it was opened, ms epoch; 0 when the host never said. */
   openedAt: number
-  /** When its state was last read from the host, ms epoch. */
+  /** When its state was last read from the host, ms epoch; 0 when it never has been. */
   stateAt: number
+  /**
+   * Set when it is not on GitHub. Its state is not read, so `state` stays
+   * `open` and a client says "opened" rather than "open".
+   */
+  forge?: StudioPullRequestForge
   /**
    * On a conversation's list only: the pull request is on the branch the
    * conversation's own checkout is on, and so may say whether that branch has
@@ -60,6 +71,10 @@ export type StudioPullRequestsTarget = {
 export const STUDIO_PULL_REQUESTS_MAX_IDS = 500
 /** The most changed paths one `noteWork` may carry. */
 export const STUDIO_PULL_REQUESTS_MAX_PATHS = 256
+/** The longest command one `noteToolCall` may carry. */
+export const STUDIO_PULL_REQUESTS_MAX_COMMAND = 4096
+/** The longest output one `noteToolCall` may carry: the client sends both ends of a longer one. */
+export const STUDIO_PULL_REQUESTS_MAX_OUTPUT = 32 * 1024
 
 export type StudioPullRequestsMethodMap = {
   /**
@@ -74,16 +89,16 @@ export type StudioPullRequestsMethodMap = {
     }
   }
   /**
-   * Ask the host again: look the branches up (at most once a minute each) and
-   * re-read states older than a minute. With no ids, every open pull request
-   * the Studio holds. `asked` is false when there was nothing to ask about.
-   * The answers arrive as `pullRequests.changed`.
+   * Ask the host again: re-read states older than a minute. With no ids,
+   * every open pull request the Studio holds. `asked` is false when there was
+   * nothing to ask about. The answers arrive as `pullRequests.changed`.
    */
   'pullRequests.refresh': { params: StudioPullRequestsTarget; result: { asked: boolean } }
   /**
-   * An agent this client runs did work: its checkout (the branch it is on),
-   * and the files it changed since it last said so. `turnEnded` asks for a
-   * lookup made after this call; without it a recent answer is enough.
+   * An agent this client runs is in this checkout (the branch it is on).
+   * `turnEnded` also re-reads the stale states of the pull requests it opened.
+   * `sessionId` and `changedPaths` are accepted from older clients and no
+   * longer read: a branch never decides which pull requests are whose.
    */
   'pullRequests.noteWork': {
     params: {
@@ -94,6 +109,19 @@ export type StudioPullRequestsMethodMap = {
       /** Absolute paths, in this Studio's spelling. */
       changedPaths?: string[]
       turnEnded?: boolean
+    }
+    result: Record<string, never>
+  }
+  /**
+   * An agent this client runs made a tool call that may have opened a pull
+   * request: its tool's name, the shell command it ran (if any), and what it
+   * printed. The Studio decides whether it opened one, with the same reader it
+   * uses for its own chats' calls, and records it as the conversation's.
+   */
+  'pullRequests.noteToolCall': {
+    params: {
+      conversation: StudioPullRequestOwner
+      toolCall: { name: string; command?: string; output: string; failed?: boolean }
     }
     result: Record<string, never>
   }
@@ -109,7 +137,7 @@ export type StudioPullRequestsTopicMap = {
 type MethodSpec = {
   scope: StudioScope
   mutation: false
-  capability: typeof STUDIO_PULL_REQUESTS_CAPABILITY
+  capability: typeof STUDIO_PULL_REQUESTS_CAPABILITY | typeof STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY
   owner: true
 }
 
@@ -124,6 +152,9 @@ export const STUDIO_PULL_REQUESTS_METHODS: { readonly [M in StudioPullRequestsMe
   'pullRequests.list': owned,
   'pullRequests.refresh': owned,
   'pullRequests.noteWork': owned,
+  // Its own capability: a client that runs agents asks for it before it
+  // forwards a call, and a Studio from before it has none to offer.
+  'pullRequests.noteToolCall': { ...owned, capability: STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY },
 }
 
 export const STUDIO_PULL_REQUESTS_TOPICS: {
@@ -197,6 +228,33 @@ export function parseStudioPullRequestsParams<M extends StudioPullRequestsMethod
   if (method === 'pullRequests.list' || method === 'pullRequests.refresh') {
     const target = parseTarget(value)
     return 'ok' in target ? target : ok(target)
+  }
+  if (method === 'pullRequests.noteToolCall') {
+    const conversation = parseStudioPullRequestOwner(value.conversation)
+    if (!conversation) return refuse('"conversation" is { workspaceId, agentId }.')
+    const call = value.toolCall
+    if (
+      !record(call) ||
+      typeof call.name !== 'string' ||
+      call.name.length > 200 ||
+      typeof call.output !== 'string' ||
+      call.output.length > STUDIO_PULL_REQUESTS_MAX_OUTPUT ||
+      (call.command !== undefined &&
+        (typeof call.command !== 'string' || call.command.length > STUDIO_PULL_REQUESTS_MAX_COMMAND)) ||
+      (call.failed !== undefined && typeof call.failed !== 'boolean')
+    )
+      return refuse(
+        `"toolCall" is { name, output, command?, failed? }: a command of at most ${STUDIO_PULL_REQUESTS_MAX_COMMAND} characters and an output of at most ${STUDIO_PULL_REQUESTS_MAX_OUTPUT}.`,
+      )
+    return ok({
+      conversation,
+      toolCall: {
+        name: call.name,
+        output: call.output,
+        ...(typeof call.command === 'string' ? { command: call.command } : {}),
+        ...(typeof call.failed === 'boolean' ? { failed: call.failed } : {}),
+      },
+    })
   }
   if (method !== 'pullRequests.noteWork') return refuse(`${method} is not a pullRequests method.`)
   const conversation = parseStudioPullRequestOwner(value.conversation)

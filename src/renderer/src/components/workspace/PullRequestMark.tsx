@@ -6,6 +6,7 @@ import {
   earlierPullRequests,
   groupPullRequests,
   primaryPullRequest,
+  pullRequestOpenLabel,
   pullRequestStateLabel,
   pullRequestTone,
   PULL_REQUEST_TONE_VAR,
@@ -27,8 +28,8 @@ import {
 // cannot drift.
 //
 // NOTHING IS DRAWN FOR AN EMPTY LIST (decision 3). There is no "unknown" mark
-// and no placeholder: a branch with no pull request, a lookup that has not run,
-// and a lookup that failed all draw exactly what a plain terminal draws.
+// and no placeholder: a conversation that opened no pull request, and a record
+// that has not been read yet, draw exactly what a plain terminal draws.
 //
 // Colour is a reinforcement, never the message: every state has its own shape
 // (`PullRequestGlyph`) and every tooltip and accessible name says the state in
@@ -49,9 +50,9 @@ export type PullRequestCopy = {
 }
 
 /**
- * More than one repository in the list (epic decision 10). An agent that
- * changes files in another repository wears the pull requests on the branch it
- * worked on there, so a conversation's marks are not always all in one repo — and
+ * More than one repository in the list (epic decision 10). An agent can open a
+ * pull request in another repository than its own, so a conversation's marks
+ * are not always all in one repo — and
  * when they are not, every LINE of a tooltip and every menu row has to say
  * which repository it is talking about. When they are, naming the repo on every
  * line would be noise on the case that is almost always true.
@@ -97,7 +98,7 @@ export function sidebarMarkCopy(list: readonly BranchPullRequest[]): PullRequest
       ? `${writtenNumber(primary, spans)} · ${stateOf(primary)}`
       : `Pull request ${writtenNumber(primary, spans)} ${stateOf(primary)}`,
     lines: [
-      'Open it on GitHub',
+      pullRequestOpenLabel(primary),
       ...earlier.map((pr) =>
         spans
           ? `Earlier: ${writtenNumber(pr, spans)} · ${stateOf(pr)}`
@@ -110,7 +111,7 @@ export function sidebarMarkCopy(list: readonly BranchPullRequest[]): PullRequest
     ariaLabel: [
       `${spokenNumber(primary, spans)}, ${stateOf(primary)}.`,
       ...earlier.map((pr) => `Earlier: ${spokenNumber(pr, spans).toLowerCase()}, ${stateOf(pr)}.`),
-      'Open it on GitHub',
+      pullRequestOpenLabel(primary),
     ].join(' '),
   }
 }
@@ -127,9 +128,9 @@ export function peekMarkCopy(list: readonly BranchPullRequest[], now: number): P
   const state = pullRequestStateLabel(primary)
   const opened = relativeFromNow(primary.openedAt, now)
   const identity = spans ? writtenNumber(primary, spans) : `Pull request ${writtenNumber(primary, spans)}`
-  // A pull request the hooks CAPTURED (a record written before marks came from
-  // branch lookups alone) has no title until GitHub answers — and
-  // never gets one if `gh` cannot reach it. Untitled, the identity moves up
+  // A pull request recorded from its URL alone has no title until GitHub
+  // answers — and never gets one if `gh` cannot reach it, or it is on
+  // another forge. Untitled, the identity moves up
   // into the title line, because a bold empty line over "Pull request #418 ·
   // open · 12 minutes ago" is a tooltip whose first line is missing, and a
   // spoken "Pull request 418, open: . Open it on GitHub" is a sentence with a
@@ -142,11 +143,11 @@ export function peekMarkCopy(list: readonly BranchPullRequest[], now: number): P
       // Identity only ONCE: it is the title line above when there is no title,
       // and this line then carries what is left to say about it.
       (titled ? [identity, state, opened] : [state, opened]).filter((part) => part.length > 0).join(' · '),
-      'Open it on GitHub',
+      pullRequestOpenLabel(primary),
     ],
     ariaLabel: titled
-      ? `${spokenNumber(primary, spans)}, ${state}: ${primary.title}. Open it on GitHub`
-      : `${spokenNumber(primary, spans)}, ${state}. Open it on GitHub`,
+      ? `${spokenNumber(primary, spans)}, ${state}: ${primary.title}. ${pullRequestOpenLabel(primary)}`
+      : `${spokenNumber(primary, spans)}, ${state}. ${pullRequestOpenLabel(primary)}`,
   }
 }
 
@@ -192,8 +193,8 @@ export function pullRequestMenuGroups(list: readonly BranchPullRequest[], now: n
       age: formatRelativeMs(pr.openedAt, now),
       state: pr.state,
       ariaLabel: titled
-        ? `${spokenNumber(pr, spans)}, ${pullRequestStateLabel(pr)}: ${pr.title}. Open it on GitHub`
-        : `${spokenNumber(pr, spans)}, ${pullRequestStateLabel(pr)}. Open it on GitHub`,
+        ? `${spokenNumber(pr, spans)}, ${pullRequestStateLabel(pr)}: ${pr.title}. ${pullRequestOpenLabel(pr)}`
+        : `${spokenNumber(pr, spans)}, ${pullRequestStateLabel(pr)}. ${pullRequestOpenLabel(pr)}`,
     }
   }
   return (
@@ -252,27 +253,27 @@ function askKey(sessionId: string, branch: string | null): string {
 }
 
 /**
- * Whether pointing at this line should ask main to look its branch up (epic
- * decision 8a):
+ * Whether pointing at this line should ask main to re-read its pull requests
+ * (epic decision 8a):
  *
  * - an AGENT line, because a shell has no conversation and a remote pane's
  *   checkout is on another machine's disk;
- * - with a BRANCH, because the lookup is `gh pr list --head <branch>` and there
- *   is nothing to ask about without one.
+ * - with a BRANCH, because main only answers for an agent once git has said
+ *   where it is.
  *
  * A line that already WEARS a mark asks too, which it used to be barred from.
  * The bar made decision 9's "refresh on hover when the reading is older than
  * ~60s" unreachable — the only lines with a reading to refresh were exactly the
  * lines this refused to ask about — and it is not what keeps this from becoming
- * a poller: the TTL above does, and main holds the lookup behind its own hold
- * and coalesces the refreshes it accepts.
+ * a poller: the TTL above does, and the server holds each read behind its own
+ * hold and coalesces the refreshes it accepts.
  */
 export function shouldLookUpPullRequests(line: { kind: 'agent' | 'shell' | 'remote'; branch: string | null }): boolean {
   return line.kind === 'agent' && line.branch !== null
 }
 
 /**
- * Ask main to look this conversation's pull requests up — the ONE path both
+ * Ask main to re-read this conversation's pull requests — the ONE path both
  * anchors use, so the sidebar line and the agent tab cannot ask at two
  * different rates or key their coalescing two different ways.
  *

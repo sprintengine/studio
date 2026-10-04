@@ -133,7 +133,7 @@ export type StudioRpcServiceOptions = {
   tools?: ClientToolRegistry
   /** Files under a workspace's roots, for owners (`files-write`). */
   files?: StudioFiles
-  /** The pull requests the conversations' branches have, for owners (`pull-requests`). */
+  /** The pull requests the conversations opened, for owners (`pull-requests`). */
   pullRequests?: StudioPullRequests
   /** Forget the saved approvals that allow a revoked app's tools. */
   forgetToolApprovals?: (toolsets: string[]) => Promise<unknown>

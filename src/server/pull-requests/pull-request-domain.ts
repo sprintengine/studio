@@ -1,17 +1,20 @@
-import { dirname } from 'node:path'
-
 import type {
   StudioPullRequest,
   StudioPullRequestOwner,
   StudioPullRequestsMethodMap,
   StudioPullRequestsTarget,
 } from '../../../packages/studio-protocol/src/public'
-import type { ConversationEvent, ConversationListSessionsResult } from '../../shared/conversation-runtime'
+import type {
+  ConversationEvent,
+  ConversationToolDetailInput,
+  ConversationToolDetailResult,
+} from '../../shared/conversation-runtime'
 import type { BranchPullRequest } from '../../shared/git/pull-request'
+import { isPullRequestCreation, readOpenedPullRequest } from '../../shared/git/pull-request-opened'
 import { resolveCheckoutForCwd } from '../../main/checkout-resolve'
-import { runGitCommand } from '../../main/git-utils'
 import {
   createPullRequestRecord,
+  type NoteOpenedOutcome,
   type PullRequestCheckout,
   type PullRequestConversationKey,
   type PullRequestRecord,
@@ -20,78 +23,29 @@ import {
 
 // The pull request record as a server domain (owner ruling 2026-10-03):
 // features that react to chats live in the server, and every client displays
-// the result through the protocol. This is where the record is told when to
-// ask GitHub, and what it answers on `pullRequests.*`.
+// the result through the protocol. This is where the record hears that a
+// conversation opened a pull request, and what it answers on `pullRequests.*`.
 //
-// When it asks — and never from reading a command or a tool's output:
+// A conversation owns the pull requests its agent opened (owner ruling
+// 2026-10-04), heard three ways, all of them read by the one reader in
+// `src/shared/git/pull-request-opened.ts` or checked by the one classifier
+// beside it:
 //
-// - A chat's turn ends: its own checkout, and every other repository its
-//   tool calls changed files in during the turn (`fileChanges` on a
-//   completed tool call). A lookup made after the turn ended, so a pull
-//   request the agent opened in it is found.
-// - A client that runs agents the server does not (the desktop's terminals)
-//   says where one did work (`noteWork`), with the same rules.
-// - A slow poll while a conversation is open: a chat with a live session, or
-//   any conversation that worked in the last half hour. It notices a branch
-//   that moved under a chat between turns, and a pull request someone opened
-//   or merged by hand. The record's own watch re-reads every open pull
-//   request every two minutes besides.
-// - A client asks (`pullRequests.refresh`): a hover, a window coming back to
-//   the front.
+// - A chat's tool call: a create command or tool starts (`tool_started`), and
+//   its final output (`tool_output`) names the pull request.
+// - A terminal agent's tool call, which the server does not run: the client
+//   that runs it forwards what its hook saw (`pullRequests.noteToolCall`), and
+//   it is read here exactly as a chat's is.
+// - The agent says so itself, through the Studio gateway's
+//   `pull_request.link` (`link` below).
 //
-// What it does not ask about: a repository's default branch. `gh pr list
-// --head main` matches the branch NAME in every fork, so in an upstream
-// repository it answers with every contributor who opened a pull request from
-// their fork's own `main`, and a chat in the project's own folder would wear
-// all of them. The cost is a pull request opened from a default branch (from
-// your own fork's `main`): it gets no mark. A trunk-based team loses nothing,
-// since it opens no pull request from its trunk.
-//
-// A turn that pushed a branch it did not stay on: an agent working in a
-// checkout on `main` that branches, commits, pushes, opens a pull request and
-// switches back ends its turn on `main`, which is never looked up. So a turn
-// end also looks up the branches the turn pushed (`readPushedBranches`): a
-// remote-tracking branch whose tip was committed since the turn began and is
-// exactly a local branch nobody else has checked out (or this checkout's own
-// HEAD). That is git only, two `for-each-ref` reads, and at most
-// `MAX_PUSHED_BRANCHES_PER_TURN` lookups. A push by URL with no remote, or of
-// a commit made before the turn began, is not seen.
-//
-// Repositories outside any workspace are looked up when an agent changed files
-// in them, bounded: at most `MAX_OTHER_REPOSITORIES_PER_TURN` per turn, from at
-// most `MAX_DIRECTORIES_PER_TURN` directories, and a conversation remembers at
-// most a dozen checkouts. A path in no repository costs one git call and is
-// forgotten.
+// A conversation's own checkout is noted at a chat's turn end and when a
+// client says where one of its agents is (`pullRequests.noteWork`). That only
+// decides which of its pull requests are from the branch it is on; it never
+// adds one.
 
-/** The most directories one turn's changed files are resolved from. */
-export const MAX_DIRECTORIES_PER_TURN = 32
-/** The most repositories besides its own one turn is looked up in. */
-export const MAX_OTHER_REPOSITORIES_PER_TURN = 4
-/** The most changed paths remembered for a turn that has not ended yet. */
-const MAX_PATHS_PER_TURN = 256
-/** The most chat turns in progress tracked at once; an abandoned one is dropped first. */
-const MAX_OPEN_TURNS = 200
-/** The most branches a turn pushed, besides its own, that are looked up at its end. */
-export const MAX_PUSHED_BRANCHES_PER_TURN = 4
-/** A pushed tip committed this long before the turn began still counts (an amend, a skewed clock). */
-const PUSHED_COMMIT_SLACK_MS = 60_000
-/** The most conversations whose last turn end is remembered, for the next one's pushed branches. */
-const MAX_TURN_ENDS_REMEMBERED = 500
-/** The most repositories whose default branch is remembered. */
-const MAX_DEFAULT_BRANCHES_REMEMBERED = 200
-
-/** How often the poll looks at open conversations' branches (git only, no GitHub). */
-export const POLL_TICK_MS = 60_000
-/** Every this many ticks, the poll also looks their branches up on GitHub (held, so once a minute at most each). */
-export const POLL_LOOKUP_EVERY_TICKS = 5
-/** A conversation that noted work this recently counts as open for the poll. */
-export const POLL_RECENT_WORK_MS = 30 * 60_000
-/** The most conversations one poll tick visits, the most recently active first. */
-const MAX_POLLED_CONVERSATIONS = 50
-/** How long a repository's default branch is remembered. */
-const DEFAULT_BRANCH_TTL_MS = 10 * 60_000
-/** Branch names read as the default when git does not say which one is. */
-const FALLBACK_DEFAULT_BRANCHES = new Set(['main', 'master'])
+/** The most create calls waiting on their output at once; a call whose output never comes (a stopped turn) goes first. */
+const MAX_PENDING_CALLS = 200
 
 export type PullRequestsChanged = { workspaceIds: string[]; conversations: StudioPullRequestOwner[] }
 
@@ -100,28 +54,26 @@ export type StudioPullRequests = {
   list(target: StudioPullRequestsTarget): Promise<StudioPullRequestsMethodMap['pullRequests.list']['result']>
   refresh(target: StudioPullRequestsTarget): Promise<{ asked: boolean }>
   noteWork(input: StudioPullRequestsMethodMap['pullRequests.noteWork']['params']): Promise<void>
+  noteToolCall(input: StudioPullRequestsMethodMap['pullRequests.noteToolCall']['params']): Promise<void>
   onChanged(listener: (change: PullRequestsChanged) => void): () => void
 }
 
 export type PullRequestDomain = StudioPullRequests & {
   readonly record: PullRequestRecord
-  /** Settle what is in flight and stop the poll: a quit's leg. */
+  /** An agent says it opened this pull request: the gateway's `pull_request.link`. */
+  link(key: PullRequestConversationKey, input: { url: string; title?: string }): Promise<NoteOpenedOutcome>
+  /** Settle what is in flight: a quit's leg. */
   flush(): Promise<void>
   dispose(): void
 }
 
-type Timers = {
-  setInterval(handler: () => void, ms: number): unknown
-  clearInterval(handle: unknown): void
-}
-
 export type PullRequestDomainOptions = {
   dataDir: string
-  /** The chats: their events, their live sessions, and the folder each session works in. */
+  /** The chats: their events, the folder each session works in, and a tool's whole output. */
   conversations: {
     onEvent(listener: (event: ConversationEvent) => void): () => void
-    listSessions(): ConversationListSessionsResult
     sessionWorkspaceRoot?(sessionId: string): string | null
+    getToolDetail?(input: ConversationToolDetailInput): Promise<ConversationToolDetailResult>
   }
   /** A workspace's folder, for a chat whose session's own folder is not known. */
   workspaceFolder(workspaceId: string): string | null
@@ -130,31 +82,11 @@ export type PullRequestDomainOptions = {
   /** Passed to the record this builds. */
   recordOptions?: Omit<PullRequestRecordOptions, 'userDataDir' | 'onRecordChanged'>
   /** The checkout a folder is in and the branch it is on; null when it is not a checkout on a branch. */
-  resolveCheckout?(path: string): Promise<PullRequestCheckout | null | 'missing'>
-  /** The repository's default branch, or null when git does not say. */
-  readDefaultBranch?(gitRoot: string): Promise<string | null>
-  /** The branches pushed from this checkout since a moment (see the header). */
-  readPushedBranches?(gitRoot: string, since: number): Promise<string[]>
-  /** Whether the machine is asleep: the poll skips its ticks then. */
-  isSuspended?(): boolean
-  /**
-   * Whether a folder is where nothing should be woken to read it: a WSL
-   * distribution the person shut down, which any read of its files (git, `gh`
-   * run there) would start again. The poll passes over a chat whose checkout
-   * is there; a turn's end, which only comes while it runs, does not.
-   */
-  pathAsleep?(path: string): boolean
-  /** Null turns the poll off (tests drive `pollOnce`). */
-  timers?: Timers | null
-  now?: () => number
+  resolveCheckout?(path: string): Promise<PullRequestCheckout | null>
   log?(message: string, error?: unknown): void
 }
 
-export function createPullRequestDomain(options: PullRequestDomainOptions): PullRequestDomain & {
-  /** One poll tick, for tests. */
-  pollOnce(lookup: boolean): Promise<void>
-} {
-  const now = options.now ?? (() => Date.now())
+export function createPullRequestDomain(options: PullRequestDomainOptions): PullRequestDomain {
   const listeners = new Set<(change: PullRequestsChanged) => void>()
   const log =
     options.log ??
@@ -169,7 +101,7 @@ export function createPullRequestDomain(options: PullRequestDomainOptions): Pull
       loadStoredOnStart: true,
       ...options.recordOptions,
       userDataDir: options.dataDir,
-      onRecordChanged: (change) => publish({ workspaceIds: change.workspaceIds, conversations: change.conversations }),
+      onRecordChanged: (change) => publish(change),
       logWarning: options.recordOptions?.logWarning ?? ((message, error) => log(message, error)),
     })
 
@@ -185,275 +117,89 @@ export function createPullRequestDomain(options: PullRequestDomainOptions): Pull
   }
 
   const resolveCheckout = options.resolveCheckout ?? defaultResolveCheckout
-  const readDefaultBranch = options.readDefaultBranch ?? defaultReadDefaultBranch
-  const readPushedBranches = options.readPushedBranches ?? defaultReadPushedBranches
-  const defaultBranches = new Map<string, { at: number; read: Promise<string | null> }>()
-  /** Conversation → when its last turn ended, as the start of the next turn's pushes. */
-  const lastTurnEnds = new Map<string, number>()
 
-  /** Whether a branch is its repository's default, which is never looked up (see the header). */
-  async function isDefaultBranch(checkout: PullRequestCheckout): Promise<boolean> {
-    let known = defaultBranches.get(checkout.gitRoot)
-    if (!known || now() - known.at > DEFAULT_BRANCH_TTL_MS) {
-      known = { at: now(), read: readDefaultBranch(checkout.gitRoot).catch(() => null) }
-      defaultBranches.delete(checkout.gitRoot)
-      defaultBranches.set(checkout.gitRoot, known)
-      while (defaultBranches.size > MAX_DEFAULT_BRANCHES_REMEMBERED) {
-        const oldest = defaultBranches.keys().next().value
-        if (oldest === undefined) break
-        defaultBranches.delete(oldest)
+  function workspaceRootOf(sessionId: string, workspaceId: string): string | null {
+    return options.conversations.sessionWorkspaceRoot?.(sessionId) ?? options.workspaceFolder(workspaceId)
+  }
+
+  // ── Chats: a create call and its output, and a turn's end ─────────────────
+
+  type PendingCall = { key: PullRequestConversationKey; name: string; input: unknown }
+  /** Session + tool call → a create call waiting on its output. */
+  const pending = new Map<string, PendingCall>()
+
+  async function readChatCall(event: ConversationEvent, call: PendingCall, toolUseId: string): Promise<void> {
+    const payload = event.payload ?? {}
+    let output: unknown = payload.output ?? payload.preview ?? ''
+    // The event carries a bounded preview of a long output; the URL may be
+    // past it, so the whole output is read from the tool's detail.
+    if (payload.truncated === true && options.conversations.getToolDetail) {
+      const workspaceRoot = workspaceRootOf(event.sessionId, call.key.workspaceId)
+      if (workspaceRoot) {
+        const detail = await options.conversations
+          .getToolDetail({ workspaceRoot, workspaceId: call.key.workspaceId, agentId: call.key.agentId, toolUseId })
+          .catch(() => null)
+        if (detail?.ok) output = detail.detail.output
       }
     }
-    const named = await known.read
-    return named ? named === checkout.branch : FALLBACK_DEFAULT_BRANCHES.has(checkout.branch)
-  }
-
-  /** The checkout a changed file is in, walking up past directories the change removed. */
-  async function checkoutOfPath(path: string): Promise<PullRequestCheckout | null> {
-    let dir = dirname(path)
-    for (let depth = 0; depth < 4; depth += 1) {
-      const found = await resolveCheckout(dir).catch(() => null)
-      if (found !== 'missing') return found
-      const parent = dirname(dir)
-      if (parent === dir) return null
-      dir = parent
-    }
-    return null
-  }
-
-  /**
-   * One conversation's work, looked up: its own checkout, then the other
-   * repositories its changed files are in, each at most once.
-   */
-  async function noteWork(input: {
-    key: PullRequestConversationKey
-    home: PullRequestCheckout | null
-    changedPaths: readonly string[]
-    turnEnded: boolean
-    sessionId?: string
-    /** When the turn began, for the branches it pushed; unknown asks for none. */
-    turnStartedAt?: number | null
-  }): Promise<void> {
-    if (disposed) return
-    const lookups: Promise<void>[] = []
-    const seen = new Set<string>()
-    const note = async (checkout: PullRequestCheckout, home: boolean): Promise<void> => {
-      if (await isDefaultBranch(checkout)) {
-        // Not looked up, but still the agent's: what a legacy capture filed
-        // under its session is worn.
-        if (home && input.sessionId) record.nameSession(input.key, input.sessionId)
-        return
-      }
-      await record.noteCheckout(input.key, checkout, {
-        force: input.turnEnded,
-        home,
-        ...(home && input.sessionId ? { sessionId: input.sessionId } : {}),
-      })
-    }
-    if (input.home) {
-      seen.add(input.home.gitRoot)
-      lookups.push(note(input.home, true))
-      if (input.turnEnded && typeof input.turnStartedAt === 'number') {
-        lookups.push(notePushedBranches(input.home, input.turnStartedAt, note))
-      }
-    }
-    // Absolute paths only: a relative one would resolve against this
-    // process's own folder, which is no agent's.
-    const directories = [...new Set(input.changedPaths.map((path) => path.trim()).filter(isAbsolutePath))]
-    const visited = new Set<string>()
-    let others = 0
-    for (const path of directories) {
-      if (others >= MAX_OTHER_REPOSITORIES_PER_TURN || visited.size >= MAX_DIRECTORIES_PER_TURN) break
-      const dir = dirname(path)
-      if (visited.has(dir)) continue
-      visited.add(dir)
-      const checkout = await checkoutOfPath(path)
-      if (!checkout || seen.has(checkout.gitRoot)) continue
-      seen.add(checkout.gitRoot)
-      others += 1
-      lookups.push(note(checkout, false))
-    }
-    await Promise.all(lookups.map((lookup) => lookup.catch((error) => log('could not look a branch up', error))))
-  }
-
-  /** The branches a turn pushed from its own checkout and did not stay on, looked up (see the header). */
-  async function notePushedBranches(
-    home: PullRequestCheckout,
-    since: number,
-    note: (checkout: PullRequestCheckout, home: boolean) => Promise<void>,
-  ): Promise<void> {
-    const pushed = await readPushedBranches(home.gitRoot, since - PUSHED_COMMIT_SLACK_MS).catch(() => [])
-    if (disposed) return
-    const branches = [...new Set(pushed)].filter((branch) => branch && branch !== home.branch)
-    await Promise.all(
-      branches.slice(0, MAX_PUSHED_BRANCHES_PER_TURN).map((branch) => note({ gitRoot: home.gitRoot, branch }, false)),
-    )
-  }
-
-  /**
-   * When a conversation's turn that is ending now began: a chat says so, and
-   * another client's agent began it when its previous turn ended. Unknown (the
-   * first turn end heard, or the server restarted mid-turn) is null, and asks
-   * for no pushed branches, rather than reach back to a push some other agent
-   * made before this one was here.
-   */
-  function turnStartOf(key: PullRequestConversationKey, startedAt?: number): number | null {
-    const id = `${key.workspaceId}\0${key.agentId}`
-    const previous = lastTurnEnds.get(id)
-    lastTurnEnds.delete(id)
-    lastTurnEnds.set(id, now())
-    while (lastTurnEnds.size > MAX_TURN_ENDS_REMEMBERED) {
-      const oldest = lastTurnEnds.keys().next().value
-      if (oldest === undefined) break
-      lastTurnEnds.delete(oldest)
-    }
-    return startedAt ?? previous ?? null
-  }
-
-  // ── Chats: a turn's changed files, and its end ─────────────────────────────
-
-  type OpenTurn = { key: PullRequestConversationKey; paths: Set<string>; startedAt?: number }
-
-  /** A chat turn in progress: when it began and what it changed so far. Keyed by session. */
-  const openTurns = new Map<string, OpenTurn>()
-
-  function turnOf(event: ConversationEvent): OpenTurn {
-    const known = openTurns.get(event.sessionId)
-    if (known) return known
-    const turn: OpenTurn = { key: { workspaceId: event.workspaceId, agentId: event.agentId }, paths: new Set<string>() }
-    openTurns.set(event.sessionId, turn)
-    while (openTurns.size > MAX_OPEN_TURNS) {
-      const oldest = openTurns.keys().next().value
-      if (oldest === undefined) break
-      openTurns.delete(oldest)
-    }
-    return turn
-  }
-
-  async function chatHome(sessionId: string, workspaceId: string): Promise<PullRequestCheckout | null> {
-    const root = options.conversations.sessionWorkspaceRoot?.(sessionId) ?? options.workspaceFolder(workspaceId)
-    if (!root) return null
-    const found = await resolveCheckout(root).catch(() => null)
-    return found && found !== 'missing' ? found : null
+    const opened = readOpenedPullRequest({
+      name: call.name,
+      input: call.input,
+      output,
+      failed: payload.status === 'error' || payload.isError === true,
+    })
+    if (opened && !disposed) await record.noteOpened(call.key, { url: opened.url })
   }
 
   const stopEvents = options.conversations.onEvent((event) => {
     if (disposed || !event.workspaceId || !event.agentId || !event.sessionId) return
-    if (event.type === 'turn_started') {
-      // A new turn: what an earlier one left behind is not this one's.
-      openTurns.delete(event.sessionId)
-      turnOf(event).startedAt = typeof event.createdAt === 'number' ? event.createdAt : now()
-      return
-    }
-    if (event.type === 'tool_output') {
+    const key = { workspaceId: event.workspaceId, agentId: event.agentId }
+    if (event.type === 'tool_started' || event.type === 'tool_output') {
+      const toolUseId = toolUseIdOf(event)
+      if (!toolUseId) return
+      const id = `${event.sessionId}\0${toolUseId}`
+      if (event.type === 'tool_started') {
+        const name = typeof event.payload?.name === 'string' ? event.payload.name : ''
+        const input: unknown = event.payload?.input
+        if (!isPullRequestCreation({ name, input })) return
+        pending.delete(id)
+        pending.set(id, { key, name, input })
+        while (pending.size > MAX_PENDING_CALLS) {
+          const oldest = pending.keys().next().value
+          if (oldest === undefined) break
+          pending.delete(oldest)
+        }
+        return
+      }
       if (event.payload?.partial === true) return
-      const paths = changedPathsOf(event.payload)
-      if (paths.length === 0) return
-      const turn = turnOf(event)
-      for (const path of paths) if (turn.paths.size < MAX_PATHS_PER_TURN) turn.paths.add(path)
+      const call = pending.get(id)
+      if (!call) return
+      pending.delete(id)
+      void readChatCall(event, call, toolUseId).catch((error) => log('could not read a tool call', error))
       return
     }
     if (event.type === 'turn_completed' || event.type === 'turn_failed') {
-      const turn = openTurns.get(event.sessionId)
-      openTurns.delete(event.sessionId)
-      const key = { workspaceId: event.workspaceId, agentId: event.agentId }
-      const turnStartedAt = turnStartOf(key, turn?.startedAt)
-      void chatHome(event.sessionId, event.workspaceId)
-        .then((home) => noteWork({ key, home, changedPaths: [...(turn?.paths ?? [])], turnEnded: true, turnStartedAt }))
-        .catch((error) => log('could not note a turn', error))
+      const root = workspaceRootOf(event.sessionId, event.workspaceId)
+      if (!root) return
+      void resolveCheckout(root)
+        .then((home) => {
+          if (home && !disposed) record.noteCheckout(key, home)
+        })
+        .catch((error) => log('could not read a checkout', error))
       return
     }
-    if (event.type === 'session_closed') openTurns.delete(event.sessionId)
+    if (event.type === 'session_closed') {
+      for (const id of pending.keys()) if (id.startsWith(`${event.sessionId}\0`)) pending.delete(id)
+    }
   })
-
-  // ── The poll ────────────────────────────────────────────────────────────────
-
-  /** The chats with a live session, the most recently active first. */
-  function liveChats(): Array<{ sessionId: string; key: PullRequestConversationKey; activeAt: number }> {
-    const listed = options.conversations.listSessions()
-    if (!listed.ok) return []
-    return listed.sessions
-      .filter((session) => session.status !== 'stopped' && session.status !== 'failed')
-      .map((session) => ({
-        sessionId: session.sessionId,
-        key: { workspaceId: session.workspaceId, agentId: session.agentId },
-        // Working now counts as now; otherwise when it last did anything.
-        activeAt:
-          session.turnStartedAt !== undefined
-            ? now()
-            : Math.max(session.lastTurnEndedAt ?? 0, session.lastUserMessageAt ?? 0, session.updatedAt ?? 0),
-      }))
-      .sort((a, b) => b.activeAt - a.activeAt)
-  }
-
-  async function pollOnce(lookup: boolean): Promise<void> {
-    if (disposed || options.isSuspended?.()) return
-    const visited = new Set<string>()
-    const recent = now() - POLL_RECENT_WORK_MS
-    // A chat's branch can move between its turns (a checkout in the git
-    // panel): its own checkout is read again, which is git only, and a moved
-    // branch is noted like a turn's. GitHub is asked again only for a chat
-    // that did something in the last half hour: one left open for a week has
-    // the watch on its open pull requests, and costs nothing more.
-    const asleep = (path: string | null | undefined) => Boolean(path && options.pathAsleep?.(path))
-    for (const chat of liveChats().slice(0, MAX_POLLED_CONVERSATIONS)) {
-      visited.add(`${chat.key.workspaceId}\0${chat.key.agentId}`)
-      const root =
-        options.conversations.sessionWorkspaceRoot?.(chat.sessionId) ?? options.workspaceFolder(chat.key.workspaceId)
-      if (asleep(root)) continue
-      const home = await chatHome(chat.sessionId, chat.key.workspaceId)
-      if (disposed) return
-      if (!home) continue
-      const known = record.homeOf(chat.key)
-      const moved = !known || known.gitRoot !== home.gitRoot || known.branch !== home.branch
-      if (moved) await noteWork({ key: chat.key, home, changedPaths: [], turnEnded: false })
-      else if (lookup && chat.activeAt >= recent) record.refreshConversation(chat.key)
-    }
-    if (!lookup) return
-    // Conversations that worked recently, the desktop's terminal agents
-    // among them: a pull request opened or merged by hand shows without a
-    // hover. Held, so each branch costs one `gh` a minute at most.
-    for (const key of record.conversationsActiveSince(recent)) {
-      if (visited.size >= MAX_POLLED_CONVERSATIONS) break
-      const id = `${key.workspaceId}\0${key.agentId}`
-      if (visited.has(id)) continue
-      visited.add(id)
-      if (asleep(record.homeOf(key)?.gitRoot)) continue
-      record.refreshConversation(key)
-    }
-  }
-
-  const timers: Timers | null =
-    options.timers === undefined
-      ? {
-          setInterval: (handler, ms) => {
-            const handle = setInterval(handler, ms)
-            handle.unref?.()
-            return handle
-          },
-          clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
-        }
-      : options.timers
-  let ticks = 0
-  let polling = false
-  const poll = timers?.setInterval(() => {
-    if (polling) return
-    polling = true
-    ticks += 1
-    void pollOnce(ticks % POLL_LOOKUP_EVERY_TICKS === 0)
-      .catch((error) => log('the pull request poll failed', error))
-      .finally(() => {
-        polling = false
-      })
-  }, POLL_TICK_MS)
 
   // ── What the protocol serves ───────────────────────────────────────────────
 
   async function list(
     target: StudioPullRequestsTarget,
   ): Promise<StudioPullRequestsMethodMap['pullRequests.list']['result']> {
-    // A list asked for before the stored records are read would be empty, and
-    // a client would draw no marks until the next change: wait for them.
+    // A list asked for before the stored record is read would be empty, and
+    // a client would draw no marks until the next change: wait for it.
     await record.whenLoaded()
     const workspaces: Record<string, StudioPullRequest[]> = {}
     for (const workspaceId of target.workspaceIds ?? []) {
@@ -485,15 +231,20 @@ export function createPullRequestDomain(options: PullRequestDomainOptions): Pull
       return { asked }
     },
     async noteWork(input) {
-      const turnEnded = input.turnEnded === true
-      await noteWork({
-        key: input.conversation,
-        home: input.checkout ?? null,
-        changedPaths: input.changedPaths ?? [],
-        turnEnded,
-        ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-        ...(turnEnded && input.checkout ? { turnStartedAt: turnStartOf(input.conversation) } : {}),
-      })
+      if (disposed) return
+      if (input.checkout) record.noteCheckout(input.conversation, input.checkout)
+      if (input.turnEnded === true) {
+        await record.whenLoaded()
+        record.refreshConversation(input.conversation)
+      }
+    },
+    async noteToolCall(input) {
+      if (disposed) return
+      const opened = readOpenedPullRequest(input.toolCall)
+      if (opened) await record.noteOpened(input.conversation, { url: opened.url })
+    },
+    link(key, input) {
+      return record.noteOpened(key, input)
     },
     onChanged(listener) {
       listeners.add(listener)
@@ -501,22 +252,20 @@ export function createPullRequestDomain(options: PullRequestDomainOptions): Pull
         listeners.delete(listener)
       }
     },
-    pollOnce,
     async flush() {
-      if (poll !== undefined) timers?.clearInterval(poll)
       await record.flush()
     },
     dispose() {
       disposed = true
-      if (poll !== undefined) timers?.clearInterval(poll)
       stopEvents()
+      pending.clear()
       listeners.clear()
       record.dispose()
     },
   }
 }
 
-/** A record entry as the protocol carries it: no ids of who filed it. */
+/** A record entry as the protocol carries it: no ids of who opened it. */
 function toWire(entry: BranchPullRequest): StudioPullRequest {
   return {
     url: entry.url,
@@ -528,97 +277,18 @@ function toWire(entry: BranchPullRequest): StudioPullRequest {
     isDraft: entry.isDraft,
     openedAt: entry.openedAt,
     stateAt: entry.stateAt,
+    ...(entry.forge ? { forge: entry.forge } : {}),
     ...(entry.onSessionBranch ? { onConversationBranch: true as const } : {}),
   }
 }
 
-/**
- * The files a completed tool call changed, read off `tool_output`'s payload.
- * Read untyped and defensively: the field's protocol type arrives with the
- * change-attribution work, and until then a payload is trusted only as far as
- * this reader checks it. Absolute paths only, at most `MAX_PATHS_PER_TURN`.
- */
-export function changedPathsOf(payload: unknown): string[] {
-  if (!payload || typeof payload !== 'object') return []
-  const changes = (payload as { fileChanges?: unknown }).fileChanges
-  if (!Array.isArray(changes)) return []
-  const paths: string[] = []
-  for (const change of changes.slice(0, MAX_PATHS_PER_TURN)) {
-    if (!change || typeof change !== 'object') continue
-    const path = (change as { path?: unknown }).path
-    if (typeof path !== 'string' || path.length === 0 || path.length > 4096 || path.includes('\0')) continue
-    if (isAbsolutePath(path)) paths.push(path)
-  }
-  return paths
+function toolUseIdOf(event: ConversationEvent): string | null {
+  const id = event.payload?.toolUseId ?? event.payload?.toolCallId
+  return typeof id === 'string' && id.length > 0 ? id : null
 }
 
-/** Absolute in either spelling: a POSIX path, or a Windows drive or share. */
-function isAbsolutePath(path: string): boolean {
-  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\')
-}
-
-async function defaultResolveCheckout(path: string): Promise<PullRequestCheckout | null | 'missing'> {
+async function defaultResolveCheckout(path: string): Promise<PullRequestCheckout | null> {
   const facts = await resolveCheckoutForCwd(path)
-  if (!facts) return null
-  if (facts.missing) return 'missing'
-  if (!facts.gitRoot || !facts.branch) return null
+  if (!facts || facts.missing || !facts.gitRoot || !facts.branch) return null
   return { gitRoot: facts.gitRoot, branch: facts.branch }
-}
-
-/**
- * The branches pushed from a checkout since `since` that it did not stay on:
- * a remote-tracking branch whose tip was committed since then and is exactly
- * the local branch of that name, checked out in no other worktree, or, with no
- * local branch of that name, this checkout's own HEAD (`git push origin
- * HEAD:new-name`). Another worktree's branch is that worktree's agent's.
- * Empty when git could not answer: nothing is guessed.
- */
-export async function defaultReadPushedBranches(gitRoot: string, since: number): Promise<string[]> {
-  const [remotes, locals] = await Promise.all([
-    runGitCommand(gitRoot, [
-      'for-each-ref',
-      '--sort=-committerdate',
-      '--count=64',
-      '--format=%(refname)%00%(objectname)%00%(committerdate:unix)%00%(symref)',
-      'refs/remotes',
-    ]),
-    runGitCommand(gitRoot, [
-      'for-each-ref',
-      '--format=%(refname:short)%00%(objectname)%00%(HEAD)%00%(worktreepath)',
-      'refs/heads',
-    ]),
-  ])
-  if (!remotes.ok || !locals.ok) return []
-  const localBranches = new Map<string, { sha: string; elsewhere: boolean }>()
-  let headSha: string | null = null
-  for (const line of locals.stdout.split('\n')) {
-    const [name, sha, head, worktree] = line.split('\0')
-    if (!name || !sha) continue
-    const here = head === '*'
-    if (here) headSha = sha
-    localBranches.set(name, { sha, elsewhere: !here && Boolean(worktree?.trim()) })
-  }
-  const pushed: string[] = []
-  for (const line of remotes.stdout.split('\n')) {
-    const [ref, sha, committed, symref] = line.split('\0')
-    if (!ref || !sha || symref) continue
-    // Sorted newest first: the first tip older than the turn ends the list.
-    if (!(Number(committed) * 1000 >= since)) break
-    // `refs/remotes/<remote>/<branch>`.
-    const branch = ref.split('/').slice(3).join('/')
-    if (!branch || branch === 'HEAD' || branch.startsWith('-')) continue
-    const local = localBranches.get(branch)
-    const ours = local ? local.sha === sha && !local.elsewhere : sha === headSha
-    if (ours && !pushed.includes(branch)) pushed.push(branch)
-  }
-  return pushed
-}
-
-/** `origin/HEAD`'s branch: what a clone calls its default. Null when the clone never recorded one. */
-async function defaultReadDefaultBranch(gitRoot: string): Promise<string | null> {
-  const read = await runGitCommand(gitRoot, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
-  if (!read.ok) return null
-  const ref = read.stdout.trim()
-  const slash = ref.indexOf('/')
-  return slash > 0 ? ref.slice(slash + 1) || null : null
 }

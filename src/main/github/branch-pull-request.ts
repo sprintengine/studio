@@ -52,9 +52,9 @@ export type BranchPullRequestsRead =
 /**
  * What a state re-read learned. `stateAt` is the moment GitHub was asked, and
  * `headRefName` is the branch the pull request is FROM — the only way a pull
- * request a hook captured, on a record written before marks came from branch
- * lookups alone (it knows a URL and nothing else), learns which branch it
- * belongs to (decision 10). Null when GitHub did not say.
+ * request the record knows by its URL alone (an agent opened it, and the
+ * record heard the URL) learns which branch it belongs to (decision 10). Null
+ * when GitHub did not say.
  */
 export type PullRequestStateRead =
   | {
@@ -65,9 +65,9 @@ export type PullRequestStateRead =
       headRefName: string | null
       /**
        * The pull request's title and the moment GitHub says it was opened. A
-       * pull request a hook CAPTURED, on a record from before marks came from
-       * branch lookups alone, knows neither — the hook saw a URL — and this
-       * read is what names it (decision 10). Null when GitHub did not say.
+       * pull request recorded from the URL an agent's call printed knows
+       * neither, and this read is what names it (decision 10). Null when
+       * GitHub did not say.
        */
       title?: string | null
       openedAt?: number | null
@@ -93,10 +93,9 @@ export type BranchPullRequestDeps = {
 
 /** The fields the list read asks `gh` for — one place, so the parser cannot drift from the query. */
 const LIST_FIELDS = 'number,url,title,state,isDraft,createdAt,mergedAt,closedAt'
-// `title` and `createdAt` are here for a pull request a hook CAPTURED on a
-// record from before marks came from branch lookups alone: it was filed from a
-// URL, and every menu row, the peek's bold title line and the spoken label
-// would read empty without them (decision 10).
+// `title` and `createdAt` are here for a pull request the record knows by its
+// URL alone (an agent's call printed it): every menu row, the peek's bold
+// title line and the spoken label would read empty without them (decision 10).
 const VIEW_FIELDS = 'number,title,state,isDraft,createdAt,mergedAt,closedAt,headRefName'
 
 /**

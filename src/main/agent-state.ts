@@ -544,7 +544,24 @@ export type AgentStateFrame = {
   // call and again right after a /compact, and a session is unnamed until it is
   // named. Untrusted like the rest: a bad value drops the FIELD.
   statusLine?: AgentStateFrameStatusLine
+  // A tool call that may have opened a pull request, forwarded on the
+  // PostToolUse of a shell command or an MCP tool whose output holds a URL
+  // (owner ruling 2026-10-04). The reporter decides nothing: the server's one
+  // reader (src/shared/git/pull-request-opened.ts) does, the same one it uses
+  // for a chat's calls. Untrusted like the rest: bounded, and a bad value drops
+  // the FIELD, never the frame.
+  toolCall?: AgentStateFrameToolCall
 }
+
+/** A forwarded tool call: its name, the shell command it ran, and its output as text. */
+export type AgentStateFrameToolCall = { name: string; command?: string; output: string; failed?: boolean }
+
+// Caps on a forwarded tool call, matched to what `pullRequests.noteToolCall`
+// accepts (STUDIO_PULL_REQUESTS_MAX_COMMAND / _MAX_OUTPUT): over a cap the
+// field is dropped, because a cut output could cut a URL into another one.
+const MAX_TOOL_CALL_NAME_LENGTH = 200
+const MAX_TOOL_CALL_COMMAND_LENGTH = 4096
+const MAX_TOOL_CALL_OUTPUT_LENGTH = 32 * 1024
 
 // One reading from a session's status line. The numbers are the CLI's own —
 // nothing here is derived, and nothing else from the status-line payload (the
@@ -654,7 +671,23 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
   if (toolUseId) frame.toolUseId = toolUseId
   const statusLine = parseFrameStatusLine(raw.statusLine)
   if (statusLine) frame.statusLine = statusLine
+  const toolCall = parseFrameToolCall(raw.toolCall)
+  if (toolCall) frame.toolCall = toolCall
   return frame
+}
+
+function parseFrameToolCall(raw: unknown): AgentStateFrameToolCall | null {
+  if (!isRecord(raw)) return null
+  const name = optionalString(raw.name)?.trim()
+  if (!name || name.length > MAX_TOOL_CALL_NAME_LENGTH || hasControlCharacters(name)) return null
+  if (typeof raw.output !== 'string' || raw.output.length > MAX_TOOL_CALL_OUTPUT_LENGTH) return null
+  const call: AgentStateFrameToolCall = { name, output: raw.output }
+  if (raw.command !== undefined) {
+    if (typeof raw.command !== 'string' || raw.command.length > MAX_TOOL_CALL_COMMAND_LENGTH) return null
+    call.command = raw.command
+  }
+  if (raw.failed === true) call.failed = true
+  return call
 }
 
 // A status-line reading, field by field: each one that fails its own rule is

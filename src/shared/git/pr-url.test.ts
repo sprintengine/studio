@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { canonicalPullRequestUrl, parsePullRequestUrl } from './pr-url'
+import { canonicalPullRequestUrl, classifyPullRequestUrl, parsePullRequestUrl } from './pr-url'
 import { test } from 'vitest'
 
 test('pr-url', async () => {
@@ -135,4 +135,92 @@ test('pr-url', async () => {
   }
 
   main()
+})
+
+test('every forge’s pull request URL is read off its path, on any host', () => {
+  const cases: Array<[string, ReturnType<typeof classifyPullRequestUrl>]> = [
+    [
+      'https://github.com/acme/app/pull/12/files?w=1#diff',
+      {
+        forge: 'github',
+        url: 'https://github.com/acme/app/pull/12',
+        repositoryUrl: 'https://github.com/acme/app',
+        number: 12,
+      },
+    ],
+    [
+      'https://ghe.example.com:8443/acme/app/pull/3',
+      {
+        forge: 'github',
+        url: 'https://ghe.example.com:8443/acme/app/pull/3',
+        repositoryUrl: 'https://ghe.example.com:8443/acme/app',
+        number: 3,
+      },
+    ],
+    [
+      'https://gitlab.com/acme/platform/app/-/merge_requests/41/diffs',
+      {
+        forge: 'gitlab',
+        url: 'https://gitlab.com/acme/platform/app/-/merge_requests/41',
+        repositoryUrl: 'https://gitlab.com/acme/platform/app',
+        number: 41,
+      },
+    ],
+    [
+      'https://codeberg.org/acme/app/pulls/7',
+      {
+        forge: 'gitea',
+        url: 'https://codeberg.org/acme/app/pulls/7',
+        repositoryUrl: 'https://codeberg.org/acme/app',
+        number: 7,
+      },
+    ],
+    [
+      'https://bitbucket.org/acme/app/pull-requests/9/overview',
+      {
+        forge: 'bitbucket',
+        url: 'https://bitbucket.org/acme/app/pull-requests/9',
+        repositoryUrl: 'https://bitbucket.org/acme/app',
+        number: 9,
+      },
+    ],
+    [
+      'https://git.example.com/projects/ACME/repos/app/pull-requests/5',
+      {
+        forge: 'bitbucket',
+        url: 'https://git.example.com/projects/ACME/repos/app/pull-requests/5',
+        repositoryUrl: 'https://git.example.com/projects/ACME/repos/app',
+        number: 5,
+      },
+    ],
+    [
+      'https://dev.azure.com/acme/platform/_git/app/pullrequest/77',
+      {
+        forge: 'azure-devops',
+        url: 'https://dev.azure.com/acme/platform/_git/app/pullrequest/77',
+        repositoryUrl: 'https://dev.azure.com/acme/platform/_git/app',
+        number: 77,
+      },
+    ],
+  ]
+  for (const [raw, expected] of cases) assert.deepEqual(classifyPullRequestUrl(raw), expected, raw)
+
+  // A doubtful match is no match.
+  for (const raw of [
+    'https://github.com/acme/app/pull/new/feature',
+    'https://github.com/acme/app/pull/12.diff',
+    'https://github.com/acme/app/issues/12',
+    'https://github.com/acme/app/pulls',
+    'https://api.github.com/repos/acme/app/pulls/12',
+    'https://gitea.example.com/api/v1/repos/acme/app/pulls/12',
+    'https://gitlab.com/acme/app/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature',
+    'https://gitlab.com/api/v4/projects/1/merge_requests/2',
+    'https://bitbucket.org/acme/app/pull-requests/new?source=feature',
+    'https://codeberg.org/acme/app/compare/main...feature',
+    'https://dev.azure.com/acme/platform/_git/app/pullrequestcreate?sourceRef=feature',
+    'ftp://github.com/acme/app/pull/1',
+    'not a url',
+  ]) {
+    assert.equal(classifyPullRequestUrl(raw), null, raw)
+  }
 })
