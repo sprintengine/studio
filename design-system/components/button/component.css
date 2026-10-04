@@ -69,6 +69,18 @@
   box-shadow: none;
 }
 
+/* Round — the composer's send and nothing else (owner ruling 2026-10-04): a
+ * small accent disc with an arrow, square to the control height, and a capsule
+ * of the same height when it carries a word. */
+.ds-button--round {
+  border-radius: var(--sem-radius-pill);
+}
+
+.ds-button--round.ds-button--icon-only {
+  width: var(--sem-size-control-sm);
+  padding: 0;
+}
+
 /* Outline — bordered neutral secondary. Half a step of elevation below
  * primary: enough that it reads as a control rather than a labelled box,
  * quiet enough that it never competes with the view's one primary. */

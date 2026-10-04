@@ -187,6 +187,18 @@ export type { ScopePillProps } from './ScopePill'
 // gets re-derived backwards.
 export { deviceGlyphFor } from './deviceGlyph'
 export type { DeviceGlyphComponent, DeviceGlyphInput } from './deviceGlyph'
+// The system's file dialog behind a kit control (design-system/components/input → The file dialog).
+export { HiddenFileInput } from './HiddenFileInput'
+// The composer's own marks (design-system/components/glyphs → Composer).
+export {
+  AttachGlyph,
+  ComposerPlusGlyph,
+  ConversationGlyph,
+  PluginsGlyph,
+  SendGlyph,
+  TerminalAgentGlyph,
+  WorktreeGlyph,
+} from './ComposerGlyphs'
 export { GroupHeader, GroupHeaderAction } from './GroupHeader'
 export type { GroupHeaderProps } from './GroupHeader'
 export { Toolbar, ToolbarButton, ToolbarDivider, ToolbarSpacer } from './Toolbar'

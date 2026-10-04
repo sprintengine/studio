@@ -854,7 +854,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose language wears blue; nothing else.",
+              "use": "Ink of a file-type glyph whose language wears blue, and of a machine's glyph when the machine wears blue (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -873,7 +873,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose kind wears yellow; nothing else.",
+              "use": "Ink of a file-type glyph whose kind wears yellow, and of a machine's glyph when the machine wears yellow (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -892,7 +892,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose kind wears orange; nothing else.",
+              "use": "Ink of a file-type glyph whose kind wears orange, and of a machine's glyph when the machine wears orange (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -911,7 +911,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose kind wears red; nothing else.",
+              "use": "Ink of a file-type glyph whose kind wears red, and of a machine's glyph when the machine wears red (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -930,7 +930,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose kind wears teal; nothing else.",
+              "use": "Ink of a file-type glyph whose kind wears teal, and of a machine's glyph when the machine wears teal (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -949,7 +949,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose kind wears cyan; nothing else.",
+              "use": "Ink of a file-type glyph whose kind wears cyan, and of a machine's glyph when the machine wears cyan (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -968,7 +968,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose kind wears violet; nothing else.",
+              "use": "Ink of a file-type glyph whose kind wears violet, and of a machine's glyph when the machine wears violet (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -1641,6 +1641,32 @@
           }
         }
       },
+      "composer": {
+        "$type": "dimension",
+        "$value": "22px",
+        "$description": "The New chat composer's box (owner ruling 2026-10-04).",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "shape",
+            "offRamp": true,
+            "use": "The composer box alone: the prompt field and its control row, as one rounded surface, in New chat and in an open conversation. A named exception to the radius ceiling (owner ruling 2026-10-04): the composer is the one surface a person types into all day, and a soft corner is what sets it apart from the chrome around it.",
+            "doNotUse": "Anything that is not the composer box. Not a card, a popover, a panel or a control inside the composer, which keep the ramp. Not a ramp step: a tool reading sem.radius.* as a ramp must exclude it, as it does pill."
+          }
+        }
+      },
+      "composer-strip": {
+        "$type": "dimension",
+        "$value": "16px",
+        "$description": "The bottom corners of the context strip tucked under the composer (owner ruling 2026-10-04).",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "shape",
+            "offRamp": true,
+            "use": "The bottom-left and bottom-right corners of the context strip under the New chat composer (machine, project, worktree, branch), which reads as one piece with the composer above it. Its top corners are hidden under the composer and take no radius.",
+            "doNotUse": "Any other surface, and the strip's top corners. Not a ramp step: a tool reading sem.radius.* as a ramp must exclude it."
+          }
+        }
+      },
       "pill": {
         "$type": "dimension",
         "$value": "999px",
@@ -1649,7 +1675,7 @@
           "com.sprintengine": {
             "role": "shape",
             "use": "Badges, status chips, switch tracks and progress rails \u2014 anything whose shape says \"this is a marker, not a control\". Referenced by liveness, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square.",
-            "doNotUse": "Buttons, inputs, cards and rows \u2014 those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart. Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.",
+            "doNotUse": "Buttons, inputs, cards and rows \u2014 those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart; the one exception is the composer's round send (owner ruling 2026-10-04). Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.",
             "components": [
               "badge",
               "liveness",

@@ -47,7 +47,8 @@ home accents its cards' buttons and deliberately leaves its tile glyphs in
 neutral ink for exactly this reason.
 
 **Identity colour** (ruled 2026-09-06, revising the 2026-09-02 monochrome
-ruling for two families). Two kinds of glyph carry a colour of their own, and
+ruling for two families; a third added 2026-10-04). Three kinds of glyph carry
+a colour of their own, and
 the accent budget does not count them, because the colour is not ours: it
 names something.
 
@@ -76,6 +77,16 @@ names something.
   (`config`, `text`, `generic` stay in the row's ink), or a row wash stacked
   under the two — the file-tree clause below still caps the washes at two, and
   interaction state still outranks every one of them.
+
+- **A machine's glyph may wear its machine's colour** (owner ruling
+  2026-10-04). Every machine other than this one has a kind — laptop, desktop,
+  mini, tower, server, cloud VM, container, board or WSL — drawn as the device,
+  and one of eight colours: the seven `color.mark.*` hues and a neutral
+  (`text.muted`). The default kind comes from what the machine is and the
+  default colour from a hash of its stable id, so every device that sees the
+  machine shows the same one; a person can change both in Settings › Machines.
+  The colour is on the glyph and nowhere else — never the machine's name, a row
+  wash or a pill — and this machine wears no mark at all.
 
 What does not change: the hue identifies, it never grades. `color.mark.*` is
 not a status ramp and not an accent. A gear or a plain document — glyphs that
@@ -337,6 +348,15 @@ person with everything at once.
 - At most 2 radii per view. `radius.control` (5px) is the default; larger radii
   belong to overlay and modal shells. Marketing radii (`rounded-2xl` and up)
   never appear on operational chrome.
+- **The composer is the one named exception to that ceiling** (owner ruling
+  2026-10-04). Its box takes `radius.composer` (22px), and the context strip
+  tucked under it takes `radius.composer-strip` (16px) on its two bottom
+  corners only, so the two read as one piece. The composer is the surface a
+  person types into all day, and the soft corner is what sets it apart from the
+  chrome around it. Both tokens are marked `offRamp`: they are not rungs of the
+  shape scale, the conformance guard leaves them out of its ramp exactly as it
+  does `pill`, and nothing else may borrow them — a card, popover or control
+  inside the composer keeps the ramp.
 - A capped column is centred or it is a bug. When a `max-width` element IS the
   page's content — a wizard step, a settings body, a door canvas — it centres
   (`max-w-*` + `mx-auto`), and its footer actions cap to the same measure so

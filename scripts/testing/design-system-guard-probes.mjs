@@ -231,7 +231,14 @@ const probes = [
       // failure of the guard. It went stale exactly this way: `pill` was added
       // to the bundle AFTER this probe was written, and being the last key it
       // quietly became the thing the probe mutated.
-      const steps = Object.keys(parsed?.sem?.radius ?? {}).filter((k) => !k.startsWith('$') && k !== 'pill')
+      // The composer's named exceptions (`offRamp: true`, owner ruling
+      // 2026-10-04) are left out for the same reason: the guard skips them.
+      const steps = Object.keys(parsed?.sem?.radius ?? {}).filter(
+        (k) =>
+          !k.startsWith('$') &&
+          k !== 'pill' &&
+          parsed.sem.radius[k]?.$extensions?.['com.sprintengine']?.offRamp !== true,
+      )
       if (!steps.length) throw new Error('the bundle declares no sem.radius.* ramp steps')
       // The ramp step the guard's `largestRadiusPx` actually reads: the biggest
       // one. Pushing a smaller step to 20px would also trip the assertion, but
