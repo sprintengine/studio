@@ -249,6 +249,10 @@ export interface WorkspaceStore
     hostId: import('../../../shared/execution-host').ExecutionHostId,
     settings: import('../../../shared/execution-host').ExecutionHostSettings | null,
   ) => void
+  setMachineMark: (
+    machineId: string,
+    mark: import('../../../shared/machine-identity').MachineMarkSetting | null,
+  ) => void
   setCliModelCatalog: (cli: AgentCli, catalog: DiscoveredCliModelCatalog | null) => void
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void

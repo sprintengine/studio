@@ -5,6 +5,7 @@ import {
   normalizeCliPermissionModes,
   normalizeCliPermissionPresets,
 } from '../../../../shared/launch-settings'
+import { normalizeMachineMarkSettings, type MachineMarkSetting } from '../../../../shared/machine-identity'
 import type { TextGenerationSettings } from '../../../../shared/text-generation/contract'
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
@@ -697,6 +698,7 @@ export const defaultAppSettings = (): AppSettings => ({
     },
   },
   hosts: {},
+  machineMarks: {},
   keybindings: defaultKeybindingSettings(),
   mcp: defaultMcpSettings(),
   lastSelectedCli: DEFAULT_AGENT_LAUNCH_CLI,
@@ -760,6 +762,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     ...defaults,
     cliRuntimes: normalizeCliRuntimes(settings?.cliRuntimes, defaults),
     hosts: normalizeAgentLaunchHosts(settings?.hosts),
+    machineMarks: normalizeMachineMarkSettings(settings?.machineMarks),
     cliModelCatalog: normalizeCliModelCatalogs(settings?.cliModelCatalog),
     keybindings: normalizeKeybindingSettings(settings?.keybindings),
     mcp: normalizeMcpSettings(settings?.mcp),
@@ -974,6 +977,8 @@ export interface SettingsSliceActions {
   closeModalSurface: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setHostSettings: (hostId: ExecutionHostId, settings: ExecutionHostSettings | null) => void
+  /** One machine's kind and colour (Settings › Machines); `null` returns it to the defaults. */
+  setMachineMark: (machineId: string, mark: MachineMarkSetting | null) => void
   // Record (or clear) what one CLI reported about its own models. Replaces that
   // CLI's entry wholesale — a model the CLI no longer lists is gone from the
   // discovered layer — and never touches `cliRuntimes[cli].models`.
@@ -1333,6 +1338,18 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.hosts = hosts
       })
       launchSettingsClient.update({ hosts: { [hostId]: settings } })
+    },
+
+    // One machine's mark, written the way a host's settings are: replaced
+    // whole, `null` forgetting it, main's answer replacing this copy.
+    setMachineMark: (machineId, mark) => {
+      set((state) => {
+        const marks = { ...state.appSettings.machineMarks }
+        if (mark) marks[machineId] = mark
+        else delete marks[machineId]
+        state.appSettings.machineMarks = marks
+      })
+      launchSettingsClient.update({ machineMarks: { [machineId]: mark } })
     },
 
     setCliModelCatalog: (cli, catalog) =>

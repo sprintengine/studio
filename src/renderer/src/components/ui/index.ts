@@ -187,6 +187,9 @@ export type { ScopePillProps } from './ScopePill'
 // gets re-derived backwards.
 export { deviceGlyphFor } from './deviceGlyph'
 export type { DeviceGlyphComponent, DeviceGlyphInput } from './deviceGlyph'
+// A machine's mark — its kind's drawing in its colour (owner ruling
+// 2026-10-04; design-system/components/glyphs → Machine kinds).
+export { MachineGlyph, MachineKindGlyph, MACHINE_COLOUR_FILL, MACHINE_COLOUR_INK } from './MachineMark'
 // The system's file dialog behind a kit control (design-system/components/input → The file dialog).
 export { HiddenFileInput } from './HiddenFileInput'
 // The composer's own marks (design-system/components/glyphs → Composer).

@@ -70,6 +70,8 @@ import {
 } from '../../utils/modelRegistry'
 import { dataTransferHasTabDrag, readTabDragPayload, type TabDragPayload } from '../../utils/tabDragPayload'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
+import { useWorkspaceMachineRef } from '../../hooks/useMachineIdentity'
+import { distroOfHostId, isWslHostId } from '../../../../shared/execution-host'
 import { useStableCallback } from '../../hooks/useStableCallback'
 import { useRemoteSessions } from './remoteBand/useRemoteSessions'
 import {
@@ -121,13 +123,14 @@ import {
   AttentionPulse,
   BranchChip,
   ProjectLine,
-  RemoteRowGlyph,
+  MachineRowGlyph,
   ScheduledRunGlyph,
   RowTooltip,
   RowTooltipsSuppressed,
   ShelfFoldRow,
   WorkingElapsed,
   type FlatProjectLine,
+  type RowMachine,
 } from './sidebar/rowParts'
 import { TerminalLineView } from './sidebar/TerminalLineView'
 import { FolderContextMenu, WorkspaceContextMenu, workspaceTypeRowActions } from './sidebar/contextMenus'
@@ -1875,13 +1878,22 @@ function WorkspaceSidebar({
         } ${surface} ${FOCUS_RING_CLASS}`}
         role="treeitem"
       >
-        {flatProject ? <ProjectLine project={flatProject} machineName={conversation.machineName} /> : null}
+        {flatProject ? (
+          <ProjectLine
+            project={flatProject}
+            machine={{ ref: { kind: 'paired', name: conversation.machineName }, name: conversation.machineName }}
+          />
+        ) : null}
         <div className="flex min-w-0 items-center gap-2">
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
             {/* In the tree the project header is above and carries no machine,
                 so the row wears the glyph; in the flat stream the project line
                 already wears it, right of the folder icon. */}
-            {flatProject ? null : <RemoteRowGlyph machineName={conversation.machineName} />}
+            {flatProject ? null : (
+              <MachineRowGlyph
+                machine={{ ref: { kind: 'paired', name: conversation.machineName }, name: conversation.machineName }}
+              />
+            )}
             {/* Weight marks a running turn, the way residency bolds a local row. */}
             <TruncatedText
               as="span"
@@ -3004,6 +3016,17 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   // rather than passed down: the row no longer comes from a band that knew,
   // and the stamp rides the workspace whether or not a pane is open.
   const rowMachineName = options?.remoteMachine ?? workspace.remoteOrigin?.machineName ?? null
+  // The machine the row runs on, for its mark (owner ruling 2026-10-04): the
+  // paired machine above, else the SSH machine or WSL distribution the
+  // workspace was created on. Null on this computer, which wears no mark.
+  const workspaceMachineRef = useWorkspaceMachineRef(workspace)
+  const rowMachine: RowMachine | null = rowMachineName
+    ? { ref: { kind: 'paired', name: rowMachineName }, name: rowMachineName }
+    : workspace.environment?.kind === 'ssh'
+      ? { ref: workspaceMachineRef, name: workspace.environment.label }
+      : workspace.hostId && isWslHostId(workspace.hostId)
+        ? { ref: workspaceMachineRef, name: `WSL: ${distroOfHostId(workspace.hostId) ?? workspace.hostId}` }
+        : null
   const tone = activityTone(activity)
   // A row whose module ships a run-glyph provider carries that lifecycle
   // glyph in the status slot instead of the dot + recency idiom: the run
@@ -3473,9 +3496,9 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   const titleClusterContent = (
     <>
       {/* Where the row runs, when it is not here. In the flat stream the
-          project line above already carries this mark beside the folder
-          icon, so the title does not say it twice. */}
-      {rowMachineName && !flatProject ? <RemoteRowGlyph machineName={rowMachineName} /> : null}
+          project line above already carries this mark after the project's
+          name, so the title does not say it twice. */}
+      {rowMachine && !flatProject ? <MachineRowGlyph machine={rowMachine} /> : null}
       {/* A schedule started this chat. Beside the title in both shapes of the
           list: the project line says where a chat is, not how it began. */}
       {isScheduledRunChat(workspace) ? <ScheduledRunGlyph scheduledAgentId={workspace.scheduledAgentId} /> : null}
@@ -3614,10 +3637,10 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
       {flatProject ? (
         <ProjectLine
           project={flatProject}
-          // A chat born on a paired machine wears the green glyph here too:
-          // in this view it IS an ordinary row of its project, so the mark
-          // beside the folder icon is the only thing saying where it runs.
-          machineName={rowMachineName}
+          // A chat on another machine wears that machine's mark here too: in
+          // this view it IS an ordinary row of its project, so the mark
+          // trailing the project's name is the only thing saying where it runs.
+          machine={rowMachine}
           dim={emphasis === 'quiet'}
         >
           {statusSeat}
