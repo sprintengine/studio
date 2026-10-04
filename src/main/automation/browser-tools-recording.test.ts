@@ -127,6 +127,7 @@ function harness(options: { refuseOutput?: boolean } = {}) {
     openRequests,
     published,
     chunk: (id: string) => listener?.chunk(id, new Uint8Array(10)),
+    end: (id: string, error: string) => listener?.ended(id, { error }),
   }
 }
 
@@ -209,6 +210,7 @@ for (const through of ['direct', 'the shell'] as const) {
     assert.equal(h.starts[0]?.cursor, false)
     const second = await call('browser.record_start', { tabId: 't1' }, agentB)
     assert.equal(structured(second).error.code, 'already_recording')
+    assert.equal(h.openRequests.length, 1, 'only the start that was allowed brought the pane forward')
     const stop = await call('browser.record_stop', { tabId: 't1' }, agentB)
     assert.equal(structured(stop).error.code, 'not_yours')
     const notMine = await call('browser.record_stop', { tabId: 't2' }, agentB)
@@ -224,6 +226,7 @@ for (const through of ['direct', 'the shell'] as const) {
     assert.match(structured(refused).error.message, /build-box/)
     assert.equal(h.starts.length, 0)
     assert.deepEqual(h.published, [])
+    assert.deepEqual(h.openRequests, [], 'a refused start moves nothing on screen')
   })
 }
 
@@ -236,4 +239,17 @@ test('the person stopping it leaves the result for the agent', async () => {
   assert.ok(byPerson.ok)
   const answer = await call('browser.record_stop', {}, agentA)
   assert.equal(structured(answer).recording.stopReason, 'stopped_by_person')
+})
+
+test('a recording that ended with nothing saved tells the agent why when it stops', async () => {
+  const h = harness()
+  const call = reach(h.registrations, 'direct')
+  await call('browser.record_start', {}, agentA)
+  // The window goes away before a single chunk.
+  h.end('rec-1', 'The window hosting the tab closed.')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const answer = await call('browser.record_stop', {}, agentA)
+  assert.equal(answer.isError, true)
+  assert.equal(structured(answer).error.code, 'empty')
+  assert.match(structured(answer).error.message, /window hosting the tab closed/)
 })

@@ -191,3 +191,16 @@ test('a stop before the window answers the start answers it as failed', async ()
   const result = await starting
   assert.ok(!result.ok && result.code === 'capture_failed')
 })
+
+test('a window that fails to capture after its start was stopped ends the recording', async () => {
+  const { encoder, ipcMain, host, ended } = setup()
+  const starting = encoder.start(START('rec-1'))
+  await Promise.resolve()
+  encoder.stop('rec-1')
+  await starting
+  ipcMain.emit('browser:recording-started', host, { recordingId: 'rec-1', ok: false, message: 'NotAllowedError' })
+  assert.deepEqual(ended, [['rec-1', { error: 'The recording was stopped as it began.' }]])
+  // Gone: a later word from the window is not taken.
+  ipcMain.emit('browser:recording-ended', host, { recordingId: 'rec-1' })
+  assert.equal(ended.length, 1)
+})

@@ -138,7 +138,13 @@ export function createHostRecordingEncoder(deps: {
 
   deps.ipcMain.on(BROWSER_RECORDING_STARTED_CHANNEL, (event, payload: BrowserRecordingStarted) => {
     const recording = fromHost(event, payload?.recordingId)
-    if (!recording?.answerStart) return
+    if (!recording) return
+    if (!recording.answerStart) {
+      // Its start was already answered (stopped as it began). A window that
+      // then could not capture has nothing more to send, so it ends here.
+      if (payload.ok !== true) end(recording, { error: 'The recording was stopped as it began.' })
+      return
+    }
     const answer = recording.answerStart
     recording.answerStart = null
     for (const [hostId, entry] of armed) if (entry.recordingId === recording.recordingId) armed.delete(hostId)

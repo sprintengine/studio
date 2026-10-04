@@ -159,6 +159,8 @@ type Recording = {
   writes: Promise<void>
   writeError: string | null
   ended: boolean
+  /** Capture began and the person was shown it: how it ends is kept for `browser.record_stop`. */
+  live: boolean
   encoderDurationMs: number | undefined
   encoderError: string | undefined
   onEnded: Array<() => void>
@@ -194,8 +196,11 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
 
   const byTab = new Map<string, Recording>()
   const byId = new Map<string, Recording>()
-  /** The last finished recording per tab, for an agent whose recording ended at a limit. */
-  const finished = new Map<string, { result: FinishedRecording; owner: string; at: number }>()
+  /**
+   * How the last recording per tab ended, saved or not, for an agent whose
+   * recording ended at a limit or was stopped by the person.
+   */
+  const finished = new Map<string, { result: FinishedRecording | RecordingFailure; owner: string; at: number }>()
 
   const fail = (code: string, message: string): RecordingFailure => ({ ok: false, code, message })
 
@@ -224,14 +229,19 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
     ended(recordingId, outcome) {
       const recording = byId.get(recordingId)
       if (!recording || recording.ended) return
-      recording.ended = true
       recording.encoderDurationMs = outcome.durationMs
       recording.encoderError = outcome.error
-      for (const resolve of recording.onEnded.splice(0)) resolve()
+      markEnded(recording)
       // Ended without being asked: the capture stopped under it.
       if (!recording.finishing) void finish(recording, 'capture_ended')
     },
   })
+
+  /** Nothing more is taken from the encoder, and whoever waits for its end stops waiting. */
+  function markEnded(recording: Recording): void {
+    recording.ended = true
+    for (const resolve of recording.onEnded.splice(0)) resolve()
+  }
 
   function waitForEnd(recording: Recording): Promise<void> {
     if (recording.ended) return Promise.resolve()
@@ -239,8 +249,7 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
       const timer = setTimer(() => {
         // The encoder never answered (its window hung or went away silently):
         // what was written is kept, and nothing more is accepted.
-        recording.ended = true
-        resolve()
+        markEnded(recording)
       }, limits.stopTimeoutMs)
       recording.onEnded.push(() => {
         timer.cancel()
@@ -251,60 +260,77 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
 
   function finish(recording: Recording, reason: RecordingStopReason): Promise<FinishedRecording | RecordingFailure> {
     if (recording.finishing) return recording.finishing
-    recording.finishing = (async () => {
-      recording.limitTimer?.cancel()
-      recording.limitTimer = null
-      // The person sees it stop at once; the last second of bytes is a flush.
-      deps.publish(recording.tabId, null)
-      if (!recording.ended) {
-        deps.encoder.stop(recording.id)
-        await waitForEnd(recording)
+    recording.finishing = (async (): Promise<FinishedRecording | RecordingFailure> => {
+      const result = await save(recording, reason)
+      if (recording.live) {
+        forgetOldFinished()
+        finished.set(recording.tabId, { result, owner: recording.owner, at: now() })
       }
-      await recording.writes
-      byTab.delete(recording.tabId)
-      byId.delete(recording.id)
-      const endedAt = now()
-      const durationMs = Math.max(0, Math.round(recording.encoderDurationMs ?? endedAt - recording.startedAt))
-      if (recording.bytes === 0 || recording.writeError) {
-        await recording.output.discard().catch(() => undefined)
-        if (recording.writeError)
-          return fail('write_failed', `The recording could not be saved: ${recording.writeError}`)
-        return fail(
-          'empty',
-          recording.encoderError
-            ? `The recording captured nothing: ${recording.encoderError}`
-            : 'The recording captured nothing: the tab showed no frames.',
-        )
-      }
-      let bytes: number
-      try {
-        bytes = (await recording.output.finish(durationMs)).bytes
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        return fail('write_failed', `The recording could not be saved: ${message}`)
-      }
-      const result: FinishedRecording = {
-        ok: true,
-        recordingId: recording.id,
-        tabId: recording.tabId,
-        workspacePath: recording.output.workspacePath,
-        path: recording.output.path,
-        mimeType: recording.mimeType,
-        bytes,
-        durationMs,
-        width: recording.width,
-        height: recording.height,
-        cursor: recording.cursor,
-        stopReason: reason,
-        ...(recording.encoderError ? { error: recording.encoderError } : {}),
-        startedAt: new Date(recording.startedAt).toISOString(),
-        endedAt: new Date(endedAt).toISOString(),
-      }
-      forgetOldFinished()
-      finished.set(recording.tabId, { result, owner: recording.owner, at: endedAt })
       return result
     })()
     return recording.finishing
+  }
+
+  async function save(
+    recording: Recording,
+    reason: RecordingStopReason,
+  ): Promise<FinishedRecording | RecordingFailure> {
+    recording.limitTimer?.cancel()
+    recording.limitTimer = null
+    // The person sees it stop at once; the last second of bytes is a flush.
+    deps.publish(recording.tabId, null)
+    if (!recording.ended) {
+      deps.encoder.stop(recording.id)
+      await waitForEnd(recording)
+    }
+    await recording.writes
+    byTab.delete(recording.tabId)
+    byId.delete(recording.id)
+    const endedAt = now()
+    const durationMs = Math.max(0, Math.round(recording.encoderDurationMs ?? endedAt - recording.startedAt))
+    if (recording.bytes === 0 || recording.writeError) {
+      await recording.output.discard().catch(() => undefined)
+      if (recording.writeError) return fail('write_failed', `The recording could not be saved: ${recording.writeError}`)
+      return fail(
+        'empty',
+        recording.encoderError
+          ? `The recording captured nothing: ${recording.encoderError}`
+          : 'The recording captured nothing: the tab showed no frames.',
+      )
+    }
+    let bytes: number
+    try {
+      bytes = (await recording.output.finish(durationMs)).bytes
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return fail('write_failed', `The recording could not be saved: ${message}`)
+    }
+    const result: FinishedRecording = {
+      ok: true,
+      recordingId: recording.id,
+      tabId: recording.tabId,
+      workspacePath: recording.output.workspacePath,
+      path: recording.output.path,
+      mimeType: recording.mimeType,
+      bytes,
+      durationMs,
+      width: recording.width,
+      height: recording.height,
+      cursor: recording.cursor,
+      stopReason: reason,
+      ...(recording.encoderError ? { error: recording.encoderError } : {}),
+      startedAt: new Date(recording.startedAt).toISOString(),
+      endedAt: new Date(endedAt).toISOString(),
+    }
+    return result
+  }
+
+  /** How the tab's last recording ended, saved or not, for its owner (or anyone, with `owner` null). */
+  function lastOutcome(tabId: string, owner: string | null): FinishedRecording | RecordingFailure | null {
+    forgetOldFinished()
+    const entry = finished.get(tabId)
+    if (!entry || (owner !== null && entry.owner !== owner)) return null
+    return entry.result
   }
 
   function describe(recording: Recording): ActiveRecording {
@@ -331,6 +357,12 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
       owner: string
       maxSeconds?: number | null
       cursor?: boolean
+      /**
+       * Called once the recording is allowed and its file made, just before
+       * capture is asked for: where the tab is brought forward, so a refused
+       * start moves nothing on screen.
+       */
+      beforeCapture?: () => void
     }): Promise<{ ok: true; recording: ActiveRecording } | RecordingFailure> {
       const running = byTab.get(input.tabId)
       if (running) {
@@ -357,7 +389,9 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
       // Asked again: two starts for one tab may have raced past the check above.
       if (byTab.has(input.tabId) || byTab.size >= limits.maxConcurrent) {
         await created.output.discard().catch(() => undefined)
-        return fail('already_recording', 'This tab is already being recorded.')
+        return byTab.has(input.tabId)
+          ? fail('already_recording', 'This tab is already being recorded.')
+          : fail('busy', `${limits.maxConcurrent} tabs are being recorded already; stop one before starting another.`)
       }
       const recording: Recording = {
         id: newId(),
@@ -374,6 +408,7 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
         writes: Promise.resolve(),
         writeError: null,
         ended: false,
+        live: false,
         encoderDurationMs: undefined,
         encoderError: undefined,
         onEnded: [],
@@ -383,6 +418,7 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
       // Held from here, so a second start is refused while this one begins.
       byTab.set(recording.tabId, recording)
       byId.set(recording.id, recording)
+      input.beforeCapture?.()
 
       let started: RecordingEncoderStarted | RecordingFailure
       let cancelStartTimer: () => void = () => undefined
@@ -418,7 +454,9 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
         byTab.delete(recording.tabId)
         byId.delete(recording.id)
         if (!recording.ended) deps.encoder.stop(recording.id)
-        recording.ended = true
+        // Given up on: a finish already under way (the tab closed as it
+        // began) does not wait out the encoder's stop for bytes that will not come.
+        markEnded(recording)
         await (recording.finishing ?? Promise.resolve())
         await created.output.discard().catch(() => undefined)
         return started
@@ -427,6 +465,7 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
       recording.width = started.width
       recording.height = started.height
       recording.cursor = started.cursor
+      recording.live = true
       // From when capture began, not from when it was asked for.
       recording.startedAt = now()
       recording.limitTimer = setTimer(() => void finish(recording, 'max_duration'), recording.maxDurationMs)
@@ -461,13 +500,13 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
       return recording ? describe(recording) : null
     },
 
-    /** The tab's last finished recording, for its owner (or anyone, with `owner` null). */
+    /** The tab's last saved recording, for its owner (or anyone, with `owner` null). */
     lastFinished(tabId: string, owner: string | null): FinishedRecording | null {
-      forgetOldFinished()
-      const entry = finished.get(tabId)
-      if (!entry || (owner !== null && entry.owner !== owner)) return null
-      return entry.result
+      const result = lastOutcome(tabId, owner)
+      return result?.ok ? result : null
     },
+
+    lastOutcome,
 
     /** The tab is gone: its recording, if any, is saved with what was captured. */
     tabClosed(tabId: string): void {

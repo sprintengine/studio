@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs'
-import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { access, appendFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
 import { distroOfUncPath, toWslPath } from '../../shared/host-paths'
@@ -32,11 +31,17 @@ const RECORDINGS_FOLDER = 'recordings'
 const EXTENSION = '.webm'
 /** A file still being written: renamed to its final name when the recording ends. */
 const PARTIAL_SUFFIX = '.part'
+/** How many names a recording tries before giving up: a folder this full is not one to add to. */
+const MAX_NAME_ATTEMPTS = 1_000
 
+// Every check is asynchronous: a WSL workspace is a `\\wsl.localhost\…` share,
+// and a synchronous call on it would hold main while the distribution answers.
 export type RecordingFs = {
   mkdir(path: string): Promise<void>
-  exists(path: string): boolean
+  exists(path: string): Promise<boolean>
   writeFile(path: string, data: Uint8Array | string): Promise<void>
+  /** Make an empty file, or answer false when one is already there. */
+  createNew(path: string): Promise<boolean>
   appendFile(path: string, data: Uint8Array): Promise<void>
   readFile(path: string): Promise<Uint8Array>
   rename(from: string, to: string): Promise<void>
@@ -46,8 +51,20 @@ export type RecordingFs = {
 
 const nodeFs: RecordingFs = {
   mkdir: async (path) => void (await mkdir(path, { recursive: true })),
-  exists: (path) => existsSync(path),
+  exists: (path) =>
+    access(path).then(
+      () => true,
+      () => false,
+    ),
   writeFile: (path, data) => writeFile(path, data),
+  createNew: (path) =>
+    writeFile(path, new Uint8Array(0), { flag: 'wx' }).then(
+      () => true,
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'EEXIST') return false
+        throw error
+      },
+    ),
   appendFile: (path, data) => appendFile(path, data),
   readFile: async (path) => new Uint8Array(await readFile(path)),
   rename: (from, to) => rename(from, to),
@@ -85,32 +102,35 @@ export function createWorkspaceRecordingOutputs(deps: WorkspaceRecordingOutputsD
             'Recording works for workspaces on this computer and in WSL.',
         )
       }
-      if (!isAbsolute(root) || !fs.exists(root)) {
+      if (!isAbsolute(root) || !(await fs.exists(root))) {
         return fail('no_workspace_folder', 'The workspace folder is not available to save a recording in.')
       }
 
       const browserDir = workspaceSidecarPath(root, BROWSER_SIDECAR)
       const directory = join(browserDir, RECORDINGS_FOLDER)
-      // A second recording in the same second takes the next free name.
-      let name = `${stem}${EXTENSION}`
-      for (let suffix = 2; fs.exists(join(directory, name)) || fs.exists(join(directory, name + PARTIAL_SUFFIX));) {
-        name = `${stem}-${suffix}${EXTENSION}`
-        suffix += 1
-      }
-      const file = join(directory, name)
-      const partial = file + PARTIAL_SUFFIX
+      let name: string | null = null
       try {
         await fs.mkdir(directory)
         // The folder ignores itself, as it does for the pane's screenshots.
         const ignore = join(browserDir, '.gitignore')
-        if (!fs.exists(ignore)) await fs.writeFile(ignore, '*\n')
-        await fs.writeFile(partial, new Uint8Array(0))
+        if (!(await fs.exists(ignore))) await fs.writeFile(ignore, '*\n')
+        // A second recording in the same second takes the next free name. The
+        // partial file is made exclusively, so two recordings starting
+        // together never both take one name.
+        for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS && name === null; attempt += 1) {
+          const candidate = attempt === 1 ? `${stem}${EXTENSION}` : `${stem}-${attempt}${EXTENSION}`
+          if (await fs.exists(join(directory, candidate))) continue
+          if (await fs.createNew(join(directory, candidate + PARTIAL_SUFFIX))) name = candidate
+        }
       } catch (error) {
         return fail(
           'write_failed',
           `The recording could not be saved: ${error instanceof Error ? error.message : String(error)}`,
         )
       }
+      if (name === null) return fail('write_failed', 'The recording could not be saved: no free file name was left.')
+      const file = join(directory, name)
+      const partial = file + PARTIAL_SUFFIX
 
       const output: RecordingOutput = {
         workspacePath: sidecarRelativePath(BROWSER_SIDECAR, RECORDINGS_FOLDER, name),

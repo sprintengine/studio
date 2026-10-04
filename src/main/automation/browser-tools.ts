@@ -83,7 +83,7 @@ export type BrowserToolsDeps = {
     | 'dialog'
   >
   /** Recording a tab to video (`browser.record_start` / `record_stop`). */
-  recorder: Pick<BrowserRecorder, 'start' | 'stop' | 'lastFinished'>
+  recorder: Pick<BrowserRecorder, 'start' | 'stop' | 'lastOutcome'>
   /** Whether a workspace id names an open workspace. */
   hasWorkspace: (workspaceId: string) => boolean
   now?: () => number
@@ -815,15 +815,16 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
       handler: async (args, context) => {
         const resolved = resolveTab(args, context)
         if ('content' in resolved) return resolved
-        // First, so its first frame can come: a tab only paints while it is on
-        // screen. And the person should see what is being recorded.
-        manager.requestOpen(resolved.workspaceId, null, resolved.tabId)
         const started = await recorder.start({
           tabId: resolved.tabId,
           workspaceId: resolved.workspaceId,
           owner: recordingOwner(context),
           maxSeconds: num(args, 'maxSeconds'),
           cursor: args.cursor !== false,
+          // Before capture, so its first frame can come: a tab only paints
+          // while it is on screen. And the person should see what is being
+          // recorded. Not for a start that is refused.
+          beforeCapture: () => manager.requestOpen(resolved.workspaceId, null, resolved.tabId),
         })
         if (!started.ok) return failure(started.code, started.message)
         const { recording } = started
@@ -856,8 +857,10 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         const stopped = await recorder.stop({ tabId: resolved.tabId, owner, reason: 'stopped' })
         if (stopped.ok) return success({ recording: describeRecording(stopped) })
         if (stopped.code === 'not_recording') {
-          const ended = recorder.lastFinished(resolved.tabId, owner)
-          if (ended) return success({ recording: describeRecording(ended) })
+          // It already ended: at a limit, by the person, or with nothing saved.
+          const ended = recorder.lastOutcome(resolved.tabId, owner)
+          if (ended?.ok) return success({ recording: describeRecording(ended) })
+          if (ended) return failure(ended.code, ended.message)
         }
         return failure(stopped.code, stopped.message)
       },

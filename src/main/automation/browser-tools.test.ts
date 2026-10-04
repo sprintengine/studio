@@ -220,7 +220,7 @@ for (const through of ['direct', 'the shell'] as const)
         recorder: {
           start: async () => ({ ok: false, code: 'unused', message: 'Not in this suite.' }),
           stop: async () => ({ ok: false, code: 'unused', message: 'Not in this suite.' }),
-          lastFinished: () => null,
+          lastOutcome: () => null,
         },
         hasWorkspace: (workspaceId) => workspaceId === 'ws-1' || workspaceId === 'ws-2',
         sleep: async () => {},

@@ -72,6 +72,19 @@ test('a second recording in the same second takes the next free name', async () 
   assert.equal(second.output.workspacePath, '.sprintengine/browser/recordings/recording-x-2.webm')
 })
 
+test('two recordings that start together never share a file', async () => {
+  const root = workspace()
+  const outputs = createWorkspaceRecordingOutputs({ resolveWorkspaceRoot: () => root })
+  const created = await Promise.all([1, 2, 3].map(() => outputs.create({ workspaceId: 'ws', stem: 'recording-x' })))
+  const names = created.map((result) => (result.ok ? result.output.workspacePath : result.code))
+  assert.equal(new Set(names).size, 3, names.join(', '))
+  assert.deepEqual(readdirSync(join(root, '.sprintengine', 'browser', 'recordings')).sort(), [
+    'recording-x-2.webm.part',
+    'recording-x-3.webm.part',
+    'recording-x.webm.part',
+  ])
+})
+
 test('a discarded recording leaves nothing behind', async () => {
   const root = workspace()
   const outputs = createWorkspaceRecordingOutputs({ resolveWorkspaceRoot: () => root })

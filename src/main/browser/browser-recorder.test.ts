@@ -18,7 +18,10 @@ import {
 
 type Listener = Parameters<RecordingEncoder['listen']>[0]
 
-function fakeEncoder(answer: () => RecordingEncoderStarted | RecordingFailure | Promise<never> = started) {
+function fakeEncoder(
+  answer: () =>
+    RecordingEncoderStarted | RecordingFailure | Promise<RecordingEncoderStarted | RecordingFailure> = started,
+) {
   let listener: Listener | null = null
   const starts: BrowserRecordingStart[] = []
   const stops: string[] = []
@@ -313,4 +316,55 @@ test('a finished recording is forgotten after a while', async () => {
   await stopping
   timers.advance(31 * 60_000)
   assert.equal(recorder.lastFinished('t1', 'a'), null)
+})
+
+test('a tab that closes as its recording starts answers the start at once, with nothing left behind', async () => {
+  let answer: (value: RecordingFailure) => void = () => undefined
+  const enc = fakeEncoder(() => new Promise<RecordingFailure>((resolve) => (answer = resolve)))
+  const { recorder, out } = setup({ encoder: enc })
+  const starting = recorder.start({ tabId: 't1', workspaceId: 'ws', owner: 'a' })
+  await settle()
+  recorder.tabClosed('t1')
+  assert.deepEqual(enc.stops, ['rec-1'])
+  // The encoder answers the stopped start; its window never says it ended.
+  answer({ ok: false, code: 'capture_failed', message: 'The recording was stopped as it began.' })
+  const result = await starting
+  assert.equal(!result.ok && result.code, 'capture_failed', 'answered without waiting out the stop timeout')
+  assert.equal(out.files[0]!.discarded, true)
+  assert.equal(recorder.active('t1'), null)
+  assert.equal(recorder.lastOutcome('t1', 'a'), null, 'a start that never ran leaves no outcome')
+})
+
+test('starts that race past the limit are told the limit, not that the tab is taken', async () => {
+  const { recorder } = setup()
+  const results = await Promise.all(
+    ['t1', 't2', 't3'].map((tabId) => recorder.start({ tabId, workspaceId: 'ws', owner: 'a' })),
+  )
+  assert.deepEqual(
+    results.map((result) => (result.ok ? 'ok' : result.code)),
+    ['ok', 'ok', 'busy'],
+  )
+})
+
+test('a recording that saved nothing is remembered, so the agent is told why', async () => {
+  const { recorder, enc } = setup()
+  await recorder.start({ tabId: 't1', workspaceId: 'ws', owner: 'a' })
+  enc.ended('rec-1', { error: 'The window hosting the tab closed.' })
+  await settle()
+  const outcome = recorder.lastOutcome('t1', 'a')
+  assert.equal(outcome && !outcome.ok && outcome.code, 'empty')
+  assert.equal(recorder.lastFinished('t1', 'a'), null, 'nothing saved')
+  assert.equal(recorder.lastOutcome('t1', 'b'), null, "not another agent's to read")
+})
+
+test('the tab is brought forward only for a start that is allowed', async () => {
+  const refusal: RecordingFailure = { ok: false, code: 'recording_unavailable', message: 'not here' }
+  const refused = setup({ refuse: refusal })
+  let forward = 0
+  await refused.recorder.start({ tabId: 't1', workspaceId: 'ws', owner: 'a', beforeCapture: () => void forward++ })
+  assert.equal(forward, 0)
+  const { recorder } = setup()
+  await recorder.start({ tabId: 't1', workspaceId: 'ws', owner: 'a', beforeCapture: () => void forward++ })
+  await recorder.start({ tabId: 't1', workspaceId: 'ws', owner: 'b', beforeCapture: () => void forward++ })
+  assert.equal(forward, 1)
 })
