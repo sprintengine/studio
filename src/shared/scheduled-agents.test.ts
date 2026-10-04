@@ -70,3 +70,11 @@ test('a WSL distribution is a machine a scheduled agent can run on', () => {
   const result = validateScheduledAgentDraft({ ...valid, hostId: 'wsl:Ubuntu' }, NOW)
   assert.equal(result.ok && result.draft.hostId, 'wsl:Ubuntu')
 })
+
+test('This PC is kept when picked for a folder inside a distribution', () => {
+  const result = validateScheduledAgentDraft(
+    { ...valid, folderPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo', hostId: 'local' },
+    NOW,
+  )
+  assert.equal(result.ok && result.draft.hostId, 'local')
+})

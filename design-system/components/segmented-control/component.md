@@ -1,7 +1,6 @@
 # Segmented control
 
-A bordered strip of mutually exclusive choices where every option stays
-visible: 2–4 short labels of equal weight, one always selected. Extracted from
+A strip of mutually exclusive choices where every option stays visible: 2–4 short labels of equal weight, one always selected. Extracted from
 the source product's radiogroup strip
 (`src/renderer/src/components/ui/SegmentedControl.tsx`).
 
@@ -20,27 +19,36 @@ you picked the wrong control.
 
 | Part | Class | Required |
 |---|---|---|
-| Group (the track) | `.ds-segmented-control` | yes — `role="radiogroup"` with an accessible name; owns the height, the groove, the hairline and the radius |
+| Group (the track) | `.ds-segmented-control` | yes — `role="radiogroup"` with an accessible name; owns the height, the well and the radius |
 | Segment | `.ds-segmented-control-segment` | 2–4 — real `<button>`s with `role="radio"` |
 | Count | the [badge](../badge/component.md) count species, inside a segment after its label | no — see "Badged segment" |
 
-### Track and thumb (owner ruling 2026-10-01)
+### Track and thumb (owner ruling 2026-10-04)
 
-The group is a **groove** set into the surface: `bg.well` (a tint of the ink,
-so it reads on a panel, a card or a popover alike), a `border.subtle`
-hairline, and `shadow.control-track`, light falling into it from above. It owns
-the ramp height and a `space.3xs` inset.
+The group is a **well**: `bg.well` (a tint of the ink, so it reads on a panel,
+a card or a popover alike) and nothing else — no hairline, no inset shadow. It
+owns the ramp height and a `space.3xs` inset.
 
-The selected segment is a **raised thumb** standing out of the groove on
-`shadow.control-edge` and `gradient.control-sheen` over `bg.surface-raised` —
-the same step every bordered control in the system stands off the page. The
-thumb takes `radius.chip`, concentric inside the track's `radius.control`.
-Unselected segments are bare ink on the groove, with no separators: the thumb
-is what divides the strip.
+The selected segment is a **thumb** on that well: the `bg.selected` fill — the
+same neutral every other selection in the system takes — over
+`shadow.control-thumb`, a small drop with no lit lip and no sheen. The drop is
+what makes the chosen segment read as a piece set on the track rather than as a
+tint of it. The thumb takes `radius.chip`, concentric inside the track's
+`radius.control`. Unselected segments are bare ink on the well, with no
+separators: the thumb is what divides the strip.
 
-This replaced a strip of hairline-separated cells over one flat fill, where
-the chosen cell was a luminance step away from the rest and the whole thing read
-as a row of table cells rather than as a switch.
+This is the one control lift besides the primary action's highlight
+([button → Control tiers](../button/component.md)), and it is a lift, not an
+invitation to press: the thumb marks a selection.
+
+*History.* The 2026-10-01 ruling made the track a groove — a `border.subtle`
+hairline and the inset `shadow.control-track` — and the thumb a raised piece on
+`bg.surface-raised`, `shadow.control-edge` and `gradient.control-sheen`. That
+replaced a strip of hairline-separated cells over one flat fill, where the
+chosen cell was a luminance step away from the rest and the whole thing read as
+a row of table cells rather than as a switch. The 2026-10-04 ruling kept the
+track-and-thumb shape and took the bevel off both halves; the three tokens are
+retired.
 
 ## Variants
 
@@ -70,15 +78,15 @@ as a row of table cells rather than as a switch.
   selection state — the selected fill stays the only thing that says which
   segment is chosen.
 - **No accent variant.** The selected segment is a *selection*, and selection
-  is neutral: the raised thumb with the label lifted to `text.primary`. An
+  is neutral: the `bg.selected` thumb with the label lifted to `text.primary`. An
   accent-filled segment would spend the one solid accent on a state display.
 
 ## States
 
 | State | Treatment |
 |---|---|
-| Selected | The raised thumb — `bg.surface-raised`, `shadow.control-edge`, `gradient.control-sheen` — label at `text.primary`. Exactly one, always. On `--icon-only` the glyph takes the ink lift; the thumb is the same |
-| Unselected | No ground of its own — the groove shows through — label at `text.muted` |
+| Selected | The thumb — `bg.selected` over `shadow.control-thumb` — label at `text.primary`. Exactly one, always. On `--icon-only` the glyph takes the ink lift; the thumb is the same |
+| Unselected | No ground of its own — the well shows through — label at `text.muted` |
 | Hover (unselected) | `bg.hover`, label lifts to `text.primary` |
 | Focus | `focus.ring` outline on the segment, on `:focus-visible` only |
 | Disabled segment | 45% opacity, `not-allowed`; skipped by arrow keys |

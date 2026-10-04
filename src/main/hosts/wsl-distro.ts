@@ -59,12 +59,14 @@ export function decodeWslOutput(bytes: Buffer): string {
  *
  * The header is localised, so it is skipped by shape (its last column is not a
  * number) rather than by its words. The same goes for the message printed when
- * no distribution is installed.
+ * no distribution is installed. So is the state, which in many languages is
+ * more than one word ("En cours d'exécution"): it is everything between the
+ * name, which has no spaces, and the version.
  */
 export function parseWslListVerbose(text: string): WslDistro[] {
   const distros: WslDistro[] = []
   for (const raw of text.replace(/\0/g, '').split(/\r?\n/u)) {
-    const match = /^\s*(\*)?\s*(\S+)\s+(\S+)\s+(\d+)\s*$/u.exec(raw)
+    const match = /^\s*(\*)?\s*(\S+)\s+(\S.*?)\s+(\d+)\s*$/u.exec(raw)
     if (!match || !isValidWslDistroName(match[2])) continue
     distros.push({ name: match[2], isDefault: match[1] === '*', state: match[3], version: Number(match[4]) })
   }

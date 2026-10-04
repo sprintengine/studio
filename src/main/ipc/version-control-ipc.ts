@@ -4,6 +4,9 @@ import type { VersionControlProviderProbe } from '../../shared/version-control'
 import { binaryVersionProbeFrom, parseProbeOutput, probeBinaryVersion } from '../cli-runtime-install'
 import { hostRegistry } from '../hosts/host-registry'
 import { createDefaultGhRunner } from '../github/gh'
+import { probeHostGh } from '../github/host-gh-status'
+import { isWslHostId } from '../../shared/execution-host'
+import type { HostGhStatus } from '../../shared/host-gh'
 import { parseGhAuthLogin, probeVersionControlProviders, type VersionControlProbeDeps } from './version-control-probe'
 
 // The real probes: the same machinery agent-CLI detection uses for versions, and
@@ -52,4 +55,14 @@ export function registerVersionControlIpc(
   ipcMain.handle('version-control:probe-providers', (): Promise<VersionControlProviderProbe[]> =>
     probeVersionControlProviders(deps),
   )
+  // One WSL machine's `gh`, for its row in Settings › Agents. Only a WSL
+  // machine's id is taken, so a renderer value names a machine and nothing else.
+  ipcMain.handle('version-control:probe-host-gh', async (_event, hostId: unknown): Promise<HostGhStatus | null> => {
+    if (typeof hostId !== 'string' || !isWslHostId(hostId)) return null
+    try {
+      return await probeHostGh(hostRegistry().get(hostId))
+    } catch {
+      return null
+    }
+  })
 }

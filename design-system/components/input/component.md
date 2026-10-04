@@ -91,6 +91,15 @@ are the same field at two lengths.
 - **`--quiet`** — the same quiet ground as the single-line variant, for a note
   composer inside a floating card.
 
+### The file dialog (owner ruling 2026-10-04)
+
+`HiddenFileInput` is the input's one invisible shape: an `<input type="file">`
+that draws nothing, is never a tab stop, and is opened by a kit button or menu
+row that calls `.click()` on it — the New chat composer's "Attach files" row.
+That control carries the name and the focus ring; the input only brings the
+system's dialog. Its value is cleared after each pick, so the same file can be
+picked twice in a row.
+
 ## States
 
 - Hover: border moves to `border.strong`.

@@ -80,32 +80,40 @@ export function GitBranchGlyph({ className }: IconProps) {
   )
 }
 
-// The stacked-server mark — the epic's ONE machine-provenance glyph
-// (remote-sessions-ux decision 7): it marks anything that lives on another
-// machine, wherever it appears (session rows, pickers, the Remote popover).
-// Local is the unmarked default. 16-grid; mirrored framework-neutral as
+// The Beam — the ONE mark for "another machine" in general (remote-sessions-ux
+// decision 7; redrawn as the Beam, owner ruling 2026-10-04): a screen on its
+// stand with two arcs of signal off its corner, a machine reached over the air.
+// It marks anything that lives on another machine when the surface does not
+// say WHICH machine — the paired-devices list, the "Other machines" group of
+// the machine picker, the tailnet UI. A surface that names one machine wears
+// that machine's own mark instead (`MachineGlyph`). Local is the unmarked
+// default. 16-grid, stroke 1.4; mirrored framework-neutral as
 // design-system/glyphs/remote-machine.svg.
 export function RemoteMachineGlyph({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
-      <rect x="2" y="2.8" width="12" height="4.6" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="2" y="8.6" width="12" height="4.6" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
-      <circle cx="4.7" cy="5.1" r="0.75" fill="currentColor" />
-      <circle cx="4.7" cy="10.9" r="0.75" fill="currentColor" />
+      <path
+        d="M1.8 6.6h7.4v5.2H1.8ZM5.5 11.8v1.8M3.6 13.6h3.8M10.6 3.2a2.2 2.2 0 0 1 2.2 2.2M10.6 1.4a4 4 0 0 1 4 4"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
 
 // A WSL distribution on this computer: a machine of its own that is reached as
-// a shell, so its mark is a terminal window with a prompt in it. Drawn to
-// RemoteMachineGlyph's discipline (16-grid, stroke 1.4, rx 1.4) so the two sit
-// side by side in the New chat machine dropdown as one set.
+// a shell, so its mark is a window with a title bar and a prompt in it. The
+// title bar is what keeps it apart from the plain terminal's frame
+// (`TerminalPromptGlyph`), which the composer's "Start as" choice draws beside
+// it (redrawn 2026-10-04). 16-grid, stroke 1.4; also the `wsl` machine kind.
 export function WslMachineGlyph({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
-      <rect x="2" y="2.6" width="12" height="10.8" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="2" y="2.4" width="12" height="11.2" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
       <path
-        d="M4.9 6.2 6.9 8l-2 1.8M8.6 10.1h2.6"
+        d="M2 5.4h12M4.8 7.8l1.8 1.6-1.8 1.6M8.4 11h2.8"
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinecap="round"
@@ -131,25 +139,22 @@ export function ScheduleGlyph({ className }: IconProps) {
 //
 // Spec: design-system/components/glyphs/component.md → "Device identity".
 //
-// What KIND of machine a tailnet row is about. `RemoteMachineGlyph` above says
-// "elsewhere"; these four say "elsewhere, and it is a Mac mini / a monitor / a
+// What KIND of machine a tailnet row is about. `RemoteMachineGlyph` above (the
+// Beam) says "elsewhere"; these four say "elsewhere, and it is a Mac mini / a monitor / a
 // laptop / a phone" — which is what the rebuilt Settings › Remote needs, because
 // its list is one row per machine and merges this device, paired devices,
 // outbound connections and the peer scan into a single set.
 //
-// Drawn to RemoteMachineGlyph's discipline on purpose, since that mark is this
-// family's fallback and the five have to read as one set: 16-grid, stroke 1.4,
+// Drawn to one discipline, since `RemoteMachineGlyph` is this family's
+// fallback and the five have to read as one set: 16-grid, stroke 1.4,
 // `fill="none"` line work in currentColor, rounded rects at rx 1.3-1.8, and a
-// filled 0.75r dot where a unit needs a light. The Mac's dot sits at the same cx
-// as the server mark's two, so the two boxes are visibly the same drawing at
-// different counts. Framework-neutral copies live at
+// filled 0.75r dot where a unit needs a light. Framework-neutral copies live at
 // design-system/glyphs/device-{mac,desktop,laptop,phone}.svg.
 //
 // Never pick one of these by hand at a call site — `deviceGlyphFor` in
 // `ui/deviceGlyph` owns the rule, and the reason is in its own comment.
 
-// The flat wide box with one small dot: a Mac mini seen head-on, which is
-// remote-machine's single unit at the same width, corner and light.
+// The flat wide box with one small dot: a Mac mini seen head-on.
 export function DeviceMacGlyph({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
@@ -186,6 +191,97 @@ export function DevicePhoneGlyph({ className }: IconProps) {
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
       <rect x="4.7" y="1.7" width="6.6" height="12.6" rx="1.8" stroke="currentColor" strokeWidth="1.4" />
       <path d="M6.9 12.1h2.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// ── Machine kinds ────────────────────────────────────────────────────────
+//
+// Spec: design-system/components/glyphs/component.md → "Machine kinds".
+//
+// What a machine IS, drawn as the device (owner ruling 2026-10-04): the kinds a
+// person picks for a machine in Settings › Machines, beside the laptop and
+// desktop above (which are the same drawings) and `WslMachineGlyph`. Never
+// picked by hand at a call site: `MachineKindGlyph` in `ui/MachineMark` maps a
+// kind to its drawing. 16-grid, stroke 1.4, line work in currentColor.
+
+// A small box under a sloped lid, with a slot of light: a mini PC.
+export function MachineMiniGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <rect x="2" y="7.4" width="12" height="4.6" rx="1.3" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M3.3 7.4 4.5 4.6h7l1.2 2.8M4.6 9.7h1.6"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// A tall case with two drive bays.
+export function MachineTowerGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <rect x="4.4" y="1.8" width="7.2" height="12.4" rx="1.3" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M6.6 4.6h2.8M6.6 6.8h2.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// Three units in one rack, each with its light.
+export function MachineServerGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <rect x="2" y="2.2" width="12" height="11.6" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M2 6.07h12M2 9.93h12M4.4 4.13h1.6M4.4 8h1.6M4.4 11.87h1.6"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+// A cloud: a virtual machine somewhere else.
+export function MachineCloudGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <path
+        d="M4.4 12.2A2.6 2.6 0 0 1 4.9 7.1A3.4 3.4 0 0 1 11.3 6.7A2.8 2.8 0 0 1 11.6 12.2Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// A cube: a container.
+export function MachineContainerGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <path
+        d="M8 1.9 13.4 5v6L8 14.1 2.6 11V5ZM2.6 5 8 8.1 13.4 5M8 8.1v6"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// A board with its chip and two pins: a single-board computer.
+export function MachineBoardGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <rect x="2" y="3" width="12" height="10" rx="1.2" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="4.2" y="5.6" width="4.6" height="4.8" rx="0.6" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M10.9 6.4h1.2M10.9 9.6h1.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
 }

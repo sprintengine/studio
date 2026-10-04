@@ -13,7 +13,7 @@ import { findHealthyWorktreeScope, resolveWorkspaceWorktree, workspaceProjectRoo
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import {
-  COMPOSER_SURFACE_CLASS,
+  COMPOSER_MATERIAL_CLASS,
   EmptyState,
   FOCUS_RING_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
@@ -34,6 +34,7 @@ import {
   Textarea,
   Tooltip,
   TruncatedText,
+  WorktreeGlyph,
   type LifecycleState,
   type TabItem,
 } from '../ui'
@@ -148,27 +149,13 @@ function SyncArrowIcon({ direction }: { direction: 'up' | 'down' }) {
 // line; Worktrees is a folder holding that node — a checkout in its own
 // directory; Log is the history clock. Stashes (the drawer) and Terminal were
 // already legible and stay. Mirrored framework-neutral in design-system/glyphs
-// as commit.svg, worktree.svg and history.svg.
+// as commit.svg, worktree.svg and history.svg; the Worktrees mark is the kit's
+// `WorktreeGlyph`, which the New chat composer's Worktree switch draws too.
 function ChangesViewGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
       <circle cx="8" cy="8" r="2.6" stroke="currentColor" strokeWidth="1.4" />
       <path d="M1.75 8h3.65M10.6 8h3.65" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function WorktreesViewGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
-      <path
-        d="M1.75 4.75c0-.83.67-1.5 1.5-1.5h3.1l1.5 1.5h5.4c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5H3.25c-.83 0-1.5-.67-1.5-1.5z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
-      <circle cx="8" cy="9.6" r="1.25" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M4.25 9.6h2.5M9.25 9.6h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   )
 }
@@ -2219,7 +2206,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     {
       id: 'worktrees',
       label: 'Worktrees',
-      icon: WorktreesViewGlyph,
+      icon: WorktreeGlyph,
       tooltip: worktreeCount === 1 ? 'Worktrees \u00b7 1' : `Worktrees \u00b7 ${worktreeCount}`,
     },
     {
@@ -2942,12 +2929,14 @@ function CommitComposer({
        * off, and they sit side by side when the Git pane is open beside a
        * chat: a bordered form textarea with its buttons hanging underneath it
        * read as a settings form next to the composer's one raised surface. So
-       * the same material (`COMPOSER_SURFACE_CLASS`), the same `composer`
+       * the same material (`COMPOSER_MATERIAL_CLASS`), the same `composer`
        * field inside it with the ring on the wrapper, and the actions on a
-       * footer row INSIDE the box, where the composer keeps Send.
+       * footer row INSIDE the box, where the composer keeps Send. Not the
+       * composer's 22px corner, which is the composer's alone: the shell
+       * radius, which the square Commit button in the corner sits inside.
        */}
       <div
-        className={`${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} border-[color:var(--border-default)]`}
+        className={`rounded-lg ${COMPOSER_MATERIAL_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} border-[color:var(--border-default)]`}
       >
         <Textarea
           ref={inputRef}
@@ -2958,8 +2947,11 @@ function CommitComposer({
           placeholder={placeholder ?? 'Commit message'}
           aria-label="Commit message"
           // Grows with the message between three lines and a body's worth, as
-          // the chat composer grows with a draft.
-          className="max-h-[200px] min-h-[56px] overflow-y-auto rounded-t-lg px-3 pb-1 pt-2.5"
+          // the chat composer grows with a draft. `text-meta` because the
+          // composer variant sets no size and inherits one: the chat composer
+          // sits in a `text-meta` panel, this pane sets none, and the commit
+          // message came out a step larger than the sentence typed beside it.
+          className="max-h-[200px] min-h-[56px] overflow-y-auto rounded-t-lg px-3 pb-1 pt-2.5 text-meta"
         />
         <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
           {/*

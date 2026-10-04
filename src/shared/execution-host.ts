@@ -15,7 +15,7 @@
 // This file is pure and shared: main and the renderer read the same answers.
 // =============================================================================
 
-import { distroOfUncPath } from './host-paths'
+import { comparablePath, distroOfUncPath } from './host-paths'
 import type { TerminalPathStyle } from './ipc/terminal'
 
 export const LOCAL_HOST_ID = 'local'
@@ -171,9 +171,11 @@ export function cliRuntimesOnPlatform<T extends { hostId?: ExecutionHostId }>(
 }
 
 /**
- * The host a folder belongs to by where it lives: a folder inside a
- * distribution (`\\wsl.localhost\Ubuntu\…`, `\\wsl$\Ubuntu\…`) is that
- * distribution's; anything else says nothing, and returns null.
+ * The machine a folder runs on when nobody chose one: a folder inside a
+ * distribution (`\\wsl.localhost\Ubuntu\…`, `\\wsl$\Ubuntu\…`) defaults to
+ * that distribution; anything else says nothing, and returns null. Only a
+ * default: a machine the person picked wins over it (owner ruling
+ * 2026-10-03), so a folder inside Ubuntu can run on This PC, more slowly.
  */
 export function hostIdForFolder(folder: string | null | undefined): ExecutionHostId | null {
   if (!folder) return null
@@ -182,13 +184,65 @@ export function hostIdForFolder(folder: string | null | undefined): ExecutionHos
 }
 
 /**
+ * The machine a workspace runs on: the one it records, else the default for
+ * its folder (`hostIdForFolder`), else this machine. A workspace made before
+ * machines existed records none, so its folder decides, as it always did.
+ */
+export function workspaceHostIdOf(workspace: { hostId?: string | null; folderPath?: string | null }): ExecutionHostId {
+  return normalizeExecutionHostId(workspace.hostId) ?? hostIdForFolder(workspace.folderPath) ?? LOCAL_HOST_ID
+}
+
+/**
+ * The `hostId` a new workspace records for the machine it runs on. A WSL
+ * machine is always written. This machine is written only for a folder
+ * inside a distribution, where leaving it out would read back as that
+ * distribution (`workspaceHostIdOf`); everywhere else an absent `hostId`
+ * already means this machine, so the record stays the one it always was.
+ */
+export function hostIdToRecord(
+  hostId: string | null | undefined,
+  folder: string | null | undefined,
+): ExecutionHostId | undefined {
+  const id = normalizeExecutionHostId(hostId)
+  if (!id) return undefined
+  if (id !== LOCAL_HOST_ID) return id
+  return hostIdForFolder(folder) ? LOCAL_HOST_ID : undefined
+}
+
+/**
+ * The machine whose git answers for a repository at `path` on Windows: the
+ * machine of the open workspace holding it, so the repository has one git,
+ * the one its agents use. A WSL machine wins when workspaces disagree (a
+ * folder opened both ways keeps the git it had before the ruling that let
+ * it), This PC answers when every workspace on it runs there, and a folder no
+ * workspace holds goes by `hostIdForFolder`. Null is this machine's own git.
+ */
+export function gitHostIdForPath(
+  path: string,
+  workspaces: Iterable<{ hostId?: string | null; folderPath?: string | null }>,
+): ExecutionHostId | null {
+  const target = comparablePath(path)
+  let held = false
+  for (const workspace of workspaces) {
+    if (!workspace.folderPath) continue
+    const folder = comparablePath(workspace.folderPath)
+    if (target !== folder && !target.startsWith(`${folder}/`)) continue
+    const id = workspaceHostIdOf(workspace)
+    if (id !== LOCAL_HOST_ID) return id
+    held = true
+  }
+  return held ? null : hostIdForFolder(path)
+}
+
+/**
  * The host a launch runs on. In order:
  *
  *   1. the host the session is already bound to — a resumed CLI's transcript
  *      lives in that machine's home, so a resume never moves;
  *   2. the host the caller named (the workspace's machine, or an explicit
- *      `host` on an agent launch);
- *   3. the distribution the folder lives in;
+ *      `host` on an agent launch), `local` included: a folder inside a
+ *      distribution runs on This PC when that is the machine picked;
+ *   3. the distribution the folder lives in, as the default;
  *   4. this machine.
  *
  * Only Windows has hosts other than `local`; everywhere else the answer is

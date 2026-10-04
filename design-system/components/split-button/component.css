@@ -4,15 +4,17 @@
  *
  * The group owns the border, the radius, and the height; the halves are
  * borderless and separated by one internal hairline. That is what keeps it a
- * single object rather than two buttons that happen to touch. */
+ * single object rather than two buttons that happen to touch. Tier 2 (owner
+ * ruling 2026-10-04): the outline button's border.strong hairline on a
+ * transparent ground, and no depth. */
 
 .ds-split-button {
   display: inline-flex;
   align-items: stretch;
   height: var(--sem-size-control-sm);
-  border: 1px solid var(--sem-color-border-default);
+  border: 1px solid var(--sem-color-border-strong);
   border-radius: var(--sem-radius-control);
-  background: var(--sem-color-bg-surface-raised);
+  background: transparent;
   /* Clips each half's hover fill to the group's rounded corners. The focus ring
    * is drawn inset for the same reason — an outer ring would be clipped here. */
   overflow: hidden;
@@ -57,6 +59,13 @@
 .ds-split-button__chevron:hover:not(:disabled) {
   background: var(--sem-color-bg-hover);
   color: var(--sem-color-text-primary);
+}
+
+/* Pressed: the half under the finger takes one more step of ground. No scale —
+ * the group would shrink as one object while only one half was pressed. */
+.ds-split-button__primary:active:not(:disabled),
+.ds-split-button__chevron:active:not(:disabled) {
+  background: var(--sem-color-bg-active);
 }
 
 /* Held open: the menu half stays lit while its popover is on screen, so the
@@ -107,8 +116,8 @@
 
 /* Quiet — the same split action with its chrome taken away, for a row's meta
  * line: a card head, a list row's trailing slot, anywhere the bordered 30px
- * group would out-weigh the line it sits on. It drops the outer border and the
- * raised ground and comes down to the hit-target floor, but it keeps the one
+ * group would out-weigh the line it sits on. It drops the outer border and
+ * comes down to the hit-target floor, but it keeps the one
  * internal hairline, so it is still visibly ONE object with two halves rather
  * than two glyphs that happen to be adjacent. That hairline is the whole
  * reason there is a variant here instead of two bare buttons on the meta line.

@@ -5,6 +5,8 @@
 //
 // Pure and shared: no fs, no electron.
 
+import type { HostGhStatus } from './host-gh'
+
 /** The channels, all owned by main (it holds the SSH sessions and their prompts). */
 export const SSH_ENV_CHANNELS = {
   /** renderer → main: the saved SSH machines with their state. */
@@ -103,7 +105,15 @@ export type SshEnvironmentSummary = SavedSshEnvironment & {
   server: { version: string; origin: string; startedBy: string | null } | null
   /** Facts about the machine for Settings: its OS, and what keeps the server running. */
   notes: string[]
+  /**
+   * The machine's GitHub CLI, as the last connect's probe found it: a chat
+   * there opens its pull requests with it. Null until the machine was reached.
+   */
+  gh?: SshMachineGh | null
 }
+
+/** An SSH machine's `gh`, with the OS it runs (`uname -s`), which decides the install hint. */
+export type SshMachineGh = HostGhStatus & { os: string | null }
 
 export type SshPromptKind = 'host-key' | 'passphrase' | 'password' | 'confirm' | 'touch' | 'remote' | 'sign-in'
 

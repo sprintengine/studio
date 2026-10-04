@@ -9,17 +9,17 @@ every trigger whose face is richer than a string — a glyph beside two lines, a
 colour dot and a name, an avatar and a role, a chevron over a two-line box — had
 to draw the chrome again. The consuming product had fifteen of those on
 2026-09-08, and they had drifted on all four axes at once: `bg.surface` against
-`bg.surface-raised`, `shadow.control-edge` against none, `font.size.body
+`bg.surface-raised`, a control's elevation against none, `font.size.body
 font.weight.medium` against `font.size.meta`, `justify-content: center` against
 `space-between`.
 
 **Why it is not a button variant.** [button](../button/component.md)'s outline
 variant is the nearest member and is deliberately not this. An outline button is
-a control that *does* something, so it carries `shadow.control-edge` — the half
-step of elevation that says *pressable* — and centres its label. A trigger is a
-**field**: it states what the value is, and a field does not stand off the page.
-That is the whole distinction, and collapsing it would put elevation on every
-picker in the product.
+a control that *does* something, so it stands on the transparent `border.strong`
+hairline of a tier 2 action and centres its label. A trigger is a **field**: it
+states what the value is, on the field's own ground, the same one a select and
+an input take. That is the whole distinction. It never carried the control
+elevation the other members wore until 2026-10-04, and it takes none now.
 
 ## Anatomy
 
@@ -46,17 +46,26 @@ difference from the select trigger and the reason this entry exists.
 - **`--content`** — the height comes from the children instead of the ramp, for
   the two-line trigger. A ramp step cannot serve it: the second line is what
   sets the box.
+- **`--ghost`** (owner ruling 2026-10-04) — the trigger **inside a toolbar**: a
+  workspace bar's panel picker, a panel header's branch picker. No edge and no
+  ground at rest, `text.muted` ink; `bg.hover` and `text.primary` under the
+  pointer; open, the `bg.selected` fill with no edge. Tier 3 of
+  [button → Control tiers](../button/component.md): a control inside a surface
+  has the surface for an edge, and a bordered field dropped into a row of ghost
+  glyphs reads as a form that wandered into the chrome. In a form or a settings
+  row a trigger stays on the default field chrome, beside the inputs it
+  matches.
 
 ## States
 
 | State | Treatment |
 |---|---|
-| Rest | `border.default`, `bg.surface-raised`, `text.default` |
-| Hover | Border lifts to `border.strong`, ink to `text.primary`. Ground unchanged |
-| Open | `border.strong` **and** the neutral `bg.selected` fill, `text.primary` ink, **held through hover** |
+| Rest | `border.default`, `bg.surface-raised`, `text.default`. `--ghost`: no edge, no ground, `text.muted` |
+| Hover | Border lifts to `border.strong`, ink to `text.primary`. Ground unchanged. `--ghost`: `bg.hover` and `text.primary` |
+| Open | `border.strong` **and** the neutral `bg.selected` fill, `text.primary` ink, **held through hover**. `--ghost`: the same fill with no edge |
 | Focus-visible | The shared ring |
 | Disabled | 45% opacity, `not-allowed`, hover suppressed |
-| Pressed | `scale(0.97)` — it is a flat control, so it presses by scale, not by inverting a bevel it does not have |
+| Pressed | `scale(0.97)`, the press every control shares, removed under reduced motion |
 
 **The open state is neutral.** An open popover is a *state*, not the view's
 primary action, so it takes `bg.selected` like every other standing selection.
@@ -75,6 +84,8 @@ showing would read as having closed it.
   render. Reaching for it where a select would do puts two shapes on one job.
 - **Never add elevation.** If a trigger needs to be found on a busy surface, the
   surface has too much on it.
+- **Inside a toolbar, take `--ghost`.** The field chrome is for a trigger that
+  sits beside other fields.
 
 ## Accessibility
 

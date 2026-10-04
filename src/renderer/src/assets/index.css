@@ -502,30 +502,22 @@
   --shadow-modal: var(--sem-shadow-modal);
   --shadow-toast: var(--sem-shadow-toast);
 
-  /* Control elevation — the ONE exception to "nothing in the flow takes a
-     shadow", added 2026-09-02. A
-     button is the only in-flow element that claims to be *pressable*, and
-     depth is how a surface says so: a 1px lit top edge (the light source is
-     above) over a shallow drop, inverting to a shadow cast inward when the
-     control is pressed. Filled variants take `raised`, bordered neutrals the
-     quieter `edge`, and both swap to `pressed` while held.
+  /* Control depth — the two in-flow exceptions to "nothing in the flow takes
+     a shadow" (owner ruling 2026-10-04, recutting the 2026-09-02 and
+     2026-10-01 rulings into three tiers). Tier 1, the filled primary action,
+     keeps one faint lit top edge and nothing under it. Tier 2, a standalone
+     secondary, is flat on a `border.strong` hairline. Tier 3, a control inside
+     a surface, is ghost: a hover fill and no edge at all. A segmented
+     control's selected thumb keeps a small drop, so the chosen segment reads
+     as a piece set on its track.
 
-     Reached through the `.control-raised` / `.control-edge` classes further
-     down this file, never spelled at a call site — the press and disabled
-     steps have to move with the resting one, and three rules in one place is
-     what stops the fourth from drifting. Ghost and icon buttons stay flat: a
-     borderless control has no edge to light, and a toolbar of them would read
-     as a row of tiles. */
+     Reached through the `.control-raised` / `.control-thumb` classes further
+     down this file, never spelled at a call site, so the disabled step moves
+     with the resting one. Every control presses the same way, by the
+     `.interactive` scale: a highlight that inverted under the finger was a
+     second press metaphor for the same click. */
   --shadow-control-raised: var(--sem-shadow-control-raised);
-  --shadow-control-edge: var(--sem-shadow-control-edge);
-  --shadow-control-pressed: var(--sem-shadow-control-pressed);
-  /* The face of an elevated control: a faint top-to-bottom falloff painted as
-     a background-image, so it lays over whatever ground colour the control's
-     own utilities set. Same classes, same three states as the shadows. */
-  --gradient-control-sheen: var(--sem-gradient-control-sheen);
-  --gradient-control-raised-sheen: var(--sem-gradient-control-raised-sheen);
-  /* The groove a segmented control's raised thumb slides along. */
-  --shadow-control-track: var(--sem-shadow-control-track);
+  --shadow-control-thumb: var(--sem-shadow-control-thumb);
 
   /* The overlay stacking ladder, aliased from the bundle so there is ONE ladder
      of record. The app used to carry a second one in a comment at the
@@ -552,6 +544,28 @@
   --z-menu: var(--sem-z-menu);
   --z-modal: var(--sem-z-modal);
   --z-toast: var(--sem-z-toast);
+}
+
+/* The ring is for the keyboard, and only the keyboard (owner ruling
+   2026-10-03: "sick of all these green highlighter boxes around everything
+   that I click on"). `:focus-visible` alone does not hold that line in this
+   app. Chromium rings a text field on every click, so the composer, the commit
+   box and every search field lit up the moment they were clicked; a
+   `:focus-within` container (the terminal) lights up on a click by design; and
+   a programmatic `.focus()` after any keystroke — typing in the composer
+   counts — inherits focus-visible, so a pane switched to by a click after
+   typing drew a ring around the whole transcript.
+
+   So the indicator follows the last INPUT rather than the focus event:
+   utils/focusSource.ts stamps `data-focus-source="pointer"` on a pointer press
+   and `"keyboard"` on a navigation key, and while the pointer was last the
+   value every ring reads is switched off. One rule, because every ring in the
+   product (the utilities, the FlexLayout controls, the terminal's ::after)
+   reads `--focus-ring`; FlexLayout's own outlines read `--fl-color-focus` and
+   are switched off beside it, further down. The selected row's edge in the
+   rail (`--selection-edge`) is a selection mark, not a focus ring, and stays. */
+:root[data-focus-source="pointer"] {
+  --focus-ring: none;
 }
 
 /* Light theme — paper-warm whites, dark ink text. References: Linear Light,
@@ -1981,59 +1995,36 @@ samp,
   transition-timing-function: var(--motion-ease);
 }
 
-/* The press scale is for FLAT surfaces only. A control carrying elevation
- * presses by inverting its own bevel instead (`.control-raised` /
- * `.control-edge` below), and stacking the two would have a button shrink and
- * sink at once — two metaphors for one click. Spelled as `:not()` here rather
- * than as an `active:scale-100` utility at the call site because this rule is
- * three classes deep and would outrank any utility trying to cancel it. */
-.interactive:active:not(:disabled):not([aria-disabled="true"]):not(.control-raised):not(.control-edge) {
+/* The one press every control shares, the primary included (owner ruling
+ * 2026-10-04). It used to be for flat surfaces only, while an elevated
+ * control pressed by inverting its bevel; with the bevels gone there is one
+ * metaphor left for a click, and every control speaks it. A surface that must
+ * not shrink — a full-width row, a grid tile, half of a split button —
+ * leaves `.interactive` off rather than cancelling it: this rule is three
+ * classes deep and would outrank any utility trying to. */
+.interactive:active:not(:disabled):not([aria-disabled="true"]) {
   transform: scale(0.97);
 }
 
-/* ── Control elevation ─────────────────────────────────────────────────────
- * The two resting steps and the one pressed step, applied as whole states: a
- * pressed control REPLACES its resting shadow rather than layering over it,
- * and a disabled one drops elevation entirely — a control that cannot be
- * pressed does not stand off the surface.
- *
- * `[data-pressed]` is here for the same reason `:active` is: a toggle left
- * thrown is held down, not merely styled, so it keeps the sunken edge. */
+/* ── Control depth ─────────────────────────────────────────────────────────
+ * Tier 1's faint highlight: the filled primary and destructive buttons, and
+ * nothing else. It holds through hover and press (the press is the shared
+ * scale above), and a disabled control drops it: a control that cannot be
+ * pressed does not catch the light. */
 .control-raised {
   box-shadow: var(--shadow-control-raised);
-  background-image: var(--gradient-control-raised-sheen);
-}
-
-.control-edge {
-  box-shadow: var(--shadow-control-edge);
-  background-image: var(--gradient-control-sheen);
-}
-
-/* Pressed drops the sheen with the drop: the light that fell across the face
- * is now cast into it, so the face goes flat under the finger. */
-.control-raised:active:not(:disabled):not([aria-disabled="true"]),
-.control-raised[data-pressed]:not(:disabled),
-.control-edge:active:not(:disabled):not([aria-disabled="true"]),
-.control-edge[data-pressed]:not(:disabled) {
-  box-shadow: var(--shadow-control-pressed);
-  background-image: none;
 }
 
 .control-raised:disabled,
-.control-raised[aria-disabled="true"],
-.control-edge:disabled,
-.control-edge[aria-disabled="true"] {
+.control-raised[aria-disabled="true"] {
   box-shadow: none;
-  background-image: none;
 }
 
-/* ── Control track ─────────────────────────────────────────────────────────
- * A segmented control's groove: the well ground with light falling into it
- * from above. The selected segment inside it takes `.control-edge`, so the
- * thumb stands out of the groove by exactly the step every other bordered
- * control stands off the page. */
-.control-track {
-  box-shadow: var(--shadow-control-track);
+/* A segmented control's selected thumb: a small drop under the `bg.selected`
+ * fill, so the chosen segment sits on the track rather than being a tint of
+ * it. The track itself is a plain well with no edge and no inset shadow. */
+.control-thumb {
+  box-shadow: var(--shadow-control-thumb);
 }
 
 /* ── Switch thumb ──────────────────────────────────────────────────────────
@@ -3168,7 +3159,7 @@ samp,
   .slider-thumb {
     transition: none;
   }
-  .interactive:active:not(:disabled):not([aria-disabled="true"]):not(.control-raised):not(.control-edge) {
+  .interactive:active:not(:disabled):not([aria-disabled="true"]) {
     transform: none;
   }
 }
@@ -3345,6 +3336,14 @@ body:has([data-selection-pane]:focus-within)
   --fl-color-mini-scroll-indicator: var(--scrollbar-thumb);
   --fl-color-mini-scroll-indicator-hovered: var(--scrollbar-thumb-hover);
   --fl-size-mini-scroll-indicator: 3px;
+}
+
+/* The library draws its own focus outlines (tab, splitter, popup items) from
+   this colour rather than from --focus-ring, so the pointer switch at the top
+   of this file has to reach it by name. Transparent, not `none`: it is a colour
+   inside the library's `outline: 2px solid …` shorthand. */
+:root[data-focus-source="pointer"] .flexlayout__layout {
+  --fl-color-focus: transparent;
 }
 
 /* NOTE: flexlayout puts `flexlayout__tabset-selected` on the tab STRIP

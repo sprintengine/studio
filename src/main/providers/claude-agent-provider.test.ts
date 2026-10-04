@@ -2016,6 +2016,47 @@ test('a Claude compact boundary marks the transcript with what triggered it and 
   assert.deepEqual(mapSdkMessage(state, { type: 'system', subtype: 'status', session_id: 'native' }), [])
 })
 
+test('a Claude API retry tells the turn why it has nothing yet and when the next attempt runs', () => {
+  const state = mapperState()
+  const [retrying] = mapSdkMessage(state, {
+    type: 'system',
+    subtype: 'api_retry',
+    session_id: 'native',
+    attempt: 3,
+    max_retries: 10,
+    retry_delay_ms: 8_000,
+    error_status: 401,
+    error: 'authentication_failed',
+  })
+  assert.equal(retrying?.type, 'turn_retrying')
+  assert.deepEqual(retrying?.payload, {
+    turnId: 'turn_1',
+    attempt: 3,
+    maxAttempts: 10,
+    retryInMs: 8_000,
+    error: 'authentication_failed',
+    status: 401,
+  })
+  // A connection that got no response has no status to report.
+  const [unanswered] = mapSdkMessage(state, {
+    type: 'system',
+    subtype: 'api_retry',
+    session_id: 'native',
+    attempt: 1,
+    max_retries: 10,
+    retry_delay_ms: 500,
+    error_status: null,
+    error: 'unknown',
+  })
+  assert.deepEqual(unanswered?.payload, {
+    turnId: 'turn_1',
+    attempt: 1,
+    maxAttempts: 10,
+    retryInMs: 500,
+    error: 'unknown',
+  })
+})
+
 test('Claude shell results say whether a command was declined, stopped or exited non-zero', () => {
   const state = mapperState()
   const output = (id: string, block: Record<string, unknown>, structured?: Record<string, unknown>) =>

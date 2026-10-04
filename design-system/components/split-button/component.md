@@ -12,7 +12,10 @@ different target*. Two unrelated actions welded together are two buttons.
 
 - `ds-split-button` — the group. It owns the border, the radius, the height,
   and the overflow clip; the halves own nothing structural. One object, not two
-  buttons that touch.
+  buttons that touch. Tier 2 of
+  [button → Control tiers](../button/component.md) (owner ruling 2026-10-04):
+  a `border.strong` hairline on a transparent ground, exactly the outline
+  button's edge, and no depth.
 - `ds-split-button__primary` — the default-action half: optional target glyph,
   then the verb. Padding `sem.space.md`, label in `font.size.meta` at
   `font.weight.medium`.
@@ -29,12 +32,14 @@ different target*. Two unrelated actions welded together are two buttons.
 ## Variants
 
 - Default (no modifier) — the neutral outlined group at
-  `size.control.sm`. This is the only tone the system offers.
+  `size.control.sm`: flat, on the `border.strong` hairline. This is the only
+  tone the system offers. Until 2026-10-04 the shipped group stood on a
+  `bg.surface-raised` ground with the retired `shadow.control-edge`.
 - `ds-split-button--md` — the `size.control.md` step, with the label on
   `font.size.body`. For overlay footers and forms, where the surrounding
   controls sit on that row.
 - `ds-split-button--quiet` — the same control with its chrome taken away: no
-  outer border, no raised ground, and `size.hit-target-min` (24px) instead of
+  outer border, and `size.hit-target-min` (24px) instead of
   the `size.control.sm` step. **For a split action on a row's meta line** — a
   card's head line, a list row's trailing slot — where the bordered 30px group
   out-weighs the line it sits on and reads as a form control dropped into a
@@ -61,8 +66,10 @@ different target*. Two unrelated actions welded together are two buttons.
   would be cut off on the joined edge. Each half draws independently.
 - Disabled: 45% opacity and `not-allowed` on both halves. Disable the whole
   group or neither: a live primary beside a dead menu reads as a bug.
-- No press-scale. The group would scale as one object while only one half was
-  pressed.
+- Pressed: the pressed half alone steps to `bg.active`. **No press-scale** —
+  the one exception to the family's shared press, because the group would scale
+  as one object while only one half was pressed, and a half that shrank inside
+  the group's clip would pull away from its own border.
 
 ## Usage
 

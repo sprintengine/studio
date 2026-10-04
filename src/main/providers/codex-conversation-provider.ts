@@ -17,6 +17,7 @@ import type {
   MockAdapterTurnInput,
 } from './conversation-provider-adapter'
 import {
+  CODEX_RPC_TIMEOUT_MS,
   CodexRpcError,
   CodexSpawnError,
   codexAppServerArgs,
@@ -25,6 +26,7 @@ import {
   type CodexRpcTransport,
   type RpcMessage,
 } from './codex-json-rpc'
+import { explainCodexInitializeTimeout, isCodexInitializeTimeout } from './codex-start-failure'
 import { conversationCommandsFor, publishConversationCommands } from '../conversation-commands/registry'
 import { CODEX_COMPACT_COMMAND, codexCompactRequest, codexConversationCommands } from '../conversation-commands/codex'
 import type { ConversationCommand } from '../../shared/conversation/commands'
@@ -161,6 +163,9 @@ export type CodexConversationProviderOptions = {
   // The app's MCP gateway on the machine the chat's `codex` runs on. Null
   // leaves it out; the chat runs without Studio's tools rather than not at all.
   resolveStudioMcpServer?: StudioMcpServerResolver
+  // The size of Codex's log database on the chat's machine, read when a start
+  // times out. Tests stand in; the default lists the Codex home folder there.
+  readCodexLogBytes?: (wslDistro: string | null, env: NodeJS.ProcessEnv) => Promise<number | null>
 }
 
 /**
@@ -894,6 +899,15 @@ export function createCodexConversationProvider(
         state.spawnedAt = null
         transport.close()
         if (error instanceof CodexSpawnError) forgetExecutable('codex')
+        // A start Codex never answered says what to try, on which machine,
+        // and names an oversized log database when that is the likely cause.
+        if (isCodexInitializeTimeout(error))
+          throw await explainCodexInitializeTimeout({
+            timeoutMs: CODEX_RPC_TIMEOUT_MS,
+            wslDistro: wsl?.distro ?? null,
+            env,
+            ...(options.readCodexLogBytes ? { readLogBytes: options.readCodexLogBytes } : {}),
+          })
         throw error
       }
     })().finally(() => {

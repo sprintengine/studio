@@ -17,16 +17,16 @@ import { FOCUS_RING_CLASS } from './tokens'
 // `flex-col`: **hover changes the ground and nothing else.** No border appearing,
 // no shadow, no scale. A tile lives in a grid, and a grid that reflows under the
 // pointer is the defect (`principles.md` → Selection and focus: "no border
-// appearing on hover and shifting the layout"). `OutlineButton` carries
-// `control-edge`, which is elevation, and elevation in the document flow is
-// exactly what the hairline principle rules out for anything that is not a
-// pressable control standing on its own.
+// appearing on hover and shifting the layout"). `OutlineButton` presses by the
+// `.interactive` scale, and a tile that shrank under the finger would pull out
+// of line with its neighbours.
 //
-// `raised` is the one tile that IS such a control (owner ruling 2026-10-01): a
-// launcher tile — the empty pane's Browser / Terminal / Files grid — whose whole
-// job is to be pressed once. It takes `.control-edge` at rest, so the
-// elevation is there before the pointer arrives and hover still moves only the
-// ground and the edge colour; nothing appears, nothing reflows.
+// `raised` is the one tile that is a pressable control standing on its own
+// (owner ruling 2026-10-01): a launcher tile — the empty pane's Browser /
+// Terminal / Files grid — whose whole job is to be pressed once. Since the
+// control tiers (owner ruling 2026-10-04) it is tier 2: flat on its hairline,
+// with no shadow and no sheen. It answers the press with one more step of
+// ground and the strong edge, never with a scale.
 
 /**
  * - `plain` (default) — no edge. The tile IS its content: a preview iframe, a
@@ -35,9 +35,11 @@ import { FOCUS_RING_CLASS } from './tokens'
  *   `border.strong`. For a tile whose content does not draw its own box: a
  *   summary tile, a theme card, a graph node. The border is present at rest, so
  *   it appears at no point and moves nothing.
- * - `raised` — `bordered`'s hairline over `bg.surface-raised`, standing off the
- *   page on `.control-edge` exactly as an outline button does. For a LAUNCHER
- *   tile: one of a grid of things to open, pressed once and gone.
+ * - `raised` — `bordered`'s hairline over `bg.surface-raised`, flat, stepping to
+ *   `bg.active` and `border.strong` while held. For a LAUNCHER tile: one of a
+ *   grid of things to open, pressed once and gone. The name predates the
+ *   2026-10-04 ruling that took its shadow away, and stays because callers
+ *   import it.
  */
 export type CardVariant = 'plain' | 'bordered' | 'raised'
 
@@ -48,8 +50,9 @@ const RESTING: Record<CardVariant, string> = {
     'hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] ' +
     'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface)]',
   raised:
-    'control-edge border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] ' +
+    'border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] ' +
     'hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] ' +
+    'enabled:active:border-[color:var(--border-strong)] enabled:active:bg-[color:var(--bg-active)] ' +
     'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface-raised)]',
 }
 
@@ -65,10 +68,8 @@ const SELECTED: Record<CardVariant, string> = {
   bordered:
     'border border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] ' +
     'text-[color:var(--text-strong)] ring-2 ring-inset ring-[color:var(--selection-edge)]',
-  // No `.control-edge` once chosen: the selection edge is a `ring`, which is a
-  // box-shadow, and the two would be one property set twice. A chosen launcher
-  // tile is a place you are, not a thing to press, so it sits down into the
-  // selection fill the way `bordered` does.
+  // A chosen launcher tile is a place you are, not a thing to press, so it
+  // takes the selection fill the way `bordered` does.
   raised:
     'border border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] ' +
     'text-[color:var(--text-strong)] ring-2 ring-inset ring-[color:var(--selection-edge)]',

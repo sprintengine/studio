@@ -18,7 +18,7 @@
 import type { CliPermissionPreset } from './cli-permission-preset'
 import { parseCliPermissionPreset } from './cli-permission-preset'
 import { describeCronSchedule, nextCronRun, nextCronRuns, parseCronSchedule } from './cron'
-import { isWslHostId, type ExecutionHostId } from './execution-host'
+import { normalizeExecutionHostId, type ExecutionHostId } from './execution-host'
 import { isRecord } from './records'
 
 export type ScheduledAgentSchedule = {
@@ -41,7 +41,11 @@ export type ScheduledAgent = {
   schedule: ScheduledAgentSchedule
   /** The project each run starts in. */
   folderPath: string
-  /** The machine on this computer each run starts on; null is this machine. */
+  /**
+   * The machine on this computer each run starts on. Null is this machine,
+   * or the distribution a folder inside one lives in; `local` is this machine
+   * for such a folder (owner ruling 2026-10-03).
+   */
   hostId: ExecutionHostId | null
   cli: string
   cliModel: string | null
@@ -170,8 +174,8 @@ export function validateScheduledAgentDraft(input: unknown, now: number): Schedu
     return { ok: false, message: 'That schedule never comes round — no calendar has that day.' }
   }
 
-  const hostId = input.hostId === null || input.hostId === undefined ? null : input.hostId
-  if (hostId !== null && !(typeof hostId === 'string' && isWslHostId(hostId))) {
+  const hostId = input.hostId === null || input.hostId === undefined ? null : normalizeExecutionHostId(input.hostId)
+  if (hostId === null && input.hostId !== null && input.hostId !== undefined) {
     return { ok: false, message: 'A scheduled agent runs on this machine or one of its WSL distributions.' }
   }
   const permissionPreset =
@@ -190,7 +194,7 @@ export function validateScheduledAgentDraft(input: unknown, now: number): Schedu
       prompt,
       schedule: { cron, timezone },
       folderPath,
-      hostId: hostId as ExecutionHostId | null,
+      hostId,
       cli,
       cliModel: typeof input.cliModel === 'string' && input.cliModel.trim() ? input.cliModel.trim() : null,
       permissionPreset,

@@ -86,6 +86,17 @@ the chat's provider can run in `capabilities.permissionPresets`;
 desktop that advertises the capability, and leave a listed preset you do not
 know out rather than guessing at it (`isConversationWirePermissionPreset`).
 
+A listed chat may name the machine it runs on in `host` — `{ id, kind, label,
+color }`, where `id` is `local` for the desktop answering (draw no machine mark
+for it), `wsl:<distro>`, `ssh:<host>` or `tailnet:<host>` — and the pull
+requests its branches have in `pullRequests` — `{ number, state, url, title }`,
+`state` being `open`, `merged` or `closed`, at most
+`CONVERSATION_MAX_PULL_REQUESTS`. Both are optional with no capability: a
+desktop that does not send them sends neither, and an empty `pullRequests` says
+the chat has none. Draw a `kind` or `color` you do not know as your fallback,
+since a newer desktop may add one. `parseConversationServerFrame` keeps both,
+and drops one it cannot read without dropping the row.
+
 Grants are read live. A device whose grant loses `conversation:operate` keeps
 its socket and has further commands refused with `conversation_operate_required`;
 one that loses `conversation:read` is sent that error and closed with

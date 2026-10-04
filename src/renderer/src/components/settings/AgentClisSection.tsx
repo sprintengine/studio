@@ -101,7 +101,10 @@ export function AgentsMachineSwitcher({
 }
 
 type OpenCliRow = { machineId: string; cliId: string; install: boolean }
-type CliUpdateRun = { running: boolean; notice: { tone: 'warn' | 'error'; text: string } | null }
+// `log` is what the update command has printed so far: shown while it runs, so
+// a slow updater is visibly doing something, and kept when it fails, because
+// what it printed last is the reason.
+type CliUpdateRun = { running: boolean; notice: { tone: 'warn' | 'error'; text: string } | null; log: string }
 
 /** Where one CLI's Update on one machine keeps its progress in `cliUpdateRuns`. */
 export function cliUpdateRunKey(hostId: ExecutionHostId, cli: string): string {
@@ -183,7 +186,18 @@ export function useAgentCliRuns(): AgentCliRuns {
       if (typeof api.cliUpdate !== 'function') return
       const runtime = cliRuntimeOnMachine(cli, hostId, { cliRuntimes, hosts })
       const key = cliUpdateRunKey(hostId, cli)
-      setCliUpdateRuns((prev) => ({ ...prev, [key]: { running: true, notice: null } }))
+      setCliUpdateRuns((prev) => ({ ...prev, [key]: { running: true, notice: null, log: '' } }))
+      // Updates stream on the channel installs use. It is keyed by CLI alone,
+      // so the same CLI updating on two machines at once would share it.
+      const unsubscribe =
+        typeof api.onCliInstallOutput === 'function'
+          ? api.onCliInstallOutput(cli, (chunk) =>
+              setCliUpdateRuns((prev) => {
+                const run = prev[key]
+                return run?.running ? { ...prev, [key]: { ...run, log: run.log + chunk } } : prev
+              }),
+            )
+          : () => undefined
       let notice: { tone: 'warn' | 'error'; text: string } | null = null
       try {
         const result = await api.cliUpdate(cli, runtime)
@@ -197,8 +211,10 @@ export function useAgentCliRuns(): AgentCliRuns {
         }
       } catch (error) {
         notice = { tone: 'error', text: error instanceof Error ? error.message : String(error) }
+      } finally {
+        unsubscribe()
       }
-      setCliUpdateRuns((prev) => ({ ...prev, [key]: { running: false, notice } }))
+      setCliUpdateRuns((prev) => ({ ...prev, [key]: { running: false, notice, log: prev[key]?.log ?? '' } }))
       // Main detected this CLI again on this machine when the update finished
       // and recorded it, so these reads pick the new version up without a
       // re-scan of every CLI.
@@ -475,14 +491,17 @@ export function AgentClisSection({
                         <PrimaryButton
                           size="xs"
                           disabled={updateRun?.running === true}
-                          onClick={() =>
+                          onClick={() => {
+                            // Open, so what the command prints is on screen as
+                            // it runs, and a failure lands where it is seen.
+                            openRow(plugin.id)
                             void runCliUpdate({
                               cli: plugin.id,
                               hostId: machine.id,
                               before: state.version ?? null,
                               ...(wsl ? { onSettled: onMachineReload } : {}),
                             })
-                          }
+                          }}
                         >
                           {updateRun?.running ? <Spinner className="icon-sm" /> : null}
                           Update
@@ -508,6 +527,17 @@ export function AgentClisSection({
                         </span>
                       ) : null}
                     </InlineNotice>
+                  ) : null}
+                  {/* The command's own words, the same well the install log
+                    uses: live while it runs, and kept after a failure. A clean
+                    update needs no log; its version line already moved. */}
+                  {updateRun && (updateRun.running || updateRun.notice) ? (
+                    <pre
+                      aria-label={`${plugin.displayName} update output`}
+                      className="max-h-48 overflow-auto whitespace-pre-wrap rounded-[var(--radius-sm)] bg-[color:var(--bg-app)] px-2.5 py-1.5 font-mono text-meta leading-[1.5] text-[color:var(--text-muted)]"
+                    >
+                      {updateRun.log || 'Starting…'}
+                    </pre>
                   ) : null}
                   <CliInstallControl
                     cli={plugin.id}

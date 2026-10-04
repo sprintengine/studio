@@ -13,6 +13,7 @@ import { loadThirdPartyRendererModules } from './modules'
 import { launchSettingsReady } from './store/workspaceStore'
 import { reportBuildStamp } from './utils/buildStamp'
 import { bindElectronClipboardPasteBridge } from './utils/clipboardPasteBridge'
+import { bindFocusSourceAttribute } from './utils/focusSource'
 import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
 import { markStartup, markStartupAt } from './utils/startupTimeline'
 import { monacoReady } from './utils/monacoRuntime'
@@ -49,6 +50,10 @@ setTerminalRepaintPauseReporter(logPerfEvent)
 // `data-window-active` on the root: the ambient "something is working" motion
 // (index.css) pauses while this window is hidden or in the background.
 bindWindowActivityAttribute()
+
+// `data-focus-source` on the root: the focus ring is drawn only while the
+// keyboard moved focus last (index.css), never around something just clicked.
+bindFocusSourceAttribute()
 
 window.addEventListener('error', (event) => {
   console.error('[RendererError]', {

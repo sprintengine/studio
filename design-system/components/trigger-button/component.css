@@ -4,9 +4,8 @@
  *
  * The chrome is the select trigger's, deliberately: same height, radius, border,
  * ground, hover lift and ring, so a picker whose face is richer than a string
- * still reads as the same control family. What it does NOT take is the button's
- * `shadow.control-edge` — a trigger is a field, and a field does not stand off
- * the page. */
+ * still reads as the same control family. It takes no depth of any kind: a
+ * trigger is a field, and a field does not stand off the page. */
 
 .ds-trigger {
   display: inline-flex;
@@ -31,9 +30,18 @@
     transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
-/* Flat, so it presses by scale like every other flat control. */
+/* The press every control shares. */
 .ds-trigger:active:not(:disabled) {
   transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-trigger {
+    transition: none;
+  }
+  .ds-trigger:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 .ds-trigger:hover:not(:disabled):not([data-open='true']) {
@@ -77,6 +85,27 @@
   border-style: dashed;
   background: transparent;
   color: var(--sem-color-text-muted);
+}
+
+/* ghost — the trigger INSIDE A TOOLBAR (owner ruling 2026-10-04, tier 3): a
+ * workspace bar's panel picker, a panel header's branch picker. A control inside
+ * a surface has the surface for an edge, so the field chrome comes off: no
+ * border, no ground, muted ink, and the hover fill every ghost control takes.
+ * Open, it keeps the selection fill and still draws no edge. */
+.ds-trigger--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-trigger--ghost:hover:not(:disabled):not([data-open='true']) {
+  border-color: transparent;
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-trigger--ghost[data-open='true'] {
+  border-color: transparent;
 }
 
 .ds-trigger-value {

@@ -4,6 +4,19 @@
 
 ### Added
 
+- **A listed chat names its machine and its pull requests.** `host`
+  (`ConversationWireHost`: `id`, `kind`, `label`, `color`) and `pullRequests`
+  (`ConversationWirePullRequest`: `number`, `state`, `url`, `title`, at most
+  `CONVERSATION_MAX_PULL_REQUESTS`) are optional members of
+  `ConversationThread`, kept by `parseConversationServerFrame` and validated
+  on their own by `parseConversationWireHost` and
+  `parseConversationWirePullRequests`. An unreadable one is left out and the
+  row kept. The pinned files are unchanged.
+- **`turn_retrying`**, an event for a model call the provider will try
+  again, with `ConversationTurnRetryingPayload` (`attempt`, `maxAttempts`,
+  `retryInMs`, and the failure's `error` category and HTTP `status`). Until
+  now a turn that kept failing and retrying showed nothing until the provider
+  gave up. A client that does not know the type skips it.
 - **The tool presentation is public.** `presentToolItem`, `toolActionVerb`
   and `summarizeToolGroup` (with `PresentableTool` and `ToolPresentation`)
   are exported from the entry, for views that word a tool step as Studio

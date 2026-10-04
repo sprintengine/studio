@@ -136,7 +136,19 @@
       "glyphs/unified.svg",
       "glyphs/worktree.svg",
       "glyphs/wrap-lines.svg",
-      "glyphs/write-commit-message.svg"
+      "glyphs/write-commit-message.svg",
+      "glyphs/attach.svg",
+      "glyphs/conversation.svg",
+      "glyphs/machine-board.svg",
+      "glyphs/machine-cloud.svg",
+      "glyphs/machine-container.svg",
+      "glyphs/machine-mini.svg",
+      "glyphs/machine-server.svg",
+      "glyphs/machine-tower.svg",
+      "glyphs/plugins.svg",
+      "glyphs/plus.svg",
+      "glyphs/send.svg",
+      "glyphs/terminal-agent.svg"
     ],
     "assets": []
   },

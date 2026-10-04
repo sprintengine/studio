@@ -41,6 +41,14 @@ export type WslServerStartDeps = {
   sleep?: (ms: number) => Promise<void>
 }
 
+/** How a server's process ended: its exit code, or the signal that ended it where the platform says so. */
+export type WslServerExit = {
+  code: number | null
+  signal: NodeJS.Signals | null
+  stderrTail: string
+  intentional: boolean
+}
+
 export type RunningWslServer = {
   boot: ServerBoot
   ready: ServerReady
@@ -51,8 +59,15 @@ export type RunningWslServer = {
   stop(options: { drain: boolean; budgetMs: number }): Promise<void>
   /** Kill it now, without a drain. */
   kill(): void
+  /**
+   * Whether the server still answers: a ping, and its pong within
+   * `timeoutMs`. False once the process has exited, or when it says nothing.
+   */
+  alive(timeoutMs: number): Promise<boolean>
+  /** Whether the process has exited (its exit listeners may not have run yet). */
+  exited(): boolean
   /** Fires once, when the process has exited for any reason. */
-  onExit(listener: (exit: { code: number | null; stderrTail: string; intentional: boolean }) => void): void
+  onExit(listener: (exit: WslServerExit) => void): void
   stderrTail(): string
 }
 
@@ -89,7 +104,7 @@ class Attempt {
   // start) is UTF-16LE, and what the server says is UTF-8. Decoded when read.
   private stderrBytes = Buffer.alloc(0)
   private stderrNote = ''
-  exit: { code: number | null } | null = null
+  exit: { code: number | null; signal: NodeJS.Signals | null } | null = null
   constructor(readonly process: HelperProcess) {
     let buffer = ''
     process.stdout.on('data', (chunk: Buffer) => {
@@ -119,13 +134,13 @@ class Attempt {
       const joined = Buffer.concat([this.stderrBytes, chunk])
       this.stderrBytes = joined.subarray(Math.max(0, joined.length - STDERR_TAIL_BYTES))
     })
-    process.once('close', (code) => {
-      this.exit = { code }
+    process.once('close', (code, signal) => {
+      this.exit = { code, signal: signal ?? null }
       this.wake()
     })
     process.once('error', (error) => {
       this.stderrNote += error.message
-      this.exit = { code: 127 }
+      this.exit = { code: 127, signal: null }
       this.wake()
     })
   }
@@ -180,7 +195,7 @@ function startFailure(attempt: Attempt, distro: string, stage: string): WslSetup
   const classified = classifyWslFailure(text, attempt.exit?.code ?? null)
   if (classified.code !== 'start') return classified
   return new WslSetupError(
-    `The Studio server in ${distro} did not start (${stage}): ${attempt.stderr.trim().split('\n').slice(-3).join(' ') || `exit ${attempt.exit?.code ?? 'unknown'}`}.`,
+    `The Studio server in ${distro} did not start (${stage}): ${spokenLines(attempt.stderr).slice(-3).join(' ') || `exit ${attempt.exit?.code ?? 'unknown'}`}.`,
     { fatal: false, code: 'start' },
   )
 }
@@ -253,7 +268,7 @@ export async function startWslServer(deps: WslServerStartDeps): Promise<RunningW
       lastError =
         ready === 'timeout'
           ? new WslSetupError(
-              `The Studio server in ${deps.distro} did not become ready within ${Math.round((deps.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS) / 1000)} s. ${attempt.stderr.trim().split('\n').slice(-2).join(' ')}`.trim(),
+              `The Studio server in ${deps.distro} did not become ready within ${Math.round((deps.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS) / 1000)} s. ${spokenLines(attempt.stderr).slice(-2).join(' ')}`.trim(),
               { fatal: false, code: 'start' },
             )
           : startFailure(attempt, deps.distro, 'before it was ready')
@@ -277,9 +292,14 @@ function running(
   let intentional = false
   let seq = 0
   let fired = false
-  type ExitListener = (exit: { code: number | null; stderrTail: string; intentional: boolean }) => void
+  type ExitListener = (exit: WslServerExit) => void
   const exitListeners: ExitListener[] = []
-  const exitOf = () => ({ code: attempt.exit?.code ?? null, stderrTail: attempt.stderr, intentional })
+  const exitOf = (): WslServerExit => ({
+    code: attempt.exit?.code ?? null,
+    signal: attempt.exit?.signal ?? null,
+    stderrTail: attempt.stderr,
+    intentional,
+  })
   let settle: () => void = () => undefined
   const exited = new Promise<void>((resolve) => (settle = resolve))
   const fire = () => {
@@ -297,6 +317,14 @@ function running(
     ping() {
       write(attempt.process, { t: 'ping', seq: ++seq })
     },
+    async alive(timeoutMs) {
+      if (attempt.exit) return false
+      const probe = ++seq
+      write(attempt.process, { t: 'ping', seq: probe })
+      const answer = await attempt.next((frame) => frame.t === 'pong' && frame.seq === probe, timeoutMs)
+      return answer !== 'exited' && answer !== 'timeout'
+    },
+    exited: () => attempt.exit !== null,
     async stop({ drain, budgetMs }) {
       intentional = true
       if (attempt.exit) return
@@ -316,4 +344,64 @@ function running(
     },
     stderrTail: () => attempt.stderr,
   }
+}
+
+// What a Node process prints that is not about why it ended: a warning or a
+// deprecation from Node or a library (`(node:6993) [CODE] Warning: …`), and
+// Node's hint after one.
+const NODE_NOTICE = /^\(node:\d+\) /u
+const NODE_HINT = /^\(Use `node --trace-/u
+// A line that says something went wrong, as Node, a shell or the server say it.
+const ERROR_LINE =
+  /\w*(?:error|exception)\b|\b(?:fatal|panic|uncaught|unhandled|abort(?:ed)?|segmentation fault|out of memory|cannot|failed|killed)\b/iu
+
+/** Stderr's lines, without blank ones and without the notices Node prints beside its work. */
+function spokenLines(stderr: string): string[] {
+  return stderr
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !NODE_NOTICE.test(line) && !NODE_HINT.test(line))
+}
+
+/** The last line of stderr that says what went wrong, or null when none does. */
+export function lastErrorLine(stderr: string): string | null {
+  const lines = spokenLines(stderr).filter((line) => ERROR_LINE.test(line))
+  const last = lines.at(-1)
+  return last ? (last.length > 300 ? `${last.slice(0, 300)}…` : last) : null
+}
+
+// The signals a shell (128 + n) or `wsl.exe` (n: WSL passes the number of
+// the signal that ended the Linux process on as its own exit code, so a
+// `kill -9` reads as exit 9) is read as having ended the server with. Only
+// these: a small code is otherwise Node's own failure (1, 7), and the
+// server's own codes are 0 and 64 and up. Linux's numbers, whichever system
+// reads them: this runs on Windows, whose own table differs (its SIGABRT is 22).
+const ENDING_SIGNALS: ReadonlyMap<number, string> = new Map([
+  [2, 'SIGINT'],
+  [6, 'SIGABRT'],
+  [9, 'SIGKILL'],
+  [11, 'SIGSEGV'],
+  [15, 'SIGTERM'],
+])
+
+function endingSignal(number: number): string | null {
+  return ENDING_SIGNALS.get(number) ?? null
+}
+
+/**
+ * How a server that was running ended, in words for its status: killed (by
+ * a signal, as Node reports it or as the exit code carries it), or its exit
+ * code with the last line that says what went wrong. Never the warnings it
+ * printed while it worked.
+ */
+export function describeServerExit(exit: Pick<WslServerExit, 'code' | 'signal' | 'stderrTail'>): string {
+  const code = exit.code
+  const signal =
+    exit.signal ??
+    (code !== null && code > 128 ? endingSignal(code - 128) : null) ??
+    (code !== null && code < 32 ? endingSignal(code) : null)
+  if (signal) return signal === 'SIGKILL' ? 'killed' : `killed by ${signal}`
+  const said = lastErrorLine(exit.stderrTail)
+  const spoken = code === null ? 'no exit code' : `exit code ${code}`
+  return said ? `${spoken}: ${said}` : spoken
 }

@@ -34,6 +34,7 @@ export type {
   ConversationToolOutputPayload,
   ConversationToolStartedPayload,
   ConversationToolStatus,
+  ConversationTurnRetryingPayload,
 } from '../../packages/conversation-protocol/src/public'
 
 export type ConversationSessionSummary = {
@@ -335,9 +336,19 @@ export type ConversationSessionActionResult =
   // but does not apply yet (switching to Bypass while a turn is still
   // streaming). The action succeeded; this is not an error.
   | { ok: true; session: ConversationSessionSummary; notice?: string }
-  // `code` names a refusal a caller acts on by itself. The runtime gives one:
-  // `command_id_conflict`, a command id already used for a different command.
+  // `code` names a refusal a caller acts on by itself. The runtime gives two:
+  // `command_id_conflict`, a command id already used for a different command,
+  // and `session_not_found` (CONVERSATION_SESSION_NOT_FOUND).
   | { ok: false; message: string; event?: ConversationEvent; code?: string }
+
+/**
+ * The refusal of a call about a session the runtime does not hold: the
+ * server that held it restarted (a WSL distribution's, an SSH machine's, the
+ * desktop's own out of process), or the chat started another. Whoever holds
+ * the id starts the chat's session again, which resumes it from its
+ * transcript, and sends again on that one.
+ */
+export const CONVERSATION_SESSION_NOT_FOUND = 'session_not_found'
 
 export type ConversationListSessionsResult =
   { ok: true; sessions: ConversationSessionSummary[] } | { ok: false; message: string }

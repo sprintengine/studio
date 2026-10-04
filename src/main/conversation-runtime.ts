@@ -47,6 +47,7 @@ import type {
   ConversationForkInput,
   ConversationForkResult,
 } from '../shared/conversation-runtime'
+import { CONVERSATION_SESSION_NOT_FOUND } from '../shared/conversation-runtime'
 import { cliRuntimesOnPlatform, distroOfHostId, type ExecutionHostId } from '../shared/execution-host'
 import { wslInputInRootSpelling } from '../shared/host-paths'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
@@ -336,6 +337,16 @@ function commandIdConflict(): ConversationSessionActionResult {
     code: 'command_id_conflict',
     message: 'That command id was already used for a different command. Send this one under a new id.',
   }
+}
+
+/**
+ * The answer about a session this runtime does not hold: one it never
+ * started, or one held by a server that has since restarted. The caller
+ * starts the chat's session again, which resumes it from its transcript, as
+ * an app that restarts does.
+ */
+function sessionNotFound(): ConversationSessionActionResult {
+  return { ok: false, code: CONVERSATION_SESSION_NOT_FOUND, message: 'Conversation session is invalid.' }
 }
 
 /** The fingerprint a receipt was kept with, if it has one. */
@@ -747,7 +758,7 @@ export class ConversationRuntime {
         input.commandFingerprint,
       )
     const session = this.sessions.get(input.sessionId)
-    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (!session) return sessionNotFound()
     if (this.revertingScopes.has(session.fileScope))
       return { ok: false, message: 'Workspace files are being reverted.' }
     if (this.deletingTranscripts.has(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)))
@@ -1248,7 +1259,7 @@ export class ConversationRuntime {
         input.commandFingerprint,
       )
     const session = this.sessions.get(input.sessionId)
-    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (!session) return sessionNotFound()
     const requestIsPending =
       session.pendingRequestId === input.requestId || session.pendingApprovalRequestIds.has(input.requestId)
     if (!session.activeTurnId || !requestIsPending) {
@@ -1348,7 +1359,7 @@ export class ConversationRuntime {
         input.commandFingerprint,
       )
     const session = this.sessions.get(input.sessionId)
-    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (!session) return sessionNotFound()
     const pending = (session.permissionChangeTail ?? Promise.resolve())
       .catch(() => undefined)
       .then(() => this.applyPermission(session, input))
@@ -1435,7 +1446,7 @@ export class ConversationRuntime {
         input.commandFingerprint,
       )
     const session = this.sessions.get(input.sessionId)
-    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (!session) return sessionNotFound()
     const pending = (session.modelChangeTail ?? Promise.resolve())
       .catch(() => undefined)
       .then(() => this.applyModel(session, input))
@@ -1473,7 +1484,7 @@ export class ConversationRuntime {
         input.commandFingerprint,
       )
     const session = this.sessions.get(input.sessionId)
-    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (!session) return sessionNotFound()
     if (!session.activeTurnId) return { ok: false, message: 'Conversation session has no active turn.' }
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
@@ -1510,7 +1521,7 @@ export class ConversationRuntime {
         input.commandFingerprint,
       )
     const session = this.sessions.get(input.sessionId)
-    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (!session) return sessionNotFound()
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
 
@@ -1563,7 +1574,7 @@ export class ConversationRuntime {
   // a settled chat can be un-settled and typed into.
   async suspendSession(input: ConversationSuspendSessionInput): Promise<ConversationSessionActionResult> {
     const session = this.sessions.get(input.sessionId)
-    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (!session) return sessionNotFound()
     if (session.status === 'stopped') return { ok: true, session: this.toSummary(session) }
     if (session.activeTurnId) {
       const interrupted = await this.interrupt({ sessionId: session.sessionId })
@@ -2252,7 +2263,7 @@ export class ConversationRuntime {
     fingerprint?: string,
   ): Promise<ConversationSessionActionResult> {
     const session = this.sessions.get(sessionId)
-    if (!session) return Promise.resolve({ ok: false, message: 'Conversation session is invalid.' })
+    if (!session) return Promise.resolve(sessionNotFound())
     const path = this.receiptsPath(session)
     const key = `${path}:${commandId}`
     // A command id is the client's promise that it names one command. The
