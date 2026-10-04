@@ -9,6 +9,7 @@ import type {
   ConversationEvent,
   ConversationJsonValue,
   ConversationToolKind,
+  ConversationSubagentStatusPayload,
   ConversationToolStatus,
 } from './protocol.js'
 import { parseConversationMentions, type ConversationMentionRef } from './mentions.js'
@@ -23,6 +24,9 @@ import { isBackgroundLaunchAck, readSubagentStatus } from './subagents.js'
 // was reported: it ran, but how it ended was never written down.
 export type TranscriptAgentState = {
   state: 'running' | 'completed' | 'failed' | 'stopped' | 'unknown'
+  // The provider's id for the agent, which outlives the call that spawned it:
+  // a resumed agent is found by it.
+  taskId?: string
   background?: boolean
   description?: string
   lastToolName?: string
@@ -578,6 +582,8 @@ export function projectConversation(
   // Agent states reported before their lane's call arrived (paging can split
   // them), applied when it does.
   const pendingAgents = new Map<string, TranscriptAgentState>()
+  // The lane each agent started in, by task: a resumed agent goes on in it.
+  const lanesByTask = new Map<string, string>()
   const pendingMessages = new Map<string, TranscriptAgentMessage[]>()
   let sessionStatus: ConversationSessionStatus | 'idle' = 'idle'
   let usage: ConversationUsage | null = null
@@ -866,10 +872,15 @@ export function projectConversation(
       case 'subagent_status': {
         const status = readSubagentStatus(event.payload)
         if (!status) break
+        const lane = status.taskId ? lanesByTask.get(status.taskId) : undefined
+        if (status.taskId && !lane) lanesByTask.set(status.taskId, status.toolUseId)
+        const toolUseId = lane ?? status.toolUseId
         const agent = agentStateOf(status)
-        const tool = toolsById.get(status.toolUseId)
-        if (tool) applyAgentState(tool, agent, status.endedAt ?? event.createdAt)
-        else pendingAgents.set(status.toolUseId, { ...pendingAgents.get(status.toolUseId), ...agent })
+        const tool = toolsById.get(toolUseId)
+        if (tool) {
+          if (isResumed(status, lane)) reopenAgentLane(tool)
+          applyAgentState(tool, agent, status.endedAt ?? event.createdAt)
+        } else pendingAgents.set(toolUseId, { ...pendingAgents.get(toolUseId), ...agent })
         break
       }
       case 'subagent_message': {
@@ -1198,6 +1209,7 @@ export function projectConversation(
 export function agentStateOf(status: NonNullable<ReturnType<typeof readSubagentStatus>>): TranscriptAgentState {
   return {
     state: status.status,
+    ...(status.taskId ? { taskId: status.taskId } : {}),
     ...(status.background !== undefined ? { background: status.background } : {}),
     ...(status.description ? { description: status.description } : {}),
     ...(status.lastToolName ? { lastToolName: status.lastToolName } : {}),
@@ -1221,6 +1233,27 @@ export function applyAgentState(
   if (merged.state === 'failed') tool.outputStatus = 'error'
   else if (merged.state === 'stopped') tool.outputStatus ??= 'stopped'
   else tool.outputStatus ??= 'ok'
+}
+
+// Whether a status starts an ended agent again. The provider says so; a
+// transcript written before it did names only the call that resumed the agent
+// (Claude Code's SendMessage) in place of the lane the agent started in.
+export function isResumed(status: ConversationSubagentStatusPayload, lane: string | undefined): boolean {
+  if (status.resumed === true) return true
+  return status.status === 'running' && lane !== undefined && lane !== status.toolUseId
+}
+
+// An ended lane whose agent started again: running, with nothing of its end
+// left on it. Its output stays until the agent's next answer replaces it.
+export function reopenAgentLane(
+  tool: Pick<ToolAccumulator, 'agent' | 'status' | 'completedAt' | 'outputStatus'>,
+): void {
+  if (!tool.agent || tool.agent.state === 'running') return
+  const { error: _error, ...agent } = tool.agent
+  tool.agent = { ...agent, state: 'running' }
+  tool.status = 'running'
+  tool.completedAt = undefined
+  tool.outputStatus = undefined
 }
 
 // Index of which calls hang off which lane, built once per projection over

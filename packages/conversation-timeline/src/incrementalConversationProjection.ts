@@ -5,11 +5,13 @@ import {
   agentStateOf,
   nextConversationUsage,
   applyAgentState,
+  isResumed,
   openReasoningRun,
   projectConversation,
   readBoolean,
   readNumber,
   readString,
+  reopenAgentLane,
   type ConversationProjection,
   type TranscriptEntry,
   type TranscriptToolEntry,
@@ -278,6 +280,20 @@ function updateToolTree(
   return null
 }
 
+// The call an agent started in, found by its task wherever the call sits.
+function findAgentLane(
+  entries: readonly (TranscriptEntry | TranscriptToolEntry)[],
+  taskId: string,
+): string | undefined {
+  for (const entry of entries) {
+    if (entry.kind !== 'tool') continue
+    if (entry.agent?.taskId === taskId) return entry.id
+    const lane = entry.children ? findAgentLane(entry.children, taskId) : undefined
+    if (lane) return lane
+  }
+  return undefined
+}
+
 // Change one call wherever it sits in the transcript, as the fold would; null
 // when it is not there (not loaded, or taken out by a rewind), for the fold to
 // settle.
@@ -374,12 +390,16 @@ function fastProjection(
   if (event.type === 'subagent_status') {
     const status = readSubagentStatus(event.payload)
     if (!status) return state.projection
+    // The agent goes on in the lane it started in, as the fold has it.
+    const lane = status.taskId ? findAgentLane(state.projection.entries, status.taskId) : undefined
+    const resumed = isResumed(status, lane)
     const agent = agentStateOf(status)
     return updateTool(
       state,
-      status.toolUseId,
+      lane ?? status.toolUseId,
       (tool) => {
         const next = { ...tool }
+        if (resumed) reopenAgentLane(next)
         applyAgentState(next, agent, status.endedAt ?? event.createdAt)
         return next
       },
