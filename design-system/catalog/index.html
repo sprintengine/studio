@@ -631,6 +631,8 @@ code {
 #ds-view-component-context-ring:checked ~ .ds-catalog #component-context-ring { display: block; }
 #ds-view-component-definition-list:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-definition-list:checked ~ .ds-catalog #component-definition-list { display: block; }
+#ds-view-component-diff-stat-pill:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-diff-stat-pill:checked ~ .ds-catalog #component-diff-stat-pill { display: block; }
 #ds-view-component-drawer:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-drawer:checked ~ .ds-catalog #component-drawer { display: block; }
 #ds-view-component-empty-state:checked ~ .ds-catalog #components { display: block; }
@@ -757,6 +759,8 @@ code {
 #ds-view-component-context-ring:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-context-ring"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-definition-list:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-definition-list"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-definition-list:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-definition-list"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-diff-stat-pill:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-diff-stat-pill"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-diff-stat-pill:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-diff-stat-pill"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-drawer:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-drawer"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-drawer:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-drawer"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-empty-state:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-empty-state"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -3394,6 +3398,70 @@ code {
   margin-top: var(--sem-space-2xs);
   font-weight: var(--sem-font-weight-medium);
   overflow-wrap: anywhere;
+}
+
+/* components/diff-stat-pill/component.css */
+/* Diff stat pill — how much a checkout has changed, as one small split pill:
+ * the added half in the diff green on its wash, the removed half in the diff
+ * red on its wash, touching, under one pill corner. Extracted from the shipped
+ * DiffStatPill primitive (src/renderer/src/components/ui/DiffStatPill.tsx).
+ *
+ * The inks are the diff channel's (`color.diff.added` / `color.diff.removed`),
+ * not the status tones': an addition is not a success and a deletion is not a
+ * failure. The washes are the soft tints the diff viewer lays behind the same
+ * inks, so ink and wash arrive from one palette in every theme.
+ *
+ * A half with nothing to say is not drawn — no "+0", no "−0" — and a pill with
+ * nothing to say is not drawn at all. */
+
+.ds-diff-stat-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: stretch;
+  block-size: var(--sem-size-control-xs);
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  border-radius: var(--sem-radius-pill);
+  padding: 0;
+  background: none;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.ds-diff-stat-pill-added,
+.ds-diff-stat-pill-removed {
+  display: flex;
+  align-items: center;
+  padding-inline: var(--sem-space-xs);
+}
+
+.ds-diff-stat-pill-added {
+  background: var(--sem-color-status-good-soft);
+  color: var(--sem-color-diff-added);
+}
+
+.ds-diff-stat-pill-removed {
+  background: var(--sem-color-status-danger-soft);
+  color: var(--sem-color-diff-removed);
+}
+
+/* As a button: the pill is the control's whole surface, so the hover is a
+   hairline on its own edge rather than a ground behind it. */
+.ds-diff-stat-pill--action {
+  cursor: pointer;
+}
+
+.ds-diff-stat-pill--action:hover {
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-strong);
+}
+
+.ds-diff-stat-pill--action:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 /* components/drawer/component.css */
@@ -10040,6 +10108,37 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-definition-list .demo-pane--dialog {
     flex: 0 1 320px;
   }
+.ds-embed-component-diff-stat-pill {
+        margin: 0;
+        font-family: var(--sem-font-family-ui);
+      }
+.ds-embed-component-diff-stat-pill .demo-stage {
+        padding: var(--sem-space-3xl);
+        background: var(--sem-color-bg-app);
+        color: var(--sem-color-text-default);
+      }
+.ds-embed-component-diff-stat-pill .demo-label {
+        margin: 0 0 var(--sem-space-sm);
+        font-size: var(--sem-font-size-meta);
+        color: var(--sem-color-text-subtle);
+      }
+.ds-embed-component-diff-stat-pill .demo-strip {
+        display: flex;
+        align-items: center;
+        gap: var(--sem-space-sm);
+        max-width: 420px;
+        margin-bottom: var(--sem-space-lg);
+        padding: var(--sem-space-xs) var(--sem-space-sm);
+        border: 1px solid var(--sem-color-border-subtle);
+        border-radius: var(--sem-radius-control);
+        background: var(--sem-color-bg-surface);
+        white-space: nowrap;
+      }
+.ds-embed-component-diff-stat-pill .demo-branch {
+        font-family: var(--sem-font-family-mono);
+        font-size: var(--sem-font-size-meta);
+        color: var(--sem-color-text-subtle);
+      }
 .ds-embed-component-drawer {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -12723,6 +12822,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-command-palette" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-context-ring" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-definition-list" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-diff-stat-pill" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-drawer" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-empty-state" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-extension-icon" />
@@ -12806,6 +12906,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-command-palette">Command palette</label>
 <label class="catalog-nav-item" for="ds-view-component-context-ring">Context ring</label>
 <label class="catalog-nav-item" for="ds-view-component-definition-list">Definition list</label>
+<label class="catalog-nav-item" for="ds-view-component-diff-stat-pill">Diff stat pill</label>
 <label class="catalog-nav-item" for="ds-view-component-drawer">Drawer</label>
 <label class="catalog-nav-item" for="ds-view-component-empty-state">Empty state</label>
 <label class="catalog-nav-item" for="ds-view-component-extension-icon">Extension icon</label>
@@ -18900,10 +19001,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>It is the <strong>one chip variant that is not content-height</strong>, and that is the whole reason it is a variant rather than a re-skin of the default: a toolbar row has already decided it is a row of controls, so riding a line box there is the defect, not the virtue. A chip inside a sentence, a card's meta line or a canvas HUD stays on one of the three inline variants.</p>
 <p>The name is the 2026-10-01 one and stays, because modules import it; since 2026-10-04 it draws flat. From 2026-10-01 to 2026-10-04 it wore the outline button's border and the retired lit lip, drop and sheen.</p>
 <p>A composite that has to wear the same box without being one button — the worktree switch is a glyph button and a name field in one box — takes the shell from the shipped primitive's <code>RAISED_CHIP_SHELL</code> export rather than spelling it, so it cannot drift a pixel from the chips beside it.</p>
-<h5>Folding a raised row (owner ruling 2026-10-01)</h5>
-<p>A row of raised chips has a width budget, and a squashed panel used to answer it by wrapping onto a second line or crushing every chip to a sliver. Below the row's own budget its <strong>secondary</strong> chips fold behind one more <code>--raised</code> chip carrying a chevron that points the way its popover opens; the popover holds the same controls, stacked. The <strong>essential</strong> controls never fold: the model picker, the send or start action, and anything a launch cannot start without.</p>
-<ul><li><strong>Measured against the row, not the window.</strong> The same panel width is a different budget depending on what sits beside the panel.</li><li><strong>Nothing is dropped.</strong> A control that disappears is a missing feature at that size.</li><li><strong>Mounted once.</strong> Folded controls move into the popover rather than being hidden in place, so there are never two focus targets or two accessible names for one control.</li><li><strong>A chevron, not ⋯,</strong> because a launch row may already carry a ⋯ of its own, and two identical glyphs side by side read as one door.</li><li><strong>A standing warning survives the fold.</strong> If a folded chip carries the warn tone (permissions bypassed), the chevron takes the same tint.</li></ul>
-<p>Shipped as <code>FoldedControls</code> and <code>useMeasuredFold</code> in <code>src/renderer/src/components/ui/FoldedControls.tsx</code>.</p>
+<h5>A row too narrow for its chips</h5>
+<p>A row of raised chips never answers a narrow panel by crushing every chip to a sliver. From 2026-10-01 to 2026-10-04 the conversation composer folded its secondary chips behind a chevron; it no longer needs to. Its row is now the New chat composer's — the &quot;+&quot;, the attached tags, the engine chip and send — short enough to wrap only in a pane narrower than any it is drawn in, and its facts moved to the strip under the box, which keeps to one line by moving what does not fit into a &quot;⋮&quot; menu in a fixed order (the conversation strip in <code>src/renderer/src/components/panels/agentChat/conversationStrip.tsx</code>). The rules the fold kept still hold for whatever answers a narrow row next:</p>
+<ul><li><strong>Measured against the row, not the window.</strong> The same panel width is a different budget depending on what sits beside the panel.</li><li><strong>Nothing is dropped.</strong> A control that leaves the row is reachable from the menu it moved to, doing what it did on the row.</li><li><strong>Mounted once.</strong> A control moves; it is not drawn twice, so there are never two focus targets or two accessible names for one control.</li><li><strong>A standing warning survives.</strong> A chip carrying the warn tone (permissions bypassed) keeps it wherever the control goes — the engine chip wears it now that the permissions are inside its picker.</li></ul>
 <p>The edge, where a variant has one, is present <strong>at rest and held through every state</strong>. A border that appeared when the chip was thrown would resize the row it sits in.</p>
 <h4>Tone</h4>
 <ul><li><strong>Default</strong> — <code>text.subtle</code>, lifting to <code>text.default</code>. The chip is a qualifier.</li><li><strong><code>neutral</code></strong> — <code>text.default</code>, lifting to <code>text.primary</code>. One step up, where the chip's label is the row's own information.</li><li><strong><code>--warn</code> / <code>--error</code></strong> — a <strong>standing warning the chip itself carries</strong>: scripts are running in this preview, permissions are bypassed on this preset. Thrown, it fills the tone's soft tint and takes the tone's <code>on-tint</code> ink, which is what keeps the label legible on the fill.</li></ul>
@@ -20809,16 +20909,17 @@ line 22&lt;/code&gt;&lt;/pre&gt;
 <h4>Variants</h4>
 <ul><li><strong>Default</strong> — <code>accent.primary</code> fill. Accent as INK, which is inside the accent budget; the ring never takes an accent *fill* on its ground.</li><li><strong><code>--high</code></strong> — <code>status.warn</code> fill, past the warn threshold (80% in the product that ships it). A compaction is close, which is worth a glance before it happens rather than after. This is the only other tone the ring ever takes: there is no danger tier, because a full window is not a failure.</li></ul>
 <p>There is no size variant. 14px is the idiom.</p>
+<p><strong>With token counts.</strong> Where the surface holds the counts behind the share (a conversation's composer strip does), the tooltip says them and nothing else — &quot;76,000 / 200,000 tokens&quot; — and the accessible name says the share and the counts both: &quot;Context 38% used, 76,000 / 200,000 tokens&quot;. The sweep already shows the share; the counts are what a glance cannot read off it.</p>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Track plus fill; the tooltip closed | | Hover / focus-visible | The tooltip opens, naming the exact percentage | | Focus-visible | The anchor wears the product focus ring | | Value change | The sweep animates over <code>motion.duration.deliberate</code> |</p>
+<p>| State | Treatment | |---|---| | Rest | Track plus fill; the tooltip closed | | Hover / focus-visible | The tooltip opens, naming the exact percentage — or the token counts, where the surface gives them | | Focus-visible | The anchor wears the product focus ring | | Value change | The sweep animates over <code>motion.duration.deliberate</code> |</p>
 <p><strong>Not drawn at all</strong> when there is no reading. A ring at 0% and a ring for a runtime that reports nothing are the same picture, and one of them is a lie — so a surface with no value omits the component rather than drawing an empty one.</p>
 <p>The sweep transition is deliberate-tempo because the value moves in visible steps as a turn ends, and a step that snapped would read as a glitch on a surface nobody is looking at. <code>prefers-reduced-motion: reduce</code> removes it; the value is unaffected.</p>
 <h4>Usage</h4>
-<p><strong>Beside the thing whose context it is</strong> — a conversation's title, a session row — and never in a toolbar or a status bar of its own. The ring says &quot;this one&quot;, and it can only do that from next to its subject.</p>
+<p><strong>Beside the thing whose context it is</strong> — a conversation's title, a session row, the strip under the conversation's own composer — and never in a toolbar or a status bar of its own. The ring says &quot;this one&quot;, and it can only do that from next to its subject.</p>
 <p><strong>One per surface.</strong> Two rings on one card is two proportions the reader has to tell apart by position.</p>
 <p><strong>Never as the only statement of a warning.</strong> The <code>--high</code> tone is a nudge, not an alert; anything that must be acted on gets words.</p>
 <h4>Accessibility</h4>
-<ul><li>The anchor carries <code>role=&quot;img&quot;</code> and an <code>aria-label</code> naming the value in words — &quot;Context 38% used&quot;. Never the colour, and never &quot;ring&quot;.</li><li>The anchor is focusable (<code>tabindex=&quot;0&quot;</code>) so the tooltip is reachable without a pointer, which is the rule for every tooltip in the system: a hover-only reveal is not a reveal.</li><li>The SVG itself is <code>aria-hidden=&quot;true&quot;</code>. The label lives on the anchor, so the mark is announced once.</li><li>The tooltip repeats the same sentence as the accessible name. It is a <code>describedby</code> and never the name itself, because a tooltip that IS the name leaves an unnamed control for anyone who never opens it.</li><li>Colour is never the whole message: the sweep's LENGTH carries the value, and the <code>--high</code> tone only sharpens something already visible.</li></ul>
+<ul><li>The anchor carries <code>role=&quot;img&quot;</code> and an <code>aria-label</code> naming the value in words — &quot;Context 38% used&quot;. Never the colour, and never &quot;ring&quot;.</li><li>The anchor is focusable (<code>tabindex=&quot;0&quot;</code>) so the tooltip is reachable without a pointer, which is the rule for every tooltip in the system: a hover-only reveal is not a reveal.</li><li>The SVG itself is <code>aria-hidden=&quot;true&quot;</code>. The label lives on the anchor, so the mark is announced once.</li><li>The tooltip repeats the same sentence as the accessible name (or, with token counts, the counts part of it). It is a <code>describedby</code> and never the name itself, because a tooltip that IS the name leaves an unnamed control for anyone who never opens it.</li><li>Colour is never the whole message: the sweep's LENGTH carries the value, and the <code>--high</code> tone only sharpens something already visible.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/context-ring/component.css</summary><pre><code>/* Context ring — how much of a model's context window a conversation has
@@ -21429,6 +21530,220 @@ line 22&lt;/code&gt;&lt;/pre&gt;
   &lt;/div&gt;
 &lt;/div&gt;
 &lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-diff-stat-pill" class="catalog-view catalog-component">
+<h3>Diff stat pill</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-diff-stat-pill">
+<div class="demo-stage" data-mode="light">
+      <p class="demo-label">
+        Light — files added or updated, and files removed, as the strip under a conversation shows them.
+      </p>
+      <div class="demo-strip">
+        <span class="demo-branch">fix/cli-update-output</span>
+        <button
+          type="button"
+          class="ds-diff-stat-pill ds-diff-stat-pill--action"
+          aria-label="3 files updated, 2 removed — open changes"
+        >
+          <span class="ds-diff-stat-pill-added" aria-hidden="true">+3</span>
+          <span class="ds-diff-stat-pill-removed" aria-hidden="true">−2</span>
+        </button>
+      </div>
+      <p class="demo-label">Only additions: the pill is its green half alone. Only removals: its red half alone.</p>
+      <div class="demo-strip">
+        <span class="ds-diff-stat-pill" role="img" aria-label="4 files added">
+          <span class="ds-diff-stat-pill-added">+4</span>
+        </span>
+        <span class="ds-diff-stat-pill" role="img" aria-label="1 file removed">
+          <span class="ds-diff-stat-pill-removed">−1</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="demo-stage" data-mode="dark">
+      <p class="demo-label">Dark — the same inks and washes, retuned by the tokens.</p>
+      <div class="demo-strip">
+        <span class="demo-branch">…rename-module</span>
+        <button
+          type="button"
+          class="ds-diff-stat-pill ds-diff-stat-pill--action"
+          aria-label="12 files updated, 3 removed — open changes"
+        >
+          <span class="ds-diff-stat-pill-added" aria-hidden="true">+12</span>
+          <span class="ds-diff-stat-pill-removed" aria-hidden="true">−3</span>
+        </button>
+      </div>
+    </div>
+</div>
+<div class="catalog-doc">
+<p>How much a checkout has changed, as one small split pill: the added half in the diff green on its wash, the removed half in the diff red on its wash, touching, under one pill corner. Extracted from the shipped <code>DiffStatPill</code> primitive (<code>src/renderer/src/components/ui/DiffStatPill.tsx</code>).</p>
+<p>The caller decides the unit. The conversation strip counts <strong>files</strong> — &quot;+3 −2&quot; is three files added or updated and two removed — because that is what a checkout's summary answers; a surface showing one file's change would count lines. The pill does not say which; the words in its name do.</p>
+<h4>Anatomy</h4>
+<p>| Part         | Class                        | Required                                                                         | | ------------ | ---------------------------- | -------------------------------------------------------------------------------- | | Pill         | <code>.ds-diff-stat-pill</code>         | yes — one <code>control.xs</code>-high box, <code>radius.pill</code>, clipping its halves              | | Added half   | <code>.ds-diff-stat-pill-added</code>   | when anything was added — &quot;+N&quot; in <code>color.diff.added</code> on <code>status.good-soft</code>       | | Removed half | <code>.ds-diff-stat-pill-removed</code> | when anything was removed — &quot;−M&quot; in <code>color.diff.removed</code> on <code>status.danger-soft</code> |</p>
+<p>The halves touch: no gap, no divider. The two washes meeting is the seam.</p>
+<h4>Variants</h4>
+<ul><li><strong>Display</strong> — a <code>role=&quot;img&quot;</code> span naming the counts in words.</li><li><strong><code>--action</code></strong> — a button that opens what the counts are of (the Git panel, from the conversation strip). The pill is the button's whole surface, so it takes no ground of its own; hover draws a <code>border.strong</code> hairline on the pill's edge.</li></ul>
+<h4>States</h4>
+<p>| State                      | Treatment                                                    | | -------------------------- | ------------------------------------------------------------ | | Both counts                | Both halves, added first                                     | | Only added                 | The added half alone, with the pill's whole corner — no &quot;−0&quot; | | Only removed               | The removed half alone — no &quot;+0&quot;                             | | Neither                    | <strong>Not drawn.</strong> A clean checkout is not a zero worth a pill   | | Hover (<code>--action</code>)         | A <code>border.strong</code> hairline inside the edge                   | | Focus-visible (<code>--action</code>) | The product focus ring                                       |</p>
+<h4>Usage</h4>
+<p><strong>The diff channel's inks, never the status tones'.</strong> An addition is not a success and a deletion is not a failure; <code>color.diff.*</code> is the pair the diff viewer draws its lines in, so a theme that tunes its diffs moves this pill with them. The washes are the soft tints the diff viewer lays behind those same inks.</p>
+<p><strong>Numerals in the monospace family, tabular,</strong> so a count that ticks from 9 to 10 grows the pill by one digit and nothing else moves.</p>
+<p><strong>One line.</strong> The pill never wraps and never shrinks; a row too narrow for it moves it elsewhere (the conversation strip's &quot;⋮&quot; menu) rather than cutting it.</p>
+<h4>Accessibility</h4>
+<ul><li>The halves are <code>aria-hidden</code>: &quot;+3&quot; and &quot;−2&quot; are glyphs, not words.</li><li>The pill's name says the counts in words and, as a button, what it opens — &quot;1 file added, 2 updated, 2 removed — open changes&quot;.</li><li>Colour is never the whole message: each half carries its sign.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/diff-stat-pill/component.css</summary><pre><code>/* Diff stat pill — how much a checkout has changed, as one small split pill:
+ * the added half in the diff green on its wash, the removed half in the diff
+ * red on its wash, touching, under one pill corner. Extracted from the shipped
+ * DiffStatPill primitive (src/renderer/src/components/ui/DiffStatPill.tsx).
+ *
+ * The inks are the diff channel's (`color.diff.added` / `color.diff.removed`),
+ * not the status tones': an addition is not a success and a deletion is not a
+ * failure. The washes are the soft tints the diff viewer lays behind the same
+ * inks, so ink and wash arrive from one palette in every theme.
+ *
+ * A half with nothing to say is not drawn — no &quot;+0&quot;, no &quot;−0&quot; — and a pill with
+ * nothing to say is not drawn at all. */
+
+.ds-diff-stat-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: stretch;
+  block-size: var(--sem-size-control-xs);
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  border-radius: var(--sem-radius-pill);
+  padding: 0;
+  background: none;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.ds-diff-stat-pill-added,
+.ds-diff-stat-pill-removed {
+  display: flex;
+  align-items: center;
+  padding-inline: var(--sem-space-xs);
+}
+
+.ds-diff-stat-pill-added {
+  background: var(--sem-color-status-good-soft);
+  color: var(--sem-color-diff-added);
+}
+
+.ds-diff-stat-pill-removed {
+  background: var(--sem-color-status-danger-soft);
+  color: var(--sem-color-diff-removed);
+}
+
+/* As a button: the pill is the control's whole surface, so the hover is a
+   hairline on its own edge rather than a ground behind it. */
+.ds-diff-stat-pill--action {
+  cursor: pointer;
+}
+
+.ds-diff-stat-pill--action:hover {
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-strong);
+}
+
+.ds-diff-stat-pill--action:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/diff-stat-pill/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+  &lt;head&gt;
+    &lt;meta charset=&quot;utf-8&quot; /&gt;
+    &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+    &lt;title&gt;Diff stat pill&lt;/title&gt;
+    &lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+    &lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+    &lt;style&gt;
+      body {
+        margin: 0;
+        font-family: var(--sem-font-family-ui);
+      }
+      .demo-stage {
+        padding: var(--sem-space-3xl);
+        background: var(--sem-color-bg-app);
+        color: var(--sem-color-text-default);
+      }
+      .demo-label {
+        margin: 0 0 var(--sem-space-sm);
+        font-size: var(--sem-font-size-meta);
+        color: var(--sem-color-text-subtle);
+      }
+      /* The strip the pill lives on: one line, items apart by spacing alone. */
+      .demo-strip {
+        display: flex;
+        align-items: center;
+        gap: var(--sem-space-sm);
+        max-width: 420px;
+        margin-bottom: var(--sem-space-lg);
+        padding: var(--sem-space-xs) var(--sem-space-sm);
+        border: 1px solid var(--sem-color-border-subtle);
+        border-radius: var(--sem-radius-control);
+        background: var(--sem-color-bg-surface);
+        white-space: nowrap;
+      }
+      .demo-branch {
+        font-family: var(--sem-font-family-mono);
+        font-size: var(--sem-font-size-meta);
+        color: var(--sem-color-text-subtle);
+      }
+    &lt;/style&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+      &lt;p class=&quot;demo-label&quot;&gt;
+        Light — files added or updated, and files removed, as the strip under a conversation shows them.
+      &lt;/p&gt;
+      &lt;div class=&quot;demo-strip&quot;&gt;
+        &lt;span class=&quot;demo-branch&quot;&gt;fix/cli-update-output&lt;/span&gt;
+        &lt;button
+          type=&quot;button&quot;
+          class=&quot;ds-diff-stat-pill ds-diff-stat-pill--action&quot;
+          aria-label=&quot;3 files updated, 2 removed — open changes&quot;
+        &gt;
+          &lt;span class=&quot;ds-diff-stat-pill-added&quot; aria-hidden=&quot;true&quot;&gt;+3&lt;/span&gt;
+          &lt;span class=&quot;ds-diff-stat-pill-removed&quot; aria-hidden=&quot;true&quot;&gt;−2&lt;/span&gt;
+        &lt;/button&gt;
+      &lt;/div&gt;
+      &lt;p class=&quot;demo-label&quot;&gt;Only additions: the pill is its green half alone. Only removals: its red half alone.&lt;/p&gt;
+      &lt;div class=&quot;demo-strip&quot;&gt;
+        &lt;span class=&quot;ds-diff-stat-pill&quot; role=&quot;img&quot; aria-label=&quot;4 files added&quot;&gt;
+          &lt;span class=&quot;ds-diff-stat-pill-added&quot;&gt;+4&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-diff-stat-pill&quot; role=&quot;img&quot; aria-label=&quot;1 file removed&quot;&gt;
+          &lt;span class=&quot;ds-diff-stat-pill-removed&quot;&gt;−1&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+      &lt;p class=&quot;demo-label&quot;&gt;Dark — the same inks and washes, retuned by the tokens.&lt;/p&gt;
+      &lt;div class=&quot;demo-strip&quot;&gt;
+        &lt;span class=&quot;demo-branch&quot;&gt;…rename-module&lt;/span&gt;
+        &lt;button
+          type=&quot;button&quot;
+          class=&quot;ds-diff-stat-pill ds-diff-stat-pill--action&quot;
+          aria-label=&quot;12 files updated, 3 removed — open changes&quot;
+        &gt;
+          &lt;span class=&quot;ds-diff-stat-pill-added&quot; aria-hidden=&quot;true&quot;&gt;+12&lt;/span&gt;
+          &lt;span class=&quot;ds-diff-stat-pill-removed&quot; aria-hidden=&quot;true&quot;&gt;−3&lt;/span&gt;
+        &lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>
 </div>
@@ -44735,6 +45050,9 @@ triggersOut.textContent = String(document.querySelectorAll('[data-tip]').length)
 <p>One part. The tooltip, when earned, is the system <code>tooltip</code> component — this entry adds no surface of its own.</p>
 <h4>Variants</h4>
 <ul><li><strong>Default</strong> — single line: <code>nowrap</code>, hidden overflow, ellipsis. Overflow is measured by width (<code>scrollWidth &gt; clientWidth</code>).</li><li><strong><code>--multiline</code></strong> — a line clamp for blurbs and descriptions: <code>--ds-truncated-lines</code> (default 2) sets the count, and overflow is measured by height (<code>scrollHeight &gt; clientHeight</code>) so the tooltip appears only when the clamp actually hides a line.</li></ul>
+<h5>Front truncation</h5>
+<p>A name whose END is the meaningful part — a branch, where &quot;fix/&quot; and &quot;feat/&quot; are prefixes every branch shares and the tail says what this one is for — gives its front away instead: &quot;fix/cli-update-output&quot; reads &quot;…cli-update-output&quot;. Shipped as <code>FrontTruncatedText</code> (and the pure <code>frontTruncate</code>) in <code>src/renderer/src/components/ui/FrontTruncatedText.tsx</code>.</p>
+<ul><li><strong>Whole segments first.</strong> Leading <code>/</code> segments leave one at a time (&quot;feat/a/b-c&quot; → &quot;…a/b-c&quot; → &quot;…b-c&quot;); only a last segment too long for the room is cut mid-word, still keeping its end.</li><li><strong>Measured, not CSS.</strong> <code>direction: rtl</code> with an ellipsis moves punctuation to the wrong end and reads it back in the wrong order, which on a branch — all slashes and hyphens — is most of the text.</li><li><strong>A floor.</strong> Below a minimum number of characters the cut stops reading as the name; the host decides what happens then (the conversation strip moves the branch into its &quot;⋮&quot; menu at ten).</li><li><strong>The whole text is what a screen reader hears</strong>: the drawn cut is <code>aria-hidden</code> beside a visually hidden copy of the full one.</li></ul>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Fits | Plain text. No tooltip, no <code>aria-describedby</code>, no cursor change | | Clipped | Ellipsis, and the tooltip contract attaches: shown on hover after the pointer delay, immediately on <code>:focus-visible</code> of the trigger |</p>
 <p>The two states are visually identical up to the ellipsis — being clipped is not an error and gets no tint or underline.</p>

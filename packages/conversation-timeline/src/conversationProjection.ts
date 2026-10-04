@@ -221,8 +221,48 @@ export type UserTurn = {
   skills?: string[]
 }
 
-/** Token counts the session has reported so far; null until the first report. */
-export type ConversationUsage = { inputTokens: number; outputTokens: number }
+/**
+ * Token counts the session has reported so far; null until the first report.
+ *
+ * `inputTokens` / `outputTokens` are the latest exchange's cost as the runtime
+ * reported it. `contextWindow` / `contextUsed` are the context window and how
+ * much of it the conversation holds now — the latest request's size, never a
+ * sum over requests — for a runtime that reports them (Claude Code, Codex and
+ * ACP agents do). Absent is "no reading", which is not the same as zero.
+ */
+export type ConversationUsage = {
+  inputTokens: number
+  outputTokens: number
+  contextWindow?: number
+  contextUsed?: number
+}
+
+/**
+ * The session's usage after one `usage_updated`. An event reports whichever
+ * counter moved, so a field it leaves out keeps the value already held rather
+ * than resetting it to zero — the window's reading as much as the counts: a
+ * runtime that names its window once, at a turn's end, keeps it through the
+ * next turn's mid-stream readings.
+ */
+export function nextConversationUsage(
+  previous: ConversationUsage | null,
+  payload: Record<string, unknown> | undefined,
+): ConversationUsage {
+  const base: ConversationUsage = previous ?? { inputTokens: 0, outputTokens: 0 }
+  const contextWindow = positiveReading(readNumber(payload, 'contextWindow')) ?? base.contextWindow
+  const contextUsed = readNumber(payload, 'contextUsed') ?? base.contextUsed
+  return {
+    inputTokens: readNumber(payload, 'inputTokens') ?? base.inputTokens,
+    outputTokens: readNumber(payload, 'outputTokens') ?? base.outputTokens,
+    ...(contextWindow !== undefined ? { contextWindow } : {}),
+    ...(contextUsed !== undefined && contextUsed >= 0 ? { contextUsed } : {}),
+  }
+}
+
+// A window of zero tokens is a runtime that did not know its size.
+function positiveReading(value: number | undefined): number | undefined {
+  return value !== undefined && value > 0 ? value : undefined
+}
 
 export type ConversationProjection = {
   sessionStatus: ConversationSessionStatus | 'idle'
@@ -883,13 +923,7 @@ export function projectConversation(
         break
       }
       case 'usage_updated': {
-        // An event reports whichever counter moved, so a field it leaves out
-        // keeps the count already accumulated rather than resetting it to zero.
-        const previous: ConversationUsage = usage ?? { inputTokens: 0, outputTokens: 0 }
-        usage = {
-          inputTokens: readNumber(event.payload, 'inputTokens') ?? previous.inputTokens,
-          outputTokens: readNumber(event.payload, 'outputTokens') ?? previous.outputTokens,
-        }
+        usage = nextConversationUsage(usage, event.payload)
         // A report stamped with its turn is that turn's own count.
         if (turnId) {
           const turn = ensureTurn(turnId)
@@ -913,6 +947,21 @@ export function projectConversation(
           ...(readNumber(event.payload, 'postTokens') !== undefined
             ? { postTokens: readNumber(event.payload, 'postTokens') }
             : {}),
+        }
+        // A compaction gives context back. The window holds what the summary
+        // left where the runtime says how much that is, and is unread until
+        // the next request otherwise — the size from before is no longer true.
+        // Widened on purpose: the fold assigns `usage` in other cases of this
+        // switch, which narrowing at this point does not see.
+        const held = usage as ConversationUsage | null
+        if (held && held.contextUsed !== undefined) {
+          const postTokens = readNumber(event.payload, 'postTokens')
+          usage = {
+            inputTokens: held.inputTokens,
+            outputTokens: held.outputTokens,
+            ...(held.contextWindow !== undefined ? { contextWindow: held.contextWindow } : {}),
+            ...(postTokens !== undefined ? { contextUsed: postTokens } : {}),
+          }
         }
         if (turnId) {
           ensureTurn(turnId)

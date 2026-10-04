@@ -38,6 +38,14 @@ export type EnginePickerChipProps = {
   placement?: 'bottom-start' | 'top-start'
   /** The rendered shortcut that toggles the picker, for the chip's tip; absent when unbound. */
   shortcutLabel?: string | null
+  /**
+   * A standing warning about what the picker holds — a running chat's
+   * permissions at Bypass, or at a preset it cannot run — in words. The chip
+   * wears the warn tint and says the words in its tip and its name, because
+   * the permissions it would otherwise show on a chip of their own are inside
+   * the picker now, and a safeguard that is off must not go quiet with them.
+   */
+  warn?: string | null
 }
 
 export function EnginePickerChip({
@@ -54,6 +62,7 @@ export function EnginePickerChip({
   groupNote,
   placement = 'bottom-start',
   shortcutLabel,
+  warn,
 }: EnginePickerChipProps): JSX.Element {
   const names = engineNames(options, cli, model)
   const label = names.modelLabel ?? names.cliLabel
@@ -75,11 +84,15 @@ export function EnginePickerChip({
             ref={ref}
             variant="raised"
             tone="neutral"
+            // The permission chip's own warn tint, carried here with the
+            // control it moved into: an ink and its soft ground, not a fill.
+            {...(warn ? { tint: 'var(--tone-warn)' } : {})}
             onClick={togglePopover}
             // Named, not left to its contents: the chip is a mark plus a
             // truncated label, and it is the only way to the model, effort and
             // permissions the picker holds.
-            aria-label={`Engine: ${label}`}
+            aria-label={warn ? `Engine: ${label} — ${warn}` : `Engine: ${label}`}
+            data-engine-warn={warn ? 'true' : undefined}
             {...triggerProps}
           >
             {/* The CLI's own mark is the identity — the word "claude" beside a
@@ -90,8 +103,10 @@ export function EnginePickerChip({
             <ChevronGlyph />
           </ChipButton>
         )
-        return shortcutLabel ? (
-          <Tooltip content={`Model and permissions (${shortcutLabel})`} placement="top">
+        const tip = shortcutLabel ? `Model and permissions (${shortcutLabel})` : null
+        const content = warn ? (tip ? `${warn} · ${tip}` : warn) : tip
+        return content ? (
+          <Tooltip content={content} placement="top">
             {chip}
           </Tooltip>
         ) : (

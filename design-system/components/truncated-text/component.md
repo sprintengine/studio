@@ -30,6 +30,26 @@ entry adds no surface of its own.
   measured by height (`scrollHeight > clientHeight`) so the tooltip appears
   only when the clamp actually hides a line.
 
+### Front truncation
+
+A name whose END is the meaningful part — a branch, where "fix/" and "feat/"
+are prefixes every branch shares and the tail says what this one is for — gives
+its front away instead: "fix/cli-update-output" reads "…cli-update-output".
+Shipped as `FrontTruncatedText` (and the pure `frontTruncate`) in
+`src/renderer/src/components/ui/FrontTruncatedText.tsx`.
+
+- **Whole segments first.** Leading `/` segments leave one at a time
+  ("feat/a/b-c" → "…a/b-c" → "…b-c"); only a last segment too long for the
+  room is cut mid-word, still keeping its end.
+- **Measured, not CSS.** `direction: rtl` with an ellipsis moves punctuation
+  to the wrong end and reads it back in the wrong order, which on a branch —
+  all slashes and hyphens — is most of the text.
+- **A floor.** Below a minimum number of characters the cut stops reading as
+  the name; the host decides what happens then (the conversation strip moves
+  the branch into its "⋮" menu at ten).
+- **The whole text is what a screen reader hears**: the drawn cut is
+  `aria-hidden` beside a visually hidden copy of the full one.
+
 ## States
 
 | State | Treatment |

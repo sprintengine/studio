@@ -16,11 +16,16 @@ import { COMPOSER_MATERIAL_CLASS, COMPOSER_SURFACE_CLASS } from './tokens'
 
 const RENDERER = join(process.cwd(), 'src', 'renderer', 'src')
 
-/** The files allowed to draw the composer's corner: the token itself and the two composers. */
+/**
+ * The files allowed to draw the composer's corner: the token itself, the two
+ * composers, and the strip both tuck under their box, whose lower corners are
+ * `radius.composer-strip` — the same family, named for that one strip.
+ */
 const COMPOSERS = new Set([
   'components/ui/tokens.ts',
   'components/ui/index.ts',
   'components/workspace/agentComposer/NewAgentPanel.tsx',
+  'components/workspace/agentComposer/ComposerStrip.tsx',
   'components/panels/AgentChatView.tsx',
 ])
 

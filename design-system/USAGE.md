@@ -198,7 +198,6 @@ unspecified by construction rather than by ruling. Closed 2026-09-08:
 | `LoadingOverlay` | [spinner](components/spinner/component.md) |
 | `CapabilityGlyphs` | [glyphs](components/glyphs/component.md) |
 | `FileTree` (`FileTreeRow`, `FileTreeRootRow`, `FileTreePinnedRow`, `FileTreeRows`) | [file-tree](components/file-tree/component.md) |
-| `FoldedControls` (`useMeasuredFold`) | [chip-button](components/chip-button/component.md), under *Folding a raised row* |
 
 **Two files are non-visual plumbing and get no entry, which is not the same as
 being undocumented.** `FocusTrap` renders two `sr-only` sentinels and nothing

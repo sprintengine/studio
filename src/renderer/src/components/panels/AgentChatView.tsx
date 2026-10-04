@@ -62,16 +62,14 @@ import {
   FOCUS_RING_INSET_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   GhostButton,
-  IconButton,
+  HiddenFileInput,
   InlineNotice,
   OutlineButton,
   Spinner,
   useWorkspaceSkills,
   Textarea,
-  Tooltip,
   TruncatedText,
 } from '../ui'
-import { FoldedControls, useMeasuredFold } from '../ui/FoldedControls'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import {
   CONVERSATION_DEFAULT_MODEL_ID,
@@ -89,7 +87,11 @@ import { lockedChatEngineOption, isModelDerivedChatName } from './agentChat/chat
 import { EnginePickerChip } from '../workspace/agentComposer/enginePicker'
 import type { CliRuntimeOption } from '../ui/CliModelPicker'
 import { PermissionFooter, usePermissionModeOptions } from '../workspace/agentComposer/spawnFooter'
-import { PRESET_CHIP_LABEL, selectedPermissionOption } from '../workspace/agentComposer/agentSpawnShared'
+import {
+  PRESET_CHIP_LABEL,
+  agentPermissionChipLabel,
+  selectedPermissionOption,
+} from '../workspace/agentComposer/agentSpawnShared'
 import { useAgentCliCatalogOptions } from '../workspace/agentComposer/useAgentComposer'
 import { conversationCliRuntimesFor } from '../workspace/newWorkspace/cliRuntimeOptions'
 import {
@@ -118,7 +120,11 @@ import { useLocalChatBinding, type ChatBinding } from './agentChat/chatBinding'
 import { latestReplyTurnId } from './agentChat/turnFolds'
 import { useComposerDraft, type ComposerDraftMetadata } from './agentChat/useComposerDraft'
 import { useComposerRecall } from './agentChat/composerRecall'
-import { ComposerContextChips, ComposerSkillsPicker, useComposerContextPicker } from './agentChat/composerContextPicker'
+import { ComposerContextChips, SkillContextChip, useComposerContextPicker } from './agentChat/composerContextPicker'
+import { ComposerPlusMenu } from '../workspace/agentComposer/ComposerPlusMenu'
+import { conversationContextReading } from './agentChat/contextReading'
+import { ConversationComposerStrip } from './agentChat/conversationStrip'
+import { useConversationStripFacts } from './agentChat/conversationStripFacts'
 import { studioAppCommands, useConversationCommands } from './agentChat/useConversationCommands'
 import { composerAppCommand } from './agentChat/composerAppCommands'
 import { commandInsertText } from './agentChat/slashCommandMenu'
@@ -250,9 +256,10 @@ const END_FOLLOW_TRIGGERS = { dataChange: true, itemLayout: true, layout: true }
 // has not loaded so effects keyed on the derived list do not re-run each render.
 const EMPTY_MODELS: ConversationProviderModel[] = []
 
-// The width below which the composer row folds its secondary controls: attach,
-// skills, the model chip, permissions and send at a typical model name's width.
-const COMPOSER_ROW_FOLD_WIDTH = 460
+// What a chat hands the skills picker for MCP servers: none — a chat reads
+// skills only, and the picker is told not to list servers.
+const NO_MCP_SERVERS: never[] = []
+const ignoreMcpServers = (): void => undefined
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -274,8 +281,11 @@ type Props = {
 // `FOCUS_RING_WITHIN_TEXTAREA_CLASS`, which is the pairing that variant exists
 // for. The bounds are the caller's, per the variant's contract, and they are the
 // same pair the new-chat composer uses.
-const COMPOSER_CLASS =
-  'max-h-[280px] min-h-[40px] overflow-y-auto rounded-t-[var(--sem-radius-composer)] px-4 pb-1 pt-3'
+// The field inside the box: the box's own padding (`px-5 pb-1 pt-4`, the New
+// chat composer's) is on its wrapper, so the field draws none. One row to start
+// — a running chat's box should not take the transcript's room for an empty
+// prompt — growing with its content to a ceiling, then scrolling.
+const COMPOSER_CLASS = 'max-h-[280px] min-h-[40px] w-full overflow-y-auto'
 
 type PendingAction = 'starting' | 'sending' | 'stopping' | null
 
@@ -655,9 +665,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // An image drag is over the composer; drives the drop-target affordance.
   const [dropActive, setDropActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  // Below its budget the composer row folds its secondary controls behind one
-  // chevron rather than wrapping or crushing them.
-  const [composerRowFolded, composerRowRef] = useMeasuredFold(COMPOSER_ROW_FOLD_WIDTH)
   const attachmentSeqRef = useRef(0)
   // Type-ahead queue (D6/1776): a message the user committed while the session
   // was busy. It holds until the turn unlocks, then auto-sends as a follow-up
@@ -2010,8 +2017,20 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       chatCliOption.label)
     : null
   const currentModelLabel = chatModelLabel ?? currentModel?.displayName ?? conversation.modelId
-  const contextLength = currentModel?.contextLength
-  const usedTokens = projection.usage ? projection.usage.inputTokens + projection.usage.outputTokens : 0
+  // How full the context window is: the runtime's own report first, then the
+  // CLI model catalog's window for this chat's model, then a provider
+  // catalog's context length (contextReading.ts). The strip's ring and the
+  // tray's nearly-full row read the one answer.
+  const catalogContextWindow = useWorkspaceStore((state) =>
+    chatCli && chatModel
+      ? state.appSettings.cliModelCatalog?.[chatCli]?.models.find((entry) => entry.id === chatModel)?.contextWindow
+      : undefined,
+  )
+  const contextReading = conversationContextReading({
+    usage: projection.usage,
+    catalogWindow: catalogContextWindow,
+    providerContextLength: currentModel?.contextLength,
+  })
   // ⌘⇧M toggles the model picker (registered as
   // `chat.modelPicker.toggle` so the Shortcuts settings, the
   // palette and the conflict suite all know the chord). The shell's dispatcher
@@ -2574,35 +2593,38 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const billingNotice = apiKeyBillingNotice(projection.apiKeySource)
   const requestPending = pendingApprovalEntries.length > 0
 
-  // The composer row's secondary controls, named once so the fold can move
-  // them into its popover without a second copy of each.
-  const composerAttachControl = imagesEnabled ? (
-    <Tooltip content="Attach an image" placement="top">
-      <IconButton aria-label="Attach an image" onClick={() => fileInputRef.current?.click()}>
-        <PaperclipGlyph className="icon-sm" />
-      </IconButton>
-    </Tooltip>
-  ) : null
-  const composerSkillsControl = supportsSkills ? (
-    <ComposerSkillsPicker workspaceRoot={workspaceRoot} skills={attachedSkills} onSkillsChange={setAttachedSkills} />
-  ) : null
-  const composerPermissionControl =
-    chatCli && permissionsEditable ? (
-      <PermissionFooter
-        options={permissionOptions}
-        preset={permissionPreset}
-        mode={permissionMode}
-        placement="top-start"
-        disabled={permissionChanging}
-        disabledReasons={permissionDisabledReasons}
-        onSelect={(next) => void changePermissionPreset(next.value, next.mode)}
-      />
-    ) : null
-  // Folding must not hide a standing warning: the chevron wears the warn tint
-  // the permissions chip would have.
-  const composerPermissionWarn = Boolean(
-    composerPermissionControl && (permissionPreset === 'bypass' || presetRefusals?.[permissionPreset]),
-  )
+  // The chat's permissions, on the engine picker's trailing row beside effort —
+  // the same place a launch from New chat picks them — bound to this chat's
+  // own preset, which a live session changes in place.
+  const composerPermissions =
+    chatCli && permissionsEditable
+      ? () => (
+          <PermissionFooter
+            options={permissionOptions}
+            preset={permissionPreset}
+            mode={permissionMode}
+            disabled={permissionChanging}
+            disabledReasons={permissionDisabledReasons}
+            onSelect={(next) => void changePermissionPreset(next.value, next.mode)}
+          />
+        )
+      : null
+  // A safeguard that is off (Bypass), or a preset this chat cannot run, is a
+  // standing warning. Its chip used to say so on the row; inside the picker it
+  // would go quiet, so the engine chip carries the warn tint and the words.
+  const composerPermissionWarn = composerPermissions
+    ? (presetRefusals?.[permissionPreset] ??
+      (permissionPreset === 'bypass'
+        ? `Permissions: ${agentPermissionChipLabel(permissionOptions, permissionPreset, permissionMode)}`
+        : null))
+    : null
+  const stripFacts = useConversationStripFacts({
+    workspaceId,
+    agentId,
+    workspace: binding.workspace,
+    workspaceRoot,
+    transport,
+  })
   return (
     <ConversationLinkProvider
       workspaceId={workspaceId}
@@ -2816,10 +2838,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                       onCompact={() => void sendTurn('/compact')}
                     />
                   ) : null}
-                  {contextLength ? (
+                  {contextReading ? (
                     <ContextWindowNotice
-                      used={usedTokens}
-                      total={contextLength}
+                      used={contextReading.used}
+                      total={contextReading.total}
                       onCompact={
                         operate && (chatCli === 'claude-code' || chatCli === 'codex')
                           ? () => void sendTurn('/compact')
@@ -2898,11 +2920,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             </ComposerTray>
 
             {/*
-             * Composer: a single rounded field that holds the textarea and a footer
-             * control row (model chip + permission chip + send), so the input reads
-             * as one surface. The model lives here — picked before the first
-             * message, then locked. While an approval card is pending the disabled
-             * placeholder says why the composer is waiting.
+             * Composer: the New chat composer's box (owner ruling 2026-10-04) —
+             * the field, then one row under it: the "+" (attach, skills), a tag
+             * for each skill attached, the engine chip (model, effort and
+             * permissions) and send. The model is picked before the first
+             * message, then locked. While an approval card is pending the
+             * disabled placeholder says why the composer is waiting. Under the
+             * box, the strip says where the agent works and how full its
+             * context is.
              */}
             <div
               className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
@@ -2919,197 +2944,204 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 </div>
               ) : null}
               {contextPicker.picker}
-              <ComposerAttachmentStrip attachments={attachments} reading={attachingCount} onRemove={removeAttachment} />
+              <ComposerAttachmentStrip
+                attachments={attachments}
+                reading={attachingCount}
+                onRemove={removeAttachment}
+                className="px-5 pt-4"
+              />
+              {/* The files and folders @-mentioned into the draft. The skills
+                  attached sit on the row under the field, as tags beside the
+                  "+" that attached them. */}
               <ComposerContextChips
-                skills={supportsSkills ? attachedSkills : []}
                 mentions={draftMetadata.mentions}
-                onRemoveSkill={(id) => setAttachedSkills(attachedSkills.filter((skill) => skill.id !== id))}
                 onRemoveMention={(mention) =>
                   setDraftMetadata((current) => ({
                     ...current,
                     mentions: current.mentions.filter((entry) => entry !== mention),
                   }))
                 }
-                onOpenSkill={skillReader.openSkill}
               />
               <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
                 Message {label}
               </label>
-              <Textarea
-                ref={composerRef}
-                variant="composer"
-                resize="none"
-                {...contextPicker.comboboxProps}
-                id={`chat-composer-${agentId}`}
-                value={draft}
-                onBlur={flushDraft}
-                onPaste={(event) => {
-                  // A pasted screenshot only exists as a clipboard item; a text
-                  // paste reports no image and falls through to the default —
-                  // unless the text is only paths to images outside the
-                  // workspace, which attach instead.
-                  if (!imagesEnabled) return
-                  const files = imageFilesFromDataTransfer(event.clipboardData)
-                  if (files.length > 0) {
-                    event.preventDefault()
-                    void attachFiles(files)
-                    return
-                  }
-                  const text = event.clipboardData.getData('text/plain')
-                  const paths = pastedImagePaths(
-                    text,
-                    transport.capabilities.localFiles && workspaceRoot ? [workspaceRoot] : [],
-                  )
-                  if (!paths) return
-                  event.preventDefault()
-                  const field = event.currentTarget
-                  void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
-                }}
-                onChange={(event) => {
-                  detachRecall()
-                  const value = event.target.value
-                  setDraft(value)
-                  setComposerCaret(event.target.selectionStart)
-                }}
-                onSelect={(event) => setComposerCaret(event.currentTarget.selectionStart)}
-                onContextMenu={(event) => void openComposerMenu(event)}
-                onKeyDown={(event) => {
-                  if (event.nativeEvent.isComposing) return
-                  if (contextPicker.handleKeyDown(event)) return
-                  if (
-                    event.key === 'Backspace' &&
-                    event.currentTarget.selectionStart === 0 &&
-                    event.currentTarget.selectionEnd === 0
-                  ) {
-                    if (draftMetadata.mentions.length) {
+              <div className="px-5 pb-1 pt-4">
+                <Textarea
+                  ref={composerRef}
+                  variant="composer"
+                  resize="none"
+                  {...contextPicker.comboboxProps}
+                  id={`chat-composer-${agentId}`}
+                  value={draft}
+                  onBlur={flushDraft}
+                  onPaste={(event) => {
+                    // A pasted screenshot only exists as a clipboard item; a text
+                    // paste reports no image and falls through to the default —
+                    // unless the text is only paths to images outside the
+                    // workspace, which attach instead.
+                    if (!imagesEnabled) return
+                    const files = imageFilesFromDataTransfer(event.clipboardData)
+                    if (files.length > 0) {
                       event.preventDefault()
-                      setDraftMetadata((current) => ({ ...current, mentions: current.mentions.slice(0, -1) }))
+                      void attachFiles(files)
                       return
                     }
-                    if (supportsSkills && attachedSkills.length) {
+                    const text = event.clipboardData.getData('text/plain')
+                    const paths = pastedImagePaths(
+                      text,
+                      transport.capabilities.localFiles && workspaceRoot ? [workspaceRoot] : [],
+                    )
+                    if (!paths) return
+                    event.preventDefault()
+                    const field = event.currentTarget
+                    void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
+                  }}
+                  onChange={(event) => {
+                    detachRecall()
+                    const value = event.target.value
+                    setDraft(value)
+                    setComposerCaret(event.target.selectionStart)
+                  }}
+                  onSelect={(event) => setComposerCaret(event.currentTarget.selectionStart)}
+                  onContextMenu={(event) => void openComposerMenu(event)}
+                  onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing) return
+                    if (contextPicker.handleKeyDown(event)) return
+                    if (
+                      event.key === 'Backspace' &&
+                      event.currentTarget.selectionStart === 0 &&
+                      event.currentTarget.selectionEnd === 0
+                    ) {
+                      if (draftMetadata.mentions.length) {
+                        event.preventDefault()
+                        setDraftMetadata((current) => ({ ...current, mentions: current.mentions.slice(0, -1) }))
+                        return
+                      }
+                      if (supportsSkills && attachedSkills.length) {
+                        event.preventDefault()
+                        setAttachedSkills(attachedSkills.slice(0, -1))
+                        return
+                      }
+                      if (attachments.length) {
+                        event.preventDefault()
+                        setAttachments((current) => current.slice(0, -1))
+                        return
+                      }
+                    }
+                    if (handleRecallKeyDown(event)) return
+                    if (event.key === 'Escape' && stopsTurnOnEscape(event)) {
                       event.preventDefault()
-                      setAttachedSkills(attachedSkills.slice(0, -1))
+                      void interrupt()
                       return
                     }
-                    if (attachments.length) {
+                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
                       event.preventDefault()
-                      setAttachments((current) => current.slice(0, -1))
+                      commitComposerNow()
                       return
                     }
-                  }
-                  if (handleRecallKeyDown(event)) return
-                  if (event.key === 'Escape' && stopsTurnOnEscape(event)) {
-                    event.preventDefault()
-                    void interrupt()
-                    return
-                  }
-                  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
-                    event.preventDefault()
-                    commitComposerNow()
-                    return
-                  }
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault()
-                    submitComposer()
-                  }
-                }}
-                placeholder={composerPlaceholder}
-                rows={1}
-                disabled={composerInputDisabled}
-                className={COMPOSER_CLASS}
-              />
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault()
+                      submitComposer()
+                    }
+                  }}
+                  placeholder={composerPlaceholder}
+                  rows={1}
+                  disabled={composerInputDisabled}
+                  className={COMPOSER_CLASS}
+                />
+              </div>
               {/* What the picked command takes after it, until the person types
                 past the pick. Under the field rather than as ghost text in it:
                 a textarea draws no inline decoration, and an overlay would
                 have to track its wrapping and scroll. */}
               {commandHint && commandHint.draft === draft ? (
-                <p className="truncate px-3 pb-1 font-mono text-meta text-[color:var(--text-subtle)]">
+                <p className="truncate px-5 pb-1 font-mono text-meta text-[color:var(--text-subtle)]">
                   /{commandHint.command} {commandHint.hint}
                 </p>
               ) : null}
-              {/* Tokens only, never money: a chat runs on the person's CLI
-                subscription, and the SDK's dollar figure is an API-price
-                estimate that reads as a bill. */}
-              {contextLength ? (
-                <div className="flex items-center justify-end gap-2 px-3 pb-1">
-                  <ContextMeter used={usedTokens} total={contextLength} />
-                </div>
-              ) : null}
-              <div ref={composerRowRef} className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
-                <div className="flex min-w-0 items-center gap-1">
-                  {/* Outside the fold: the picker it serves opens from a button
-                      that may live in the fold's popover, and the file arrives
-                      after that popover has gone. */}
-                  {imagesEnabled ? (
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept={ATTACHABLE_IMAGE_TYPES.join(',')}
-                      multiple
-                      className="hidden"
-                      onChange={(event) => {
-                        const files = Array.from(event.target.files ?? [])
-                        // Clearing lets the same file be picked twice in a row.
-                        event.target.value = ''
-                        void attachFiles(files)
-                      }}
-                    />
-                  ) : null}
-                  {/* A squashed chat keeps the model and send in the row and
-                      folds the rest behind one chevron (owner ruling
-                      2026-10-01), rather than wrapping or crushing every chip. */}
-                  {/* A squashed chat keeps the model and send in the row and
-                      folds the rest behind one chevron (owner ruling
-                      2026-10-01), rather than wrapping or crushing every chip.
-                      Unfolded, the row keeps its order: attach and skills,
-                      the model, then permissions beside it. */}
-                  {composerRowFolded ? (
-                    <FoldedControls folded ariaLabel="More composer options" warn={composerPermissionWarn}>
-                      {composerAttachControl}
-                      {composerSkillsControl}
-                      {composerPermissionControl}
-                    </FoldedControls>
-                  ) : (
-                    <>
-                      {composerAttachControl}
-                      {composerSkillsControl}
-                    </>
-                  )}
-                  {chatCli ? (
-                    <EnginePickerChip
-                      cli={chatCli}
-                      options={chatPickerOptions}
-                      model={chatModel}
-                      reasoning={reasoningEffort}
-                      open={modelMenuOpen}
-                      onOpenChange={setModelMenuOpen}
-                      placement="top-start"
-                      shortcutLabel={modelPickerShortcutLabel}
-                      onSelectCli={() => selectModel(conversation.providerId, CONVERSATION_DEFAULT_MODEL_ID)}
-                      onSelectModel={(_cli, next) =>
-                        selectModel(conversation.providerId, next ?? CONVERSATION_DEFAULT_MODEL_ID)
-                      }
-                      onSelectReasoning={(_cli, next) => changeReasoningEffort(next ?? undefined)}
-                      {...(modelLocked && modelSwitch
-                        ? { groupNote: { cli: chatCli, note: '· model is set once the chat starts' } }
-                        : {})}
-                      // A chat's permissions are its own chip beside this one
-                      // (owner request 2026-09-30), not a row inside the model
-                      // picker: they change far more often than the model, at
-                      // any point in the conversation.
-                      permissions={() => null}
-                    />
-                  ) : (
-                    // A provider that is not a CLI (an API-key provider) has no
-                    // picker of this kind; its model is shown, not chosen.
-                    <TruncatedText
-                      as="span"
-                      text={currentModelLabel}
-                      className="max-w-[180px] px-1.5 text-meta text-[color:var(--text-muted)]"
-                    />
-                  )}
-                  {composerRowFolded ? null : composerPermissionControl}
-                </div>
+              {/* The controls, on the box's own ground with no rule above
+                  them: the "+", a tag for each skill attached, the engine and
+                  the send — the New chat composer's row, so the two boxes are
+                  one object. It is short enough not to fold; a pane too narrow
+                  even for it wraps it rather than hiding a control. */}
+              <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2.5 pt-1.5">
+                {/* Outside the menu: the picker it serves opens from a row of
+                    the "+" menu, and the file arrives after that menu has gone. */}
+                {imagesEnabled ? (
+                  <HiddenFileInput
+                    ref={fileInputRef}
+                    accept={ATTACHABLE_IMAGE_TYPES.join(',')}
+                    onFiles={(files) => void attachFiles(files)}
+                  />
+                ) : null}
+                {imagesEnabled || supportsSkills ? (
+                  <ComposerPlusMenu
+                    placement="top-start"
+                    onAttach={imagesEnabled ? () => fileInputRef.current?.click() : undefined}
+                    skills={
+                      supportsSkills
+                        ? {
+                            workspaceRoot,
+                            // A chat stages skills itself, so the workspace-wide
+                            // inventory is its list; it reads no MCP servers.
+                            pluginId: null,
+                            skills: attachedSkills,
+                            onSkillsChange: setAttachedSkills,
+                            mcpServers: NO_MCP_SERVERS,
+                            onMcpServersChange: ignoreMcpServers,
+                            includeMcps: false,
+                          }
+                        : undefined
+                    }
+                  />
+                ) : null}
+                {/* The tags: each skill attached to the next turn. */}
+                {supportsSkills
+                  ? attachedSkills.map((skill) => (
+                      <SkillContextChip
+                        key={skill.id}
+                        skill={skill}
+                        onRemove={() => setAttachedSkills(attachedSkills.filter((entry) => entry.id !== skill.id))}
+                        onOpen={() => skillReader.openSkill(skill)}
+                      />
+                    ))
+                  : null}
+
+                <span className="flex-1" />
+
+                {chatCli ? (
+                  <EnginePickerChip
+                    cli={chatCli}
+                    options={chatPickerOptions}
+                    model={chatModel}
+                    reasoning={reasoningEffort}
+                    open={modelMenuOpen}
+                    onOpenChange={setModelMenuOpen}
+                    placement="top-start"
+                    shortcutLabel={modelPickerShortcutLabel}
+                    warn={composerPermissionWarn}
+                    onSelectCli={() => selectModel(conversation.providerId, CONVERSATION_DEFAULT_MODEL_ID)}
+                    onSelectModel={(_cli, next) =>
+                      selectModel(conversation.providerId, next ?? CONVERSATION_DEFAULT_MODEL_ID)
+                    }
+                    onSelectReasoning={(_cli, next) => changeReasoningEffort(next ?? undefined)}
+                    {...(modelLocked && modelSwitch
+                      ? { groupNote: { cli: chatCli, note: '· model is set once the chat starts' } }
+                      : {})}
+                    // Permissions on the picker's trailing row beside effort, as
+                    // a launch picks them: one place for how the agent runs.
+                    // Where this chat cannot change them, the row has none.
+                    permissions={composerPermissions ?? (() => null)}
+                  />
+                ) : (
+                  // A provider that is not a CLI (an API-key provider) has no
+                  // picker of this kind; its model is shown, not chosen.
+                  <TruncatedText
+                    as="span"
+                    text={currentModelLabel}
+                    className="max-w-[180px] px-1.5 text-meta text-[color:var(--text-muted)]"
+                  />
+                )}
                 {projection.activeTurn && !operate ? null : projection.activeTurn ? (
                   <ComposerActionButton
                     tone="neutral"
@@ -3159,6 +3191,15 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 />
               ) : null}
             </div>
+            {/* Tokens only, never money: a chat runs on the person's CLI
+                subscription, and the SDK's dollar figure is an API-price
+                estimate that reads as a bill. */}
+            <ConversationComposerStrip
+              machine={stripFacts.machine}
+              branch={stripFacts.branch}
+              changes={stripFacts.changes}
+              context={contextReading}
+            />
           </div>
           {replay ? (
             <ConversationReplayView
@@ -3201,40 +3242,10 @@ function ChatShell({
   )
 }
 
-// Where the context window counts as nearly full: the meter's ring turns amber
-// and the composer tray says so in words.
+// Where the context window counts as nearly full: the composer tray says so in
+// words. (The strip's ring turns amber earlier, at its own threshold — a
+// glance's nudge before the words.)
 const CONTEXT_NEAR_FULL = 0.9
-
-// Compact context-window meter: a ring that fills as the conversation consumes
-// the model's context, plus "used / total" in tokens. Shown only when the
-// provider reports a context length (e.g. OpenRouter's `context_length`).
-function ContextMeter({ used, total }: { used: number; total: number }) {
-  const fraction = Math.max(0, Math.min(1, total > 0 ? used / total : 0))
-  const radius = 6
-  const circumference = 2 * Math.PI * radius
-  const nearFull = fraction >= CONTEXT_NEAR_FULL
-  return (
-    <Tooltip content={`Context used: ${used.toLocaleString()} / ${total.toLocaleString()} tokens`} placement="top">
-      <span className="inline-flex items-center gap-1 rounded-sm px-1.5 py-1 text-micro tabular-nums text-[color:var(--text-muted)]">
-        <svg className="icon-sm -rotate-90" viewBox="0 0 16 16" aria-hidden="true">
-          <circle cx="8" cy="8" r={radius} fill="none" stroke="var(--border-strong)" strokeWidth="2" />
-          <circle
-            cx="8"
-            cy="8"
-            r={radius}
-            fill="none"
-            stroke={nearFull ? 'var(--tone-warn)' : 'var(--accent-primary)'}
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={circumference * (1 - fraction)}
-          />
-        </svg>
-        {formatTokens(used)}
-      </span>
-    </Tooltip>
-  )
-}
 
 // The context window nearly full, as a row of the composer tray. Compacting is
 // offered where the chat's CLI runs `/compact`. "Not now" holds until the window
@@ -3408,20 +3419,6 @@ async function writeClipboardText(text: string): Promise<boolean> {
   } catch {
     return false
   }
-}
-
-function PaperclipGlyph({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path
-        d="M13.75 8.5l-4.6 4.6a2.4 2.4 0 0 1-3.4-3.4l5.6-5.6a3.4 3.4 0 0 1 4.8 4.8l-5.6 5.6a4.4 4.4 0 0 1-6.2-6.2l4.6-4.6"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
 }
 
 function StopGlyph({ className }: { className?: string }) {

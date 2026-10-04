@@ -1293,6 +1293,39 @@ test('a subagent is a lane: its steps nest under it, its words and end are its o
   expect(payloads(events, 'content_delta').map((payload) => payload.text)).toEqual(['It said PONG.'])
 })
 
+test('a usage update says the model’s window and the latest request’s size, never the session’s running sum', async () => {
+  const f = fixture()
+  const breakdown = (totalTokens: number) => ({
+    totalTokens,
+    inputTokens: totalTokens - 100,
+    cachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
+    outputTokens: 100,
+    reasoningOutputTokens: 0,
+  })
+  const events = await runTurn(f, [
+    {
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId: 'native-thread',
+        tokenUsage: { total: breakdown(900_000), last: breakdown(41_000), modelContextWindow: 272_000 },
+      },
+    },
+    // A model Codex has no size for reports a null window: no reading, not zero.
+    {
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId: 'native-thread',
+        tokenUsage: { total: breakdown(950_000), last: breakdown(43_000), modelContextWindow: null },
+      },
+    },
+  ])
+  const usage = payloads(events, 'usage_updated')
+  expect(usage[0]).toMatchObject({ contextWindow: 272_000, contextUsed: 41_000, totalTokens: 41_000 })
+  expect(usage[1]).toMatchObject({ contextUsed: 43_000 })
+  expect(usage[1]).not.toHaveProperty('contextWindow')
+})
+
 test('a thread that is neither this one nor a subagent of it is still refused', async () => {
   const f = fixture()
   await runTurn(f, [

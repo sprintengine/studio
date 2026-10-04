@@ -27,3 +27,14 @@ test('redaction keeps token counts, including the compaction sizes, but not a to
   // A string under a counting name is still treated as a secret.
   assert.equal(redactConversationValue({ refreshTokens: 'private' }).refreshTokens, '[redacted]')
 })
+
+test('redaction keeps the context window reading a usage report carries to a paired device', () => {
+  const payload = {
+    turnId: 't1',
+    inputTokens: 81_010,
+    outputTokens: 550,
+    contextWindow: 1_000_000,
+    contextUsed: 41_250,
+  }
+  assert.deepEqual(redactConversationValue({ type: 'usage_updated', payload }).payload, payload)
+})

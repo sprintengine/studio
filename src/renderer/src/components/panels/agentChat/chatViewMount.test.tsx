@@ -98,6 +98,8 @@ async function mountChat({
   sendTurn = async () => ({ ok: false, message: 'Not scripted.' }),
   setModel,
   plugins,
+  api: extraApi = {},
+  cliModelCatalog,
 }: {
   events?: ConversationEvent[]
   capabilities?: Record<string, unknown>
@@ -108,6 +110,9 @@ async function mountChat({
   sendTurn?: SendTurn
   setModel?: (input: { sessionId: string; modelId: string }) => Promise<unknown>
   plugins?: unknown[]
+  /** More of the window's api: git reads for the strip, say. */
+  api?: Record<string, unknown>
+  cliModelCatalog?: Record<string, unknown>
 }) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
@@ -166,6 +171,7 @@ async function mountChat({
       conversationSessionSendTurn: sendTurn,
       conversationThreads: async () => ({ ok: true, threads: [] }),
       ...(setModel ? { conversationSessionSetModel: setModel } : {}),
+      ...extraApi,
     },
   })
   installStudioLoopback(dom.window as unknown as { api: Record<string, unknown> })
@@ -177,6 +183,10 @@ async function mountChat({
   composerDraftStore().getState().remove('workspace', 'agent')
   if (plugins)
     useWorkspaceStore.setState({ pluginCatalogEntries: plugins as never, pluginCatalogStatus: 'ready' as never })
+  if (cliModelCatalog)
+    useWorkspaceStore.setState((state) => ({
+      appSettings: { ...state.appSettings, cliModelCatalog: cliModelCatalog as never },
+    }))
   useWorkspaceStore.setState({
     workspaces: [
       {
@@ -289,9 +299,10 @@ test('the composer offers one engine chip — no plan toggle, no separate permis
     const buttons = () => Array.from(chat.dom.window.document.querySelectorAll('button'))
     const chips = buttons().filter((item) => item.getAttribute('aria-label')?.startsWith('Engine:'))
     expect(chips).toHaveLength(1)
-    // The permissions chip names the mode the chat is on (Auto, by default);
-    // nothing else is a control of its own for one.
+    // The permissions are not a chip of their own on the row any more: they
+    // sit on the picker's trailing row, as a launch's do.
     const permissionChip = (item: Element) => item.getAttribute('aria-label')?.startsWith('Permissions:')
+    expect(buttons().some(permissionChip)).toBe(false)
     for (const retired of ['Plan', 'Bypass permissions', 'CLI default', 'Auto']) {
       expect(
         buttons().some((item) => !permissionChip(item) && item.textContent?.trim() === retired),
@@ -304,6 +315,8 @@ test('the composer offers one engine chip — no plan toggle, no separate permis
     const rail = chat.dom.window.document.querySelector('[role="radiogroup"][aria-label="Provider"]')
     expect(rail?.querySelectorAll('[role="radio"]')).toHaveLength(1)
     expect(chat.dom.window.document.querySelector('[role="listbox"][aria-label="Agent runtime"]')).not.toBeNull()
+    // The chat's own permissions, on the picker's trailing row.
+    expect(buttons().filter(permissionChip)).toHaveLength(1)
   } finally {
     await chat.unmount()
   }
@@ -1407,5 +1420,165 @@ test("a replay asked for from the tab's menu waits for the transcript, then open
     expect(replay?.textContent).not.toContain('First, the changelog.')
   } finally {
     await chat.unmount()
+  }
+})
+
+test('the composer row is the New chat’s: the "+" opens attach and skills, with no paperclip or Skills chip beside it', async () => {
+  const chat = await mountChat({ capabilities: { images: true, skills: 'workspace' } })
+  try {
+    const buttons = () => Array.from(chat.dom.window.document.querySelectorAll('button'))
+    const named = (label: string) => buttons().find((item) => item.getAttribute('aria-label') === label)
+    expect(named('Attach an image')).toBeUndefined()
+    expect(buttons().some((item) => item.textContent?.trim() === 'Skills')).toBe(false)
+    const plus = named('Options')
+    expect(plus?.getAttribute('data-composer-options')).toBe('true')
+    await chat.act(async () => plus!.click())
+    const menu = chat.dom.window.document.querySelector('[role="menu"][aria-label="Options"]')
+    expect(menu?.textContent).toContain('Attach files')
+    expect(menu?.textContent).toContain('Skills, plugins & MCPs')
+    // A running chat is a conversation already, and it is not a schedule.
+    expect(menu?.querySelector('[role="group"][aria-label="Start as"]')).toBeNull()
+    expect(menu?.querySelector('[data-composer-schedule]')).toBeNull()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chat whose provider reads no images offers no Attach files under the "+"', async () => {
+  const chat = await mountChat({ capabilities: { skills: 'workspace' } })
+  try {
+    const plus = chat.host.querySelector<HTMLButtonElement>('[data-composer-options]')
+    await chat.act(async () => plus!.click())
+    const menu = chat.dom.window.document.querySelector('[role="menu"][aria-label="Options"]')
+    expect(menu?.textContent).not.toContain('Attach files')
+    expect(menu?.textContent).toContain('Skills, plugins & MCPs')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('the strip under the composer pins the context ring right, its tooltip the token counts', async () => {
+  const chat = await mountChat({
+    events: [
+      event('user_message', { turnId: 'a', text: 'Earlier message' }),
+      event('usage_updated', { inputTokens: 90_000, outputTokens: 400, contextWindow: 200_000, contextUsed: 76_000 }),
+    ],
+  })
+  try {
+    const strip = chat.host.querySelector('[data-conversation-strip]')
+    const ring = strip?.querySelector<HTMLElement>('[data-strip-context] [role="img"]')
+    const counts = `${(76_000).toLocaleString()} / ${(200_000).toLocaleString()} tokens`
+    expect(ring?.getAttribute('aria-label')).toBe(`Context 38% used, ${counts}`)
+    expect(ring?.closest('[data-strip-context]')?.className).toContain('ml-auto')
+    await chat.act(async () => ring!.focus())
+    expect(chat.dom.window.document.querySelector('[role="tooltip"]')?.textContent).toBe(counts)
+    // The ring is the strip's; the old meter row above the composer row is gone.
+    expect(chat.host.textContent).not.toContain('Context used:')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a CLI chat’s ring takes its window from the CLI model catalog when the runtime names none', async () => {
+  const chat = await mountChat({
+    providerId: 'claude-agent',
+    modelId: 'opus',
+    cliModelCatalog: {
+      'claude-code': { fetchedAt: 1, models: [{ id: 'opus', label: 'Opus', contextWindow: 200_000 }] },
+    },
+    events: [event('usage_updated', { contextUsed: 50_000 })],
+  })
+  try {
+    const ring = chat.host.querySelector('[data-strip-context] [role="img"]')
+    expect(ring?.getAttribute('aria-label')).toMatch(/^Context 25% used, /)
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('with no usage reported the strip draws no ring, rather than an empty one', async () => {
+  const chat = await mountChat({ providerModels: [{ id: 'mock-model', contextLength: 200_000 }] })
+  try {
+    expect(chat.host.querySelector('[data-strip-context]')).toBeNull()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+// The git reads a strip asks this machine for: the chat's checkout, its
+// branch, and how many files it has changed.
+const gitApi = (branch: string, files: { added: number; updated: number; removed: number } | null = null) => ({
+  getGitRepoRoot: async (path: string) => path,
+  getGitBranches: async () => ({ current: branch, branches: [branch] }),
+  watchGitCheckout: () => () => undefined,
+  getWorkspaceChangeSummary: async () => ({
+    additions: 10,
+    deletions: 2,
+    changedFiles: files ? files.added + files.updated + files.removed : 0,
+    scope: 'folder',
+    ...(files ? { files } : {}),
+  }),
+})
+
+test('the strip names the branch the agent is on and opens the file explorer from it; no worktree, no machine here', async () => {
+  const chat = await mountChat({ api: gitApi('fix/cli-update-output') })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    const strip = chat.host.querySelector('[data-conversation-strip]')!
+    const branch = strip.querySelector<HTMLButtonElement>('[data-strip-branch]')
+    expect(branch?.getAttribute('data-strip-branch')).toBe('fix/cli-update-output')
+    expect(branch?.getAttribute('aria-label')).toBe('Branch fix/cli-update-output — open in file explorer')
+    expect(branch?.textContent).toBe('fix/cli-update-output')
+    // On this computer, on the workspace's own checkout: no machine, no worktree.
+    expect(strip.querySelector('[data-strip-machine]')).toBeNull()
+    expect(branch?.querySelector('svg')).toBeNull()
+    // The project is the title bar's to name, not the strip's.
+    expect(strip.textContent).not.toContain('project')
+    const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+    const openPaneTab = vi.fn(() => null)
+    await chat.act(async () => useWorkspaceStore.setState({ openPaneTab } as never))
+    await chat.act(async () => branch!.click())
+    expect(openPaneTab).toHaveBeenCalledWith('workspace', { kind: 'files' })
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('an agent in a worktree of its own wears the worktree mark on its branch', async () => {
+  const chat = await mountChat({
+    api: gitApi('agent/rename-module'),
+    agent: { execution: { mode: 'worktree', cwd: '/Users/dev/project/.worktrees/rename-module' } },
+  })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    const branch = chat.host.querySelector('[data-conversation-strip] [data-strip-branch]')
+    expect(branch?.getAttribute('aria-label')).toBe('Branch agent/rename-module, in a worktree — open in file explorer')
+    expect(branch?.querySelector('svg')).not.toBeNull()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('the strip’s diff counts are a split pill that opens the Git panel, and a clean checkout draws none', async () => {
+  const chat = await mountChat({ api: gitApi('main', { added: 1, updated: 2, removed: 2 }) })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    const pill = chat.host.querySelector<HTMLButtonElement>('[data-conversation-strip] [data-diff-stat-pill]')
+    expect(pill?.getAttribute('aria-label')).toBe('1 file added, 2 updated, 2 removed — open changes')
+    expect(pill?.textContent).toBe('+3−2')
+    const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+    const togglePaneKind = vi.fn(() => true)
+    await chat.act(async () => useWorkspaceStore.setState({ togglePaneKind } as never))
+    await chat.act(async () => pill!.click())
+    expect(togglePaneKind).toHaveBeenCalledWith('workspace', 'git')
+  } finally {
+    await chat.unmount()
+  }
+  const clean = await mountChat({ api: gitApi('main', { added: 0, updated: 0, removed: 0 }) })
+  try {
+    await clean.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(clean.host.querySelector('[data-diff-stat-pill]')).toBeNull()
+  } finally {
+    await clean.unmount()
   }
 })

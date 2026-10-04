@@ -1,0 +1,62 @@
+/* Diff stat pill — how much a checkout has changed, as one small split pill:
+ * the added half in the diff green on its wash, the removed half in the diff
+ * red on its wash, touching, under one pill corner. Extracted from the shipped
+ * DiffStatPill primitive (src/renderer/src/components/ui/DiffStatPill.tsx).
+ *
+ * The inks are the diff channel's (`color.diff.added` / `color.diff.removed`),
+ * not the status tones': an addition is not a success and a deletion is not a
+ * failure. The washes are the soft tints the diff viewer lays behind the same
+ * inks, so ink and wash arrive from one palette in every theme.
+ *
+ * A half with nothing to say is not drawn — no "+0", no "−0" — and a pill with
+ * nothing to say is not drawn at all. */
+
+.ds-diff-stat-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: stretch;
+  block-size: var(--sem-size-control-xs);
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  border-radius: var(--sem-radius-pill);
+  padding: 0;
+  background: none;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.ds-diff-stat-pill-added,
+.ds-diff-stat-pill-removed {
+  display: flex;
+  align-items: center;
+  padding-inline: var(--sem-space-xs);
+}
+
+.ds-diff-stat-pill-added {
+  background: var(--sem-color-status-good-soft);
+  color: var(--sem-color-diff-added);
+}
+
+.ds-diff-stat-pill-removed {
+  background: var(--sem-color-status-danger-soft);
+  color: var(--sem-color-diff-removed);
+}
+
+/* As a button: the pill is the control's whole surface, so the hover is a
+   hairline on its own edge rather than a ground behind it. */
+.ds-diff-stat-pill--action {
+  cursor: pointer;
+}
+
+.ds-diff-stat-pill--action:hover {
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-strong);
+}
+
+.ds-diff-stat-pill--action:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}

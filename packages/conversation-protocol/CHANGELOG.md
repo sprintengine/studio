@@ -4,6 +4,12 @@
 
 ### Added
 
+- **`usage_updated` says how full the context window is.** `contextWindow`
+  (the model's window, in tokens) and `contextUsed` (the tokens in it now:
+  the latest request's size, not a sum) are reported by Claude Code and Codex
+  chats as well as ACP agents, which already sent them. Both are optional
+  payload members, so a reader that does not know them skips them, and the
+  wire validator passes them through. The pinned files are unchanged.
 - **A listed chat names its machine and its pull requests.** `host`
   (`ConversationWireHost`: `id`, `kind`, `label`, `color`) and `pullRequests`
   (`ConversationWirePullRequest`: `number`, `state`, `url`, `title`, at most

@@ -33,6 +33,13 @@ export const CONVERSATION_EVENT_TYPES = [
   'tool_output',
   'approval_requested',
   'approval_resolved',
+  // What the session spent and how full its context window is. Each member is
+  // optional and a report carries the ones that moved: `inputTokens`,
+  // `cachedInputTokens`, `outputTokens`, `totalTokens` (the exchange's cost),
+  // `promptCache`, `costUsd`, and `contextWindow` (the model's window, in
+  // tokens) with `contextUsed` (the tokens in the window now — the latest
+  // request's size, never a sum over requests). Claude Code, Codex and ACP
+  // agents report the last two.
   'usage_updated',
   // The provider summarised the conversation to free context (payload:
   // `trigger` 'manual' | 'auto', `preTokens`, `postTokens`).

@@ -1668,9 +1668,21 @@ test('AgentChatView', async () => {
     /^[\s\S]{0,400}?attachments: turnAttachments/,
     'the send IPC carries the staged attachments, not just the text',
   )
-  for (const handler of ['onPaste=', 'onDrop:', 'onDragOver:', 'type="file"']) {
+  for (const handler of ['onPaste=', 'onDrop:', 'onDragOver:', '<HiddenFileInput']) {
     assert.ok(chatViewSource.includes(handler), `the composer wires ${handler}`)
   }
+  // The "+" menu's Attach files row clicks the kit's hidden file input, whose
+  // pick stages images through the same attach path as paste and drop.
+  assert.match(
+    chatViewSource.slice(chatViewSource.indexOf('<HiddenFileInput')),
+    /^[\s\S]{0,300}?onFiles=\{\(files\) => void attachFiles\(files\)\}/,
+    'a picked file attaches through attachFiles',
+  )
+  assert.match(
+    chatViewSource.slice(chatViewSource.indexOf('<ComposerPlusMenu')),
+    /^[\s\S]{0,200}?onAttach=\{imagesEnabled \? \(\) => fileInputRef\.current\?\.click\(\) : undefined\}/,
+    'the "+" offers Attach files only where the chat reads images',
+  )
   assert.ok(
     chatViewSource.includes('dropHandlers={fileDropHandlers}'),
     'a file dropped anywhere on the chat lands in the composer, not only on the field',
