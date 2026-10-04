@@ -225,9 +225,11 @@ export const OVERLAY_CHROME_CLASS =
  *   (owner ruling 2026-10-04). It was the shell radius, and before that the two
  *   composers had shipped `rounded-md` on `bg-app` and `rounded-lg` on
  *   `bg-surface`, two materials for one thing.
- * - a raised-to-surface wash — both stops are tokens; flat white in light
- *   mode (the hairline is the whole edge there), a quiet top-lit
- *   gradient in dark.
+ * - `--composer-fill` — one step above the conversation's raised paper,
+ *   settling a little toward it at the bottom: white on a light theme, the
+ *   hover rung on a dark one (index.css, beside --agent-surface). It was a
+ *   raised-to-surface wash, which stopped reading as a step once the
+ *   conversation itself moved onto the raised paper.
  * - `shadow.control-raised` — its inset top highlight IS the dark-mode "lit
  *   edge"; deliberately the raw token, not `.control-raised`, whose disabled
  *   step belongs to buttons, not to a field. Since the control tiers (owner
@@ -239,7 +241,7 @@ export const OVERLAY_CHROME_CLASS =
  * stylesheet order. No blur anywhere on this — terminals render beneath.
  */
 export const COMPOSER_SURFACE_CLASS =
-  'rounded-[var(--sem-radius-composer)] border bg-[image:linear-gradient(var(--bg-surface-raised),var(--bg-surface))] shadow-[var(--shadow-control-raised)]'
+  'rounded-[var(--sem-radius-composer)] border bg-[image:var(--composer-fill)] shadow-[var(--shadow-control-raised)]'
 
 /**
  * The composer's material without its corner: the wash, the hairline and the
@@ -249,8 +251,7 @@ export const COMPOSER_SURFACE_CLASS =
  * is the composer's alone, and a square button in a 22px corner pokes out of
  * the curve.
  */
-export const COMPOSER_MATERIAL_CLASS =
-  'border bg-[image:linear-gradient(var(--bg-surface-raised),var(--bg-surface))] shadow-[var(--shadow-control-raised)]'
+export const COMPOSER_MATERIAL_CLASS = 'border bg-[image:var(--composer-fill)] shadow-[var(--shadow-control-raised)]'
 
 /* ------------------------------------------------------------------ *
  * Overlay geometry — one scale for every floating surface

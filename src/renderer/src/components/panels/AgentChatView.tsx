@@ -61,6 +61,7 @@ import {
   SendGlyph,
   FOCUS_RING_INSET_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
+  FloatingButton,
   GhostButton,
   HiddenFileInput,
   InlineNotice,
@@ -2762,14 +2763,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           </div>
           <div inert={replay !== null} className="chat-column-gutter relative pb-4 pt-1">
             {!atBottom && timelineRows.length > 0 ? (
-              <OutlineButton
+              // Solid at rest, not the outline's transparent ground: it floats
+              // over the transcript, and a see-through pill let the text run
+              // through its label (see FloatingButton in ui/Buttons).
+              <FloatingButton
                 size="xs"
                 onClick={jumpToLatest}
                 className="absolute -top-10 left-1/2 z-[var(--z-float)] -translate-x-1/2 whitespace-nowrap"
               >
                 <ChevronDownIcon className="icon-xs shrink-0" />
                 {newReplies > 0 ? `${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : 'Jump to latest'}
-              </OutlineButton>
+              </FloatingButton>
             ) : null}
             {/*
              * The composer tray: everything the chat has to say about the next
