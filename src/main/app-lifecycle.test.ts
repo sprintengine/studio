@@ -88,6 +88,13 @@ test('app-lifecycle', async () => {
           throw new Error('canvas worker gone')
         },
       },
+      // A recording an agent started is saved, with its length, before the
+      // canvas and the registry's last write.
+      browserRecorder: {
+        stopAll: async () => {
+          order.push('browserRecorder.stopAll')
+        },
+      },
       analytics: {
         shutdown: async () => {
           order.push('analytics.shutdown')
@@ -153,6 +160,7 @@ test('app-lifecycle', async () => {
       'pullRequests.flush',
       'pullRequests.dispose',
       'conversation.shutdown',
+      'browserRecorder.stopAll',
       'canvas.dispose',
       'workspaceSync.flush',
       // Not the integrations' removal: the new build writes them straight back.

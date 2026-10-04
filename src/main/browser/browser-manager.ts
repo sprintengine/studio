@@ -23,6 +23,7 @@ import {
   type BrowserHostKey,
   type BrowserLoadError,
   type BrowserPointerEvent,
+  type BrowserRecordingState,
   type BrowserRegisterInput,
   type BrowserRegisterResult,
   type BrowserScreenshotResult,
@@ -667,6 +668,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
           devToolsOpen: wc.isDevToolsOpened(),
           controller: 'none',
           network: remote ? 'remote' : 'local',
+          recording: null,
         },
         dispose: () => {},
         epoch: 0,
@@ -779,6 +781,12 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     onHumanInput(listener: (tabId: string) => void): () => void {
       humanInputListeners.add(listener)
       return () => humanInputListeners.delete(listener)
+    },
+
+    /** A recording started or ended on a tab: the toolbar shows it while it runs. */
+    setRecording(tabId: string, recording: BrowserRecordingState | null): void {
+      const tab = requireTab(tabId)
+      if (tab) patch(tab, { recording })
     },
 
     /** Where the agent's pointer is about to act, for the host window's cursor overlay. */

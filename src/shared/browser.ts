@@ -89,9 +89,53 @@ export type BrowserTabState = {
    * `localhost` is the machine's; `local` otherwise.
    */
   network?: 'remote' | 'local'
+  /**
+   * An agent is recording this tab to video (`browser.record_start`). The
+   * toolbar says so, with a timer and a Stop button, for as long as it runs.
+   */
+  recording?: BrowserRecordingState | null
 }
 
 export type BrowserController = 'human' | 'agent' | 'none'
+
+// Main ↔ the window hosting a tab, for a recording of it.
+export const BROWSER_RECORDING_START_CHANNEL = 'browser:recording-start'
+export const BROWSER_RECORDING_STOP_CHANNEL = 'browser:recording-stop'
+export const BROWSER_RECORDING_STARTED_CHANNEL = 'browser:recording-started'
+export const BROWSER_RECORDING_CHUNK_CHANNEL = 'browser:recording-chunk'
+export const BROWSER_RECORDING_ENDED_CHANNEL = 'browser:recording-ended'
+
+/** A recording running on a tab, as the person is shown it. */
+export type BrowserRecordingState = {
+  recordingId: string
+  /** Epoch ms when capture began. */
+  startedAt: number
+  /** It ends by itself this long after `startedAt`. */
+  maxDurationMs: number
+}
+
+/**
+ * Main asks the window hosting a tab to record it (`browser:recording-start`).
+ * The window captures the guest's own frames, draws the agent's cursor over
+ * them when `cursor` is set, and sends back WebM chunks.
+ */
+export type BrowserRecordingStart = {
+  recordingId: string
+  tabId: string
+  frameRate: number
+  /** The video's longer edge in pixels; the page is scaled down to fit. */
+  maxEdge: number
+  bitsPerSecond: number
+  cursor: boolean
+}
+
+/** The window's answer once capture is running, or why it is not (`browser:recording-started`). */
+export type BrowserRecordingStarted =
+  | { recordingId: string; ok: true; mimeType: string; width: number; height: number; cursor: boolean }
+  | { recordingId: string; ok: false; message: string }
+
+/** The window's last word on a recording, after its last chunk (`browser:recording-ended`). */
+export type BrowserRecordingEnded = { recordingId: string; durationMs?: number; error?: string }
 
 /** Where the agent's pointer is, in CSS px of the guest viewport (`browser:pointer`). */
 export type BrowserPointerEvent = {
@@ -99,6 +143,11 @@ export type BrowserPointerEvent = {
   x: number
   y: number
   kind: 'move' | 'click' | 'wheel'
+  /**
+   * The guest viewport's size in the same CSS px, read with the point: what a
+   * recording needs to place the cursor on a frame of any size.
+   */
+  viewport?: { width: number; height: number }
 }
 
 export type BrowserClearResult = { ok: true } | { ok: false; message: string }

@@ -63,6 +63,9 @@ import type {
   BrowserConfig,
   BrowserHostKey,
   BrowserPointerEvent,
+  BrowserRecordingEnded,
+  BrowserRecordingStart,
+  BrowserRecordingStarted,
   BrowserRegisterInput,
   BrowserRegisterResult,
   BrowserScreenshotResult,
@@ -582,6 +585,19 @@ export type ElectronApi = {
   onBrowserState: (cb: (state: BrowserTabState) => void) => () => void
   onBrowserFocusUrl: (cb: (payload: { tabId: string }) => void) => () => void
   onBrowserHostKey: (cb: (payload: { tabId: string; key: BrowserHostKey }) => void) => () => void
+  /** The person's Stop on a recording an agent started on this tab. */
+  browserStopRecording: (tabId: string) => Promise<boolean>
+  /**
+   * Main asks this window to record one of its tabs (`browser.record_start`):
+   * the window captures the guest, encodes it and answers with the three sends below.
+   */
+  onBrowserRecordingStart: (cb: (start: BrowserRecordingStart) => void) => () => void
+  onBrowserRecordingStop: (cb: (payload: { recordingId: string }) => void) => () => void
+  browserRecordingStarted: (payload: BrowserRecordingStarted) => void
+  /** One chunk of a recording's WebM, in order. */
+  browserRecordingChunk: (recordingId: string, bytes: Uint8Array) => void
+  /** After the last chunk. */
+  browserRecordingEnded: (payload: BrowserRecordingEnded) => void
   // The Canvas pane (src/shared/canvas). Main owns the `.excalidraw` file, the
   // revision and the merge; a tab subscribes by opening a board and is pushed
   // every accepted scene until it closes it. Every path crossing here is

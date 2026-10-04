@@ -828,9 +828,12 @@ The pane stays the desktop's native `<webview>`, with DevTools, file drag and
 drop, rich clipboard, inline PDFs and the password manager, on every server
 the desktop attaches to. The agents' `browser.*` tools (`open`, `navigate`,
 `click`, `type`, `press`, `scroll`, `hover`, `evaluate`, `snapshot`,
-`screenshot`, `console`, `network`, `resize`, `set_appearance`, `wait_for`, …)
-are the desktop's `browser` toolset: `browser-control.ts` keeps driving the
-pane through `wc.debugger` and `capturePage`, and the person-wins rule (a
+`screenshot`, `console`, `network`, `resize`, `set_appearance`, `wait_for`,
+`record_start`, `record_stop`, …) are the desktop's `browser` toolset:
+`browser-control.ts` keeps driving the pane through `wc.debugger` and
+`capturePage`, a recording is captured and encoded by the window hosting the
+tab and written into the calling agent's workspace
+([`browser-recording.md`](browser-recording.md)), and the person-wins rule (a
 person's input bumps the tab's epoch, and an agent action in flight yields
 `interrupted`) stays where it is. With no window open (the tray), the shell
 keeps a workspace's tabs as offscreen web contents in the same partition, so

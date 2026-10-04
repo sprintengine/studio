@@ -120,6 +120,9 @@ import { createAgentChangelistFeed } from './agent-changelist-feed'
 import { createTerminalPullRequests, type TerminalPullRequests } from './terminal-pull-requests'
 import { createBrowserManager } from './browser/browser-manager'
 import { createBrowserControl } from './browser/browser-control'
+import { createBrowserRecorder } from './browser/browser-recorder'
+import { createHostRecordingEncoder } from './browser/recording-encoder'
+import { createWorkspaceRecordingOutputs } from './browser/recording-output'
 import { createBrowserTools } from './automation/browser-tools'
 import { createCanvasTools } from './automation/canvas-tools'
 import { createEditorTools } from './automation/editor-tools'
@@ -1266,6 +1269,30 @@ export function createAppServices(
   })
   const browserControl = createBrowserControl(browserManager)
   browserManager.onUnregister((tabId) => browserControl.forget(tabId))
+  // Recording a tab to video for the agents' `browser.record_*` tools: the
+  // window hosting the tab captures and encodes it, and the file goes into the
+  // calling agent's workspace (docs/design/browser-recording.md).
+  const browserRecorder = createBrowserRecorder({
+    encoder: createHostRecordingEncoder({ ipcMain, tabs: browserManager }),
+    outputs: createWorkspaceRecordingOutputs({
+      resolveWorkspaceRoot: (workspaceId) =>
+        workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
+          ?.folderPath ?? null,
+      machineLabel: (id) => ssh?.environments.list().find((machine) => machine.id === id)?.label ?? null,
+    }),
+    publish: (tabId, recording) => browserManager.setRecording(tabId, recording),
+    describeTab: (tabId) => {
+      try {
+        return new URL(browserManager.state(tabId)?.url ?? '').host
+      } catch {
+        return ''
+      }
+    },
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Browser recording', message })
+    },
+  })
+  browserManager.onUnregister((tabId) => browserRecorder.tabClosed(tabId))
 
   // The Canvas pane's main half. It owns the `.excalidraw` files under a
   // workspace root — the SAME root the browser sidecar and the backlog resolve
@@ -1381,6 +1408,7 @@ export function createAppServices(
   const browserTools = createBrowserTools({
     manager: browserManager,
     control: browserControl,
+    recorder: browserRecorder,
     hasWorkspace: (workspaceId) =>
       workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
   })
@@ -1894,6 +1922,7 @@ export function createAppServices(
     agentConfigImportService,
     agentStateService,
     browserManager,
+    browserRecorder,
     canvasService,
     canvasSubscribers,
     automationService,

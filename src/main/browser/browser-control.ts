@@ -1,5 +1,7 @@
 import type { WebContents } from 'electron'
 
+import type { BrowserPointerEvent } from '../../shared/browser'
+
 // The agent's hands on a browser tab (browser-pane epic, child 6). One
 // in-process DevTools-protocol session per tab, shared with the appearance
 // emulation in browser-manager: Chromium allows a single client per target, so
@@ -105,7 +107,7 @@ export type BrowserControlManager = {
   /** Subscribe to the person's own input on any tab (the epoch bumps). */
   onHumanInput(listener: (tabId: string) => void): () => void
   /** Where the agent's pointer is about to act, for the cursor overlay. */
-  notePointer(event: { tabId: string; x: number; y: number; kind: 'move' | 'click' | 'wheel' }): void
+  notePointer(event: BrowserPointerEvent): void
 }
 
 /** What a snapshot ref or selector resolves to inside the page. */
@@ -126,6 +128,11 @@ type Session = {
   dialog: BrowserDialog | null
   /** Told when a dialog opens, so an action already waiting on the page can stop. */
   onDialog: Set<(dialog: BrowserDialog) => void>
+  /**
+   * The viewport's CSS size when the last point was read, sent with each
+   * pointer event so a recording can place the cursor on its frames.
+   */
+  viewport: { width: number; height: number } | null
   dispose: () => void
 }
 
@@ -361,6 +368,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
         attached: false,
         dialog: null,
         onDialog: new Set(),
+        viewport: null,
         dispose: () => {},
       }
       const onMessage = (_event: unknown, method: string, params: Record<string, unknown>) =>
@@ -635,12 +643,12 @@ export function createBrowserControl(manager: BrowserControlManager) {
         const r = el.getBoundingClientRect();
         const cs = getComputedStyle(el);
         if (cs.visibility === 'hidden' || cs.display === 'none' || (r.width === 0 && r.height === 0)) return { hidden: true };
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, vw: innerWidth, vh: innerHeight };
       })()`,
       false,
     )
     if (exception) return fail('cdp', exception)
-    const found = value as { missing?: boolean; hidden?: boolean; x?: number; y?: number }
+    const found = value as { missing?: boolean; hidden?: boolean; x?: number; y?: number; vw?: number; vh?: number }
     if (found.missing) {
       return fail(
         'not_found',
@@ -651,7 +659,13 @@ export function createBrowserControl(manager: BrowserControlManager) {
     }
     if (found.hidden || typeof found.x !== 'number' || typeof found.y !== 'number')
       return fail('not_visible', 'The element is not visible.')
+    noteViewport(s, found.vw, found.vh)
     return { x: found.x, y: found.y }
+  }
+
+  function noteViewport(s: Session, width: unknown, height: unknown): void {
+    if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0)
+      s.viewport = { width, height }
   }
 
   async function mouse(
@@ -665,7 +679,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
     // cursor is already there when the click lands.
     const kind =
       type === 'mousePressed' ? 'click' : type === 'mouseWheel' ? 'wheel' : type === 'mouseMoved' ? 'move' : null
-    if (kind) manager.notePointer({ tabId: s.tabId, x, y, kind })
+    if (kind) manager.notePointer({ tabId: s.tabId, x, y, kind, ...(s.viewport ? { viewport: s.viewport } : {}) })
     await input(s, 'Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1, ...extra })
   }
 
@@ -861,8 +875,14 @@ export function createBrowserControl(manager: BrowserControlManager) {
             if ('ok' in located) return located
             point = located
           } else {
-            const { value } = await evaluateRaw(s, '({ x: innerWidth / 2, y: innerHeight / 2 })', false)
-            point = (value as { x: number; y: number }) ?? { x: 100, y: 100 }
+            const { value } = await evaluateRaw(
+              s,
+              '({ x: innerWidth / 2, y: innerHeight / 2, vw: innerWidth, vh: innerHeight })',
+              false,
+            )
+            const centre = value as { x: number; y: number; vw?: number; vh?: number } | null
+            if (centre) noteViewport(s, centre.vw, centre.vh)
+            point = centre ? { x: centre.x, y: centre.y } : { x: 100, y: 100 }
           }
           const interrupted = checkpoint()
           if (interrupted) return interrupted
