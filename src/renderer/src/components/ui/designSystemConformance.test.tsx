@@ -443,9 +443,10 @@ test('designSystemConformance', async () => {
     // tabs above are — a contract that holds only in the file that declares it is
     // not a contract the composed tree keeps.
     //
-    // `ContextRing` is the new primitive this card brought
-    // (design-system/components/context-ring), so the rules it has to satisfy
-    // are asserted on the card that consumes it rather than in isolation.
+    // `ContextRing` is the primitive this card brought
+    // (design-system/components/context-ring). The card now wears it as the
+    // context line's glyph, beside the words, so the rules asserted here are the
+    // decorative mode's: drawn, and neither announced nor focused a second time.
 
     const { ConversationPeekCard } = await import('../workspace/ConversationPeekCard')
     const peekContainer = dom.window.document.createElement('div')
@@ -457,6 +458,7 @@ test('designSystemConformance', async () => {
         React.createElement(ConversationPeekCard, {
           identity: {
             name: 'Improve Git Diff Viewing',
+            place: { machine: { label: 'studio-mini', kind: 'remote' }, branch: 'git-diff' },
             status: { kind: 'working', label: 'Working' },
             agent: {
               sessionId: '309703f3-0000-1756',
@@ -490,50 +492,18 @@ test('designSystemConformance', async () => {
                 },
               ],
               activeSubagents: 2,
-              contextUsage: { usedPercentage: 38, at: peekNow },
-              fileChanges: [
-                {
-                  path: '/repo/src/renderer/src/components/git/GitDiffPane.tsx',
-                  additions: 48,
-                  deletions: 12,
-                  edits: 3,
-                  lastEditedAt: peekNow,
-                },
-              ],
+              contextUsage: { usedPercentage: 38, at: peekNow, contextWindowSize: 200_000 },
             },
           },
-          peek: {
-            sessionId: '309703f3-0000-1756',
-            source: 'live',
-            first: {
-              id: 'm1',
-              text: 'I think we need to improve our git panel',
-              at: peekNow - 3_120_000,
-              truncatedChars: 0,
-            },
-            since: [
-              {
-                id: 'm2',
-                text: '1A is definitely more in line with what we want',
-                at: peekNow - 1_740_000,
-                truncatedChars: 0,
-              },
-            ],
-          },
-          loading: false,
           now: peekNow,
-          copied: false,
-          onCopySession: () => {},
-          onOpenDiff: () => {},
-        } as never),
+        }),
       )
     })
 
-    await run('the peek card composes: a corner, a ring, a file row and a thread', () => {
+    await run('the peek card composes: a corner and one line per fact', () => {
       assert.ok(peekContainer.querySelector('.working-mark'), 'the corner drew the sidebar’s mark')
-      assert.ok(peekContainer.querySelector('[aria-label="Context 38% used"]'), 'the ring drew')
-      assert.ok(peekContainer.querySelector('[aria-label^="Open the diff for"]'), 'the changed file drew as a link')
-      assert.equal(peekContainer.querySelectorAll('li').length, 2, 'and the thread is one list of two rows')
+      assert.equal(peekContainer.querySelectorAll('li').length, 4, 'machine, branch, model and context')
+      assert.ok(peekContainer.querySelector('[aria-label="Context: 76k / 200k tokens · 38%"]'), 'the context line drew')
     })
 
     await run('every control on the peek card has an accessible name', () => {
@@ -569,23 +539,12 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('the context ring is a named graphic on a full-size hit target', () => {
-      const ring = peekContainer.querySelector('[aria-label="Context 38% used"]') as Element
-      assert.equal(ring.getAttribute('role'), 'img', 'a graphic, not a control — it does nothing when pressed')
-      assert.equal(ring.getAttribute('tabindex'), '0', 'but focusable: a hover-only tooltip is not a reveal')
-      assert.ok(
-        classesOf(ring).some((token) => token.includes('--hit-target-min')),
-        'a 14px mark sits inside the 24px hit-target floor',
-      )
-      assert.ok(
-        classesOf(ring).some((token) => token.includes('focus-ring')),
-        'and wears the product focus ring rather than a border swap',
-      )
-      assert.equal(
-        ring.querySelector('svg')?.getAttribute('aria-hidden'),
-        'true',
-        'the label lives on the target, so the mark is announced once',
-      )
+    await run('the context ring on the card is decorative — the line beside it carries the words', () => {
+      const line = peekContainer.querySelector('[aria-label^="Context:"]') as Element
+      const ring = line.querySelector('svg') as Element
+      assert.ok(ring, 'the ring drew as the line’s glyph')
+      assert.ok(ring.closest('[aria-hidden="true"]'), 'and is hidden, so the reading is announced once')
+      assert.equal(line.querySelector('[tabindex]'), null, 'with no focus stop that would only repeat its neighbour')
     })
 
     await run('the peek card spells no colour of its own — every one is a token', () => {
@@ -607,25 +566,6 @@ test('designSystemConformance', async () => {
           )
         }
       }
-    })
-
-    await run('a file row is the kit link, not a hand-rolled box', () => {
-      const row = peekContainer.querySelector('[aria-label^="Open the diff for"]') as Element
-      assert.equal(row.tagName, 'BUTTON', 'a control, so it has a focus ring and a role')
-      const classes = classesOf(row)
-      assert.ok(
-        classes.some((token) => token.includes('focus-ring')),
-        'wearing the shared ring',
-      )
-      assert.ok(
-        !classes.some((token) => /^h-\d|^min-h-control/.test(token)),
-        'and no control height: six of these have to read as a list, not as six buttons',
-      )
-      assert.match(
-        row.getAttribute('aria-label') ?? '',
-        /GitDiffPane\.tsx$/,
-        'named by the whole path, because three files in a list can share a basename',
-      )
     })
 
     act(() => {

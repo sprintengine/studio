@@ -3073,7 +3073,7 @@ test('terminal-runtime', async () => {
           statusLine: { usedPercentage: 8, contextWindowSize: 200_000, totalCostUsd: 0.5, model: 'Opus' },
         }),
       )
-      assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 8, at: base + 100 })
+      assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 8, at: base + 100, contextWindowSize: 200_000 })
       assert.equal(await sentSessionsChanges(), 1, 'a context reading is broadcast-worthy on its own')
 
       // The same whole percent again is not news, however much the cost moved.
@@ -3081,7 +3081,11 @@ test('terminal-runtime', async () => {
       runtime.ingestAgentStateFrame(
         frame({ ts: base + 200, statusLine: { usedPercentage: 8, totalCostUsd: 0.9, linesAdded: 40 } }),
       )
-      assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 8, at: base + 100 }, 'the timestamp holds too')
+      assert.deepEqual(
+        snapshot()?.contextUsage,
+        { usedPercentage: 8, at: base + 100, contextWindowSize: 200_000 },
+        'the timestamp holds too',
+      )
       assert.equal(await sentSessionsChanges(), 0, 'an unchanged percentage must not repaint every window')
 
       // A /compact reports the percentage as null, which arrives as an absent
@@ -3090,7 +3094,7 @@ test('terminal-runtime', async () => {
       runtime.ingestAgentStateFrame(frame({ ts: base + 300, statusLine: { totalCostUsd: 1.1, sessionName: 'ledger' } }))
       assert.deepEqual(
         snapshot()?.contextUsage,
-        { usedPercentage: 8, at: base + 100 },
+        { usedPercentage: 8, at: base + 100, contextWindowSize: 200_000 },
         'a null percentage after a compact keeps the last known reading',
       )
       assert.equal(await sentSessionsChanges(), 0)
@@ -3098,7 +3102,7 @@ test('terminal-runtime', async () => {
       // The next real reading replaces it.
       mockSender.sent = []
       runtime.ingestAgentStateFrame(frame({ ts: base + 400, statusLine: { usedPercentage: 3 } }))
-      assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 3, at: base + 400 })
+      assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 3, at: base + 400, contextWindowSize: 200_000 })
       assert.equal(await sentSessionsChanges(), 1)
 
       // Out of order: a status-line process is spawned per refresh and they can
@@ -3106,8 +3110,22 @@ test('terminal-runtime', async () => {
       // ignored rather than rolling the number backwards.
       mockSender.sent = []
       runtime.ingestAgentStateFrame(frame({ ts: base + 350, statusLine: { usedPercentage: 71 } }))
-      assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 3, at: base + 400 }, 'a stale reading is ignored')
+      assert.deepEqual(
+        snapshot()?.contextUsage,
+        { usedPercentage: 3, at: base + 400, contextWindowSize: 200_000 },
+        'a stale reading is ignored',
+      )
       assert.equal(await sentSessionsChanges(), 0)
+
+      // The window it is a percent OF is news too — a model switch changes it
+      // with no percent moving, and the card's "84k / 200k" would go stale —
+      // but it does not re-date the reading, which `at` says is the percent's.
+      mockSender.sent = []
+      runtime.ingestAgentStateFrame(frame({ ts: base + 450, statusLine: { contextWindowSize: 1_000_000 } }))
+      assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 3, at: base + 400, contextWindowSize: 1_000_000 })
+      assert.equal(await sentSessionsChanges(), 1, 'a new window size is broadcast')
+      runtime.ingestAgentStateFrame(frame({ ts: base + 460, statusLine: { contextWindowSize: 200_000 } }))
+      await sentSessionsChanges()
 
       // The frame's own event resolves to a drop for every Claude manifest, and a
       // drop must not take the phase with it either: the phase the session had
@@ -3117,7 +3135,7 @@ test('terminal-runtime', async () => {
       mockSender.sent = []
       runtime.ingestAgentStateFrame(frame({ ts: base + 600, statusLine: { usedPercentage: 9 } }))
       assert.equal(snapshot()?.agentState?.phase, 'thinking', 'a status-line refresh moves no phase')
-      assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 9, at: base + 600 })
+      assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 9, at: base + 600, contextWindowSize: 200_000 })
       assert.equal(await sentSessionsChanges(), 1, 'and a dropped frame still publishes its reading')
 
       // The other gate: a reading riding a frame whose event the manifest DOES
@@ -3127,7 +3145,7 @@ test('terminal-runtime', async () => {
       // reading on any frame, and a plugin manifest is data.
       mockSender.sent = []
       runtime.ingestAgentStateFrame(frame({ ts: base + 700, event: 'PostToolUse', statusLine: { usedPercentage: 15 } }))
-      assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 15, at: base + 700 })
+      assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 15, at: base + 700, contextWindowSize: 200_000 })
       assert.equal(await sentSessionsChanges(), 1, 'an applied frame publishes its reading too')
 
       // Parked across an app restart: the reading rides the snapshot sidecar.
@@ -3140,7 +3158,11 @@ test('terminal-runtime', async () => {
         if (Date.now() - start > 5_000) throw new Error('timed out waiting for the context sidecar')
         await delay(20)
       }
-      assert.deepEqual((await sidecarStore.read('sess-context'))?.contextUsage, { usedPercentage: 15, at: base + 700 })
+      assert.deepEqual((await sidecarStore.read('sess-context'))?.contextUsage, {
+        usedPercentage: 15,
+        at: base + 700,
+        contextWindowSize: 200_000,
+      })
     } finally {
       await runtime.shutdown()
     }
