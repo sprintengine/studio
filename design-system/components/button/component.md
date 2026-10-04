@@ -14,17 +14,19 @@ primary button, and it shares its hue with selection chrome.
 ## Variants
 
 - `ds-button--primary` — accent fill (`accent.primary`), `text.on-accent`
-  label. The single primary action of a view.
+  label, and the one faint lit top edge of `shadow.control-raised`. The single
+  primary action of a view, and the only control that catches the light.
 - `ds-button--ghost` — transparent, `text.muted` label; hover lifts to
   `bg.hover` + `text.primary`. Secondary and tertiary actions.
 - `ds-button--icon` — a `size.control.xs` square padded out to
   `size.hit-target-min`, borderless, icon-only. Must carry an `aria-label`.
   The canonical close affordance uses the `close` glyph.
-- `ds-button--outline` — a bordered neutral secondary: `border.default`
-  hairline, `bg.surface` fill, `text.default` label, and `shadow.control-edge`.
-  Outlined rather than a third *filled* variant, so the one-accent rule still
-  holds. Use it where a ghost reads too weak to be found but the action is not
-  the view's primary.
+- `ds-button--outline` — a standalone neutral secondary: a `border.strong`
+  hairline on a transparent ground, `text.default` label, and no depth at all
+  (owner ruling 2026-10-04). Outlined rather than a third *filled* variant, so
+  the one-accent rule still holds. Use it where a ghost reads too weak to be
+  found but the action is not the view's primary — and only where it stands on
+  its own: inside a toolbar or a panel header the same action is a ghost.
 - Sizes: `ds-button--xs` at `size.control.xs` with a `font.size.meta` label
   (dense chrome — toolbars, row actions), default sm at `size.control.sm`, and
   `ds-button--md` at `size.control.md`. The icon-only species has one step
@@ -199,70 +201,56 @@ Tone is a **prop on the component**, never a `className`. Two
 and a tone's own `hover` step outranks a caller's resting one outright — so an
 override does not merely risk losing, it loses under the pointer specifically.
 
-## Elevation
+## Control tiers (owner ruling 2026-10-04)
 
-Filled and outlined buttons are the one thing in the document flow that carries
-a shadow. Everywhere else in this system structure comes from a hairline; a
-button is the exception because it is the only in-flow element that claims to be
-*pressable*, and depth is how a surface says so.
+Every control in the system sits on one of three tiers, and the tier decides its
+depth. This entry owns the rule for the whole family; the chip, card, split,
+segmented and trigger entries each say which tier their variants take.
 
-The treatment is two things in one token, never hand-rolled:
+| Tier | Where | Treatment |
+|---|---|---|
+| 1 | The view's primary action — `--primary`, and the destructive fill that stands in for it | The filled ground and **one faint lit top edge**, `shadow.control-raised` (a 1px inset highlight, 12% white in dark, 16% in light). No drop, no sheen |
+| 2 | A standalone secondary — `--outline`, a [split button](../split-button/component.md), a [card button](../card-button/component.md)'s launcher tile, a [trigger](../trigger-button/component.md) in a form | Flat on a hairline: `border.strong` on a transparent ground for the buttons; the field and tile grounds they already had. No highlight, no sheen, no drop |
+| 3 | A control inside a surface — a toolbar, a panel header, a composer's control row | Ghost: no edge and no ground at rest, `bg.hover` under the pointer. `--ghost` and `--icon`, the [chip button](../chip-button/component.md)'s toolbar variant, and a trigger's `--ghost` |
 
-- `shadow.control-raised` — filled variants. A 1px `inset` highlight on the top
-  edge (the light source is above) over a shallow drop (the control stands off
-  the surface).
-- `shadow.control-edge` — the outline variant, half a step quieter. Dark mode
-  lights the inner top rim; light mode shades the inner bottom. Both read as
-  lit from above.
-- `shadow.control-pressed` — the pressed state of either. It **replaces** the
-  resting shadow rather than layering over it: the highlight inverts into a
-  shadow cast inward, and the drop disappears.
+**Every tier presses the same way:** `scale(0.97)` on the shared hover and press
+motion (`motion.duration.fast`, `motion.ease.standard`), and no movement at all
+under `prefers-reduced-motion: reduce`. There is no inset "pressed" shadow and
+no sheen to drop. A thrown toggle is a selection, and says so with the
+`bg.selected` fill under States, not with depth.
 
-Each shadow travels with a **sheen** — a faint top-to-bottom falloff painted as
-a `background-image` over the control's ground, so it lays over whatever colour
-the variant set:
+Depth is spent once per view, on the action that view exists to take. A
+secondary that also caught the light, or a toolbar of lifted chips, would
+spend it again on chrome, and once every control carries it, it stops telling
+the controls apart.
 
-- `gradient.control-raised-sheen` with `control-raised`: white falling off from
-  the lit top edge across the fill.
-- `gradient.control-sheen` with `control-edge`: dark mode lifts the upper half,
-  light mode shades the lower half — both read as a face curved toward the
-  light.
+### The lit lip, strengthened (owner ruling 2026-10-01) — superseded
 
-The sheen drops with the drop: pressed and disabled paint no `background-image`.
-
-### The lit lip, strengthened (owner ruling 2026-10-01)
-
-`control-edge` gained a 1px inset top highlight in **both** modes (it had one in
-dark only), a shallow drop in light, and the sheen above; `control-raised`
-gained a second, softer drop under the first. At the old values a bordered
-control in light mode was a hairline box with a shadow too faint to find, and the
-same treatment was spread across too few members to read as a family.
-
-It now reaches every bordered neutral control that is pressed to act: the
-outline button, the [chip button](../chip-button/component.md)'s `--raised`
-variant, the [card button](../card-button/component.md)'s `--raised` launcher
-tile and the [segmented control](../segmented-control/component.md)'s thumb.
-Fields — inputs, selects and [trigger buttons](../trigger-button/component.md)
-— stay level with the page: they state a value rather than perform an action.
-
-Ghost and icon buttons stay flat. A borderless control has no edge to light,
-and giving one a drop shadow would make every toolbar read as a row of tiles.
+`control-edge` gained a 1px inset top highlight in both modes, a shallow drop in
+light and a sheen; `control-raised` gained a second, softer drop; and the
+treatment reached every bordered neutral control that is pressed to act — the
+outline button, the toolbar chip, the launcher tile and the segmented thumb —
+each sinking on `shadow.control-pressed` while held. The 2026-10-04 ruling
+above replaced it: across that many members the depth stopped marking the
+pressable control and became texture. `shadow.control-edge`,
+`shadow.control-pressed`, `shadow.control-track`, `gradient.control-sheen` and
+`gradient.control-raised-sheen` are retired, and a control wearing any of them
+again is a regression.
 
 ## States
 
-- Hover: primary deepens/brightens to `accent.hover`; ghost and icon gain
-  `bg.hover` and stronger ink. Elevation does not change on hover — a button
-  that rises under the pointer is a hover affordance, not a press one, and the
-  press is the state worth spending depth on.
-- Active: elevated variants sink — `shadow.control-pressed` replaces the resting
-  shadow, with no transform. Flat variants (ghost, icon) keep the scale(0.97)
-  press, removed under reduced motion. The two never stack: a control either
-  has an edge to invert or it shrinks, never both.
+- Hover: primary deepens/brightens to `accent.hover`; outline, ghost and icon
+  gain `bg.hover` and stronger ink. The outline's `border.strong` hairline
+  holds. Depth never changes on hover — a button that rises under the pointer
+  is a hover affordance, not a press one.
+- Active: every variant presses by `scale(0.97)`, removed under reduced motion.
+  The outline also steps its ground to `bg.active`. The primary keeps its faint
+  edge through the press.
 - Focus-visible: 2px ring of `border.focus`; never remove the ring without
   replacing it.
-- Disabled: 45% opacity, `not-allowed` cursor, hover suppressed, and elevation
-  dropped to `none` — a control that cannot be pressed does not stand off the
-  surface.
+- Disabled: 45% opacity, `not-allowed` cursor, hover suppressed, and the
+  primary's highlight dropped to `none` — a control that cannot be pressed does
+  not catch the light.
 - Pressed (icon only): a toggle that stays thrown — a locked terminal, a
   revealed pane — fills `bg.selected` with `text.primary` ink and keeps it
   through hover. It is a **prop on the component**, not a class the caller

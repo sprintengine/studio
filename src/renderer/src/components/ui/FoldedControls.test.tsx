@@ -67,7 +67,7 @@ test('FoldedControls keeps every control reachable, and only folds when told to'
     expect(open.container.querySelector('[aria-label="More launch settings"]')).toBeNull()
     open.unmount()
 
-    // Folded: one raised chip names the fold, and pressing it shows the same
+    // Folded: one toolbar chip names the fold, and pressing it shows the same
     // controls.
     const folded = mount(
       <FoldedControls folded ariaLabel="More launch settings">
@@ -77,7 +77,11 @@ test('FoldedControls keeps every control reachable, and only folds when told to'
     expect(folded.container.querySelector('[data-control]')).toBeNull()
     const trigger = folded.container.querySelector<HTMLButtonElement>('button[aria-label="More launch settings"]')
     expect(trigger).not.toBeNull()
-    expect(trigger?.className).toContain('control-edge')
+    // The toolbar chip, ghost like the row it folds (owner ruling 2026-10-04):
+    // the toolbar's height, and no edge or ground of its own at rest.
+    expect(trigger?.className).toContain('h-control-xs')
+    expect(trigger?.className).toContain('bg-transparent')
+    expect(trigger?.className).not.toMatch(/(?:^|\s)border(?:\s|$)|control-raised/)
     act(() => trigger?.click())
     expect(document.body.querySelector('[data-control="worktree"]')).not.toBeNull()
     expect(document.body.querySelector('[data-control="skills"]')).not.toBeNull()

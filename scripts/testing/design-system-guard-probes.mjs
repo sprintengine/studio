@@ -33,6 +33,12 @@
 //            `sem.radius.*`. Pushing a radius step to 16px or over must make the
 //            guard refuse to run (exit 2) rather than silently disagree with the
 //            bundle it is supposed to enforce.
+//   P8       a token retired from the bundle while `index.css` still aliases
+//            it. Five control tokens were retired together on 2026-10-04 when
+//            the controls went flat; a retired token's alias resolves to
+//            nothing and paints as the property's initial value, which looks
+//            deliberate. Deleting the token from `tokens.css` alone must make
+//            the guard name the alias left behind.
 //
 // P6 and P7 probe the OTHER half of the design-system gate — the raw-primitive
 // ratchet in `scripts/lint-primitive-duplication.mjs`, which is the rule that
@@ -247,6 +253,24 @@ const probes = [
     expectExit: 2,
     expect: { message: /declares a 20px radius, at or above the 16px marketing floor/ },
   },
+  {
+    id: 'P8',
+    finding: 'retire',
+    name: 'an alias left behind by a token the bundle retired is a violation',
+    file: BUNDLE_CSS,
+    // `control-raised` because it is still live and still aliased: retiring it
+    // here is the same edit that retired its five siblings, made to a token
+    // whose alias the app has not yet dropped. Both mode blocks declare it, and
+    // both declarations go, exactly as `build-tokens.mjs` would write them.
+    mutate: (css) => css.replace(/^\s*--sem-shadow-control-raised:[^;]*;\n/gm, ''),
+    // The app aliases it once, in the base block: the light block reaches the
+    // same name through the bundle's own mode switch and never restates it.
+    expect: {
+      rule: 'app-token-restates-bundle',
+      count: 1,
+      message: /--sem-shadow-control-raised is not declared in design-system\/foundations\/tokens\.css/,
+    },
+  },
 ]
 
 // The base block is the first `:root`-family block in `index.css` and runs until
@@ -321,7 +345,7 @@ function main() {
   console.log(`harness: ${dir}\n`)
   try {
     const pristine = new Map()
-    for (const rel of [APP_CSS, TOKENS_JSON]) pristine.set(rel, read(dir, rel))
+    for (const rel of [APP_CSS, TOKENS_JSON, BUNDLE_CSS]) pristine.set(rel, read(dir, rel))
 
     const clean = runGuard(dir)
     record(
