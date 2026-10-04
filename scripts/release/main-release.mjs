@@ -38,8 +38,9 @@ export function resolveMainRelease({ sha, releases, packageVersion, cwd = proces
     if (!history.includes(latestSha)) throw new Error('The latest stable release is not on this main history')
   }
 
-  // A squash merge's title and body are the release contract; branch-internal
-  // commits are deliberately excluded from both validation and versioning.
+  // A merge commit's title and body (a squash's, in older history) are the
+  // release contract; branch-internal commits sit off the first-parent line
+  // and are deliberately excluded from both validation and versioning.
   commitBump(git('show', '-s', '--format=%B', sha))
   const base = tagged
     .filter((entry) => history.includes(entry.sha))

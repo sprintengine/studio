@@ -213,10 +213,13 @@ While the app is at 0.x nothing is promised, so no commit can derive 1.0.0:
 that version is published only when a maintainer types it into the stable
 promotion's `version` input.
 
-Merge pull requests with a merge commit or a squash, never a rebase. Either way
-GitHub uses the PR title as the commit subject and its body as the commit body,
-so the required **Conventional PR title** check validates the message used for
-versioning; a rebase would put a branch commit at the tip instead. Mark breaking changes in that title
+Merge pull requests with a merge commit, never a squash or a rebase. Every
+commit on the branch reaches main as it was written, so the history keeps the
+steps a change was built in; a squash would fold them into one. GitHub uses the
+PR title as the merge commit's subject and its body as the commit body, so the
+required **Conventional PR title** check validates the message used for
+versioning, and the release reads main's first-parent history, which is those
+merge commits alone; a rebase would put a branch commit at the tip instead. Mark breaking changes in that title
 or body even if a branch commit already describes them. Write the body as prose
 explaining why the change was made and what a reviewer needs to know.
 
