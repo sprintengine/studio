@@ -663,6 +663,13 @@ export function createAppServices(
                 servers: ssh.environments.routed,
                 onConnected: (listener: Parameters<typeof ssh.environments.onConnected>[0]) =>
                   ssh.environments.onConnected(listener),
+                // The host every device keys the machine's mark by, as Settings
+                // › Machines does: what its SSH config resolves to, else what
+                // was typed.
+                hostOf: (savedId: string) => {
+                  const machine = ssh.environments.list().find((entry) => entry.id === savedId)
+                  return machine ? (machine.resolved?.hostname ?? machine.destination) : null
+                },
               },
             }
           : {}),

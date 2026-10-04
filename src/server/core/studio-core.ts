@@ -1,3 +1,4 @@
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
@@ -11,6 +12,12 @@ import {
   type AgentPermissionResolver,
 } from '../../main/automation/launch-permission-cap'
 import { createConversationGatewayHost } from '../../main/automation/tailnet/tailnet-conversation-host'
+import {
+  conversationHostOf,
+  conversationPullRequestsOf,
+  tailnetSelfMachine,
+  type ConversationMachineContext,
+} from '../../main/automation/tailnet/tailnet-conversation-machine'
 import { ConversationApprovalRuleStore } from '../../main/conversation-approval-rules'
 import { ConversationAttachmentStore } from '../../main/conversation-attachment-store'
 import { createConversationLaunchService } from '../../main/conversation-launch-service'
@@ -102,6 +109,12 @@ export type StudioCoreOptions = {
   sshServers?: {
     servers: SshRoutedServers
     onConnected(listener: (connection: SshRoutedConnection) => void): void
+    /**
+     * A saved SSH machine's host name, as its SSH config resolves it, else as
+     * it was typed: the key its kind and colour are kept under. Without it a
+     * paired phone is not told which SSH machine a chat runs on.
+     */
+    hostOf?(savedId: string): string | null
   }
 }
 
@@ -336,6 +349,29 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
    * device follows chats through, and the Studio RPC a local app does. One
    * factory, so a chat lists, resumes and switches the same by either.
    */
+  // The machine a chat runs on and its pull requests, as a paired phone's
+  // list shows them: read from the registry, the launch settings and the pull
+  // request record, never from a machine or GitHub.
+  const machineContext = (): ConversationMachineContext => ({
+    hostName: readHostName(),
+    platform: process.platform,
+    marks: agentLaunchSettings.get().machineMarks,
+    ...(sshServers?.hostOf ? { sshHostOf: (id: string) => sshServers.hostOf?.(id) ?? null } : {}),
+  })
+  const listMarks = {
+    machineOf: (workspaceId: string) =>
+      conversationHostOf(workspaceRegistry.getRecord(workspaceId) ?? null, machineContext()),
+    pullRequestsOf: async (keys: Array<{ workspaceId: string; agentId: string }>) => {
+      const found = await pullRequests.list({ conversations: keys })
+      return new Map(
+        found.conversations.map((entry) => [
+          `${entry.workspaceId}:${entry.agentId}`,
+          conversationPullRequestsOf(entry.pullRequests),
+        ]),
+      )
+    },
+    selfMachine: () => tailnetSelfMachine(machineContext()),
+  }
   const createConversationHost = () =>
     createConversationGatewayHost(
       conversations,
@@ -362,6 +398,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       // The chat's CLI catalog as this machine's own picker lists it, so a
       // paired device offers the same models and can switch to no other.
       conversationModelCatalog,
+      listMarks,
     )
 
   /**
@@ -428,4 +465,13 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
 export function studioBridgeScriptPath(paths: StudioPaths): string {
   const root = paths.isPackaged() ? paths.resourcesDir() : join(paths.appRoot() ?? process.cwd(), 'resources')
   return join(root ?? '', 'automation', 'mcp-stdio-bridge.mjs')
+}
+
+/** This machine's host name, or empty when the OS will not say. */
+function readHostName(): string {
+  try {
+    return hostname().trim()
+  } catch {
+    return ''
+  }
 }

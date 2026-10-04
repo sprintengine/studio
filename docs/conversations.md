@@ -399,6 +399,51 @@ change rather than on a timer. Background push notifications are not provided. A
 `sprintengine://conversation/<deviceId>/<workspaceId>/<agentId>` (each component
 URL-encoded); it resolves only against an already paired desktop.
 
+### Machines and pull requests in the list
+
+Two optional members on each row of the `sessions` answer to `list`, and one
+on `GET /tailnet/v1/identity`, tell a paired phone which machine a chat runs
+on and what has come of its work. All three are additive with no capability:
+a desktop built before them sends none, an older phone ignores them, and a
+client tells the two cases apart by the member being absent.
+
+```ts
+// On each listed chat (ConversationThread, packages/conversation-protocol/src/serverFrames.ts)
+host?: { id: string; kind: string; label: string; color: string }
+pullRequests?: Array<{ number: number; state: 'open' | 'merged' | 'closed'; url: string; title: string }>
+
+// On GET /tailnet/v1/identity, beside deviceId, scopes and the rest
+machine?: { kind: string; color: string }
+```
+
+- **`host.id`** is the machine's stable id, the one every device keys its mark
+  by (`src/shared/machine-identity.ts`): `local` for the desktop answering,
+  `wsl:<distro>` for one of its WSL distributions, `ssh:<host>` for an SSH
+  machine (the host its SSH config resolves to), `tailnet:<short host>` for a
+  chat born on a paired machine. A client draws no machine mark for `local`.
+- **`host.kind`** is one of `laptop`, `desktop`, `mini`, `tower`, `server`,
+  `cloud`, `container`, `board` or `wsl`, and **`host.color`** one of `blue`,
+  `teal`, `cyan`, `orange`, `yellow`, `violet`, `red` or `neutral`: the
+  person's choice in Settings › Machines, else the defaults. A client draws a
+  kind or colour it does not know as its fallback rather than dropping the
+  machine. **`host.label`** is the name to show: `WSL: Ubuntu`, the SSH
+  machine's label, the paired machine's name, or this machine's host name.
+- A row whose machine cannot be named yet carries no `host` rather than a
+  colour that would change once it is known: an SSH machine's host is read
+  from the SSH machines Electron main holds, so a desktop serving from an
+  out-of-process server leaves those rows unmarked.
+- **`pullRequests`** is what the desktop's pull request record holds for the
+  chat (`pullRequests.list`), at most `CONVERSATION_MAX_PULL_REQUESTS` (20),
+  and an empty list when it holds none. It is read from the record only:
+  listing never runs `gh`, so a phone refreshing its list costs no request to
+  GitHub. The record is kept current when a chat's turn ends and on its slow
+  poll, and the change feed says when the list moved.
+- **`machine`** is how the phone draws the desktop itself: the kind and colour
+  a second desktop gives it by default when it pairs by this machine's host
+  name, with any override kept under `local` in the launch settings'
+  `machineMarks` applied. A `host` of `local` on a listed chat carries the same
+  pair.
+
 ### Following from another desktop
 
 A Studio desktop paired to this one follows its conversations with the same
