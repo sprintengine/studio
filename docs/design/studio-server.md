@@ -751,6 +751,53 @@ under a conversation is kept (one that named only its workspace is worn by
 every conversation in it, until its agent links it again), every row a branch
 lookup found is dropped, and the old files are removed.
 
+### 6.9 Local servers: a server domain (owner ruling 2026-10-04)
+
+The dev servers, previews and other local web servers a conversation's agent
+started are recorded and checked by the server
+(`src/server/local-servers/`), shaped like the pull request record: an agent
+says "I started this" with the gateway's `local_server.link` (the URL, and
+when it has them a title, the command that starts it and its folder; the
+conversation is the calling agent's own, from the connection), and every
+client reads `localServers.*` and draws what it is told.
+
+**A server is its address.** Two links name one server when they name the
+same host and port, every spelling of the default loopback read as one host; the unspecified
+address a dev server prints (`0.0.0.0`, `[::]`) is recorded as `localhost`.
+The same conversation linking it again updates the link; another conversation
+linking it takes it over, since only one process can hold a port. At most 20
+per conversation and 500 in all, the oldest going first, except one a run the
+server started is following.
+
+**Liveness is checked where the agents run**, by a TCP connect to the port
+(no HTTP request, so a dev server's log stays quiet; a loopback host is tried
+at `127.0.0.1` and `::1`). A server that is up, starting, or changed or was
+linked in the last ten minutes is checked every five seconds, the rest every
+thirty, at most eight at once. A state is never stored: at start each link is
+checked at once and `localServers.list` waits for that (up to five seconds).
+`localServers.changed` is published only when something a client draws moved.
+
+**Run again** starts the link's command as a process the server owns, in the
+person's login shell with the PATH that shell sets up, in the link's folder
+(else the conversation's), in a process group of its own. It reads as
+`starting` until its port opens (checked every second, for up to two
+minutes, and not again once it has opened). A run lasts as long as anything
+in its process group does, so a shell that backgrounds its server and exits
+still has a run to stop. Only that run can be stopped from a client (SIGTERM
+to its group, SIGKILL five seconds later; `taskkill /T` on Windows); a server
+the agent started is the agent's. How a run that ended on its own ended (exit
+code and the end of its output) is kept until the next one starts; a stopped
+one has nothing to explain. The server's own end stops every
+run it started, which would otherwise be left holding its port.
+
+**The protocol** (`local-servers` capability, owners only):
+`localServers.list` by workspace or by conversation (`workspaces:read`),
+`localServers.run`, `localServers.stop` and `localServers.remove`
+(`conversation:operate`), and the `localServers.changed` stream.
+
+**Storage.** One file, `local-servers/linked.json` in the server's data
+directory. One that cannot be read is kept aside as `.corrupt`.
+
 ## 7. Data and settings
 
 ### 7.1 Data locations, per host
@@ -777,7 +824,7 @@ Server-owned: conversation stores, approval rules, attachments, plans, the
 command cache, provider secrets, module secrets and storage, launch settings,
 the workspace registry and backup, module enablement, studio-area skills,
 scheduled agents, git changelists, pull requests (the server's in both modes
-since section 6.8), canvas board files (the
+since section 6.8), linked local servers (section 6.9), canvas board files (the
 server holds them as files; the canvas module that edits them is a
 client's), tours, model discovery, tailnet devices and settings, the audit log, the integration ledger,
 marketplace and feed caches.

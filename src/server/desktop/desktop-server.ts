@@ -496,13 +496,28 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
             core.pullRequests.dispose()
           },
         ],
+        // The servers the Studio started (Run again) stop with it: left
+        // running, nothing would be left to stop them from.
+        [
+          'local servers',
+          async () => {
+            await core.localServers.flush()
+            await core.localServers.dispose()
+          },
+        ],
         ['command lists', () => domains.conversationCommands.dispose()],
         ['workspace registry (final)', () => workspaceSyncService.flush()],
         ['modules', () => modules.shutdown()],
         ['data directory', () => core.dataDirLock?.release()],
       ]
       // A lost parent: nothing can be shown, so only what cannot be lost runs.
-      const urgent = new Set(['chat transcripts', 'pull requests', 'workspace registry (final)', 'data directory'])
+      const urgent = new Set([
+        'chat transcripts',
+        'pull requests',
+        'local servers',
+        'workspace registry (final)',
+        'data directory',
+      ])
       await runShutdownLegs(drain ? legs : legs.filter(([name]) => urgent.has(name)), onLeg)
     },
   }

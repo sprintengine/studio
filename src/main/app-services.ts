@@ -1981,6 +1981,11 @@ export function createAppServices(
         if (!server) core.pullRequests.dispose()
       },
     },
+    // In process, the core's local servers settle at quit and the runs the
+    // Studio started stop; out of process the server does that itself.
+    localServers: server
+      ? null
+      : { flush: () => core.localServers.flush(), dispose: () => core.localServers.dispose() },
     broadcastGitChangelistsChanged,
     updateService,
     withIpcDiagnostics,

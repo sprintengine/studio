@@ -19,6 +19,7 @@ import { redactConversationValue } from '../../main/conversation-tool-details'
 import { createStudioRpcServer, type StudioRpcServer } from './studio-rpc-server'
 import type { ClientToolRegistry } from '../tools/client-tool-registry'
 import type { StudioPullRequests } from '../pull-requests/pull-request-domain'
+import type { StudioLocalServers } from '../local-servers/local-server-domain'
 import type { StudioFiles } from './studio-files'
 import type {
   StudioAuditEntry,
@@ -343,6 +344,7 @@ export async function startTestServer(
     tools?: ClientToolRegistry
     files?: StudioFiles
     pullRequests?: StudioPullRequests
+    localServers?: StudioLocalServers
   } = {},
 ): Promise<{
   server: StudioRpcServer
@@ -370,6 +372,7 @@ export async function startTestServer(
     ...(input.tools ? { tools: input.tools } : {}),
     ...(input.files ? { files: input.files } : {}),
     ...(input.pullRequests ? { pullRequests: input.pullRequests } : {}),
+    ...(input.localServers ? { localServers: input.localServers } : {}),
     audit: (entry) => audit.push(entry),
     log: (message) => logs.push(message),
     resyncRetryAfterMs: () => 1_500,

@@ -265,6 +265,9 @@ export const STUDIO_ERROR_CODES = [
   'not_offered',
   // A pull request another conversation opened first, which stays with it.
   'claimed',
+  // What it asks for clashes with how things stand: a local server already
+  // running is run again, or one the Studio did not start is stopped.
+  'conflict',
 ] as const
 
 export type StudioErrorCode = (typeof STUDIO_ERROR_CODES)[number]

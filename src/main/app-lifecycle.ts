@@ -119,6 +119,13 @@ type RegisterAppLifecycleOptions = {
     flush(): Promise<void>
     dispose(): void
   }
+  // The local servers the agents linked, in process only (out of process the
+  // server stops them in its own legs). The runs the Studio started itself
+  // stop here: left running, nothing would be left to stop them from.
+  localServers?: {
+    flush(): Promise<void>
+    dispose(): Promise<void>
+  }
   // Product telemetry. Given a shutdown leg of its own because everything above
   // it can emit a final event, and the buffer is in memory, so a quit that does
   // not drain it loses the whole session's tail.
@@ -193,6 +200,7 @@ export function registerAppLifecycle({
   desktopShell,
   conversationCommands,
   pullRequestRecord,
+  localServers,
   analytics,
   moduleKernel,
   moduleLoadReady,
@@ -608,6 +616,8 @@ export function registerAppLifecycle({
       // the record in its own legs.
       ['pull requests (flush)', () => pullRequestRecord?.flush()],
       ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
+      ['local servers (flush)', () => localServers?.flush()],
+      ['local servers (dispose)', () => localServers?.dispose()],
       ['chats', () => conversationOwner?.shutdown()],
       ['browser recordings', () => browserRecorder?.stopAll('app_quit')],
       ['canvas', () => canvasService?.dispose()],

@@ -242,7 +242,11 @@ methods and stream, and `pull-request-tool-calls` the one method a client that
 runs its own agents forwards their tool calls with, `pullRequests.noteToolCall`,
 and `pull-request-link` `pullRequests.link`, which records a pull request an
 owner opened for a conversation (refused as `claimed` when another
-conversation opened it first). A hello's `client.kind` and `client.instanceId` are
+conversation opened it first). `local-servers` adds the owner-only
+`localServers.*` methods and stream: the local servers a Studio's agents
+linked, as the Studio checks them, and running one's command again, stopping
+that run, or forgetting the link (`run` and `stop` refused as `conflict` when
+it is already running, or when the Studio did not start the run). A hello's `client.kind` and `client.instanceId` are
 optional hints a Studio that does not know them ignores. Every method names its scope in `STUDIO_METHODS`,
 typed over the method map so a method without one does not compile.
 

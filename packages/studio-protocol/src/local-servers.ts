@@ -19,7 +19,10 @@ import type { StudioScope } from './scopes.js'
 // moved, never the lists themselves, so a client asks again for what it is
 // showing.
 //
-// Owners only in this version, behind the `local-servers` capability.
+// Owners only in this version, behind the `local-servers` capability. `run`,
+// `stop` and `remove` name a server by its id and the conversation it is
+// linked to; `run` and `stop` are refused as `not_found` when that
+// conversation has no server with that id.
 
 /**
  * `running`: something accepts connections on the server's port. `stopped`:
@@ -32,6 +35,8 @@ export type StudioLocalServerState = 'running' | 'stopped' | 'starting'
 export type StudioLocalServer = {
   /** Stable for the life of the link; what `run`, `stop` and `remove` name. */
   id: string
+  /** The agent whose conversation linked it; with the workspace, what `run`, `stop` and `remove` name. */
+  agentId: string
   /** What a person opens, as the agent gave it: `http://localhost:5173/`. */
   url: string
   /** The agent's name for it, else the URL's host and port. */

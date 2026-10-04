@@ -4,9 +4,11 @@ import {
   isStudioToolsMethod,
   isStudioFilesMethod,
   isStudioPullRequestsMethod,
+  isStudioLocalServersMethod,
   parseStudioMethodParams,
   type StudioFilesMethod,
   type StudioPullRequestsMethod,
+  type StudioLocalServersMethod,
   type StudioToolsMethod,
   studioScopesGrant,
   type ConversationCommand,
@@ -33,6 +35,7 @@ import { createStudioUploads, type StudioUploads } from './studio-uploads'
 import type { ClientToolRegistry } from '../tools/client-tool-registry'
 import type { StudioFiles } from './studio-files'
 import type { StudioPullRequests } from '../pull-requests/pull-request-domain'
+import type { StudioLocalServers } from '../local-servers/local-server-domain'
 import type {
   StudioAuditEntry,
   StudioChatBackend,
@@ -109,6 +112,8 @@ export type StudioRpcRouterOptions = {
   files?: StudioFiles
   /** The pull requests the conversations opened; without it, `pullRequests.*` is answered `unavailable`. */
   pullRequests?: StudioPullRequests
+  /** The local servers the conversations started; without it, `localServers.*` is answered `unavailable`. */
+  localServers?: StudioLocalServers
   uploads?: StudioUploads
   now?: () => number
 }
@@ -415,6 +420,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     if (isStudioToolsMethod(method)) return toolsDispatch(grant, method, params, context)
     if (isStudioFilesMethod(method)) return filesDispatch(grant, method, params, voice)
     if (isStudioPullRequestsMethod(method)) return pullRequestsDispatch(method, params)
+    if (isStudioLocalServersMethod(method)) return localServersDispatch(method, params)
     const { failed } = voice
     switch (method) {
       case 'server.info':
@@ -584,6 +590,29 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
             )
           })
         return { ok: true, result: {} }
+    }
+  }
+
+  // ── Local servers ────────────────────────────────────────────────────────
+
+  async function localServersDispatch(method: StudioLocalServersMethod, params: never): Promise<StudioRpcAnswer> {
+    const localServers = options.localServers
+    if (!localServers) return refuse('unavailable', `This Studio does not serve ${method}.`)
+    switch (method) {
+      case 'localServers.list':
+        return { ok: true, result: await localServers.list(params as StudioMethodParams<'localServers.list'>) }
+      case 'localServers.run': {
+        // Answered once the run has started; its port opening reports through
+        // `localServers.changed`.
+        const started = await localServers.run(params as StudioMethodParams<'localServers.run'>)
+        return started.ok ? { ok: true, result: { started: true } } : refuse(started.code, started.message)
+      }
+      case 'localServers.stop': {
+        const stopped = await localServers.stop(params as StudioMethodParams<'localServers.stop'>)
+        return stopped.ok ? { ok: true, result: { stopped: stopped.stopped } } : refuse(stopped.code, stopped.message)
+      }
+      case 'localServers.remove':
+        return { ok: true, result: await localServers.remove(params as StudioMethodParams<'localServers.remove'>) }
     }
   }
 

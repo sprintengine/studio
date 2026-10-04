@@ -419,6 +419,7 @@ registerAppLifecycle({
   conversationCommands: coreIpc.conversationCommands,
   onAgentAttentionReady: (attention) => services.setTourAttention((key) => attention.notify(key)),
   pullRequestRecord: services.pullRequestRecord,
+  ...(services.localServers ? { localServers: services.localServers } : {}),
   analytics: services.analytics,
   // Out of process the server runs every module's startup and shutdown hooks.
   ...(serverHost ? {} : { moduleKernel: moduleLoad.kernel }),
