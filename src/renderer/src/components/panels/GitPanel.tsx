@@ -13,7 +13,7 @@ import { findHealthyWorktreeScope, resolveWorkspaceWorktree, workspaceProjectRoo
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import {
-  COMPOSER_SURFACE_CLASS,
+  COMPOSER_MATERIAL_CLASS,
   EmptyState,
   FOCUS_RING_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
@@ -2929,12 +2929,14 @@ function CommitComposer({
        * off, and they sit side by side when the Git pane is open beside a
        * chat: a bordered form textarea with its buttons hanging underneath it
        * read as a settings form next to the composer's one raised surface. So
-       * the same material (`COMPOSER_SURFACE_CLASS`), the same `composer`
+       * the same material (`COMPOSER_MATERIAL_CLASS`), the same `composer`
        * field inside it with the ring on the wrapper, and the actions on a
-       * footer row INSIDE the box, where the composer keeps Send.
+       * footer row INSIDE the box, where the composer keeps Send. Not the
+       * composer's 22px corner, which is the composer's alone: the shell
+       * radius, which the square Commit button in the corner sits inside.
        */}
       <div
-        className={`${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} border-[color:var(--border-default)]`}
+        className={`rounded-lg ${COMPOSER_MATERIAL_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} border-[color:var(--border-default)]`}
       >
         <Textarea
           ref={inputRef}
