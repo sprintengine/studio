@@ -1,3 +1,4 @@
+import { isMintedAgentId } from '../../../shared/agent-ids'
 import type { Workspace } from '../types/workspace'
 
 type AgentHost = Pick<Workspace, 'id' | 'agents'>
@@ -10,6 +11,9 @@ type AgentHost = Pick<Workspace, 'id' | 'agents'>
 // moved agent from a namesake. Resolve against the workspace the thing was
 // recorded in; if that workspace, or the agent in it, is gone, the thing is
 // detached — never re-attached to another chat's agent of the same name.
+//
+// The one exception is an id minted unique (`isMintedAgentId`): no other agent
+// shares it, so finding it in another chat finds the agent itself, moved there.
 
 // The workspace an agent was recorded in, while it is open and still hosts that
 // agent; null otherwise.
@@ -21,6 +25,23 @@ export function findRecordedAgentWorkspace<W extends AgentHost>(
   if (!workspaceId) return null
   const workspace = workspaces.find((candidate) => candidate.id === workspaceId)
   return workspace?.agents[agentId] ? workspace : null
+}
+
+// The workspace an agent is in now: the one it was recorded in while that still
+// hosts it, else, for a minted id only, the one open workspace that does. An
+// agent dragged to another chat leaves its links and conversation keyed to the
+// chat it left; following it by a minted id cannot land on a namesake. Two
+// workspaces holding it (a copied workspace) are not a move, and nothing is
+// followed.
+export function findAgentWorkspaceFollowingMoves<W extends AgentHost>(
+  workspaces: ReadonlyArray<W>,
+  agentId: string,
+  workspaceId: string | null | undefined,
+): W | null {
+  const recorded = findRecordedAgentWorkspace(workspaces, agentId, workspaceId)
+  if (recorded || !isMintedAgentId(agentId)) return recorded
+  const hosts = workspaces.filter((workspace) => workspace.agents[agentId])
+  return hosts.length === 1 ? hosts[0] : null
 }
 
 // The workspace a live agent terminal belongs to now. `moveAgentToWorkspace`

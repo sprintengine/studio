@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
-import { instantiateTemplateAgentIds, newAgentId, newAgentIdSuffix } from './agent-ids'
+import { instantiateTemplateAgentIds, isMintedAgentId, newAgentId, newAgentIdSuffix } from './agent-ids'
 import { EMPTY_CHAT_TEMPLATE, LAYOUT_TEMPLATES } from './layouts/templates'
 
 /** Every agent id a layout's nodes name, in layout order. */
@@ -16,6 +16,36 @@ test('a minted agent id is lower-case, long, and keeps the agent- prefix', () =>
   assert.match(newAgentId('  '), /^agent-[0-9a-z]{16}$/)
   const minted = new Set(Array.from({ length: 2000 }, () => newAgentId()))
   assert.equal(minted.size, 2000)
+})
+
+test('only an id minted here reads as minted', () => {
+  assert.equal(isMintedAgentId(newAgentId()), true)
+  assert.equal(isMintedAgentId(newAgentId('codex')), true)
+  assert.equal(isMintedAgentId(newAgentId('claude-code')), true)
+  assert.equal(isMintedAgentId('agent-0123456789abcdef'), true)
+  // Template positions, the old six-character tails (hex, or a nanoid(6) that
+  // may hold a `-` or upper case), and a module's own keys are all shared.
+  for (const id of [
+    'agent-1',
+    'agent-9',
+    'agent-12',
+    'agent-codex-3fa9c1',
+    'agent-claude-code-3fa9c1',
+    'agent-codex-aB_x-9',
+    'agent-codex-a-bcde',
+    'forecaster',
+    'worker-1',
+    'solo-chat-agent',
+    // Not a minted suffix: wrong length, or a character the alphabet lacks.
+    'agent-0123456789abcde',
+    'agent-0123456789abcdef0',
+    'agent-0123456789ABCDEF',
+    'agent-codex-0123456789abcde_',
+    'xagent-0123456789abcdef',
+    '',
+  ]) {
+    assert.equal(isMintedAgentId(id), false, id)
+  }
 })
 
 test('every template agent takes a fresh id, everywhere the layout names it, and the template is untouched', () => {

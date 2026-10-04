@@ -45,6 +45,23 @@ export function newAgentId(cli?: string | null): AgentId {
   return named ? `agent-${named}-${newAgentIdSuffix()}` : `agent-${newAgentIdSuffix()}`
 }
 
+// A minted id ends in a whole suffix: `agent-` then the suffix, or `agent-`,
+// the CLI and `-` then the suffix. Every other id an agent has had ends in
+// something shorter: the template positions (`agent-1`), the six-character tail
+// agents a chat added used to get (`agent-codex-3fa9c1`, or a nanoid(6) that may
+// itself hold a `-`), and a module's own keys (`forecaster`, `worker-1`).
+const MINTED_AGENT_ID = new RegExp(`^agent-(?:.+-)?[${SUFFIX_ALPHABET}]{${SUFFIX_LENGTH}}$`)
+
+/**
+ * Whether `agentId` was minted here, and so names one agent across every
+ * workspace. Only such an id may be followed out of the workspace it was
+ * recorded in: any other is shared by agents of other chats, and finding it
+ * somewhere else finds a namesake, not the agent.
+ */
+export function isMintedAgentId(agentId: string): boolean {
+  return MINTED_AGENT_ID.test(agentId)
+}
+
 type LayoutJson = LayoutTemplate['layout']
 type LayoutNodeJson = { component?: unknown; config?: unknown; children?: unknown }
 

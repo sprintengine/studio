@@ -236,6 +236,28 @@ test('workspaceManagerHelpers', async () => {
     const moved = getSessionItems([source, openChat], [movedPty], [])
     assert.equal(moved[0]?.group.id, 'ws-open', 'a moved agent is grouped where its record now lives')
     assert.equal(moved[0]?.label, 'Open agent')
+
+    // A chat agent moved from ws-source to ws-open: its conversation is still
+    // keyed to ws-source. A minted id is followed to ws-open; `agent-1` never
+    // is, since the open chat's `agent-1` is its own agent.
+    const minted = 'agent-0123456789abcdef'
+    const withMinted = {
+      ...openChat,
+      agents: { ...openChat.agents, [minted]: { id: minted, name: 'Moved chat agent' } },
+    } as unknown as Workspace
+    const movedSummary = (agentId: string): ConversationSessionSummary => ({
+      ...closedSummary,
+      sessionId: `conv-${agentId}`,
+      workspaceId: 'ws-source',
+      agentId,
+    })
+    const movedChat = getSessionItems([source, withMinted], [], [movedSummary(minted), movedSummary('agent-1')])
+    const followed = movedChat.find((item) => item.sessionId === `conv-${minted}`)
+    assert.equal(followed?.group.id, 'ws-open', 'a moved chat agent with a minted id is grouped where it now is')
+    assert.equal(followed?.label, 'Moved chat agent')
+    const shared = movedChat.find((item) => item.sessionId === 'conv-agent-1')
+    assert.equal(shared?.group.id, 'ws-source', 'an `agent-1` stays with the chat it was recorded in')
+    assert.equal(shared?.label, 'agent-1')
   }
 
   // An agent spawned outside this window carries workspaceId and agentName in the

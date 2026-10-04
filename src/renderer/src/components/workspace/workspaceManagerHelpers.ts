@@ -5,7 +5,7 @@
 
 import { cliForConversationProvider } from '../../../../shared/conversation-harness'
 import { isStarred } from '../../utils/highlight'
-import { findAgentSessionWorkspace } from '../../utils/agentLocation'
+import { findAgentSessionWorkspace, findAgentWorkspaceFollowingMoves } from '../../utils/agentLocation'
 import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
 import { workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import { deriveWorkspaceDisplayActivity, isLiveTerminal } from '../../hooks/useTerminalSessions'
@@ -224,9 +224,14 @@ export function getSessionItems(
     // under its review id, or its chat was closed) is NOT dropped — it lands in
     // a detached bucket. An agent the user cannot see is worse than an
     // oddly-grouped one. The runtime keys a conversation by its workspace, so
-    // that workspace is the only one it belongs to: agent ids recur across
-    // chats, and a closed chat's `agent-1` is not the open chat's.
-    const workspace = workspaces.find((candidate) => candidate.id === summary.workspaceId) ?? null
+    // that workspace is the one it belongs to: agent ids recur across chats,
+    // and a closed chat's `agent-1` is not the open chat's. An agent dragged to
+    // another chat is followed there only by a minted id, which no other agent
+    // shares.
+    const workspace =
+      findAgentWorkspaceFollowingMoves(workspaces, summary.agentId, summary.workspaceId) ??
+      workspaces.find((candidate) => candidate.id === summary.workspaceId) ??
+      null
     // A conversation session can outlive (or precede) its AgentState entry —
     // it must still be visible in the session manager, so the agent lookup is
     // a label source, not a gate.

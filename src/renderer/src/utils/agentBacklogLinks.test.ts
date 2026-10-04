@@ -15,7 +15,11 @@ import {
   type AgentBacklogLinkOpenPorts,
 } from './agentBacklogLinks'
 import { nextBacklogItemStatusFromLinks } from './backlogLinks'
-import { findAgentSessionWorkspace, findRecordedAgentWorkspace } from './agentLocation'
+import {
+  findAgentSessionWorkspace,
+  findAgentWorkspaceFollowingMoves,
+  findRecordedAgentWorkspace,
+} from './agentLocation'
 import type { Workspace } from '../types/workspace'
 import { test } from 'vitest'
 
@@ -194,6 +198,51 @@ test('agentBacklogLinks', async () => {
     assert.equal(closedChat.status, 'unknown', "a closed chat's agent link never resolves to another chat")
     assert.equal(closedChat.canOpen, false)
     assert.match(closedChat.unavailableReason ?? '', /no longer open/)
+
+    // --- resolve: an agent with a minted id dragged to another chat ---
+    // The link names ws-1, which no longer hosts it; ws-2 does, and no other
+    // agent can share a minted id, so the link follows it there.
+    const mintedId = 'agent-codex-0123456789abcdef'
+    const mintedLink = buildAgentBacklogLink({ workspaceId: 'ws-1', agentId: mintedId, agentName: 'Fred Walsh' })
+    const movedMinted = resolveAgentBacklogLink({
+      workspaceId: 'ws-backlog',
+      workspaceRoot,
+      item: baseItem,
+      link: mintedLink,
+      workspaces: [workspaceWithAgent('ws-1', 'someone-else'), workspaceWithAgent('ws-2', mintedId)],
+    })
+    assert.equal(movedMinted.status, 'active', 'a minted id is followed to the chat it moved to')
+    assert.equal(movedMinted.canOpen, true)
+    // Two chats holding it is not a move: nothing is followed.
+    const copiedMinted = resolveAgentBacklogLink({
+      workspaceId: 'ws-backlog',
+      workspaceRoot,
+      item: baseItem,
+      link: mintedLink,
+      workspaces: [workspaceWithAgent('ws-2', mintedId), workspaceWithAgent('ws-3', mintedId)],
+    })
+    assert.equal(copiedMinted.status, 'unknown')
+
+    // --- findAgentWorkspaceFollowingMoves: only a minted id leaves its recorded chat ---
+    assert.equal(findAgentWorkspaceFollowingMoves([workspaceWithAgent('ws-2', mintedId)], mintedId, 'ws-1')?.id, 'ws-2')
+    assert.equal(
+      findAgentWorkspaceFollowingMoves(
+        [workspaceWithAgent('ws-2', mintedId), workspaceWithAgent('ws-1', mintedId)],
+        mintedId,
+        'ws-1',
+      )?.id,
+      'ws-1',
+      'the recorded chat wins while it still hosts the agent',
+    )
+    // Shared ids are never followed, however unambiguous the scan looks: the
+    // one other chat with an `agent-1` has its own `agent-1`.
+    for (const sharedId of ['agent-1', 'agent-codex-3fa9c1', 'forecaster']) {
+      assert.equal(
+        findAgentWorkspaceFollowingMoves([workspaceWithAgent('ws-2', sharedId)], sharedId, 'ws-1'),
+        null,
+        sharedId,
+      )
+    }
 
     // --- resolve: agent not open anywhere ---
     const noAgent = resolveAgentBacklogLink({
