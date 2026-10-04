@@ -196,10 +196,52 @@ export const PrimaryButton = React.forwardRef<HTMLButtonElement, SizedButtonProp
         SIZE[size],
         ALIGN[align],
         cursorClass(busy),
-        // The raised step: a lit top edge over a shallow drop, inverting to a
-        // sunken one while held. Elevation is a class, not a `shadow-[...]`
-        // utility, because the resting, pressed, and disabled steps have to
-        // move together — see `.control-raised` in assets/index.css.
+        // Tier 1 (owner ruling 2026-10-04): the one faint lit top edge any
+        // control carries, and nothing under it. A class, not a `shadow-[...]`
+        // utility, so the disabled step drops it in the same place — see
+        // `.control-raised` in assets/index.css. It presses by the shared
+        // `.interactive` scale like everything else.
+        'control-raised',
+        'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]',
+        'hover:bg-[color:var(--accent-primary-hover)]',
+        'disabled:hover:bg-[color:var(--accent-primary)]',
+        FOCUS_RING_CLASS,
+        className ?? '',
+      ].join(' ')}
+    />
+  )
+})
+
+// The composer's send (owner ruling 2026-10-04): the primary, round. A small
+// accent disc at the `sm` step when it carries only its arrow — the caller
+// squares it — and a capsule of the same height when it carries a word
+// ("Schedule", "Save"). Everything but the corner is the primary's own, and
+// the corner is the size step's radius swapped out rather than a second
+// `rounded-*` utility, which stylesheet order would decide. Not a variant of
+// PrimaryButton: that one's props are the module SDK's contract, and this is
+// the composer's alone.
+const ROUND_SIZE: Record<ButtonSize, string> = {
+  inline: 'rounded-[var(--sem-radius-pill)] px-1 text-meta',
+  xs: 'rounded-[var(--sem-radius-pill)] h-control-xs px-2 text-meta',
+  sm: 'rounded-[var(--sem-radius-pill)] h-control-sm px-2 text-body',
+  md: 'rounded-[var(--sem-radius-pill)] h-control-md px-3 text-body',
+}
+
+export const SendButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>(function SendButton(
+  { className, size = 'sm', align = 'center', busy, type, ...rest },
+  ref,
+) {
+  return (
+    <button
+      ref={ref}
+      type={type ?? 'button'}
+      aria-busy={busy || undefined}
+      {...rest}
+      className={[
+        SHARED,
+        ROUND_SIZE[size],
+        ALIGN[align],
+        cursorClass(busy),
         'control-raised',
         'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]',
         'hover:bg-[color:var(--accent-primary-hover)]',
@@ -236,9 +278,9 @@ export const DangerButton = React.forwardRef<HTMLButtonElement, SizedButtonProps
         // exists to stop. Carrying the same rest state the retired
         // `ModalButton` danger variant had is a faithful move, not a
         // regression — a token is the fix, not a literal.
-        // Raised for the same reason primary is: both are filled controls,
-        // and a destructive confirm that sat flat beside a raised primary
-        // would read as the weaker of the two.
+        // Tier 1 for the same reason primary is: it stands in for the view's
+        // primary action, and a destructive confirm without the highlight
+        // beside a primary that has one would read as the weaker of the two.
         'control-raised',
         'bg-[color:var(--tone-error)] text-[color:var(--tone-error-ink)]',
         FOCUS_RING_CLASS,
@@ -368,6 +410,9 @@ export const MediaButton = React.forwardRef<HTMLButtonElement, ButtonBase>(funct
 // lookalike (a GhostButton re-styled with a border className, or a raw <button>
 // with border/rounded/hover chrome) that had accreted across surfaces; each
 // had subtly different radius, hover, and focus. This is the one canonical secondary-action button.
+// Tier 2 of the control tiers (owner ruling 2026-10-04): a standalone
+// secondary is flat on a `border.strong` hairline over a transparent ground —
+// no highlight, no sheen, no drop. Inside a toolbar the same action is a ghost.
 // Tone here is INK ONLY — the border and the ground stay neutral in both. A
 // destructive secondary action is still a secondary action: `DangerButton`'s
 // solid fill is the terminal confirm, and giving this one a red edge as well
@@ -405,22 +450,22 @@ export const OutlineButton = React.forwardRef<
         SIZE[size],
         ALIGN[align],
         cursorClass(busy),
-        // Half a step below `control-raised`: enough that it reads as a
-        // control rather than a labelled box, quiet enough that it never
-        // competes with the view's one primary.
-        'control-edge',
-        'border border-[color:var(--border-default)]',
+        // The hairline is the whole edge, and it holds through every state:
+        // only the ground and the ink move, so nothing appears under the
+        // pointer and nothing reflows.
+        'border border-[color:var(--border-strong)]',
         // The ground and the ink move together with `pressed`, in one
         // declaration each: a thrown chip takes the neutral selection fill and
-        // holds it under the pointer, exactly as the icon toggle does.
+        // holds it under the pointer, exactly as the icon toggle does. At rest
+        // the ground steps transparent → `bg.hover` → `bg.active` under the
+        // finger; `enabled:` keeps a disabled button from answering the press.
         pressed === true
           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ' +
-            'hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-selected)] ' +
-            'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-selected)]'
-          : 'bg-[color:var(--bg-surface)] ' +
+            'hover:bg-[color:var(--bg-selected)] disabled:hover:bg-[color:var(--bg-selected)]'
+          : 'bg-transparent ' +
             OUTLINE_TONE[tone] +
-            ' hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] ' +
-            'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface)]',
+            ' hover:bg-[color:var(--bg-hover)] enabled:active:bg-[color:var(--bg-active)] ' +
+            'disabled:hover:bg-transparent',
         FOCUS_RING_CLASS,
         className ?? '',
       ].join(' ')}
@@ -562,10 +607,10 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(f
       aria-busy={busy || undefined}
       {...rest}
       className={[
-        // Deliberately flat — no `control-raised`/`control-edge`. A
-        // borderless square has no edge to light, and a toolbar of lifted
-        // icon buttons reads as a row of tiles rather than as chrome. It
-        // keeps the `.interactive` press scale instead.
+        // Tier 3, ghost: no `control-raised`. A borderless square has no
+        // edge to light, and a toolbar of lifted icon buttons reads as a row
+        // of tiles rather than as chrome. It presses by the `.interactive`
+        // scale, as every control does.
         'interactive inline-flex items-center justify-center',
         shape === 'circle' ? 'rounded-full' : ICON_RADIUS[size],
         shape === 'circle' ? CIRCLE_EDGE : '',

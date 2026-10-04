@@ -1,7 +1,7 @@
 // The composer's buttons and its context menu.
 
 import React from 'react'
-import { PrimaryButton, IconButton, ContextMenu, MenuItem, MenuDivider } from '../../ui'
+import { SendButton, IconButton, ContextMenu, MenuItem, MenuDivider } from '../../ui'
 
 // Menu shortcut hints use the platform's own editing chords, so the composer
 // menu teaches the keyboard path instead of inventing one.
@@ -11,8 +11,8 @@ export function editingShortcut(platform: string, key: string): string {
 
 // The composer's action (30px): the accent-filled send, or a neutral stop
 // while a turn streams. Built from the kit rather than by hand (2026-09-02
-// audit, ruling 9): the send is the composer's ONE primary — `PrimaryButton`,
-// round at the control-sm step (owner ruling 2026-10-04, the same small accent
+// audit, ruling 9): the send is the composer's ONE primary — the kit's
+// `SendButton`, the primary made round, at the control-sm step (owner ruling 2026-10-04, the same small accent
 // disc the New chat composer sends with) — and the stop is the kit's 30px `IconButton`,
 // so radius, focus ring, hover and the 45% disabled step all come from
 // `Buttons.tsx` instead of a private recipe. The bordered `bg-hover` /
@@ -32,16 +32,15 @@ export function ComposerActionButton({
 }) {
   if (tone === 'accent') {
     return (
-      <PrimaryButton
+      <SendButton
         size="sm"
-        shape="round"
         aria-label={ariaLabel}
         onClick={onClick}
         disabled={disabled}
         className="w-control-sm shrink-0 px-0"
       >
         {children}
-      </PrimaryButton>
+      </SendButton>
     )
   }
   return (

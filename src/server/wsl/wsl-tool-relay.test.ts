@@ -284,3 +284,65 @@ test("an editor call's Linux paths open on Windows, and a ~ path is refused in w
   const browser = { url: '/home/dev/page.html' }
   assert.equal(relayedToolArgs('browser', browser, where), browser, 'only the editor’s paths are files on Windows')
 })
+
+test('a toolset is offered with each tool name once, and offered again when its tools change but not their number', async () => {
+  const own = (name: string): McpToolRegistration => ({
+    name,
+    description: name,
+    inputSchema: { type: 'object' },
+    handler: async () => ({ content: [{ type: 'text', text: name }] }),
+  })
+  // `backlog.list` and a module's `backlog_list` cross under one name; a
+  // toolset naming a tool twice would be refused whole.
+  const { offers } = await relayed([], [own('backlog.list'), own('backlog_list'), own('backlog.read')])
+  const backlog = offers.find((offer) => offer.name === 'backlog')
+  assert.deepEqual(backlog?.tools.map((tool) => tool.name).sort(), ['list', 'read'])
+  assert.deepEqual(
+    await backlog?.tools[0].handler({}, agentCall('backlog', 'list')),
+    { content: [{ type: 'text', text: 'backlog.list' }] },
+    'the first registered wins',
+  )
+
+  const offered: ToolsetInput[] = []
+  let visible = [definition('browser', 'navigate')]
+  let changed: () => void = () => undefined
+  const registry = {
+    visibleTools: () => visible,
+    subscribe: (listener: () => void) => ((changed = listener), () => undefined),
+    call: async () => ({ result: { content: [] } }),
+  } as unknown as ClientToolRegistry
+  let connected: (connection: WslServerConnection) => void = () => undefined
+  relayShellToolsets({
+    onConnected: (listener) => (connected = listener),
+    registry,
+    connectClient: (async () => ({
+      tools: {
+        offer: async (toolset: ToolsetInput) => {
+          offered.push(toolset)
+          return {
+            name: toolset.name,
+            wireNames: toolset.tools.map((tool) => `${toolset.name}.${tool.name}`),
+            state: 'offered',
+            withdraw: async () => undefined,
+          }
+        },
+      },
+      close: () => undefined,
+    })) as unknown as typeof connect,
+  })
+  connected({
+    distro: 'Ubuntu',
+    backend: { isOpen: () => true, onClose: () => undefined } as unknown as WslServerConnection['backend'],
+    driveMountRoot: '/mnt/',
+    environmentId: 'env',
+    open: async () => assert.fail('the fake client opens nothing'),
+  })
+  await waitFor(() => offered.length === 1)
+  visible = [definition('browser', 'click')]
+  changed()
+  await waitFor(() => offered.length === 2)
+  assert.deepEqual(
+    offered[1].tools.map((tool) => tool.name),
+    ['click'],
+  )
+})

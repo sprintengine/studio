@@ -226,12 +226,13 @@ export const OVERLAY_CHROME_CLASS =
  *   composers had shipped `rounded-md` on `bg-app` and `rounded-lg` on
  *   `bg-surface`, two materials for one thing.
  * - a raised-to-surface wash — both stops are tokens; flat white in light
- *   mode (the raise there is the hairline + shadow), a quiet top-lit
+ *   mode (the hairline is the whole edge there), a quiet top-lit
  *   gradient in dark.
  * - `shadow.control-raised` — its inset top highlight IS the dark-mode "lit
- *   edge"; deliberately the raw token, not `.control-raised`, whose
- *   `:active` press-invert belongs to buttons, not to a field being clicked
- *   into.
+ *   edge"; deliberately the raw token, not `.control-raised`, whose disabled
+ *   step belongs to buttons, not to a field. Since the control tiers (owner
+ *   ruling 2026-10-04) the token is that faint highlight alone, with no drop
+ *   under it.
  *
  * Border COLOR is the host's: both composers swap it to the accent while a
  * file drag is over them, and a color baked in here would fight that swap on

@@ -24,6 +24,7 @@ export {
   MediaButton,
   OutlineButton,
   PrimaryButton,
+  SendButton,
 } from './Buttons'
 export type { ButtonAlign, ButtonSize, ButtonTone, CaptionButtonTone, GhostTone, IconButtonSize } from './Buttons'
 // The one copy affordance (design-system/components/button → The copy glyph):

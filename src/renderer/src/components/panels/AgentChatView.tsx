@@ -12,6 +12,7 @@
 // node-level coverage without rendering.
 
 import { parseMachinePath } from '../../../../shared/machine-paths'
+import { workspaceHostIdOf } from '../../../../shared/execution-host'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import {
@@ -550,8 +551,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const recordUserMessage = binding.recordUserMessage
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const hostSettings = useWorkspaceStore((s) => s.appSettings.hosts)
-  // A chat in a workspace on a WSL machine runs that machine's `claude`.
-  const workspaceHostId = workspace?.hostId
+  // A chat in a workspace on a WSL machine runs that machine's `claude`. One
+  // that records no machine runs where its folder defaults to, as the router
+  // and Studio's git read it (owner ruling 2026-10-03).
+  const workspaceHostId = workspace ? workspaceHostIdOf(workspace) : undefined
   const cliRuntimes = useMemo(
     () => conversationCliRuntimesFor(appCliRuntimes, workspaceHostId, hostSettings),
     [appCliRuntimes, workspaceHostId, hostSettings],

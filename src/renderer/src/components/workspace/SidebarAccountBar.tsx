@@ -62,9 +62,10 @@ function GearIcon({ className }: { className?: string }) {
 // glyphs in the app. Retired 2026-09-02; the cluster now sits on the kit's
 // icon ramp (30px) and speaks the kit's one pressed language.
 //
-// Deliberately NOT elevated. `control-raised` / `control-edge` are for filled
-// and bordered buttons; a toolbar of lifted glyphs would read as a row of
-// tiles and would spend depth on chrome rather than on the one primary action.
+// Deliberately ghost. The cluster is a row of controls inside the rail's
+// surface, tier 3 of the control tiers (owner ruling 2026-10-04): the only
+// highlight a control carries belongs to the view's one primary action, and a
+// row of lifted glyphs would read as a row of tiles.
 
 // The modal-surface trigger glyphs that used to sit here beside the gear
 // (doors→modals, 2026-09-01) are rows of the sidebar's Extensions section now
@@ -278,9 +279,10 @@ export default function SidebarAccountBar({
   ) : (
     // Was a hand-rolled copy of OutlineButton — border, surface-raised fill,
     // both hover steps and the whole disabled:hover guard, restated inline.
-    // It has to BE the primitive now: the outline variant grew a resting
-    // elevation (`control-edge`) on 2026-09-02, and a lookalike is the one
-    // button in the footer that would have stayed flat beside it.
+    // It has to BE the primitive: the outline variant's look has moved twice
+    // (a resting elevation on 2026-09-02, flat on a `border.strong` hairline
+    // since 2026-10-04), and a lookalike is the one button in the footer that
+    // would be left behind each time.
     <OutlineButton
       onClick={() => void startLogin()}
       disabled={authState.status === 'checking'}

@@ -158,9 +158,15 @@ test('SegmentedControl', async () => {
         'one tab stop, on the selection',
       )
       const checked = radios[1].getAttribute('class') ?? ''
-      // A raised thumb in the track: the lifted ground and the control edge.
-      assert.match(checked, /bg-\[color:var\(--bg-surface-raised\)\]/)
-      assert.match(checked, /control-edge/)
+      // The thumb (owner ruling 2026-10-04): the selection fill every other
+      // selection takes, over the thumb's small drop — no lifted ground, no lip.
+      assert.match(checked, /bg-\[color:var\(--bg-selected\)\]/)
+      assert.match(checked, /(?:^|\s)control-thumb(?:\s|$)/)
+      assert.ok(!/bg-surface-raised|control-raised/.test(checked), 'the thumb carries no bevel')
+      const track = view.container.querySelector('[role="radiogroup"]')?.getAttribute('class') ?? ''
+      assert.match(track, /bg-\[color:var\(--bg-well\)\]/, 'the track is the plain well')
+      assert.ok(!/(?:^|\s)border(?:\s|$)|border-\[/.test(track), 'the track draws no hairline')
+      assert.ok(!/shadow|(?:^|\s)control-(?!xs|sm|md)/.test(track), 'and no inset shadow')
       assert.ok(
         !/bg-\[color:var\(--accent-primary\)\]/.test(checked),
         'a selected segment is a state display, not the primary action',

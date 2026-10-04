@@ -62,7 +62,7 @@ import {
   LinkButton,
   MenuOption,
   Popover,
-  PrimaryButton,
+  SendButton,
   SendGlyph,
   Textarea,
   StarGlyph,
@@ -2045,9 +2045,8 @@ export default function NewAgentPanel({
               multiline
             >
               {scheduled ? (
-                <PrimaryButton
+                <SendButton
                   size="sm"
-                  shape="round"
                   onClick={() => launch(prompt)}
                   disabled={!canLaunch}
                   busy={scheduleBusy}
@@ -2056,11 +2055,10 @@ export default function NewAgentPanel({
                 >
                   {editing ? 'Save' : 'Schedule'}
                   <SendGlyph className="icon-sm" />
-                </PrimaryButton>
+                </SendButton>
               ) : (
-                <PrimaryButton
+                <SendButton
                   size="sm"
-                  shape="round"
                   onClick={() => launch(prompt)}
                   disabled={!canLaunch || !extensionReady}
                   aria-label={isTerminalLaunch ? 'Open terminal' : 'Start agent'}
@@ -2068,7 +2066,7 @@ export default function NewAgentPanel({
                   className="w-control-sm shrink-0 px-0"
                 >
                   <SendGlyph className="icon-sm" />
-                </PrimaryButton>
+                </SendButton>
               )}
             </Tooltip>
           </div>

@@ -181,7 +181,7 @@ test('installed CLIs come first in registry order, and the missing ones follow, 
   expect(install).toBeTruthy()
   expect(install!.disabled).toBe(false)
   // ...and quiet: the outline secondary, not an accent fill pulling the eye back.
-  expect(install!.className).toMatch(/border-\[color:var\(--border-default\)\]/)
+  expect(install!.className).toMatch(/border-\[color:var\(--border-strong\)\]/)
   expect(install!.className).not.toMatch(/bg-\[color:var\(--accent-primary\)\]/)
   // The mark recedes with the name; a present CLI's keeps its ink.
   expect(claudeRow.querySelector('svg')?.getAttribute('class')).toMatch(/text-\[color:var\(--text-muted\)\]/)

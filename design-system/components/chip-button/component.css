@@ -29,7 +29,7 @@
 }
 
 /* No elevation at any state: a chip is a mark ON a surface, not a control
- * standing off one. It is flat, so it presses by scale. */
+ * standing off one. It presses by scale, like every control. */
 .ds-chip-button:active:not(:disabled) {
   transform: scale(0.97);
 }
@@ -85,39 +85,35 @@
   background: var(--sem-color-bg-hover);
 }
 
-/* raised — a chip that is a CONTROL in a toolbar row rather than a label inside
- * a line (owner ruling 2026-10-01): a composer's model, skills, permissions and
- * overflow triggers. It wears the outline button's shell exactly — the xs
- * control height, the control radius, the hairline, the lit top lip over a
- * shallow drop and the sheen — so a chip and a button beside the same composer
- * are one family. The one chip variant that is not content-height. */
+/* raised — the TOOLBAR chip: a control in a toolbar row rather than a label
+ * inside a line (owner ruling 2026-10-01), a composer's model, skills,
+ * permissions and overflow triggers. It takes the toolbar's box — the xs
+ * control height, the control radius, the button's inset and meta label — and
+ * is ghost (owner ruling 2026-10-04, tier 3): no edge and no ground at rest, a
+ * hover fill, and one more step of ground under the shared press scale. The
+ * name stays because the shipped primitive's callers import it. The one chip
+ * variant that is not content-height. */
 .ds-chip-button--raised {
   height: var(--sem-size-control-xs);
   padding: 0 var(--sem-space-md);
   gap: var(--sem-space-xs);
-  border: 1px solid var(--sem-color-border-default);
   border-radius: var(--sem-radius-control);
-  background-color: var(--sem-color-bg-surface-raised);
-  background-image: var(--sem-gradient-control-sheen);
-  box-shadow: var(--sem-shadow-control-edge);
+  color: var(--sem-color-text-muted);
   font-size: var(--sem-font-size-meta);
 }
 
 .ds-chip-button--raised:hover:not(:disabled):not([aria-pressed='true']):not([aria-current='true']) {
-  border-color: var(--sem-color-border-strong);
-  background-color: var(--sem-color-bg-hover);
+  background: var(--sem-color-bg-hover);
 }
 
-/* Elevated controls press by inverting the bevel, never by scale as well. */
-.ds-chip-button--raised:active:not(:disabled) {
-  transform: none;
-  background-image: none;
-  box-shadow: var(--sem-shadow-control-pressed);
+.ds-chip-button--raised:active:not(:disabled):not([aria-pressed='true']):not([aria-current='true']) {
+  background: var(--sem-color-bg-active);
 }
 
-.ds-chip-button--raised:disabled {
-  background-image: none;
-  box-shadow: none;
+/* The ink lift is the neutral tone's. A warn or error chip keeps its own hue
+ * under the pointer, exactly as it does at rest. */
+.ds-chip-button--raised:not(.ds-chip-button--warn):not(.ds-chip-button--error):hover:not(:disabled) {
+  color: var(--sem-color-text-primary);
 }
 
 /* The two tone tints. A STANDING warning the chip itself carries — scripts are
@@ -144,4 +140,14 @@
 .ds-chip-button--error[aria-pressed='true'] {
   background: var(--sem-color-status-danger-soft);
   color: var(--sem-color-status-danger);
+}
+
+/* Every press honours reduced motion, the chip's included. */
+@media (prefers-reduced-motion: reduce) {
+  .ds-chip-button {
+    transition: none;
+  }
+  .ds-chip-button:active:not(:disabled) {
+    transform: none;
+  }
 }
