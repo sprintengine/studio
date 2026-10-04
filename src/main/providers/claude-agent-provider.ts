@@ -53,6 +53,7 @@ import {
 import { isBackgroundLaunchAck, isSubagentStep } from '../../shared/conversation/subagents'
 export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { LOOKUP_TOOL_KINDS } from '../../shared/conversation/permissionModes'
+import { wslShareSafeDirectoryEnv } from '../git-run'
 
 import type {
   Options,
@@ -1814,7 +1815,7 @@ function spawnLocalChild(spawnInput: SpawnOptions): ChildProcess {
   try {
     child = spawn(spawnInput.command, spawnInput.args, {
       cwd: spawnInput.cwd,
-      env: { ...withoutLaunchToken(env), ...(launch ? { [MCP_CHANNEL_TOKEN_ENV]: launch.token } : {}) },
+      env: claudeLocalChildEnv(env, launch?.token ?? null, spawnInput.cwd),
       stdio: ['pipe', 'pipe', 'pipe'],
       signal: spawnInput.signal,
       windowsHide: true,
@@ -1830,6 +1831,25 @@ function spawnLocalChild(spawnInput: SpawnOptions): ChildProcess {
     })
   }
   return child
+}
+
+/**
+ * The environment a Claude child on this machine starts with: the SDK's, with
+ * this child's own gateway token in place of any inherited one, and, on This
+ * PC in a folder inside a WSL distribution, that folder listed as safe for
+ * the agent's own git, as the app's git has it.
+ */
+export function claudeLocalChildEnv(
+  env: Record<string, string | undefined>,
+  launchToken: string | null,
+  cwd: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  return wslShareSafeDirectoryEnv(
+    { ...withoutLaunchToken(env), ...(launchToken ? { [MCP_CHANNEL_TOKEN_ENV]: launchToken } : {}) },
+    cwd,
+    platform,
+  )
 }
 
 function withoutLaunchToken(env: Record<string, string | undefined>): NodeJS.ProcessEnv {

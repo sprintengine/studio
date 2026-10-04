@@ -6,7 +6,7 @@ import { commitFailure } from '../../hosts/remote-install'
 import { remoteNodeDigests, type RemoteNodeTarget } from '../../hosts/wsl-node-runtime'
 import { connectRemoteConversationBackend, type RemoteConversationBackend } from '../../../server/wsl/backend-wire'
 import type { FrontDoorPurpose } from '../../../server/wsl/front-door-proof'
-import type { SshEnvironmentSettings, SshEnvironmentState } from '../../../shared/ssh-environments'
+import type { SshEnvironmentSettings, SshEnvironmentState, SshMachineGh } from '../../../shared/ssh-environments'
 import type { RelayReady } from './relay-client'
 import { classifySshFailure, type SshFailure } from './ssh-command'
 import { assessProbe, buildConnectScript, locateServer, parseProbe, spaceFor, type Probe } from './ssh-connect-script'
@@ -93,6 +93,8 @@ export type SshEnvironmentView = {
   action: 'connect' | 'upgrade' | null
   server: { version: string; origin: string; startedBy: string | null } | null
   notes: string[]
+  /** The machine's GitHub CLI as the last probe found it, with the OS it runs; null before one. */
+  gh: SshMachineGh | null
   /** The last bootstrap's steps and what ssh said, for Settings › Diagnostics. */
   diagnostics: { noise: string; stderr: string; steps: Array<{ step: string; ms: number }>; probe: Probe | null }
 }
@@ -134,6 +136,7 @@ export class SshEnvironment {
     action: 'connect',
     server: null,
     notes: [],
+    gh: null,
     diagnostics: { noise: '', stderr: '', steps: [], probe: null },
   }
   private connection: SshServerConnection | null = null
@@ -291,6 +294,7 @@ export class SshEnvironment {
           installDir: this.deps.settings().installDir,
         })
         this.view.notes = assessed.notes
+        this.view.gh = { ...probe.gh, os: probe.os || null }
         if (!assessed.supported) {
           session.kill()
           throw new StepError('unsupported', assessed.reason)

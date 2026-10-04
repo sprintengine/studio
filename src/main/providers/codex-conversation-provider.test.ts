@@ -32,6 +32,9 @@ function fixture(
     // Codex accepts `turn/interrupt` but never sends the turn's `turn/completed`.
     silentInterrupt?: boolean
     resolveStudioMcpServer?: CodexConversationProviderOptions['resolveStudioMcpServer']
+    // Codex never answers `initialize`.
+    initializeTimesOut?: boolean
+    readCodexLogBytes?: CodexConversationProviderOptions['readCodexLogBytes']
   } = {},
 ) {
   let connection!: CodexRpcOptions
@@ -47,6 +50,7 @@ function fixture(
     buildEnv: async () => setup.env ?? {},
     saveGeneratedImage: setup.saveGeneratedImage,
     ...(setup.resolveStudioMcpServer ? { resolveStudioMcpServer: setup.resolveStudioMcpServer } : {}),
+    ...(setup.readCodexLogBytes ? { readCodexLogBytes: setup.readCodexLogBytes } : {}),
     createTransport(options) {
       connection = options
       transports.created++
@@ -54,6 +58,7 @@ function fixture(
         pid: 123,
         async request(method, params) {
           calls.push({ method, params })
+          if (method === 'initialize' && setup.initializeTimesOut) throw new Error('Codex initialize timed out.')
           if (method === 'account/read')
             return setup.account ?? { requiresOpenaiAuth: true, account: { type: 'chatgpt' } }
           if (method === 'thread/resume' && setup.resume) return setup.resume(params)
@@ -902,6 +907,36 @@ test('a resume that is never answered fails the turn instead of dropping the thr
   await f.send()
   expect(f.calls.map((call) => call.method)).not.toContain('thread/start')
   expect(f.events.at(-1)).toMatchObject({ type: 'turn_failed' })
+})
+
+test('a start Codex never answers says what to run, and names a large log database', async () => {
+  const asked: Array<string | null> = []
+  const f = fixture({
+    initializeTimesOut: true,
+    readCodexLogBytes: async (distro) => {
+      asked.push(distro)
+      return 2.5 * 1024 ** 3
+    },
+  })
+  await f.adapter.startSession(f.input)
+  await f.send()
+  const failed = f.events.at(-1) as ConversationEvent & { payload?: { error?: string; message?: string } }
+  expect(failed).toMatchObject({ type: 'turn_failed' })
+  const words = JSON.stringify(failed.payload)
+  expect(words).toContain("Codex didn't answer in 30 s. Run `codex` in a terminal on")
+  expect(words).toContain("Codex's own log database is 2.5 GB, which can make it slow to start.")
+  expect(words).toContain('Moving `~/.codex/logs_*.sqlite*` aside fixes it.')
+  // Read on the machine the chat ran on: this one, here.
+  expect(asked).toEqual([null])
+})
+
+test('a start Codex never answers with a small log database names only what to run', async () => {
+  const f = fixture({ initializeTimesOut: true, readCodexLogBytes: async () => 40 * 1024 ** 2 })
+  await f.adapter.startSession(f.input)
+  await f.send()
+  const words = JSON.stringify((f.events.at(-1) as ConversationEvent).payload)
+  expect(words).toContain("Codex didn't answer in 30 s.")
+  expect(words).not.toContain('log database')
 })
 
 test('a model switch rides the next turn without a reconnect, and the running turn keeps its model', async () => {

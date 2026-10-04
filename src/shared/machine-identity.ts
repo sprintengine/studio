@@ -270,3 +270,31 @@ export function resolveMachineIdentity(
     overridden: Boolean(own?.kind || own?.colour),
   }
 }
+
+/**
+ * The key this machine's own mark is kept under in `machineMarks`, and the id
+ * a paired phone is told this machine's chats run on. No surface of this app
+ * draws it; it is how this machine is shown to the devices paired with it.
+ */
+export const LOCAL_MACHINE_MARK_ID = 'local'
+
+/**
+ * This machine as the devices paired with it draw it: the kind and colour
+ * another desktop gives it by default when it pairs by this machine's host
+ * name (`resolveMachineIdentity` of a `paired` ref), so a phone and a second
+ * desktop show it alike, with any override kept under `LOCAL_MACHINE_MARK_ID`
+ * applied on top.
+ */
+export function resolveLocalMachineIdentity(
+  hostName: string,
+  overrides: MachineMarkSettings | null | undefined,
+): { kind: MachineKind; colour: MachineColour; overridden: boolean } {
+  const name = shortHostName(hostName)
+  const paired = name ? resolveMachineIdentity({ kind: 'paired', name }, null) : null
+  const own = overrides?.[LOCAL_MACHINE_MARK_ID]
+  return {
+    kind: own?.kind ?? paired?.kind ?? 'desktop',
+    colour: own?.colour ?? paired?.colour ?? defaultMachineColour(LOCAL_MACHINE_MARK_ID),
+    overridden: Boolean(own?.kind || own?.colour),
+  }
+}
