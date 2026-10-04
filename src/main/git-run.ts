@@ -3,6 +3,7 @@ import { execFile } from 'child_process'
 import type { GitCommandResult } from './git'
 import { killProcessTree } from './process-tree-kill'
 import type { ExecutionHost } from './hosts/execution-host'
+import { isWslDriveMountPath } from '../shared/host-paths'
 
 /**
  * The one place a git process is started for the app's own reads and writes.
@@ -232,18 +233,80 @@ export const GIT_SAFETY_CONFIG: readonly string[] = ['-c', 'core.fsmonitor=false
  * {@link GIT_SAFETY_CONFIG} for a git the app does not start itself — the ones
  * `gh` runs inside a repository to read its remotes and branch. Git reads
  * `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n` from its environment with the same
- * precedence as `-c`. Pairs already in the environment are kept, and this one
- * is appended after them.
+ * precedence as `-c`. Pairs already in the environment are kept, and these
+ * are appended after them. `cwd`, the repository, adds its
+ * {@link wslShareSafeDirectories}.
  */
-export function gitSafetyEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function gitSafetyEnv(
+  base: NodeJS.ProcessEnv = process.env,
+  cwd?: string,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
   const existing = Number.parseInt(base.GIT_CONFIG_COUNT ?? '0', 10)
   const index = Number.isInteger(existing) && existing > 0 ? existing : 0
-  return {
-    ...base,
-    GIT_CONFIG_COUNT: String(index + 1),
-    [`GIT_CONFIG_KEY_${index}`]: 'core.fsmonitor',
-    [`GIT_CONFIG_VALUE_${index}`]: 'false',
+  const pairs: Array<[string, string]> = [
+    ['core.fsmonitor', 'false'],
+    ...(cwd ? wslShareSafeDirectories(cwd, platform) : []).map((dir): [string, string] => ['safe.directory', dir]),
+  ]
+  const env: NodeJS.ProcessEnv = { ...base, GIT_CONFIG_COUNT: String(index + pairs.length) }
+  pairs.forEach(([key, value], offset) => {
+    env[`GIT_CONFIG_KEY_${index + offset}`] = key
+    env[`GIT_CONFIG_VALUE_${index + offset}`] = value
+  })
+  return env
+}
+
+/**
+ * The `safe.directory` entries Git for Windows needs for a repository inside a
+ * WSL distribution, reached over its share (`\\wsl.localhost\Ubuntu\…`): a
+ * chat on This PC in such a folder (owner ruling 2026-10-03). Its files are
+ * owned by the Linux user, whom Windows cannot map to the person, so git
+ * refuses the repository as one of "dubious ownership" until it is listed.
+ * Listed here, for the app's own git only, by `-c`: the person's global config
+ * is never written. Git compares the entry with the repository's top level,
+ * which may sit above `cwd`, so `cwd` and each folder above it inside the
+ * distribution are listed. Spelled the way Git for Windows itself suggests,
+ * `%(prefix)///wsl.localhost/…`: it reads a value that starts with one `/` as
+ * relative to its own install, and `%(prefix)/` before an absolute path leaves
+ * the path as it is. Nothing on any other path, or off Windows.
+ */
+export function wslShareSafeDirectories(cwd: string, platform: NodeJS.Platform = process.platform): string[] {
+  if (platform !== 'win32') return []
+  const share = /^\/\/(wsl\$|wsl\.localhost)\/([^/]+)((?:\/[^/]+)*)\/*$/iu.exec(cwd.replace(/\\/gu, '/'))
+  if (!share) return []
+  const root = `//${share[1]}/${share[2]}`
+  const parts = share[3].split('/').filter(Boolean)
+  const dirs: string[] = []
+  for (let depth = parts.length; depth >= 0; depth -= 1) {
+    dirs.push(`%(prefix)/${root}${depth > 0 ? `/${parts.slice(0, depth).join('/')}` : ''}`)
   }
+  return dirs
+}
+
+/**
+ * Config for Linux git working on a Windows drive through WSL's mount
+ * (`/mnt/c/…`): compare only an entry's size and whole-second mtime when
+ * deciding whether a file changed. The index of such a repository is mostly
+ * written by Git for Windows, whose inode, owner, ctime and sub-second
+ * fields never match what the drive mount reports, so Linux git with the
+ * default `core.checkStat` re-reads every tracked file across the mount on
+ * every status: measured at 20 of 30 s for a 3,875-file repository, against
+ * 0.1 s from Windows. Size and mtime are the same number on both sides, so
+ * with this the index is trusted again; a file changed within the second the
+ * index was written is still read, by git's racy-entry check. Studio's own
+ * git keeps running where the chat's agents run theirs (one git per
+ * repository), so checkpoints and revert see the files as the agent does.
+ */
+export const DRIVE_MOUNT_GIT_CONFIG: readonly string[] = ['-c', 'core.checkStat=minimal']
+
+/** {@link DRIVE_MOUNT_GIT_CONFIG} when Linux git runs in `cwd` on a Windows drive. */
+function driveMountConfig(cwd: string, linuxGit: boolean): readonly string[] {
+  if (!linuxGit) return []
+  return /^[A-Za-z]:(?:[\\/]|$)/u.test(cwd) || isWslDriveMountPath(cwd) ? DRIVE_MOUNT_GIT_CONFIG : []
+}
+
+function safeDirectoryConfig(cwd: string): string[] {
+  return wslShareSafeDirectories(cwd).flatMap((dir) => ['-c', `safe.directory=${dir}`])
 }
 
 type ExecGitResult = { stdout: string; stderr: string }
@@ -308,7 +371,7 @@ async function execGitOnHost(
   timeoutMs: number | null,
   stdin: string | undefined,
 ): Promise<ExecGitResult> {
-  const outcome = await host.runGit(cwd, [...GIT_SAFETY_CONFIG, ...args], {
+  const outcome = await host.runGit(cwd, [...GIT_SAFETY_CONFIG, ...driveMountConfig(cwd, true), ...args], {
     timeoutMs,
     env: gitEnvDelta(envOverrides, kind),
     ...(stdin !== undefined ? { stdin } : {}),
@@ -353,7 +416,14 @@ function execGit(
     let timer: NodeJS.Timeout | null = null
     const child = execFile(
       'git',
-      ['-C', cwd, ...GIT_SAFETY_CONFIG, ...args],
+      [
+        '-C',
+        cwd,
+        ...GIT_SAFETY_CONFIG,
+        ...safeDirectoryConfig(cwd),
+        ...driveMountConfig(cwd, process.platform === 'linux'),
+        ...args,
+      ],
       {
         encoding: 'utf8',
         maxBuffer: 20 * 1024 * 1024,

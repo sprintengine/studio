@@ -12,7 +12,10 @@ import {
   normalizeExecutionHostId,
   normalizeExecutionHostSettings,
   pathStyleOfHost,
+  gitHostIdForPath,
+  hostIdToRecord,
   resolveLaunchHostId,
+  workspaceHostIdOf,
   type ExecutionHostId,
 } from './execution-host'
 import { parseAgentLaunchSettingsRecord } from './launch-settings'
@@ -32,7 +35,7 @@ test('a WSL host id names its distribution, and nothing else is one', () => {
   assert.equal(normalizeExecutionHostId(42), null)
 })
 
-test('a folder inside a distribution belongs to it, whichever share names it', () => {
+test('a folder inside a distribution defaults to it, whichever share names it', () => {
   assert.equal(hostIdForFolder('\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo'), 'wsl:Ubuntu')
   assert.equal(hostIdForFolder('\\\\wsl$\\Debian\\srv\\app'), 'wsl:Debian')
   assert.equal(hostIdForFolder('//wsl.localhost/Ubuntu-24.04/home/dev'), 'wsl:Ubuntu-24.04')
@@ -41,14 +44,62 @@ test('a folder inside a distribution belongs to it, whichever share names it', (
   assert.equal(hostIdForFolder(null), null)
 })
 
+test("a workspace's machine is the one it records, else its folder's default", () => {
+  const unc = '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo'
+  assert.equal(workspaceHostIdOf({ folderPath: unc }), 'wsl:Ubuntu', 'made before machines: the folder decides')
+  assert.equal(workspaceHostIdOf({ hostId: 'local', folderPath: unc }), 'local', 'a folder in Ubuntu run on This PC')
+  assert.equal(workspaceHostIdOf({ hostId: 'wsl:Debian', folderPath: 'C:\\Users\\dev\\repo' }), 'wsl:Debian')
+  assert.equal(workspaceHostIdOf({ folderPath: 'C:\\Users\\dev\\repo' }), 'local')
+  assert.equal(
+    workspaceHostIdOf({ hostId: 'wsl:bad name', folderPath: unc }),
+    'wsl:Ubuntu',
+    'an invalid id says nothing',
+  )
+})
+
+test('a new workspace records this machine only where its folder would say otherwise', () => {
+  const unc = '\\\\wsl$\\Ubuntu\\home\\dev\\repo'
+  assert.equal(hostIdToRecord('local', unc), 'local')
+  assert.equal(hostIdToRecord('local', 'C:\\Users\\dev\\repo'), undefined, 'absent already means this machine')
+  assert.equal(hostIdToRecord('local', null), undefined)
+  assert.equal(hostIdToRecord('wsl:Ubuntu', unc), 'wsl:Ubuntu')
+  assert.equal(hostIdToRecord('wsl:Ubuntu', 'C:\\Users\\dev\\repo'), 'wsl:Ubuntu')
+  assert.equal(hostIdToRecord(null, unc), undefined, 'nothing chosen: the folder decides when it is read')
+  assert.equal(hostIdToRecord('wsl:bad name', unc), undefined)
+})
+
+test("a repository's git is the machine of the workspace holding it, else its folder's default", () => {
+  const unc = '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo'
+  const drive = 'C:\\Users\\dev\\repo'
+  assert.equal(gitHostIdForPath(unc, []), 'wsl:Ubuntu', 'no workspace: the folder decides')
+  assert.equal(gitHostIdForPath(drive, []), null)
+  assert.equal(gitHostIdForPath(`${unc}\\src`, [{ folderPath: unc }]), 'wsl:Ubuntu', 'made before machines')
+  assert.equal(gitHostIdForPath(unc, [{ hostId: 'local', folderPath: unc }]), null, 'a folder in Ubuntu run on This PC')
+  assert.equal(
+    gitHostIdForPath('//wsl$/ubuntu/home/dev/repo', [{ hostId: 'local', folderPath: unc }]),
+    null,
+    'either share spelling',
+  )
+  assert.equal(gitHostIdForPath('/mnt/c/Users/dev/repo', [{ hostId: 'wsl:Debian', folderPath: drive }]), 'wsl:Debian')
+  assert.equal(
+    gitHostIdForPath(unc, [
+      { hostId: 'local', folderPath: unc },
+      { hostId: 'wsl:Ubuntu', folderPath: unc },
+    ]),
+    'wsl:Ubuntu',
+    'opened both ways, the distribution keeps its git',
+  )
+  assert.equal(gitHostIdForPath(drive, [{ hostId: 'wsl:Debian', folderPath: 'C:\\Users\\dev\\repo-two' }]), null)
+})
+
 test('resolveLaunchHostId: bound, then requested, then the folder, then this machine — on Windows only', () => {
   const unc = '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo'
   const cases: Array<[Parameters<typeof resolveLaunchHostId>[0], string, string]> = [
     [{ platform: 'win32' }, 'local', 'nothing said: this machine'],
     [{ platform: 'win32', folder: 'C:\\Users\\dev\\repo' }, 'local', 'a Windows folder: this machine'],
-    [{ platform: 'win32', folder: unc }, 'wsl:Ubuntu', 'a folder inside a distribution runs there'],
+    [{ platform: 'win32', folder: unc }, 'wsl:Ubuntu', 'a folder inside a distribution runs there by default'],
     [{ platform: 'win32', folder: unc, requested: 'wsl:Debian' }, 'wsl:Debian', "the workspace's machine wins"],
-    [{ platform: 'win32', folder: unc, requested: 'local' }, 'local', 'an explicit local wins too'],
+    [{ platform: 'win32', folder: unc, requested: 'local' }, 'local', 'This PC, when picked, wins over the folder'],
     [
       { platform: 'win32', folder: unc, requested: 'wsl:Debian', bound: 'wsl:Alpine' },
       'wsl:Alpine',

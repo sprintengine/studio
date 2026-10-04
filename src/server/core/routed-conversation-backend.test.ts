@@ -88,7 +88,8 @@ function setup(options: { platform?: NodeJS.Platform; chatServer?: boolean; reac
     'ws-linux': { hostId: 'wsl:Ubuntu', folderPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo' },
     'ws-drive': { hostId: 'wsl:Ubuntu', folderPath: 'C:\\Users\\dev\\repo' },
     'ws-local': { hostId: 'local', folderPath: 'C:\\Users\\dev\\local-repo' },
-    'ws-mislabelled': { hostId: 'local', folderPath: '\\\\wsl$\\Ubuntu\\home\\dev\\other' },
+    'ws-cross': { hostId: 'local', folderPath: '\\\\wsl$\\Ubuntu\\home\\dev\\other' },
+    'ws-older': { folderPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\older' },
   }
   let chatServer = options.chatServer ?? true
   let connected: WslServerConnection | null = null
@@ -149,8 +150,22 @@ test("a WSL workspace's chat starts on its distribution's server, with the root 
   await router.startSession(start('ws-local', 'C:\\Users\\dev\\local-repo'))
   assert.equal(local.calls.length, 1, 'a workspace on this PC stays here')
 
-  await router.startSession(start('ws-mislabelled', '\\\\wsl$\\Ubuntu\\home\\dev\\other'))
-  assert.equal(remote.calls.length, 3, 'a folder inside the distribution goes there whatever its machine says')
+  await router.startSession(start('ws-older', '\\\\wsl.localhost\\Ubuntu\\home\\dev\\older'))
+  assert.equal(remote.calls.length, 3, 'a workspace that names no machine runs in the distribution its folder is in')
+})
+
+test('a folder inside a distribution, on This PC, runs its chat here (owner ruling 2026-10-03)', async () => {
+  const { router, local, remote, connects } = setup()
+  const started = await router.startSession(start('ws-cross', '\\\\wsl$\\Ubuntu\\home\\dev\\other'))
+  assert.ok(started.ok)
+  assert.equal(remote.calls.length, 0)
+  assert.deepEqual(connects, [], 'no server is started for it')
+  assert.equal(local.calls.length, 1)
+  assert.equal(
+    (local.calls[0].args[0] as { workspaceRoot: string }).workspaceRoot,
+    '\\\\wsl$\\Ubuntu\\home\\dev\\other',
+    'the agents are handed the folder as Windows names it',
+  )
 })
 
 test('with the switch off, or off Windows, every chat stays in this process', async () => {
