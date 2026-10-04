@@ -473,6 +473,48 @@ export const OutlineButton = React.forwardRef<
   )
 })
 
+// The outline made SOLID, for a control that floats over scrolling content —
+// the conversation's "Jump to latest" pill, and nothing else so far. The
+// outline's transparent ground is right for a button standing in the flow, but
+// over a transcript it let the text run straight through the label at rest and
+// only went solid under the pointer, so the pill read as broken rather than as
+// quiet. It wears the composer's material instead, because it rides the
+// composer's top edge: the composer's ground (`--composer-surface`, one rung
+// above the conversation's paper — white on a light theme, `bg.hover` on a dark
+// one), the same `border.strong` hairline the outline holds through every
+// state, and the composer's lit top edge as the raw token, as the composer
+// takes it. Hover steps the ground one more rung away from the conversation
+// (`--composer-surface-hover`) rather than to `bg.hover`, which on a dark theme
+// IS the resting ground. Every other state — size, ink, press scale, cursor,
+// focus ring — is the outline's own. Not a prop on OutlineButton: that one's
+// props are the module SDK's contract, which is why the round send is its own
+// primitive too.
+export const FloatingButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>(function FloatingButton(
+  { className, size = 'sm', align = 'center', busy, type, ...rest },
+  ref,
+) {
+  return (
+    <button
+      ref={ref}
+      type={type ?? 'button'}
+      aria-busy={busy || undefined}
+      {...rest}
+      className={[
+        SHARED,
+        SIZE[size],
+        ALIGN[align],
+        cursorClass(busy),
+        'border border-[color:var(--border-strong)] shadow-[var(--shadow-control-raised)]',
+        'bg-[color:var(--composer-surface)] hover:bg-[color:var(--composer-surface-hover)] ' +
+          'disabled:hover:bg-[color:var(--composer-surface)]',
+        OUTLINE_TONE.neutral,
+        FOCUS_RING_CLASS,
+        className ?? '',
+      ].join(' ')}
+    />
+  )
+})
+
 /**
  * The icon square's steps. `sm`/`md`/`lg` are the control ramp — 26 / 30 / 40px
  * — and are what a toolbar, a panel header and the app rail's foot take.
