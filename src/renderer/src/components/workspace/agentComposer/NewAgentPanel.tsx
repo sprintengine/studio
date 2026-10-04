@@ -750,6 +750,15 @@ export default function NewAgentPanel({
   React.useEffect(() => {
     if (remoteChosenAway) setRemoteTarget(null)
   }, [remoteChosenAway])
+  // A scheduled agent runs on this computer, so the machine list drops the SSH
+  // machines while scheduling; one picked before must go with them, or the
+  // strip would keep asking for a folder on that machine while the agent is
+  // saved for the project here.
+  const sshPickedWhileScheduled = scheduled && pickedSshId !== null
+  React.useEffect(() => {
+    if (sshPickedWhileScheduled) pickSsh(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sshPickedWhileScheduled])
   // The project in hand, as an identity the next machine can be searched for:
   // the local folder's repository, or the remote project's as its machine
   // served it. Null when nothing is chosen or the folder has no remote.
@@ -933,6 +942,18 @@ export default function NewAgentPanel({
   const [optionsOpen, setOptionsOpen] = React.useState(false)
   const [skillsOpen, setSkillsOpen] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+  // The "+" itself, so a pick from its menu hands focus back to it: the row
+  // picked unmounts with the menu, and focus would otherwise fall to the page.
+  const optionsTriggerRef = React.useRef<HTMLButtonElement | null>(null)
+  // Stable, because the popover runs it whenever it changes while open: an
+  // inline one re-ran on every render of this panel and pulled focus back to
+  // the checked row from wherever the arrows had moved it.
+  const focusOptionsOnOpen = React.useCallback((surface: HTMLElement) => {
+    ;(
+      surface.querySelector<HTMLElement>('[data-menu-item="true"][aria-checked="true"]') ??
+      surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')
+    )?.focus()
+  }, [])
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
   const [seed] = React.useState(() => newSuggestionSeed())
   const promptRef = React.useRef<HTMLTextAreaElement>(null)
@@ -1502,6 +1523,9 @@ export default function NewAgentPanel({
   }, [onClose])
 
   const onPromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // The Enter that commits an input method's composition belongs to the
+    // input method: it picks the characters, it does not send them half-typed.
+    if (event.nativeEvent.isComposing) return
     if (slashQuery !== null) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         if (slashRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
@@ -1863,12 +1887,7 @@ export default function NewAgentPanel({
               popupRole="menu"
               placement="bottom-start"
               surfaceClassName={`w-[304px] ${MENU_LIST_CLASS}`}
-              onOpenAutoFocus={(surface) =>
-                (
-                  surface.querySelector<HTMLElement>('[data-menu-item="true"][aria-checked="true"]') ??
-                  surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')
-                )?.focus()
-              }
+              onOpenAutoFocus={focusOptionsOnOpen}
               renderTrigger={({ ref: optionsRef, triggerProps, togglePopover }) => {
                 const plus = (anchor: (node: HTMLButtonElement | null) => void) => (
                   <IconButton
@@ -1903,12 +1922,14 @@ export default function NewAgentPanel({
                       plus((node) => {
                         optionsRef.current = node
                         skillsRef.current = node
+                        optionsTriggerRef.current = node
                       })
                     }
                   />
                 ) : (
                   plus((node) => {
                     optionsRef.current = node
+                    optionsTriggerRef.current = node
                   })
                 )
               }}
@@ -1927,7 +1948,10 @@ export default function NewAgentPanel({
                 onSkills={skillsOffered ? () => setSkillsOpen(true) : undefined}
                 skillsCount={skillsCount}
                 schedule={scheduleOption}
-                close={() => setOptionsOpen(false)}
+                close={() => {
+                  setOptionsOpen(false)
+                  optionsTriggerRef.current?.focus()
+                }}
               />
             </Popover>
 

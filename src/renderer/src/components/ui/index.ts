@@ -225,6 +225,7 @@ export { Tooltip } from './Tooltip'
 export { TruncatedText } from './TruncatedText'
 export type { Tone, StatusTone } from './tokens'
 export {
+  COMPOSER_MATERIAL_CLASS,
   COMPOSER_SURFACE_CLASS,
   FOCUS_RING_CLASS,
   FOCUS_RING_INSET_CLASS,

@@ -84,8 +84,12 @@ export type MachineMarkSettings = Record<string, MachineMarkSetting>
 export type MachineRef =
   | { kind: 'local' }
   | { kind: 'wsl'; hostId: ExecutionHostId }
-  /** An SSH machine: the host name its SSH config resolves to, else what was typed. */
-  | { kind: 'ssh'; host: string }
+  /**
+   * An SSH machine: the host name its SSH config resolves to, else what was
+   * typed (`user@host[:port]`, of which only the host and a port count), and
+   * the port when it is not 22 — two machines behind one host differ by it.
+   */
+  | { kind: 'ssh'; host: string; port?: number | null }
   /** A machine paired over the tailnet, by its host name. */
   | { kind: 'paired'; name: string }
 
@@ -98,9 +102,45 @@ export type MachineIdentity = {
   overridden: boolean
 }
 
-/** The first label of a host name, lower case: `Mac-Mini.example.ts.net.` → `mac-mini`. */
+/**
+ * The first label of a host name, lower case: `Mac-Mini.example.ts.net.` →
+ * `mac-mini`. Only a host name is shortened: an address (`100.64.0.7` — every
+ * tailnet IPv4 address starts `100.`) or a typed name with a full stop in it
+ * is kept whole, lower case, or two machines would share one id. The same rule
+ * as `shortMachineName` in the renderer's machine rows.
+ */
 export function shortHostName(value: string): string {
-  return value.trim().replace(/\.+$/u, '').split('.')[0]!.toLowerCase()
+  const trimmed = value.trim().replace(/\.+$/u, '').toLowerCase()
+  if (!/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/u.test(trimmed)) return trimmed
+  if (/^\d+(?:\.\d+)+$/u.test(trimmed)) return trimmed
+  return trimmed.split('.')[0]!
+}
+
+/**
+ * An SSH host as an id: no `user@`, no trailing dot, lower case, and a port
+ * only when it is not 22 — from the ref's own port, or one typed after the
+ * host (`host:2222`, `[::1]:2222`).
+ */
+function sshHostKey(raw: string, port: number | null | undefined): string | null {
+  let host = raw.trim().toLowerCase()
+  const at = host.lastIndexOf('@')
+  if (at >= 0) host = host.slice(at + 1)
+  let typedPort: number | null = null
+  const bracketed = /^\[([^\]]+)\](?::(\d+))?$/u.exec(host)
+  if (bracketed) {
+    host = bracketed[1]!
+    typedPort = bracketed[2] ? Number(bracketed[2]) : null
+  } else {
+    const withPort = /^([^:]+):(\d+)$/u.exec(host)
+    if (withPort) {
+      host = withPort[1]!
+      typedPort = Number(withPort[2])
+    }
+  }
+  host = host.replace(/\.+$/u, '')
+  if (!host) return null
+  const effectivePort = port ?? typedPort
+  return effectivePort && effectivePort !== 22 ? `${host}:${effectivePort}` : host
 }
 
 /**
@@ -117,7 +157,7 @@ export function machineIdOf(machine: MachineRef): string | null {
     case 'wsl':
       return machine.hostId === LOCAL_HOST_ID ? null : machine.hostId
     case 'ssh': {
-      const host = machine.host.trim().toLowerCase()
+      const host = sshHostKey(machine.host, machine.port)
       return host ? `ssh:${host}` : null
     }
     case 'paired': {
@@ -141,13 +181,21 @@ export function defaultMachineKind(machine: MachineRef): MachineKind | null {
       // known by its name, as the tailnet's own host names spell it
       // (`dev-macbook-air`, `mac-mini`). A Mac whose name says neither is a
       // laptop, the most common Mac on a personal tailnet.
-      // `book` is tested first: "MacBook Pro" is a laptop whatever else its
-      // name says.
-      const name = machine.name.toLowerCase()
-      if (name.includes('book')) return 'laptop'
-      if (name.includes('mini') || name.includes('studio')) return 'mini'
-      if (name.includes('imac')) return 'desktop'
-      if (name.includes('mac')) return 'laptop'
+      // The name is read as words (`dev-macbook-air` → dev, macbook, air), so
+      // `macro-runner` is not a Mac and `ubuntu-studio` is not a Mac Studio.
+      // A book is tested first: "MacBook Pro" is a laptop whatever else its
+      // name says. A wrong guess is one pick away in Settings › Machines.
+      const words = machine.name
+        .toLowerCase()
+        .split(/[^a-z0-9]+/u)
+        .filter(Boolean)
+      const has = (word: string): boolean => words.includes(word)
+      const mac = has('mac') || has('macos')
+      if (words.some((word) => word.startsWith('macbook') || word === 'book')) return 'laptop'
+      if (has('macmini') || has('minipc') || has('mini') || (mac && has('studio')) || has('macstudio')) return 'mini'
+      if (words.some((word) => word.startsWith('imac'))) return 'desktop'
+      if (has('macpro') || (mac && has('pro'))) return 'tower'
+      if (mac) return 'laptop'
       return 'desktop'
     }
   }

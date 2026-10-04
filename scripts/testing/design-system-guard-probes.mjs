@@ -261,6 +261,41 @@ const probes = [
     expect: { message: /declares a 20px radius, at or above the 16px marketing floor/ },
   },
   {
+    id: 'P5b',
+    finding: 'F6b',
+    name: 'a ramp step that calls itself off-ramp is still read as a rung',
+    file: TOKENS_JSON,
+    // The composer's exception is two named steps, not a flag any step can set:
+    // marking the shell step `offRamp` and growing it to 20px must still stop
+    // the guard, or the flag is a way round the ceiling for everything.
+    mutate: (json) => {
+      const parsed = JSON.parse(json)
+      const shell = parsed.sem.radius.shell
+      shell.$value = '20px'
+      shell.$extensions = { 'com.sprintengine': { ...shell.$extensions?.['com.sprintengine'], offRamp: true } }
+      return `${JSON.stringify(parsed, null, 2)}\n`
+    },
+    expectExit: 2,
+    expect: { message: /sem\.radius\.shell is marked offRamp/ },
+  },
+  {
+    id: 'P5c',
+    finding: 'F6b',
+    name: 'a new off-ramp radius beside the composer is refused, not let through',
+    file: TOKENS_JSON,
+    mutate: (json) => {
+      const parsed = JSON.parse(json)
+      parsed.sem.radius.card = {
+        $type: 'dimension',
+        $value: '24px',
+        $extensions: { 'com.sprintengine': { role: 'shape', offRamp: true } },
+      }
+      return `${JSON.stringify(parsed, null, 2)}\n`
+    },
+    expectExit: 2,
+    expect: { message: /sem\.radius\.card is marked offRamp/ },
+  },
+  {
     id: 'P8',
     finding: 'retire',
     name: 'an alias left behind by a token the bundle retired is a violation',
