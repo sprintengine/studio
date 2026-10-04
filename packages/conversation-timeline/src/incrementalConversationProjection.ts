@@ -5,6 +5,7 @@ import {
   agentStateOf,
   nextConversationUsage,
   applyAgentState,
+  backgroundResultTaskId,
   isResumed,
   openReasoningRun,
   projectConversation,
@@ -280,6 +281,20 @@ function updateToolTree(
   return null
 }
 
+// A call by id, wherever it sits.
+function findTool(
+  entries: readonly (TranscriptEntry | TranscriptToolEntry)[],
+  id: string,
+): TranscriptToolEntry | undefined {
+  for (const entry of entries) {
+    if (entry.kind !== 'tool') continue
+    if (entry.id === id) return entry
+    const found = entry.children ? findTool(entry.children, id) : undefined
+    if (found) return found
+  }
+  return undefined
+}
+
 // The call an agent started in, found by its task wherever the call sits.
 function findAgentLane(
   entries: readonly (TranscriptEntry | TranscriptToolEntry)[],
@@ -383,7 +398,12 @@ function fastProjection(
     // knows how to read one.
     if (isBackgroundLaunchAck(readString(event.payload, 'preview', 'output', 'text'))) return null
     if (turnId && !state.entryIndexes.has(`assistant:${turnId}`)) return null
-    return updateTool(state, id, (tool) => withOutput(tool, event), batch)
+    // A background agent's answer goes to the lane its task started in. One
+    // whose lane is not on screen (an earlier page) is the fold's to place.
+    const resultTaskId = backgroundResultTaskId(event.payload)
+    const lane = resultTaskId ? findAgentLane(state.projection.entries, resultTaskId) : undefined
+    if (resultTaskId && !lane) return null
+    return updateTool(state, lane ?? id, (tool) => withOutput(tool, event), batch)
   }
   // A subagent's progress and its words between steps: frequent while agents
   // fan out, and each changes one lane.
@@ -392,6 +412,11 @@ function fastProjection(
     if (!status) return state.projection
     // The agent goes on in the lane it started in, as the fold has it.
     const lane = status.taskId ? findAgentLane(state.projection.entries, status.taskId) : undefined
+    // A task whose lane is not found, naming a call that is not a lane (the
+    // SendMessage that resumed it), started on a page not loaded: the fold
+    // files it under that lane once the page is.
+    if (status.taskId && !lane && findTool(state.projection.entries, status.toolUseId)?.subagentLane !== true)
+      return null
     const resumed = isResumed(status, lane)
     const agent = agentStateOf(status)
     return updateTool(

@@ -826,7 +826,12 @@ export function projectConversation(
         break
       }
       case 'tool_output': {
-        const id = readString(event.payload, 'toolUseId', 'callId', 'id', 'toolCallId')
+        // A background agent's answer goes to the lane its task started in,
+        // as its statuses do (`lanesByTask`).
+        const resultTaskId = backgroundResultTaskId(event.payload)
+        const id =
+          (resultTaskId && lanesByTask.get(resultTaskId)) ||
+          readString(event.payload, 'toolUseId', 'callId', 'id', 'toolCallId')
         // A background agent's result carries no turn: it closes its lane by id.
         if (!turnId && !id) break
         const turn = turnId ? ensureTurn(turnId) : undefined
@@ -1235,12 +1240,18 @@ export function applyAgentState(
   else tool.outputStatus ??= 'ok'
 }
 
+/** The task a background agent's result names, when the event is one. */
+export function backgroundResultTaskId(payload: Record<string, unknown> | undefined): string | undefined {
+  if (payload?.backgroundResult !== true) return undefined
+  return typeof payload.taskId === 'string' && payload.taskId ? payload.taskId : undefined
+}
+
 // Whether a status starts an ended agent again. The provider says so; a
 // transcript written before it did names only the call that resumed the agent
 // (Claude Code's SendMessage) in place of the lane the agent started in.
 export function isResumed(status: ConversationSubagentStatusPayload, lane: string | undefined): boolean {
-  if (status.resumed === true) return true
-  return status.status === 'running' && lane !== undefined && lane !== status.toolUseId
+  if (status.status !== 'running') return false
+  return status.resumed === true || (lane !== undefined && lane !== status.toolUseId)
 }
 
 // An ended lane whose agent started again: running, with nothing of its end

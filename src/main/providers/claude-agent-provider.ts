@@ -2507,6 +2507,7 @@ function mapTaskMessage(
           status: status === 'failed' ? 'error' : status === 'stopped' ? 'stopped' : 'ok',
           isError: status === 'failed',
           backgroundResult: true,
+          taskId: agent.taskId,
         }
         events.push(eventFor(state, 'tool_output', payload))
       }

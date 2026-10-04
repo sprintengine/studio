@@ -724,9 +724,10 @@ export function createCodexConversationProvider(
   // steps are drawn under the lane while the turn that can show them is open.
   async function onChildMessage(state: Session, child: Child, method: string | undefined, params: RecordValue) {
     if (method === 'turn/started' && child.done) {
-      // Given more to do after it finished (`sendInput`, a follow-up task).
+      // Given more to do after it finished (`sendInput`, a follow-up task):
+      // its ended lane reopens, which a plain `running` never does.
       child.done = false
-      emitSessionEvent(state, 'subagent_status', { toolUseId: child.toolUseId, status: 'running' })
+      emitSessionEvent(state, 'subagent_status', { toolUseId: child.toolUseId, status: 'running', resumed: true })
       return
     }
     if (method === 'turn/completed') {

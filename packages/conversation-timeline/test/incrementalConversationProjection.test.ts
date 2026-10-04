@@ -654,6 +654,8 @@ test('an agent resumed after its process ended reopens the lane it started in', 
     event('tool_started', 8, { turnId: 'b', toolUseId: 'send', name: 'SendMessage' }),
   ]
   const transcripts = {
+    // Also what a provider writes after an app restart, when nothing remembers
+    // the lane: only the task id says where the answer belongs.
     'written before the fix': [
       event('subagent_status', 9, { toolUseId: 'send', taskId: 'task', status: 'running', background: true }),
       event('tool_output', 10, { turnId: 'b', toolUseId: 'send', output: 'Resuming agent', status: 'ok' }),
@@ -665,6 +667,17 @@ test('an agent resumed after its process ended reopens the lane it started in', 
       event('subagent_status', 11, { toolUseId: 'agent', taskId: 'task', status: 'running', lastToolName: 'Bash' }),
     ],
   }
+  // How each ends: the agent's answer, then its last status.
+  const finish = (laneId: string) => [
+    event('tool_output', 12, {
+      toolUseId: laneId,
+      taskId: 'task',
+      backgroundResult: true,
+      output: 'Built it.',
+      status: 'ok',
+    }),
+    event('subagent_status', 13, { toolUseId: laneId, taskId: 'task', status: 'completed' }),
+  ]
   for (const [name, resume] of Object.entries(transcripts)) {
     const events = [...spawn, ...resume]
     let state = createConversationProjectionState()
@@ -680,6 +693,43 @@ test('an agent resumed after its process ended reopens the lane it started in', 
     assert.equal(agent?.agent?.error, undefined, `${name}: and no longer says why it stopped`)
     assert.equal(agent?.agent?.lastToolName, 'Bash', `${name}: and shows what the agent is doing`)
     assert.equal(lane(state.projection, 'send')?.agent, undefined, `${name}: SendMessage is not a lane`)
+
+    for (const item of finish(name === 'written since' ? 'agent' : 'send')) {
+      state = applyEvent(state, item)
+      prefix.push(item)
+      assert.deepEqual(state.projection, projectConversation(prefix), `${name}: ${item.type} ${item.id}`)
+    }
+    assert.equal(lane(state.projection, 'agent')?.output, 'Built it.', `${name}: the answer lands in the agent's lane`)
+    assert.equal(lane(state.projection, 'agent')?.agent?.state, 'completed')
+    assert.equal(lane(state.projection, 'send')?.output, 'Resuming agent', `${name}: and not on SendMessage`)
+
+    // A late stop carrying the resume flag (the runtime copies the last status
+    // it knew onto the stop it writes when a session ends) never reopens it.
+    const late = event('subagent_status', 14, { toolUseId: 'agent', taskId: 'task', status: 'stopped', resumed: true })
+    state = applyEvent(state, late)
+    prefix.push(late)
+    assert.deepEqual(state.projection, projectConversation(prefix), `${name}: late stop`)
+    assert.equal(lane(state.projection, 'agent')?.status, 'done', `${name}: a finished lane stays closed`)
+  }
+})
+
+// The lane's call is on a page not loaded yet: the SendMessage's statuses must
+// not land on the SendMessage row in the incremental path while the fold files
+// them, pending, under the lane.
+test('a resumed agent whose lane is on an unloaded page agrees with the fold', () => {
+  const events = [
+    event('subagent_status', 0, { toolUseId: 'agent', taskId: 'task', status: 'running', background: true }),
+    event('user_message', 1, { turnId: 'b', text: 'Did you stop?' }),
+    event('turn_started', 2, { turnId: 'b' }),
+    event('tool_started', 3, { turnId: 'b', toolUseId: 'send', name: 'SendMessage' }),
+    event('subagent_status', 4, { toolUseId: 'send', taskId: 'task', status: 'running', lastToolName: 'Bash' }),
+  ]
+  let state = createConversationProjectionState()
+  const prefix: ConversationEvent[] = []
+  for (const item of events) {
+    state = applyEvent(state, item)
+    prefix.push(item)
+    assert.deepEqual(state.projection, projectConversation(prefix), `${item.type} ${item.id}`)
   }
 })
 
