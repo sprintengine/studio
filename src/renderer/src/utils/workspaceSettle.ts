@@ -88,6 +88,10 @@ export function shouldAutoSettleWorkspace(workspace: Workspace, now: number, con
  * person carrying on — a follow-up, a question about what landed — and the
  * chat stays.
  *
+ * "Written to" is the person's last input of any kind: a message, or a
+ * keystroke into one of the chat's terminals (a dev server started in its
+ * shell after the merge is carrying on too, and settling would kill it).
+ *
  * An entry with no end time (one read before the record kept it) cannot say
  * whether the person wrote after it, so it holds the chat for the idle rule.
  */
@@ -99,7 +103,7 @@ export function pullRequestsLanded(workspace: Workspace, pullRequests: readonly 
     lastEnded = Math.max(lastEnded, pr.endedAt)
   }
   if (!pullRequests.some((pr) => pr.state === 'merged')) return false
-  return lastEnded >= workspaceLastUserMessageAt(workspace)
+  return lastEnded >= Math.max(workspaceLastUserMessageAt(workspace), workspace.lastTerminalActivityAt ?? 0)
 }
 
 /**

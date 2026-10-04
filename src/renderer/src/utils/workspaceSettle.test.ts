@@ -237,6 +237,11 @@ test('workspaceSettle', async () => {
     'none',
     'a message after the merge is the person carrying on',
   )
+  assert.equal(
+    onMerge(recent({ lastTerminalActivityAt: NOW - 1000 }), [pr('merged', NOW - 60_000)]),
+    'none',
+    'so is a keystroke into one of its terminals: a dev server started after the merge would die with the chat',
+  )
   assert.equal(onMerge(recent(), [pr('merged')]), 'none', 'a merge with no time cannot say who came after it')
   assert.equal(onMerge(recent(), [pr('merged', NOW - 60_000)], false), 'none', 'the setting off, merges settle nothing')
   assert.equal(onMerge(recent(), []), 'none', 'no pull requests, nothing landed')
