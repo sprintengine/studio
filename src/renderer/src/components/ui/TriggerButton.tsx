@@ -11,16 +11,16 @@ import { FOCUS_RING_CLASS } from './tokens'
 // every trigger whose face is richer than a string — a glyph beside two lines, a
 // colour dot and a name, an avatar and a role, a chevron over a `min-h` box —
 // hand-rolled the chrome instead. Fifteen of them, and they drifted on all four
-// axes at once: `--bg-surface` against `--bg-surface-raised`, `control-edge`
+// axes at once: `--bg-surface` against `--bg-surface-raised`, a control's
 // elevation against none, `text-body font-medium` against `text-meta`,
 // `justify-center` against `justify-between`.
 //
 // `OutlineButton` is the nearest kit member and is deliberately not this: it is
-// a button that DOES something, so it carries `control-edge` — the half-step of
-// elevation that says "pressable" — and centres its label. A trigger is a field:
-// it says what the value is and opens a surface to change it, and a field does
-// not stand off the page. That is the whole reason this is a separate member and
-// not a variant of that one.
+// a button that DOES something, on the transparent `border.strong` hairline of
+// a standalone action, with its label centred. A trigger is a field: it says
+// what the value is, on the field's own ground, and opens a surface to change
+// it. That is the whole reason this is a separate member and not a variant of
+// that one.
 
 /**
  * - `field` (default) — the `Select` trigger's ground and border. What a
@@ -30,8 +30,14 @@ import { FOCUS_RING_CLASS } from './tokens'
  *   It is the same dashed-edge idiom `RowButton`'s `dashed` variant uses, and
  *   for the same reason: the control is a place for a thing that does not exist
  *   yet, and a solid edge would claim it already does.
+ * - `ghost` — the trigger INSIDE A TOOLBAR (owner ruling 2026-10-04, tier 3):
+ *   a workspace bar's panel picker. No edge and no ground at rest, muted ink,
+ *   the hover fill every ghost control takes, and `meta` type like the chips
+ *   and ghost buttons beside it. A bordered field dropped into a row of ghost
+ *   glyphs reads as a form that wandered into the chrome. In a form or a
+ *   settings row a trigger stays `field`.
  */
-export type TriggerVariant = 'field' | 'dashed'
+export type TriggerVariant = 'field' | 'dashed' | 'ghost'
 
 /**
  * Height. `sm` is the ramp step an input and a select share, and is the default
@@ -62,16 +68,40 @@ const RESTING: Record<TriggerVariant, string> = {
     'text-[color:var(--text-muted)] ' +
     'hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] ' +
     'disabled:hover:border-[color:var(--border-default)] disabled:hover:text-[color:var(--text-muted)]',
+  ghost:
+    'bg-transparent text-[color:var(--text-muted)] ' +
+    'hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ' +
+    'disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]',
+}
+
+// The type each variant sets. A field's label is body type, level with the
+// input beside it; a ghost trigger's is the toolbar's meta, level with the
+// chips and ghost buttons it sits among. One declaration per branch.
+const TYPE: Record<TriggerVariant, string> = {
+  field: 'text-body',
+  dashed: 'text-body',
+  ghost: 'text-meta font-medium',
 }
 
 // While the surface it opens is up. The neutral selection fill and the strong
 // edge, held under the pointer — a trigger that dimmed while its own popover was
 // open would read as having closed it. Never the accent: an open popover is a
 // state, not the view's primary action.
-const OPEN =
+const FIELD_OPEN =
   'border border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] ' +
   'text-[color:var(--text-strong)] hover:border-[color:var(--border-strong)] ' +
   'disabled:hover:border-[color:var(--border-strong)]'
+
+// A ghost trigger open takes the same neutral fill with no edge — the edge it
+// never had at rest would be a border appearing — and holds it under the
+// pointer, as the icon toggle beside it does when thrown.
+const OPEN: Record<TriggerVariant, string> = {
+  field: FIELD_OPEN,
+  dashed: FIELD_OPEN,
+  ghost:
+    'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ' +
+    'hover:bg-[color:var(--bg-selected)] disabled:hover:bg-[color:var(--bg-selected)]',
+}
 
 export type TriggerButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: TriggerVariant
@@ -97,11 +127,12 @@ export const TriggerButton = React.forwardRef<HTMLButtonElement, TriggerButtonPr
       {...rest}
       className={[
         // `justify-between`, because a trigger's face is a value on one side
-        // and a chevron on the other. No `control-edge`: see the header.
+        // and a chevron on the other. No depth on any variant: see the header.
         'interactive inline-flex w-full items-center justify-between gap-2 rounded-sm',
-        'text-left text-body transition-colors',
+        'text-left transition-colors',
+        TYPE[variant],
         SIZE[size],
-        open === true ? OPEN : RESTING[variant],
+        open === true ? OPEN[variant] : RESTING[variant],
         'disabled:cursor-not-allowed disabled:opacity-45',
         FOCUS_RING_CLASS,
         className ?? '',

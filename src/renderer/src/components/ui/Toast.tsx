@@ -115,9 +115,10 @@ export function Toast({
         // the page, with a hairline and shadow.toast to draw the card's
         // edge over whatever shows through. The toast is the ONE surface
         // allowed to blur — its area is a corner, not a viewport — and the
-        // conformance lint pins the utility to this file. shadow.toast is
-        // the button's lit top edge over a lifted drop (owner ruling
-        // 2026-09-28), so the card reads as sitting ON the page, not in it.
+        // conformance lint pins the utility to this file. shadow.toast is a
+        // lit top edge, lit from above like the primary button's, over a
+        // lifted drop (owner ruling 2026-09-28), so the card reads as sitting
+        // ON the page, not in it.
         'surface-glass shadow-[var(--shadow-toast)] border-[color:var(--border-default)]',
         'text-meta text-[color:var(--text-default)]',
         className ?? '',
