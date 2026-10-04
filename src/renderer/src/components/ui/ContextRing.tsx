@@ -25,6 +25,11 @@ import { FOCUS_RING_CLASS } from './tokens'
  */
 export const CONTEXT_RING_WARN_PERCENTAGE = 80
 
+/** The ring's token counts in words, as its tooltip says them: "76,000 / 200,000 tokens". */
+export function contextRingTokensLabel(used: number, total: number): string {
+  return `${Math.round(used).toLocaleString()} / ${Math.round(total).toLocaleString()} tokens`
+}
+
 /** Geometry of the drawn ring, in the SVG's own 16-unit box. */
 const RING_RADIUS = 6
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
@@ -39,11 +44,19 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
  */
 export function ContextRing({
   usedPercentage,
+  tokens,
   layer,
   className,
 }: {
   /** 0–100. Clamped and rounded here: the tooltip and the sweep must agree. */
   usedPercentage: number
+  /**
+   * The counts behind the percentage, where the caller holds them. The tooltip
+   * then says them and nothing else — "76,000 / 200,000 tokens" — because the
+   * sweep already shows the share and the counts are what a glance cannot
+   * read off it; the accessible name carries both.
+   */
+  tokens?: { used: number; total: number }
   /**
    * Which layer the tooltip sits on. `menu` when the ring is inside a
    * menu-tier surface (a `PointerPopover`), or its description paints under
@@ -56,14 +69,16 @@ export function ContextRing({
   const percentage = Math.max(0, Math.min(100, Math.round(usedPercentage)))
   // One sentence, used twice on purpose: as the accessible name, so the mark is
   // never an unnamed graphic, and as the tooltip, so a pointer gets the same
-  // answer a screen reader does.
-  const label = `Context ${percentage}% used`
+  // answer a screen reader does. With counts the tooltip is the counts alone,
+  // and the name says the share and the counts both.
+  const counts = tokens ? contextRingTokensLabel(tokens.used, tokens.total) : null
+  const label = counts ? `Context ${percentage}% used, ${counts}` : `Context ${percentage}% used`
   const high = percentage >= CONTEXT_RING_WARN_PERCENTAGE
   // The dash is the spent arc, the gap the whole circumference — so the sweep
   // is the value and nothing else has to be computed at paint time.
   const sweep = (RING_CIRCUMFERENCE * percentage) / 100
   return (
-    <Tooltip content={label} layer={layer} wrapperClassName="flex shrink-0">
+    <Tooltip content={counts ?? label} layer={layer} wrapperClassName="flex shrink-0">
       <span
         role="img"
         aria-label={label}

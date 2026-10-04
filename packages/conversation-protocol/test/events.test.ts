@@ -46,3 +46,12 @@ test('an event survives the wire as it was recorded', () => {
   const parsed = parseConversationServerFrame(JSON.parse(JSON.stringify({ type: 'event', event: recorded })))
   assert.deepEqual(parsed, { type: 'event', event: recorded })
 })
+
+test('a usage report keeps its context window reading across the wire', () => {
+  // The phone reads `contextWindow` and `contextUsed` off `usage_updated`; the
+  // envelope check passes a payload through as it was recorded.
+  const recorded = event('usage_updated', {
+    payload: { turnId: 't1', inputTokens: 900, outputTokens: 40, contextWindow: 272_000, contextUsed: 41_000 },
+  })
+  assert.deepEqual(parseConversationWireEvent(JSON.parse(JSON.stringify(recorded))), recorded)
+})

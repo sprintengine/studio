@@ -49,6 +49,10 @@ type RecordValue = Record<string, unknown>
 const record = (value: unknown): RecordValue =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as RecordValue) : {}
 const text = (value: unknown): string => (typeof value === 'string' ? value : '')
+// A count Codex reported, or nothing: a null window (a model Codex has no size
+// for) and a zero are both "no reading", never an empty window.
+const positiveNumber = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
 // How long a patch approval waits for its item (and so its diff) to arrive.
 const PATCH_APPROVAL_WAIT_MS = 1_000
 // The longest subagent message a transcript event keeps.
@@ -459,7 +463,13 @@ export function createCodexConversationProvider(
       return
     }
     if (method === 'thread/tokenUsage/updated') {
-      const usage = record(record(params.tokenUsage).last)
+      const tokenUsage = record(params.tokenUsage)
+      const usage = record(tokenUsage.last)
+      // How full the window is: the latest request's whole exchange, which is
+      // what Codex itself measures the window against — not `total`, the
+      // session's running sum, which outgrows any window within a few turns.
+      const contextUsed = positiveNumber(usage.totalTokens)
+      const contextWindow = positiveNumber(tokenUsage.modelContextWindow)
       emit(state, 'usage_updated', {
         inputTokens: usage.inputTokens,
         // The share of the input OpenAI's prompt cache served. Codex reports no
@@ -467,6 +477,8 @@ export function createCodexConversationProvider(
         cachedInputTokens: usage.cachedInputTokens,
         outputTokens: usage.outputTokens,
         totalTokens: usage.totalTokens,
+        ...(contextWindow !== undefined ? { contextWindow } : {}),
+        ...(contextUsed !== undefined ? { contextUsed } : {}),
       })
       return
     }

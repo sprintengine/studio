@@ -1994,6 +1994,13 @@ export function mapSdkMessage(
     promptCacheTtl?: PromptCacheTtl | null
     commandOutputShown?: boolean
     compactedInExchange?: boolean
+    // The context window's reading, carried between the messages that make
+    // it up: the model the init named (whose `modelUsage` row is the main
+    // chain's), and the size of the main chain's latest request — what it sent
+    // and what came back — which is what the window holds now.
+    contextModel?: string | null
+    contextPromptTokens?: number
+    contextOutputTokens?: number
   },
   message: Record<string, unknown>,
   // exchangeContinues: a `result` that answers only part of what the child was
@@ -2042,6 +2049,7 @@ export function mapSdkMessage(
   // metering against the subscription. Only the SDK's labels pass: the value
   // is written to the transcript as is.
   const apiKeySource = init ? normalizeApiKeySource(message.apiKeySource) : null
+  if (init && typeof message.model === 'string' && message.model) state.contextModel = message.model
 
   if (messageSessionId && messageSessionId !== state.providerSessionId) {
     state.providerSessionId = messageSessionId
@@ -2130,8 +2138,33 @@ export function mapSdkMessage(
       // That is the prompt cache's reading (shared/prompt-cache.ts); the
       // runtime stamps when it goes cold off this event's own time.
       if (streamEvent?.type === 'message_start') {
-        const promptCache = readRequestPromptCache(state, asRecord(asRecord(streamEvent.message)?.usage))
-        if (promptCache) events.push(eventFor(state, 'usage_updated', { turnId, promptCache }))
+        const requestUsage = asRecord(asRecord(streamEvent.message)?.usage)
+        const promptCache = readRequestPromptCache(state, requestUsage)
+        // The same request's size is also how full the context window is:
+        // everything the model was sent this time, cache hits included. A
+        // reading per request rather than per turn, because a turn of tool
+        // rounds sends the conversation many times over and the sum of those
+        // is not anything the window ever held.
+        const contextUsed = requestContextTokens(requestUsage)
+        if (contextUsed !== null) {
+          state.contextPromptTokens = contextUsed
+          state.contextOutputTokens = 0
+        }
+        if (promptCache || contextUsed !== null)
+          events.push(
+            eventFor(state, 'usage_updated', {
+              turnId,
+              ...(promptCache ? { promptCache } : {}),
+              ...(contextUsed !== null ? { contextUsed } : {}),
+            }),
+          )
+        break
+      }
+      // What the request wrote back joins the context too; the closing usage
+      // of a message counts its output so far.
+      if (streamEvent?.type === 'message_delta') {
+        const output = finiteNumber(asRecord(streamEvent.usage)?.output_tokens)
+        if (output !== undefined) state.contextOutputTokens = output
         break
       }
       // Each thinking block is its own thought. Back-to-back blocks arrive as
@@ -2269,6 +2302,15 @@ export function mapSdkMessage(
           numberOr(usage.cache_creation_input_tokens, 0) +
           numberOr(usage.cache_read_input_tokens, 0)
         const outputTokens = numberOr(usage.output_tokens, 0)
+        // `usage` is the exchange's sum over every request it made, so it says
+        // what the turn cost, not how full the window is: that is the latest
+        // request's size, read off its stream, and the window the CLI ran the
+        // main chain's model with.
+        const contextWindow = resultContextWindow(message.modelUsage, state.contextModel ?? null)
+        const contextUsed =
+          state.contextPromptTokens !== undefined
+            ? state.contextPromptTokens + (state.contextOutputTokens ?? 0)
+            : undefined
         events.push(
           eventFor(state, 'usage_updated', {
             turnId,
@@ -2278,6 +2320,8 @@ export function mapSdkMessage(
             cachedInputTokens: numberOr(usage.cache_read_input_tokens, 0),
             outputTokens,
             totalTokens: inputTokens + outputTokens,
+            ...(contextWindow !== undefined ? { contextWindow } : {}),
+            ...(contextUsed !== undefined ? { contextUsed } : {}),
           }),
         )
       }
@@ -2659,6 +2703,45 @@ function readRequestPromptCache(
   if (numberOr(writes?.ephemeral_1h_input_tokens, 0) > 0) state.promptCacheTtl = '1h'
   else if (numberOr(writes?.ephemeral_5m_input_tokens, 0) > 0) state.promptCacheTtl = '5m'
   return { ttl: state.promptCacheTtl ?? null, cached: written + read > 0, recacheTokens }
+}
+
+/**
+ * How many tokens one request of the main chain sent: its fresh input, what it
+ * wrote to the prompt cache and what it read from it. Null when the usage says
+ * nothing, so an empty `message_start` is not a window emptied to zero.
+ */
+function requestContextTokens(usage: Record<string, unknown> | null): number | null {
+  if (!usage) return null
+  const total =
+    numberOr(usage.input_tokens, 0) +
+    numberOr(usage.cache_creation_input_tokens, 0) +
+    numberOr(usage.cache_read_input_tokens, 0)
+  return total > 0 ? total : null
+}
+
+/**
+ * The context window the CLI ran the conversation's model with, from a
+ * result's `modelUsage` (one row per model the session has used, each naming
+ * its window). The init's model is the main chain's; failing a row under that
+ * name — an alias the CLI resolved — the largest window is taken, since a
+ * subagent's smaller model is the only other row there and the main chain is
+ * the one whose window the chat fills.
+ */
+export function resultContextWindow(modelUsage: unknown, model: string | null): number | undefined {
+  const rows = asRecord(modelUsage)
+  if (!rows) return undefined
+  const windowOf = (row: unknown): number | undefined => {
+    const value = finiteNumber(asRecord(row)?.contextWindow)
+    return value !== undefined && value > 0 ? value : undefined
+  }
+  const named = model ? windowOf(rows[model]) : undefined
+  if (named !== undefined) return named
+  let largest: number | undefined
+  for (const row of Object.values(rows)) {
+    const value = windowOf(row)
+    if (value !== undefined && (largest === undefined || value > largest)) largest = value
+  }
+  return largest
 }
 
 function numberOr(value: unknown, fallback: number): number {

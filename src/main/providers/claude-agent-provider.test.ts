@@ -12,6 +12,7 @@ import {
   CLAUDE_AGENT_SESSION_ENV_KEY,
   createClaudeAgentProvider,
   mapSdkMessage,
+  resultContextWindow,
   stripAnthropicAuthEnv,
   STRIPPED_ANTHROPIC_AUTH_ENV_KEYS,
   summarizeToolInput,
@@ -1983,9 +1984,11 @@ test('each main-chain request reports its prompt cache as it starts: size, lifet
     cache_creation: { ephemeral_1h_input_tokens: 2_000, ephemeral_5m_input_tokens: 0 },
   })
   assert.equal(first?.type, 'usage_updated')
+  // The same size is how full the context window is now.
   assert.deepEqual(first?.payload, {
     turnId: 'turn_1',
     promptCache: { ttl: '1h', cached: true, recacheTokens: 302_040 },
+    contextUsed: 302_040,
   })
   // A request that only reads says nothing of the lifetime: it carries over.
   const [readOnly] = start({ input_tokens: 10, cache_read_input_tokens: 302_040 })
@@ -1997,6 +2000,61 @@ test('each main-chain request reports its prompt cache as it starts: size, lifet
   assert.deepEqual(start({ input_tokens: 5, cache_read_input_tokens: 5 }, 'task_1'), [])
   // And a start with no usage reports nothing.
   assert.deepEqual(start({}), [])
+})
+
+test('a turn reports how full the context window is: the last request, and the window the CLI ran it with', () => {
+  const state = mapperState()
+  mapSdkMessage(state, { type: 'system', subtype: 'init', session_id: 'native', model: 'claude-opus-4-7' })
+  const stream = (event: Record<string, unknown>) =>
+    mapSdkMessage(state, { type: 'stream_event', session_id: 'native', parent_tool_use_id: null, event })
+  // Two requests in one turn (a tool round between them): each opening says
+  // how big the conversation it sent was, cache hits included.
+  stream({ type: 'message_start', message: { usage: { input_tokens: 10, cache_read_input_tokens: 40_000 } } })
+  stream({ type: 'message_delta', usage: { output_tokens: 300 } })
+  const [second] = stream({
+    type: 'message_start',
+    message: { usage: { input_tokens: 400, cache_creation_input_tokens: 600, cache_read_input_tokens: 40_000 } },
+  })
+  assert.equal(second?.payload?.contextUsed, 41_000)
+  stream({ type: 'message_delta', usage: { output_tokens: 250 } })
+  // A subagent's requests fill a window of their own, not this one.
+  mapSdkMessage(state, {
+    type: 'stream_event',
+    session_id: 'native',
+    parent_tool_use_id: 'task_1',
+    event: { type: 'message_start', message: { usage: { input_tokens: 90_000 } } },
+  })
+  const [usage] = mapSdkMessage(state, {
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    session_id: 'native',
+    // The turn's sum over both requests: what it cost, not what the window holds.
+    usage: { input_tokens: 410, cache_creation_input_tokens: 600, cache_read_input_tokens: 80_000, output_tokens: 550 },
+    modelUsage: {
+      'claude-haiku-4-5': { inputTokens: 90_000, outputTokens: 10, contextWindow: 200_000 },
+      'claude-opus-4-7': { inputTokens: 1_010, outputTokens: 550, contextWindow: 1_000_000 },
+    },
+  })
+  assert.equal(usage?.type, 'usage_updated')
+  assert.equal(usage?.payload?.inputTokens, 81_010)
+  // The last request's size and what it wrote back; the main chain's window.
+  assert.equal(usage?.payload?.contextUsed, 41_250)
+  assert.equal(usage?.payload?.contextWindow, 1_000_000)
+})
+
+test('the context window is the init model’s row of modelUsage, else the largest one there', () => {
+  const rows = {
+    'claude-haiku-4-5': { contextWindow: 200_000 },
+    'claude-opus-4-7[1m]': { contextWindow: 1_000_000 },
+  }
+  assert.equal(resultContextWindow(rows, 'claude-haiku-4-5'), 200_000)
+  // An alias the CLI resolved has no row of its own: the main chain's model is
+  // the one with the larger window, a subagent's the smaller.
+  assert.equal(resultContextWindow(rows, 'opus'), 1_000_000)
+  assert.equal(resultContextWindow(rows, null), 1_000_000)
+  assert.equal(resultContextWindow({ x: { contextWindow: 0 } }, 'x'), undefined)
+  assert.equal(resultContextWindow(undefined, 'x'), undefined)
 })
 
 test('a Claude compact boundary marks the transcript with what triggered it and the context it freed', () => {

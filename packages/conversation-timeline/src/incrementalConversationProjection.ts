@@ -3,6 +3,7 @@ import { isBackgroundLaunchAck, readSubagentStatus } from './subagents.js'
 import { applyPromptCacheEvent } from './promptCache.js'
 import {
   agentStateOf,
+  nextConversationUsage,
   applyAgentState,
   openReasoningRun,
   projectConversation,
@@ -400,11 +401,7 @@ function fastProjection(
   // A usage report, once a model call: the session's count, the turn's own, and
   // the prompt cache's clock.
   if (event.type === 'usage_updated') {
-    const previous = state.projection.usage ?? { inputTokens: 0, outputTokens: 0 }
-    const usage = {
-      inputTokens: readNumber(event.payload, 'inputTokens') ?? previous.inputTokens,
-      outputTokens: readNumber(event.payload, 'outputTokens') ?? previous.outputTokens,
-    }
+    const usage = nextConversationUsage(state.projection.usage, event.payload)
     const promptCache = applyPromptCacheEvent(state.projection.promptCache, event)
     let projection: ConversationProjection = state.projection
     if (turnId) {

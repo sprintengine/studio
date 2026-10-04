@@ -48,12 +48,18 @@ which draws a visible dot at 0%.
 
 There is no size variant. 14px is the idiom.
 
+**With token counts.** Where the surface holds the counts behind the share (a
+conversation's composer strip does), the tooltip says them and nothing else —
+"76,000 / 200,000 tokens" — and the accessible name says the share and the
+counts both: "Context 38% used, 76,000 / 200,000 tokens". The sweep already
+shows the share; the counts are what a glance cannot read off it.
+
 ## States
 
 | State | Treatment |
 |---|---|
 | Rest | Track plus fill; the tooltip closed |
-| Hover / focus-visible | The tooltip opens, naming the exact percentage |
+| Hover / focus-visible | The tooltip opens, naming the exact percentage — or the token counts, where the surface gives them |
 | Focus-visible | The anchor wears the product focus ring |
 | Value change | The sweep animates over `motion.duration.deliberate` |
 
@@ -70,7 +76,8 @@ value is unaffected.
 ## Usage
 
 **Beside the thing whose context it is** — a conversation's title, a session
-row — and never in a toolbar or a status bar of its own. The ring says
+row, the strip under the conversation's own composer — and never in a toolbar
+or a status bar of its own. The ring says
 "this one", and it can only do that from next to its subject.
 
 **One per surface.** Two rings on one card is two proportions the reader has
@@ -88,7 +95,8 @@ not an alert; anything that must be acted on gets words.
   reveal is not a reveal.
 - The SVG itself is `aria-hidden="true"`. The label lives on the anchor, so the
   mark is announced once.
-- The tooltip repeats the same sentence as the accessible name. It is a
+- The tooltip repeats the same sentence as the accessible name (or, with
+  token counts, the counts part of it). It is a
   `describedby` and never the name itself, because a tooltip that IS the name
   leaves an unnamed control for anyone who never opens it.
 - Colour is never the whole message: the sweep's LENGTH carries the value, and

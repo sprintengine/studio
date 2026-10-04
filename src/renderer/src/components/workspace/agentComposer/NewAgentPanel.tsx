@@ -49,10 +49,8 @@ import {
   ChipButton,
   CloseIconButton,
   COMPOSER_SURFACE_CLASS,
-  ComposerPlusGlyph,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   HiddenFileInput,
-  IconButton,
   MachineGlyph,
   MENU_LIST_CLASS,
   Input,
@@ -86,12 +84,14 @@ import { remoteProjectOfWorkspace, remoteProjectsOf, type RemoteProject } from '
 import { type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
 import { mergeDraftConnectors, readNewChatDraft, writeNewChatDraft, type NewChatDraftImage } from './newChatDraft'
 import { showToast } from '../../../store/toastStore'
-import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
 import { WorktreeChip } from './WorktreeChip'
 import { ScheduleFailureTray, ScheduleTag } from './schedule/SchedulePicker'
-import { ComposerOptions, StartAsGlyph, startAsLabel, type StartAs } from './ComposerOptionsMenu'
+import { StartAsGlyph, startAsLabel, type StartAs } from './ComposerOptionsMenu'
+import { ComposerPlusMenu } from './ComposerPlusMenu'
+import { ComposerStrip } from './ComposerStrip'
+import { FrontTruncatedText } from '../../ui/FrontTruncatedText'
 import { ScheduledRuns } from './schedule/ScheduledRuns'
 import type { ScheduledRunEntry } from '../../../utils/scheduledAgentRuns'
 import { ExtensionNameChip } from './ExtensionNameChip'
@@ -938,22 +938,9 @@ export default function NewAgentPanel({
 
   const [prompt, setPrompt] = React.useState(() => editing?.prompt ?? draft?.prompt ?? '')
   const [enginePopoverOpen, setEnginePopoverOpen] = React.useState(false)
-  // The "+" menu, and the skills picker it opens over the same "+".
-  const [optionsOpen, setOptionsOpen] = React.useState(false)
-  const [skillsOpen, setSkillsOpen] = React.useState(false)
+  // The hidden file input the "+" menu's Attach files row clicks. The menu
+  // and the skills picker it opens over the same "+" are `ComposerPlusMenu`.
   const fileInputRef = React.useRef<HTMLInputElement>(null)
-  // The "+" itself, so a pick from its menu hands focus back to it: the row
-  // picked unmounts with the menu, and focus would otherwise fall to the page.
-  const optionsTriggerRef = React.useRef<HTMLButtonElement | null>(null)
-  // Stable, because the popover runs it whenever it changes while open: an
-  // inline one re-ran on every render of this panel and pulled focus back to
-  // the checked row from wherever the arrows had moved it.
-  const focusOptionsOnOpen = React.useCallback((surface: HTMLElement) => {
-    ;(
-      surface.querySelector<HTMLElement>('[data-menu-item="true"][aria-checked="true"]') ??
-      surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')
-    )?.focus()
-  }, [])
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
   const [seed] = React.useState(() => newSuggestionSeed())
   const promptRef = React.useRef<HTMLTextAreaElement>(null)
@@ -1614,7 +1601,6 @@ export default function NewAgentPanel({
   }
   // What the launch reads skills and MCP servers through: nothing for a plain shell.
   const skillsOffered = selection.kind !== 'terminal'
-  const skillsCount = composer.skills.length + composer.mcpServers.length
   const scheduleOption =
     scheduleOffered || editing
       ? {
@@ -1877,83 +1863,33 @@ export default function NewAgentPanel({
               surface, and a standing edge on each drew a box in a box. */}
           <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2.5 pt-1.5">
             <HiddenFileInput ref={fileInputRef} onFiles={(files) => takeFiles(sortFiles(files, true))} />
-            <Popover
-              open={optionsOpen}
-              onOpenChange={(next) => {
-                if (next) setSkillsOpen(false)
-                setOptionsOpen(next)
-              }}
-              ariaLabel="Options"
-              popupRole="menu"
+            <ComposerPlusMenu
               placement="bottom-start"
-              surfaceClassName={`w-[304px] ${MENU_LIST_CLASS}`}
-              onOpenAutoFocus={focusOptionsOnOpen}
-              renderTrigger={({ ref: optionsRef, triggerProps, togglePopover }) => {
-                const plus = (anchor: (node: HTMLButtonElement | null) => void) => (
-                  <IconButton
-                    ref={anchor}
-                    size="md"
-                    aria-label="Options"
-                    onClick={togglePopover}
-                    data-composer-options="true"
-                    {...triggerProps}
-                  >
-                    <ComposerPlusGlyph className="icon-sm" />
-                  </IconButton>
-                )
-                // The skills picker opens from a row of this menu and stands on
-                // the same "+": one anchor for both, so it opens where the
-                // person was looking.
-                return skillsOffered ? (
-                  <SkillsAndMcpsPicker
-                    workspaceRoot={workspaceRoot}
-                    // A chat stages skills itself rather than through the CLI's
-                    // own skill directory, so the workspace-wide inventory is
-                    // its list.
-                    pluginId={commandCli}
-                    skills={composer.skills}
-                    onSkillsChange={composer.setSkills}
-                    mcpServers={composer.mcpServers}
-                    onMcpServersChange={composer.setMcpServers}
-                    placement="bottom-start"
-                    open={skillsOpen}
-                    onOpenChange={setSkillsOpen}
-                    renderTrigger={({ ref: skillsRef }) =>
-                      plus((node) => {
-                        optionsRef.current = node
-                        skillsRef.current = node
-                        optionsTriggerRef.current = node
-                      })
+              startAs={{ kind: selection.kind, offered: offeredKinds, onStartAs: startAs }}
+              onAttach={
+                isTerminalLaunch
+                  ? undefined
+                  : () => {
+                      fileInputRef.current?.click()
                     }
-                  />
-                ) : (
-                  plus((node) => {
-                    optionsRef.current = node
-                    optionsTriggerRef.current = node
-                  })
-                )
-              }}
-            >
-              <ComposerOptions
-                startAs={selection.kind}
-                offered={offeredKinds}
-                onStartAs={startAs}
-                onAttach={
-                  isTerminalLaunch
-                    ? undefined
-                    : () => {
-                        fileInputRef.current?.click()
-                      }
-                }
-                onSkills={skillsOffered ? () => setSkillsOpen(true) : undefined}
-                skillsCount={skillsCount}
-                schedule={scheduleOption}
-                close={() => {
-                  setOptionsOpen(false)
-                  optionsTriggerRef.current?.focus()
-                }}
-              />
-            </Popover>
+              }
+              schedule={scheduleOption}
+              skills={
+                skillsOffered
+                  ? {
+                      workspaceRoot,
+                      // A chat stages skills itself rather than through the
+                      // CLI's own skill directory, so the workspace-wide
+                      // inventory is its list.
+                      pluginId: commandCli,
+                      skills: composer.skills,
+                      onSkillsChange: composer.setSkills,
+                      mcpServers: composer.mcpServers,
+                      onMcpServersChange: composer.setMcpServers,
+                    }
+                  : undefined
+              }
+            />
 
             {/* The tags: each choice the "+" made that is not the default. */}
             {scheduled ? (
@@ -2100,10 +2036,7 @@ export default function NewAgentPanel({
             rounded at the bottom only, inset from the box's sides, its top
             hidden under the box's lower edge (owner ruling 2026-10-04). */}
         {stripShown && !terminalUnavailable ? (
-          <div
-            data-composer-strip="true"
-            className="mx-6 -mt-4 flex flex-wrap items-center gap-0.5 rounded-b-[var(--sem-radius-composer-strip)] border border-t-0 border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-2 pb-1 pt-5"
-          >
+          <ComposerStrip>
             {/* One machine dropdown, this computer first (owner ruling
                 2026-09-03 — no separate Local/Remote switch). Shown whenever
                 there is another machine to pick. */}
@@ -2158,23 +2091,24 @@ export default function NewAgentPanel({
               />
             ) : null}
             {projectControl}
-            {worktreeOffered || stripBranch ? (
-              <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-[color:var(--border-default)]" />
-            ) : null}
             {/* Worktree, then the branch it is cut from (or the launch runs
-                on): off until turned on or named. */}
+                on): off until turned on or named. Set apart from the project
+                by the strip's spacing alone, with no rule between. */}
             {worktreeOffered ? <WorktreeChip name={composer.worktreeName} onChange={composer.setWorktreeName} /> : null}
             {stripBranch ? (
+              // The one item on the strip that may shrink: it gives its front
+              // away first, so the end of the name — the part that says what
+              // the branch is for — is what stays.
               <span
-                className="inline-flex h-control-xs min-w-0 items-center gap-1.5 px-2 text-meta text-[color:var(--text-subtle)]"
+                className="inline-flex h-control-xs min-w-0 flex-1 items-center gap-1.5 px-2 text-meta text-[color:var(--text-subtle)]"
                 data-composer-branch={stripBranch}
               >
                 <GitBranchGlyph className="icon-xs shrink-0" />
-                {worktreeOffered && composer.worktreeName !== null ? <span>from</span> : null}
-                <span className="min-w-0 truncate font-mono">{stripBranch}</span>
+                {worktreeOffered && composer.worktreeName !== null ? <span className="shrink-0">from</span> : null}
+                <FrontTruncatedText text={stripBranch} className="font-mono" />
               </span>
             ) : null}
-          </div>
+          </ComposerStrip>
         ) : null}
         {driveAdvisory ? (
           <p className="mt-2 px-6 text-meta leading-5 text-[color:var(--text-muted)]">{driveAdvisory}</p>

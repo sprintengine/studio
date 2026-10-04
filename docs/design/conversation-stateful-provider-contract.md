@@ -166,7 +166,8 @@ when stateful and needs nothing when stateless.
 | `assistant` message `tool_use` blocks              | `tool_started` (name + input summary)                    |
 | `user` message `tool_result` blocks                | `tool_output`                                            |
 | `system/compact_boundary`                          | `context_compacted` payload `{ trigger, preTokens }`     |
-| `result success`                                   | `usage_updated` + `turn_completed`                       |
+| `stream_event: message_start` (main chain)         | `usage_updated` payload `{ promptCache, contextUsed }`   |
+| `result success`                                   | `usage_updated` (+ `contextWindow` from `modelUsage`) + `turn_completed` |
 | `result error*`                                    | `turn_failed`                                            |
 | `canUseTool` callback                              | `approval_requested` … `approval_resolved`               |
 | rate-limit / auth notices                          | `turn_failed` reason `auth` (v1)                         |

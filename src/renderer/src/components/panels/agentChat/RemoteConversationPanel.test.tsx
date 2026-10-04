@@ -258,7 +258,17 @@ test('a conversation on a paired machine renders in the chat view and is driven 
     // Neither the model nor the permission preset of a conversation over
     // there is this machine's to pick, and nothing offers to attach a file
     // from this disk.
+    // The "+" that would attach one (or skills) is not drawn at all.
+    expect(chat.host.querySelector('[data-composer-options]')).toBeNull()
     expect(chat.host.querySelector('[aria-label="Attach an image"]')).toBeNull()
+    // The strip under the composer marks the machine the chat runs on with its
+    // glyph alone, named in its tooltip and accessible name; this computer has
+    // no checkout of it, so no branch and no counts.
+    const machine = chat.host.querySelector('[data-conversation-strip] [data-strip-machine]')
+    expect(machine?.getAttribute('aria-label')).toBe('On mac-mini')
+    expect(machine?.textContent).toBe('')
+    expect(chat.host.querySelector('[data-conversation-strip] [data-strip-branch]')).toBeNull()
+    expect(chat.host.querySelector('[data-conversation-strip] [data-diff-stat-pill]')).toBeNull()
     // A turn's changes can be read, but its files are on the other machine's
     // disk, so nothing offers to revert them.
     expect(chat.host.textContent).toContain('1 file changed')
@@ -321,17 +331,28 @@ test('a pairing that may only follow sees the conversation with every action clo
   }
 })
 
-const permissionsChip = (document: Document) =>
-  Array.from(document.querySelectorAll('button')).find((item) =>
-    item.getAttribute('aria-label')?.startsWith('Permissions:'),
-  )
+// The chat's permissions are on the engine picker's trailing row, as a
+// launch's are: opened through the engine chip when the picker is not open.
+const permissionsChip = async (chat: Awaited<ReturnType<typeof mountRemote>>) => {
+  const find = () =>
+    Array.from(chat.document.querySelectorAll('button')).find((item) =>
+      item.getAttribute('aria-label')?.startsWith('Permissions:'),
+    )
+  if (!find()) await chat.act(async () => engineChip(chat.host)!.click())
+  return find()
+}
 
 test('a chat on a machine that runs only two presets dims the other two, and a pick goes over the mesh', async () => {
   const chat = await mountRemote({ access: 'operate', permissionPreset: 'bypass' })
   try {
-    // The permission chip sits in the chat box itself, beside the engine chip.
-    expect(permissionsChip(chat.document)?.getAttribute('aria-label')).toBe('Permissions: Bypass permissions')
-    await chat.act(async () => permissionsChip(chat.document)!.click())
+    // Bypass is a safeguard off: the engine chip says so while the picker
+    // holding the permissions is closed.
+    expect(engineChip(chat.host)?.getAttribute('aria-label')).toMatch(/— Permissions: Bypass permissions$/)
+    expect(engineChip(chat.host)?.getAttribute('data-engine-warn')).toBe('true')
+    // The permissions sit on the engine picker's trailing row.
+    expect((await permissionsChip(chat))?.getAttribute('aria-label')).toBe('Permissions: Bypass permissions')
+    const chip = await permissionsChip(chat)
+    await chat.act(async () => chip!.click())
     const rows = Array.from(chat.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]'))
     expect(rows).toHaveLength(4)
     // An older machine reads Manual and Auto as No flag, so neither is offered
@@ -340,7 +361,7 @@ test('a chat on a machine that runs only two presets dims the other two, and a p
     expect(rows[0]!.textContent).toContain('mac-mini needs a newer Studio for this.')
     await chat.act(async () => rows[3]!.click())
     expect(chat.api.meshConversationSetPermissionPreset).toHaveBeenCalledExactlyOnceWith({ key, preset: 'none' })
-    expect(permissionsChip(chat.document)?.getAttribute('aria-label')).toBe('Permissions: No flag')
+    expect((await permissionsChip(chat))?.getAttribute('aria-label')).toBe('Permissions: No flag')
   } finally {
     await chat.unmount()
   }
@@ -349,12 +370,13 @@ test('a chat on a machine that runs only two presets dims the other two, and a p
 test('a chat on a machine that runs all four presets offers them, and Auto goes over the mesh', async () => {
   const chat = await mountRemote({ access: 'operate', permissionPreset: 'none', permissionModes: true })
   try {
-    await chat.act(async () => permissionsChip(chat.document)!.click())
+    const chip = await permissionsChip(chat)
+    await chat.act(async () => chip!.click())
     const rows = Array.from(chat.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]'))
     expect(rows.map((row) => row.disabled)).toEqual([false, false, false, false])
     await chat.act(async () => rows[1]!.click())
     expect(chat.api.meshConversationSetPermissionPreset).toHaveBeenCalledExactlyOnceWith({ key, preset: 'auto' })
-    expect(permissionsChip(chat.document)?.getAttribute('aria-label')).toBe('Permissions: Auto')
+    expect((await permissionsChip(chat))?.getAttribute('aria-label')).toBe('Permissions: Auto')
   } finally {
     await chat.unmount()
   }
@@ -389,7 +411,7 @@ test("a permission card's Allow and switch allows that request first, then moves
     })
     expect(chat.api.meshConversationSetPermissionPreset).toHaveBeenCalledExactlyOnceWith({ key, preset: 'bypass' })
     expect(order).toEqual(['allow', 'switch'])
-    expect(permissionsChip(chat.document)?.getAttribute('aria-label')).toBe('Permissions: Bypass permissions')
+    expect((await permissionsChip(chat))?.getAttribute('aria-label')).toBe('Permissions: Bypass permissions')
   } finally {
     await chat.unmount()
   }
@@ -413,7 +435,7 @@ test('a refused allow leaves the chat on the mode it was on', async () => {
     await chat.act(async () => row!.click())
     expect(chat.api.meshConversationSetPermissionPreset).not.toHaveBeenCalled()
     expect(chat.host.textContent).toContain('This request has already been answered.')
-    expect(permissionsChip(chat.document)?.getAttribute('aria-label')).toBe('Permissions: No flag')
+    expect((await permissionsChip(chat))?.getAttribute('aria-label')).toBe('Permissions: No flag')
   } finally {
     await chat.unmount()
   }

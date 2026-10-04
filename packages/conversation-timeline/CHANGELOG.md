@@ -4,6 +4,11 @@
 
 ### Added
 
+- `ConversationUsage` carries `contextWindow` and `contextUsed` from
+  `usage_updated`, each kept until a report moves it (a compaction resets
+  `contextUsed` to what the summary left). `nextConversationUsage` is the fold,
+  shared by the full and the incremental projection.
+
 - The projection, incremental projection and timeline Studio's chat view
   draws from, moved here unchanged so the app and other views share one
   implementation.

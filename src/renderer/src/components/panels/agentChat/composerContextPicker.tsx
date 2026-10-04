@@ -14,7 +14,6 @@ import {
   StarGlyph,
   type InlineSkillPickerHandle,
 } from '../../ui'
-import { SkillsAndMcpsPicker } from '../../workspace/agentComposer/SkillsAndMcpsPicker'
 import { AttachmentChip } from '../../ui/AttachmentChip'
 import { recentFileVisit, workspaceFileVisits } from '../../../utils/recentFileVisits'
 import { rankConversationCommands, SlashCommandMenu, type SlashCommandMenuStatus } from './slashCommandMenu'
@@ -323,30 +322,12 @@ export function useComposerContextPicker({
   return { trigger, pickerRef, handleKeyDown, dismiss, picker, comboboxProps }
 }
 
-export function ComposerSkillsPicker({
-  workspaceRoot,
-  skills,
-  onSkillsChange,
-}: {
-  workspaceRoot: string | null
-  skills: WorkspaceSkill[]
-  onSkillsChange: (skills: WorkspaceSkill[]) => void
-}) {
-  return (
-    <SkillsAndMcpsPicker
-      workspaceRoot={workspaceRoot}
-      pluginId={null}
-      skills={skills}
-      onSkillsChange={onSkillsChange}
-      mcpServers={[]}
-      onMcpServersChange={() => undefined}
-      includeMcps={false}
-      placement="top-start"
-    />
-  )
-}
-
-function SkillContextChip({
+/**
+ * One skill attached to the next turn, as a tag: hover or click opens what the
+ * skill is and a way to read it; its × takes it off. The composer row's tags
+ * beside the "+" are these.
+ */
+export function SkillContextChip({
   skill,
   onRemove,
   onOpen,
@@ -397,30 +378,21 @@ function SkillContextChip({
   )
 }
 
+/**
+ * The files and folders @-mentioned into the draft, as removable chips above
+ * the field. The skills attached to the turn are tags on the row under the
+ * field instead (`SkillContextChip`), beside the "+" that attached them.
+ */
 export function ComposerContextChips({
-  skills,
   mentions,
-  onRemoveSkill,
   onRemoveMention,
-  onOpenSkill,
 }: {
-  skills: WorkspaceSkill[]
   mentions: ConversationMentionRef[]
-  onRemoveSkill: (id: string) => void
   onRemoveMention: (mention: ConversationMentionRef) => void
-  onOpenSkill: (skill: WorkspaceSkill) => void
 }) {
-  if (skills.length === 0 && mentions.length === 0) return null
+  if (mentions.length === 0) return null
   return (
-    <div className="flex flex-wrap items-center gap-2 px-3 pt-2" aria-label="Attached context">
-      {skills.map((skill) => (
-        <SkillContextChip
-          key={skill.id}
-          skill={skill}
-          onRemove={() => onRemoveSkill(skill.id)}
-          onOpen={() => onOpenSkill(skill)}
-        />
-      ))}
+    <div className="flex flex-wrap items-center gap-2 px-5 pt-3" aria-label="Attached context">
       {mentions.map((mention) => (
         <AttachmentChip
           key={`${mention.kind}:${mention.path}`}

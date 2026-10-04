@@ -80,29 +80,27 @@ worktree switch is a glyph button and a name field in one box — takes the shel
 from the shipped primitive's `RAISED_CHIP_SHELL` export rather than spelling
 it, so it cannot drift a pixel from the chips beside it.
 
-### Folding a raised row (owner ruling 2026-10-01)
+### A row too narrow for its chips
 
-A row of raised chips has a width budget, and a squashed panel used to answer
-it by wrapping onto a second line or crushing every chip to a sliver. Below the
-row's own budget its **secondary** chips fold behind one more `--raised` chip
-carrying a chevron that points the way its popover opens; the popover holds the
-same controls, stacked. The **essential** controls never fold: the model
-picker, the send or start action, and anything a launch cannot start without.
+A row of raised chips never answers a narrow panel by crushing every chip to a
+sliver. From 2026-10-01 to 2026-10-04 the conversation composer folded its
+secondary chips behind a chevron; it no longer needs to. Its row is now the New
+chat composer's — the "+", the attached tags, the engine chip and send — short
+enough to wrap only in a pane narrower than any it is drawn in, and its
+facts moved to the strip under the box, which keeps to one line by moving what
+does not fit into a "⋮" menu in a fixed order (the conversation strip in
+`src/renderer/src/components/panels/agentChat/conversationStrip.tsx`). The
+rules the fold kept still hold for whatever answers a narrow row next:
 
 - **Measured against the row, not the window.** The same panel width is a
   different budget depending on what sits beside the panel.
-- **Nothing is dropped.** A control that disappears is a missing feature at
-  that size.
-- **Mounted once.** Folded controls move into the popover rather than being
-  hidden in place, so there are never two focus targets or two accessible names
-  for one control.
-- **A chevron, not ⋯,** because a launch row may already carry a ⋯ of its own,
-  and two identical glyphs side by side read as one door.
-- **A standing warning survives the fold.** If a folded chip carries the warn
-  tone (permissions bypassed), the chevron takes the same tint.
-
-Shipped as `FoldedControls` and `useMeasuredFold` in
-`src/renderer/src/components/ui/FoldedControls.tsx`.
+- **Nothing is dropped.** A control that leaves the row is reachable from the
+  menu it moved to, doing what it did on the row.
+- **Mounted once.** A control moves; it is not drawn twice, so there are never
+  two focus targets or two accessible names for one control.
+- **A standing warning survives.** A chip carrying the warn tone (permissions
+  bypassed) keeps it wherever the control goes — the engine chip wears it now
+  that the permissions are inside its picker.
 
 The edge, where a variant has one, is present **at rest and held through every
 state**. A border that appeared when the chip was thrown would resize the row it

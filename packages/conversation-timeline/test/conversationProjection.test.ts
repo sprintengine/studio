@@ -122,6 +122,62 @@ test('the chat’s prompt cache and each turn’s cached share come off its usag
   expect(projectConversation([event('turn_started', 1, { turnId: 't1' })]).promptCache).toBeNull()
 })
 
+test('the context window and how much of it is held come off the latest report, never a sum', () => {
+  const events = [
+    event('turn_started', 1, { turnId: 't1' }),
+    // A request opens: its size is what the window holds now.
+    event('usage_updated', 2, { turnId: 't1', contextUsed: 60_000 }),
+    // The next request in the same turn sends the conversation again; the
+    // window holds that, not the two added up.
+    event('usage_updated', 3, { turnId: 't1', contextUsed: 64_000 }),
+    // The turn's result names the window and the last request's size with its
+    // output; its input count is a sum over requests and is not the window's.
+    event('usage_updated', 4, {
+      turnId: 't1',
+      inputTokens: 124_000,
+      outputTokens: 900,
+      contextWindow: 200_000,
+      contextUsed: 64_900,
+    }),
+    event('turn_completed', 5, { turnId: 't1' }),
+    event('turn_started', 6, { turnId: 't2' }),
+    // A mid-turn reading names no window: the one already known stays.
+    event('usage_updated', 7, { turnId: 't2', contextUsed: 70_000 }),
+  ]
+  const projection = projectConversation(events)
+  expect(projection.usage).toEqual({
+    inputTokens: 124_000,
+    outputTokens: 900,
+    contextWindow: 200_000,
+    contextUsed: 70_000,
+  })
+  // The incremental fold answers the same.
+  let state = createConversationProjectionState()
+  for (const item of events) state = applyEvent(state, item)
+  expect(state.projection.usage).toEqual(projection.usage)
+  // A window of zero is no reading, not an empty window.
+  expect(projectConversation([event('usage_updated', 1, { contextWindow: 0, contextUsed: 5 })]).usage).toEqual({
+    inputTokens: 0,
+    outputTokens: 0,
+    contextUsed: 5,
+  })
+})
+
+test('a compaction gives the context back: the window holds what the summary left', () => {
+  const before = [
+    event('turn_started', 1, { turnId: 't1' }),
+    event('usage_updated', 2, { turnId: 't1', contextWindow: 200_000, contextUsed: 182_000 }),
+  ]
+  expect(
+    projectConversation([...before, event('context_compacted', 3, { turnId: 't1', postTokens: 24_000 })]).usage,
+  ).toMatchObject({ contextWindow: 200_000, contextUsed: 24_000 })
+  // A compaction that does not say what it left leaves the window unread until
+  // the next request says.
+  const unread = projectConversation([...before, event('context_compacted', 3, { turnId: 't1' })]).usage
+  expect(unread?.contextWindow).toBe(200_000)
+  expect(unread?.contextUsed).toBeUndefined()
+})
+
 test('a compaction sits between its turn’s message and reply, or after the turn it followed', () => {
   const projection = projectConversation([
     event('user_message', 0, { turnId: 't1', text: 'First' }),
