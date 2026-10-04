@@ -8,6 +8,7 @@ import {
 } from '../../shared/browser-devices'
 import type { McpConnectionContext, McpToolRegistration, McpToolResult } from '../../shared/modules/mcp-tools'
 import type { ActionEntry, BrowserControl, BrowserControlError } from '../browser/browser-control'
+import type { BrowserRecorder, FinishedRecording } from '../browser/browser-recorder'
 
 // The `browser.*` gateway tools (browser-pane epic, child 6): an agent's view
 // of the workspace pane's browser tabs — the SAME tabs the person sees, not a
@@ -32,6 +33,10 @@ export const BROWSER_MUTATION_TOOL_NAMES: readonly string[] = [
   'browser.set_appearance',
   // Answering a page's dialog presses OK or Cancel on the person's page.
   'browser.dialog',
+  // Recording captures the person's page and writes a file into their
+  // workspace: audited, and on the operate scope for a paired device.
+  'browser.record_start',
+  'browser.record_stop',
 ]
 
 const OPEN_WAIT_MS = 8_000
@@ -77,6 +82,8 @@ export type BrowserToolsDeps = {
     | 'actionsOf'
     | 'dialog'
   >
+  /** Recording a tab to video (`browser.record_start` / `record_stop`). */
+  recorder: Pick<BrowserRecorder, 'start' | 'stop' | 'lastFinished'>
   /** Whether a workspace id names an open workspace. */
   hasWorkspace: (workspaceId: string) => boolean
   now?: () => number
@@ -161,14 +168,51 @@ function describeTab(
     error: tab.error ? { code: tab.error.code, description: tab.error.description } : null,
     zoomFactor: tab.zoomFactor,
     colorScheme: tab.colorScheme,
+    ...(tab.recording
+      ? {
+          recording: {
+            recordingId: tab.recording.recordingId,
+            startedAt: new Date(tab.recording.startedAt).toISOString(),
+            maxDurationMs: tab.recording.maxDurationMs,
+          },
+        }
+      : {}),
     ...(lastAction ? { lastAction } : {}),
+  }
+}
+
+/** Who may stop a recording besides the person: the agent, device or connection that started it. */
+function recordingOwner(context?: McpConnectionContext): string {
+  const metadata = context?.metadata
+  if (metadata?.agentId) return `agent:${metadata.workspaceId ?? ''}:${metadata.agentId}`
+  if (metadata?.deviceId) return `device:${metadata.deviceId}`
+  return `connection:${metadata?.kind ?? 'unknown'}`
+}
+
+/** A finished recording as the agent reads it. */
+function describeRecording(recording: FinishedRecording): Record<string, unknown> {
+  return {
+    recordingId: recording.recordingId,
+    tabId: recording.tabId,
+    workspacePath: recording.workspacePath,
+    ...(recording.path ? { path: recording.path } : {}),
+    mimeType: recording.mimeType,
+    bytes: recording.bytes,
+    durationMs: recording.durationMs,
+    width: recording.width,
+    height: recording.height,
+    cursor: recording.cursor,
+    stopReason: recording.stopReason,
+    ...(recording.error ? { error: recording.error } : {}),
+    startedAt: recording.startedAt,
+    endedAt: recording.endedAt,
   }
 }
 
 const SNAPSHOT_ACTIONS = 10
 
 export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[] {
-  const { manager, control } = deps
+  const { manager, control, recorder } = deps
   const now = deps.now ?? Date.now
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
 
@@ -750,6 +794,72 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
           ...(action === 'accept' && text !== undefined ? { promptText: text } : {}),
         })
         return result.ok ? success({ answered: result.answered, accepted: result.accepted }) : controlFailure(result)
+      },
+    },
+    {
+      name: 'browser.record_start',
+      description:
+        'Start recording the tab to a video (WebM) as the person sees it, with your cursor drawn in, until browser.record_stop or `maxSeconds`. ' +
+        'The person is shown that the tab is being recorded and can stop it. The pane is brought forward: a tab that is hidden records no new frames. ' +
+        'The video is saved in the workspace under .sprintengine/browser/recordings/; browser.record_stop answers its path.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          maxSeconds: { type: 'number', description: 'Stop by itself after this long. Default 60, at most 300.' },
+          cursor: { type: 'boolean', description: 'Draw your cursor in the video. Default true.' },
+          tabId: TARGET_PROPERTIES.tabId,
+          workspaceId: TARGET_PROPERTIES.workspaceId,
+        },
+        additionalProperties: false,
+      },
+      handler: async (args, context) => {
+        const resolved = resolveTab(args, context)
+        if ('content' in resolved) return resolved
+        // First, so its first frame can come: a tab only paints while it is on
+        // screen. And the person should see what is being recorded.
+        manager.requestOpen(resolved.workspaceId, null, resolved.tabId)
+        const started = await recorder.start({
+          tabId: resolved.tabId,
+          workspaceId: resolved.workspaceId,
+          owner: recordingOwner(context),
+          maxSeconds: num(args, 'maxSeconds'),
+          cursor: args.cursor !== false,
+        })
+        if (!started.ok) return failure(started.code, started.message)
+        const { recording } = started
+        return success({
+          recording: {
+            recordingId: recording.recordingId,
+            tabId: recording.tabId,
+            startedAt: recording.startedAt,
+            maxDurationMs: recording.maxDurationMs,
+            workspacePath: recording.workspacePath,
+            ...(recording.path ? { path: recording.path } : {}),
+          },
+        })
+      },
+    },
+    {
+      name: 'browser.record_stop',
+      description:
+        'Stop recording the tab and save the video. Answers the file (`workspacePath`, relative to the workspace root, and `path` as your machine spells it), ' +
+        'its length, size and why it stopped. A recording that already ended at its limit, or that the person stopped, is answered the same way.',
+      inputSchema: {
+        type: 'object',
+        properties: { tabId: TARGET_PROPERTIES.tabId, workspaceId: TARGET_PROPERTIES.workspaceId },
+        additionalProperties: false,
+      },
+      handler: async (args, context) => {
+        const resolved = resolveTab(args, context)
+        if ('content' in resolved) return resolved
+        const owner = recordingOwner(context)
+        const stopped = await recorder.stop({ tabId: resolved.tabId, owner, reason: 'stopped' })
+        if (stopped.ok) return success({ recording: describeRecording(stopped) })
+        if (stopped.code === 'not_recording') {
+          const ended = recorder.lastFinished(resolved.tabId, owner)
+          if (ended) return success({ recording: describeRecording(ended) })
+        }
+        return failure(stopped.code, stopped.message)
       },
     },
   ]

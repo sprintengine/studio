@@ -216,6 +216,12 @@ for (const through of ['direct', 'the shell'] as const)
       const registrations = createBrowserTools({
         manager,
         control,
+        // Recording has its own suite (browser-tools-recording.test.ts).
+        recorder: {
+          start: async () => ({ ok: false, code: 'unused', message: 'Not in this suite.' }),
+          stop: async () => ({ ok: false, code: 'unused', message: 'Not in this suite.' }),
+          lastFinished: () => null,
+        },
         hasWorkspace: (workspaceId) => workspaceId === 'ws-1' || workspaceId === 'ws-2',
         sleep: async () => {},
       })
@@ -437,6 +443,7 @@ for (const through of ['direct', 'the shell'] as const)
         const stuck = createBrowserTools({
           manager: h.manager,
           control: {} as never,
+          recorder: {} as never,
           hasWorkspace: () => true,
           now: () => (clock += 20_000),
           sleep: async () => {},

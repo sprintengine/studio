@@ -21,6 +21,9 @@ export const BUILT_IN_TOOL_TIMEOUTS_MS: Readonly<Record<string, number>> = {
   'browser.open': 30_000,
   'browser.wait_for': 40_000,
   'browser.evaluate': 40_000,
+  // A stop waits for the window's last second of video, then writes a file of
+  // up to 60 MB with its length in it.
+  'browser.record_stop': 60_000,
   'canvas.import': 90_000,
   'canvas.edit': 45_000,
   'canvas.layout': 45_000,

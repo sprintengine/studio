@@ -95,6 +95,12 @@ type RegisterAppLifecycleOptions = {
   canvasService?: {
     dispose(): Promise<void>
   }
+  // Recordings of browser tabs an agent started: each is a file still being
+  // written, so quit saves what was captured, with its length, before the
+  // windows that encode them close.
+  browserRecorder?: {
+    stopAll(reason: 'app_quit'): Promise<void>
+  }
   // The shell's own client of an out-of-process server, offering its
   // toolsets: closed before the server drains, so the server's goodbye is
   // not one it answers by reconnecting.
@@ -183,6 +189,7 @@ export function registerAppLifecycle({
   removeSessionIntegrations,
   releaseDataDir,
   canvasService,
+  browserRecorder,
   desktopShell,
   conversationCommands,
   pullRequestRecord,
@@ -602,6 +609,7 @@ export function registerAppLifecycle({
       ['pull requests (flush)', () => pullRequestRecord?.flush()],
       ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
       ['chats', () => conversationOwner?.shutdown()],
+      ['browser recordings', () => browserRecorder?.stopAll('app_quit')],
       ['canvas', () => canvasService?.dispose()],
       ['command lists', () => conversationCommands?.dispose()],
       ['workspace registry (final)', () => workspaceSyncService?.flush()],
@@ -635,6 +643,7 @@ export function registerAppLifecycle({
           hostedFeedPoller?.stop()
         },
       ],
+      ['browser recordings', () => browserRecorder?.stopAll('app_quit')],
       // The canvas's last board write lands before the server stops serving.
       ['canvas', () => canvasService?.dispose()],
       ['desktop tools', () => desktopShell?.stop()],

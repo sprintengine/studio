@@ -117,7 +117,7 @@ export function registerCoreIpc(
     openAuxWindow,
     isAuxWindow,
   })
-  registerBrowserIpc(ipcMain, services.browserManager)
+  registerBrowserIpc(ipcMain, services.browserManager, services.browserRecorder)
   registerCanvasIpc(ipcMain, services.canvasService, services.canvasSubscribers, {
     pickExportDirectory: pickCanvasExportDirectory,
     revealFile: revealCanvasBoardFile,

@@ -29,6 +29,8 @@ import { BrowserErrorPage } from './BrowserErrorPage'
 import { AgentBrowserCursor } from './AgentBrowserCursor'
 import { BrowserToolbar, type BrowserToolbarHandle } from './BrowserToolbar'
 import { BrowserViewMenu } from './BrowserViewMenu'
+import { BrowserRecordingIndicator } from './BrowserRecordingIndicator'
+import { useTabRecording } from './useTabRecording'
 import { buildBrowserElementBlock, normalizePickedElement, readPickTheme, sendTextToFocusedAgent } from './browserPick'
 
 // The browser tab (browser-pane epic): a `<webview>` guest the renderer mounts
@@ -143,6 +145,9 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const [config, setConfig] = useState<BrowserConfig | null>(null)
   const [state, setState] = useState<BrowserTabState | null>(null)
+  // An agent's recording of this tab is captured and encoded here, where the
+  // guest is (browser.record_start).
+  useTabRecording(tab.id)
   const [picking, setPicking] = useState(false)
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
   // The URL the guest starts on. Read once: a later change to the tab record
@@ -507,6 +512,12 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
               <Badge tone="accent" ariaLabel="An agent is driving this page">
                 Agent
               </Badge>
+            ) : null}
+            {state?.recording ? (
+              <BrowserRecordingIndicator
+                recording={state.recording}
+                onStop={() => void window.api.browserStopRecording(tab.id)}
+              />
             ) : null}
             <Tooltip content={picking ? 'Stop inspecting' : 'Inspect element'} placement="bottom">
               <IconButton

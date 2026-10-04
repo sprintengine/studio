@@ -1,16 +1,24 @@
 import type { IpcRendererEvent } from 'electron'
 import { ipc as ipcRenderer } from '../ipc-router'
-import type {
-  BrowserCaptureInput,
-  BrowserClearResult,
-  BrowserConfig,
-  BrowserHostKey,
-  BrowserPointerEvent,
-  BrowserRegisterInput,
-  BrowserRegisterResult,
-  BrowserScreenshotResult,
-  BrowserTabState,
-  LocalServer,
+import {
+  BROWSER_RECORDING_CHUNK_CHANNEL,
+  BROWSER_RECORDING_ENDED_CHANNEL,
+  BROWSER_RECORDING_START_CHANNEL,
+  BROWSER_RECORDING_STARTED_CHANNEL,
+  BROWSER_RECORDING_STOP_CHANNEL,
+  type BrowserCaptureInput,
+  type BrowserClearResult,
+  type BrowserConfig,
+  type BrowserHostKey,
+  type BrowserPointerEvent,
+  type BrowserRecordingEnded,
+  type BrowserRecordingStart,
+  type BrowserRecordingStarted,
+  type BrowserRegisterInput,
+  type BrowserRegisterResult,
+  type BrowserScreenshotResult,
+  type BrowserTabState,
+  type LocalServer,
 } from '../../shared/browser'
 import type { BrowserColorScheme, BrowserViewport } from '../../shared/browser-devices'
 import type { ElectronApi } from '../../shared/electron-api'
@@ -62,6 +70,18 @@ export const browserApi = {
   onBrowserFocusUrl: (cb: (payload: { tabId: string }) => void): (() => void) => subscribe('browser:focus-url', cb),
   onBrowserHostKey: (cb: (payload: { tabId: string; key: BrowserHostKey }) => void): (() => void) =>
     subscribe('browser:host-key', cb),
+  browserStopRecording: (tabId: string): Promise<boolean> =>
+    ipcRenderer.invoke('browser:recording-stop-request', { tabId }),
+  onBrowserRecordingStart: (cb: (start: BrowserRecordingStart) => void): (() => void) =>
+    subscribe(BROWSER_RECORDING_START_CHANNEL, cb),
+  onBrowserRecordingStop: (cb: (payload: { recordingId: string }) => void): (() => void) =>
+    subscribe(BROWSER_RECORDING_STOP_CHANNEL, cb),
+  browserRecordingStarted: (payload: BrowserRecordingStarted): void =>
+    ipcRenderer.send(BROWSER_RECORDING_STARTED_CHANNEL, payload),
+  browserRecordingChunk: (recordingId: string, bytes: Uint8Array): void =>
+    ipcRenderer.send(BROWSER_RECORDING_CHUNK_CHANNEL, recordingId, bytes),
+  browserRecordingEnded: (payload: BrowserRecordingEnded): void =>
+    ipcRenderer.send(BROWSER_RECORDING_ENDED_CHANNEL, payload),
 } satisfies Pick<
   ElectronApi,
   | 'browserConfig'
@@ -89,4 +109,10 @@ export const browserApi = {
   | 'onBrowserState'
   | 'onBrowserFocusUrl'
   | 'onBrowserHostKey'
+  | 'browserStopRecording'
+  | 'onBrowserRecordingStart'
+  | 'onBrowserRecordingStop'
+  | 'browserRecordingStarted'
+  | 'browserRecordingChunk'
+  | 'browserRecordingEnded'
 >

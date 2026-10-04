@@ -1,6 +1,7 @@
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import type { BrowserCaptureInput, BrowserRegisterInput } from '../../shared/browser'
 import type { BrowserManager } from '../browser/browser-manager'
+import type { BrowserRecorder } from '../browser/browser-recorder'
 
 // The embedded browser's IPC (browser-pane epic). Every handler resolves the
 // tab by id through the manager, which refuses ids it never adopted; the
@@ -12,7 +13,11 @@ function tabIdOf(input: unknown): string | null {
   return typeof tabId === 'string' && tabId.length > 0 ? tabId : null
 }
 
-export function registerBrowserIpc(ipcMain: IpcMain, manager: BrowserManager): void {
+export function registerBrowserIpc(
+  ipcMain: IpcMain,
+  manager: BrowserManager,
+  recorder: Pick<BrowserRecorder, 'stop'>,
+): void {
   ipcMain.handle('browser:config', (_event, input: unknown) => {
     const workspaceId = (input as { workspaceId?: unknown } | null)?.workspaceId
     return manager.getConfig(typeof workspaceId === 'string' && workspaceId ? workspaceId : undefined)
@@ -127,6 +132,15 @@ export function registerBrowserIpc(ipcMain: IpcMain, manager: BrowserManager): v
   ipcMain.handle('browser:open-external', (_event, input: { tabId: string }) => {
     const tabId = tabIdOf(input)
     return tabId ? manager.openExternal(tabId) : { ok: false, message: 'This browser tab is gone.' }
+  })
+
+  // The person's Stop on a recording an agent started. Sender-scoped like the
+  // active-tab note: only the window showing the tab may stop it.
+  ipcMain.handle('browser:recording-stop-request', async (event: IpcMainInvokeEvent, input: { tabId: string }) => {
+    const tabId = tabIdOf(input)
+    if (!tabId || manager.hostOf(tabId) !== event.sender) return false
+    const stopped = await recorder.stop({ tabId, owner: null, reason: 'stopped_by_person' })
+    return stopped.ok
   })
 
   ipcMain.handle('browser:local-servers', (_event, input: { workspaceId: string }) => {
