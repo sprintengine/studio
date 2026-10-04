@@ -61,6 +61,7 @@ import {
 } from '../shared/launch-settings'
 import { parseCliPermissionModeId } from '../shared/cli-permission-mode'
 import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
+import { newAgentIdSuffix } from '../shared/agent-ids'
 import { pickRandomAgentName } from '../shared/agent-names'
 import {
   knowledgeLaunchContext,
@@ -153,7 +154,7 @@ export type AgentLaunchService = {
 
 export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLaunchService {
   const newSessionId = deps.newSessionId ?? (() => randomUUID())
-  const newAgentSuffix = deps.newAgentSuffix ?? (() => randomUUID().replace(/-/g, '').slice(0, 6))
+  const newAgentSuffix = deps.newAgentSuffix ?? newAgentIdSuffix
 
   async function launch(request: AgentLaunchRequest): Promise<AgentLaunchResult> {
     const workspace = deps.listWorkspaces().find((candidate) => candidate.id === request.workspaceId)

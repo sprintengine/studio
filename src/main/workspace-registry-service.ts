@@ -40,6 +40,7 @@ import {
   type WorkspaceRegistryStampedField,
   type WorkspaceRegistryTombstone,
 } from '../shared/workspace-registry'
+import { instantiateTemplateAgentIds } from '../shared/agent-ids'
 import { resolveHeadlessLayoutTemplate } from '../shared/layouts/templates'
 import { isDefaultWorkspaceName } from '../shared/workspace-title'
 import { isRetiredWorkspaceMode } from '../shared/workspace-mode'
@@ -87,10 +88,18 @@ export type WorkspaceCreateRequest = {
   /** Marks a workspace whose folder is a worktree, filed under the project it was cut from. */
   worktree?: WorkspaceWorktree | null
   /**
-   * Agent records it is born with, keyed by the layout's agent tab ids, so a
-   * window never sees a tab with no agent behind it.
+   * Agent records it is born with, so a window never sees a tab with no agent
+   * behind it. Keyed by the template's id for the agent, a record follows that
+   * agent to the fresh id the workspace gives it; keyed by an id named in
+   * `templateAgentIds`, it is that agent already.
    */
   agents?: Record<AgentId, AgentState>
+  /**
+   * The id a template agent takes, keyed by the template's id for it, for a
+   * caller that minted its agent before the workspace (main's new chat). Every
+   * template agent not named here gets a fresh id.
+   */
+  templateAgentIds?: Record<AgentId, AgentId>
   /**
    * The name is one the app derived (a chat named after the first message main
    * sent it), so it is not locked: a window's own titling may still replace it
@@ -382,6 +391,9 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
     const template = resolveHeadlessLayoutTemplate({ templateId: input.templateId })
     const createdAt = now()
     const name = normalizeOptionalString(input.name) ?? defaultWorkspaceName(template.name, getRecords().length + 1)
+    // The template's agent ids are placeholders every workspace made from it
+    // would share; this workspace's agents take ids of their own.
+    const instantiated = instantiateTemplateAgentIds(template.layout, { assign: input.templateAgentIds })
     const workspace: Workspace = {
       id: newWorkspaceId(),
       name,
@@ -400,8 +412,8 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       ...(input.worktree ? { worktree: input.worktree } : {}),
       ...(input.scheduledAgentId?.trim() ? { scheduledAgentId: input.scheduledAgentId.trim() } : {}),
       templateId: template.id,
-      layoutModel: template.layout,
-      agents: { ...input.agents },
+      layoutModel: instantiated.layout,
+      agents: rekeyTemplateAgents(input.agents, instantiated.agentIds),
       worktreeState: { containerPath: null, entries: {}, updatedAt: null },
       memory: { relativeRoot: null },
       editorState: { openFiles: [], activeFilePath: null },
@@ -742,6 +754,21 @@ function stampsForCreate(createdAt: number): WorkspaceRegistryFieldStamps {
   // A freshly minted record's fields were "edited" at creation, so the first
   // real user edit (which is necessarily later) always wins over the seed.
   return { ...emptyWorkspaceRegistryFieldStamps(), name: createdAt, layoutModel: createdAt, folderPath: createdAt }
+}
+
+// A record handed in under the template's id for an agent moves to the id that
+// agent took in this workspace, so it stays the agent behind that tab. A record
+// under any other key is kept as it came.
+function rekeyTemplateAgents(
+  agents: Record<AgentId, AgentState> | undefined,
+  templateAgentIds: Record<AgentId, AgentId>,
+): Record<AgentId, AgentState> {
+  const rekeyed: Record<AgentId, AgentState> = {}
+  for (const [key, agent] of Object.entries(agents ?? {})) {
+    const id = Object.hasOwn(templateAgentIds, key) ? templateAgentIds[key] : key
+    rekeyed[id] = id === key ? agent : { ...agent, id }
+  }
+  return rekeyed
 }
 
 function defaultWorkspaceName(templateName: string, ordinal: number): string {

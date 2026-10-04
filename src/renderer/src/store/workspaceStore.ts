@@ -332,6 +332,8 @@ export interface WorkspaceStore
       worktree?: WorkspaceWorktree | null
       templateAgentCli?: AgentCli | null
       seedAgent?: SoloChatSeed | null
+      // A dragged-out agent tab: keep its id, seed no record (it moves in).
+      keepLayoutAgents?: boolean
       mode?: Workspace['mode']
       // Executor-triggered creation: skip the door-surface clear.
       background?: boolean
@@ -390,7 +392,7 @@ export interface WorkspaceStore
   remapOpenFiles: (workspaceId: WorkspaceId, fromPath: string, toPath: string) => void
   removeOpenFilesForPath: (workspaceId: WorkspaceId, path: string) => void
 
-  moveAgentToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, agentId: AgentId) => void
+  moveAgentToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, agentId: AgentId) => boolean
   moveOpenFileToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, path: string) => void
 }
 

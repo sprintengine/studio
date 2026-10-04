@@ -6,7 +6,7 @@
 // chats work in the same files, which the toast that announces the fork says.
 
 import { useState } from 'react'
-import { nanoid } from 'nanoid'
+import { newAgentIdSuffix } from '../../../../../shared/agent-ids'
 
 import type { ConversationKey } from '../../../../../shared/conversation-runtime'
 import type { AgentState } from '../../../types/workspace'
@@ -135,7 +135,7 @@ export async function forkChat(input: {
   const workspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === key.workspaceId)
   const parent = workspace?.agents[key.agentId]
   if (!input.transport.fork || !parent?.conversation) throw new Error('This chat cannot be forked here.')
-  const agentId = `conversation-${parent.conversation.providerId}-${nanoid(6)}`
+  const agentId = `conversation-${parent.conversation.providerId}-${newAgentIdSuffix()}`
   const name = forkName(
     parent.name || 'Chat',
     Object.values(workspace?.agents ?? {}).map((agent) => agent.name),

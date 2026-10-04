@@ -280,6 +280,11 @@ function didWorkspaceDragLeaveSidebar(event: React.DragEvent, sidebar: HTMLEleme
   return clientOutside || screenOutside
 }
 
+function tabDragAgentId(payload: TabDragPayload): string | null {
+  const agentId = payload.config?.agentId
+  return typeof agentId === 'string' && agentId ? agentId : null
+}
+
 function WorkspaceSidebar({
   workspaces,
   activeWorkspaceId,
@@ -1590,7 +1595,7 @@ function WorkspaceSidebar({
     (payload: TabDragPayload, destWorkspaceId: WorkspaceId) => {
       if (payload.sourceWorkspaceId === destWorkspaceId) return
       if (payload.component === 'agent') {
-        const agentId = payload.config && typeof payload.config.agentId === 'string' ? payload.config.agentId : null
+        const agentId = tabDragAgentId(payload)
         if (agentId) {
           moveAgentToWorkspace(payload.sourceWorkspaceId, destWorkspaceId, agentId)
         }
@@ -1646,6 +1651,9 @@ function WorkspaceSidebar({
         name: payload.name || undefined,
         folderPath,
         windowId: workspaceWindowId,
+        // The tab is an agent that already exists: it moves in below under its
+        // own id, rather than the new chat minting a stranger for its tab.
+        keepLayoutAgents: true,
       })
 
       migrateTabSideEffects(payload, newWorkspaceId)
@@ -1689,6 +1697,20 @@ function WorkspaceSidebar({
 
       // No-op if dropped on the source workspace itself.
       if (payload.sourceWorkspaceId === workspace.id) return
+      // An agent keeps its id when it moves, so one whose id the destination
+      // already has (two chats that each began with an `agent-1`) cannot go
+      // there: the move would overwrite that chat's own agent. Refused before
+      // anything changes, so the tab stays where it was.
+      const movingAgentId = payload.component === 'agent' ? tabDragAgentId(payload) : null
+      const destination = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
+      if (movingAgentId && destination?.agents[movingAgentId]) {
+        showToast({
+          tone: 'error',
+          title: 'Agent not moved',
+          description: `${workspace.name} already has an agent with the same id. Drop it on New chat to give it a chat of its own.`,
+        })
+        return
+      }
 
       const liveSpec = extractTabSpec(payload.sourceWorkspaceId, payload.tabId) ?? null
       const spec: CrossWorkspaceTabSpec = liveSpec ?? {

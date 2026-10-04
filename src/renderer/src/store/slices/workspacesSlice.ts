@@ -13,6 +13,7 @@ import type { WorkspaceFieldsPatch } from '../../../../shared/workspace-sync'
 import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { isRetiredWorkspaceMode } from '../../../../shared/workspace-mode'
 import { hostIdToRecord } from '../../../../shared/execution-host'
+import { instantiateTemplateAgentIds } from '../../../../shared/agent-ids'
 import { workspaceProjectRoot, workspaceProjectRootOf } from '../../utils/workspaceWorktree'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { normalizeRecentWorkspaceFolders } from './settingsSlice'
@@ -315,6 +316,11 @@ interface WorkspacesSliceActions {
       // record, `tabName` renames the lone layout tab, and `terminal` swaps that
       // tab for a terminal tab (and seeds no agent record).
       seedAgent?: SoloChatSeed | null
+      // The layout's agent tabs name agents that already exist and are moving in
+      // (a tab dragged out of another chat): their ids are kept, and no record
+      // is seeded for them, because the move brings each agent's own record.
+      // Otherwise every template agent takes a fresh id and a fresh record.
+      keepLayoutAgents?: boolean
     },
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
@@ -359,7 +365,12 @@ interface WorkspacesSliceActions {
    */
   setWorkspaceModuleState: (workspaceId: WorkspaceId, moduleId: string, state: unknown) => boolean
   importWorkspace: (ws: Workspace) => void
-  moveAgentToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, agentId: AgentId) => void
+  /**
+   * Move an agent record to another workspace, keeping its id. False, and
+   * nothing moved, when the destination already has an agent of that id; see
+   * the action for why it refuses rather than renaming.
+   */
+  moveAgentToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, agentId: AgentId) => boolean
   /** Delete an agent record from a workspace entirely (not just close its tab).
    *  Caller is responsible for killing the agent's terminal and removing its
    *  layout tab first. Idempotent: a missing workspace/agent is a no-op. */
@@ -566,7 +577,7 @@ export function applySoloChatSeed(layout: IJsonModel, seed: SoloChatSeed): IJson
   return next
 }
 
-function collectTemplateAgentTabs(template: LayoutTemplate): Array<{ id: AgentId; name?: string }> {
+function collectTemplateAgentTabs(layout: IJsonModel): Array<{ id: AgentId; name?: string }> {
   const seen = new Set<string>()
   const agents: Array<{ id: AgentId; name?: string }> = []
 
@@ -587,8 +598,8 @@ function collectTemplateAgentTabs(template: LayoutTemplate): Array<{ id: AgentId
     node.children?.forEach(collect)
   }
 
-  collect(template.layout.layout as LayoutAgentTabNode)
-  template.layout.borders?.forEach((border) => collect(border as LayoutAgentTabNode))
+  collect(layout.layout as LayoutAgentTabNode)
+  layout.borders?.forEach((border) => collect(border as LayoutAgentTabNode))
 
   return agents
 }
@@ -596,10 +607,10 @@ function collectTemplateAgentTabs(template: LayoutTemplate): Array<{ id: AgentId
 export function createWorkspacesSlice(
   set: WorkspacesSliceSet,
   deps: WorkspacesSliceDependencies,
-  // The current state, for the one action that has to DECIDE before it
-  // writes: a `set` whose draft goes untouched still notifies every
-  // subscriber through this store's middleware, and the rest sweep runs on a
-  // 30 s tick in every window.
+  // The current state, for the actions that have to DECIDE before they
+  // write: a `set` whose draft goes untouched still notifies every
+  // subscriber through this store's middleware, the rest sweep runs on a
+  // 30 s tick in every window, and a refused agent move tells its caller so.
   getState: () => WorkspacesSliceCarrier,
 ): WorkspacesSlice {
   return {
@@ -1213,8 +1224,16 @@ export function createWorkspacesSlice(
         // numbers globally, so comparing the two strings locked every new chat
         // at birth and the first prompt never named anything.
         const titleLocked = !isDefaultWorkspaceName(workspaceName, template.name)
+        // The template's agent ids (`agent-1`, `agent-2`) are placeholders every
+        // workspace made from it would share; this one's agents take ids of
+        // their own, and the layout's tabs follow them.
+        const templateLayout = options?.keepLayoutAgents
+          ? template.layout
+          : instantiateTemplateAgentIds(template.layout).layout
         const agents: Workspace['agents'] = {}
-        if (options?.seedAgent?.terminal || options?.seedAgent?.meshConversation) {
+        if (options?.keepLayoutAgents) {
+          // The agents arrive with their move (`moveAgentToWorkspace`).
+        } else if (options?.seedAgent?.terminal || options?.seedAgent?.meshConversation) {
           // Terminal and remote seeds: the lone agent tab is swapped for a
           // terminal / remote-pane tab in the layout below, so no local agent
           // record is created for it — a remote chat's agent lives on the
@@ -1225,7 +1244,7 @@ export function createWorkspacesSlice(
               ? options.templateAgentCli.trim()
               : state.appSettings.lastSelectedCli
           const agentPatch = options?.seedAgent?.agentPatch
-          collectTemplateAgentTabs(template).forEach((agent, index) => {
+          collectTemplateAgentTabs(templateLayout).forEach((agent, index) => {
             // A generic template tab label ("Agent", "Agent 2", "A1") is a slot
             // placeholder, never an identity — every agent gets a real picked
             // name (the layout tab renames itself to agent.name on render). A
@@ -1246,7 +1265,7 @@ export function createWorkspacesSlice(
         // user-saved template predating the nav-switch model never seeds a
         // redundant tab strip on Files / Git / Knowledge Graph. When a seed
         // renames the lone tab or swaps it for a terminal, apply that transform.
-        const baseStandardLayout = deps.hideNavRailTabStrip(template.layout) ?? template.layout
+        const baseStandardLayout = deps.hideNavRailTabStrip(templateLayout) ?? templateLayout
         const standardLayout =
           options?.seedAgent &&
           (options.seedAgent.tabName || options.seedAgent.terminal || options.seedAgent.meshConversation)
@@ -1615,16 +1634,27 @@ export function createWorkspacesSlice(
       }),
 
     moveAgentToWorkspace: (sourceWorkspaceId, destWorkspaceId, agentId) => {
-      if (sourceWorkspaceId === destWorkspaceId) return
+      if (sourceWorkspaceId === destWorkspaceId) return false
+      // Decided before the write. An agent of the same id already in the
+      // destination is a different agent (template-built chats all began with
+      // an `agent-1`), and writing over it would lose its record while its
+      // transcript and process live on with nothing pointing at them. Renaming
+      // the arriving agent is no safer: its running process, transcript and
+      // checkpoints are all filed under the id it has. So the move is refused
+      // and both agents stay as they are.
+      const current = getState().workspaces
+      const source = current.find((w) => w.id === sourceWorkspaceId)
+      const dest = current.find((w) => w.id === destWorkspaceId)
+      if (!source?.agents[agentId] || !dest || dest.agents[agentId]) return false
       set((state) => {
-        const source = state.workspaces.find((w) => w.id === sourceWorkspaceId)
-        const dest = state.workspaces.find((w) => w.id === destWorkspaceId)
-        if (!source || !dest) return
-        const agent = source.agents[agentId]
-        if (!agent) return
-        dest.agents[agentId] = agent
-        delete source.agents[agentId]
+        const sourceDraft = state.workspaces.find((w) => w.id === sourceWorkspaceId)
+        const destDraft = state.workspaces.find((w) => w.id === destWorkspaceId)
+        const agent = sourceDraft?.agents[agentId]
+        if (!sourceDraft || !destDraft || !agent || destDraft.agents[agentId]) return
+        destDraft.agents[agentId] = agent
+        delete sourceDraft.agents[agentId]
       })
+      return true
     },
 
     removeAgent: (workspaceId, agentId) => {
