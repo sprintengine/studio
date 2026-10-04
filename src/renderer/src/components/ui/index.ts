@@ -19,6 +19,7 @@ export { PullRequestGlyph } from './PullRequestGlyph'
 export {
   CaptionButton,
   CloseIconButton,
+  FloatingButton,
   GhostButton,
   IconButton,
   MediaButton,

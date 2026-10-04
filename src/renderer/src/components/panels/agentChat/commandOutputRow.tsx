@@ -36,7 +36,7 @@ export function CommandOutputRow({ entry }: { entry: CommandOutputEntry }) {
         className={`group/command-output rounded-sm border border-[color:var(--border-subtle)] ${
           ansi
             ? 'bg-[color:var(--terminal-bg)] text-[color:var(--terminal-fg)]'
-            : 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)]'
+            : 'bg-[color:var(--agent-inset)] text-[color:var(--text-default)]'
         }`}
       >
         <div className="flex items-center gap-2 py-1 pl-3 pr-1 font-mono text-meta">

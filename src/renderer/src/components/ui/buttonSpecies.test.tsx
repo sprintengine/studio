@@ -79,6 +79,7 @@ test('buttonSpecies', async () => {
     const {
       CaptionButton,
       DangerButton,
+      FloatingButton,
       GhostButton,
       IconButton,
       MediaButton,
@@ -783,6 +784,21 @@ test('buttonSpecies', async () => {
       const thrown = classesOf(<OutlineButton pressed>Mark read</OutlineButton>)
       assert.match(thrown, /(?:^|\s)bg-\[color:var\(--bg-selected\)\]/, 'a thrown toggle keeps the selection fill')
       assert.deepEqual(duplicateUtilities(thrown), [])
+    })
+
+    run('the floating pill is solid at rest: the composer’s ground, never a see-through one', () => {
+      for (const size of ['inline', 'xs', 'sm', 'md'] as const) {
+        const classes = classesOf(<FloatingButton size={size}>Jump to latest</FloatingButton>)
+        assert.match(classes, /(?:^|\s)bg-\[color:var\(--composer-surface\)\]/, `size=${size} rests on the ground`)
+        assert.ok(!/(?:^|\s)bg-transparent(?:\s|$)/.test(classes), 'no transparent ground for text to show through')
+        assert.match(classes, /hover:bg-\[color:var\(--composer-surface-hover\)\]/, 'a hover a rung further out')
+        assert.match(classes, /disabled:hover:bg-\[color:var\(--composer-surface\)\]/, 'and its disabled guard')
+        assert.match(classes, /(?:^|\s)border-\[color:var\(--border-strong\)\]/, 'the outline’s hairline')
+        assert.match(classes, /shadow-\[var\(--shadow-control-raised\)\]/, 'the composer’s lit edge, as a token')
+        assert.match(classes, /(?:^|\s)interactive(?:\s|$)/, 'and the shared press scale')
+        assert.deepEqual(duplicateUtilities(classes), [], `FloatingButton size=${size} declares a property twice`)
+      }
+      assert.equal(attrOf(<FloatingButton>Go</FloatingButton>, 'type'), 'button')
     })
 
     run('tier 2: the launcher tile keeps its hairline and ground, and presses by its ground', () => {

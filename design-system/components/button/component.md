@@ -129,6 +129,29 @@ Every other button keeps `radius.control`: a pill-shaped button anywhere else
 wears the badge shape, which is why `radius.pill` names this as its one
 button exception.
 
+### The floating secondary (2026-10-04)
+
+The outline made **solid**, for a secondary that floats over scrolling content
+rather than standing in the flow: the conversation's "Jump to latest" pill,
+which rides the composer's top edge over the transcript. The outline's
+transparent ground is right in the flow and wrong here — the transcript ran
+straight through the label at rest, and the pill only went solid under the
+pointer, so it read as broken rather than as quiet.
+
+It wears the composer's material because it sits on the composer's edge: the
+composer's ground (one rung above the conversation's raised paper — white on a
+light theme, `bg.hover` on a dark one), the outline's `border.strong` hairline,
+and the composer's lit top edge, `shadow.control-raised`. Hover steps the ground
+one more rung **away** from the conversation — `bg.active` on a dark theme,
+`bg.hover` on a light one — never to transparent and never back to the paper
+under it. Size, ink, press, cursor, focus ring and the disabled step are the
+outline's own. No blur stands in for the ground: a frosted pill over moving
+text is still text behind a label.
+
+The shipped primitive is `FloatingButton` beside `OutlineButton` in
+`ui/Buttons`, a primitive of its own for the same reason as the round send: the
+outline's props are the module SDK's contract.
+
 ### The copy glyph
 
 `CopyGlyphButton` is the icon step with one behaviour built in, and it is the
