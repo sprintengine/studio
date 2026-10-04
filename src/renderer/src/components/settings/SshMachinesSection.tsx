@@ -19,6 +19,7 @@ import {
   WorkingMark,
 } from '../ui'
 import { sshMachineRef } from '../../hooks/useMachineIdentity'
+import { MachineGhRow } from './MachineGhRow'
 import { MachineMarkPicker, MachineRowMark } from './MachineMarkPicker'
 import { SettingCard, SettingsRow, SettingsSectionTitle, SettingToggle } from './SettingsAtoms'
 
@@ -182,6 +183,18 @@ function SshMachineDetail({ machine, api }: { machine: SshEnvironmentSummary; ap
         </p>
       ))}
       {problem ? <InlineNotice tone="warn" title={problem} /> : null}
+      {/* The machine's GitHub CLI, as its last connect found it: its chats
+          open pull requests with it. Asked again on the next connect. */}
+      {machine.gh ? (
+        <SettingCard>
+          <MachineGhRow
+            as="div"
+            status={machine.gh}
+            machine={{ kind: 'ssh', os: machine.gh.os }}
+            machineLabel={machine.label}
+          />
+        </SettingCard>
+      ) : null}
       <div className="divide-y divide-[color:var(--border-subtle)]">
         <SettingsRow
           label="Reached as"

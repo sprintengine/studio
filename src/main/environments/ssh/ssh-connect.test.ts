@@ -271,6 +271,19 @@ test('machines Studio cannot run on are named, with what was found', () => {
   assert.equal(parseProbe(['@@SPRINTENGINE_PROBE os=Linux']), null, 'a probe cut off is not read')
 })
 
+test("the probe reads the machine's gh: installed, its version, and whether it holds a token", () => {
+  assert.deepEqual(
+    probeOfFields({ gh_version: 'gh version 2.62.0 (2024-11-14)', gh_auth: '0' }, ['@@SPRINTENGINE_PROBE has=gh']).gh,
+    { installed: true, version: '2.62.0', signedIn: false },
+  )
+  assert.equal(probeOfFields({ gh_auth: '1' }, ['@@SPRINTENGINE_PROBE has=gh']).gh.signedIn, true)
+  assert.deepEqual(probeOfFields({}).gh, { installed: false, version: null, signedIn: null })
+  // The script asks without reading the token back, and never signs in.
+  const text = script('gh')
+  assert.match(text, /gh auth token >\/dev\/null 2>&1/u)
+  assert.doesNotMatch(text, /gh auth login/u)
+})
+
 test('a home shared with another machine is refused, naming it', () => {
   const probe = probeOfFields({ hostname: 'build-box', lock_alive: '1', lock_host: 'build-box-2', lock_pid: '42' }, [
     `@@SPRINTENGINE_PROBE server_json=${JSON.stringify({ version: VERSION, hostId: 'host:build-box-2', origin: 'bootstrap', backendWire: 1 })}`,

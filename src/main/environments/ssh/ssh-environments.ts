@@ -342,6 +342,7 @@ export class SshEnvironments {
         action: view ? view.action : 'connect',
         server: view?.server ?? null,
         notes: view?.notes ?? [],
+        gh: view?.gh ?? null,
       }
     })
   }

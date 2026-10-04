@@ -6,6 +6,7 @@ import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { AutomationServerSettings } from './AutomationServerSettings'
 import { BrowsersSettings } from './BrowsersSettings'
 import { LocalAppsSettings } from './LocalAppsSettings'
+import { WslGhSection } from './MachineGhRow'
 import { StudioServerSettings } from './StudioServerSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import AppThemePicker from './AppThemePicker'
@@ -816,9 +817,12 @@ export default function SettingsPanel({
   // check never detects, so a CLI installed or removed outside the app shows
   // here once this is pressed.
   const [agentsRechecking, setAgentsRechecking] = useState(false)
+  // Re-check asks a WSL machine's `gh` again too.
+  const [agentsGhRecheck, setAgentsGhRecheck] = useState(0)
   const reloadAgentsMachine = agentsMachineCli.reload
   const recheckAgentClis = useCallback(async () => {
     setAgentsRechecking(true)
+    setAgentsGhRecheck((count) => count + 1)
     try {
       await refreshCliVersionAdvisories({ detect: true, ...(checkCliVersions ? { force: true } : {}) })
       await refreshCliAvailability({ cliRuntimes })
@@ -1497,6 +1501,11 @@ export default function SettingsPanel({
             now={agentsFreshnessNow}
             updateBadgeClis={updateBadges.clis[agentsMachine.id] ?? NO_UPDATE_BADGE_CLIS}
           />
+          {/* A WSL machine's own `gh`, beside its agent CLIs: its chats open
+              pull requests with it. This machine's is under Version control. */}
+          {agentsOnWsl ? (
+            <WslGhSection hostId={agentsMachine.id} label={agentsMachine.label} recheck={agentsGhRecheck} />
+          ) : null}
 
           <StudioSkillsSettings />
           <TextGenerationSettingsSection />
