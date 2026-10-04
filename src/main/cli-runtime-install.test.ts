@@ -9,6 +9,7 @@ import {
   createCliExecutableResolver,
   parseProbeOutput,
   resolveInstallPlatform,
+  updateFailure,
 } from './cli-runtime-install'
 import { test } from 'vitest'
 
@@ -203,4 +204,25 @@ test('a failed lookup is not remembered', async () => {
   assert.equal((await resolver.resolve('codex')).path, '/usr/bin/codex')
   assert.equal((await resolver.resolve('codex')).path, '/usr/bin/codex')
   assert.equal(calls, 2)
+})
+
+test('a failed update says what the command printed last, not only its exit code', () => {
+  const log = [
+    '$ npm install -g @openai/codex@latest',
+    'npm error code EACCES',
+    'npm error syscall mkdir',
+    "\u001b[31mnpm error\u001b[0m Error: EACCES: permission denied, mkdir '/usr/lib/node_modules/@openai'",
+    '',
+  ].join('\n')
+  assert.equal(
+    updateFailure(243, log),
+    "Update command exited with code 243: npm error code EACCES npm error syscall mkdir npm error Error: EACCES: permission denied, mkdir '/usr/lib/node_modules/@openai'",
+  )
+  // A link a CLI prints is its text, not its escape.
+  assert.equal(
+    updateFailure(1, '$ claude update\r\nSee \u001b]8;;https://example.com\u0007the docs\u001b]8;;\u0007\r\n'),
+    'Update command exited with code 1: See the docs',
+  )
+  // A command that printed nothing has only its code to give.
+  assert.equal(updateFailure(1, '$ claude update\n'), 'Update command exited with code 1.')
 })
