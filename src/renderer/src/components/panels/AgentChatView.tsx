@@ -124,6 +124,7 @@ import { useComposerRecall } from './agentChat/composerRecall'
 import { ComposerContextChips, SkillContextChip, useComposerContextPicker } from './agentChat/composerContextPicker'
 import { ComposerPlusMenu } from '../workspace/agentComposer/ComposerPlusMenu'
 import { usePullRequestsOfConversation } from '../workspace/useConversationPullRequests'
+import { useCreatePullRequestState } from './agentChat/createPullRequest'
 import { conversationContextReading } from './agentChat/contextReading'
 import { ConversationComposerStrip } from './agentChat/conversationStrip'
 import { useConversationStripFacts } from './agentChat/conversationStripFacts'
@@ -2674,6 +2675,41 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const conversationPullRequests = usePullRequestsOfConversation(
     transport.kind === 'remote' ? null : { workspaceId, agentId },
   )
+  // "Create PR" works in this computer's checkout only: a chat on a paired
+  // machine, WSL or an SSH machine (the strip names its machine) has no git
+  // or `gh` here.
+  const createPullRequestCwd =
+    transport.kind !== 'remote' && transport.capabilities.localFiles && !stripFacts.machine ? workspaceRoot : null
+  const lastTurnEnd = useMemo(() => {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index]
+      if (event.type === 'turn_completed' || event.type === 'turn_failed') return event.id
+    }
+    return ''
+  }, [events])
+  const [createPullRequestAsk, setCreatePullRequestAsk] = useState(0)
+  const createPullRequestState = useCreatePullRequestState(
+    // Not asked while the conversation owns an open pull request: the slot is that one's.
+    conversationPullRequests.some((pr) => pr.state === 'open') ? null : createPullRequestCwd,
+    [
+      lastTurnEnd,
+      stripFacts.branch?.name ?? '',
+      stripFacts.changes ? `${stripFacts.changes.added}:${stripFacts.changes.removed}` : '',
+      conversationPullRequests.map((pr) => `${pr.url}:${pr.state}`).join(','),
+      createPullRequestAsk,
+    ].join('|'),
+  )
+  const createPullRequest = useMemo(
+    () =>
+      createPullRequestCwd && createPullRequestState?.readiness.ready
+        ? {
+            cwd: createPullRequestCwd,
+            conversation: { workspaceId, agentId },
+            onSettled: () => setCreatePullRequestAsk((count) => count + 1),
+          }
+        : null,
+    [createPullRequestCwd, createPullRequestState, workspaceId, agentId],
+  )
   return (
     <ConversationLinkProvider
       workspaceId={workspaceId}
@@ -3252,6 +3288,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               changes={stripFacts.changes}
               context={contextReading}
               pullRequests={conversationPullRequests}
+              createPullRequest={createPullRequest}
             />
           </div>
           {replay ? (

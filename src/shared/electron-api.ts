@@ -24,7 +24,12 @@ import type {
 } from './tours/tour-types'
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type { ConversationPeek } from './conversation-peek'
-import type { ChatTitleRequest, TextGenerationResult } from './text-generation/contract'
+import type { ChatTitleRequest, PullRequestTextResult, TextGenerationResult } from './text-generation/contract'
+import type {
+  CreatePullRequestOutcome,
+  CreatePullRequestState,
+  PushForPullRequestOutcome,
+} from './git/pull-request-create'
 import type {
   AgentLaunchSettings,
   AgentLaunchSettingsPatch,
@@ -1428,6 +1433,17 @@ export type ElectronApi = {
   // failure is a typed `{ ok: false }` the caller answers by keeping what it
   // had. See src/shared/text-generation/contract.ts.
   generateChatTitle: (request: ChatTitleRequest) => Promise<TextGenerationResult>
+  // The chat's "Create PR" (src/main/pull-request-create.ts): whether it may
+  // show for a checkout, a drafted title and description, the push, and the
+  // creation. This computer's checkouts only. Never rejects.
+  createPullRequestState: (cwd: string) => Promise<CreatePullRequestState | null>
+  draftPullRequestText: (request: {
+    cwd: string
+    engine: ChatTitleRequest['engine']
+    cliRuntimes?: ChatTitleRequest['cliRuntimes']
+  }) => Promise<PullRequestTextResult>
+  pushForPullRequest: (cwd: string) => Promise<PushForPullRequestOutcome>
+  createPullRequest: (input: { cwd: string; title: string; body: string }) => Promise<CreatePullRequestOutcome>
   /** Create a new design-system bundle in a user-chosen folder — seeded from an existing bundle, or bare from the shipped templates. Never overwrites; rolls back on failure. */
   seedDesignSystemBundle: (
     sourceDir: string | null,

@@ -55,6 +55,16 @@ export function claudeChatTitleInvocation(input: ClaudeInvocationInput): ChatTit
 // as a failure. Null when nothing there is a title — including stdout that is
 // not JSON at all, which in json mode is a banner or an error, never an answer.
 export function readClaudeChatTitleStdout(stdout: string): string | null {
+  const answer = readClaudeStructuredStdout(stdout)
+  return answer === null ? null : readChatTitleOutput(answer)
+}
+
+/**
+ * The answer in `claude -p --output-format json` stdout, for any job: the
+ * decoded `structured_output` when the schema was honoured, else the `result`
+ * text. Null for an error envelope or stdout that is not JSON.
+ */
+export function readClaudeStructuredStdout(stdout: string): unknown {
   let parsed: unknown
   try {
     parsed = JSON.parse(stdout)
@@ -70,8 +80,8 @@ export function readClaudeChatTitleStdout(stdout: string): string | null {
       : undefined
   if (!envelope) return null
   if (envelope.is_error === true) return null
-  if (envelope.structured_output !== undefined) return readChatTitleOutput(envelope.structured_output)
-  return readChatTitleOutput(envelope.result)
+  if (envelope.structured_output !== undefined) return envelope.structured_output
+  return envelope.result ?? null
 }
 
 export type CodexInvocationInput = {

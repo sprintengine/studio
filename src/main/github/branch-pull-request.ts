@@ -92,7 +92,7 @@ export type BranchPullRequestDeps = {
 }
 
 /** The fields the list read asks `gh` for — one place, so the parser cannot drift from the query. */
-const LIST_FIELDS = 'number,url,title,state,isDraft,createdAt,mergedAt,closedAt'
+const LIST_FIELDS = 'number,url,title,state,isDraft,createdAt,mergedAt,closedAt,headRefOid'
 // `title` and `createdAt` are here for a pull request the record knows by its
 // URL alone (an agent's call printed it): every menu row, the peek's bold
 // title line and the spoken label would read empty without them (decision 10).
@@ -305,6 +305,11 @@ function toBranchPullRequest(row: unknown, now: number): BranchPullRequest | nul
     isDraft: row.isDraft === true && state === 'open',
     openedAt: parseTimestamp(row.createdAt) ?? 0,
     stateAt: now,
+    // The commit the head was at: what a merged pull request carried, so the
+    // chat's "Create PR" can tell new work from work already landed.
+    ...(typeof row.headRefOid === 'string' && /^[0-9a-f]{7,64}$/i.test(row.headRefOid)
+      ? { headRefOid: row.headRefOid }
+      : {}),
   }
 }
 

@@ -51,6 +51,7 @@ function stubPullRequests() {
     noteToolCall: async (input) => {
       calls.push(input)
     },
+    link: async () => ({ ok: false, code: 'not_a_pull_request', message: 'not here' }),
     onChanged: (listener) => {
       listeners.add(listener)
       listening()
@@ -182,4 +183,44 @@ test('the stream names what moved, never the lists', async () => {
     workspaceIds: ['ws-1'],
     conversations: [{ workspaceId: 'ws-1', agentId: 'agent-1' }],
   })
+})
+
+test('an owner links a pull request it opened; one another conversation claimed is refused as claimed', async () => {
+  const { stub } = stubPullRequests()
+  const linked: unknown[] = []
+  stub.link = async (input) => {
+    linked.push(input)
+    if (input.url.endsWith('/9')) {
+      return { ok: false, code: 'opened_by_another_conversation', message: 'Another conversation opened it.' }
+    }
+    return {
+      ok: true,
+      recorded: true,
+      pullRequest: {
+        url: input.url,
+        repoKey: 'github.com/acme/app',
+        repoName: 'app',
+        number: 4,
+        title: input.title ?? '',
+        state: 'open',
+        isDraft: false,
+        openedAt: 1,
+        stateAt: 0,
+      },
+    }
+  }
+  const { request, welcome } = await ownerOver(stub)
+  assert.equal(welcome.t === 'welcome' && welcome.capabilities.includes('pull-request-link'), true)
+  const conversation = { workspaceId: 'ws-1', agentId: 'agent-1' }
+  const ok = await request('pullRequests.link', {
+    conversation,
+    url: 'https://github.com/acme/app/pull/4',
+    title: 'Marks',
+  })
+  assert.equal(ok.t === 'res' && ok.ok && (ok.result as { recorded: boolean }).recorded, true)
+  const claimed = await request('pullRequests.link', { conversation, url: 'https://github.com/acme/app/pull/9' })
+  assert.equal(claimed.t === 'res' && !claimed.ok && claimed.error.code, 'claimed')
+  const malformed = await request('pullRequests.link', { conversation, url: 42 })
+  assert.equal(malformed.t === 'res' && !malformed.ok && malformed.error.code, 'invalid_params')
+  assert.equal(linked.length, 2)
 })

@@ -1,7 +1,6 @@
 // Text generation in the main process: the person's own agent CLI, headless,
-// one shot, under the login it already holds. The first job is the chat
-// title (the first consumer); commit messages and PR text are
-// follow-ups on the same shape.
+// one shot, under the login it already holds. Two jobs run on it: the chat
+// title, and the title and description the chat's "Create PR" button drafts.
 //
 // What every call guarantees:
 //   - no API key is read or forwarded — the Anthropic key/base-URL variables
@@ -22,15 +21,24 @@ import { LOCAL_HOST_ID, type ExecutionHostId } from '../../shared/execution-host
 import {
   CHAT_TITLE_OUTPUT_SCHEMA,
   buildChatTitlePrompt,
+  readChatTitleOutput,
   sanitizeGeneratedChatTitle,
 } from '../../shared/text-generation/chat-title'
 import {
   DEFAULT_TEXT_GENERATION_TIMEOUT_MS,
   type ChatTitleRequest,
+  type PullRequestTextRequest,
+  type PullRequestTextResult,
   type TextGenerationCliRuntimeOverrides,
+  type TextGenerationEngine,
   type TextGenerationResult,
   supportsTextGeneration,
 } from '../../shared/text-generation/contract'
+import {
+  PULL_REQUEST_TEXT_OUTPUT_SCHEMA,
+  buildPullRequestTextPrompt,
+  readPullRequestTextOutput,
+} from '../../shared/text-generation/pull-request-text'
 import { detectAgentCliAvailability } from '../cli-availability'
 import { defaultProbeEnv } from '../cli-runtime-install'
 import { listPluginRegistryEntries } from '../plugin-registry-instance'
@@ -38,8 +46,7 @@ import { STRIPPED_ANTHROPIC_AUTH_ENV_KEYS } from '../providers/claude-agent-prov
 import {
   claudeChatTitleInvocation,
   codexChatTitleInvocation,
-  readClaudeChatTitleStdout,
-  readCodexChatTitleOutput,
+  readClaudeStructuredStdout,
   type ChatTitleInvocation,
 } from './backends'
 import { runCommand, type RunCommand } from './run-command'
@@ -59,23 +66,71 @@ export async function generateChatTitle(
   request: ChatTitleRequest,
   deps: TextGenerationServiceDeps = {},
 ): Promise<TextGenerationResult> {
+  return runStructuredJob(
+    {
+      engine: request.engine,
+      cliRuntimes: request.cliRuntimes,
+      timeoutMs: request.timeoutMs,
+      prompt: buildChatTitlePrompt(request.prompt),
+      schema: CHAT_TITLE_OUTPUT_SCHEMA,
+      read: (answer) => sanitizeGeneratedChatTitle(readChatTitleOutput(answer)),
+      nothing: 'title',
+    },
+    deps,
+  )
+}
+
+/** The title and description of a pull request, drafted from the branch's commits and diff. */
+export async function generatePullRequestText(
+  request: PullRequestTextRequest,
+  deps: TextGenerationServiceDeps = {},
+): Promise<PullRequestTextResult> {
+  return runStructuredJob(
+    {
+      engine: request.engine,
+      cliRuntimes: request.cliRuntimes,
+      timeoutMs: request.timeoutMs,
+      prompt: buildPullRequestTextPrompt(request.input),
+      schema: PULL_REQUEST_TEXT_OUTPUT_SCHEMA,
+      read: readPullRequestTextOutput,
+      nothing: 'pull request text',
+    },
+    deps,
+  )
+}
+
+/**
+ * One headless, structured-output call: resolve the CLI, run it in a scratch
+ * directory with the prompt on stdin, and read its answer through `read`.
+ */
+async function runStructuredJob<T>(
+  job: {
+    engine: TextGenerationEngine
+    cliRuntimes: TextGenerationCliRuntimeOverrides | undefined
+    timeoutMs: number | undefined
+    prompt: string
+    schema: object
+    read: (answer: unknown) => T | null
+    /** What a failed read says was missing: "returned no usable <nothing>". */
+    nothing: string
+  },
+  deps: TextGenerationServiceDeps,
+): Promise<{ ok: true; value: T; ms: number } | Extract<TextGenerationResult, { ok: false }>> {
   const now = deps.now ?? Date.now
   const startedAt = now()
-  const { engine } = request
+  const { engine } = job
   if (!supportsTextGeneration(engine.cli)) {
     return { ok: false, code: 'unsupported', message: `${engine.cli} has no text generation backend.` }
   }
   const model = engine.model.trim()
   if (!model) return { ok: false, code: 'unsupported', message: 'No model was chosen for text generation.' }
 
-  const binaryPath = await resolveBinary(engine.cli, request.cliRuntimes, deps.detect ?? cachedDetect)
+  const binaryPath = await resolveBinary(engine.cli, job.cliRuntimes, deps.detect ?? cachedDetect)
   if (!binaryPath.ok) return binaryPath
 
   const scratch = await mkdtemp(path.join(deps.scratchRoot ?? tmpdir(), SCRATCH_PREFIX))
   try {
-    const schemaJson = JSON.stringify(CHAT_TITLE_OUTPUT_SCHEMA)
-    const prompt = buildChatTitlePrompt(request.prompt)
-    const timeoutMs = request.timeoutMs ?? DEFAULT_TEXT_GENERATION_TIMEOUT_MS
+    const timeoutMs = job.timeoutMs ?? DEFAULT_TEXT_GENERATION_TIMEOUT_MS
     const env = engineEnv(engine.cli, deps.env)
     const run = deps.run ?? runCommand
 
@@ -83,13 +138,17 @@ export async function generateChatTitle(
       binaryPath: binaryPath.path,
       model,
       reasoning: engine.reasoning,
-      schemaJson,
+      schemaJson: JSON.stringify(job.schema),
       scratch,
     })
-    const outcome = await run({ ...backend.invocation, cwd: scratch, env, stdin: prompt, timeoutMs })
+    const outcome = await run({ ...backend.invocation, cwd: scratch, env, stdin: job.prompt, timeoutMs })
     const failure = runFailure(engine.cli, outcome)
     if (failure) return failure
-    return guard(await backend.readAnswer(outcome.stdout), engine.cli, now() - startedAt)
+    const value = job.read(await backend.readAnswer(outcome.stdout))
+    if (value === null) {
+      return { ok: false, code: 'guardrail', message: `${engine.cli} returned no usable ${job.nothing}.` }
+    }
+    return { ok: true, value, ms: now() - startedAt }
   } catch (error) {
     return { ok: false, code: 'transport', message: describe(error) }
   } finally {
@@ -99,7 +158,8 @@ export async function generateChatTitle(
 
 type PreparedBackend = {
   invocation: ChatTitleInvocation
-  readAnswer: (stdout: string) => Promise<string | null>
+  /** The answer, decoded as far as the backend can: an object, or text. */
+  readAnswer: (stdout: string) => Promise<unknown>
 }
 
 // Each backend's answer lives somewhere different — Claude's on stdout, Codex's
@@ -116,12 +176,12 @@ async function prepareBackend(
     await writeFile(outputPath, '', 'utf8')
     return {
       invocation: codexChatTitleInvocation({ ...input, schemaPath, outputPath }),
-      readAnswer: async () => readCodexChatTitleOutput(await readFile(outputPath, 'utf8')),
+      readAnswer: async () => await readFile(outputPath, 'utf8'),
     }
   }
   return {
     invocation: claudeChatTitleInvocation(input),
-    readAnswer: async (stdout) => readClaudeChatTitleStdout(stdout),
+    readAnswer: async (stdout) => readClaudeStructuredStdout(stdout),
   }
 }
 
@@ -251,12 +311,6 @@ function apiErrorMessage(body: string): string | null {
   const nested = error && typeof error === 'object' ? (error as { message?: unknown }).message : undefined
   const reason = typeof nested === 'string' ? nested : typeof message === 'string' ? message : null
   return reason?.trim() || null
-}
-
-function guard(raw: string | null, cli: string, ms: number): TextGenerationResult {
-  const title = sanitizeGeneratedChatTitle(raw)
-  if (!title) return { ok: false, code: 'guardrail', message: `${cli} returned no usable title.` }
-  return { ok: true, value: title, ms }
 }
 
 function lastLine(text: string): string {

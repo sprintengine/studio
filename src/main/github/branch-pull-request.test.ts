@@ -103,7 +103,7 @@ test('branch-pull-request', async () => {
         '--state',
         'all',
         '--json',
-        'number,url,title,state,isDraft,createdAt,mergedAt,closedAt',
+        'number,url,title,state,isDraft,createdAt,mergedAt,closedAt,headRefOid',
       ])
       assert.equal(calls[0].cwd, '/repo/worktree', "the read runs in the session's own checkout")
       assert.equal(read.settled, true)

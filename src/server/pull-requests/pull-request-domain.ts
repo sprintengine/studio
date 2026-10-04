@@ -37,7 +37,8 @@ import {
 //   that runs it forwards what its hook saw (`pullRequests.noteToolCall`), and
 //   it is read here exactly as a chat's is.
 // - The agent says so itself, through the Studio gateway's
-//   `pull_request.link` (`link` below).
+//   `pull_request.link` (`linkForAgent` below), or the person does, through
+//   the desktop's "Create PR" (`pullRequests.link`, `link` below).
 //
 // A conversation's own checkout is noted at a chat's turn end and when a
 // client says where one of its agents is (`pullRequests.noteWork`). That only
@@ -55,13 +56,20 @@ export type StudioPullRequests = {
   refresh(target: StudioPullRequestsTarget): Promise<{ asked: boolean }>
   noteWork(input: StudioPullRequestsMethodMap['pullRequests.noteWork']['params']): Promise<void>
   noteToolCall(input: StudioPullRequestsMethodMap['pullRequests.noteToolCall']['params']): Promise<void>
+  /** An owner opened this pull request for the conversation (the desktop's "Create PR"). */
+  link(
+    input: StudioPullRequestsMethodMap['pullRequests.link']['params'],
+  ): Promise<
+    | { ok: true; recorded: boolean; pullRequest: StudioPullRequest }
+    | { ok: false; code: 'not_a_pull_request' | 'opened_by_another_conversation'; message: string }
+  >
   onChanged(listener: (change: PullRequestsChanged) => void): () => void
 }
 
 export type PullRequestDomain = StudioPullRequests & {
   readonly record: PullRequestRecord
   /** An agent says it opened this pull request: the gateway's `pull_request.link`. */
-  link(key: PullRequestConversationKey, input: { url: string; title?: string }): Promise<NoteOpenedOutcome>
+  linkForAgent(key: PullRequestConversationKey, input: { url: string; title?: string }): Promise<NoteOpenedOutcome>
   /** Settle what is in flight: a quit's leg. */
   flush(): Promise<void>
   dispose(): void
@@ -243,8 +251,16 @@ export function createPullRequestDomain(options: PullRequestDomainOptions): Pull
       const opened = readOpenedPullRequest(input.toolCall)
       if (opened) await record.noteOpened(input.conversation, { url: opened.url })
     },
-    link(key, input) {
+    linkForAgent(key, input) {
       return record.noteOpened(key, input)
+    },
+    async link(input) {
+      const outcome = await record.noteOpened(input.conversation, {
+        url: input.url,
+        ...(input.title ? { title: input.title } : {}),
+      })
+      if (!outcome.ok) return outcome
+      return { ok: true, recorded: outcome.recorded, pullRequest: toWire(outcome.pullRequest) }
     },
     onChanged(listener) {
       listeners.add(listener)

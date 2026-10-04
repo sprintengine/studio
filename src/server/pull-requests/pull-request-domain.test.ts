@@ -208,9 +208,9 @@ test('a terminal agent’s forwarded call is read like a chat’s', async () => 
 
 test('the link tool records under the calling conversation, first come first kept', async () => {
   const { domain, record, settled } = await domainOver()
-  const linked = await domain.link(CHAT, { url: 'https://codeberg.org/acme/app/pulls/3', title: 'Port it' })
+  const linked = await domain.linkForAgent(CHAT, { url: 'https://codeberg.org/acme/app/pulls/3', title: 'Port it' })
   assert.equal(linked.ok, true)
-  const taken = await domain.link(
+  const taken = await domain.linkForAgent(
     { workspaceId: 'ws-2', agentId: 'agent-2' },
     { url: 'https://codeberg.org/acme/app/pulls/3' },
   )

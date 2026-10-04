@@ -162,3 +162,87 @@ test('the strip draws the button only for a conversation that opened a pull requ
   expect(opened).toEqual(['https://github.com/acme/app/pull/12'])
   await one.unmount()
 })
+
+test('one slot: an open pull request wins, then Create PR, then a merged one', async () => {
+  const { pullRequestSlotChoice } = await import('./createPullRequest')
+  expect(pullRequestSlotChoice([pr({ number: 1 })], true)).toBe('open')
+  expect(pullRequestSlotChoice([pr({ number: 1, isDraft: true })], true)).toBe('open')
+  expect(pullRequestSlotChoice([pr({ number: 1, state: 'merged' })], true)).toBe('create')
+  expect(pullRequestSlotChoice([pr({ number: 1, state: 'merged' })], false)).toBe('merged')
+  expect(pullRequestSlotChoice([pr({ number: 1, state: 'closed' })], false)).toBe(null)
+  expect(pullRequestSlotChoice([], true)).toBe('create')
+  expect(pullRequestSlotChoice([], false)).toBe(null)
+})
+
+test('Create PR takes the slot, drafts, pushes, creates, and says on the strip why it could not finish', async () => {
+  const calls: string[] = []
+  const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+  Object.assign(api, {
+    draftPullRequestText: async () => {
+      calls.push('draft')
+      return { ok: true, value: { title: 'feat: marks', body: 'Body' }, ms: 1 }
+    },
+    pushForPullRequest: async () => {
+      calls.push('push')
+      return { ok: true, pushed: true }
+    },
+    createPullRequest: async (input: { title: string }) => {
+      calls.push(`create:${input.title}`)
+      return { ok: true, kind: 'created', url: 'https://github.com/acme/app/pull/40' }
+    },
+  })
+  const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+  useWorkspaceStore.setState((state) => ({
+    ...state,
+    appSettings: { ...state.appSettings, textGeneration: { enabled: true, engine: { cli: 'claude-code', model: '' } } },
+    pluginCatalogEntries: [{ id: 'claude-code' }] as never,
+  }))
+  const { ConversationComposerStrip } = await import('./conversationStrip')
+  let settled = 0
+  const mounted = await mount(
+    <ConversationComposerStrip
+      machine={null}
+      branch={{ name: 'feature/marks', worktree: false, onOpen: null }}
+      changes={null}
+      context={null}
+      pullRequests={[pr({ number: 2, state: 'merged' })]}
+      createPullRequest={{
+        cwd: '/Users/dev/app',
+        conversation: { workspaceId: 'ws-1', agentId: 'agent-1' },
+        onSettled: () => (settled += 1),
+      }}
+      now={NOW}
+    />,
+  )
+  expect(mounted.container.querySelector('[data-strip-pull-request]')).toBe(null)
+  const button = [...mounted.container.querySelectorAll('button')].find((node) =>
+    node.textContent?.includes('Create PR'),
+  )
+  expect(button?.getAttribute('aria-label')).toBe('Create a pull request from this branch')
+  await mounted.act(async () => button?.click())
+  // The confirm step shows the draft, editable, before anything is sent.
+  const title = await waitFor(() => dom.window.document.querySelector<HTMLInputElement>('input[maxlength="300"]'))
+  await waitFor(() => (title.value === 'feat: marks' ? title : null))
+  expect(calls).toEqual(['draft'])
+  const create = [...dom.window.document.querySelectorAll('button')].find((node) => node.textContent === 'Create')
+  await mounted.act(async () => create?.click())
+  // No Studio here to record it: the strip says so, with the pull request's address.
+  const error = await waitFor(() => mounted.container.querySelector('[data-create-pull-request-error]'))
+  expect(calls).toEqual(['draft', 'push', 'create:feat: marks'])
+  expect(error.textContent).toContain('https://github.com/acme/app/pull/40')
+  expect(settled).toBe(1)
+  await mounted.unmount()
+})
+
+async function waitFor<T>(read: () => T | null | undefined): Promise<T> {
+  const start = Date.now()
+  for (;;) {
+    const value = read()
+    if (value) return value
+    if (Date.now() - start > 3_000) throw new Error('timed out')
+    const { act } = await import('react')
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+  }
+}

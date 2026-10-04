@@ -11,6 +11,7 @@ import {
   STUDIO_BOARD_FILES_CAPABILITY,
   STUDIO_PULL_REQUESTS_CAPABILITY,
   STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY,
+  STUDIO_PULL_REQUEST_LINK_CAPABILITY,
   STUDIO_PROTOCOL_MIN_SUPPORTED,
   STUDIO_PROTOCOL_VERSION,
   type StudioWelcomeFrame,
@@ -106,7 +107,9 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
       (capability) =>
         (capability !== STUDIO_CLIENT_TOOLS_CAPABILITY || options.tools !== undefined) &&
         (capability !== STUDIO_BOARD_FILES_CAPABILITY || options.files !== undefined) &&
-        ((capability !== STUDIO_PULL_REQUESTS_CAPABILITY && capability !== STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY) ||
+        ((capability !== STUDIO_PULL_REQUESTS_CAPABILITY &&
+          capability !== STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY &&
+          capability !== STUDIO_PULL_REQUEST_LINK_CAPABILITY) ||
           options.pullRequests !== undefined) &&
         (chat() !== null || !(STUDIO_CHAT_CAPABILITIES as readonly string[]).includes(capability)),
     ),

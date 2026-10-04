@@ -265,3 +265,59 @@ test('text-generation-service', async () => {
 
   await suiteRun
 })
+
+test('a pull request draft is the same headless call, asking for a title and a body', async () => {
+  const { generatePullRequestText } = await import('./text-generation-service')
+  const runs: CommandRunInput[] = []
+  const result = await generatePullRequestText(
+    {
+      input: {
+        base: 'main',
+        head: 'feature/marks',
+        commits: 'fix(sidebar): show the marks\n\n---',
+        diffStat: ' src/a.ts | 2 +-',
+        patch: '-old\n+new',
+        template: '### What changed and why\n\n### How it was checked',
+        conventionalCommits: true,
+      },
+      engine: { cli: 'claude-code', model: 'claude-haiku-4-5' },
+    },
+    {
+      detect: async (cli) => ({
+        cli,
+        binary: 'claude',
+        installed: true,
+        version: '1.0.0',
+        resolvedPath: '/bin/claude',
+        hostId: 'local',
+        error: null,
+      }),
+      env: () => ({ PATH: '/bin' }),
+      run: async (input) => {
+        runs.push(input)
+        return {
+          code: 0,
+          stdout: JSON.stringify({
+            type: 'result',
+            is_error: false,
+            structured_output: {
+              title: 'fix(sidebar): show the marks.',
+              body: '### What changed and why\n\nThe marks.',
+            },
+          }),
+          stderr: '',
+          timedOut: false,
+          spawnError: null,
+        }
+      },
+    },
+  )
+  assert.deepEqual(result.ok && result.value, {
+    title: 'fix(sidebar): show the marks',
+    body: '### What changed and why\n\nThe marks.',
+  })
+  const schema = runs[0].args[runs[0].args.indexOf('--json-schema') + 1]
+  assert.deepEqual(JSON.parse(schema).required, ['title', 'body'])
+  assert.match(runs[0].stdin ?? '', /Conventional Commits/)
+  assert.match(runs[0].stdin ?? '', /Template:\n### What changed and why/)
+})

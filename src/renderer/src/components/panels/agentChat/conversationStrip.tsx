@@ -8,6 +8,7 @@ import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { ComposerStrip } from '../../workspace/agentComposer/ComposerStrip'
 import type { BranchPullRequest } from '../../../../../shared/git/pull-request'
 import { PullRequestStripButton, stripPullRequestCopy } from '../../workspace/PullRequestMark'
+import { CreatePullRequestControl, pullRequestSlotChoice } from './createPullRequest'
 import { fitComposerStrip, fullComposerStripFit, sameComposerStripFit, type ComposerStripFit } from './composerStripFit'
 
 // The strip under an open conversation's composer (owner ruling 2026-10-04):
@@ -17,8 +18,10 @@ import { fitComposerStrip, fullComposerStripFit, sameComposerStripFit, type Comp
 //   the machine's glyph (only when the chat is not on this computer) ·
 //   the branch (a worktree glyph before it only when the agent works in one;
 //   opens the file explorer) · the diff counts (open the changes) ·
-//   [⋮ what did not fit] · the conversation's pull request, "Open PR #123"
-//   (only when it opened one) · the context ring, pinned to the right corner.
+//   [⋮ what did not fit] · the pull request slot: the conversation's pull
+//   request ("Open PR #123"), or "Create PR" when the branch is ready to
+//   propose (createPullRequest.tsx), never both · the context ring, pinned to
+//   the right corner.
 //
 // The project is not here: the title bar names it, and the person knows which
 // project they are in. Nothing here is a choice — the conversation has
@@ -73,6 +76,7 @@ export function ConversationComposerStrip({
   changes,
   context,
   pullRequests = NO_PULL_REQUESTS,
+  createPullRequest = null,
   now = Date.now(),
 }: {
   machine: ConversationStripMachine | null
@@ -82,6 +86,12 @@ export function ConversationComposerStrip({
   context: { used: number; total: number } | null
   /** The pull requests this conversation opened; none draws no button. */
   pullRequests?: readonly BranchPullRequest[]
+  /** The checkout is ready to propose: "Create PR" may take the slot. Null when it is not, or not on this computer. */
+  createPullRequest?: {
+    cwd: string
+    conversation: { workspaceId: string; agentId: string }
+    onSettled: () => void
+  } | null
   /** The clock the pull request's age is read against; a test pins it. */
   now?: number
 }): React.JSX.Element | null {
@@ -111,7 +121,8 @@ export function ConversationComposerStrip({
 
   const hasChanges = Boolean(changes && (changes.added > 0 || changes.removed > 0))
   const percentage = context && context.total > 0 ? (context.used / context.total) * 100 : null
-  const pullRequest = stripPullRequestCopy(pullRequests, now)
+  const slot = pullRequestSlotChoice(pullRequests, createPullRequest !== null)
+  const pullRequest = slot === 'open' || slot === 'merged' ? stripPullRequestCopy(pullRequests, now) : null
 
   // The strip's own width: what the line has to hold.
   useLayoutEffect(() => {
@@ -136,7 +147,8 @@ export function ConversationComposerStrip({
   const branchWorktree = branch?.worktree ?? false
   const changesKey = hasChanges && changes ? `${changes.added}:${changes.removed}` : null
   const ringShown = percentage !== null
-  const pullRequestText = pullRequest?.text ?? null
+  // What the slot draws, as a key its width is measured under.
+  const pullRequestText = slot === 'create' ? 'create' : (pullRequest?.text ?? null)
   useLayoutEffect(() => {
     const strip = stripEl
     const known = widths.current
@@ -191,7 +203,7 @@ export function ConversationComposerStrip({
     // changes the branch's width, and the counts change the pill's.
   }, [stripEl, available, machineId, branchName, branchWorktree, changesKey, ringShown, pullRequestText, fit])
 
-  if (!machine && !branch && !hasChanges && percentage === null && !pullRequest) return null
+  if (!machine && !branch && !hasChanges && percentage === null && pullRequestText === null) return null
 
   const showMachine = machine !== null && fit.machine
   const showBranch = branch !== null && fit.branchText !== null
@@ -279,9 +291,17 @@ export function ConversationComposerStrip({
           <OverflowMenu ariaLabel="More about where this agent works" triggerTooltip="More" items={hidden} />
         </span>
       ) : null}
-      {pullRequest ? (
+      {pullRequestText !== null ? (
         <span ref={pullRequestRef} className="ml-auto inline-flex shrink-0" data-strip-pull-request-slot="">
-          <PullRequestStripButton pullRequests={pullRequests} now={now} />
+          {slot === 'create' && createPullRequest ? (
+            <CreatePullRequestControl
+              cwd={createPullRequest.cwd}
+              conversation={createPullRequest.conversation}
+              onSettled={createPullRequest.onSettled}
+            />
+          ) : (
+            <PullRequestStripButton pullRequests={pullRequests} now={now} />
+          )}
         </span>
       ) : null}
       {percentage !== null && context ? (
