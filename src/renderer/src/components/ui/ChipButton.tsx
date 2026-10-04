@@ -19,10 +19,9 @@ import { FOCUS_RING_CLASS } from './tokens'
 // `text-micro` at rest, because a chip is a label about the thing beside it, and
 // it must not outweigh what it qualifies.
 //
-// The three inline variants carry no elevation at any state: each is a mark ON
-// the page, not a control standing off it (`principles.md` → Hairlines carry
-// the structure). `raised` is the exception, and the one variant that is not
-// content-height — see its entry below.
+// No variant carries elevation at any state: each is a mark ON the page, not a
+// control standing off it (`principles.md` → Hairlines carry the structure).
+// `raised` is the one variant that is not content-height — see its entry below.
 
 /**
  * - `ghost` (default) — no edge, no ground. A toggle in a chrome strip.
@@ -35,14 +34,15 @@ import { FOCUS_RING_CLASS } from './tokens'
  *   a small floating surface rather than as part of what is underneath. Still no
  *   shadow: the elevation ramp is for surfaces a person opened, not for chrome
  *   that was always there.
- * - `raised` — a chip that is a CONTROL in a toolbar row rather than a label
- *   inside a line (owner ruling 2026-10-01): the composer's model, skills,
- *   permissions, worktree and ⋯ triggers. It takes the outline button's shell
- *   exactly — `size.control.xs`, `radius.control`, the `border.default`
- *   hairline and `.control-edge` (a lit top lip, a shallow drop and the sheen)
- *   — so a chip and the "Jump to latest" button beside the same composer are
- *   one family. It still keeps the chip's tones, tint and thrown states,
- *   which are what a button has no vocabulary for.
+ * - `raised` — the TOOLBAR chip: a CONTROL in a toolbar row rather than a
+ *   label inside a line (owner ruling 2026-10-01): the composer's model,
+ *   skills, permissions, worktree and ⋯ triggers. It takes the toolbar's box —
+ *   `size.control.xs`, `radius.control`, the button's `xs` inset and label —
+ *   and is GHOST (owner ruling 2026-10-04, tier 3: a control inside a surface
+ *   has the surface for an edge): no border and no ground at rest, muted ink,
+ *   a hover fill, and `bg.active` under the press. It keeps the chip's tones,
+ *   tint and thrown states, which are what a button has no vocabulary for.
+ *   The name predates the ruling and stays because callers import it.
  */
 export type ChipVariant = 'ghost' | 'outline' | 'overlay' | 'raised'
 
@@ -80,7 +80,7 @@ const RESTING_INK: Record<ChipTone, string> = {
 
 // The EDGE, per variant. Held through every state — a border that appeared when
 // a chip was thrown would resize the row it sits in, which is the layout shift
-// the hover rule already forbids.
+// the hover rule already forbids. The toolbar chip has none at any state.
 const EDGE: Record<ChipVariant, string> = {
   ghost: '',
   outline:
@@ -89,9 +89,7 @@ const EDGE: Record<ChipVariant, string> = {
   overlay:
     'border border-[color:var(--border-default)] hover:border-[color:var(--border-strong)] ' +
     'disabled:hover:border-[color:var(--border-default)]',
-  raised:
-    'control-edge border border-[color:var(--border-default)] hover:border-[color:var(--border-strong)] ' +
-    'disabled:hover:border-[color:var(--border-default)]',
+  raised: '',
 }
 
 // The ground it rests on while NOT thrown. Each branch declares `bg-` and
@@ -104,9 +102,24 @@ const RESTING_GROUND: Record<ChipVariant, string> = {
     'disabled:hover:bg-[color:var(--bg-surface-raised)]',
   overlay:
     'bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)] ' + 'disabled:hover:bg-[color:var(--bg-surface)]',
+  // One more step of ground under the shared press scale, as a standalone
+  // outline button takes; `enabled:` so a disabled chip does not answer it.
   raised:
-    'bg-[color:var(--bg-surface-raised)] hover:bg-[color:var(--bg-hover)] ' +
-    'disabled:hover:bg-[color:var(--bg-surface-raised)]',
+    'bg-transparent hover:bg-[color:var(--bg-hover)] enabled:active:bg-[color:var(--bg-active)] ' +
+    'disabled:hover:bg-transparent',
+}
+
+// The toolbar chip's default ink is the ghost button's, not the inline chip's:
+// muted lifting to strong. An inline chip is a qualifier and rests a step
+// lower; a toolbar chip with no edge and no ground is a control, and at
+// `text.subtle` it would read as disabled beside the ghost glyphs it shares a
+// row with. The other tones keep their own ink on every variant.
+const TOOLBAR_INK =
+  'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] ' +
+  'disabled:hover:text-[color:var(--text-muted)]'
+
+function restingInk(variant: ChipVariant, tone: ChipTone): string {
+  return variant === 'raised' && tone === 'subtle' ? TOOLBAR_INK : RESTING_INK[tone]
 }
 
 /**
@@ -126,11 +139,11 @@ const SHAPE: Record<ChipVariant, string> = {
   raised: 'rounded-sm h-control-xs px-2 gap-1.5 text-meta',
 }
 
-/** The raised chip's box, edge and resting ground, for a composite that has to
- *  wear it (see `SHAPE`). Ink and states stay the composite's own. */
-export const RAISED_CHIP_SHELL =
-  'inline-flex min-w-0 items-center rounded-sm h-control-xs border border-[color:var(--border-default)] ' +
-  'bg-[color:var(--bg-surface-raised)] control-edge text-meta'
+/** The toolbar chip's box, for a composite that has to wear it (see `SHAPE`).
+ *  Since the toolbar chip went ghost (owner ruling 2026-10-04) the box is all
+ *  there is: no edge and no ground, so the composite sits on the row exactly
+ *  as the chips beside it do. Ink and states stay the composite's own. */
+export const RAISED_CHIP_SHELL = 'inline-flex min-w-0 items-center rounded-sm h-control-xs bg-transparent text-meta'
 
 // The thrown fill, held under the pointer. Neutral for the two neutral tones,
 // because selection is neutral; the tone tints keep their own hue, because a
@@ -203,7 +216,7 @@ export const ChipButton = React.forwardRef<HTMLButtonElement, ChipButtonProps>(f
         'interactive inline-flex min-w-0 items-center font-medium transition-colors',
         SHAPE[variant],
         EDGE[variant],
-        thrown ? THROWN[tone] : `${RESTING_GROUND[variant]} ${tint ? '' : RESTING_INK[tone]}`,
+        thrown ? THROWN[tone] : `${RESTING_GROUND[variant]} ${tint ? '' : restingInk(variant, tone)}`,
         'disabled:cursor-not-allowed disabled:opacity-45',
         FOCUS_RING_CLASS,
         className ?? '',

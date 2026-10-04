@@ -549,7 +549,7 @@ table.sites td{padding:5px 10px;border-bottom:1px solid var(--rp-rule-soft);vert
 .st-hover [class*="hover:border-[color:var(--border-strong)]"]{border-color:var(--border-strong)}
 .st-focus [class*="focus-visible:focus-ring"]{outline:var(--focus-ring);outline-offset:var(--focus-ring-offset)}
 .st-focus [class*="focus-visible:focus-ring-inset"]{outline-offset:calc(-1 * var(--focus-ring-offset))}
-.st-press .interactive:not(.control-raised):not(.control-edge){transform:scale(.97)}
+.st-press .interactive{transform:scale(.97)}
 @media (prefers-reduced-motion: reduce){.rp *,.spec *{transition-duration:0.01ms!important;animation-duration:0.01ms!important}}
 `
 

@@ -65,12 +65,13 @@ type SegmentedControlProps<V extends string = string> = {
 }
 
 // The TRACK carries the ramp height; segments fill it. A track and a thumb
-// (owner ruling 2026-10-01): the strip is a groove set into the surface —
-// `bg.well` with `.control-track` light falling into it — and the chosen
-// segment is a raised thumb standing out of it on `.control-edge`, the same
-// step every bordered control stands off the page. The old strip of hairline
-// separators over one flat fill read as a row of cells rather than as a
-// switch, and the chosen cell was only a luminance step away from the rest.
+// (owner ruling 2026-10-04): the strip is a plain `bg.well` with no hairline and
+// no inset shadow, and the chosen segment is a thumb on it — the `bg.selected`
+// fill every selection takes, over `.control-thumb`, a small drop with no lip
+// and no sheen, so it reads as a piece set on the track rather than a tint of
+// it. The 2026-10-01 version sank the track as a groove and stood a bevelled
+// thumb out of it; before that, a strip of hairline separators over one flat
+// fill read as a row of cells rather than as a switch.
 const TRACK_SIZE: Record<'sm' | 'md' | 'icon', string> = {
   sm: 'h-control-xs',
   md: 'h-control-sm',
@@ -141,7 +142,7 @@ export function SegmentedControl<V extends string = string>({
       aria-label={ariaLabel}
       aria-describedby={ariaDescribedBy}
       onKeyDown={handleKeyDown}
-      className={`control-track inline-flex items-stretch gap-0.5 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-well)] p-0.5 ${TRACK_SIZE[iconOnly ? 'icon' : size]} ${className ?? ''}`}
+      className={`inline-flex items-stretch gap-0.5 rounded-sm bg-[color:var(--bg-well)] p-0.5 ${TRACK_SIZE[iconOnly ? 'icon' : size]} ${className ?? ''}`}
     >
       {items.map((item) => {
         const checked = item.value === value
@@ -171,7 +172,7 @@ export function SegmentedControl<V extends string = string>({
               interactive inline-flex items-center rounded-xs ${iconOnly ? ICON_ONLY_SEGMENT : SEGMENT_SIZE[size]} font-medium ${FOCUS_RING_CLASS}
               ${
                 checked
-                  ? 'control-edge bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
+                  ? 'control-thumb bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                   : 'bg-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:hover:bg-transparent'
               }
               disabled:cursor-not-allowed disabled:opacity-45

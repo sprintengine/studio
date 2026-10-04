@@ -23,10 +23,9 @@
     transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
-/* Flat variants press by scale; the elevated ones press by inverting their
- * bevel (see --primary / --outline below), so the two treatments never stack. */
-.ds-button--ghost:active:not(:disabled),
-.ds-button--icon:active:not(:disabled) {
+/* One press for every variant, the primary included (owner ruling
+ * 2026-10-04): there is no bevel left to invert, so a click has one metaphor. */
+.ds-button:active:not(:disabled):not([aria-disabled='true']) {
   transform: scale(0.97);
 }
 
@@ -40,61 +39,42 @@
   opacity: 0.45;
 }
 
-/* Primary — the accent fill; selection and primary action share this hue.
- * The lit top edge over a shallow drop is what reads as a raised control: a
- * physical button under a light source above it. `box-shadow` rather than a
- * ::before ring so the bevel and the drop are one property with one token. */
+/* Primary — tier 1. The accent fill, and the one faint lit top edge in the
+ * system: a 1px inset highlight with no drop and no sheen under it. It holds
+ * through hover and press; a disabled primary drops it, because a control
+ * that cannot be pressed does not catch the light. */
 .ds-button--primary {
-  background-color: var(--sem-color-accent-primary);
-  background-image: var(--sem-gradient-control-raised-sheen);
+  background: var(--sem-color-accent-primary);
   color: var(--sem-color-text-on-accent);
   box-shadow: var(--sem-shadow-control-raised);
 }
 
 .ds-button--primary:hover:not(:disabled) {
-  background-color: var(--sem-color-accent-hover);
-}
-
-/* Pressed REPLACES the resting shadow rather than layering over it: the light
- * that was on the top edge is now a shadow cast into it, and the drop is gone
- * because the control is no longer standing off the surface. */
-.ds-button--primary:active:not(:disabled),
-.ds-button--primary[data-pressed]:not(:disabled) {
-  background-image: none;
-  box-shadow: var(--sem-shadow-control-pressed);
+  background: var(--sem-color-accent-hover);
 }
 
 .ds-button--primary:disabled {
-  background-image: none;
   box-shadow: none;
 }
 
-/* Outline — bordered neutral secondary. Half a step of elevation below
- * primary: enough that it reads as a control rather than a labelled box,
- * quiet enough that it never competes with the view's one primary. */
+/* Outline — tier 2, a standalone secondary. Flat on a border.strong hairline
+ * over a transparent ground: no highlight, no sheen, no drop. The hairline
+ * holds through hover, so only the ground and the ink move; pressed steps the
+ * ground once more, to bg.active, under the shared scale. */
 .ds-button--outline {
-  border: 1px solid var(--sem-color-border-default);
-  background-color: var(--sem-color-bg-surface);
-  background-image: var(--sem-gradient-control-sheen);
+  border: 1px solid var(--sem-color-border-strong);
+  background: transparent;
   color: var(--sem-color-text-default);
-  box-shadow: var(--sem-shadow-control-edge);
 }
 
 .ds-button--outline:hover:not(:disabled) {
-  border-color: var(--sem-color-border-strong);
-  background-color: var(--sem-color-bg-hover);
+  background: var(--sem-color-bg-hover);
   color: var(--sem-color-text-primary);
 }
 
-.ds-button--outline:active:not(:disabled),
-.ds-button--outline[data-pressed]:not(:disabled) {
-  background-image: none;
-  box-shadow: var(--sem-shadow-control-pressed);
-}
-
-.ds-button--outline:disabled {
-  background-image: none;
-  box-shadow: none;
+.ds-button--outline:active:not(:disabled) {
+  background: var(--sem-color-bg-active);
+  color: var(--sem-color-text-primary);
 }
 
 /* Ghost — quiet secondary action; hover lifts ink and background together. */
@@ -156,8 +136,7 @@
   .ds-button {
     transition: none;
   }
-  .ds-button--ghost:active:not(:disabled),
-  .ds-button--icon:active:not(:disabled) {
+  .ds-button:active:not(:disabled):not([aria-disabled='true']) {
     transform: none;
   }
 }
