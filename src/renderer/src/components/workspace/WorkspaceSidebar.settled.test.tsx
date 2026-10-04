@@ -224,6 +224,10 @@ test('WorkspaceSidebar.settled', async () => {
       const activeMenu = await openMenuOn('Alpha')
       assert.ok(activeMenu.includes('Settle'), `an active row's menu offers Settle (got ${activeMenu.join(' | ')})`)
       assert.equal(activeMenu.includes('Un-settle'), false)
+      assert.ok(
+        activeMenu.some((item) => item.startsWith('Auto-settle')),
+        `and its Auto-settle choice (got ${activeMenu.join(' | ')})`,
+      )
 
       // The one-click seat is rest, not removal. The ✕ that used to sit here
       // terminates the row's terminals and removes the chat; it keeps its entry

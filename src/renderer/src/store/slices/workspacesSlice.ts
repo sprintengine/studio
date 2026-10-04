@@ -10,6 +10,7 @@ import {
 } from '../../utils/workspaceSettle'
 import { hasSnooze, snoozeWorkspacePatch, wakeSnoozedWorkspacePatch } from '../../utils/workspaceSnooze'
 import type { WorkspaceFieldsPatch } from '../../../../shared/workspace-sync'
+import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { isRetiredWorkspaceMode } from '../../../../shared/workspace-mode'
 import { hostIdToRecord } from '../../../../shared/execution-host'
 import { workspaceProjectRoot, workspaceProjectRootOf } from '../../utils/workspaceWorktree'
@@ -267,6 +268,7 @@ interface WorkspacesSliceActions {
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
+  setWorkspaceAutoSettle: (id: WorkspaceId, enabled: boolean) => void
   /**
    * Put a chat to sleep until `wakeAt`, or wake it now with `null`. The RECORD
    * only: suspending the chat's terminals is the sidebar's half of the gesture
@@ -278,6 +280,8 @@ interface WorkspacesSliceActions {
     now: number
     busyIds: ReadonlySet<WorkspaceId>
     heldIds: ReadonlySet<WorkspaceId>
+    /** Each chat's pull requests, for Settle on merge; absent while not yet read. */
+    pullRequestsByWorkspaceId?: Readonly<Record<string, readonly BranchPullRequest[]>>
   }) => WorkspaceId[]
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   recordWorkspaceUserMessage: (id: WorkspaceId, at: number) => void
@@ -953,6 +957,20 @@ export function createWorkspacesSlice(
       if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
     },
 
+    // The row menu's Auto-settle choice. Settles and wakes nothing by itself:
+    // the sweep reads it on its next tick.
+    setWorkspaceAutoSettle: (id, enabled) => {
+      const patch: WorkspaceFieldsPatch = { autoSettleDisabled: enabled ? null : true }
+      let changed = false
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws || (ws.autoSettleDisabled === true) === !enabled) return
+        Object.assign(ws, patch)
+        changed = true
+      })
+      if (changed) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
+    },
+
     // Sleep by hand (snooze, 2026-09-10): the row leaves the active list for
     // its folder's Snoozed shelf until `wakeAt`, and `null` brings it back now.
     //
@@ -994,7 +1012,7 @@ export function createWorkspacesSlice(
     // next snapshot reset it. The routed window decides, applies and
     // reports; the others learn from main's broadcast. The rule itself is
     // `decideWorkspaceSettlement`.
-    reconcileWorkspaceSettlement: ({ now, busyIds, heldIds }) => {
+    reconcileWorkspaceSettlement: ({ now, busyIds, heldIds, pullRequestsByWorkspaceId }) => {
       // Decide against the current state and write only when a row moves,
       // so a tick on which nothing changes touches no subscriber.
       const current = getState()
@@ -1016,6 +1034,10 @@ export function createWorkspacesSlice(
           active: activeIds.has(ws.id),
           busy: busyIds.has(ws.id),
           held: heldIds.has(ws.id),
+          context: {
+            pullRequests: pullRequestsByWorkspaceId?.[ws.id],
+            settleOnMerge: current.appSettings.settleOnPullRequestMerge,
+          },
         })
         if (decision === 'none') continue
         const patch = decision === 'settle' ? settleWorkspacePatch(ws, now, null) : wakeWorkspacePatch(null)

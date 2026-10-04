@@ -32,6 +32,7 @@ import type { AppTheme, ChatWidth, WindowMaterial } from '../types/appTheme'
 import { noteLaunchedAgentArrived, type LaunchedAgentProjection } from '../utils/launchedAgentProjection'
 import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
 import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
+import type { BranchPullRequest } from '../../../shared/git/pull-request'
 import type { CommandId } from '../commands/commandRegistry'
 import type { ExtensionsDrawerView } from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { createAuthSlice } from './slices/authSlice'
@@ -226,6 +227,8 @@ export interface WorkspaceStore
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
+  /** Take a chat out of auto-settling (idle and merge alike), or put it back. */
+  setWorkspaceAutoSettle: (id: WorkspaceId, enabled: boolean) => void
   /**
    * Put a chat to sleep until `wakeAt`, or wake it now with `null`. The RECORD
    * only: suspending the chat's terminals is the sidebar's half of the gesture
@@ -237,6 +240,7 @@ export interface WorkspaceStore
     now: number
     busyIds: ReadonlySet<WorkspaceId>
     heldIds: ReadonlySet<WorkspaceId>
+    pullRequestsByWorkspaceId?: Readonly<Record<string, readonly BranchPullRequest[]>>
   }) => WorkspaceId[]
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   recordWorkspaceUserMessage: (id: WorkspaceId, at: number) => void
@@ -293,6 +297,7 @@ export interface WorkspaceStore
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void
+  setSettleOnPullRequestMerge: (enabled: boolean) => void
   /** Keep the app (and its running agents) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
   setTelemetryEnabled: (enabled: boolean) => void

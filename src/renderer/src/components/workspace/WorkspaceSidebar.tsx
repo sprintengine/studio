@@ -350,6 +350,7 @@ function WorkspaceSidebar({
   const reorderWorkspaces = useWorkspaceStore((s) => s.reorderWorkspaces)
   const setWorkspaceHighlight = useWorkspaceStore((s) => s.setWorkspaceHighlight)
   const setWorkspaceSettled = useWorkspaceStore((s) => s.setWorkspaceSettled)
+  const setWorkspaceAutoSettle = useWorkspaceStore((s) => s.setWorkspaceAutoSettle)
   const setWorkspaceSnoozed = useWorkspaceStore((s) => s.setWorkspaceSnoozed)
   const clearWorkspaceHighlight = useWorkspaceStore((s) => s.clearWorkspaceHighlight)
   // The person changing a project's colour from its header menu; the only
@@ -619,6 +620,20 @@ function WorkspaceSidebar({
   // Keyed on whether both lists have landed rather than on the terminal list
   // itself: a terminal's semantic change moves no row's activity that
   // `activityByWorkspaceId` does not already carry.
+  // ─── The pull requests a chat holds after its agents are gone ──────────
+  //
+  // Owner, 2026-09-10: "he is no longer active, but it doesn't show on his card
+  // that he has an open pull request… if I'm scanning through the old chats I
+  // don't know is there a pull request open that I'm missing."
+  //
+  // A live agent's marks arrive on its terminal session and are drawn on its
+  // own line; those are the more precise answer and this never overrides them
+  // (`pullRequestsForRow`). This is for the rows that have no line left. The
+  // rest sweep below reads it too: a chat whose pull requests have landed
+  // settles (Settle on merge).
+  const allWorkspaceIds = useMemo(() => workspaces.map((workspace) => workspace.id), [workspaces])
+  const conversationPullRequests = useConversationPullRequests(allWorkspaceIds)
+
   const sessionsListed = hasTerminalSessionsSnapshot() && conversationSessionsReady
   useEffect(() => {
     if (!sessionsListed) return
@@ -628,9 +643,14 @@ function WorkspaceSidebar({
       if (activity === 'working') busyIds.add(id)
       else if (activity === 'needs-input') heldIds.add(id)
     }
-    const settledNow = useWorkspaceStore.getState().reconcileWorkspaceSettlement({ now, busyIds, heldIds })
+    const settledNow = useWorkspaceStore.getState().reconcileWorkspaceSettlement({
+      now,
+      busyIds,
+      heldIds,
+      pullRequestsByWorkspaceId: conversationPullRequests,
+    })
     for (const id of settledNow) quietSettledWorkspace(id)
-  }, [now, activityByWorkspaceId, unseenDoneIds, sessionsListed, quietSettledWorkspace])
+  }, [now, activityByWorkspaceId, unseenDoneIds, sessionsListed, quietSettledWorkspace, conversationPullRequests])
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   // Which Snoozed shelves are open. Session-only and closed by default: the
@@ -1072,18 +1092,6 @@ function WorkspaceSidebar({
     for (const group of groups) map.set(group.key, group)
     return map
   }, [groups])
-
-  // ─── The pull requests a chat holds after its agents are gone ──────────
-  //
-  // Owner, 2026-09-10: "he is no longer active, but it doesn't show on his card
-  // that he has an open pull request… if I'm scanning through the old chats I
-  // don't know is there a pull request open that I'm missing."
-  //
-  // A live agent's marks arrive on its terminal session and are drawn on its
-  // own line; those are the more precise answer and this never overrides them
-  // (`pullRequestsForRow`). This is for the rows that have no line left.
-  const allWorkspaceIds = useMemo(() => workspaces.map((workspace) => workspace.id), [workspaces])
-  const conversationPullRequests = useConversationPullRequests(allWorkspaceIds)
 
   // …and the same fact summed per project, which is the second half of the ask:
   // "if those agents are suspended or dead, then they won't be showing in the
@@ -2686,6 +2694,11 @@ function WorkspaceSidebar({
               setWorkspaceHighlight(workspace.id, {
                 starred: !isStarred(workspace.highlight),
               })
+              return
+            }
+            if (action === 'auto-settle:on' || action === 'auto-settle:off') {
+              setWorkspaceAutoSettle(workspace.id, action === 'auto-settle:on')
+              setContextMenu(null)
               return
             }
             if (action === 'toggle-settle') {

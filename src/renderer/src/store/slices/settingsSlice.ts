@@ -736,6 +736,7 @@ export const defaultAppSettings = (): AppSettings => ({
   hasAdoptedAgentConfig: false,
   terminalIdleSuspendMinutes: DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES,
   terminalKeepRecentAlive: DEFAULT_TERMINAL_KEEP_RECENT_ALIVE,
+  settleOnPullRequestMerge: true,
   // Off is the rule from before background mode exactly; keeping a process alive is a choice
   // the user has to make, never one an upgrade makes for them.
   keepRunningInBackground: false,
@@ -817,6 +818,8 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     hasAdoptedAgentConfig: settings?.hasAdoptedAgentConfig ?? workspaces.length > 0,
     terminalIdleSuspendMinutes: normalizeTerminalIdleSuspendMinutes(settings?.terminalIdleSuspendMinutes),
     terminalKeepRecentAlive: normalizeTerminalKeepRecentAlive(settings?.terminalKeepRecentAlive),
+    settleOnPullRequestMerge:
+      typeof settings?.settleOnPullRequestMerge === 'boolean' ? settings.settleOnPullRequestMerge : true,
     // Only an explicit stored `true` keeps the app alive past its last window;
     // anything else (fresh profile, corrupt value) reads as off.
     keepRunningInBackground: settings?.keepRunningInBackground === true,
@@ -1095,6 +1098,7 @@ export interface SettingsSliceActions {
   /** Set how long an idle agent terminal waits before it is paused (minutes). */
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void
+  setSettleOnPullRequestMerge: (enabled: boolean) => void
   /** Keep the app (and its running agents) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
   setTelemetryEnabled: (enabled: boolean) => void
@@ -1712,6 +1716,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setTerminalIdleSuspendMinutes: (minutes) =>
       set((state) => {
         state.appSettings.terminalIdleSuspendMinutes = normalizeTerminalIdleSuspendMinutes(minutes)
+      }),
+
+    setSettleOnPullRequestMerge: (enabled) =>
+      set((state) => {
+        state.appSettings.settleOnPullRequestMerge = enabled
       }),
 
     setTerminalKeepRecentAlive: (count) =>

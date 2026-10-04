@@ -448,6 +448,12 @@ export type AppSettings = {
    */
   terminalKeepRecentAlive: number
   /**
+   * Settle a chat once its pull requests have landed (Settings ▸ Settled
+   * chats). On by default: a merged pull request is the clearest sign a chat's
+   * work is done. See `pullRequestsLanded`.
+   */
+  settleOnPullRequestMerge: boolean
+  /**
    * Keep the app running when its last window closes, on every platform.
    * Off by default, which is byte-for-byte the rule before background mode existed:
    * quit on Windows/Linux, survive on macOS. On, the process stays up with a
@@ -850,6 +856,11 @@ export type Workspace = {
   // the sweep would settle it straight back on its next tick. The sweep never
   // touches a row carrying either value.
   settledOverride?: 'settled' | 'active' | null
+  // The person took this chat out of auto-settling from its menu: neither
+  // three quiet days nor its pull requests landing settles it. A hand Settle
+  // still does. For a chat that is meant to stay in front of you however long
+  // it goes quiet. Absent or null is the default, auto-settle on.
+  autoSettleDisabled?: boolean | null
   // When set, the chat is asleep until this instant: it renders in its folder's
   // Snoozed shelf rather than in the active list, wearing the countdown to its
   // wake. Set from the row menu's Snooze presets; cleared by opening the chat,
