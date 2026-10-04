@@ -6,6 +6,8 @@ import { ContextRing, DiffStatPill, GhostButton, MachineGlyph, OverflowMenu, Too
 import type { OverflowMenuItem } from '../../ui/OverflowMenu'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { ComposerStrip } from '../../workspace/agentComposer/ComposerStrip'
+import type { BranchPullRequest } from '../../../../../shared/git/pull-request'
+import { PullRequestStripButton, stripPullRequestCopy } from '../../workspace/PullRequestMark'
 import { fitComposerStrip, fullComposerStripFit, sameComposerStripFit, type ComposerStripFit } from './composerStripFit'
 
 // The strip under an open conversation's composer (owner ruling 2026-10-04):
@@ -15,11 +17,15 @@ import { fitComposerStrip, fullComposerStripFit, sameComposerStripFit, type Comp
 //   the machine's glyph (only when the chat is not on this computer) ·
 //   the branch (a worktree glyph before it only when the agent works in one;
 //   opens the file explorer) · the diff counts (open the changes) ·
-//   [⋮ what did not fit] · the context ring, pinned to the right corner.
+//   [⋮ what did not fit] · the conversation's pull request, "Open PR #123"
+//   (only when it opened one) · the context ring, pinned to the right corner.
 //
 // The project is not here: the title bar names it, and the person knows which
 // project they are in. Nothing here is a choice — the conversation has
-// started, and where it runs is settled.
+// started, and where it runs is settled. The pull request is the one thing to
+// act on: it sits at the bottom of the chat, beside the ring, because that is
+// where a person finishing with a conversation looks (owner ruling 2026-10-04),
+// and like the ring it never leaves for the menu — the line gives way around it.
 //
 // One line, always: as the pane narrows, items leave for the "⋮" menu in the
 // order `composerStripFit` gives, measured rather than at fixed breakpoints,
@@ -52,17 +58,32 @@ export function changesItemLabel(changes: ConversationStripChanges): string {
 // target.
 const OVERFLOW_FALLBACK_WIDTH = 24
 
+const NO_PULL_REQUESTS: readonly BranchPullRequest[] = []
+
+/** The width of the line's pinned end: the pull request and the ring, either or both; null when neither is drawn. */
+function pinnedWidth(ring: number | null, pullRequest: number | null, gap: number): number | null {
+  if (ring === null) return pullRequest
+  if (pullRequest === null) return ring
+  return ring + gap + pullRequest
+}
+
 export function ConversationComposerStrip({
   machine,
   branch,
   changes,
   context,
+  pullRequests = NO_PULL_REQUESTS,
+  now = Date.now(),
 }: {
   machine: ConversationStripMachine | null
   branch: ConversationStripBranch | null
   changes: ConversationStripChanges | null
   /** The context reading; null when the runtime has reported none (no ring is drawn then). */
   context: { used: number; total: number } | null
+  /** The pull requests this conversation opened; none draws no button. */
+  pullRequests?: readonly BranchPullRequest[]
+  /** The clock the pull request's age is read against; a test pins it. */
+  now?: number
 }): React.JSX.Element | null {
   // A state, not a ref: the strip is not drawn while it has nothing to say,
   // and the measuring below has to start the moment it is.
@@ -72,6 +93,7 @@ export function ConversationComposerStrip({
   const branchTextRef = useRef<HTMLSpanElement | null>(null)
   const changesRef = useRef<HTMLSpanElement | null>(null)
   const overflowRef = useRef<HTMLSpanElement | null>(null)
+  const pullRequestRef = useRef<HTMLSpanElement | null>(null)
   const ringRef = useRef<HTMLSpanElement | null>(null)
   // The last width each part was drawn at. A part in the menu is not drawn,
   // and its width is still what decides whether it comes back.
@@ -81,6 +103,7 @@ export function ConversationComposerStrip({
     charWidth?: number
     changes?: number
     overflow?: number
+    pullRequest?: number
     ring?: number
   }>({})
   const [available, setAvailable] = useState(0)
@@ -88,6 +111,7 @@ export function ConversationComposerStrip({
 
   const hasChanges = Boolean(changes && (changes.added > 0 || changes.removed > 0))
   const percentage = context && context.total > 0 ? (context.used / context.total) * 100 : null
+  const pullRequest = stripPullRequestCopy(pullRequests, now)
 
   // The strip's own width: what the line has to hold.
   useLayoutEffect(() => {
@@ -112,6 +136,7 @@ export function ConversationComposerStrip({
   const branchWorktree = branch?.worktree ?? false
   const changesKey = hasChanges && changes ? `${changes.added}:${changes.removed}` : null
   const ringShown = percentage !== null
+  const pullRequestText = pullRequest?.text ?? null
   useLayoutEffect(() => {
     const strip = stripEl
     const known = widths.current
@@ -123,6 +148,7 @@ export function ConversationComposerStrip({
     known.changes = widthOf(changesRef.current) ?? known.changes
     known.overflow = widthOf(overflowRef.current) ?? known.overflow
     known.ring = widthOf(ringRef.current) ?? known.ring
+    known.pullRequest = widthOf(pullRequestRef.current) ?? known.pullRequest
     const branchWidth = widthOf(branchRef.current)
     const textWidth = widthOf(branchTextRef.current)
     const drawnText = branchTextRef.current?.textContent ?? ''
@@ -135,7 +161,8 @@ export function ConversationComposerStrip({
     const unmeasured =
       (machineId !== null && known.machine === undefined) ||
       (changesKey !== null && known.changes === undefined) ||
-      (branchName !== null && known.charWidth === undefined)
+      (branchName !== null && known.charWidth === undefined) ||
+      (pullRequestText !== null && known.pullRequest === undefined)
     const gap = strip ? parseFloat(getComputedStyle(strip).columnGap) || 0 : 0
     const next =
       available <= 0 || unmeasured
@@ -143,7 +170,13 @@ export function ConversationComposerStrip({
         : fitComposerStrip({
             available,
             gap,
-            ring: ringShown ? (known.ring ?? 0) : null,
+            // The pull request and the ring are the line's pinned end: neither
+            // leaves, so the fit gives way around the two of them.
+            ring: pinnedWidth(
+              ringShown ? (known.ring ?? 0) : null,
+              pullRequestText ? (known.pullRequest ?? 0) : null,
+              gap,
+            ),
             overflow: known.overflow ?? OVERFLOW_FALLBACK_WIDTH,
             machine: machineId !== null ? (known.machine ?? 0) : null,
             changes: changesKey !== null ? (known.changes ?? 0) : null,
@@ -156,9 +189,9 @@ export function ConversationComposerStrip({
     // `fit` is a dependency on purpose: a fit that moved an item measures the
     // line it drew, and settles once the fit stops changing. A worktree mark
     // changes the branch's width, and the counts change the pill's.
-  }, [stripEl, available, machineId, branchName, branchWorktree, changesKey, ringShown, fit])
+  }, [stripEl, available, machineId, branchName, branchWorktree, changesKey, ringShown, pullRequestText, fit])
 
-  if (!machine && !branch && !hasChanges && percentage === null) return null
+  if (!machine && !branch && !hasChanges && percentage === null && !pullRequest) return null
 
   const showMachine = machine !== null && fit.machine
   const showBranch = branch !== null && fit.branchText !== null
@@ -246,8 +279,13 @@ export function ConversationComposerStrip({
           <OverflowMenu ariaLabel="More about where this agent works" triggerTooltip="More" items={hidden} />
         </span>
       ) : null}
+      {pullRequest ? (
+        <span ref={pullRequestRef} className="ml-auto inline-flex shrink-0" data-strip-pull-request-slot="">
+          <PullRequestStripButton pullRequests={pullRequests} now={now} />
+        </span>
+      ) : null}
       {percentage !== null && context ? (
-        <span ref={ringRef} className="ml-auto inline-flex shrink-0" data-strip-context="">
+        <span ref={ringRef} className={`${pullRequest ? '' : 'ml-auto '}inline-flex shrink-0`} data-strip-context="">
           <ContextRing usedPercentage={percentage} tokens={context} />
         </span>
       ) : null}
