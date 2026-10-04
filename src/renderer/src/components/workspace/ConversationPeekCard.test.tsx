@@ -8,6 +8,7 @@ import {
   formatTokenCount,
   type ConversationPeekIdentity,
 } from './ConversationPeekCard'
+import { RemoteMachineGlyph, WslMachineGlyph } from '../AppIcons'
 import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { test } from 'vitest'
 
@@ -117,12 +118,19 @@ test('ConversationPeekCard', async () => {
       identity: { place: { machine: { label: 'WSL: Ubuntu', kind: 'wsl' }, branch: null } },
     })
     assert.match(wsl, /Machine: WSL: Ubuntu/)
-    // The WSL mark is a terminal window with a prompt in it; the remote one is two stacked units.
-    assert.match(wsl, /M4\.9 6\.2 6\.9 8l-2 1\.8/)
+    // Compared against the glyphs themselves rather than a copy of their
+    // paths, so redrawing a machine mark does not fail a test about which
+    // mark the line wears.
+    const wslMark = renderToStaticMarkup(<WslMachineGlyph className="icon-xs" />)
+    const remoteMark = renderToStaticMarkup(<RemoteMachineGlyph className="icon-xs" />)
+    assert.notEqual(wslMark, remoteMark, 'the two kinds draw different marks')
+    assert.ok(wsl.includes(wslMark), 'a WSL machine wears the WSL mark')
+    assert.equal(wsl.includes(remoteMark), false)
     const remote = card({
       identity: { place: { machine: { label: 'studio', kind: 'remote' }, branch: null } },
     })
-    assert.match(remote, /y="8\.6"/)
+    assert.ok(remote.includes(remoteMark), 'any other machine wears the remote mark')
+    assert.equal(remote.includes(wslMark), false)
   })
 
   // --- What the reader used to carry, and no longer does ---------------------
