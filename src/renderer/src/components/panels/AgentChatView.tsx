@@ -58,6 +58,7 @@ import {
 } from './ComposerAttachmentStrip'
 import {
   COMPOSER_SURFACE_CLASS,
+  SendGlyph,
   FOCUS_RING_INSET_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   GhostButton,
@@ -273,7 +274,8 @@ type Props = {
 // `FOCUS_RING_WITHIN_TEXTAREA_CLASS`, which is the pairing that variant exists
 // for. The bounds are the caller's, per the variant's contract, and they are the
 // same pair the new-chat composer uses.
-const COMPOSER_CLASS = 'max-h-[280px] min-h-[40px] overflow-y-auto rounded-t-lg px-3 pb-1 pt-2.5'
+const COMPOSER_CLASS =
+  'max-h-[280px] min-h-[40px] overflow-y-auto rounded-t-[var(--sem-radius-composer)] px-4 pb-1 pt-3'
 
 type PendingAction = 'starting' | 'sending' | 'stopping' | null
 
@@ -2912,7 +2914,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               {dropActive && !composerInputDisabled ? (
                 // Opaque, not a scrim: the field's own text ghosting through the
                 // drop state reads as a rendering artifact rather than a state.
-                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[var(--sem-radius-composer)] bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
                   Drop to attach
                 </div>
               ) : null}
@@ -3124,7 +3126,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     onClick={submitComposer}
                     disabled={sendAction.disabled}
                   >
-                    <SendArrowGlyph className="icon-sm shrink-0" />
+                    <SendGlyph className="icon-sm shrink-0" />
                   </ComposerActionButton>
                 )}
               </div>
@@ -3415,20 +3417,6 @@ function PaperclipGlyph({ className }: { className?: string }) {
         d="M13.75 8.5l-4.6 4.6a2.4 2.4 0 0 1-3.4-3.4l5.6-5.6a3.4 3.4 0 0 1 4.8 4.8l-5.6 5.6a4.4 4.4 0 0 1-6.2-6.2l4.6-4.6"
         stroke="currentColor"
         strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function SendArrowGlyph({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path
-        d="M10 15.5V5M10 5L5.75 9.25M10 5l4.25 4.25"
-        stroke="currentColor"
-        strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
       />

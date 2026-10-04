@@ -133,6 +133,8 @@
   --sem-radius-overlay: 7px;
   --sem-radius-shell: 9px;
   --sem-radius-shell-lg: 12px;
+  --sem-radius-composer: 22px;
+  --sem-radius-composer-strip: 16px;
   --sem-radius-pill: 999px;
   --sem-motion-duration-fast: 120ms;
   --sem-motion-duration-normal: 180ms;

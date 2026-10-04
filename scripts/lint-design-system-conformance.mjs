@@ -230,6 +230,12 @@ function readTokenDimensionPx(tokens, path) {
   return px ? Number(px[1]) : null
 }
 
+// Whether a `sem.radius.*` step is a named exception rather than a rung of the
+// ramp: its metadata carries `offRamp: true` (see readBundleDimensions).
+function radiusStepIsOffRamp(tokens, step) {
+  return tokens?.sem?.radius?.[step]?.$extensions?.['com.sprintengine']?.offRamp === true
+}
+
 function readBundleDimensions() {
   const abs = resolve(repoRoot, TOKENS_JSON_PATH)
   if (!existsSync(abs)) {
@@ -276,8 +282,13 @@ function readBundleDimensions() {
   // marketing-floor assertion below, failing the build on a token the system
   // deliberately declares. It must also stay out of `radiusStepsPx`, or
   // `rounded-[999px]` would silently become an on-ramp spelling.
+  //
+  // A step whose metadata says `offRamp: true` is excluded for the same
+  // reason: a named exception to the ceiling, not a rung — the composer's 22px
+  // box and its 16px strip (owner ruling 2026-10-04). The app reaches them by
+  // their variable, never by a `rounded-[Npx]` the ramp check would read.
   const radiusSteps = Object.keys(tokens?.sem?.radius ?? {})
-    .filter((step) => !step.startsWith('$') && step !== 'pill')
+    .filter((step) => !step.startsWith('$') && step !== 'pill' && !radiusStepIsOffRamp(tokens, step))
     .map((step) => readTokenDimensionPx(tokens, `sem.radius.${step}`))
     .filter((value) => value !== null)
   if (microFontSizePx === null || radiusSteps.length === 0) {

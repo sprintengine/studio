@@ -274,6 +274,12 @@ export type AppSettings = {
     >
   >
   /**
+   * The kind and colour a person chose for each machine (Settings › Machines),
+   * keyed by machine id (`shared/machine-identity`). A read model of main's
+   * launch settings, like `hosts`; a machine with no entry wears its defaults.
+   */
+  machineMarks?: import('../../../shared/machine-identity').MachineMarkSettings
+  /**
    * What each agent CLI last reported about its own models, keyed by plugin id.
    * A sibling of `cliRuntimes[id].models`, never the same store: that list is
    * the user's own escape hatch and must survive a refresh, while this one is

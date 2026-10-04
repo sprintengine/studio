@@ -108,6 +108,22 @@ square is most of the square.
 is the shape a count or a "?" takes beside a heading, where a filled square would
 read as a control the heading does not have.
 
+### The round send (owner ruling 2026-10-04)
+
+`ds-button--round` takes the primary to `radius.pill`. It is the composer's
+send and nothing else: a small accent disc at `size.control.sm` with an up
+arrow, replacing the square `⏎` key the New chat composer used to carry, and a
+capsule of the same height when the action is a word ("Schedule", "Save").
+Its fill, highlight and press are the primary's own; only the corner moves.
+The shipped primitive is `SendButton` beside `PrimaryButton` in `ui/Buttons`,
+which swaps the size step's radius out rather than adding a second
+`rounded-*` utility. It is a primitive of its own rather than a prop on the
+primary, because the primary's props are the module SDK's contract.
+
+Every other button keeps `radius.control`: a pill-shaped button anywhere else
+wears the badge shape, which is why `radius.pill` names this as its one
+button exception.
+
 ### The copy glyph
 
 `CopyGlyphButton` is the icon step with one behaviour built in, and it is the

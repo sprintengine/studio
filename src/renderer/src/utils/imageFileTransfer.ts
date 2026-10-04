@@ -74,8 +74,17 @@ export function sortDroppedFiles(data: DataTransfer, attachImages: boolean): Dro
     ? readFileDropPayload(data)
     : null
   if (studioDrop) return { paths: studioDrop.files.map((file) => file.path), images: [], pathless: [] }
+  return sortFiles(filesFromDataTransfer(data), attachImages)
+}
+
+/**
+ * Files picked from the system's file dialog, sorted the way a drop of the
+ * same files is: images attach where the surface can send them, everything
+ * else is its path, and a file with no path is uploaded where the shell can.
+ */
+export function sortFiles(files: Iterable<File>, attachImages: boolean): DroppedFiles {
   const sorted: DroppedFiles = { paths: [], images: [], pathless: [] }
-  for (const file of filesFromDataTransfer(data)) {
+  for (const file of files) {
     if (attachImages && (ATTACHABLE_IMAGE_TYPES as readonly string[]).includes(file.type)) {
       sorted.images.push(file)
       continue

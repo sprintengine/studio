@@ -212,6 +212,47 @@ export const PrimaryButton = React.forwardRef<HTMLButtonElement, SizedButtonProp
   )
 })
 
+// The composer's send (owner ruling 2026-10-04): the primary, round. A small
+// accent disc at the `sm` step when it carries only its arrow — the caller
+// squares it — and a capsule of the same height when it carries a word
+// ("Schedule", "Save"). Everything but the corner is the primary's own, and
+// the corner is the size step's radius swapped out rather than a second
+// `rounded-*` utility, which stylesheet order would decide. Not a variant of
+// PrimaryButton: that one's props are the module SDK's contract, and this is
+// the composer's alone.
+const ROUND_SIZE: Record<ButtonSize, string> = {
+  inline: 'rounded-[var(--sem-radius-pill)] px-1 text-meta',
+  xs: 'rounded-[var(--sem-radius-pill)] h-control-xs px-2 text-meta',
+  sm: 'rounded-[var(--sem-radius-pill)] h-control-sm px-2 text-body',
+  md: 'rounded-[var(--sem-radius-pill)] h-control-md px-3 text-body',
+}
+
+export const SendButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>(function SendButton(
+  { className, size = 'sm', align = 'center', busy, type, ...rest },
+  ref,
+) {
+  return (
+    <button
+      ref={ref}
+      type={type ?? 'button'}
+      aria-busy={busy || undefined}
+      {...rest}
+      className={[
+        SHARED,
+        ROUND_SIZE[size],
+        ALIGN[align],
+        cursorClass(busy),
+        'control-raised',
+        'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]',
+        'hover:bg-[color:var(--accent-primary-hover)]',
+        'disabled:hover:bg-[color:var(--accent-primary)]',
+        FOCUS_RING_CLASS,
+        className ?? '',
+      ].join(' ')}
+    />
+  )
+})
+
 // The destructive counterpart to PrimaryButton: one solid tone, spent on the
 // action a person cannot undo. It exists here rather than inside `ui/Modal` —
 // where the `ModalButton` danger variant used to spell it — because a dialog is
