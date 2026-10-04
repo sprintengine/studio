@@ -226,6 +226,12 @@ async function updateLists(
 // other mutation, so an edit arriving while a person renames a list cannot land
 // on top of the rename: the per-repository queue orders them, whatever order
 // the launch/edit/exit frames themselves arrived in.
+//
+// Each names its list by the owner's (workspace, agent) pair, never the agent
+// alone: `agent-1` is the first agent of nearly every chat, and two chats in
+// one checkout must not share a list. A store an older build wrote still holds
+// `agent:<agentId>` lists; the model retires those on read
+// (`retireForeignOwner`) instead of guessing whose they are.
 
 /**
  * The agent's own list, made if it is not there. `activate` is the launch's to
@@ -257,7 +263,7 @@ export function recordAgentEdits(
   owner: ChangelistOwner,
   batch: ReadonlyArray<{ path: string; edits?: ChangelistEdit[] }>,
 ): Promise<Changelist[]> {
-  const id = changelistOwnerId(owner.agentId)
+  const id = changelistOwnerId(owner)
   return updateLists(userDataDir, repoRoot, (lists) => {
     let next = createOwnedChangelist(lists, owner)
     for (const item of batch) {
@@ -277,8 +283,12 @@ export function recordAgentEdits(
  * stays, named after an agent that is no longer running, until a person commits,
  * moves or deletes it.
  */
-export function markOwnerExited(userDataDir: string, repoRoot: string, agentId: string): Promise<Changelist[]> {
-  const id = changelistOwnerId(agentId)
+export function markOwnerExited(
+  userDataDir: string,
+  repoRoot: string,
+  owner: Pick<ChangelistOwner, 'agentId' | 'workspaceId'>,
+): Promise<Changelist[]> {
+  const id = changelistOwnerId(owner)
   return updateLists(userDataDir, repoRoot, (lists) =>
     normalizeChangelists(
       lists.map((list) =>

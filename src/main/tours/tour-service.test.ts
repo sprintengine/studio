@@ -83,7 +83,8 @@ function harness(options: { focused?: boolean; files?: TourFileSnapshot[] } = {}
     newId: () => `id-${String(++nextId).padStart(6, '0')}`,
     resolveWorkspaceRoot: () => '/Users/dev/app',
     resolveAgentCheckout: () => null,
-    readChangelistPaths: async () => ['src/retry.ts'],
+    // Only ws-1's agent has a list here: `agent-1` recurs in every chat.
+    readChangelistPaths: async (_root, owner) => (owner.workspaceId === 'ws-1' ? ['src/retry.ts'] : null),
     broadcastToWorkspaceWindows: (channel, payload) => workspaceBroadcasts.push({ channel, payload }),
     broadcastToViewers: (channel, payload) => viewerBroadcasts.push({ channel, payload }),
     isAppFocused: () => options.focused ?? true,
@@ -208,6 +209,13 @@ test('a changelist tour with no owned files says what to use instead', async () 
   const result = await h.service.create(input(), { workspaceId: 'ws-1' })
   assert.equal(result.ok, false)
   if (!result.ok) assert.match(result.errors[0], /needs the calling agent/)
+})
+
+test("a changelist tour reads its own chat's agent's list, not another chat's agent-1", async () => {
+  const h = harness()
+  const result = await h.service.create(input(), { ...CALLER, workspaceId: 'ws-2' })
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.match(result.errors[0], /Your changelist has no uncommitted files/)
 })
 
 test('a working-tree tour re-finds its lines, and says moved and gone', async () => {

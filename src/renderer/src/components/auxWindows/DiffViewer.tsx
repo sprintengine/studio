@@ -103,7 +103,7 @@ type Props = {
   focusPath: string | null
   focusKind: 'staged' | 'unstaged' | null
   /**
-   * Show only one changelist's files (`agent:<agentId>`, agent changelists).
+   * Show only one changelist's files (`changelistOwnerId`, agent changelists).
    * Null/absent is "All changes" and is the whole of the pre-changelist
    * behaviour: no extra read, no extra chrome, the same file list.
    *

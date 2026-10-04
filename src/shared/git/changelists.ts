@@ -113,7 +113,7 @@ export type Changelist = {
    *  DIFFERENT list. Absent, never `{}`; no entry is ever empty. */
   spans?: Record<string, OwnedSpan[]>
   active: boolean
-  /** Present on lists made for an agent (`agent:<agentId>`). */
+  /** Present on lists made for an agent (`changelistOwnerId`). */
   owner?: ChangelistOwner
 }
 
@@ -125,10 +125,20 @@ export function isDefaultChangelist(list: Pick<Changelist, 'id'>): boolean {
   return list.id === DEFAULT_CHANGELIST_ID
 }
 
-/** The id of the list that belongs to an agent. One spelling, in one place,
- *  because main writes it and three renderer files read it back. */
-export function changelistOwnerId(agentId: string): string {
-  return `agent:${agentId.trim()}`
+/**
+ * The id of the list that belongs to an agent. One spelling, in one place,
+ * because main writes it and the tour, editor and renderer read it back.
+ *
+ * The WORKSPACE is half of it because an agent id is only unique inside its
+ * chat: nearly every chat's first agent is `agent-1`, so `agent:agent-1` was
+ * one list shared by every chat working in the same checkout — one chat's files
+ * showed in the other's changelist, and either exiting marked it exited. The
+ * workspace part is URI-encoded so a `/` inside it cannot make two pairs spell
+ * one id; an owner without a workspace keeps an empty one, which still never
+ * spells the bare `agent:<agentId>` of a list an older build wrote.
+ */
+export function changelistOwnerId(owner: { workspaceId?: string | null; agentId: string }): string {
+  return `agent:${encodeURIComponent(owner.workspaceId?.trim() ?? '')}/${owner.agentId.trim()}`
 }
 
 /** Repo-relative, posix, no leading `./`, no trailing slash. Everything that
@@ -164,6 +174,24 @@ function normalizeOwner(value: unknown): ChangelistOwner | undefined {
     ...(workspaceId ? { workspaceId } : {}),
     ...(entry.exited === true ? { exited: true as const } : {}),
   }
+}
+
+/**
+ * An owned list whose id is not the one its owner would be given now is an
+ * older build's `agent:<agentId>` list, and it is RETIRED rather than migrated:
+ * flagged exited, so it lives exactly as long as it holds work.
+ *
+ * Not migrated, because the owner it carries is only the LAST chat to write
+ * into it. Two chats on one checkout whose agents were both `agent-1` wrote
+ * into the same list, so its files may be either chat's, and moving it under
+ * the recorded workspace would hand one chat the other's work. Kept, because
+ * those entries are a person's division of their working tree. Exited, because
+ * no session will ever write to or exit it again — the feed only speaks the new
+ * id — so without the flag a list emptied by a commit would sit there forever.
+ */
+function retireForeignOwner(id: string, owner: ChangelistOwner | undefined): ChangelistOwner | undefined {
+  if (!owner || owner.exited || id === changelistOwnerId(owner)) return owner
+  return { ...owner, exited: true }
 }
 
 // --- Spans: the arithmetic ---------------------------------------------------
@@ -367,7 +395,7 @@ export function normalizeChangelists(value: unknown): Changelist[] {
     paths.sort()
     const spans = readSpanRecord(entry.spans)
     if (Object.keys(spans).length > 0) rawSpans.set(id, spans)
-    const owner = normalizeOwner(entry.owner)
+    const owner = retireForeignOwner(id, normalizeOwner(entry.owner))
     out.push({
       id,
       name: normalizeName(entry.name, id === DEFAULT_CHANGELIST_ID ? DEFAULT_CHANGELIST_NAME : 'Changelist'),
@@ -532,7 +560,7 @@ export function createOwnedChangelist(
   const normalized = normalizeChangelists(lists)
   const clean = normalizeOwner(owner)
   if (!clean) return normalized
-  const id = changelistOwnerId(clean.agentId)
+  const id = changelistOwnerId(clean)
   const existing = normalized.find((list) => list.id === id)
   const next = existing
     ? normalized.map((list) => (list.id === id ? { ...list, name: clean.name, owner: clean } : list))

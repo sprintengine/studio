@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, test } from 'vitest'
 
 import type { EditorRevealRequest, EditorRevealShown } from '../../shared/editor-reveal'
+import { changelistOwnerId } from '../../shared/git/changelists'
 import type { McpConnectionContext, McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { nodePathPolicyFs } from '../editor-reveal/editor-tool-backends'
 import { createEditorTools, EDITOR_MUTATION_TOOL_NAMES, type EditorToolsDeps } from './editor-tools'
@@ -81,7 +82,10 @@ function build(overrides: Partial<EditorToolsDeps> = {}, shown: EditorRevealShow
       resolveCommit: async (_repo, revision) =>
         revision === 'abc1234' ? 'a'.repeat(40) : revision === 'offbranch' ? 'b'.repeat(40) : null,
       branchCommits: async () => ['a'.repeat(40)],
-      agentChangelistPaths: async () => ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+      // Only the calling agent of the calling chat has a list: an `agent-7` in
+      // another workspace is a different agent.
+      agentChangelistPaths: async (_repo, owner) =>
+        owner.workspaceId === 'ws-1' && owner.agentId === 'agent-7' ? ['src/a.ts', 'src/b.ts', 'src/c.ts'] : null,
     },
     ...overrides,
   }
@@ -203,7 +207,7 @@ test('open_diff shows the agent its own changes by default, narrowed by paths, w
   )
   const diff = reveals[0].diff
   assert.ok(diff)
-  assert.equal(diff.changelistId, 'agent:agent-7')
+  assert.equal(diff.changelistId, changelistOwnerId({ workspaceId: 'ws-1', agentId: 'agent-7' }))
   assert.deepEqual(diff.paths, ['src/b.ts', 'src/a.ts'])
   // "Showing 2 of 3": the view without `paths` is the agent's own three files.
   assert.equal(diff.totalChangedFiles, 3)

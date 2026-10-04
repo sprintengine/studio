@@ -3835,7 +3835,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
                       diff: {
                         focusPath: null,
                         focusKind: null,
-                        changelistId: changelistOwnerId(lineAgentId),
+                        changelistId: changelistOwnerId({ workspaceId: workspace.id, agentId: lineAgentId }),
                       },
                     })
                 : undefined

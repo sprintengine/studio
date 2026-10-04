@@ -60,8 +60,9 @@ export type EditorDiffSource = {
   resolveCommit(repoRoot: string, revision: string): Promise<string | null>
   /** The full hashes of the commits the branch holds over its base — the steps the diff pane walks. */
   branchCommits(repoRoot: string): Promise<string[]>
-  /** The agent's changelist, or null when it has none in this repository. */
-  agentChangelistPaths(repoRoot: string, agentId: string): Promise<string[] | null>
+  /** The agent's changelist, or null when it has none in this repository. The
+   *  workspace is half of the agent's identity: `agent-1` recurs in every chat. */
+  agentChangelistPaths(repoRoot: string, owner: { workspaceId: string; agentId: string }): Promise<string[] | null>
 }
 
 export type EditorToolsDeps = {
@@ -539,10 +540,11 @@ export function createEditorTools(deps: EditorToolsDeps): McpToolRegistration[] 
 
     let changelistId: string | null = null
     if (workingTreeView && wantsMine && scope.agentId) {
-      const mine = await deps.diff.agentChangelistPaths(repoRoot, scope.agentId).catch(() => null)
+      const owner = { workspaceId: scope.workspaceId, agentId: scope.agentId }
+      const mine = await deps.diff.agentChangelistPaths(repoRoot, owner).catch(() => null)
       const owned = new Set((mine ?? []).map(normalizeChangelistPath))
       changed = changed.filter((path) => owned.has(path))
-      changelistId = changelistOwnerId(scope.agentId)
+      changelistId = changelistOwnerId(owner)
       if (changed.length === 0) {
         return failure(
           'nothing_to_show',

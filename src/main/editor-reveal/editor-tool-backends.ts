@@ -89,9 +89,9 @@ export function createGitEditorDiffSource(userDataDir: () => string): EditorDiff
     async branchCommits(repoRoot) {
       return (await listBranchSteps(repoRoot)).steps.map((step) => step.hash)
     },
-    async agentChangelistPaths(repoRoot, agentId) {
+    async agentChangelistPaths(repoRoot, owner) {
       const lists = await getGitChangelists(userDataDir(), repoRoot)
-      const mine = lists.find((list) => list.id === changelistOwnerId(agentId))
+      const mine = lists.find((list) => list.id === changelistOwnerId(owner))
       return mine ? pathsOfChangelist(mine) : null
     },
   }

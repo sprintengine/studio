@@ -19,9 +19,16 @@ test('agent-changelist-feed', async () => {
   const suiteRun = main()
 
   type StoreCall =
-    | { kind: 'ensure'; repoRoot: string; agentId: string; activate: boolean }
-    | { kind: 'record'; repoRoot: string; agentId: string; paths: string[]; edits: Array<ChangelistEdit[] | null> }
-    | { kind: 'exit'; repoRoot: string; agentId: string }
+    | { kind: 'ensure'; repoRoot: string; agentId: string; workspaceId?: string; activate: boolean }
+    | {
+        kind: 'record'
+        repoRoot: string
+        agentId: string
+        workspaceId?: string
+        paths: string[]
+        edits: Array<ChangelistEdit[] | null>
+      }
+    | { kind: 'exit'; repoRoot: string; agentId: string; workspaceId?: string }
 
   function createStubStore(): { store: AgentChangelistFeedStore; calls: StoreCall[]; fail: Set<string> } {
     const calls: StoreCall[] = []
@@ -29,7 +36,13 @@ test('agent-changelist-feed', async () => {
     const answer = Promise.resolve([] as Changelist[])
     const store: AgentChangelistFeedStore = {
       ensureOwnedChangelist: (_userData, repoRoot, owner: ChangelistOwner, options) => {
-        calls.push({ kind: 'ensure', repoRoot, agentId: owner.agentId, activate: options?.activate === true })
+        calls.push({
+          kind: 'ensure',
+          repoRoot,
+          agentId: owner.agentId,
+          workspaceId: owner.workspaceId,
+          activate: options?.activate === true,
+        })
         return fail.has('ensure') ? Promise.reject(new Error('no disk')) : answer
       },
       recordAgentEdits: (_userData, repoRoot, owner: ChangelistOwner, batch) => {
@@ -37,13 +50,14 @@ test('agent-changelist-feed', async () => {
           kind: 'record',
           repoRoot,
           agentId: owner.agentId,
+          workspaceId: owner.workspaceId,
           paths: batch.map((item) => item.path),
           edits: batch.map((item) => item.edits ?? null),
         })
         return fail.has('record') ? Promise.reject(new Error('no disk')) : answer
       },
-      markOwnerExited: (_userData, repoRoot, agentId) => {
-        calls.push({ kind: 'exit', repoRoot, agentId })
+      markOwnerExited: (_userData, repoRoot, owner) => {
+        calls.push({ kind: 'exit', repoRoot, agentId: owner.agentId, workspaceId: owner.workspaceId })
         return fail.has('exit') ? Promise.reject(new Error('no disk')) : answer
       },
     }
@@ -60,6 +74,7 @@ test('agent-changelist-feed', async () => {
       await assertCoalescingAndGuards(userData, repo, worktree, root)
       await assertLinkedWorktreeWins(userData, repo, worktree)
       await assertLaunchAndExitOrder(userData, repo)
+      await assertChatsAreSeparateOwners(userData, repo)
       await assertNothingEscapes(userData, repo)
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -266,6 +281,66 @@ test('agent-changelist-feed', async () => {
         .sort(),
       [repo, second].sort(),
       'both checkouts hear that the agent has gone',
+    )
+    feed.dispose()
+  }
+
+  /**
+   * Two chats on one checkout whose agents are both `agent-1`. Their edits in
+   * one coalescing window are two owners, not one run, and one chat's agent
+   * exiting reaches only its own list — the other is still working.
+   */
+  async function assertChatsAreSeparateOwners(userData: string, repo: string): Promise<void> {
+    const { store, calls } = createStubStore()
+    const feed = createAgentChangelistFeed({
+      userDataDir: userData,
+      store,
+      resolveRepoRoot: async () => repo,
+      coalesceMs: 10_000,
+    })
+    const inA = { agentId: 'agent-1', agentName: 'Nadia', workspaceId: 'ws-a', cwd: repo }
+    const inB = { agentId: 'agent-1', agentName: 'Ivo', workspaceId: 'ws-b', cwd: repo }
+    const second = join(repo, '..', 'second')
+
+    feed.onAgentFileEdit({ session: inA, path: join(repo, 'src/a.ts'), ts: Date.now() })
+    feed.onAgentFileEdit({ session: inB, path: join(repo, 'src/b.ts'), ts: Date.now() })
+    // Chat B's agent also wrote into a second checkout; chat A's never did.
+    feed.onAgentFileEdit({
+      session: { ...inB, observedCheckout: { resolved: true, gitRoot: second } },
+      path: join(second, 'src/c.ts'),
+      ts: Date.now(),
+    })
+    await feed.flush()
+    const records = calls.filter((call) => call.kind === 'record')
+    assert.deepEqual(
+      records.map((call) => (call.kind === 'record' ? [call.workspaceId, call.paths] : null)),
+      [
+        ['ws-a', ['src/a.ts']],
+        ['ws-b', ['src/b.ts']],
+        ['ws-b', ['src/c.ts']],
+      ],
+      'the same agent id in two chats is two store calls, each under its own chat',
+    )
+
+    calls.length = 0
+    feed.onAgentSessionExit(inA)
+    await feed.flush()
+    assert.deepEqual(
+      calls.map((call) => [call.kind, call.workspaceId, call.repoRoot]),
+      [['exit', 'ws-a', repo]],
+      "chat A's agent exiting marks only chat A's list, and only where chat A's agent wrote",
+    )
+
+    calls.length = 0
+    feed.onAgentSessionExit({ ...inB, observedCheckout: { resolved: true, gitRoot: second } })
+    await feed.flush()
+    assert.deepEqual(
+      calls.map((call) => [call.kind, call.workspaceId, call.repoRoot]).sort(),
+      [
+        ['exit', 'ws-b', repo],
+        ['exit', 'ws-b', second],
+      ].sort(),
+      "chat B's checkouts were not forgotten when chat A's agent left",
     )
     feed.dispose()
   }

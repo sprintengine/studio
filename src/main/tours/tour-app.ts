@@ -44,10 +44,10 @@ export function createAppTourService(options: AppTourServiceOptions): {
       // agent that moved into a worktree wrote its changes there.
       return session.observedCheckout?.gitRoot || session.worktreePath || session.cwd || null
     },
-    readChangelistPaths: async (repoRoot, agentId) => {
+    readChangelistPaths: async (repoRoot, owner) => {
       try {
         const lists = await getGitChangelists(options.userDataDir, repoRoot)
-        const own = lists.find((list) => list.id === changelistOwnerId(agentId))
+        const own = lists.find((list) => list.id === changelistOwnerId(owner))
         return own ? pathsOfChangelist(own) : null
       } catch {
         return null

@@ -84,8 +84,9 @@ export type TourServiceDeps = {
   resolveWorkspaceRoot(workspaceId: string): string | null
   /** The agent's own checkout (a worktree agent reads a different tree from its workspace). */
   resolveAgentCheckout(agentId: string): string | null
-  /** The repo-relative paths the agent's changelist owns in `repoRoot`, or null when it has none. */
-  readChangelistPaths(repoRoot: string, agentId: string): Promise<string[] | null>
+  /** The repo-relative paths the agent's changelist owns in `repoRoot`, or null when it has none.
+   *  The workspace is half of the agent's identity: `agent-1` recurs in every chat. */
+  readChangelistPaths(repoRoot: string, owner: { workspaceId: string; agentId: string }): Promise<string[] | null>
   /** Workspace windows only: where a Diff tab can be docked. */
   broadcastToWorkspaceWindows(channel: string, payload: unknown): void
   /** Every window that can show a diff: workspace windows and the diff window. */
@@ -174,14 +175,14 @@ export function createTourService(deps: TourServiceDeps) {
 
   /** The files the tour covers, narrowed to a changelist when that is what it is about. */
   async function filesOf(
-    tour: Pick<Tour, 'repoRoot' | 'revisions' | 'changes' | 'author'>,
+    tour: Pick<Tour, 'workspaceId' | 'repoRoot' | 'revisions' | 'changes' | 'author'>,
   ): Promise<{ ok: true; files: TourChangedFile[] } | { ok: false; message: string }> {
     const listed = await deps.git.listTourFiles(tour.repoRoot, tour.revisions)
     if (!listed.ok) return listed
     if (tour.changes.kind !== 'changelist') return listed
     const agentId = tour.author.agentId
     if (!agentId) return { ok: true, files: [] }
-    const owned = new Set(await deps.readChangelistPaths(tour.repoRoot, agentId))
+    const owned = new Set(await deps.readChangelistPaths(tour.repoRoot, { workspaceId: tour.workspaceId, agentId }))
     return { ok: true, files: listed.files.filter((file) => owned.has(file.path) || owned.has(file.oldPath ?? '')) }
   }
 
@@ -209,7 +210,7 @@ export function createTourService(deps: TourServiceDeps) {
   }
 
   async function resolveSteps(
-    tour: Pick<Tour, 'repoRoot' | 'revisions' | 'changes' | 'author'>,
+    tour: Pick<Tour, 'workspaceId' | 'repoRoot' | 'revisions' | 'changes' | 'author'>,
     inputs: TourStepInput[],
   ): Promise<{ ok: true; steps: TourStep[] } | { ok: false; code: string; errors: string[] }> {
     const files = await filesOf(tour)
@@ -270,7 +271,10 @@ export function createTourService(deps: TourServiceDeps) {
         ? { kind: 'range' as const, base: revisions.base, head: revisions.head as string }
         : input.changes
 
-    const resolved = await resolveSteps({ repoRoot, revisions, changes, author }, input.steps)
+    const resolved = await resolveSteps(
+      { workspaceId: caller.workspaceId, repoRoot, revisions, changes, author },
+      input.steps,
+    )
     if (!resolved.ok) return { ...resolved, errors: [...priorErrors, ...resolved.errors] }
     if (priorErrors.length > 0) return { ok: false, code: 'invalid_tour', errors: [...priorErrors] }
 

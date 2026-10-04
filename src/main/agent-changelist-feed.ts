@@ -42,7 +42,7 @@
 
 import { isAbsolute } from 'path'
 
-import type { ChangelistEdit, ChangelistOwner } from '../shared/git/changelists'
+import { changelistOwnerId, type ChangelistEdit, type ChangelistOwner } from '../shared/git/changelists'
 import {
   ensureOwnedChangelist as ensureOwnedChangelistInStore,
   markOwnerExited as markOwnerExitedInStore,
@@ -137,7 +137,9 @@ export function createAgentChangelistFeed(options: AgentChangelistFeedOptions): 
   const queues = new Map<string, CheckoutQueue>()
   // Every checkout an agent has actually written into, so its exit reaches all
   // of them — an agent that moved from the workspace folder into a worktree it
-  // made itself owns a list in each.
+  // made itself owns a list in each. Keyed by the agent's LIST id, which is its
+  // (workspace, agent) pair: keyed by the agent id alone, one chat's `agent-1`
+  // exiting would mark every other chat's `agent-1` list exited too.
   const checkoutsByAgent = new Map<string, Set<string>>()
   // ONE CHAIN, IN ARRIVAL ORDER. Every operation is appended to this promise
   // rather than started when it is handed over, which is what makes launch →
@@ -182,10 +184,11 @@ export function createAgentChangelistFeed(options: AgentChangelistFeedOptions): 
     return resolved
   }
 
-  function rememberCheckout(agentId: string, repoRoot: string): void {
-    const known = checkoutsByAgent.get(agentId) ?? new Set<string>()
+  function rememberCheckout(owner: ChangelistOwner, repoRoot: string): void {
+    const key = changelistOwnerId(owner)
+    const known = checkoutsByAgent.get(key) ?? new Set<string>()
     known.add(repoRoot)
-    checkoutsByAgent.set(agentId, known)
+    checkoutsByAgent.set(key, known)
   }
 
   function publish(repoRoot: string): void {
@@ -198,7 +201,8 @@ export function createAgentChangelistFeed(options: AgentChangelistFeedOptions): 
   }
 
   /**
-   * Write one checkout's queued edits. Runs of the SAME owner become one store
+   * Write one checkout's queued edits. Runs of the SAME owner — the same agent
+   * of the same chat; two chats' `agent-1`s are two owners — become one store
    * call and the runs keep their order, so two agents alternating inside one
    * file are applied exactly as they arrived — which is what makes "the latest
    * editor owns the lines" true.
@@ -217,8 +221,9 @@ export function createAgentChangelistFeed(options: AgentChangelistFeedOptions): 
     let wrote = false
     while (index < pending.length) {
       const owner = pending[index].owner
+      const listId = changelistOwnerId(owner)
       const batch: Array<{ path: string; edits?: ChangelistEdit[] }> = []
-      while (index < pending.length && pending[index].owner.agentId === owner.agentId) {
+      while (index < pending.length && changelistOwnerId(pending[index].owner) === listId) {
         const item = pending[index]
         batch.push({ path: item.path, ...(item.edits ? { edits: item.edits } : {}) })
         index += 1
@@ -259,7 +264,7 @@ export function createAgentChangelistFeed(options: AgentChangelistFeedOptions): 
       void run(async () => {
         const repoRoot = await resolveCheckout(session)
         if (!repoRoot || disposed) return
-        rememberCheckout(owner.agentId, repoRoot)
+        rememberCheckout(owner, repoRoot)
         try {
           // Active, by decision of record: an edit that never reaches the hook
           // (a Bash `sed`, a formatter) is adopted by the active list, and the
@@ -286,7 +291,7 @@ export function createAgentChangelistFeed(options: AgentChangelistFeedOptions): 
         // Not this checkout's file: a subagent's own worktree, or a path the
         // agent edited outside the repository entirely. Dropped, never guessed.
         if (!relative || relative === '..' || relative.startsWith('../') || isAbsolute(relative)) return
-        rememberCheckout(owner.agentId, repoRoot)
+        rememberCheckout(owner, repoRoot)
         enqueue(repoRoot, { owner, path: relative, ...(input.edits ? { edits: input.edits } : {}) })
       })
     },
@@ -297,7 +302,7 @@ export function createAgentChangelistFeed(options: AgentChangelistFeedOptions): 
       if (!owner) return
       void run(async () => {
         const current = await resolveCheckout(session)
-        if (current) rememberCheckout(owner.agentId, current)
+        if (current) rememberCheckout(owner, current)
         // Everything this agent wrote must be on disk BEFORE it is marked
         // exited: reconcile deletes an exited list the moment it is empty, and
         // an edit that landed after would rebuild it as a live list owned by a
@@ -305,11 +310,12 @@ export function createAgentChangelistFeed(options: AgentChangelistFeedOptions): 
         // so nothing of its is left behind a coalescing timer.
         await drainAll()
         if (disposed) return
-        const roots = checkoutsByAgent.get(owner.agentId)
-        checkoutsByAgent.delete(owner.agentId)
+        const key = changelistOwnerId(owner)
+        const roots = checkoutsByAgent.get(key)
+        checkoutsByAgent.delete(key)
         for (const repoRoot of roots ?? []) {
           try {
-            await store.markOwnerExited(options.userDataDir, repoRoot, owner.agentId)
+            await store.markOwnerExited(options.userDataDir, repoRoot, owner)
           } catch (error) {
             warn('could not mark an agent changelist exited', error)
             continue

@@ -214,10 +214,10 @@ test('changelists', async () => {
   // =============================================================================
 
   const FILE = 'src/app.ts'
-  const NADIA: ChangelistOwner = { kind: 'agent', agentId: 'nadia', name: 'Nadia' }
-  const RAVI: ChangelistOwner = { kind: 'agent', agentId: 'ravi', name: 'Ravi' }
-  const NADIA_ID = changelistOwnerId('nadia')
-  const RAVI_ID = changelistOwnerId('ravi')
+  const NADIA: ChangelistOwner = { kind: 'agent', agentId: 'nadia', name: 'Nadia', workspaceId: 'ws-1' }
+  const RAVI: ChangelistOwner = { kind: 'agent', agentId: 'ravi', name: 'Ravi', workspaceId: 'ws-1' }
+  const NADIA_ID = changelistOwnerId(NADIA)
+  const RAVI_ID = changelistOwnerId(RAVI)
 
   function spansIn(lists: Changelist[], id: string, path = FILE): OwnedSpan[] {
     return lists.find((list) => list.id === id)?.spans?.[path] ?? []
@@ -254,11 +254,102 @@ test('changelists', async () => {
 
     const activated = createOwnedChangelist(once, RAVI, { activate: true })
     assert.equal(activeChangelist(activated)?.id, RAVI_ID)
-    assert.equal(changelistOwnerId(' nadia '), NADIA_ID)
+    assert.equal(changelistOwnerId({ workspaceId: ' ws-1 ', agentId: ' nadia ' }), NADIA_ID)
 
     // A list with an owner survives a rename and a normalize round trip.
     const kept = renameChangelist(activated, RAVI_ID, { name: 'Ravi the second' })
     assert.deepEqual(kept.find((list) => list.id === RAVI_ID)?.owner, RAVI)
+  }
+
+  // --- One agent id in two chats is two lists ----------------------------------
+  //
+  // Agent ids are only unique inside a chat: nearly every chat's first agent is
+  // `agent-1`. Two chats working in one checkout must each get their own list,
+  // and neither may write into, rename or revive the other's.
+  {
+    const inA: ChangelistOwner = { kind: 'agent', agentId: 'agent-1', name: 'Nadia', workspaceId: 'ws-a' }
+    const inB: ChangelistOwner = { kind: 'agent', agentId: 'agent-1', name: 'Ivo', workspaceId: 'ws-b' }
+    const idA = changelistOwnerId(inA)
+    const idB = changelistOwnerId(inB)
+    assert.notEqual(idA, idB, 'the workspace is half of the id')
+    let lists = createOwnedChangelist(createDefaultChangelists(), inA)
+    lists = createOwnedChangelist(lists, inB)
+    assert.deepEqual(ids(lists), [DEFAULT_CHANGELIST_ID, idA, idB])
+    assert.equal(
+      lists.find((list) => list.id === idA)?.name,
+      'Nadia',
+      "the second chat's launch does not rename the first's",
+    )
+    lists = recordEdit(lists, idA, 'src/a.ts', [])
+    lists = recordEdit(lists, idB, 'src/b.ts', [])
+    assert.deepEqual(pathsOf(lists, idA), ['src/a.ts'])
+    assert.deepEqual(pathsOf(lists, idB), ['src/b.ts'], "neither chat's files show in the other's list")
+
+    // A `/` inside a workspace id cannot make two pairs spell one id.
+    assert.notEqual(
+      changelistOwnerId({ workspaceId: 'a/b', agentId: 'c' }),
+      changelistOwnerId({ workspaceId: 'a', agentId: 'b/c' }),
+    )
+    // An owner with no workspace is its own, and never the bare legacy spelling.
+    assert.notEqual(changelistOwnerId({ agentId: 'agent-1' }), 'agent:agent-1')
+  }
+
+  // --- A list an older build named after the agent alone is retired, not moved --
+  //
+  // `agent:<agentId>` lists were shared by every chat whose agent had that id,
+  // so the owner they carry is only the last chat to write. Moving one under that
+  // workspace could hand one chat the other's files; dropping it would lose a
+  // person's division of their working tree. So it stays exactly where it is,
+  // paths and spans intact, flagged exited: it lives while it holds work and is
+  // never the list a running agent writes into.
+  {
+    const legacyOwner = { kind: 'agent' as const, agentId: 'agent-1', name: 'Nadia', workspaceId: 'ws-a' }
+    const legacy = normalizeChangelists([
+      { id: DEFAULT_CHANGELIST_ID, name: 'Changes', paths: [FILE], active: false },
+      {
+        id: 'agent:agent-1',
+        name: 'Nadia',
+        paths: ['src/a.ts'],
+        spans: { [FILE]: [{ start: 3, lines: 2 }] },
+        active: true,
+        owner: legacyOwner,
+      },
+    ])
+    const old = legacy.find((list) => list.id === 'agent:agent-1')
+    assert.ok(old, 'the legacy list is kept under its own id')
+    assert.deepEqual(old.paths, ['src/a.ts'], 'with every path it held')
+    assert.deepEqual(old.spans, { [FILE]: [{ start: 3, lines: 2 }] }, 'and every span')
+    assert.equal(old.active, true, 'and still active if it was')
+    assert.deepEqual(old.owner, { ...legacyOwner, exited: true }, 'flagged exited, its recorded workspace kept')
+
+    // The agent of the workspace it records relaunches: it gets a list of its
+    // own, and the legacy one is neither merged into it nor revived.
+    const relaunched = createOwnedChangelist(legacy, legacyOwner, { activate: true })
+    const fresh = changelistOwnerId(legacyOwner)
+    assert.deepEqual(ids(relaunched), [DEFAULT_CHANGELIST_ID, 'agent:agent-1', fresh])
+    assert.deepEqual(pathsOf(relaunched, fresh), [], 'the new list starts empty')
+    assert.deepEqual(pathsOf(relaunched, 'agent:agent-1'), ['src/a.ts'], 'the old one keeps its work')
+    assert.equal(relaunched.find((list) => list.id === 'agent:agent-1')?.owner?.exited, true)
+
+    // Retired means reconcile treats it as any exited list: gone once empty.
+    const committed = reconcileChangelists(relaunched, [])
+    assert.equal(
+      committed.some((list) => list.id === 'agent:agent-1'),
+      false,
+      'an emptied legacy list is deleted like any exited one',
+    )
+
+    // A legacy list whose owner never had a workspace is retired the same way.
+    const bare = normalizeChangelists([
+      {
+        id: 'agent:agent-1',
+        name: 'Nadia',
+        paths: [],
+        active: false,
+        owner: { kind: 'agent', agentId: 'agent-1', name: 'Nadia' },
+      },
+    ])
+    assert.equal(bare.find((list) => list.id === 'agent:agent-1')?.owner?.exited, true)
   }
 
   // --- First claim: an unowned file becomes the editor's, whole ----------------

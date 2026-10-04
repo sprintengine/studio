@@ -647,7 +647,7 @@ export type WorkspacePaneTab = {
     repoRoot?: string
     focusPath: string | null
     focusKind: 'staged' | 'unstaged' | null
-    /** Filter the viewer to one changelist (`agent:<agentId>`); absent = all. */
+    /** Filter the viewer to one changelist (an agent's is `changelistOwnerId`); absent = all. */
     changelistId?: string
     /**
      * An agent's reveal (editor.open_diff), session-only — the normalizer
