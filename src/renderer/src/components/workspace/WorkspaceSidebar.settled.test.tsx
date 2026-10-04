@@ -73,8 +73,8 @@ test('WorkspaceSidebar.settled', async () => {
     conversationSessionsList: async () => ({
       ok: true,
       sessions: [
-        { sessionId: 'echo-chat', workspaceId: 'w5', agentId: 'agent-5', status: 'ready' },
-        { sessionId: 'echo-old', workspaceId: 'w5', agentId: 'agent-5', status: 'stopped' },
+        { sessionId: 'echo-chat', workspaceId: 'w5', agentId: 'agent-1', status: 'ready' },
+        { sessionId: 'echo-old', workspaceId: 'w5', agentId: 'agent-1', status: 'stopped' },
       ],
     }),
     conversationSessionSuspend: async ({ sessionId }: { sessionId: string }) => {
@@ -245,6 +245,8 @@ test('WorkspaceSidebar.settled', async () => {
       })
       await settle()
       assert.deepEqual(killed, ['alpha-pty'], 'settling a chat kills the terminals it held')
+      // Echo's chat runs as `agent-1` too: every workspace's first agent has
+      // that id, so it says nothing about which workspace a chat is in.
       assert.deepEqual(chatsSuspended, [], "and leaves another workspace's chat agents alone")
 
       // The row you are in stays put when it settles, so the seat has to say
@@ -314,7 +316,7 @@ test('WorkspaceSidebar.settled', async () => {
         ...props,
         workspaces: [workspace('w1', 'Alpha'), workspace('w5', 'Echo')],
         activityByWorkspaceId: { w1: 'idle', w5: 'idle' },
-        conversationSessions: [{ sessionId: 'echo-chat', workspaceId: 'w5', agentId: 'agent-5', status: 'ready' }],
+        conversationSessions: [{ sessionId: 'echo-chat', workspaceId: 'w5', agentId: 'agent-1', status: 'ready' }],
       } as unknown as SidebarProps)
       const settleEcho = actionLabel('Settle Echo')
       assert.ok(settleEcho, 'Echo has a Settle button to click')
