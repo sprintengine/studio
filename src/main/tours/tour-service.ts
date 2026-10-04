@@ -82,8 +82,11 @@ export type TourServiceDeps = {
   newId(): string
   /** The workspace's folder, from the registry. */
   resolveWorkspaceRoot(workspaceId: string): string | null
-  /** The agent's own checkout (a worktree agent reads a different tree from its workspace). */
-  resolveAgentCheckout(agentId: string): string | null
+  /**
+   * The agent's own checkout (a worktree agent reads a different tree from its
+   * workspace). Agent ids are only unique within a workspace, so both name it.
+   */
+  resolveAgentCheckout(workspaceId: string, agentId: string): string | null
   /** The repo-relative paths the agent's changelist owns in `repoRoot`, or null when it has none.
    *  The workspace is half of the agent's identity: `agent-1` recurs in every chat. */
   readChangelistPaths(repoRoot: string, owner: { workspaceId: string; agentId: string }): Promise<string[] | null>
@@ -167,7 +170,7 @@ export function createTourService(deps: TourServiceDeps) {
   // ── Reading the changes ────────────────────────────────────────────────
 
   async function repoFor(caller: TourCaller): Promise<string | null> {
-    const checkout = caller.agentId ? deps.resolveAgentCheckout(caller.agentId) : null
+    const checkout = caller.agentId ? deps.resolveAgentCheckout(caller.workspaceId, caller.agentId) : null
     const start = checkout ?? deps.resolveWorkspaceRoot(caller.workspaceId)
     if (!start) return null
     return deps.git.resolveRepoRoot(start)
@@ -553,14 +556,27 @@ export function createTourService(deps: TourServiceDeps) {
   }
 
   // ── Talking back ───────────────────────────────────────────────────────
+  //
+  // The author is named by its agent id, and an agent id is only unique within
+  // its workspace: nearly every chat's first agent is `agent-1`. The author
+  // always wrote from the tour's own workspace (and `askNewAgent` launches its
+  // successor there too), so the tour's workspace is the author's, and every
+  // match below pairs the two. Without it a question is typed into another
+  // chat's `agent-1`, and that agent exiting fails this tour's questions.
+
+  function isAuthor(tour: Tour, workspaceId: string | null | undefined, agentId: string | null | undefined): boolean {
+    return Boolean(tour.author.agentId) && tour.author.agentId === agentId && tour.workspaceId === workspaceId
+  }
 
   function authorSession(tour: Tour): TerminalSessionSnapshot | null {
-    const agentId = tour.author.agentId
-    if (!agentId) return null
+    if (!tour.author.agentId) return null
     return (
       deps
         .listTerminals()
-        .find((session) => session.kind === 'agent' && session.agentId === agentId && session.processAlive) ?? null
+        .find(
+          (session) =>
+            session.kind === 'agent' && isAuthor(tour, session.workspaceId, session.agentId) && session.processAlive,
+        ) ?? null
     )
   }
 
@@ -583,9 +599,9 @@ export function createTourService(deps: TourServiceDeps) {
    * carries is only refreshed by the next hook event, so a second question
    * sent on the strength of the same `idle` would land mid-turn.
    */
-  function hasSentAsk(agentId: string): boolean {
+  function hasSentAsk(workspaceId: string, agentId: string): boolean {
     for (const tour of tours.values()) {
-      if (tour.author.agentId === agentId && tour.asks.some((entry) => entry.state === 'sent')) return true
+      if (isAuthor(tour, workspaceId, agentId) && tour.asks.some((entry) => entry.state === 'sent')) return true
     }
     return false
   }
@@ -615,7 +631,7 @@ export function createTourService(deps: TourServiceDeps) {
       return { ok: false, message: 'The agent that wrote this tour is no longer running.', authorGone: true }
     const text = tourAskText({ tour, step: live.value.steps[index], index, of: live.value.steps.length, question })
     const entry: TourAsk = { id: deps.newId(), stepId, text, state: 'queued', at: deps.now() }
-    if (isReady(session) && !hasSentAsk(session.agentId ?? '')) {
+    if (isReady(session) && !hasSentAsk(tour.workspaceId, session.agentId ?? '')) {
       send(session, text)
       entry.state = 'sent'
     }
@@ -667,7 +683,7 @@ export function createTourService(deps: TourServiceDeps) {
   /** The author's phase moved: flush a queued question, or mark a sent one answered. */
   function onAgentPhase(event: AgentPhaseEvent): void {
     for (const tour of tours.values()) {
-      if (tour.author.agentId !== event.agentId || tour.closed) continue
+      if (!isAuthor(tour, event.workspaceId, event.agentId) || tour.closed) continue
       const waiting = tour.asks.filter((entry) => entry.state === 'queued' || entry.state === 'sent')
       if (waiting.length === 0) continue
       let dirty = false
@@ -686,7 +702,7 @@ export function createTourService(deps: TourServiceDeps) {
           }
         }
         const next = tour.asks.find((entry) => entry.state === 'queued')
-        const session = next && !hasSentAsk(event.agentId) ? authorSession(tour) : null
+        const session = next && !hasSentAsk(tour.workspaceId, event.agentId) ? authorSession(tour) : null
         if (next && session) {
           send(session, next.text)
           next.state = 'sent'
