@@ -495,7 +495,7 @@ What an agent can receive from a client tool, beyond the tool's own errors:
 
 | Limit | Value | Answer when exceeded |
 | --- | --- | --- |
-| Toolsets per connection | 8 | `too_large` on the offer |
+| Toolsets per connection, not counting the reserved names the shell offers | 8 | `too_large` on the offer |
 | Tools per toolset | 32 | `too_large` |
 | App tools per server, all apps | 256 | `busy` on the offer, naming the limit |
 | `inputSchema` size | 16 KiB of JSON | `invalid_params` |

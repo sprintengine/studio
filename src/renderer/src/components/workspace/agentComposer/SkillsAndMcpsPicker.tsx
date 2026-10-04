@@ -139,6 +139,13 @@ export type SkillsAndMcpsPickerProps = {
   /** A custom trigger (a menu row, say); the default is the kit's chip. */
   renderTrigger?: PopoverProps['renderTrigger']
   includeMcps?: boolean
+  /**
+   * Held by the host instead of the trigger (owner ruling 2026-10-04): the New
+   * chat composer opens this from a row of its "+" menu and anchors it on the
+   * "+" itself, so the trigger does not decide when it is open.
+   */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 export function SkillsAndMcpsPicker({
@@ -151,8 +158,24 @@ export function SkillsAndMcpsPicker({
   placement = 'bottom-start',
   renderTrigger,
   includeMcps = true,
+  open: heldOpen,
+  onOpenChange,
 }: SkillsAndMcpsPickerProps) {
-  const [open, setOpen] = useState(false)
+  const [ownOpen, setOwnOpen] = useState(false)
+  const open = heldOpen ?? ownOpen
+  const setOpen = (next: boolean): void => {
+    if (heldOpen === undefined) setOwnOpen(next)
+    onOpenChange?.(next)
+  }
+  // A host that opens it from elsewhere gets the same fresh search the
+  // trigger's own open starts with.
+  const heldOpenNow = heldOpen === true
+  useEffect(() => {
+    if (!heldOpenNow) return
+    setQuery('')
+    setHighlight(0)
+    setRowErrors({})
+  }, [heldOpenNow])
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
   const [busyKey, setBusyKey] = useState<string | null>(null)

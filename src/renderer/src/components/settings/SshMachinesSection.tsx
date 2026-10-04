@@ -6,7 +6,6 @@ import type {
   SshPaneTraffic,
   SshResolveResult,
 } from '../../../../shared/ssh-environments'
-import { RemoteMachineGlyph } from '../AppIcons'
 import {
   ChipButton,
   GhostButton,
@@ -19,6 +18,9 @@ import {
   useConfirmDialog,
   WorkingMark,
 } from '../ui'
+import { sshMachineRef } from '../../hooks/useMachineIdentity'
+import { MachineGhRow } from './MachineGhRow'
+import { MachineMarkPicker, MachineRowMark } from './MachineMarkPicker'
 import { SettingCard, SettingsRow, SettingsSectionTitle, SettingToggle } from './SettingsAtoms'
 
 // Settings › Machines › SSH machines (phase 8): the machines a person reaches
@@ -97,7 +99,7 @@ export function SshMachinesSection({ api = window.api }: { api?: Api }): React.J
                     className="size-icon-lg"
                   />
                 ) : (
-                  <RemoteMachineGlyph className="size-icon-lg text-[color:var(--text-default)]" />
+                  <MachineRowMark machine={sshMachineRef(machine)} />
                 )
               }
               recessed={machine.state === 'unsupported'}
@@ -106,7 +108,12 @@ export function SshMachinesSection({ api = window.api }: { api?: Api }): React.J
               stateLine={machine.stateText}
               expanded={expanded === machine.id}
               onExpandedChange={(next) => setExpanded(next ? machine.id : null)}
-              actions={<MachineAction machine={machine} api={api} />}
+              actions={
+                <>
+                  <MachineMarkPicker machine={sshMachineRef(machine)} name={machine.label} />
+                  <MachineAction machine={machine} api={api} />
+                </>
+              }
             >
               <SshMachineDetail machine={machine} api={api} />
             </ProviderRow>
@@ -176,6 +183,18 @@ function SshMachineDetail({ machine, api }: { machine: SshEnvironmentSummary; ap
         </p>
       ))}
       {problem ? <InlineNotice tone="warn" title={problem} /> : null}
+      {/* The machine's GitHub CLI, as its last connect found it: its chats
+          open pull requests with it. Asked again on the next connect. */}
+      {machine.gh ? (
+        <SettingCard>
+          <MachineGhRow
+            as="div"
+            status={machine.gh}
+            machine={{ kind: 'ssh', os: machine.gh.os }}
+            machineLabel={machine.label}
+          />
+        </SettingCard>
+      ) : null}
       <div className="divide-y divide-[color:var(--border-subtle)]">
         <SettingsRow
           label="Reached as"

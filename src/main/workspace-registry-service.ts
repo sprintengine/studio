@@ -58,7 +58,7 @@ import type {
   WorkspaceWindowId,
   WorkspaceWorktree,
 } from '../renderer/src/types/workspace'
-import type { ExecutionHostId } from '../shared/execution-host'
+import { hostIdToRecord, type ExecutionHostId } from '../shared/execution-host'
 import type { WorkspaceRegistryStore } from './workspace-registry-store'
 
 export type WorkspaceRegistryDiagnostic = {
@@ -375,6 +375,7 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
   function prepareCreate(input: WorkspaceCreateRequest): WorkspaceCreateResult {
     const folderPath = normalizeOptionalString(input.folderPath)
     const windowId = resolveTargetWindowId(input.windowId)
+    const hostId = hostIdToRecord(input.hostId, folderPath)
     const template = resolveHeadlessLayoutTemplate({ templateId: input.templateId })
     const createdAt = now()
     const name = normalizeOptionalString(input.name) ?? defaultWorkspaceName(template.name, getRecords().length + 1)
@@ -390,7 +391,9 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       mode: input.mode ?? 'standard',
       folderPath,
       folderMissing: false,
-      ...(input.hostId && input.hostId !== 'local' ? { hostId: input.hostId } : {}),
+      // This machine is written only for a folder inside a distribution, which
+      // would otherwise read back as that distribution (owner ruling 2026-10-03).
+      ...(hostId ? { hostId } : {}),
       ...(input.worktree ? { worktree: input.worktree } : {}),
       ...(input.scheduledAgentId?.trim() ? { scheduledAgentId: input.scheduledAgentId.trim() } : {}),
       templateId: template.id,

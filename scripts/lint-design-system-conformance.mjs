@@ -56,9 +56,10 @@
 //                          ("Hairlines carry the structure": elevation is a
 //                          three-step overlay ramp taken from the shadow
 //                          tokens, so the utility is always the wrong reach).
-//                          The one in-flow elevation is a pressable control,
-//                          and it reaches for the `.control-raised` /
-//                          `.control-edge` classes, not for a utility.
+//                          The in-flow exceptions are the primary action's
+//                          faint highlight and a segmented control's thumb,
+//                          and they reach for the `.control-raised` /
+//                          `.control-thumb` classes, not for a utility.
 //   arbitrary-z-index      `z-[n]` outside the layering scale ("Tokens or
 //                          nothing": layering comes from `sem.z.*`).
 //   accent-marks-active    an accent fill conditioned on active/selected
@@ -123,7 +124,7 @@
 //                          guessed.
 //   app-token-restates-bundle  the mapping between `index.css` and
 //                              `design-system/foundations/tokens.css`, policed
-//                              three ways. The bundle is the authority
+//                              four ways. The bundle is the authority
 //                              (`design-system/USAGE.md`); the app must alias
 //                              it, not mirror it by hand. In the base dark and
 //                              light blocks — the only two permitted to alias,
@@ -141,6 +142,12 @@
 //                              bundle mode it would resolve against is
 //                              whichever one is active. A theme block's own
 //                              literals are the design and stay untouched.
+//                              And anywhere in `index.css`, a `var(--sem-…)`
+//                              naming a token the bundle does not declare: a
+//                              retired token leaves every alias to it
+//                              resolving to nothing, which paints as the
+//                              property's initial value (a shadow as `none`)
+//                              and reads in review as a deliberate choice.
 //   theme-ramp-contrast        per theme: the ink ramp strong → default →
 //                              muted → subtle → disabled must not invert, and
 //                              `--text-disabled` must clear 3:1 against every
@@ -223,6 +230,20 @@ function readTokenDimensionPx(tokens, path) {
   return px ? Number(px[1]) : null
 }
 
+// The `sem.radius.*` steps allowed to stand outside the ramp, by name: the
+// composer's box and the strip tucked under it (owner ruling 2026-10-04). The
+// list is here, not only in the bundle, so the exception stays exactly these
+// two: a step the list does not name that marks itself `offRamp` is refused
+// (exit 2) rather than skipped, or the flag would let any radius past the
+// ceiling.
+const OFF_RAMP_RADIUS_STEPS = new Set(['composer', 'composer-strip'])
+
+// Whether a `sem.radius.*` step is a named exception rather than a rung of the
+// ramp: its metadata carries `offRamp: true` (see readBundleDimensions).
+function radiusStepIsOffRamp(tokens, step) {
+  return tokens?.sem?.radius?.[step]?.$extensions?.['com.sprintengine']?.offRamp === true
+}
+
 function readBundleDimensions() {
   const abs = resolve(repoRoot, TOKENS_JSON_PATH)
   if (!existsSync(abs)) {
@@ -269,8 +290,24 @@ function readBundleDimensions() {
   // marketing-floor assertion below, failing the build on a token the system
   // deliberately declares. It must also stay out of `radiusStepsPx`, or
   // `rounded-[999px]` would silently become an on-ramp spelling.
+  //
+  // A step whose metadata says `offRamp: true` is excluded for the same
+  // reason: a named exception to the ceiling, not a rung — the composer's 22px
+  // box and its 16px strip (owner ruling 2026-10-04). The app reaches them by
+  // their variable, never by a `rounded-[Npx]` the ramp check would read.
+  const strayOffRamp = Object.keys(tokens?.sem?.radius ?? {}).filter(
+    (step) => !step.startsWith('$') && radiusStepIsOffRamp(tokens, step) && !OFF_RAMP_RADIUS_STEPS.has(step),
+  )
+  if (strayOffRamp.length > 0) {
+    process.stderr.write(
+      `${TOKENS_JSON_PATH}: ${strayOffRamp.map((step) => `sem.radius.${step}`).join(', ')} is marked offRamp, ` +
+        `but the only named exceptions to the radius ceiling are ${[...OFF_RAMP_RADIUS_STEPS].join(' and ')}. ` +
+        'A new one is an owner ruling and an edit to OFF_RAMP_RADIUS_STEPS, not a flag.\n',
+    )
+    process.exit(2)
+  }
   const radiusSteps = Object.keys(tokens?.sem?.radius ?? {})
-    .filter((step) => !step.startsWith('$') && step !== 'pill')
+    .filter((step) => !step.startsWith('$') && step !== 'pill' && !radiusStepIsOffRamp(tokens, step))
     .map((step) => readTokenDimensionPx(tokens, `sem.radius.${step}`))
     .filter((value) => value !== null)
   if (microFontSizePx === null || radiusSteps.length === 0) {
@@ -1418,8 +1455,7 @@ const APP_TO_BUNDLE = new Map(
     '--shadow-modal': '--sem-shadow-modal',
     '--shadow-toast': '--sem-shadow-toast',
     '--shadow-control-raised': '--sem-shadow-control-raised',
-    '--shadow-control-edge': '--sem-shadow-control-edge',
-    '--shadow-control-pressed': '--sem-shadow-control-pressed',
+    '--shadow-control-thumb': '--sem-shadow-control-thumb',
     '--text-size-2xs': '--sem-font-size-micro',
     '--text-size-xs': '--sem-font-size-meta',
     '--text-size-sm': '--sem-font-size-body',
@@ -1560,8 +1596,8 @@ const FIX_HINT = {
     'Popover / PointerPopover material="glass" and the command palette shell (surface-glass in the kit) ' +
     'and nothing else blurs or borrows it',
   'shadow-in-flow':
-    'overlays take --shadow-popover / --shadow-modal; a pressable control takes .control-raised / ' +
-    '.control-edge; all other in-flow chrome takes a hairline',
+    'overlays take --shadow-popover / --shadow-modal; the primary action takes .control-raised and a ' +
+    'segmented thumb .control-thumb; all other in-flow chrome, controls included, takes a hairline',
   'arbitrary-z-index':
     'use the layering scale: sticky 10, pane 20, float 30, drawer 40, modal 70, popover 80, menu 90, toast 100',
   'accent-marks-active': 'mark active with --bg-selected and an ink lift, not the accent',
@@ -1581,8 +1617,8 @@ const FIX_HINT = {
   'disabled-ink-copy': 'copy is read: --text-muted (or EmptyState / Section); disabled ink is for disabled controls',
   'focus-ring-missing': 'use the kit control, or add FOCUS_RING_CLASS (inset variant on full-bleed rows)',
   'app-token-restates-bundle':
-    'alias the bundle variable instead of restating its value, and keep mapped names in the ' +
-    'base dark and light blocks',
+    'alias the bundle variable instead of restating its value, keep mapped names in the ' +
+    'base dark and light blocks, and drop every alias to a token the bundle has retired',
   'theme-ramp-contrast': 'order the ink ramp identically in every theme and clear 3:1 on disabled',
 }
 
@@ -1725,6 +1761,24 @@ markerLinesByPath.set(APP_CSS_PATH, collectMarkerLines(APP_CSS_PATH, appCssLines
 }
 
 const bundle = resolveBundle(readFileSync(bundleCssAbs, 'utf8'))
+
+// A `--sem-*` the bundle does not declare. Retiring a token removes it from
+// `tokens.css`, and every `var(--sem-…)` in `index.css` that still names it
+// stops resolving: the declaration is invalid at computed-value time and the
+// property falls back to its initial value, so a retired shadow paints as
+// `none` and a retired colour as the inherited one. Both look deliberate in
+// review and in the running app. The bundle's light block declares every
+// token, so it is the whole vocabulary.
+forEachMatch(/var\(\s*(--sem-[\w-]+)/g, appCss, (match) => {
+  if (appCssKinds[match.index] === KIND_COMMENT) return
+  if (bundle.light.has(match[1])) return
+  pushAt(
+    'app-token-restates-bundle',
+    APP_CSS_PATH,
+    lineOf(appCssStarts, match.index),
+    `${match[1]} is not declared in design-system/foundations/tokens.css, so this resolves to nothing`,
+  )
+})
 const rootBlocks = readRootBlocks(appCss, appCssKinds)
 
 const baseBlock = rootBlocks.find((block) => block.appliesToAllThemes && block.themes.includes('dark'))

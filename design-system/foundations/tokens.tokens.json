@@ -854,7 +854,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose language wears blue; nothing else.",
+              "use": "Ink of a file-type glyph whose language wears blue, and of a machine's glyph when the machine wears blue (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -873,7 +873,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose kind wears yellow; nothing else.",
+              "use": "Ink of a file-type glyph whose kind wears yellow, and of a machine's glyph when the machine wears yellow (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -892,7 +892,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose kind wears orange; nothing else.",
+              "use": "Ink of a file-type glyph whose kind wears orange, and of a machine's glyph when the machine wears orange (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -911,7 +911,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose kind wears red; nothing else.",
+              "use": "Ink of a file-type glyph whose kind wears red, and of a machine's glyph when the machine wears red (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -930,7 +930,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose kind wears teal; nothing else.",
+              "use": "Ink of a file-type glyph whose kind wears teal, and of a machine's glyph when the machine wears teal (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -949,7 +949,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose kind wears cyan; nothing else.",
+              "use": "Ink of a file-type glyph whose kind wears cyan, and of a machine's glyph when the machine wears cyan (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -968,7 +968,7 @@
           "$extensions": {
             "com.sprintengine": {
               "role": "identity",
-              "use": "Ink of a file-type glyph whose kind wears violet; nothing else.",
+              "use": "Ink of a file-type glyph whose kind wears violet, and of a machine's glyph when the machine wears violet (owner ruling 2026-10-04); nothing else.",
               "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.",
               "components": [
                 "glyphs"
@@ -1119,136 +1119,38 @@
       },
       "control-raised": {
         "$type": "shadow",
-        "$value": "inset 0 1px 0 rgba(255, 255, 255, 0.26), 0 1px 2px rgba(16, 20, 24, 0.16), 0 2px 6px -2px rgba(16, 20, 24, 0.16)",
-        "$description": "Resting elevation for a filled control: a 1px lit top edge over a shallow drop.",
+        "$value": "inset 0 1px 0 rgba(255, 255, 255, 0.16)",
+        "$description": "The one highlight a control carries: a faint 1px lit top edge across the primary filled action, with nothing under it (owner ruling 2026-10-04).",
         "$extensions": {
           "com.sprintengine": {
             "role": "elevation",
-            "use": "Filled buttons at rest \u2014 the primary and destructive variants. The inset highlight is the light source; the drop is what lifts the control off the surface.",
-            "doNotUse": "Overlays \u2014 those take shadow.popover / shadow.modal / shadow.drawer. Also not for ghost or icon buttons: a borderless control has no edge to light.",
+            "use": "Tier 1 only \u2014 the filled primary and destructive buttons at rest. The inset highlight is the light source and the whole treatment: no drop, no sheen. The control presses by scale(0.97), not by swapping shadows, and a disabled one drops the highlight.",
+            "doNotUse": "Tier 2 standalone secondaries (flat, on a border.strong hairline) and tier 3 controls inside a surface (ghost, a hover fill only). Not overlays either \u2014 those take shadow.popover / shadow.modal / shadow.drawer.",
             "components": [
-              "button",
-              "split-button",
-              "chip-button",
-              "card-button",
-              "segmented-control",
-              "trigger-button"
+              "button"
             ],
             "modes": {
-              "light": "inset 0 1px 0 rgba(255, 255, 255, 0.26), 0 1px 2px rgba(16, 20, 24, 0.16), 0 2px 6px -2px rgba(16, 20, 24, 0.16)",
-              "dark": "inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(0, 0, 0, 0.5), 0 2px 6px -2px rgba(0, 0, 0, 0.45)"
+              "light": "inset 0 1px 0 rgba(255, 255, 255, 0.16)",
+              "dark": "inset 0 1px 0 rgba(255, 255, 255, 0.12)"
             }
           }
         }
       },
-      "control-edge": {
+      "control-thumb": {
         "$type": "shadow",
-        "$value": "inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(16, 20, 24, 0.04), 0 1px 2px rgba(16, 20, 24, 0.07)",
-        "$description": "Resting elevation for a bordered neutral control: the quieter half-step below control-raised.",
+        "$value": "0 1px 2px rgba(16, 20, 24, 0.1)",
+        "$description": "The small lift under a segmented control\u2019s selected thumb: a drop only, so the chosen segment reads as a piece set on the track (owner ruling 2026-10-04).",
         "$extensions": {
           "com.sprintengine": {
             "role": "elevation",
-            "use": "Every bordered neutral control at rest: outlined buttons, raised chips, raised cards, a segmented control\u2019s selected thumb and trigger buttons. A 1px lit top lip over a shallow drop in both modes \u2014 lit from above.",
-            "doNotUse": "Filled controls \u2014 those take shadow.control-raised, which is a full step brighter.",
-            "components": [
-              "button",
-              "split-button",
-              "chip-button",
-              "card-button",
-              "segmented-control",
-              "trigger-button"
-            ],
-            "modes": {
-              "light": "inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(16, 20, 24, 0.04), 0 1px 2px rgba(16, 20, 24, 0.07)",
-              "dark": "inset 0 1px 0 rgba(255, 255, 255, 0.075), 0 1px 2px rgba(0, 0, 0, 0.42)"
-            }
-          }
-        }
-      },
-      "control-pressed": {
-        "$type": "shadow",
-        "$value": "inset 0 1px 2px rgba(16, 20, 24, 0.12)",
-        "$description": "The pressed state of any elevated control: the bevel inverts and the drop is gone.",
-        "$extensions": {
-          "com.sprintengine": {
-            "role": "elevation",
-            "use": "Filled and outlined buttons while :active or [data-pressed]. Replaces the resting shadow outright \u2014 it is not layered over it.",
-            "doNotUse": "A resting state, and never on a control that carries no resting elevation.",
-            "components": [
-              "button",
-              "split-button",
-              "chip-button",
-              "card-button",
-              "segmented-control",
-              "trigger-button"
-            ],
-            "modes": {
-              "light": "inset 0 1px 2px rgba(16, 20, 24, 0.12)",
-              "dark": "inset 0 1px 2px rgba(0, 0, 0, 0.4)"
-            }
-          }
-        }
-      },
-      "control-track": {
-        "$type": "shadow",
-        "$value": "inset 0 1px 2px rgba(16, 20, 24, 0.06)",
-        "$description": "The recessed well a segmented control\u2019s raised thumb slides along: light falls into it from above.",
-        "$extensions": {
-          "com.sprintengine": {
-            "role": "elevation",
-            "use": "The track of a segmented control, under its control-edge thumb. The one inset-at-rest shadow: a track is a groove in the surface, not a control on it.",
-            "doNotUse": "Inputs, cards or anything a person presses \u2014 those stand off the surface (control-edge) rather than sinking into it.",
+            "use": "A segmented control\u2019s selected segment, over its bg.selected fill. No lit lip and no sheen. Reached through the app\u2019s .control-thumb class, never spelled at a call site.",
+            "doNotUse": "A control a person presses to act \u2014 those are flat, or carry shadow.control-raised on the primary \u2014 the track under the thumb, or any surface that is not a thumb.",
             "components": [
               "segmented-control"
             ],
             "modes": {
-              "light": "inset 0 1px 2px rgba(16, 20, 24, 0.06)",
-              "dark": "inset 0 1px 2px rgba(0, 0, 0, 0.35)"
-            }
-          }
-        }
-      }
-    },
-    "gradient": {
-      "control-sheen": {
-        "$type": "gradient",
-        "$value": "linear-gradient(180deg, rgba(255, 255, 255, 0) 45%, rgba(16, 20, 24, 0.03) 100%)",
-        "$description": "The faint top-to-bottom falloff across a bordered neutral control\u2019s face, painted as a background-image over its ground colour.",
-        "$extensions": {
-          "com.sprintengine": {
-            "role": "elevation",
-            "use": "Paired with shadow.control-edge on every bordered neutral control at rest: light mode shades the lower half, dark mode lifts the upper half, so the face reads as curved toward the light. Reached through the app\u2019s .control-edge class, never spelled at a call site.",
-            "doNotUse": "Filled controls (gradient.control-raised-sheen), flat ghost/icon controls, or any surface that is not a control.",
-            "components": [
-              "button",
-              "chip-button",
-              "card-button",
-              "segmented-control",
-              "trigger-button"
-            ],
-            "modes": {
-              "light": "linear-gradient(180deg, rgba(255, 255, 255, 0) 45%, rgba(16, 20, 24, 0.03) 100%)",
-              "dark": "linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0) 100%)"
-            }
-          }
-        }
-      },
-      "control-raised-sheen": {
-        "$type": "gradient",
-        "$value": "linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 100%)",
-        "$description": "The sheen across a filled control\u2019s face: white falling off from the lit top edge.",
-        "$extensions": {
-          "com.sprintengine": {
-            "role": "elevation",
-            "use": "Paired with shadow.control-raised on the primary and destructive fills. Reached through the app\u2019s .control-raised class.",
-            "doNotUse": "Bordered neutrals (gradient.control-sheen) or flat controls.",
-            "components": [
-              "button",
-              "split-button"
-            ],
-            "modes": {
-              "light": "linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 100%)",
-              "dark": "linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 100%)"
+              "light": "0 1px 2px rgba(16, 20, 24, 0.1)",
+              "dark": "0 1px 2px rgba(0, 0, 0, 0.4)"
             }
           }
         }
@@ -1641,6 +1543,32 @@
           }
         }
       },
+      "composer": {
+        "$type": "dimension",
+        "$value": "22px",
+        "$description": "The New chat composer's box (owner ruling 2026-10-04).",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "shape",
+            "offRamp": true,
+            "use": "The composer box alone: the prompt field and its control row, as one rounded surface, in New chat and in an open conversation. A named exception to the radius ceiling (owner ruling 2026-10-04): the composer is the one surface a person types into all day, and a soft corner is what sets it apart from the chrome around it.",
+            "doNotUse": "Anything that is not the composer box. Not a card, a popover, a panel or a control inside the composer, which keep the ramp. Not a ramp step: a tool reading sem.radius.* as a ramp must exclude it, as it does pill."
+          }
+        }
+      },
+      "composer-strip": {
+        "$type": "dimension",
+        "$value": "16px",
+        "$description": "The bottom corners of the context strip tucked under the composer (owner ruling 2026-10-04).",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "shape",
+            "offRamp": true,
+            "use": "The bottom-left and bottom-right corners of the context strip under the New chat composer (machine, project, worktree, branch), which reads as one piece with the composer above it. Its top corners are hidden under the composer and take no radius.",
+            "doNotUse": "Any other surface, and the strip's top corners. Not a ramp step: a tool reading sem.radius.* as a ramp must exclude it."
+          }
+        }
+      },
       "pill": {
         "$type": "dimension",
         "$value": "999px",
@@ -1649,7 +1577,7 @@
           "com.sprintengine": {
             "role": "shape",
             "use": "Badges, status chips, switch tracks and progress rails \u2014 anything whose shape says \"this is a marker, not a control\". Referenced by liveness, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square.",
-            "doNotUse": "Buttons, inputs, cards and rows \u2014 those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart. Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.",
+            "doNotUse": "Buttons, inputs, cards and rows \u2014 those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart; the one exception is the composer's round send (owner ruling 2026-10-04). Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.",
             "components": [
               "badge",
               "liveness",

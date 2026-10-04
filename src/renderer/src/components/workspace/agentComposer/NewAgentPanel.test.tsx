@@ -8,16 +8,16 @@ test('NewAgentPanel', async () => {
   // The launch surface behind the tab strip's "+". Rendered for real,
   // because the acceptance is about what a person sees and presses:
   //
-  //   1. the row shows what a launch usually changes — engine, worktree and
-  //      access — while the launch kind stays behind the ⋯ menu;
+  //   1. the row shows what a launch usually changes — the engine and its
+  //      access — while how it starts and what it starts with are behind the
+  //      "+", and where it runs is on the strip under the box;
   //   2. the invocation main renders rides Start's hover, not a line of chrome;
   //   3. Start hands the host a confirm plus the typed prompt — and creates
   //      nothing itself;
   //   4. a suggestion card spawns on click, carrying its own full prompt;
   //   5. the skill trigger is the CLI's declared one, and a CLI that declares
   //      none still gets the Skills & MCPs picker, which every launch has;
-  //   6. the greeting uses a first name when there is one and reads correctly
-  //      when there is not;
+  //   6. there is no greeting, signed in or not;
   //   7. with no agent CLI installed the surface offers the install route rather
   //      than controls that would fail on click.
 
@@ -324,7 +324,49 @@ test('NewAgentPanel', async () => {
       return harness
     }
 
-    // 1. The row carries the usual decisions; the rare ones stay behind ⋯.
+    // The "+" menu, and a Start as choice picked from it.
+    const openOptions = async (view: Harness): Promise<Element | null> => {
+      const plus = view.container.querySelector<HTMLElement>('button[aria-label="Options"]')
+      await act(async () => {
+        plus!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      return dom.window.document.querySelector('[aria-label="Options"][role="menu"]')
+    }
+    // Is the skills picker offered: a row of the "+" menu.
+    const skillsOffered = async (view: Harness): Promise<boolean> => {
+      const menu = await openOptions(view)
+      const offered = (menu?.textContent ?? '').includes('Skills, plugins & MCPs')
+      await act(async () => {
+        dom.window.document.dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        )
+      })
+      return offered
+    }
+    // Open the skills picker from its row of the "+" menu; it opens on the "+".
+    const openSkills = async (view: Harness): Promise<void> => {
+      const menu = await openOptions(view)
+      const row = [...(menu?.querySelectorAll<HTMLElement>('[data-menu-item="true"]') ?? [])].find((item) =>
+        (item.textContent ?? '').includes('Skills, plugins & MCPs'),
+      )
+      assert.ok(row, 'the "+" offers skills, plugins and MCPs')
+      await act(async () => {
+        row!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      await act(async () => {
+        await new Promise((resolve) => dom.window.setTimeout(resolve, 0))
+      })
+    }
+    const pickKind = async (view: Harness, kind: 'conversation' | 'general' | 'terminal'): Promise<void> => {
+      const menu = await openOptions(view)
+      const tile = menu?.querySelector<HTMLElement>(`[data-start-as="${kind}"]`)
+      assert.ok(tile, `the "+" offers ${kind}`)
+      await act(async () => {
+        tile!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+    }
+
+    // 1. The row carries the usual decisions; the rare ones are behind the "+".
     await check('the row shows engine and access, and hides the rest behind ⋯', async () => {
       seedStore()
       previewCalls.length = 0
@@ -347,12 +389,17 @@ test('NewAgentPanel', async () => {
         ),
         'the engine chip is the one control the row spends on the runtime',
       )
-      assert.ok(text.includes('Skills & MCPs'), 'the one picker for skills and MCP servers is offered')
-      assert.ok(text.includes('⋯'), 'the overflow is there')
+      assert.ok(
+        view.container.querySelector('button[aria-label="Options"][aria-haspopup="menu"]'),
+        'the "+" that opens the options is there',
+      )
+      assert.ok(!text.includes('⋯'), 'and the ⋯ menu it replaced is gone')
 
-      // Worktree sits beside the engine, off until turned on or named.
-      const worktreeChip = view.container.querySelector('[data-worktree-chip]')
-      assert.equal(worktreeChip?.getAttribute('data-worktree-chip'), 'off', 'worktree is on the row, and off')
+      // Worktree sits in the context strip under the box, off until turned on.
+      const strip = view.container.querySelector('[data-composer-strip]')
+      const worktreeChip = strip?.querySelector('[data-worktree-chip]')
+      assert.equal(worktreeChip?.getAttribute('data-worktree-chip'), 'off', 'worktree is on the strip, and off')
+      assert.ok((strip?.textContent ?? '').includes('No worktree'), 'and says so')
       assert.ok(!text.includes('+ Skill') && !text.includes('+ Connector'), 'the two old chips are gone')
       assert.ok(!/debug/i.test(text), 'and Debug Mode is gone entirely')
 
@@ -364,7 +411,9 @@ test('NewAgentPanel', async () => {
         (button) => button.getAttribute('aria-label') === 'Start agent',
       )
       assert.ok(start, 'the launch control is there, named for what it does')
-      assert.equal(start?.textContent?.trim(), '⏎', 'and wears the key that triggers it, not a chat send-arrow')
+      assert.equal(start?.textContent?.trim(), '', 'a small round send with an arrow, and no word')
+      assert.ok(start?.querySelector('svg'), 'its arrow')
+      assert.match(start?.className ?? '', /radius-pill/, 'round')
       // Real focus, not a synthetic 'focus' event: React binds onFocus to focusin,
       // which is also what a Tab press produces — the path this must work on.
       await act(async () => {
@@ -436,36 +485,31 @@ test('NewAgentPanel', async () => {
       bypassed.unmount()
     })
 
-    // 1b. The ⋯ menu holds exactly what the row does not — which is now two
-    //     things. The Role control left with the identity picker it belonged to;
-    //     reasoning effort moved into the model's own picker, where it is a
-    //     property of the model.
-    await check('the ⋯ menu holds the launch kind, and nothing else', async () => {
+    // 1b. The "+" holds how the launch starts and what it starts with (owner
+    //     ruling 2026-10-04), and replaces the ⋯ menu and the Chat | Scheduled
+    //     agent switch above the box.
+    await check('the "+" menu holds the start choice and the options', async () => {
       seedStore()
       const view = await render()
-      const more = [...view.container.querySelectorAll('button')].find(
-        (button) => button.getAttribute('aria-label') === 'More launch options',
+      const menu = await openOptions(view)
+      assert.ok(menu, 'the "+" opens a menu')
+      const kinds = [...(menu?.querySelectorAll<HTMLElement>('[data-start-as]') ?? [])].map((tile) =>
+        tile.getAttribute('data-start-as'),
       )
-      assert.ok(more, 'the overflow has an accessible name')
-      await act(async () => {
-        more!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      const menu = dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
+      assert.deepEqual(kinds, ['conversation', 'general', 'terminal'], 'Conversation, Terminal agent, Terminal')
       const menuText = menu?.textContent ?? ''
-      assert.ok(!menuText.includes('Worktree'), 'worktree left the menu for the row')
-      assert.ok(!/debug/i.test(menuText), 'Debug Mode is gone from the menu')
-      // The kind of thing being launched lives here — the only surface that
-      // starts a plain shell or a conversation agent.
-      assert.ok(menuText.includes('Agent'), 'an agent is the default kind')
-      assert.ok(menuText.includes('Terminal'), 'a plain shell is reachable')
-      assert.ok(!menuText.includes('Role'), 'the Role control is gone from this surface entirely')
-      assert.ok(!menuText.includes('Reasoning'), 'and reasoning lives in the model picker now')
+      assert.ok(menuText.includes('Start as'))
+      assert.ok(menuText.includes('Conversation') && menuText.includes('Terminal agent'))
+      assert.ok(menuText.includes('Attach files'), 'attach files is an option')
+      assert.ok(menuText.includes('Skills, plugins & MCPs'), 'the skills picker moved here from the row')
+      assert.ok(!menuText.includes('Worktree'), 'worktree is the strip’s, not the menu’s')
+      assert.ok(!/debug/i.test(menuText), 'Debug Mode is gone')
       view.unmount()
     })
 
     // 1c. Worktree is a switch that can be named: the glyph turns it on with a
     //     name made up at start, and typing a name turns it on with that name.
-    await check('worktree turns on from its glyph, or by typing a name', async () => {
+    await check('worktree is a switch on the strip, and can be named while on', async () => {
       seedStore()
       const view = await render()
       const chip = () => view.container.querySelector('[data-worktree-chip]')
@@ -480,22 +524,20 @@ test('NewAgentPanel', async () => {
       assert.equal(chip()?.getAttribute('data-worktree-chip'), 'on', 'the glyph turns it on')
       const name = chip()!.querySelector('input')!
       assert.equal(name.getAttribute('placeholder'), 'auto-named', 'with a name made up at start')
-      const off = [...view.container.querySelectorAll('button')].find(
-        (button) => button.getAttribute('aria-label') === 'Turn worktree off',
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!.call(name, 'fix-login')
+        name.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      assert.equal(chip()?.querySelector('input')?.value, 'fix-login', 'and takes a name of the person’s own')
+      const strip = view.container.querySelector('[data-composer-strip]')
+      assert.ok((strip?.textContent ?? '').includes('Worktree'), 'the switch reads Worktree while on')
+      const on = [...view.container.querySelectorAll('button')].find(
+        (button) => button.getAttribute('aria-label') === 'Worktree on',
       )
       await act(async () => {
-        off!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        on!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
-      assert.equal(chip()?.getAttribute('data-worktree-chip'), 'off', '× turns it off')
-      const nameField = chip()!.querySelector('input')!
-      await act(async () => {
-        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!.call(
-          nameField,
-          'fix-login',
-        )
-        nameField.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-      })
-      assert.equal(chip()?.getAttribute('data-worktree-chip'), 'on', 'typing a name turns it on')
+      assert.equal(chip()?.getAttribute('data-worktree-chip'), 'off', 'pressed again, it is off')
       view.unmount()
     })
 
@@ -505,23 +547,7 @@ test('NewAgentPanel', async () => {
     await check('a plain terminal launch shows no CLI chrome', async () => {
       seedStore()
       const view = await render()
-      const openMore = async () => {
-        const more = [...view.container.querySelectorAll('button')].find(
-          (button) => button.getAttribute('aria-label') === 'More launch options',
-        )
-        await act(async () => {
-          more!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-        })
-        return dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
-      }
-
-      const menu = await openMore()
-      const terminalRow = [...(menu?.querySelectorAll('button') ?? [])].find((button) =>
-        (button.textContent ?? '').startsWith('Terminal'),
-      )
-      await act(async () => {
-        terminalRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
+      await pickKind(view, 'terminal')
 
       const text = view.text()
       // A shell launches nothing that reads a permission flag or a model, so it
@@ -536,7 +562,7 @@ test('NewAgentPanel', async () => {
       )
 
       const start = [...view.container.querySelectorAll('button')].find(
-        (button) => button.getAttribute('aria-label') === 'Start agent',
+        (button) => button.getAttribute('aria-label') === 'Open terminal',
       )
       await act(async () => {
         ;(start as HTMLElement).focus()
@@ -555,28 +581,18 @@ test('NewAgentPanel', async () => {
       assert.equal(promptField?.disabled, true, 'and no prompt to type into')
       assert.ok((promptField?.getAttribute('placeholder') ?? '').includes('nothing typed'), 'which says why')
 
-      // The menu is the ONLY way to change what is being launched, so hiding it
-      // for a terminal stranded the surface with no way back to an agent.
-      const stillThere = [...view.container.querySelectorAll('button')].find(
-        (button) => button.getAttribute('aria-label') === 'More launch options',
+      // The choice is a tag beside the "+", and its × goes back to a conversation;
+      // the "+" still offers the terminal agent.
+      const tag = [...view.container.querySelectorAll('button')].find((button) =>
+        (button.getAttribute('aria-label') ?? '').startsWith('Start as a conversation instead of terminal'),
       )
-      assert.ok(stillThere, 'the ⋯ menu survives a terminal selection')
-      await act(async () => {
-        stillThere!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      const backMenu = dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
-      const agentRow = [...(backMenu?.querySelectorAll('button') ?? [])].find((button) =>
-        (button.textContent ?? '').startsWith('Agent'),
-      )
-      assert.ok(agentRow, 'and still offers Agent')
-      await act(async () => {
-        agentRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
+      assert.ok(tag, 'Terminal is a removable tag beside the "+"')
+      await pickKind(view, 'general')
       assert.ok(
         [...view.container.querySelectorAll('button')].some((button) =>
           (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
         ),
-        'picking Agent brings the engine chip — and the permission control inside it — back',
+        'picking Terminal agent brings the engine chip — and the permission control inside it — back',
       )
       const back = view.text()
       assert.equal(view.container.querySelector('textarea')?.disabled, false, 'and the prompt is typeable again')
@@ -587,52 +603,31 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
-    // 2b-ii. The kind of launch is chosen in ⋯ and nowhere else (owner ruling
-    //        2026-09-27): no Chat | Terminal switch above the greeting, no
-    //        sentence under it, and the three kinds in one list.
-    const openMoreMenu = async (view: Harness): Promise<Element | null> => {
-      const more = [...view.container.querySelectorAll('button')].find(
-        (button) => button.getAttribute('aria-label') === 'More launch options',
-      )
-      await act(async () => {
-        more!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      return dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
-    }
-    const pickKind = async (view: Harness, label: string): Promise<void> => {
-      const menu = await openMoreMenu(view)
-      const row = [...(menu?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])].find((item) =>
-        (item.textContent ?? '').startsWith(label),
-      )
-      assert.ok(row, `⋯ offers ${label}`)
-      await act(async () => {
-        row!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-    }
+    // 2b-ii. The kind of launch is chosen in the "+" menu's Start as tiles.
     const chatEngineChip = (view: Harness): HTMLElement | undefined =>
       [...view.container.querySelectorAll<HTMLElement>('button')].find((button) =>
         (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
       )
 
-    await check('the kind of launch lives in ⋯ alone: Agent, Chat agent, Terminal', async () => {
+    await check('the "+" is the one place the kind is chosen, and a non-default kind is a tag', async () => {
       seedStore()
-      const view = await render()
-      assert.equal(
-        view.container.querySelector('[role="radiogroup"]'),
-        null,
-        'no segmented Chat | Terminal switch above the greeting',
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      assert.equal(view.container.querySelector('[role="radiogroup"]'), null, 'no switch above the box')
+      assert.equal(view.container.querySelector('h1'), null, 'and no greeting or heading over it')
+      assert.ok(!view.text().includes("What's up"), 'the greeting is gone')
+      const menu = await openOptions(view)
+      const checked = menu?.querySelector('[data-start-as][aria-checked="true"]')
+      assert.equal(checked?.getAttribute('data-start-as'), 'conversation', 'Conversation is the default')
+      assert.equal(checked?.getAttribute('role'), 'menuitemradio')
+      await act(async () => {
+        ;(menu?.querySelector('[data-start-as="general"]') as HTMLElement).click()
+      })
+      assert.ok(view.text().includes('Terminal agent'), 'the choice rises as a tag')
+      assert.match(
+        view.container.querySelector('textarea')?.getAttribute('placeholder') ?? '',
+        /terminal you can take over/,
+        'and the prompt says where it runs',
       )
-      assert.ok(!view.text().includes('Structured chat'), 'and no sentence describing it')
-      assert.ok(!view.text().includes("The CLI's own interface"), 'in either position')
-      const menu = await openMoreMenu(view)
-      const kinds = [...(menu?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])]
-        .map((row) => ['Chat agent', 'Agent', 'Terminal'].find((kind) => (row.textContent ?? '').startsWith(kind)))
-        .filter(Boolean)
-      assert.deepEqual(kinds, ['Agent', 'Chat agent', 'Terminal'], 'three kinds, in that order')
-      const menuText = menu?.textContent ?? ''
-      assert.ok(menuText.includes('A CLI agent, in a terminal'))
-      assert.ok(menuText.includes('The same CLI agent, as a chat'))
-      assert.ok(menuText.includes('A plain shell — no agent'))
       view.unmount()
     })
 
@@ -664,7 +659,7 @@ test('NewAgentPanel', async () => {
           },
         } as never)
         const view = await render()
-        await pickKind(view, 'Chat agent')
+        await pickKind(view, 'conversation')
         assert.equal(view.container.querySelector('[aria-label="Chat models"]'), null, 'no model roster list')
         const chip = chatEngineChip(view)
         assert.ok(chip, 'the same engine chip the terminal agent wears')
@@ -718,16 +713,12 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
-    await check('a chat prompt has no terminal caret; a CLI launch keeps it', async () => {
+    await check('the prompt carries no caret, chat or CLI: the box is one composer', async () => {
       const caret = (view: Awaited<ReturnType<typeof render>>) =>
         view.container.querySelector('textarea')!.parentElement!.querySelector(':scope > svg')
       seedStore()
-      const chatView = await render({ initialSelection: { kind: 'conversation' } })
-      assert.equal(caret(chatView), null, 'a chat is not a terminal')
-      chatView.unmount()
-      seedStore()
       const cliView = await render({ initialSelection: { kind: 'general' } })
-      assert.ok(caret(cliView), 'a CLI launch still reads as a prompt')
+      assert.equal(caret(cliView), null)
       cliView.unmount()
     })
 
@@ -741,12 +732,12 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
-    await check('the feature flag and a workspace that cannot host a chat both drop the Chat agent row', async () => {
+    await check('the feature flag and a workspace that cannot host a chat both drop Conversation', async () => {
       for (const props of [{ conversationModeEnabled: false }, { conversationWorkspaceSupported: false }]) {
         seedStore()
         const view = await render(props)
-        const menu = await openMoreMenu(view)
-        assert.ok(!(menu?.textContent ?? '').includes('Chat agent'), JSON.stringify(props))
+        const menu = await openOptions(view)
+        assert.equal(menu?.querySelector('[data-start-as="conversation"]') ?? null, null, JSON.stringify(props))
         view.unmount()
       }
     })
@@ -760,7 +751,7 @@ test('NewAgentPanel', async () => {
       // Escape from a control that is not the prompt.
       const view = await render()
       const chip = [...view.container.querySelectorAll('button')].find(
-        (button) => button.getAttribute('aria-label') === 'More launch options',
+        (button) => button.getAttribute('aria-label') === 'Options',
       )
       await act(async () => {
         ;(chip as HTMLElement).focus()
@@ -970,9 +961,9 @@ test('NewAgentPanel', async () => {
     //    inline `/` route stays but is no longer the placeholder's job.
     await check('the picker is there for every CLI and the placeholder stops advertising the trigger', async () => {
       seedStore()
-      const withPrefix = await render()
+      const withPrefix = await render({ initialSelection: { kind: 'conversation' } })
       assert.equal(withPrefix.container.querySelector('textarea')?.getAttribute('placeholder'), 'Describe the task…')
-      assert.ok(withPrefix.text().includes('Skills & MCPs'), 'a claude runtime gets the picker')
+      assert.ok(await skillsOffered(withPrefix), 'a claude runtime gets the picker')
       withPrefix.unmount()
 
       seedStore({
@@ -994,9 +985,9 @@ test('NewAgentPanel', async () => {
           },
         ],
       })
-      const noPrefix = await render()
+      const noPrefix = await render({ initialSelection: { kind: 'conversation' } })
       assert.equal(noPrefix.container.querySelector('textarea')?.getAttribute('placeholder'), 'Describe the task…')
-      assert.ok(noPrefix.text().includes('Skills & MCPs'), 'and so does a CLI with no typed form')
+      assert.ok(await skillsOffered(noPrefix), 'and so does a CLI with no typed form')
       noPrefix.unmount()
     })
 
@@ -1014,11 +1005,7 @@ test('NewAgentPanel', async () => {
           })
         }
       }
-      const trigger = view.find((el) => el.tagName === 'BUTTON' && /Skills & MCPs/.test(el.textContent ?? ''))
-      assert.ok(trigger, 'the trigger is a button')
-      await act(async () => {
-        trigger!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
+      await openSkills(view)
       await settle()
       // The surface is portalled to the body; the chips stay in the panel.
       const surface = () =>
@@ -1136,10 +1123,7 @@ test('NewAgentPanel', async () => {
       syncCalls.length = 0
       syncFailure = 'EACCES: .mcp.json is read-only'
       const view = await render()
-      const trigger = view.find((el) => el.tagName === 'BUTTON' && /Skills & MCPs/.test(el.textContent ?? ''))
-      await act(async () => {
-        trigger!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
+      await openSkills(view)
       for (let i = 0; i < 3; i += 1) {
         await act(async () => {
           await new Promise((resolve) => dom.window.setTimeout(resolve, 0))
@@ -1217,29 +1201,23 @@ test('NewAgentPanel', async () => {
       )
     })
 
-    // 6. The greeting: a name when there is one, and a sentence either way.
-    await check('the greeting uses a first name only when there is one', async () => {
+    // 6. No greeting (owner ruling 2026-10-04): the composer is the page, and a
+    //    signed-in name changes nothing on it.
+    await check('there is no greeting, signed in or not', async () => {
       seedStore()
       useWorkspaceStore.setState({
         authState: {
           ...useWorkspaceStore.getState().authState,
-          user: { id: 'u', email: 'c@example.com', displayName: 'Sam Rivera', photoUrl: null },
+          user: { id: 'u', email: 'dev@example.com', displayName: 'Sam Rivera', photoUrl: null },
         },
       } as never)
       const named = await render()
-      assert.ok(named.text().includes('Sam'), 'it greets by first name, not full name')
-      assert.ok(!named.text().includes('Smith'), 'and not by surname')
+      assert.ok(!named.text().includes('Sam'), 'no name on the surface')
+      assert.equal(named.container.querySelector('h1'), null, 'and no heading')
       named.unmount()
-
       useWorkspaceStore.setState({
         authState: { ...useWorkspaceStore.getState().authState, user: null },
       } as never)
-      const anon = await render()
-      const text = anon.text()
-      assert.ok(!text.includes('Sam'), 'signed out, no name')
-      assert.ok(!/,\s*\?/.test(text), 'and no dangling comma where the name was')
-      assert.ok(!/sign in/i.test(text), 'a launch surface is not a sign-in prompt')
-      anon.unmount()
     })
 
     // 7. Nothing installed: the install route, not live-looking controls.
@@ -1533,7 +1511,27 @@ test('NewAgentPanel', async () => {
           const distroMenu = await openMachineMenu(inDistro)
           const debian = [...distroMenu.querySelectorAll<HTMLButtonElement>('[data-machine-host="wsl:Debian"]')][0]
           assert.equal(debian?.disabled, true, 'another distribution cannot take a folder inside this one')
-          assert.match(debian?.textContent ?? '', /inside WSL: Ubuntu/u)
+          assert.match(debian?.textContent ?? '', /cannot open a folder inside Ubuntu/u)
+          // This PC can take it (owner ruling 2026-10-03): the pick wins over
+          // the folder, rides the launch, and the line under the scope says
+          // what it costs.
+          const thisPc = [...distroMenu.querySelectorAll<HTMLButtonElement>('[data-machine-option="true"]')][0]
+          assert.equal(thisPc?.textContent?.trim(), 'This PC (Windows)')
+          assert.equal(thisPc?.disabled, false, 'This PC is never refused a folder inside a distribution')
+          await click(thisPc!)
+          await settle()
+          assert.equal(machineTrigger(inDistro)?.textContent?.trim(), 'This PC (Windows)', 'the pick wins')
+          assert.match(
+            inDistro.container.textContent ?? '',
+            /In Ubuntu — slow from Windows\. Run on WSL: Ubuntu for full speed\./u,
+          )
+          const startHere = [...inDistro.container.querySelectorAll('button')].find(
+            (button) => button.getAttribute('aria-label') === 'Start agent',
+          )
+          await act(async () => {
+            startHere!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+          })
+          assert.equal(inDistro.launches.at(-1)?.hostId, 'local', 'This PC rides the launch')
           inDistro.unmount()
         } finally {
           hostsAnswer = { hosts: [], wsl: null }
@@ -1906,34 +1904,33 @@ test('NewAgentPanel', async () => {
           gaps: [],
         })
         const checkedKind = async (view: Harness): Promise<string | undefined> => {
-          const menu = await openMoreMenu(view)
-          const checked = [...(menu?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])].find(
-            (row) => row.getAttribute('aria-checked') === 'true',
-          )
-          const kind = ['Chat agent', 'Agent', 'Terminal'].find((label) =>
-            (checked?.textContent ?? '').startsWith(label),
-          )
+          const menu = await openOptions(view)
+          const kind = menu?.querySelector('[data-start-as][aria-checked="true"]')?.getAttribute('data-start-as')
           await act(async () => {
             dom.window.document.dispatchEvent(
               new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
             )
           })
-          return kind
+          return kind ?? undefined
         }
         const view = await remoteRender()
         await settle()
-        assert.equal(await checkedKind(view), 'Agent', 'the door opens on Agent, on This device')
+        assert.equal(await checkedKind(view), 'general', 'the door opens on Terminal agent, on This device')
         await pickMachine(view, 'Air')
         assert.ok(machineTrigger(view)?.textContent?.includes('Air'), 'the machine is picked')
-        assert.equal(await checkedKind(view), 'Chat agent', 'and the launch becomes a chat, the one kind that travels')
+        assert.equal(
+          await checkedKind(view),
+          'conversation',
+          'and the launch becomes a chat, the one kind that travels',
+        )
 
-        await pickKind(view, 'Agent')
+        await pickKind(view, 'general')
         await settle()
         assert.equal(machineTrigger(view)?.textContent?.trim(), 'This device', 'Agent runs here, so the target returns')
 
         await pickMachine(view, 'Air')
-        assert.equal(await checkedKind(view), 'Chat agent')
-        await pickKind(view, 'Terminal')
+        assert.equal(await checkedKind(view), 'conversation')
+        await pickKind(view, 'terminal')
         await settle()
         // A bare terminal offers no machine at all; back on Chat agent, the
         // target it left behind is This device, not the machine picked before.
@@ -1941,7 +1938,7 @@ test('NewAgentPanel', async () => {
           [undefined, 'This device'].includes(machineTrigger(view)?.textContent?.trim()),
           'no remote target survives a Terminal pick',
         )
-        await pickKind(view, 'Chat agent')
+        await pickKind(view, 'conversation')
         await settle()
         assert.equal(machineTrigger(view)?.textContent?.trim(), 'This device', 'and so does Terminal')
         view.unmount()
@@ -2368,12 +2365,12 @@ test('NewAgentPanel', async () => {
         localIdentityAnswer = (folderPath) => (folderPath === '/proj' || folderPath === '/clone' ? sprintengine : null)
 
         // The tab strip's "+": the project is a fact rather than a choice, so the
-        // line is a `<p>` and not a control — and it still wears the colour, or the
-        // hue stops being how you tell one project from another.
+        // strip names it as a line and not a control — and it still wears the
+        // colour, or the hue stops being how you tell one project from another.
         const fixed = await render({ folderPath: '/proj' })
         await settle()
         await settle()
-        const line = [...fixed.container.querySelectorAll('p')].find((el) => (el.textContent ?? '').includes('proj'))
+        const line = fixed.container.querySelector<HTMLElement>('[data-composer-strip] [data-project-line="true"]')
         assert.ok(line, 'the plain scope line is there')
         assert.equal(
           fixed.container.querySelector('[data-project-trigger="true"]'),
@@ -2822,17 +2819,29 @@ test('NewAgentPanel', async () => {
       return { view, drafts, scheduled, type, enter }
     }
 
-    await check('Scheduled agent saves the launch on screen, on the tray’s schedule, and starts nothing', async () => {
+    // The Schedule row of the "+" menu, and whether it can be picked.
+    const scheduleRow = async (view: Harness): Promise<HTMLElement | null> => {
+      const menu = await openOptions(view)
+      return menu?.querySelector<HTMLElement>('[data-composer-schedule="true"]') ?? null
+    }
+    const sendButton = (view: Harness): HTMLElement | undefined =>
+      [...view.container.querySelectorAll<HTMLElement>('[data-new-chat-composer] button')].pop()
+
+    await check('Scheduled agent saves the launch on screen, on the tag’s schedule, and starts nothing', async () => {
       seedStore()
       const door = await scheduleDoor()
-      const toggle = [...door.view.container.querySelectorAll('[role="radio"]')].find(
-        (el) => el.textContent === 'Scheduled agent',
-      )
-      assert.ok(toggle, 'the door offers Scheduled agent beside Chat')
+      assert.equal(door.view.container.querySelector('[role="radiogroup"]'), null, 'no Chat | Scheduled switch')
+      const toggle = await scheduleRow(door.view)
+      assert.ok(toggle, 'the "+" offers Schedule')
+      assert.equal(toggle?.getAttribute('aria-checked'), 'false')
       await act(async () => {
         toggle!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
-      assert.ok(door.view.text().includes('Weekdays at 9:00 AM'), 'a new one starts on weekdays at 9 AM, in the tray')
+      assert.ok(
+        door.view.container.querySelector('[data-schedule-tag="true"]')?.textContent?.includes('Weekdays at 9:00 AM'),
+        'a new one starts on weekdays at 9 AM, said on a tag beside the "+"',
+      )
+      assert.equal(sendButton(door.view)?.textContent?.trim(), 'Schedule', 'and the send says Schedule')
       const field = await door.type('Triage the new issues.')
       await door.enter(field)
       assert.equal(door.view.launches.length, 0, 'nothing is started')
@@ -2848,6 +2857,48 @@ test('NewAgentPanel', async () => {
       door.view.unmount()
     })
 
+    await check('Schedule is greyed for a terminal agent, and a terminal hides the model', async () => {
+      seedStore()
+      const door = await scheduleDoor({ initialSelection: { kind: 'general' } })
+      const row = await scheduleRow(door.view)
+      assert.ok(row, 'Schedule is listed for a terminal agent')
+      assert.equal(row?.hasAttribute('disabled'), true, 'but cannot be picked')
+      assert.ok(
+        (row?.textContent ?? '').includes('Only a conversation can run on a schedule'),
+        'and says why, as its hint',
+      )
+      await act(async () => {
+        dom.window.document.dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        )
+      })
+      assert.ok(
+        [...door.view.container.querySelectorAll('button')].some((button) =>
+          (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
+        ),
+        'a terminal agent has a model',
+      )
+      await pickKind(door.view, 'terminal')
+      assert.ok(
+        ![...door.view.container.querySelectorAll('button')].some((button) =>
+          (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
+        ),
+        'a plain terminal hides the model picker',
+      )
+      assert.equal(sendButton(door.view)?.getAttribute('aria-label'), 'Open terminal', 'and its send opens a terminal')
+      // Picking Terminal while scheduled stops scheduling, rather than lying
+      // about what each run would start.
+      await pickKind(door.view, 'conversation')
+      const again = await scheduleRow(door.view)
+      await act(async () => {
+        again!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      assert.ok(door.view.container.querySelector('[data-schedule-tag="true"]'), 'scheduled')
+      await pickKind(door.view, 'terminal')
+      assert.equal(door.view.container.querySelector('[data-schedule-tag="true"]'), null, 'a terminal unschedules')
+      door.view.unmount()
+    })
+
     await check('/schedule at the cursor picks the schedule and switches the door to it', async () => {
       seedStore()
       const door = await scheduleDoor()
@@ -2857,10 +2908,8 @@ test('NewAgentPanel', async () => {
       await door.enter(field)
       assert.equal(field.value, 'Sweep for dead code.', 'the /schedule words leave the prompt')
       assert.equal(door.drafts.length, 0, 'picking a schedule schedules nothing yet')
-      const toggle = [...door.view.container.querySelectorAll('[role="radio"]')].find(
-        (el) => el.textContent === 'Scheduled agent',
-      )
-      assert.equal(toggle?.getAttribute('aria-checked'), 'true', 'the door is on Scheduled agent')
+      const toggle = await scheduleRow(door.view)
+      assert.equal(toggle?.getAttribute('aria-checked'), 'true', 'the door is on Schedule')
       assert.ok(door.view.text().includes('Every Sunday at 9:00 PM'), 'on that schedule')
       door.view.unmount()
     })

@@ -47,6 +47,8 @@ type Fixture = {
   sessionRoots?: Record<string, string>
   /** `gitRoot` → the branches `readPushedBranches` answers. */
   pushed?: Record<string, string[]>
+  /** Folders under these are asleep (a WSL distribution shut down). */
+  asleep?: string[]
 }
 
 async function domainOver(fixture: Fixture) {
@@ -99,6 +101,9 @@ async function domainOver(fixture: Fixture) {
     readDefaultBranch: async (gitRoot) =>
       fixture.defaultBranches && gitRoot in fixture.defaultBranches ? fixture.defaultBranches[gitRoot] : 'main',
     log: () => undefined,
+    ...(fixture.asleep
+      ? { pathAsleep: (path: string) => fixture.asleep!.some((folder) => path.startsWith(folder)) }
+      : {}),
   })
   const emit = (event: Partial<ConversationEvent> & Pick<ConversationEvent, 'type'>) => {
     for (const listener of listeners)
@@ -420,5 +425,32 @@ test('a terminal agent on the default branch still wears what a legacy capture f
   await fixture.settled()
   assert.deepEqual(fixture.lookups, [])
   assert.deepEqual(named, [terminal, 'terminal-1'])
+  fixture.domain.dispose()
+})
+
+test('the poll wakes no checkout that is asleep: a chat that worked in a WSL distribution since shut down', async () => {
+  const asleep: string[] = []
+  const fixture = await domainOver({
+    checkouts: {
+      '/wsl/repo': { gitRoot: '/wsl/repo', branch: 'feature' },
+      '/repo': { gitRoot: '/repo', branch: 'other' },
+    },
+    answers: {},
+    sessionRoots: { 'chat-session': '/wsl/repo', 'here-session': '/repo' },
+    asleep,
+  })
+  // Both chats worked a moment ago; then WSL is shut down.
+  fixture.emit({ type: 'turn_completed', payload: { turnId: 't1' } })
+  fixture.emit({ type: 'turn_completed', sessionId: 'here-session', agentId: 'agent-2', payload: { turnId: 't2' } })
+  await fixture.settled()
+  assert.deepEqual(fixture.lookups.sort(), ['/repo@other', '/wsl/repo@feature'])
+  asleep.push('/wsl/')
+  fixture.lookups.length = 0
+  fixture.resolved.length = 0
+  fixture.advance(61_000)
+  await fixture.domain.pollOnce(true)
+  await fixture.settled()
+  assert.deepEqual(fixture.lookups, ['/repo@other'], 'the chat in the distribution is not looked up there')
+  assert.ok(!fixture.resolved.some((path) => path.startsWith('/wsl/')), 'nor is its folder read')
   fixture.domain.dispose()
 })

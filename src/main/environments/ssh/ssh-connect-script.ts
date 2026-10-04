@@ -11,6 +11,7 @@ import {
 } from '../../hosts/remote-install'
 import { remoteNodePackage, type RemoteNodeTarget } from '../../hosts/wsl-node-runtime'
 import { parseSemver } from '../../../shared/semver'
+import { parseGhVersion, type HostGhStatus } from '../../../shared/host-gh'
 
 // The one script every SSH session runs (phase 8 spec, 5.2): a probe of what
 // the machine is, then `@@SPRINTENGINE_SEND`, then one decision line from the
@@ -146,6 +147,26 @@ export function buildConnectScript(input: ConnectScriptInput): string {
     'for tool in tar gzip curl wget sha256sum shasum systemctl loginctl; do',
     '  command -v "$tool" >/dev/null 2>&1 && probe has "$tool"',
     'done',
+    // The machine's GitHub CLI, for Settings: a chat here opens its pull
+    // requests with it. Whether it holds a token is asked without reading the
+    // token back (it goes to /dev/null here), and never asks anything itself.
+    // `ssh host sh -s` runs no login profile, so this PATH is the system's
+    // (on a Mac, no Homebrew); the server's own gh runs fall back to the login
+    // shell and find gh there. So the folders gh is installed in are looked in
+    // too, the person's own first as a profile puts them, rather than telling
+    // the person to install a gh they have. gh gets no stdin: this script's
+    // stdin carries the decision line.
+    'gh_bin="$(command -v gh 2>/dev/null)"',
+    'if [ -z "$gh_bin" ]; then',
+    '  for d in "$HOME/.local/bin" "$HOME/bin" /opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin /snap/bin; do',
+    '    if [ -x "$d/gh" ]; then gh_bin="$d/gh"; break; fi',
+    '  done',
+    'fi',
+    'if [ -n "$gh_bin" ]; then',
+    '  probe has gh',
+    '  probe gh_version "$("$gh_bin" --version </dev/null 2>/dev/null | head -n 1)"',
+    '  if GH_PROMPT_DISABLED=1 "$gh_bin" auth token </dev/null >/dev/null 2>&1; then probe gh_auth 1; else probe gh_auth 0; fi',
+    'fi',
     'if command -v loginctl >/dev/null 2>&1; then probe linger "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)"; fi',
     'probe kill_user_processes "$(sed -n \'s/^KillUserProcesses=//p\' /etc/systemd/logind.conf 2>/dev/null | tail -n 1)"',
     'probe node_ready "$(cat "$rt/.ready" 2>/dev/null)"',
@@ -218,6 +239,8 @@ export type Probe = {
   fstype: string | null
   exec: boolean
   tools: Set<string>
+  /** The machine's GitHub CLI: installed, its version, and whether it holds a token. */
+  gh: HostGhStatus
   linger: string | null
   killUserProcesses: string | null
   nodeReady: string
@@ -271,6 +294,13 @@ export function parseProbe(lines: readonly string[]): Probe | null {
     fstype: fields.get('fstype') || null,
     exec: text('exec') === '1',
     tools,
+    gh: tools.has('gh')
+      ? {
+          installed: true,
+          version: parseGhVersion(text('gh_version')),
+          signedIn: text('gh_auth') === '1' ? true : text('gh_auth') === '0' ? false : null,
+        }
+      : { installed: false, version: null, signedIn: null },
     linger: fields.get('linger') || null,
     killUserProcesses: fields.get('kill_user_processes') || null,
     nodeReady: text('node_ready'),

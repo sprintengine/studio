@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
@@ -73,7 +76,17 @@ test('buttonSpecies', async () => {
     const { act } = React
     const { createRoot } = await import('react-dom/client')
 
-    const { CaptionButton, GhostButton, IconButton, MediaButton, OutlineButton } = await import('./Buttons')
+    const {
+      CaptionButton,
+      DangerButton,
+      GhostButton,
+      IconButton,
+      MediaButton,
+      OutlineButton,
+      PrimaryButton,
+      SendButton,
+    } = await import('./Buttons')
+    const { ComposerActionButton } = await import('../panels/agentChat/composerControls')
     const { RowButton } = await import('./RowButton')
     const { MenuOption } = await import('./MenuOption')
     const { TriggerButton } = await import('./TriggerButton')
@@ -178,6 +191,37 @@ test('buttonSpecies', async () => {
           )
         }
       }
+    })
+
+    // ── The round send (owner ruling 2026-10-04) ─────────────────────────────
+
+    run('SendButton is the primary made round: the pill corner replaces the size step’s', () => {
+      for (const size of ['inline', 'xs', 'sm', 'md'] as const) {
+        const classes = classesOf(<SendButton size={size}>Schedule</SendButton>)
+        assert.match(classes, /rounded-\[var\(--sem-radius-pill\)\]/, `size=${size} is round`)
+        assert.ok(!/(?:^|\s)rounded-(?:xs|sm)(?:\s|$)/.test(classes), `size=${size} drops the step’s own radius`)
+        assert.deepEqual(duplicateUtilities(classes), [], `SendButton size=${size} declares a property twice`)
+        assert.match(classes, /bg-\[color:var\(--accent-primary\)\]/, 'the primary’s fill')
+        assert.match(classes, /disabled:hover:bg-\[color:var\(--accent-primary\)\]/, 'and its disabled hover guard')
+        assert.match(classes, /control-raised/, 'and its one lit edge (tier 1)')
+      }
+      assert.equal(attrOf(<SendButton busy>Save</SendButton>, 'aria-busy'), 'true')
+      assert.equal(attrOf(<SendButton>Save</SendButton>, 'type'), 'button')
+    })
+
+    run('the open composer’s send is one disc: one width and one inline padding', () => {
+      const classes = classesOf(
+        <ComposerActionButton tone="accent" ariaLabel="Send" onClick={() => {}}>
+          <svg />
+        </ComposerActionButton>,
+      )
+      assert.match(classes, /rounded-\[var\(--sem-radius-pill\)\]/)
+      assert.deepEqual(duplicateUtilities(classes), [])
+      // `px-0` beside the size step's `px-2` is resolved by stylesheet order
+      // (Tailwind emits `px-2` after `px-0`, so it is dead weight that reads as
+      // a decision). The disc is squared by its width alone.
+      const paddings = classes.split(/\s+/).filter((c) => c.startsWith('px-'))
+      assert.ok(paddings.length <= 1, `two inline paddings on the send: ${paddings.join(' ')}`)
     })
 
     // ── Ghost tones ───────────────────────────────────────────────────────────
@@ -472,7 +516,7 @@ test('buttonSpecies', async () => {
 
     run('the trigger is a field, not a pressable control', () => {
       const classes = classesOf(<TriggerButton>Pick a role</TriggerButton>)
-      assert.ok(!/control-edge|control-raised/.test(classes), 'a field does not stand off the page')
+      assert.ok(!/control-raised|control-thumb|shadow/.test(classes), 'a field does not stand off the page')
       assert.match(classes, /justify-between/, 'value on one side, chevron on the other')
       assert.match(classes, /bg-\[color:var\(--bg-surface-raised\)\]/, 'the Select trigger’s ground')
       assert.match(classes, /h-control-sm/, 'and its height, so it matches the input beside it')
@@ -688,6 +732,134 @@ test('buttonSpecies', async () => {
       assert.equal(box(marker), box(control))
       marker.unmount()
       control.unmount()
+    })
+
+    // ── Control tiers (owner ruling 2026-10-04) ─────────────────────────────
+    //
+    // Tier 1, the primary action, carries the one faint highlight. Tier 2, a
+    // standalone secondary, is flat on a hairline. Tier 3, a control inside a
+    // surface, is ghost. Every tier presses by the shared `.interactive` scale,
+    // except the grid tile, which presses by its ground.
+
+    const depthOf = (classes: string): string[] =>
+      classes.split(/\s+/).filter((c) => /^control-|shadow/.test(c) && !c.startsWith('focus'))
+
+    run('tier 1: the primary and its destructive stand-in carry the highlight, and nothing else does', () => {
+      for (const node of [<PrimaryButton key="p">Create</PrimaryButton>, <DangerButton key="d">Delete</DangerButton>]) {
+        const classes = classesOf(node)
+        assert.deepEqual(depthOf(classes), ['control-raised'], 'the faint lit edge, through one class')
+        assert.match(classes, /(?:^|\s)interactive(?:\s|$)/, 'and the shared press scale, not a bevel swap')
+      }
+      for (const node of [
+        <OutlineButton key="o">Cancel</OutlineButton>,
+        <GhostButton key="g">Stash</GhostButton>,
+        <IconButton key="i" aria-label="Refresh">
+          R
+        </IconButton>,
+        <ChipButton key="c" variant="raised">
+          Group
+        </ChipButton>,
+        <TriggerButton key="t">Role</TriggerButton>,
+        <TriggerButton key="tg" variant="ghost">
+          main
+        </TriggerButton>,
+        <CardButton key="k" variant="raised">
+          Terminal
+        </CardButton>,
+      ]) {
+        assert.deepEqual(depthOf(classesOf(node)), [], 'below tier 1 a control carries no depth at all')
+      }
+    })
+
+    run('tier 2: the outline is flat on the strong hairline, and steps its ground under the press', () => {
+      const classes = classesOf(<OutlineButton>Cancel</OutlineButton>)
+      assert.match(classes, /(?:^|\s)border-\[color:var\(--border-strong\)\]/, 'the strong hairline, at rest')
+      assert.match(classes, /(?:^|\s)bg-transparent(?:\s|$)/, 'over a transparent ground')
+      assert.ok(!/hover:border-/.test(classes), 'the hairline holds; only the ground and the ink move')
+      assert.match(classes, /hover:bg-\[color:var\(--bg-hover\)\]/)
+      assert.match(classes, /enabled:active:bg-\[color:var\(--bg-active\)\]/)
+      assert.match(classes, /(?:^|\s)interactive(?:\s|$)/, 'and the shared press scale')
+      assert.deepEqual(duplicateUtilities(classes), [])
+      const thrown = classesOf(<OutlineButton pressed>Mark read</OutlineButton>)
+      assert.match(thrown, /(?:^|\s)bg-\[color:var\(--bg-selected\)\]/, 'a thrown toggle keeps the selection fill')
+      assert.deepEqual(duplicateUtilities(thrown), [])
+    })
+
+    run('tier 2: the launcher tile keeps its hairline and ground, and presses by its ground', () => {
+      const classes = classesOf(<CardButton variant="raised">Terminal</CardButton>)
+      assert.match(classes, /(?:^|\s)border-\[color:var\(--border-default\)\]/)
+      assert.match(classes, /(?:^|\s)bg-\[color:var\(--bg-surface-raised\)\]/)
+      assert.match(classes, /enabled:active:bg-\[color:var\(--bg-active\)\]/)
+      assert.ok(!/(?:^|\s)interactive(?:\s|$)/.test(classes), 'no scale: a grid tile that shrank would leave its row')
+      assert.deepEqual(duplicateUtilities(classes), [])
+    })
+
+    run('tier 3: the toolbar chip is ghost, at the toolbar’s height, with the ghost button’s ink', () => {
+      const classes = classesOf(<ChipButton variant="raised">Group: folder</ChipButton>)
+      assert.ok(!/(?:^|\s)border(?:\s|$)|border-\[/.test(classes), 'no edge at any state')
+      assert.match(classes, /(?:^|\s)bg-transparent(?:\s|$)/)
+      assert.match(classes, /hover:bg-\[color:var\(--bg-hover\)\]/)
+      assert.match(classes, /enabled:active:bg-\[color:var\(--bg-active\)\]/)
+      assert.match(classes, /h-control-xs/, 'still a control in a toolbar row, not a line-box chip')
+      assert.match(
+        classes,
+        /(?:^|\s)text-\[color:var\(--text-muted\)\].*hover:text-\[color:var\(--text-strong\)\]/,
+        'muted lifting to strong, as the ghost glyphs beside it',
+      )
+      assert.match(classes, /(?:^|\s)interactive(?:\s|$)/, 'and the shared press scale')
+      assert.deepEqual(duplicateUtilities(classes), [])
+      const warn = classesOf(
+        <ChipButton variant="raised" tone="warn">
+          Bypass
+        </ChipButton>,
+      )
+      assert.match(warn, /text-\[color:var\(--tone-warn\)\]/, 'a tone keeps its own ink on the toolbar chip')
+    })
+
+    run('tier 3: a trigger in a toolbar is ghost, and open takes the fill without an edge', () => {
+      const resting = classesOf(<TriggerButton variant="ghost">main</TriggerButton>)
+      assert.ok(!/(?:^|\s)border(?:\s|$)|border-\[/.test(resting), 'no edge at rest')
+      assert.match(resting, /(?:^|\s)bg-transparent(?:\s|$)/)
+      assert.match(resting, /hover:bg-\[color:var\(--bg-hover\)\]/)
+      assert.match(resting, /(?:^|\s)text-meta(?:\s|$)/, 'the toolbar’s type, not the form’s')
+      assert.deepEqual(duplicateUtilities(resting), [])
+      const open = classesOf(
+        <TriggerButton variant="ghost" open>
+          main
+        </TriggerButton>,
+      )
+      assert.match(open, /(?:^|\s)bg-\[color:var\(--bg-selected\)\]/)
+      assert.ok(
+        !/(?:^|\s)border(?:\s|$)|border-\[/.test(open),
+        'an edge that appeared on open would be a border appearing',
+      )
+      assert.deepEqual(duplicateUtilities(open), [])
+    })
+
+    run('the app stylesheet: one press for every control, one highlight, no bevel', () => {
+      const css = readFileSync(join(process.cwd(), 'src/renderer/src/assets/index.css'), 'utf8')
+      const block = (selector: string): string => {
+        const at = css.indexOf(`${selector} {`)
+        assert.ok(at !== -1, `index.css declares ${selector}`)
+        return css.slice(at, css.indexOf('}', at))
+      }
+      assert.match(
+        css,
+        /\.interactive:active:not\(:disabled\):not\(\[aria-disabled="true"\]\) \{\s*transform: scale\(0\.97\);/,
+        'the press scale excludes nothing but a disabled control',
+      )
+      // The only rule that sets the press back to `none` lives in the
+      // reduced-motion block; the test does not try to parse the nesting.
+      assert.match(
+        css,
+        /prefers-reduced-motion: reduce[\s\S]*\.interactive:active:not\(:disabled\):not\(\[aria-disabled="true"\]\) \{\s*transform: none;/,
+        'and stands still under reduced motion',
+      )
+      assert.equal(block('.control-raised').trim(), '.control-raised {\n  box-shadow: var(--shadow-control-raised);')
+      assert.match(block('.control-thumb'), /box-shadow: var\(--shadow-control-thumb\);/)
+      for (const retired of ['control-edge', 'control-track', 'control-pressed', 'control-sheen', 'raised-sheen']) {
+        assert.ok(!css.includes(retired), `the retired ${retired} is gone from the app stylesheet`)
+      }
     })
 
     if (failures > 0) {

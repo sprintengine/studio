@@ -305,12 +305,15 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
   })
   tailnetFrontDoor = gateway
   // A chat agent in WSL reaches its own server's gateway: the shell's six
-  // toolsets are offered there too, and run through this registry (phase 7).
+  // toolsets are offered there too, and run through this registry, and so
+  // are this server's own tools of the families the WSL server cannot serve
+  // (phase 7).
   const wslServers = core.wslServers
   if (wslServers)
     relayShellToolsets({
       onConnected: (listener) => wslServers.onConnected(listener),
       registry: gateway.clientTools,
+      gatewayTools: gateway.ownTools,
       log: (message) => {
         void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'WSL server', message })
       },

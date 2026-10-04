@@ -2,11 +2,13 @@
 // attention pulse, row tooltips, the machine and schedule marks, the project
 // line, the branch chip and the working timer.
 
-import { RowButton, Tooltip, TruncatedText } from '../../ui'
+import { MachineGlyph, RowButton, Tooltip, TruncatedText } from '../../ui'
+import type { MachineRef } from '../../../../../shared/machine-identity'
+import { useMachineIdentity } from '../../../hooks/useMachineIdentity'
 import { useChangePulse } from '../../../hooks/useChangePulse'
 import React, { createContext, useContext, useState } from 'react'
 import { shortMachineName } from '../../remote/machineRowModel'
-import { RemoteMachineGlyph, FolderTypeIcon, GitBranchGlyph, ScheduleGlyph } from '../../AppIcons'
+import { FolderTypeIcon, GitBranchGlyph, ScheduleGlyph } from '../../AppIcons'
 import { type ProjectColor } from '../../../utils/projectColor'
 import { formatElapsedMs } from '../../../utils/relativeTime'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
@@ -177,31 +179,35 @@ export function RowTooltip({ children, ...props }: React.ComponentProps<typeof T
   )
 }
 
+/** A machine other than this one, as a row knows it: who it is, and what to call it. */
+export type RowMachine = { ref: MachineRef | null; name: string }
+
 /**
- * The one mark that says a row is running somewhere else: the machine glyph,
- * in the connected green, with the device's name on hover.
+ * The one mark that says a row is running somewhere else: the machine's own
+ * glyph in the machine's own colour (owner ruling 2026-10-04), with its name
+ * on hover. A chat on a WSL distribution, an SSH machine or a paired machine
+ * wears it; a chat on this computer wears nothing.
  *
- * Green, not the row's own ink (owner, 2026-09-11). A remote row is now an
- * ordinary row of an ordinary project — it has no band, no header and no
- * "Remote" label around it any more — so this glyph is the whole of what
- * distinguishes it, and a muted mark beside a muted project name was not a
- * distinction anyone could see. It reads the same as every other live-link
- * green in the app (the top bar's Remote glyph, a machine that answers).
+ * The kind and colour are the machine's identity (shared/machine-identity), so
+ * two chats on one machine wear one mark and two machines are told apart at a
+ * glance — which the single green "elsewhere" glyph it replaces could not do.
  *
  * The NAME stays in the tooltip and the accessible name, never in the row's
  * own width: `mac-mini.example.ts.net` would take the row.
  */
-export function RemoteRowGlyph({ machineName }: { machineName: string }) {
-  const short = shortMachineName(machineName)
+export function MachineRowGlyph({ machine }: { machine: RowMachine | null }) {
+  const identity = useMachineIdentity(machine?.ref ?? null)
+  if (!machine || !identity) return null
+  const short = shortMachineName(machine.name)
   return (
     <Tooltip content={`On ${short}`} placement="bottom" wrapperClassName="flex shrink-0 items-center">
       <span
         role="img"
         aria-label={`On ${short}`}
         className="flex shrink-0 items-center"
-        data-remote-row-glyph={machineName}
+        data-remote-row-glyph={machine.name}
       >
-        <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--tone-good)]" />
+        <MachineGlyph identity={identity} />
       </span>
     </Tooltip>
   )
@@ -231,9 +237,9 @@ export function ScheduledRunGlyph({ scheduledAgentId }: { scheduledAgentId: stri
 
 /**
  * The project a row belongs to, as the flat stream says it: the folder glyph
- * in the project's hue, the project's name, its open pull requests, and — when
- * the row is running on a paired machine — the green machine glyph immediately
- * right of the folder icon (owner, 2026-09-11).
+ * in the project's hue, the project's name, and — when the row runs on another
+ * machine — that machine's glyph trailing the name (owner ruling 2026-10-04,
+ * moved from beside the folder icon, where it read as part of the project).
  *
  * One component for local and remote rows both, so a remote chat in the All
  * chats list is the same row as every other one, differing by that single mark.
@@ -247,13 +253,13 @@ export type FlatProjectLine = {
 
 export function ProjectLine({
   project,
-  machineName = null,
+  machine = null,
   dim = false,
   children,
 }: {
   project: FlatProjectLine
-  /** The device this row runs on; null for a local row. */
-  machineName?: string | null
+  /** The machine this row runs on; null for a row on this computer. */
+  machine?: RowMachine | null
   dim?: boolean
   /** The row's status seat, which rides this line's trailing edge. */
   children?: React.ReactNode
@@ -269,8 +275,8 @@ export function ProjectLine({
           in the row's own ink: the hue identifies the project, and a
           coloured word would be a second, louder saying of it. */}
       <FolderTypeIcon className="icon-xs shrink-0" color={project.color} unfiled={project.unfiled} />
-      {machineName ? <RemoteRowGlyph machineName={machineName} /> : null}
       <span className="min-w-0 truncate">{project.name}</span>
+      <MachineRowGlyph machine={machine} />
       {/* No pull request count here (owner, 2026-10-02). This line repeats
           down every row of a project, so a project-wide count on it read as
           "this chat has an open pull request" on chats that had none. A

@@ -18,6 +18,7 @@ import type {
   VersionControlProviderProbe,
   WorkspaceFolderCheckResult,
 } from '../../shared/electron-api'
+import type { HostGhStatus } from '../../shared/host-gh'
 
 export const filesystemApi = {
   readdir: (path: string) => ipcRenderer.invoke('fs:readdir', path),
@@ -94,6 +95,8 @@ export const filesystemApi = {
   showItemInFolder: (targetPath: string) => ipcRenderer.invoke('fs:show-item-in-folder', targetPath),
   probeVersionControlProviders: (): Promise<VersionControlProviderProbe[]> =>
     ipcRenderer.invoke('version-control:probe-providers'),
+  probeHostGh: (hostId: string): Promise<HostGhStatus | null> =>
+    ipcRenderer.invoke('version-control:probe-host-gh', hostId),
   openHtmlFileInBrowser: (targetPath: string) => ipcRenderer.invoke('fs:open-html-file-in-browser', targetPath),
   listFolderOpenTargets: (): Promise<FolderOpenTargetAvailability[]> => ipcRenderer.invoke('fs:folder-open-targets'),
   openFolderInTarget: (request: FolderOpenRequest): Promise<FolderOpenResult> =>
@@ -151,6 +154,7 @@ export const filesystemApi = {
   | 'deletePath'
   | 'showItemInFolder'
   | 'probeVersionControlProviders'
+  | 'probeHostGh'
   | 'openHtmlFileInBrowser'
   | 'listFolderOpenTargets'
   | 'openFolderInTarget'

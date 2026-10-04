@@ -4,6 +4,14 @@
 
 ### Added
 
+- **A listed chat names its machine and its pull requests.** `host`
+  (`ConversationWireHost`: `id`, `kind`, `label`, `color`) and `pullRequests`
+  (`ConversationWirePullRequest`: `number`, `state`, `url`, `title`, at most
+  `CONVERSATION_MAX_PULL_REQUESTS`) are optional members of
+  `ConversationThread`, kept by `parseConversationServerFrame` and validated
+  on their own by `parseConversationWireHost` and
+  `parseConversationWirePullRequests`. An unreadable one is left out and the
+  row kept. The pinned files are unchanged.
 - **The tool presentation is public.** `presentToolItem`, `toolActionVerb`
   and `summarizeToolGroup` (with `PresentableTool` and `ToolPresentation`)
   are exported from the entry, for views that word a tool step as Studio

@@ -62,6 +62,34 @@ describe('cliHostSpawn', () => {
     expect(plan.options).toMatchObject({ cwd: 'C:\\Users\\dev\\repo', windowsVerbatimArguments: true })
   })
 
+  it("lists a distribution's folder as safe for the agent's git when the chat runs on This PC there", () => {
+    const plan = cliHostSpawn(
+      {
+        command: 'C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.exe',
+        args: ['app-server'],
+        cwd: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\app',
+        // The person's own entry keeps its place; the folder's follow it.
+        env: { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.autocrlf', GIT_CONFIG_VALUE_0: 'false' },
+      },
+      { platform: 'win32' },
+    )
+    const env = plan.options.env as NodeJS.ProcessEnv
+    expect(env.GIT_CONFIG_COUNT).toBe('5')
+    expect([env.GIT_CONFIG_KEY_0, env.GIT_CONFIG_VALUE_0]).toEqual(['core.autocrlf', 'false'])
+    expect([1, 2, 3, 4].map((n) => [env[`GIT_CONFIG_KEY_${n}`], env[`GIT_CONFIG_VALUE_${n}`]])).toEqual([
+      ['safe.directory', '%(prefix)///wsl.localhost/Ubuntu/home/dev/app'],
+      ['safe.directory', '%(prefix)///wsl.localhost/Ubuntu/home/dev'],
+      ['safe.directory', '%(prefix)///wsl.localhost/Ubuntu/home'],
+      ['safe.directory', '%(prefix)///wsl.localhost/Ubuntu'],
+    ])
+    // A folder on a drive, or a chat in the distribution itself, gets none.
+    const onDrive = cliHostSpawn(
+      { command: 'codex.exe', args: [], cwd: 'C:\\Users\\dev\\app', env: {} },
+      { platform: 'win32' },
+    )
+    expect((onDrive.options.env as NodeJS.ProcessEnv).GIT_CONFIG_COUNT).toBeUndefined()
+  })
+
   it('starts a CLI on a WSL machine inside the distribution, in the folder as Linux names it', () => {
     const env = { PATH: 'C:\\Windows', SPRINTENGINE_AGENT_ID: 'agent-1', APPDATA: 'C:\\Users\\dev\\AppData' }
     const plan = cliHostSpawn(

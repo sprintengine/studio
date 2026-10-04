@@ -843,12 +843,13 @@ test('settingsSlice', async () => {
     'its one-time reset stamp is dropped with it',
   )
 
-  // Appearance: windowMaterial is a second axis beside theme.
+  // Appearance: windowMaterial is a second axis beside theme. A new install
+  // opens on the comfortable chat column (owner ruling 2026-10-04).
   assert.deepEqual(defaultAppearanceSettings(), {
     theme: 'system',
     windowMaterial: 'glass',
     chatContrast: 100,
-    chatWidth: 'full',
+    chatWidth: 'comfortable',
     agentCharacters: true,
   })
   assert.deepEqual(normalizeAppearanceSettings(undefined), defaultAppearanceSettings())
@@ -881,7 +882,9 @@ test('settingsSlice', async () => {
   )
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'nope', windowMaterial: 'frosted' }),
-    defaultAppearanceSettings(),
+    // A stored appearance with no width predates the setting: it reads as the
+    // full width it had, not the new install's default.
+    { ...defaultAppearanceSettings(), chatWidth: 'full' },
     'unknown theme and material values both fall back to defaults',
   )
 
@@ -1352,6 +1355,12 @@ test('chat contrast is clamped to its ramp and snapped to a step', () => {
 test('an unknown chat width falls back to full', () => {
   assert.equal(normalizeAppearanceSettings({ chatWidth: 'wide' }).chatWidth, 'wide')
   assert.equal(normalizeAppearanceSettings({ chatWidth: 'narrow' }).chatWidth, 'full')
+})
+
+test('a new install opens on the comfortable chat column, and a stored width is kept', () => {
+  assert.equal(normalizeAppearanceSettings(undefined).chatWidth, 'comfortable', 'nothing stored is a new install')
+  assert.equal(normalizeAppearanceSettings({ chatWidth: 'full' }).chatWidth, 'full', 'a width the person holds stays')
+  assert.equal(normalizeAppearanceSettings({ chatWidth: 'wide' }).chatWidth, 'wide')
 })
 
 test('the chat appearance setters store normalised values', () => {

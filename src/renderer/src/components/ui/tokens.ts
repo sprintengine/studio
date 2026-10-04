@@ -217,27 +217,40 @@ export const OVERLAY_CHROME_CLASS =
   'rounded-[7px] border border-[color:var(--border-strong)] shadow-[var(--shadow-popover)]'
 
 /**
- * The chat composer's material (MC: remote-sessions-ux /
+ * The chat composer's material (remote-sessions-ux /
  * composer-surface-premium), shared by the launch composer and the session
  * composer so the most-looked-at surface in the product is ONE surface:
  *
- * - `rounded-lg` — the shell radius (9px) via the app's radius alias; the two
+ * - `radius.composer` (22px) — the one named exception to the radius ceiling
+ *   (owner ruling 2026-10-04). It was the shell radius, and before that the two
  *   composers had shipped `rounded-md` on `bg-app` and `rounded-lg` on
  *   `bg-surface`, two materials for one thing.
  * - a raised-to-surface wash — both stops are tokens; flat white in light
- *   mode (the raise there is the hairline + shadow), a quiet top-lit
+ *   mode (the hairline is the whole edge there), a quiet top-lit
  *   gradient in dark.
  * - `shadow.control-raised` — its inset top highlight IS the dark-mode "lit
- *   edge"; deliberately the raw token, not `.control-raised`, whose
- *   `:active` press-invert belongs to buttons, not to a field being clicked
- *   into.
+ *   edge"; deliberately the raw token, not `.control-raised`, whose disabled
+ *   step belongs to buttons, not to a field. Since the control tiers (owner
+ *   ruling 2026-10-04) the token is that faint highlight alone, with no drop
+ *   under it.
  *
  * Border COLOR is the host's: both composers swap it to the accent while a
  * file drag is over them, and a color baked in here would fight that swap on
  * stylesheet order. No blur anywhere on this — terminals render beneath.
  */
 export const COMPOSER_SURFACE_CLASS =
-  'rounded-lg border bg-[image:linear-gradient(var(--bg-surface-raised),var(--bg-surface))] shadow-[var(--shadow-control-raised)]'
+  'rounded-[var(--sem-radius-composer)] border bg-[image:linear-gradient(var(--bg-surface-raised),var(--bg-surface))] shadow-[var(--shadow-control-raised)]'
+
+/**
+ * The composer's material without its corner: the wash, the hairline and the
+ * lit edge of `COMPOSER_SURFACE_CLASS`, and no radius. For a box that is
+ * written in like the composer but is not it — the Git pane's commit message
+ * (owner ruling 2026-10-01) — which keeps the shell radius: `radius.composer`
+ * is the composer's alone, and a square button in a 22px corner pokes out of
+ * the curve.
+ */
+export const COMPOSER_MATERIAL_CLASS =
+  'border bg-[image:linear-gradient(var(--bg-surface-raised),var(--bg-surface))] shadow-[var(--shadow-control-raised)]'
 
 /* ------------------------------------------------------------------ *
  * Overlay geometry — one scale for every floating surface

@@ -696,7 +696,18 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     options.onActivity?.({ kind: 'request', device, peerNode, peerAddress })
 
     if (method === 'GET' && path === TAILNET_IDENTITY_PATH) {
+      // How the device should draw this desktop: the kind and colour the
+      // person chose, else the defaults another desktop gives it. Absent from
+      // a desktop built before it was sent, and from one with no conversation
+      // lane; a device draws its own default then.
+      let machine: { kind: string; color: string } | null = null
+      try {
+        machine = options.conversations?.machine?.() ?? null
+      } catch {
+        machine = null
+      }
       writeJson(response, 200, {
+        ...(machine ? { machine } : {}),
         deviceId: device.id,
         deviceName: device.name,
         scopes: device.scopes,

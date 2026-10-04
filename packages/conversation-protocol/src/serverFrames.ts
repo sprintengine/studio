@@ -41,6 +41,83 @@ export type ConversationWirePage = { events: ConversationWireEvent[]; hasMore: b
 export type ConversationThread = Omit<ConversationWireThread, 'capabilities'> & {
   permissionMode?: string
   capabilities?: NonNullable<ConversationWireThread['capabilities']> & { permissionModes?: string[] }
+  /**
+   * The machine the chat runs on. Absent from a desktop built before it was
+   * listed, and for a chat whose machine the desktop cannot name yet.
+   */
+  host?: ConversationWireHost
+  /**
+   * The pull requests the chat's branches have, as the desktop last recorded
+   * them, newest first. Absent from a desktop built before it was listed;
+   * empty when the chat has none.
+   */
+  pullRequests?: ConversationWirePullRequest[]
+}
+
+/**
+ * The machine a listed chat runs on, or the desktop itself.
+ *
+ * `id` is the machine's stable id, the same on every device that sees it:
+ * `local` for the desktop the list came from, `wsl:<distro>` for a WSL
+ * distribution on it, `ssh:<host>` for an SSH machine and `tailnet:<host>`
+ * for a paired machine. A client draws no machine mark for `local`: the chat
+ * runs on the machine it is talking to.
+ *
+ * `kind` and `color` are the person's choice in Settings › Machines, else
+ * the defaults. Today `kind` is one of `laptop`, `desktop`, `mini`, `tower`,
+ * `server`, `cloud`, `container`, `board` or `wsl`, and `color` one of `blue`,
+ * `teal`, `cyan`, `orange`, `yellow`, `violet`, `red` or `neutral`. A newer
+ * desktop may add one, so a client draws an unknown kind as a desktop and an
+ * unknown colour as the neutral rather than dropping the machine.
+ */
+export type ConversationWireHost = { id: string; kind: string; label: string; color: string }
+
+/** One pull request a listed chat's branch has. Nothing here is read from GitHub when the list is asked for. */
+export type ConversationWirePullRequest = {
+  number: number
+  state: ConversationWirePullRequestState
+  url: string
+  title: string
+}
+export type ConversationWirePullRequestState = 'open' | 'merged' | 'closed'
+
+/** The most pull requests a listed chat carries; a desktop sends at most this many. */
+export const CONVERSATION_MAX_PULL_REQUESTS = 20
+
+const PULL_REQUEST_STATES = new Set<ConversationWirePullRequestState>(['open', 'merged', 'closed'])
+// A kind or a colour is a short lower-case token. One this client does not
+// know still passes: a newer desktop may add one, and the client says so with
+// its fallback rather than losing the machine.
+const MARK_TOKEN = /^[a-z][a-z0-9-]{0,31}$/
+
+/** A listed chat's machine, or null when it is not one. */
+export function parseConversationWireHost(value: unknown): ConversationWireHost | null {
+  if (!record(value)) return null
+  if (!id(value.id) || !text(value.label, 200) || typeof value.kind !== 'string' || typeof value.color !== 'string')
+    return null
+  if (!MARK_TOKEN.test(value.kind) || !MARK_TOKEN.test(value.color)) return null
+  return { id: value.id, kind: value.kind, label: value.label, color: value.color }
+}
+
+/** A listed chat's pull requests: unreadable entries dropped, at most `CONVERSATION_MAX_PULL_REQUESTS`. */
+export function parseConversationWirePullRequests(value: unknown): ConversationWirePullRequest[] | null {
+  if (!Array.isArray(value)) return null
+  const pullRequests: ConversationWirePullRequest[] = []
+  for (const entry of value) {
+    if (pullRequests.length >= CONVERSATION_MAX_PULL_REQUESTS) break
+    if (!record(entry)) continue
+    if (!(typeof entry.number === 'number' && Number.isSafeInteger(entry.number) && entry.number > 0)) continue
+    if (!PULL_REQUEST_STATES.has(entry.state as ConversationWirePullRequestState)) continue
+    if (typeof entry.url !== 'string' || !/^https?:\/\//.test(entry.url) || entry.url.length > 2_000) continue
+    if (!text(entry.title, 2_000)) continue
+    pullRequests.push({
+      number: entry.number,
+      state: entry.state as ConversationWirePullRequestState,
+      url: entry.url,
+      title: entry.title,
+    })
+  }
+  return pullRequests
 }
 
 /** A server frame after validation: events and pages are typed, everything else as the protocol declares it. */
@@ -183,6 +260,8 @@ function thread(value: unknown): ConversationThread | null {
   // A catalog in the wrong shape is left out, like an unknown preset: the
   // model control hides rather than offering rows it could not read.
   const models = value.models === undefined ? null : parseConversationWireModels(value.models)
+  const host = value.host === undefined ? null : parseConversationWireHost(value.host)
+  const pullRequests = value.pullRequests === undefined ? null : parseConversationWirePullRequests(value.pullRequests)
   return {
     ...listed,
     title: value.title,
@@ -202,6 +281,10 @@ function thread(value: unknown): ConversationThread | null {
       ? { permissionMode: value.permissionMode }
       : {}),
     ...(models ? { models } : {}),
+    // A machine or a pull request this client cannot read is left out: the
+    // row shows no mark rather than a wrong one.
+    ...(host ? { host } : {}),
+    ...(pullRequests ? { pullRequests } : {}),
     ...(flags
       ? {
           capabilities: {

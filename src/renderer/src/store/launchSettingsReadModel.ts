@@ -1,7 +1,7 @@
 /**
  * The seam between the store's `appSettings` and main's agent-launch settings.
  *
- * Eight `appSettings` fields are a read model of main's record rather than
+ * Nine `appSettings` fields are a read model of main's record rather than
  * settings this window owns: they are filled from main, never persisted to
  * localStorage, and ignored when a persisted envelope is read back (except
  * once, as the migration offer — see `launchSettingsClient`). Everything that
@@ -20,6 +20,7 @@ import { normalizeAppSettings } from './slices/settingsSlice'
 export const LAUNCH_SETTINGS_KEYS = [
   'cliRuntimes',
   'hosts',
+  'machineMarks',
   'mcp',
   'projectKnowledgeRoots',
   'lastSelectedCli',
@@ -42,6 +43,7 @@ export function pickLaunchSettings(appSettings: AppSettings): LaunchSettingsFiel
   return {
     cliRuntimes: appSettings.cliRuntimes,
     hosts: appSettings.hosts,
+    machineMarks: appSettings.machineMarks,
     mcp: appSettings.mcp,
     projectKnowledgeRoots: appSettings.projectKnowledgeRoots,
     lastSelectedCli: appSettings.lastSelectedCli,
@@ -66,6 +68,7 @@ export function launchSettingsFromAppSettings(appSettings: AppSettings): AgentLa
   return {
     cliRuntimes: appSettings.cliRuntimes ?? {},
     hosts: appSettings.hosts ?? {},
+    machineMarks: appSettings.machineMarks ?? {},
     mcp: appSettings.mcp ?? { syncEnabled: false, servers: {} },
     projectKnowledgeRoots: appSettings.projectKnowledgeRoots ?? {},
     lastSelectedCli: appSettings.lastSelectedCli ?? null,
@@ -93,6 +96,7 @@ export function withLaunchSettings(
     {
       cliRuntimes: effective.cliRuntimes,
       hosts: effective.hosts,
+      machineMarks: effective.machineMarks,
       mcp: effective.mcp,
       projectKnowledgeRoots: effective.projectKnowledgeRoots,
       lastSelectedCli: effective.lastSelectedCli,
