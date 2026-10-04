@@ -863,7 +863,7 @@ export function createAppServices(
     // swallows its own failures, so none of them can cost a session anything.
     onAgentLaunched: (session) => agentChangelistFeed.onAgentLaunched(session),
     onAgentFileEdit: (input) => {
-      agentWrittenFiles.note(input.session.agentId, input.path)
+      agentWrittenFiles.note(input.session.workspaceId, input.session.agentId, input.path)
       agentChangelistFeed.onAgentFileEdit(input)
     },
     onAgentSessionExit: (session) => agentChangelistFeed.onAgentSessionExit(session),

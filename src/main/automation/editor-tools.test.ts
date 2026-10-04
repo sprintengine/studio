@@ -47,7 +47,10 @@ function build(overrides: Partial<EditorToolsDeps> = {}, shown: EditorRevealShow
       pathStyle: null,
       fileChanges: [],
     }),
-    agentWrittenPaths: () => [join(outside, 'fix.patch')],
+    // Only this workspace's agent-7 wrote it: another chat's agent of the same
+    // id is a different agent.
+    agentWrittenPaths: (workspaceId, agentId) =>
+      workspaceId === 'ws-1' && agentId === 'agent-7' ? [join(outside, 'fix.patch')] : [],
     resolveRepoRoot: async (dir) => (dir.startsWith(repo) ? repo : null),
     listWorktreePaths: async () => [repo],
     fs: nodePathPolicyFs,

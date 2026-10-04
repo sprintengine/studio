@@ -44,15 +44,20 @@ export function editorSessionFrom(snapshot: TerminalSessionSnapshot): EditorAgen
 /**
  * The session an agent connection speaks for: its agent terminal in that
  * workspace, the live one first when a relaunch left an exited one behind.
+ *
+ * An agent id is only unique within its workspace, so a session of this
+ * workspace always wins over one that names none; the latter is a fallback
+ * for a session with no workspace on record, never preferred over the
+ * caller's own (whose launch directories widen what the caller may show).
  */
 export function findEditorAgentSession(
   sessions: readonly TerminalSessionSnapshot[],
   workspaceId: string,
   agentId: string,
 ): EditorAgentSession | null {
-  const candidates = sessions.filter(
-    (session) => session.agentId === agentId && (!session.workspaceId || session.workspaceId === workspaceId),
-  )
+  const named = sessions.filter((session) => session.agentId === agentId)
+  const own = named.filter((session) => session.workspaceId === workspaceId)
+  const candidates = own.length > 0 ? own : named.filter((session) => !session.workspaceId)
   const chosen = candidates.find((session) => session.processAlive) ?? candidates[0]
   return chosen ? editorSessionFrom(chosen) : null
 }
@@ -109,7 +114,7 @@ export function createEditorToolBackends(options: {
     findWorkspace: options.findWorkspace,
     findAgentSession: (workspaceId, agentId) =>
       findEditorAgentSession(options.listTerminalSessions(), workspaceId, agentId),
-    agentWrittenPaths: (agentId) => options.agentWrittenFiles.pathsOf(agentId),
+    agentWrittenPaths: (workspaceId, agentId) => options.agentWrittenFiles.pathsOf(workspaceId, agentId),
     resolveRepoRoot: (directory) => getGitRepoRoot(directory),
     listWorktreePaths: async (repoRoot) => {
       const listed = await listGitWorktrees(repoRoot, { resolvedRoot: true })

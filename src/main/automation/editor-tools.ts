@@ -68,8 +68,11 @@ export type EditorDiffSource = {
 export type EditorToolsDeps = {
   findWorkspace(workspaceId: string): { folderPath: string | null } | null
   findAgentSession(workspaceId: string, agentId: string): EditorAgentSession | null
-  /** Every file this agent reported writing since the app started, any repository. */
-  agentWrittenPaths(agentId: string): Iterable<string>
+  /**
+   * Every file this agent reported writing since the app started, any
+   * repository. Agent ids are only unique within a workspace, so both name it.
+   */
+  agentWrittenPaths(workspaceId: string, agentId: string): Iterable<string>
   resolveRepoRoot(directory: string): Promise<string | null>
   listWorktreePaths(repoRoot: string): Promise<string[]>
   fs: PathPolicyFs
@@ -272,7 +275,7 @@ export function createEditorTools(deps: EditorToolsDeps): McpToolRegistration[] 
       const resolved = resolveAgentPath(raw, scope.pathContext)
       if (resolved.ok) written.add(comparablePath(resolved.value.path))
     }
-    for (const path of deps.agentWrittenPaths(scope.agentId)) add(path)
+    for (const path of deps.agentWrittenPaths(scope.workspaceId, scope.agentId)) add(path)
     for (const path of scope.session?.fileChanges ?? []) add(path)
     return written
   }
