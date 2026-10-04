@@ -5,8 +5,8 @@ import type { ElectronApi } from '../../shared/electron-api'
 /**
  * A terminal agent's pull request marks' one call; a sidebar row's marks are
  * read from the Studio server over the protocol (`pullRequests.*`). Fired when a mark comes into
- * view or the pointer lands on a conversation; main looks the session's branch
- * up and re-reads any state that has gone stale.
+ * view or the pointer lands on a conversation; the server re-reads the state
+ * of any pull request the session's agent opened that has gone stale.
  *
  * It takes a session id and answers only whether there was anything to ask
  * about — false for a session main cannot name or whose checkout has not

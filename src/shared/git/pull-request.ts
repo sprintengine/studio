@@ -6,22 +6,22 @@
 // State comes from GitHub (through `gh`) or stays as last read. It is NEVER
 // inferred from git ancestry: a rebase, a force push or a squash merge leaves
 // no ancestor of the branch tip on main, so `merge-base --is-ancestor` would
-// call a landed pull request open for ever (decision 8c).
+// call a landed pull request open for ever (decision 8c). A pull request on
+// another forge has no state the app can read: it is shown as opened.
 
-import { canonicalPullRequestUrl, parsePullRequestUrl } from './pr-url'
+import { classifyPullRequestUrl, type PullRequestForge } from './pr-url'
 import { canonicalRepositoryKey } from '../repository-identity'
 
 export type PullRequestState = 'open' | 'merged' | 'closed'
 
 export type BranchPullRequest = {
-  /** Canonical URL, as `parsePullRequestUrl` (src/shared/git/pr-url.ts) would normalise it. */
+  /** Canonical URL, as `classifyPullRequestUrl` (src/shared/git/pr-url.ts) normalises it. */
   url: string
   /**
    * The repository the pull request is IN — `host/owner/name`, the key every
    * clone of it shares (`canonicalRepositoryKey`). Not always the repository the
-   * conversation sits in: an agent that changed files in another repository
-   * wears the pull requests on its branch there, and the URL is what says where
-   * (decision 10).
+   * conversation sits in: an agent can open a pull request in another
+   * repository, and the URL is what says where (decision 10).
    */
   repoKey: string
   /** The repository's short name, for the rows and tooltips that must say which repo. */
@@ -31,41 +31,36 @@ export type BranchPullRequest = {
   state: PullRequestState
   /** A draft is still `open`; this only changes the tooltip's word. */
   isDraft: boolean
-  /** When GitHub says it was opened, ms epoch. */
+  /** When its host says it was opened (until then, when it was recorded), ms epoch. */
   openedAt: number
-  /** When `state` was last read from GitHub, ms epoch. */
+  /** When `state` was last read from its host, ms epoch; 0 when it never has been. */
   stateAt: number
   /**
-   * The session whose hooks captured the creation, on an entry written before
-   * marks came from branch lookups alone; absent for a lookup. Read, never
-   * written any more.
+   * The forge the pull request is on, when it is not GitHub (GitHub Enterprise
+   * included). The app reads a pull request's state through `gh` only, so one
+   * on another forge is shown as opened, and its `state` stays `open`.
    */
-  openedBySessionId?: string
+  forge?: Exclude<PullRequestForge, 'github'>
   /**
-   * The CONVERSATION the pull request came from, written down by a hook
-   * capture (owner, 2026-09-10) before marks came from branch lookups alone.
-   * Read, never written any more.
-   *
-   * `openedBySessionId` above names a terminal session, and a session dies. Once
-   * it has, nothing could say which chat the pull request belonged to any more,
-   * so a finished agent's pull request fell off its row and the sidebar could
-   * not answer "is there a pull request open here that I am missing". A
-   * conversation outlives every agent in it, so this is the id that keeps.
-   *
-   * Absent on a branch lookup (nobody's conversation opened it — it was found on
-   * a branch) and on every entry written before this existed; both are worn by
-   * the conversations that worked on their branch.
+   * The conversation that opened it (owner ruling 2026-10-04): its agent ran a
+   * create command or tool whose output named this pull request, or called the
+   * Studio gateway's `pull_request.link`. Written once, by the first
+   * conversation to claim it, and never by a branch lookup. A record written
+   * before the agent was known carries the workspace alone, and is worn by
+   * every conversation in it.
    */
   openedByWorkspaceId?: string
+  openedByAgentId?: string
+  /** The branch the pull request is from, once its host has said; the record stamps `onSessionBranch` from it. */
+  headRefName?: string
   /**
    * Set by the record's `forConversation` (`src/server/pull-requests/`): true
-   * when this pull request is on the repository AND branch of the
-   * conversation's own checkout. A conversation's list is a union (decision 10)
-   * that also holds pull requests on branches it worked on in OTHER
-   * repositories, and only the ones on its own branch may
-   * say anything about the state of that branch — the sidebar's "landed"
-   * reading (the-diff-an-agent-made decision 10) reads this and nothing else.
-   * Absent on an entry from another repository and on a fixture-built snapshot.
+   * when this pull request is from the branch the conversation's own checkout
+   * is on. A conversation may have opened pull requests from other branches
+   * and other repositories, and only the ones from its own branch may say
+   * anything about the state of that branch — the sidebar's "landed" reading
+   * (the-diff-an-agent-made decision 10) reads this and nothing else. Absent
+   * on any other entry and on a fixture-built snapshot.
    */
   onSessionBranch?: boolean
 }
@@ -93,7 +88,10 @@ export const PULL_REQUEST_TONE_VAR: Record<PullRequestTone, string> = {
 }
 
 /** The word a tooltip or a spoken label uses for the state. */
-export function pullRequestStateLabel(pr: Pick<BranchPullRequest, 'state' | 'isDraft'>): string {
+export function pullRequestStateLabel(pr: Pick<BranchPullRequest, 'state' | 'isDraft' | 'forge'>): string {
+  // A forge whose state the app cannot read: it is known to have been
+  // opened, and nothing more is claimed.
+  if (pr.forge) return 'opened'
   if (pr.state === 'merged') return 'merged'
   // "closed" alone reads as resolved; the mockup's wording says the work did
   // NOT land, which is the fact the red cross is drawing.
@@ -101,53 +99,30 @@ export function pullRequestStateLabel(pr: Pick<BranchPullRequest, 'state' | 'isD
   return pr.isDraft ? 'open, a draft' : 'open'
 }
 
+/** What clicking a pull request does, said in words: the forge's own name for GitHub, a browser for the rest. */
+export function pullRequestOpenLabel(pr: Pick<BranchPullRequest, 'forge'>): string {
+  return pr.forge ? 'Open it in the browser' : 'Open it on GitHub'
+}
+
 /**
- * The repository a pull request URL names. Built through the one URL parser and
- * the one repository canonicaliser, so a pull request keys exactly the way a
- * local clone of that repository does and the two join up.
+ * The repository a pull request URL names, on any forge the classifier reads.
+ * Built through the one URL classifier and the one repository canonicaliser,
+ * so a pull request keys exactly the way a local clone of that repository does
+ * and the two join up.
  */
 export function pullRequestRepository(url: string): { repoKey: string; repoName: string } | null {
-  const parsed = parsePullRequestUrl(url)
-  if (!parsed || 'unsupported' in parsed) return null
-  const repoKey = canonicalRepositoryKey(`https://${parsed.host}/${parsed.owner}/${parsed.repo}`)
+  const classified = classifyPullRequestUrl(url)
+  if (!classified) return null
+  const repoKey = canonicalRepositoryKey(classified.repositoryUrl)
   if (!repoKey) return null
   const segments = repoKey.split('/').filter((segment) => segment.length > 0)
-  return { repoKey, repoName: segments[segments.length - 1] ?? parsed.repo }
+  const name = segments[segments.length - 1]
+  return name ? { repoKey, repoName: name } : null
 }
 
 /** The canonical URL for a pull request URL, or null when it is not one. */
 export function canonicalPullRequestUrlOf(url: string): string | null {
-  const parsed = parsePullRequestUrl(url)
-  return !parsed || 'unsupported' in parsed ? null : canonicalPullRequestUrl(parsed)
-}
-
-/**
- * The list a conversation wears: everything on its own repo and branch, plus
- * everything it opened itself in any repository (decision 10), de-duplicated by
- * URL and newest first. The same pull request reached both ways is one row —
- * the reading that knows more wins: the newer state, and the entry that
- * remembers which session opened it.
- */
-export function unionPullRequests(...lists: readonly (readonly BranchPullRequest[])[]): BranchPullRequest[] {
-  const byUrl = new Map<string, BranchPullRequest>()
-  for (const list of lists) {
-    for (const entry of list) {
-      const previous = byUrl.get(entry.url)
-      if (!previous) {
-        byUrl.set(entry.url, entry)
-        continue
-      }
-      const winner = entry.stateAt > previous.stateAt ? entry : previous
-      const other = winner === entry ? previous : entry
-      byUrl.set(
-        entry.url,
-        winner.openedBySessionId || !other.openedBySessionId
-          ? winner
-          : { ...winner, openedBySessionId: other.openedBySessionId },
-      )
-    }
-  }
-  return [...byUrl.values()].sort(newestFirst)
+  return classifyPullRequestUrl(url)?.url ?? null
 }
 
 function newestFirst(a: BranchPullRequest, b: BranchPullRequest): number {

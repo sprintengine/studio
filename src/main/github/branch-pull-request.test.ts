@@ -124,7 +124,7 @@ test('branch-pull-request', async () => {
       assert.equal(read.pullRequests[0].repoName, 'app')
       assert.equal(read.pullRequests[0].openedAt, Date.parse('2026-09-08T10:00:00.000Z'))
       assert.equal(read.pullRequests[0].stateAt, NOW, 'stateAt is when GitHub was asked')
-      assert.equal(read.pullRequests[0].openedBySessionId, undefined, 'a lookup names no session')
+      assert.equal(read.pullRequests[0].openedByWorkspaceId, undefined, 'a lookup names no conversation')
     }
 
     // A pull request whose payload says CLOSED but carries a mergedAt is merged.

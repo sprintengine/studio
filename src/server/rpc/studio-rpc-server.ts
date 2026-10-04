@@ -10,6 +10,7 @@ import {
   STUDIO_CLIENT_TOOLS_CAPABILITY,
   STUDIO_BOARD_FILES_CAPABILITY,
   STUDIO_PULL_REQUESTS_CAPABILITY,
+  STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY,
   STUDIO_PROTOCOL_MIN_SUPPORTED,
   STUDIO_PROTOCOL_VERSION,
   type StudioWelcomeFrame,
@@ -61,7 +62,7 @@ export type StudioRpcServerOptions = {
   tools?: ClientToolRegistry
   /** Files under a workspace's roots, for owners. Advertised as `files-write` only when given. */
   files?: StudioFiles
-  /** The pull requests the conversations' branches have, for owners. Advertised as `pull-requests` only when given. */
+  /** The pull requests the conversations opened, for owners. Advertised as `pull-requests` and `pull-request-tool-calls` only when given. */
   pullRequests?: StudioPullRequests
   resyncRetryAfterMs?: (clientId: string) => number
   socketPath?: string
@@ -105,7 +106,8 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
       (capability) =>
         (capability !== STUDIO_CLIENT_TOOLS_CAPABILITY || options.tools !== undefined) &&
         (capability !== STUDIO_BOARD_FILES_CAPABILITY || options.files !== undefined) &&
-        (capability !== STUDIO_PULL_REQUESTS_CAPABILITY || options.pullRequests !== undefined) &&
+        ((capability !== STUDIO_PULL_REQUESTS_CAPABILITY && capability !== STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY) ||
+          options.pullRequests !== undefined) &&
         (chat() !== null || !(STUDIO_CHAT_CAPABILITIES as readonly string[]).includes(capability)),
     ),
     conversation: {

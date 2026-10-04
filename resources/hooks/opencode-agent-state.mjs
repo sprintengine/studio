@@ -451,7 +451,7 @@ let lastEvent = null
 // a worktree it did not create.
 let launchDirectory = null
 
-async function report(phase, event, sessionId, fileChanges = [], toolUseId = null) {
+async function report(phase, event, sessionId, fileChanges = [], toolUseId = null, toolCall = null) {
   if (!phase) return
   // Seed the lock before the dedup early-return, so the root id is captured even
   // from a frame we suppress (the first frame, `starting`, is never a dup).
@@ -460,7 +460,9 @@ async function report(phase, event, sessionId, fileChanges = [], toolUseId = nul
   // the `tool.execute.after` event name but describe different files, and the
   // dedup exists to throttle streamed deltas, not to drop the ledger. The phase
   // it repeats is idempotent on re-ingest, so the extra frames are free.
-  if (event === lastEvent && fileChanges.length === 0) return
+  // A forwarded tool call is exempt for the same reason, and more sharply:
+  // exactly one frame carries it.
+  if (event === lastEvent && fileChanges.length === 0 && !toolCall) return
   lastEvent = event
   const socketPath = resolveSocketPath()
   if (!socketPath) return
@@ -487,7 +489,40 @@ async function report(phase, event, sessionId, fileChanges = [], toolUseId = nul
   // idempotent and the ledger reads each file once. No file change: the phase
   // frame still goes, exactly as before.
   const frames = fileChanges.length > 0 ? fileChanges.map((fileChange) => ({ ...frame, fileChange })) : [frame]
+  if (toolCall) frames[0] = { ...frames[0], toolCall }
   await writeFrame(socketPath, frames)
+}
+
+// ---------------------------------------------------------------------------
+// A tool call that may have opened a pull request (owner ruling 2026-10-04).
+// Forwarded, never decided here: the app's one reader
+// (src/shared/git/pull-request-opened.ts) decides in the server, exactly as it
+// does for the stdin reporter's `toolCall` and for a chat's calls. Only a
+// shell command (`bash`'s `args.command`) or a create-named tool (an MCP
+// server's `<server>_create_pull_request`) whose result holds a URL at all is
+// forwarded, the name, the command and the result as text, bounded at both
+// ends like the stdin reporter's.
+// ---------------------------------------------------------------------------
+const TOOL_CALL_OUTPUT_HALF = 8 * 1024
+const TOOL_CALL_MAX_COMMAND = 4096
+const MAX_TOOL_NAME_LENGTH = 200
+
+function forwardedToolCall(toolName, args, output) {
+  if (typeof toolName !== 'string' || !toolName || toolName.length > MAX_TOOL_NAME_LENGTH) return null
+  const command = isPlainObject(args) && typeof args.command === 'string' && args.command ? args.command : null
+  if (!command && !/create[_-]?(?:pull|merge)[_-]?request$/i.test(toolName)) return null
+  let text = ''
+  if (typeof output === 'string') text = output
+  else if (output !== null && output !== undefined) text = JSON.stringify(output) ?? ''
+  if (!/https?:\/\//.test(text)) return null
+  return {
+    name: toolName,
+    ...(command ? { command: command.slice(0, TOOL_CALL_MAX_COMMAND) } : {}),
+    output:
+      text.length <= TOOL_CALL_OUTPUT_HALF * 2
+        ? text
+        : `${text.slice(0, TOOL_CALL_OUTPUT_HALF - 1)}\n${text.slice(-(TOOL_CALL_OUTPUT_HALF - 1))}`,
+  }
 }
 
 // OpenCode plugin entrypoint: an exported async function returning a hooks
@@ -537,6 +572,12 @@ export const SprintEngineAgentState = async (context) => {
         } catch {
           changes = []
         }
+        let toolCall = null
+        try {
+          toolCall = forwardedToolCall(input?.tool, input?.args, output)
+        } catch {
+          toolCall = null
+        }
         const callId = input && typeof input.callID === 'string' ? input.callID.trim() : ''
         await report(
           'thinking',
@@ -544,6 +585,7 @@ export const SprintEngineAgentState = async (context) => {
           sessionId,
           changes,
           callId !== '' && callId.length <= MAX_TOOL_USE_ID_LENGTH ? callId : null,
+          toolCall,
         )
       } catch {
         // Never let a reporter error break OpenCode.

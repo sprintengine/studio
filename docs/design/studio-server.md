@@ -663,75 +663,82 @@ Ruling (f) splits the canvas along the line of section 1.1 (phase 5 spec,
 - **With no client offering `canvas`**, agents have no canvas tools, and the
   boards are untouched files until one attaches.
 
-### 6.8 Pull request marks: a server domain (owner rulings 2026-10-03)
+### 6.8 Pull request marks: a server domain (owner rulings 2026-10-03, 2026-10-04)
 
-The pull request record is the server's, in both modes, as of this change
-(`src/server/pull-requests/`). Features that react to chats live in the
-server; every client (the desktop, the web client, the phone, an SDK app)
-displays the result through the protocol and decides nothing. The desktop
-does not see conversation events for this.
+The pull request record is the server's, in both modes (`src/server/pull-requests/`).
+Features that react to chats live in the server; every client (the desktop,
+the web client, the phone, an SDK app) displays the result through the
+protocol and decides nothing. The desktop does not see conversation events for
+this.
 
-**One source.** A mark comes only from asking the host "is there a pull
-request for this branch?" (`gh pr list --head <branch>` in a checkout). No
-reader looks at a command an agent ran or a URL in a tool's output; the
-chat capture and the hook reporter's capture are gone.
+**A conversation owns a pull request when its agent opened it** (owner ruling
+2026-10-04). It replaces the rule of 2026-10-03, under which a conversation
+wore every pull request on every branch it worked on: a chat started in a
+checkout that happened to be on someone else's branch wore that branch's
+merged pull requests, and two agents on one branch both wore its pull request.
+Two things say a conversation opened one, and nothing else does:
 
-**What is looked up.** A conversation (a workspace and an agent, chat or
-terminal) is told where it worked, and wears the pull requests on those
-branches, newest first, de-duplicated by URL:
+- **Its agent ran a create command or tool, and the output named it.** One
+  reader decides (`src/shared/git/pull-request-opened.ts`), for chats and
+  terminal agents alike. The gate is the call: `gh pr create`,
+  `glab mr create`, `git push -o merge_request.create`, or an MCP tool named
+  `create_pull_request` / `create_merge_request`. The evidence is the result:
+  the call did not fail, did not say the pull request "already exists", and
+  its output (never its input) names a URL the shared classifier reads
+  (`classifyPullRequestUrl`: GitHub and GitHub Enterprise, GitLab, Gitea,
+  Forgejo and Codeberg, Bitbucket, Azure DevOps, on any host). A push's "open
+  a pull request by visiting" link is a form, not a pull request, and a URL a
+  push or `gh pr list` prints names one somebody may have opened before.
+- **Its agent called the gateway's `pull_request.link`** with the URL. The
+  conversation is the calling agent's own, from the connection, never from an
+  argument. This is the way for every other forge and every other way of
+  opening one.
 
-- a chat's turn end: its own checkout, every other repository its
-  completed tool calls changed files in (`tool_output.payload.fileChanges`),
-  and the branches the turn pushed from its checkout without staying on them
-  (below), with a lookup that started after the turn ended;
-- a client that runs agents the server does not (the desktop's terminals)
-  says where one worked with `pullRequests.noteWork`: its checkout whenever
-  git answers for it, and at a turn end the files it changed during the turn;
-  its pushed branches count from its previous turn end;
-- a slow poll: every minute a live chat's checkout is read again (git only)
-  and a branch that moved is looked up; every five minutes the conversations
-  active in the last half hour are looked up again (held), which finds a pull
-  request opened or merged by hand. An idle chat is left to the watch;
-- a client asks (`pullRequests.refresh`): a hover, a window coming to the
-  front. Open pull requests are also watched every two minutes.
+A chat's calls are read off its stream (`tool_started`, then the final
+`tool_output`, whose whole output is read from the tool's detail when the
+event carries a preview). A terminal agent's are forwarded: its hook reporter
+(and the OpenCode plugin) sends the tool's name, the shell command and the
+output, bounded at both ends, for a shell or MCP call whose output holds a URL
+at all, and decides nothing; the shell sends it on with
+`pullRequests.noteToolCall`, and the server reads it with the same reader.
+The first conversation to claim a pull request keeps it.
 
-A repository's default branch is never looked up: `gh pr list --head main`
-matches the branch name in every fork, so an upstream repository answers with
-every contributor's pull request from their fork's `main`. A pull request
-opened from a default branch therefore gets no mark; a trunk-based team opens
-none. Because a turn can end back on the default branch after its agent
-branched, pushed and opened a pull request, a turn end also looks up the
-branches it pushed: a remote-tracking tip committed since the turn began that
-is exactly a local branch no other worktree has checked out, or the
-checkout's own HEAD. Two `for-each-ref` reads, at most four lookups a turn,
-and none when the turn's start is unknown. A push by URL with no remote, or
-of a commit older than the turn, is not seen.
+**State.** A GitHub pull request's state is read by its URL (`gh pr view`):
+once when it is recorded, every two minutes while it is open (for 30 days),
+and when a client asks (`pullRequests.refresh`: a hover, a window coming to
+the front). A pull request on another forge is shown as opened, with no state.
+No branch is looked up to decide anything.
 
-A repository outside any workspace is looked up when an agent changed files
-in it, bounded: four per turn, from at most 32 directories, and a dozen
-checkouts per conversation.
+**Its own branch.** A conversation's checkout, noted at a chat's turn end and
+by `pullRequests.noteWork` for a terminal agent, decides which of its pull
+requests are from the branch it is on (`onConversationBranch`), which is the
+only one that may say the branch landed. It never adds one.
 
 **The record's rules hold.** Settled reads only; "could not ask" changes
 nothing, so a mark never blinks out for a probe that failed or a server
-restart. At most three `gh` reads at a time. One lookup per checkout at a
-time, so an older answer never lands over a newer one, and a burst of turn
-ends in one checkout is one lookup per 15 seconds. A list asked for before the
-stored records are read waits for them.
+restart. At most three `gh` reads at a time. A list asked for before the
+stored record is read waits for it.
 
-**No `gh`, no marks.** The record reads through `gh` on the server's machine,
-with `gh`'s own sign-in. A server with no `gh`, or not signed in, has no
-marks and says nothing: a missing `gh` holds every read for five minutes, and
-nothing is reported as an error.
+**No `gh`, no state.** The record reads through `gh` on the server's machine,
+with `gh`'s own sign-in. A server with no `gh`, or not signed in, shows what it
+has as last read, and says nothing: a missing `gh` holds every read for five
+minutes, and nothing is reported as an error.
 
 **The protocol** (`pull-requests` capability, owners only, `workspaces:read`):
 `pullRequests.list` by workspace or by conversation, `pullRequests.refresh`,
-`pullRequests.noteWork`, and the `pullRequests.changed` stream, which names
-what moved and never carries the lists. The desktop's sidebar reads rows
-through the window's Studio client; the shell's own client notes where its
-terminal agents work and puts the lists the server answers on the terminal
-snapshot, which carries them to the peek and the tooltips as before. Records
-stored under `userData/pull-requests/` carry over unchanged; the conversations
-that worked where are written beside them in `conversations.json`.
+`pullRequests.noteWork`, `pullRequests.noteToolCall`, and the
+`pullRequests.changed` stream, which names what moved and never carries the
+lists. The desktop's sidebar reads rows through the window's Studio client;
+the shell's own client forwards its terminal agents' calls and checkouts, and
+puts the lists the server answers on the terminal snapshot, which carries them
+to the peek and the tooltips as before.
+
+**Storage.** One file, `pull-requests/opened.json` in the server's data
+directory. The files the branch-lookup rule wrote (one per repository, and
+`conversations.json`) are read once at the first start: a row a capture filed
+under a conversation is kept (one that named only its workspace is worn by
+every conversation in it, until its agent links it again), every row a branch
+lookup found is dropped, and the old files are removed.
 
 ## 7. Data and settings
 

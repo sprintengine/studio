@@ -34,6 +34,9 @@ const TERMINAL_LAUNCH_TOOLS: ReadonlySet<string> = new Set(['terminal.create', '
  * just of no use to anyone who cannot see a terminal. The `terminal.*` family
  * is a prefix rule for the same reason the `tailnet.*` one is; the launchers
  * outside it are named.
+ *
+ * The `pull_request.*` family records a pull request as the calling agent's
+ * conversation's, and a paired device has no conversation to record it under.
  */
 export function localOnlyGatewayToolReason(toolName: string): string | null {
   if (toolName.startsWith('tailnet.')) {
@@ -41,6 +44,9 @@ export function localOnlyGatewayToolReason(toolName: string): string | null {
   }
   if (TERMINAL_LAUNCH_TOOLS.has(toolName)) {
     return `"${toolName}" starts an agent in a terminal on this machine, and terminals are not served over the tailnet. Start a chat agent with conversation.create instead, or run it from an agent on that machine.`
+  }
+  if (toolName.startsWith('pull_request.')) {
+    return `"${toolName}" records a pull request as the calling agent's conversation's, and a paired device is not an agent. Run it from an agent on that machine.`
   }
   if (toolName.startsWith('terminal.')) {
     return `"${toolName}" reads the terminals on this machine, and terminals are not served over the tailnet. A paired device follows this machine's chats instead; run it from an agent on that machine.`

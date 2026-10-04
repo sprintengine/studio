@@ -47,7 +47,7 @@ export type ConversationThread = Omit<ConversationWireThread, 'capabilities'> & 
    */
   host?: ConversationWireHost
   /**
-   * The pull requests the chat's branches have, as the desktop last recorded
+   * The pull requests the chat opened, as the desktop last recorded
    * them, newest first. Absent from a desktop built before it was listed;
    * empty when the chat has none.
    */

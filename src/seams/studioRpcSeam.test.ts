@@ -338,6 +338,7 @@ test('every method the server serves has its call in the SDK, under the same sco
     'pullRequests.list': 'request',
     'pullRequests.refresh': 'request',
     'pullRequests.noteWork': 'request',
+    'pullRequests.noteToolCall': 'request',
   }
   assert.deepEqual(Object.keys(sdkCalls).sort(), Object.keys(STUDIO_METHODS).sort())
   const client = await pairedClient(['conversation:read'], 'manual')

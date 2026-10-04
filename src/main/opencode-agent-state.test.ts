@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { parseAgentStateFrame, renderAgentStatePluginTemplate, type AgentStateFrame } from './agent-state'
+import { readOpenedPullRequest } from '../shared/git/pull-request-opened'
 import { studioEnvEntry } from '../shared/studio-env'
 import { test } from 'vitest'
 
@@ -263,9 +264,9 @@ test('opencode-agent-state', async () => {
       { input: { tool: 'edit', sessionID: 'ses_opencode_1', callID: 'c10' }, output: null },
       // 11. Total garbage in both positions: must not throw into OpenCode.
       { input: null, output: 'a string where the result object should be' },
-      // === `gh` calls: pull requests are not read off tool output =========
-      // 12. `gh pr view` prints a pull request URL. It emits no frame at all (the
-      //     dedup eats a `tool.execute.after` that carries no file change).
+      // === `gh` calls: forwarded for the server's pull request reader =======
+      // 12. `gh pr view` prints a pull request URL. The call is forwarded (its
+      //     output holds a URL), and the reader refuses it: viewing opens nothing.
       {
         input: {
           tool: 'bash',
@@ -275,7 +276,7 @@ test('opencode-agent-state', async () => {
         },
         output: { title: 'gh pr view', output: '{"url":"https://github.com/acme/app/pull/12"}', metadata: { exit: 0 } },
       },
-      // 13. The creation itself prints its URL on the last line; nothing reads it.
+      // 13. The creation itself prints its URL on the last line: forwarded, and read.
       {
         input: {
           tool: 'bash',
@@ -328,9 +329,10 @@ test('opencode-agent-state', async () => {
       // c0 read nothing but still carries its id; the three `editCall` helpers
       // share one canned callID; c9's apply_patch rewrote TWO files and so sent
       // TWO frames under ONE id — which is exactly the case main's ring keys on
-      // (id, path) to survive. The calls with no frame here (c10 onward) were
-      // eaten by the plugin's own repeated-event dedup, not by this.
-      ['c0', 'call_1', 'call_1', 'c3', 'c4', 'call_1', 'c6', 'call_1', 'c8', 'c9', 'c9'],
+      // (id, path) to survive. c10, c11 and c14 were eaten by the plugin's own
+      // repeated-event dedup; c12 and c13 carry a forwarded tool call, which
+      // that dedup never eats.
+      ['c0', 'call_1', 'call_1', 'c3', 'c4', 'call_1', 'c6', 'call_1', 'c8', 'c9', 'c9', 'c12', 'c13'],
       'every frame carries the callID of the tool call that produced it',
     )
     assert.equal(parsed[0].toolUseId, 'c0', 'a frame that claims no file carries the id too')
@@ -419,25 +421,32 @@ test('opencode-agent-state', async () => {
       'ok - apply_patch sends one frame per file, counting from the per-file patch when the tool omits the numbers',
     )
 
-    assert.equal(changes.length, 11, 'a payload naming no file at all claims nothing and adds no frame')
+    assert.deepEqual(changes.slice(11), [undefined, undefined], 'a bash call claims no file')
     console.log('ok - a payload with no path anywhere adds no ledger entry')
 
-    // Pull requests are not read off tool output any more (owner ruling
-    // 2026-10-03): the app asks GitHub about the branches an agent worked on.
-    // So `gh pr create` is an ordinary bash call: it edits nothing, its frame
-    // is the plugin's own dedup's, and no frame carries a URL.
+    // A pull request is decided in the server, by the one reader (owner ruling
+    // 2026-10-04). The plugin forwards a bash call whose output holds a URL —
+    // the command and the output, nothing decided — and that reader reads it.
+    const toolCalls = parsed.map((frame) => frame.toolCall).filter((call) => call !== undefined)
     assert.deepEqual(
-      parsed.filter((frame) => 'pullRequest' in frame),
-      [],
-      'no frame carries a pull request',
+      toolCalls.map((call) => call.command),
+      ['gh pr view 12 --json url', 'cd ../website && gh pr create --fill'],
+      'the two calls whose output named a URL are forwarded, and the failed creation that named none is not',
     )
-    assert.equal(parsed.length, 11, 'a bash call that edited nothing adds no frame, `gh pr create` included')
-    console.log('ok - `gh pr create` is captured by nothing; pull requests come from branch lookups')
+    assert.deepEqual(
+      toolCalls.map((call) => readOpenedPullRequest(call)?.url ?? null),
+      [null, 'https://github.com/acme/website/pull/9'],
+      'viewing opens nothing; the creation opened the pull request its output named',
+    )
+    assert.equal(parsed.length, 13)
+    console.log('ok - bash calls that may have opened a pull request are forwarded, and the reader decides')
 
     // The patch text and the file content are not ours to forward: the frame line
     // cap is 64KB, and a person's source is not a line range.
     const wire = frames.join('\n')
-    for (const secret of ['line 7', 'row 7', 'alpha', '@@', 'Index:', 'Resolving deltas', 'gh pr create']) {
+    // A forwarded tool call carries its command and its output by design; a
+    // file edit's frame never carries the patch.
+    for (const secret of ['line 7', 'row 7', 'alpha', '@@', 'Index:']) {
       assert.equal(wire.includes(secret), false, `the frame must never carry patch or file content (${secret})`)
     }
     console.log('ok - no patch text or file content ever rides the socket')

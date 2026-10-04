@@ -1,16 +1,24 @@
 import { connect, type StudioClient } from '../../packages/agent-sdk/src/client'
 import type { StudioTransportFactory } from '../../packages/agent-sdk/src/transport'
 import type { StudioPullRequest, StudioPullRequestOwner } from '../../packages/studio-protocol/src/public'
-import { STUDIO_PULL_REQUESTS_CAPABILITY } from '../../packages/studio-protocol/src/public'
+import {
+  STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY,
+  STUDIO_PULL_REQUESTS_CAPABILITY,
+} from '../../packages/studio-protocol/src/public'
 import type { BranchPullRequest } from '../shared/git/pull-request'
 
 // The pull request marks of the desktop's terminal agents, read from the
 // Studio server like every other client reads them (owner ruling 2026-10-03:
 // features that react to agents live in the server; clients display the
-// result). The terminals are the shell's, so the server cannot see them work:
-// this tells it where each agent did (`pullRequests.noteWork` — its checkout
-// whenever git answers for it, and at a turn end the files it changed since
-// the last turn end),
+// result). The terminals are the shell's, so the server cannot see them work.
+// This forwards what it needs to:
+//
+// - every tool call an agent's reporter forwarded (`pullRequests.noteToolCall`):
+//   the server decides whether it opened a pull request, with the reader it
+//   uses for its own chats (owner ruling 2026-10-04);
+// - the agent's checkout whenever git answers for it (`pullRequests.noteWork`),
+//   which decides which of its pull requests are from the branch it is on.
+//
 // and keeps the lists the server answers for the live agents, which the
 // terminal snapshot carries to the windows as it always has.
 //
@@ -18,8 +26,8 @@ import type { BranchPullRequest } from '../shared/git/pull-request'
 // whether the server is in this process or in its own.
 //
 // A list is replaced only by an answer. While the server is away (a restart)
-// the marks stay as they were, and the files an agent changed meanwhile are
-// kept until a turn end's note carrying them is accepted.
+// the marks stay as they were, and a tool call made meanwhile is held, a few
+// at most, until one is accepted.
 
 /** What this needs of a terminal session. Structural, so it can be tested without a pty. */
 export type PullRequestTerminalSession = {
@@ -35,16 +43,19 @@ export type TerminalPullRequests = {
   listForSession(session: PullRequestTerminalSession): BranchPullRequest[]
   /** Git answered for a session's checkout: at a turn end or a start (`fresh`), or a move. */
   noteCheckoutResolved(session: PullRequestTerminalSession, resolution: { fresh: boolean }): void
-  /** An agent session changed a file. */
-  noteFileEdit(session: PullRequestTerminalSession, path: string): void
+  /** An agent session made a tool call that may have opened a pull request. */
+  noteToolCall(session: PullRequestTerminalSession, toolCall: PullRequestToolCallNote): void
   /** A hover: ask again. False when there is nothing to ask about yet. */
   refreshForSession(sessionId: string): boolean
   start(): Promise<void>
   stop(): void
 }
 
-/** The most changed paths kept for one agent between notes. */
-const MAX_PENDING_PATHS = 256
+/** A tool call as the reporter forwarded it. */
+export type PullRequestToolCallNote = { name: string; command?: string; output: string; failed?: boolean }
+
+/** The most tool calls held while the server is away; the oldest go first. */
+const MAX_HELD_TOOL_CALLS = 20
 /** Changes heard in a burst are fetched once. */
 const FETCH_COALESCE_MS = 100
 const FIRST_CONNECT_RETRY_MS = { initial: 250, max: 10_000 }
@@ -68,8 +79,8 @@ export function createTerminalPullRequests(options: {
   let stopPush: (() => void) | null = null
   /** Conversation → its list, as the server last answered it. */
   const lists = new Map<string, BranchPullRequest[]>()
-  /** Conversation → the files its agent changed since its last accepted note. */
-  const pendingPaths = new Map<string, Set<string>>()
+  /** Tool calls not yet accepted: made while the server was away. */
+  const heldToolCalls: Array<{ conversation: StudioPullRequestOwner; toolCall: PullRequestToolCallNote }> = []
   const wanted = new Set<string>()
   let fetchTimer: ReturnType<typeof setTimeout> | null = null
   let fetching = false
@@ -140,9 +151,29 @@ export function createTerminalPullRequests(options: {
     }
   }
 
-  /** A connection (the first, or one after a restart): every live agent's list again. */
+  /** A connection (the first, or one after a restart): every live agent's list again, and the held calls. */
   function resync(): void {
     want(liveKeys().keys())
+    for (const held of heldToolCalls.splice(0)) sendToolCall(held.conversation, held.toolCall)
+  }
+
+  function sendToolCall(conversation: StudioPullRequestOwner, toolCall: PullRequestToolCallNote): void {
+    const connected = usable()
+    const hold = () => {
+      heldToolCalls.push({ conversation, toolCall })
+      while (heldToolCalls.length > MAX_HELD_TOOL_CALLS) heldToolCalls.shift()
+    }
+    if (!connected) {
+      hold()
+      return
+    }
+    // A Studio from before tool calls were forwarded cannot read one.
+    if (!connected.supports(STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY)) return
+    void connected.request('pullRequests.noteToolCall', { conversation, toolCall }).then(() => {
+      // The answer arrives as `pullRequests.changed`; a list this window has
+      // not asked for yet is asked for now.
+      if (!lists.has(idOf(conversation))) want([idOf(conversation)])
+    }, hold)
   }
 
   async function run(): Promise<void> {
@@ -224,36 +255,18 @@ export function createTerminalPullRequests(options: {
   function sendNote(session: PullRequestTerminalSession, turnEnded: boolean): boolean {
     const key = keyOf(session)
     const connected = usable()
-    if (!key || !connected) return false
-    const id = idOf(key)
     const checkout = checkoutOf(session)
-    // The files go with a turn end only: the lookups they start must come
-    // after the pull request the turn may have opened, and a move of the
-    // working directory mid-turn is before it.
-    const pending = turnEnded ? pendingPaths.get(id) : undefined
-    const changedPaths = pending ? [...pending] : []
-    if (!checkout && changedPaths.length === 0) return false
-    if (turnEnded) pendingPaths.delete(id)
+    if (!key || !connected || !checkout) return false
+    const id = idOf(key)
     void connected
-      .request('pullRequests.noteWork', {
-        conversation: key,
-        sessionId: session.sessionId,
-        ...(checkout ? { checkout } : {}),
-        ...(changedPaths.length > 0 ? { changedPaths } : {}),
-        turnEnded,
-      })
+      .request('pullRequests.noteWork', { conversation: key, sessionId: session.sessionId, checkout, turnEnded })
       .then(
         // A conversation this window has no list for yet may already have one
         // on the server (a resumed agent): ask, rather than wait for a change.
         () => {
           if (!lists.has(id)) want([id])
         },
-        () => {
-          // Not accepted: the files are kept for the next note.
-          const kept = pendingPaths.get(id) ?? new Set<string>()
-          for (const path of changedPaths) if (kept.size < MAX_PENDING_PATHS) kept.add(path)
-          pendingPaths.set(id, kept)
-        },
+        () => undefined,
       )
     return true
   }
@@ -268,13 +281,9 @@ export function createTerminalPullRequests(options: {
       sendNote(session, resolution.fresh)
     },
 
-    noteFileEdit(session, path) {
+    noteToolCall(session, toolCall) {
       const key = keyOf(session)
-      if (!key || !path) return
-      const id = idOf(key)
-      const paths = pendingPaths.get(id) ?? new Set<string>()
-      if (paths.size < MAX_PENDING_PATHS) paths.add(path)
-      pendingPaths.set(id, paths)
+      if (key) sendToolCall(key, toolCall)
     },
 
     refreshForSession(sessionId) {

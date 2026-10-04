@@ -42,6 +42,7 @@ const MARK: StudioPullRequest = {
 
 async function bridgeOver(sessions: PullRequestTerminalSession[]) {
   const noted: Array<StudioPullRequestsMethodMap['pullRequests.noteWork']['params']> = []
+  const calls: Array<StudioPullRequestsMethodMap['pullRequests.noteToolCall']['params']> = []
   const refreshed: unknown[] = []
   let listed = 0
   const listeners = new Set<(change: PullRequestsChanged) => void>()
@@ -62,6 +63,9 @@ async function bridgeOver(sessions: PullRequestTerminalSession[]) {
     },
     noteWork: async (input) => {
       noted.push(input)
+    },
+    noteToolCall: async (input) => {
+      calls.push(input)
     },
     onChanged: (listener) => {
       listeners.add(listener)
@@ -86,6 +90,7 @@ async function bridgeOver(sessions: PullRequestTerminalSession[]) {
   return {
     bridge,
     noted,
+    calls,
     refreshed,
     reemitted,
     listed: () => listed,
@@ -104,36 +109,26 @@ async function until(predicate: () => boolean, label: string): Promise<void> {
   }
 }
 
-test('where an agent works, and the files it changed, reach the server; a plain terminal says nothing', async () => {
+test('where an agent is, and the calls it made, reach the server; a plain terminal says nothing', async () => {
   const fixture = await bridgeOver([AGENT, PLAIN])
-  fixture.bridge.noteFileEdit(AGENT, '/Users/dev/other-repo/README.md')
-  fixture.bridge.noteFileEdit(PLAIN, '/Users/dev/app/x.ts')
+  const call = { name: 'Bash', command: 'gh pr create --fill', output: 'https://github.com/acme/app/pull/4\n' }
+  fixture.bridge.noteToolCall(PLAIN, call)
+  fixture.bridge.noteToolCall(AGENT, call)
   fixture.bridge.noteCheckoutResolved(PLAIN, { fresh: true })
   fixture.bridge.noteCheckoutResolved(AGENT, { fresh: true })
-  await until(() => fixture.noted.length >= 1, 'a note')
+  await until(() => fixture.noted.length >= 1 && fixture.calls.length >= 1, 'a note and a call')
+  assert.deepEqual(fixture.calls, [{ conversation: { workspaceId: 'ws-1', agentId: 'term-1' }, toolCall: call }])
   assert.deepEqual(fixture.noted, [
     {
       conversation: { workspaceId: 'ws-1', agentId: 'term-1' },
       sessionId: 'terminal-1',
       checkout: { gitRoot: '/Users/dev/app', branch: 'agent/x' },
-      changedPaths: ['/Users/dev/other-repo/README.md'],
       turnEnded: true,
     },
   ])
-  // The files went with that note: the next one carries none.
   fixture.bridge.noteCheckoutResolved(AGENT, { fresh: false })
   await until(() => fixture.noted.length >= 2, 'a second note')
-  assert.equal(fixture.noted[1].changedPaths, undefined)
   assert.equal(fixture.noted[1].turnEnded, false)
-  // A move mid-turn keeps the files for the turn's end, whose lookups come
-  // after the pull request the turn may open.
-  fixture.bridge.noteFileEdit(AGENT, '/Users/dev/site/index.html')
-  fixture.bridge.noteCheckoutResolved(AGENT, { fresh: false })
-  await until(() => fixture.noted.length >= 3, 'a mid-turn note')
-  assert.equal(fixture.noted[2].changedPaths, undefined)
-  fixture.bridge.noteCheckoutResolved(AGENT, { fresh: true })
-  await until(() => fixture.noted.length >= 4, 'a turn end')
-  assert.deepEqual(fixture.noted[3].changedPaths, ['/Users/dev/site/index.html'])
 })
 
 test('a change the server names is fetched onto the session, and only its snapshot is re-sent', async () => {

@@ -9,7 +9,7 @@ import {
   pullRequestRepository,
   pullRequestTone,
   PULL_REQUEST_TONE_VAR,
-  unionPullRequests,
+  pullRequestOpenLabel,
   type BranchPullRequest,
 } from './pull-request'
 import { test } from 'vitest'
@@ -128,6 +128,10 @@ test('pull-request', async () => {
       'merged',
       'a stale draft flag never invents a state',
     )
+    // A forge whose state is not read: it was opened, and nothing more is said.
+    assert.equal(pullRequestStateLabel({ state: 'open', isDraft: false, forge: 'gitlab' }), 'opened')
+    assert.equal(pullRequestOpenLabel({}), 'Open it on GitHub')
+    assert.equal(pullRequestOpenLabel({ forge: 'gitea' }), 'Open it in the browser')
   }
 
   // ---------------------------------------------------------------------------
@@ -149,7 +153,15 @@ test('pull-request', async () => {
       repoKey: 'ghe.corp.example.com/acme/app',
       repoName: 'app',
     })
-    assert.equal(pullRequestRepository('https://bitbucket.org/acme/app/pull-requests/3'), null)
+    // Every forge the classifier reads keys the way a clone of it does.
+    assert.deepEqual(pullRequestRepository('https://bitbucket.org/acme/app/pull-requests/3'), {
+      repoKey: 'bitbucket.org/acme/app',
+      repoName: 'app',
+    })
+    assert.deepEqual(pullRequestRepository('https://gitlab.com/acme/platform/app/-/merge_requests/4'), {
+      repoKey: 'gitlab.com/acme/platform/app',
+      repoName: 'app',
+    })
     assert.equal(pullRequestRepository('not a url'), null)
 
     assert.equal(
@@ -157,44 +169,6 @@ test('pull-request', async () => {
       'https://github.com/acme/app/pull/12',
     )
     assert.equal(canonicalPullRequestUrlOf('nonsense'), null)
-  }
-
-  // ---------------------------------------------------------------------------
-  // The snapshot's union (decision 10): what a conversation's branch has, plus
-  // what the conversation opened anywhere else, as one list.
-  // ---------------------------------------------------------------------------
-  {
-    const onBranch = [pr({ number: 5 }), pr({ number: 3, state: 'merged' })]
-    const captured = [
-      {
-        ...pr({ number: 9 }),
-        url: 'https://github.com/acme/website/pull/9',
-        repoKey: 'github.com/acme/website',
-        repoName: 'website',
-        openedBySessionId: 'session-a',
-      },
-    ]
-    const union = unionPullRequests(onBranch, captured)
-    assert.deepEqual(
-      union.map((entry) => entry.number),
-      [9, 5, 3],
-      'both sources, newest first',
-    )
-    assert.deepEqual(
-      [...new Set(union.map((entry) => entry.repoName))].sort(),
-      ['app', 'website'],
-      'a pull request opened in another repository is on the list, and says which',
-    )
-
-    // The same pull request reached both ways is one row, and the row that knows
-    // more wins: the newer reading, and the session that opened it.
-    const stale = { ...pr({ number: 7 }), stateAt: 100, openedBySessionId: 'session-a' }
-    const fresh = { ...pr({ number: 7 }), stateAt: 200, state: 'merged' as const }
-    const deduped = unionPullRequests([fresh], [stale])
-    assert.equal(deduped.length, 1, 'one URL is one row')
-    assert.equal(deduped[0].state, 'merged', 'the newer reading wins')
-    assert.equal(deduped[0].openedBySessionId, 'session-a', 'and the session that opened it survives the merge')
-    assert.deepEqual(unionPullRequests([], []), [])
   }
 
   console.log('shared/git/pull-request: all assertions passed')

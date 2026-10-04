@@ -51,11 +51,16 @@ export const STUDIO_CLIENT_TOOLS_CAPABILITY = 'client-tools' as const
  */
 export const STUDIO_BOARD_FILES_CAPABILITY = 'files-write' as const
 /**
- * The pull requests a Studio found for its conversations' branches:
- * `pullRequests.list`, `refresh` and `noteWork`, and the `pullRequests.changed`
- * stream. Owners only.
+ * The pull requests a Studio's conversations opened: `pullRequests.list`,
+ * `refresh` and `noteWork`, and the `pullRequests.changed` stream. Owners only.
  */
 export const STUDIO_PULL_REQUESTS_CAPABILITY = 'pull-requests' as const
+/**
+ * `pullRequests.noteToolCall`: a client forwards a tool call one of its own
+ * agents made, and the Studio decides whether it opened a pull request. Owners
+ * only, beside `pull-requests`.
+ */
+export const STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY = 'pull-request-tool-calls' as const
 
 /**
  * Every Studio capability this version of the package knows, in the order
@@ -77,6 +82,7 @@ export const STUDIO_CAPABILITIES = [
   STUDIO_CLIENT_TOOLS_CAPABILITY,
   STUDIO_BOARD_FILES_CAPABILITY,
   STUDIO_PULL_REQUESTS_CAPABILITY,
+  STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY,
 ] as const
 
 /**

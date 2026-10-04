@@ -3,7 +3,7 @@ import type { IpcMain } from 'electron'
 /**
  * The one shell channel behind a terminal agent's pull request marks (epic
  * `pull-request-marks`): "this session is being looked at, make sure what you
- * know about its branch is fresh".
+ * know about the pull requests its agent opened is fresh".
  *
  * It returns no pull requests. The record is the Studio server's, and a
  * session's list travels the way every other fact about a session does — a
