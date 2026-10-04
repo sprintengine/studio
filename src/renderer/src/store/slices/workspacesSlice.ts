@@ -1,4 +1,5 @@
 import type { IJsonModel } from 'flexlayout-react'
+import { current, isDraft } from 'immer'
 import { nanoid } from 'nanoid'
 import { moveEditorBuffer } from '../../utils/editorBuffers'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
@@ -316,11 +317,12 @@ interface WorkspacesSliceActions {
       // record, `tabName` renames the lone layout tab, and `terminal` swaps that
       // tab for a terminal tab (and seeds no agent record).
       seedAgent?: SoloChatSeed | null
-      // The layout's agent tabs name agents that already exist and are moving in
-      // (a tab dragged out of another chat): their ids are kept, and no record
-      // is seeded for them, because the move brings each agent's own record.
+      // The layout's agent tabs name agents of this workspace that are moving
+      // in (a tab dragged out of another chat): their ids are kept, and each
+      // one's own record leaves that workspace and arrives in this one's create,
+      // so main never holds the new chat's tab without the agent behind it.
       // Otherwise every template agent takes a fresh id and a fresh record.
-      keepLayoutAgents?: boolean
+      moveLayoutAgentsFrom?: WorkspaceId
     },
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
@@ -1205,6 +1207,9 @@ export function createWorkspacesSlice(
       // the rollback. Fire-and-forget after the synchronous set().
       let createdEventPayload: { workspace: Workspace; windowId: WorkspaceWindowId; folderPath: string | null } | null =
         null
+      // The agents that moved in from `moveLayoutAgentsFrom`, removed from that
+      // workspace in main once the create that carries them has been sent.
+      const movedInAgentIds: AgentId[] = []
 
       set((state) => {
         const folderPath = options?.folderPath ?? null
@@ -1227,12 +1232,25 @@ export function createWorkspacesSlice(
         // The template's agent ids (`agent-1`, `agent-2`) are placeholders every
         // workspace made from it would share; this one's agents take ids of
         // their own, and the layout's tabs follow them.
-        const templateLayout = options?.keepLayoutAgents
+        const moveFrom = options?.moveLayoutAgentsFrom
+          ? state.workspaces.find((candidate) => candidate.id === options.moveLayoutAgentsFrom)
+          : undefined
+        const templateLayout = options?.moveLayoutAgentsFrom
           ? template.layout
           : instantiateTemplateAgentIds(template.layout).layout
         const agents: Workspace['agents'] = {}
-        if (options?.keepLayoutAgents) {
-          // The agents arrive with their move (`moveAgentToWorkspace`).
+        if (options?.moveLayoutAgentsFrom) {
+          // Each record moves within this one write, so no reader ever sees the
+          // agent in both chats or in neither.
+          for (const { id: agentId } of collectTemplateAgentTabs(templateLayout)) {
+            const record = moveFrom?.agents[agentId]
+            if (!moveFrom || !record) continue
+            // A plain copy: the record also rides the create command, which must
+            // not carry a draft that is revoked when this write ends.
+            agents[agentId] = isDraft(record) ? current(record) : record
+            delete moveFrom.agents[agentId]
+            movedInAgentIds.push(agentId)
+          }
         } else if (options?.seedAgent?.terminal || options?.seedAgent?.meshConversation) {
           // Terminal and remote seeds: the lone agent tab is swapped for a
           // terminal / remote-pane tab in the layout below, so no local agent
@@ -1340,6 +1358,11 @@ export function createWorkspacesSlice(
       if (createdEventPayload) {
         const { workspace, windowId, folderPath } = createdEventPayload
         void workspaceSyncClient.dispatchCreateWorkspace(workspace, windowId, folderPath)
+        // Sent after the create, so main holds the agent in one chat or the
+        // other throughout, never in neither.
+        for (const agentId of movedInAgentIds) {
+          void workspaceSyncClient.dispatchUpdateWorkspaceAgent(options!.moveLayoutAgentsFrom!, agentId, null)
+        }
       }
       return id
     },
@@ -1642,10 +1665,11 @@ export function createWorkspacesSlice(
       // the arriving agent is no safer: its running process, transcript and
       // checkpoints are all filed under the id it has. So the move is refused
       // and both agents stay as they are.
-      const current = getState().workspaces
-      const source = current.find((w) => w.id === sourceWorkspaceId)
-      const dest = current.find((w) => w.id === destWorkspaceId)
+      const workspaces = getState().workspaces
+      const source = workspaces.find((w) => w.id === sourceWorkspaceId)
+      const dest = workspaces.find((w) => w.id === destWorkspaceId)
       if (!source?.agents[agentId] || !dest || dest.agents[agentId]) return false
+      let moved: AgentState | undefined
       set((state) => {
         const sourceDraft = state.workspaces.find((w) => w.id === sourceWorkspaceId)
         const destDraft = state.workspaces.find((w) => w.id === destWorkspaceId)
@@ -1653,7 +1677,16 @@ export function createWorkspacesSlice(
         if (!sourceDraft || !destDraft || !agent || destDraft.agents[agentId]) return
         destDraft.agents[agentId] = agent
         delete sourceDraft.agents[agentId]
+        moved = { ...(isDraft(agent) ? current(agent) : agent) }
       })
+      if (!moved) return false
+      // Main owns the registry: without these the move lived only in this
+      // window, and main, every other window and the next start all kept the
+      // agent in the chat it left. The whole record goes to the destination
+      // first, as a new agent's seed does, and only then leaves the source, so
+      // main never holds the agent in neither chat.
+      void workspaceSyncClient.dispatchUpdateWorkspaceAgent(destWorkspaceId, agentId, moved)
+      void workspaceSyncClient.dispatchUpdateWorkspaceAgent(sourceWorkspaceId, agentId, null)
       return true
     },
 

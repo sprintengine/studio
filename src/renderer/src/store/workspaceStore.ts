@@ -332,8 +332,8 @@ export interface WorkspaceStore
       worktree?: WorkspaceWorktree | null
       templateAgentCli?: AgentCli | null
       seedAgent?: SoloChatSeed | null
-      // A dragged-out agent tab: keep its id, seed no record (it moves in).
-      keepLayoutAgents?: boolean
+      // A dragged-out agent tab: keep its id, and move its record in from here.
+      moveLayoutAgentsFrom?: WorkspaceId
       mode?: Workspace['mode']
       // Executor-triggered creation: skip the door-surface clear.
       background?: boolean

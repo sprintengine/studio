@@ -1651,12 +1651,13 @@ function WorkspaceSidebar({
         name: payload.name || undefined,
         folderPath,
         windowId: workspaceWindowId,
-        // The tab is an agent that already exists: it moves in below under its
-        // own id, rather than the new chat minting a stranger for its tab.
-        keepLayoutAgents: true,
+        // The tab is an agent that already exists: it moves in with the create,
+        // under its own id, rather than the new chat minting a stranger for its
+        // tab or being created in main with a tab and no agent.
+        moveLayoutAgentsFrom: payload.sourceWorkspaceId,
       })
 
-      migrateTabSideEffects(payload, newWorkspaceId)
+      if (payload.component !== 'agent') migrateTabSideEffects(payload, newWorkspaceId)
       removeTab(payload.sourceWorkspaceId, payload.tabId, { preserveRuntime: true })
     },
     [addWorkspaceFromStore, migrateTabSideEffects, workspaceWindowId],
