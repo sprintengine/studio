@@ -83,3 +83,44 @@ test('overrides persist in the launch settings, per machine, the way host settin
   assert.deepEqual(reread.machineMarks, written.machineMarks)
   assert.equal(resolveMachineIdentity({ kind: 'wsl', hostId: 'wsl:Ubuntu' }, reread.machineMarks)?.kind, 'server')
 })
+
+test('a paired machine known only by its tailnet address keeps the whole address as its id', () => {
+  // Pairing falls back to the endpoint's address when Tailscale names no host,
+  // and every tailnet IPv4 address starts `100.`: a first label would give all
+  // of them one id, one colour, and one override.
+  assert.equal(machineIdOf({ kind: 'paired', name: '100.101.102.103' }), 'tailnet:100.101.102.103')
+  assert.notEqual(
+    machineIdOf({ kind: 'paired', name: '100.101.102.103' }),
+    machineIdOf({ kind: 'paired', name: '100.64.0.7' }),
+  )
+  // A typed name with a full stop in it is a name, not a host to shorten.
+  assert.equal(machineIdOf({ kind: 'paired', name: "Dev's MacBook Air. Studio" }), "tailnet:dev's macbook air. studio")
+  assert.equal(machineIdOf({ kind: 'paired', name: 'mac-mini.example.ts.net.' }), 'tailnet:mac-mini')
+})
+
+test('an SSH machine is keyed by its host, not by the user or port typed in front of it', () => {
+  const resolved = machineIdOf({ kind: 'ssh', host: 'build-box' })
+  assert.equal(machineIdOf({ kind: 'ssh', host: 'dev@build-box' }), resolved, 'the user is not the machine')
+  assert.equal(machineIdOf({ kind: 'ssh', host: 'dev@Build-Box.' }), resolved)
+  // Two machines behind one host are told apart by a port that is not 22.
+  assert.equal(machineIdOf({ kind: 'ssh', host: 'build-box', port: 22 }), resolved)
+  assert.equal(machineIdOf({ kind: 'ssh', host: 'build-box', port: 2222 }), 'ssh:build-box:2222')
+  assert.equal(machineIdOf({ kind: 'ssh', host: 'dev@build-box:2222' }), 'ssh:build-box:2222')
+  assert.notEqual(
+    machineIdOf({ kind: 'ssh', host: 'localhost', port: 2222 }),
+    machineIdOf({ kind: 'ssh', host: 'localhost', port: 2223 }),
+  )
+})
+
+test('the default kind reads whole words of the host name, so a near miss does not look silly', () => {
+  assert.equal(defaultMachineKind({ kind: 'paired', name: 'mac-pro' }), 'tower', 'a Mac Pro is a tower')
+  assert.equal(defaultMachineKind({ kind: 'paired', name: 'macro-runner' }), 'desktop', '"macro" is not a Mac')
+  assert.equal(defaultMachineKind({ kind: 'paired', name: 'ubuntu-studio' }), 'desktop', '"studio" alone is not a Mac')
+  assert.equal(defaultMachineKind({ kind: 'paired', name: 'mac-studio' }), 'mini')
+  assert.equal(defaultMachineKind({ kind: 'paired', name: 'devs-imac' }), 'desktop')
+  assert.equal(defaultMachineKind({ kind: 'paired', name: 'MacBookPro' }), 'laptop')
+  assert.equal(defaultMachineKind({ kind: 'paired', name: 'minipc' }), 'mini')
+  assert.equal(defaultMachineKind({ kind: 'paired', name: 'mac-mini' }), 'mini')
+  assert.equal(defaultMachineKind({ kind: 'paired', name: 'dev-macbook-air' }), 'laptop')
+  assert.equal(defaultMachineKind({ kind: 'paired', name: '100.64.0.7' }), 'desktop')
+})

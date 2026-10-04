@@ -90,6 +90,10 @@ test('the boot script stamps the persisted chat appearance before the first pain
     expect(stamped({ chatWidth: 'wide', chatContrast: 87 })).toEqual(expected(85, 'wide'))
     expect(stamped({ chatContrast: 100 })).toEqual(expected(100, 'full'))
     expect(stamped({ chatWidth: 'enormous', chatContrast: 'loud' })).toEqual(expected(100, 'full'))
+    // Nothing stored is a new install, which opens on Comfortable, as the
+    // store's normaliser reads it; a stored appearance without a width keeps
+    // Full (the `chatContrast: 100` case above).
+    expect(stamped(undefined as unknown as Record<string, unknown>)).toEqual(expected(100, 'comfortable'))
   } finally {
     window.localStorage.removeItem('sprintengine-app-settings')
   }
