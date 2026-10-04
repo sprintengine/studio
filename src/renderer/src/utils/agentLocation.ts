@@ -1,46 +1,45 @@
 import type { Workspace } from '../types/workspace'
 
-// The first workspace whose `agents` map contains `agentId`. The renderer store
-// is the source of truth: `moveAgentToWorkspace` relocates the AgentState between
-// workspaces while keeping the id, so this follows a moved agent with no
-// maintained index.
-//
+type AgentHost = Pick<Workspace, 'id' | 'agents'>
+
 // CAUTION: agent ids are NOT globally unique. Template agents are keyed
 // positionally (`agent-1`, `agent-2`) and a module's own agents by its own key
-// (`forecaster`, `worker-1`), so the same id recurs in every workspace built
-// from the same template. A bare id scan therefore returns an arbitrary match
-// when several workspaces share it. When you hold the workspace the agent was
-// recorded in (e.g. a persisted Backlog link target), use
-// `findWorkspaceForAgentPreferring` so that workspace disambiguates the hit and
-// the scan is only a fallback for a genuinely-moved (unique-id) agent.
-function findWorkspaceForAgent<W extends Pick<Workspace, 'id' | 'agents'>>(
+// (`forecaster`, `worker-1`), so the same id recurs in nearly every workspace.
+// Nothing here scans every workspace for a bare id: a closed chat's `agent-1`
+// and the open chat's `agent-1` are different agents, and a scan cannot tell a
+// moved agent from a namesake. Resolve against the workspace the thing was
+// recorded in; if that workspace, or the agent in it, is gone, the thing is
+// detached — never re-attached to another chat's agent of the same name.
+
+// The workspace an agent was recorded in, while it is open and still hosts that
+// agent; null otherwise.
+export function findRecordedAgentWorkspace<W extends AgentHost>(
   workspaces: ReadonlyArray<W>,
   agentId: string,
+  workspaceId: string | null | undefined,
 ): W | null {
-  return workspaces.find((workspace) => Boolean(workspace.agents[agentId])) ?? null
+  if (!workspaceId) return null
+  const workspace = workspaces.find((candidate) => candidate.id === workspaceId)
+  return workspace?.agents[agentId] ? workspace : null
 }
 
-// Resolve an agent's live workspace, preferring the workspace it was recorded in.
-// If `preferredWorkspaceId` is still open and still hosts `agentId`, that wins —
-// this is what disambiguates shared ids like `agent-1` across workspaces. Only
-// when the recorded workspace is gone (closed, or the agent truly moved out of
-// it) do we fall back to the global scan, which keeps move-robustness intact for
-// the unique-id agents that can actually be followed across workspaces.
-export function findWorkspaceForAgentPreferring<W extends Pick<Workspace, 'id' | 'agents'>>(
+// The workspace a live agent terminal belongs to now. `moveAgentToWorkspace`
+// relocates the AgentState between workspaces while the PTY keeps its
+// spawn-time workspaceId, so the recorded workspace alone would leave a moved
+// agent behind. The agent record names its own terminal (`cliSessionId` is the
+// PTY session id), and that is unique where the agent id is not: a workspace
+// whose agent of that id owns THIS session is where the agent lives, whichever
+// workspace the session was spawned in. Without that claim the recorded
+// workspace decides, and nothing else does.
+export function findAgentSessionWorkspace<W extends AgentHost>(
   workspaces: ReadonlyArray<W>,
-  agentId: string,
-  preferredWorkspaceId: string | null | undefined,
+  session: { agentId: string; sessionId: string; workspaceId: string | null | undefined },
 ): W | null {
-  if (preferredWorkspaceId) {
-    const preferred = workspaces.find((workspace) => workspace.id === preferredWorkspaceId)
-    if (preferred?.agents[agentId]) return preferred
-  }
-  return findWorkspaceForAgent(workspaces, agentId)
-}
-
-export function findWorkspaceIdForAgent(
-  workspaces: ReadonlyArray<Pick<Workspace, 'id' | 'agents'>>,
-  agentId: string,
-): string | null {
-  return findWorkspaceForAgent(workspaces, agentId)?.id ?? null
+  const owners = workspaces.filter((workspace) => workspace.agents[session.agentId]?.cliSessionId === session.sessionId)
+  if (owners.length === 1) return owners[0]
+  const recorded = findRecordedAgentWorkspace(workspaces, session.agentId, session.workspaceId)
+  // Two records claiming one session (a copied workspace) are told apart by the
+  // recorded workspace, or not at all.
+  if (owners.length > 1) return recorded && owners.includes(recorded) ? recorded : null
+  return recorded
 }

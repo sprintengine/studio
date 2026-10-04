@@ -15,7 +15,7 @@ import {
   type AgentBacklogLinkOpenPorts,
 } from './agentBacklogLinks'
 import { nextBacklogItemStatusFromLinks } from './backlogLinks'
-import { findWorkspaceForAgentPreferring, findWorkspaceIdForAgent } from './agentLocation'
+import { findAgentSessionWorkspace, findRecordedAgentWorkspace } from './agentLocation'
 import type { Workspace } from '../types/workspace'
 import { test } from 'vitest'
 
@@ -63,9 +63,9 @@ test('agentBacklogLinks', async () => {
       diagnostics: [] as string[],
     }
     const ports: AgentBacklogLinkOpenPorts = {
-      focusAgent: ({ agentId, preferredWorkspaceId }) => {
+      focusAgent: ({ agentId, workspaceId }) => {
         calls.focused.push(agentId)
-        calls.preferred.push(preferredWorkspaceId)
+        calls.preferred.push(workspaceId)
         return true
       },
       publishDiagnostic: (input) => {
@@ -108,31 +108,67 @@ test('agentBacklogLinks', async () => {
       'an agent link is lifecycle-neutral; only execution links drive status',
     )
 
-    // --- findWorkspaceIdForAgent: the live lookup ---
-    assert.equal(findWorkspaceIdForAgent([workspaceWithAgent('ws-1', 'agent-7')], 'agent-7'), 'ws-1')
-    assert.equal(findWorkspaceIdForAgent([], 'agent-7'), null)
-
-    // --- findWorkspaceForAgentPreferring: shared-id disambiguation (the agent-1 bug) ---
-    // Two workspaces both host `agent-1`; the recorded workspace must win over the
-    // first-match scan so a Backlog link never lands on an unrelated workspace's
-    // `agent-1`.
+    // --- findRecordedAgentWorkspace: shared ids never cross chats (the agent-1 bug) ---
+    // Two workspaces both host `agent-1`; the recorded one is the answer.
     const sharedIdWorkspaces = [workspaceWithAgent('ws-other', 'agent-1'), workspaceWithAgent('ws-recorded', 'agent-1')]
     assert.equal(
-      findWorkspaceForAgentPreferring(sharedIdWorkspaces, 'agent-1', 'ws-recorded')?.id,
+      findRecordedAgentWorkspace(sharedIdWorkspaces, 'agent-1', 'ws-recorded')?.id,
       'ws-recorded',
       'the recorded workspace disambiguates a shared agent id',
     )
-    // Moved agent: recorded workspace no longer hosts the id, so the scan follows it.
+    // The recorded chat was closed: its `agent-1` is gone, and another chat's
+    // `agent-1` is a different agent.
     assert.equal(
-      findWorkspaceForAgentPreferring([workspaceWithAgent('ws-2', 'agent-7')], 'agent-7', 'ws-1')?.id,
-      'ws-2',
-      'a moved agent still self-heals via the scan fallback',
+      findRecordedAgentWorkspace([workspaceWithAgent('ws-other', 'agent-1')], 'agent-1', 'ws-closed'),
+      null,
+      "a closed chat's agent never resolves to another chat's namesake",
     )
-    // No preference given: falls back to the plain first-match scan.
-    assert.equal(findWorkspaceForAgentPreferring(sharedIdWorkspaces, 'agent-1', undefined)?.id, 'ws-other')
-    // Recorded workspace is open but no longer hosts the id, and the agent is gone:
-    // returns null rather than forcing the wrong workspace.
-    assert.equal(findWorkspaceForAgentPreferring([workspaceWithAgent('ws-1', 'someone-else')], 'agent-7', 'ws-1'), null)
+    // Nothing recorded: no workspace is guessed from the id.
+    assert.equal(findRecordedAgentWorkspace(sharedIdWorkspaces, 'agent-1', undefined), null)
+    // Recorded workspace is open but no longer hosts the id.
+    assert.equal(findRecordedAgentWorkspace([workspaceWithAgent('ws-1', 'someone-else')], 'agent-7', 'ws-1'), null)
+
+    // --- findAgentSessionWorkspace: a moved agent is followed by its session, not its id ---
+    function workspaceWithSession(
+      workspaceId: string,
+      agentId: string,
+      cliSessionId: string,
+    ): Pick<Workspace, 'id' | 'agents'> {
+      return { id: workspaceId, agents: { [agentId]: { cliSessionId } as Workspace['agents'][string] } }
+    }
+    // The agent was moved from ws-1 to ws-2: its record in ws-2 owns the session.
+    assert.equal(
+      findAgentSessionWorkspace(
+        [workspaceWithAgent('ws-1', 'other'), workspaceWithSession('ws-2', 'agent-1', 'sess-a')],
+        {
+          agentId: 'agent-1',
+          sessionId: 'sess-a',
+          workspaceId: 'ws-1',
+        },
+      )?.id,
+      'ws-2',
+    )
+    // A closed chat's session: another chat's `agent-1` owns a different session.
+    assert.equal(
+      findAgentSessionWorkspace([workspaceWithSession('ws-open', 'agent-1', 'sess-open')], {
+        agentId: 'agent-1',
+        sessionId: 'sess-closed',
+        workspaceId: 'ws-closed',
+      }),
+      null,
+    )
+    // No record names the session (relaunched since): the recorded workspace decides.
+    assert.equal(
+      findAgentSessionWorkspace(
+        [workspaceWithSession('ws-other', 'agent-1', 'x'), workspaceWithSession('ws-1', 'agent-1', 'y')],
+        {
+          agentId: 'agent-1',
+          sessionId: 'stale',
+          workspaceId: 'ws-1',
+        },
+      )?.id,
+      'ws-1',
+    )
 
     // --- resolve: resolvable ---
     const resolvable = resolveAgentBacklogLink({
@@ -145,18 +181,19 @@ test('agentBacklogLinks', async () => {
     assert.equal(resolvable.status, 'active')
     assert.equal(resolvable.canOpen, true)
 
-    // --- resolve: agent moved to a DIFFERENT workspace than the link encodes ---
-    // The link target is 'ws-1/agent-7' but the agent now lives in 'ws-2'; it must
-    // still resolve active (the move-robustness fix).
-    const moved = resolveAgentBacklogLink({
+    // --- resolve: the link's chat was closed, and another chat has the same id ---
+    // The link target is 'ws-1/agent-7'; 'ws-2' has an `agent-7` of its own. A
+    // closed chat's link reads closed, never active against the namesake.
+    const closedChat = resolveAgentBacklogLink({
       workspaceId: 'ws-backlog',
       workspaceRoot,
       item: baseItem,
       link: agentLink,
       workspaces: [workspaceWithAgent('ws-2', 'agent-7')],
     })
-    assert.equal(moved.status, 'active', 'a moved agent self-heals via the live lookup')
-    assert.equal(moved.canOpen, true)
+    assert.equal(closedChat.status, 'unknown', "a closed chat's agent link never resolves to another chat")
+    assert.equal(closedChat.canOpen, false)
+    assert.match(closedChat.unavailableReason ?? '', /no longer open/)
 
     // --- resolve: agent not open anywhere ---
     const noAgent = resolveAgentBacklogLink({

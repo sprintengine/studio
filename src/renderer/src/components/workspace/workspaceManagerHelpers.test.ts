@@ -28,6 +28,7 @@ test('workspaceManagerHelpers', async () => {
     assertConversationSessionsSurfaceInSessionItems()
     assertAgentlessPtySessionsSurfaceWithHumanLabel()
     assertWorkspacelessSessionsStillSurface()
+    assertClosedChatSessionsNeverJoinANamesake()
     assertDetachedBucketsTrailRealWorkspaces()
     assertSidebarOrderGroupsWorktreesUnderTheirProject()
     console.log('workspaceManagerHelpers.test.ts: all assertions passed')
@@ -180,6 +181,61 @@ test('workspaceManagerHelpers', async () => {
     const idless = getSessionItems([], [idlessPty], [])
     assert.equal(idless.length, 1, 'a session with no workspaceId is not filtered out')
     assert.equal(idless[0]?.group.label, 'Other sessions')
+  }
+
+  // Nearly every chat's first agent is `agent-1`. A session from a closed chat
+  // must land in the detached bucket, not under the open chat that happens to
+  // have an `agent-1` of its own — while an agent the person MOVED to another
+  // chat is followed there by the session its record owns.
+  function assertClosedChatSessionsNeverJoinANamesake(): void {
+    const openChat = {
+      id: 'ws-open',
+      name: 'Open chat',
+      agents: { 'agent-1': { id: 'agent-1', name: 'Open agent', cliSessionId: 'pty-open' } },
+    } as unknown as Workspace
+    const closedPty = {
+      sessionId: 'pty-closed',
+      processAlive: true,
+      kind: 'agent',
+      workspaceId: 'ws-closed',
+      agentId: 'agent-1',
+      agentName: 'Closed agent',
+      cli: 'claude-code',
+      activity: { kind: 'working', since: 10 },
+      lastOutputAt: 20,
+      lastInputAt: null,
+    } as unknown as TerminalSessionSnapshot
+    // A second closed chat, also with an `agent-1`, running on the conversation
+    // transport: the two share the detached bucket but are not twins.
+    const closedSummary: ConversationSessionSummary = {
+      sessionId: 'conv-closed',
+      workspaceId: 'ws-closed-too',
+      agentId: 'agent-1',
+      providerId: 'claude-agent',
+      modelId: 'sonnet',
+      status: 'active',
+      createdAt: 10,
+      updatedAt: 20,
+    }
+
+    const items = getSessionItems([openChat], [closedPty], [closedSummary])
+    const terminalItem = items.find((item) => item.sessionId === 'pty-closed')
+    assert.equal(terminalItem?.group.kind, 'detached', "a closed chat's terminal is detached")
+    assert.equal(terminalItem?.label, 'Closed agent', "never labelled with the open chat's agent")
+    const conversationItem = items.find((item) => item.sessionId === 'conv-closed')
+    assert.equal(conversationItem?.group.kind, 'detached', "a closed chat's conversation is detached")
+    assert.equal(conversationItem?.label, 'agent-1', "never labelled with the open chat's agent")
+
+    // Moved: the PTY still says ws-source, but ws-open's record owns its session.
+    const movedPty = {
+      ...(closedPty as unknown as Record<string, unknown>),
+      sessionId: 'pty-open',
+      workspaceId: 'ws-source',
+    } as unknown as TerminalSessionSnapshot
+    const source = { id: 'ws-source', name: 'Source', agents: {} } as unknown as Workspace
+    const moved = getSessionItems([source, openChat], [movedPty], [])
+    assert.equal(moved[0]?.group.id, 'ws-open', 'a moved agent is grouped where its record now lives')
+    assert.equal(moved[0]?.label, 'Open agent')
   }
 
   // An agent spawned outside this window carries workspaceId and agentName in the
