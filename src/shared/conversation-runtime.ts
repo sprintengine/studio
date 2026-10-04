@@ -34,6 +34,7 @@ export type {
   ConversationToolOutputPayload,
   ConversationToolStartedPayload,
   ConversationToolStatus,
+  ConversationTurnRetryingPayload,
 } from '../../packages/conversation-protocol/src/public'
 
 export type ConversationSessionSummary = {

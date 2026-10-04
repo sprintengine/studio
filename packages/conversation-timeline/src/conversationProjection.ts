@@ -131,6 +131,9 @@ export type TranscriptEntry =
       // after prose already has a duration from the first, so that alone
       // cannot tell "Thinking" from "Thought for Ns".
       reasoningLive?: boolean
+      // The provider's last call failed and it is waiting to try again. Cleared
+      // by whatever the turn reports next, so it is only ever the latest word.
+      retry?: TurnRetry
       costUsd?: number
       durationMs?: number
       numTurns?: number
@@ -414,6 +417,16 @@ export function openReasoningRun(previous: string, delta: string): string {
   return previous.trim() ? `${previous.trimEnd()}\n\n${delta.trimStart()}` : previous + delta
 }
 
+/** A `turn_retrying` notice, as the transcript keeps it. */
+export type TurnRetry = {
+  attempt: number
+  maxAttempts: number
+  retryInMs: number
+  error?: string
+  status?: number
+  at: number
+}
+
 export type TurnAccumulator = {
   turnId: string
   text: string
@@ -429,6 +442,7 @@ export type TurnAccumulator = {
   // The reasoning run streaming now, and the closed runs of `reasoning` summed.
   reasoningOpenedAt?: number
   reasoningMs?: number
+  retry?: TurnRetry
   costUsd?: number
   durationMs?: number
   numTurns?: number
@@ -589,7 +603,29 @@ export function projectConversation(
     const turnId = readString(event.payload, 'turnId')
     if (turnId && event.seq !== undefined && !turnStartSeq.has(turnId)) turnStartSeq.set(turnId, event.seq)
     promptCache = applyPromptCacheEvent(promptCache, event)
+    // A retry notice says why the turn has nothing to show yet. Anything else
+    // the turn reports means the call went through, or the turn ended.
+    if (turnId && event.type !== 'turn_retrying') {
+      const turn = turns.get(turnId)
+      if (turn?.retry) turn.retry = undefined
+    }
     switch (event.type) {
+      case 'turn_retrying': {
+        const attempt = readNumber(event.payload, 'attempt')
+        const maxAttempts = readNumber(event.payload, 'maxAttempts')
+        if (!turnId || attempt === undefined || maxAttempts === undefined) break
+        const status = readNumber(event.payload, 'status')
+        const error = readString(event.payload, 'error')
+        ensureTurn(turnId).retry = {
+          attempt,
+          maxAttempts,
+          retryInMs: readNumber(event.payload, 'retryInMs') ?? 0,
+          ...(error ? { error } : {}),
+          ...(status !== undefined ? { status } : {}),
+          at: event.createdAt,
+        }
+        break
+      }
       case 'session_started': {
         // Each session binds credentials afresh; a previous session's reported
         // source must not carry over (a replayed transcript would otherwise
@@ -933,6 +969,7 @@ export function projectConversation(
           const turn = ensureTurn(targetTurnId)
           closeReasoning(turn, event.createdAt)
           turn.status = interrupted ? 'interrupted' : 'failed'
+          turn.retry = undefined
           turn.failureReason = reason
           turn.failureDetail = readString(event.payload, 'message') ?? turn.failureDetail
           turn.completedAt = event.createdAt
@@ -1033,6 +1070,7 @@ export function projectConversation(
       modelId: turn.modelId,
       reasoningDurationMs: turn.reasoningMs,
       reasoningLive: turn.reasoningOpenedAt !== undefined ? true : undefined,
+      ...(turn.retry ? { retry: turn.retry } : {}),
       costUsd: turn.costUsd,
       durationMs: turn.durationMs,
       numTurns: turn.numTurns,
