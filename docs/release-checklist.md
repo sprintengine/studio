@@ -3,7 +3,7 @@
 A merge to main publishes nothing. Main feeds a nightly train, cut on a
 schedule when there is something new to ship, and a stable release is a manual
 promotion of the exact commit the latest nightly shipped. PRs merge by merge
-commit or squash, never rebase, with Conventional Commit titles; see
+commit, never squash or rebase, with Conventional Commit titles; see
 [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Before merging
@@ -18,7 +18,7 @@ commit or squash, never rebase, with Conventional Commit titles; see
   version.
   The next nightly carries the bump straight away.
 - Describe user-visible changes and compatibility breaks in the PR body. The
-  merge or squash commit keeps both the title and body.
+  merge commit keeps both the title and body.
 - Do not manually edit the app version. Stable tags are the release version
   ledger; the workflow stamps `package.json` before compilation and packaging.
   The committed version remains a development baseline. SDK versions are separate.
@@ -313,18 +313,20 @@ no longer read and can be deleted.
 ## GitHub enforcement
 
 The versioned ruleset is [main-ruleset.json](../.github/main-ruleset.json).
-It requires a PR, a merge commit or a squash (no rebase), resolved
+It requires a PR, a merge commit (no squash, no rebase), resolved
 conversations and these checks from GitHub Actions: **Conventional PR title**, **Build
 (ubuntu-latest)**, **Build (windows-latest)**, **Build (macos-latest)** and
 **JS tests (ubuntu-latest)**. It prohibits force pushes and branch deletion,
 requires checks against current main, and has no bypass actors. No additional
 human approval count is imposed.
 
-Repository settings must also set `allow_squash_merge=true`,
-`allow_merge_commit=true`, `allow_rebase_merge=false`,
-`squash_merge_commit_title=PR_TITLE`, `squash_merge_commit_message=PR_BODY`,
+Repository settings must also set `allow_merge_commit=true`,
+`allow_squash_merge=false`, `allow_rebase_merge=false`,
 `merge_commit_title=PR_TITLE` and `merge_commit_message=PR_BODY`, so a merge
-commit carries the same conventional message a squash does. Dependabot is configured to use
+commit carries the PR's conventional title and body while the branch's own
+commits keep their history behind it (owner ruling 2026-10-04: squash merges
+lost every branch commit). Older history on main is squash commits; the release
+reads main's first-parent history, so both kinds version the same way. Dependabot is configured to use
 `build:` and `ci:` titles so its updates pass the same check.
 
 For a new repository, create the PR containing the title-check workflow before

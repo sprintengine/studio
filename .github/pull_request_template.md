@@ -3,7 +3,7 @@ Use a Conventional Commit title (see CONTRIBUTING.md):
 feat: add workspace search              -> minor release
 fix(updates): retry interrupted downloads -> patch release
 feat!: remove the legacy workspace format -> major release
-All other accepted types release a patch. Squash merge preserves this title
+All other accepted types release a patch. The merge commit takes this title
 and the PR body; use ! or a BREAKING CHANGE: footer for an incompatible change.
 -->
 
