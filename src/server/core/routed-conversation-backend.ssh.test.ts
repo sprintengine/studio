@@ -156,3 +156,50 @@ test("a turn sent with no command id (a window's IPC sends none) is given one; a
   assert.equal((machine.calls.at(-1)?.args[0] as { commandId?: string }).commandId, undefined, 'a read carries none')
   assert.equal(local.calls.length, 0)
 })
+
+test('a send repeated after a lost wire to a server that restarted meanwhile is not offered for a resend', async () => {
+  // The first attempt may have reached the old server and started the turn
+  // before it went; the restarted one does not hold the session, and only a
+  // resend under a new session would follow, sending the message twice.
+  const local = fakeBackend('local')
+  const old = fakeBackend('ssh-old', () => {
+    old.drop()
+    throw new Error('The connection closed.')
+  })
+  const restarted = fakeBackend('ssh-new', () => ({
+    ok: false,
+    code: 'session_not_found',
+    message: 'Conversation session is invalid.',
+  }))
+  let current: SshRoutedConnection = { key: 'ssh:e1', label: 'build-box', backend: old.backend }
+  const router = createRoutedConversationBackend({
+    local: local.backend,
+    workspace: () => ({ folderPath: '/home/dev/repo', environment: { kind: 'ssh', id: 'e1' } }),
+    chatServerOn: () => false,
+    ssh: {
+      connect: async () => {
+        const given = current
+        current = { key: 'ssh:e1', label: 'build-box', backend: restarted.backend }
+        return given
+      },
+      current: () => current,
+      touch: () => undefined,
+    },
+    platform: 'linux',
+  })
+  router.attach(current)
+  old.emit({ type: 'session_started', sessionId: 'remote-1', workspaceId: 'ws-ssh', agentId: 'a' } as ConversationEvent)
+  const sent = (await router.sendTurn({ sessionId: 'remote-1', message: 'hello' } as never)) as {
+    ok: boolean
+    code?: string
+    message?: string
+  }
+  assert.equal(restarted.calls.length, 1, 'sent again once the machine was back')
+  assert.equal(sent.ok, false)
+  assert.equal(sent.code, undefined, 'not named a lost session, which the chat view would send again on a new one')
+  assert.match(sent.message ?? '', /build-box was lost while this was being sent.*Check the conversation/u)
+
+  // A first attempt that finds the session gone ran nothing: that one is named lost.
+  const fresh = (await router.sendTurn({ sessionId: 'remote-1', message: 'hello' } as never)) as { code?: string }
+  assert.equal(fresh.code, 'session_not_found')
+})

@@ -23,6 +23,9 @@ new chat. The app no longer has an automations engine for a module to extend.
 
 ### Added
 
+- **`turn_retrying`** joins `ModuleConversationEventType`: a model call in
+  the turn failed and the provider will try it again. The payload carries the
+  attempt, the attempt limit, the wait before it and the failure's category.
 - **Scheduled agents.** `getScheduledAgentsService(host)` creates, updates,
   removes, lists and runs the module's own scheduled agents — a prompt and a
   cron schedule, each run a new chat in the project — and tells the module

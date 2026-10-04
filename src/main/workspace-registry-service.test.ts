@@ -87,6 +87,19 @@ test('an explicitly named workspace locks its title at creation', () => {
   }
 })
 
+test('a workspace records This PC only for a folder inside a distribution', () => {
+  const h = harness()
+  try {
+    const unc = '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo'
+    assert.equal(create(h, { folderPath: unc, hostId: 'local' }).workspace.hostId, 'local', 'it would read as Ubuntu')
+    assert.equal(create(h, { folderPath: 'C:\\Users\\dev\\repo', hostId: 'local' }).workspace.hostId, undefined)
+    assert.equal(create(h, { folderPath: unc }).workspace.hostId, undefined, 'nothing picked: the folder decides')
+    assert.equal(create(h, { folderPath: 'C:\\Users\\dev\\repo', hostId: 'wsl:Ubuntu' }).workspace.hostId, 'wsl:Ubuntu')
+  } finally {
+    h.cleanup()
+  }
+})
+
 test('two mutations in one tick land in revision order and persist', async () => {
   const h = harness()
   try {

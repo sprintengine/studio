@@ -11,3 +11,6 @@
   connection and read it as rows, with paging to earlier turns.
 - `checkConversationTimelineProtocol`: the conversation protocol window the
   package reads, checked against a Studio's welcome.
+- `turn_retrying` is read: the turn's entry carries the latest `retry`
+  until the turn reports anything else, and the working row says why and
+  which attempt (`retryLabel`), in place of "Thinking…".

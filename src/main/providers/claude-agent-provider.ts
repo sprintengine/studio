@@ -53,6 +53,7 @@ import {
 import { isBackgroundLaunchAck, isSubagentStep } from '../../shared/conversation/subagents'
 export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { LOOKUP_TOOL_KINDS } from '../../shared/conversation/permissionModes'
+import { wslShareSafeDirectoryEnv } from '../git-run'
 
 import type {
   Options,
@@ -75,6 +76,7 @@ import type {
   ConversationSubagentStatusPayload,
   ConversationToolOutputPayload,
   ConversationToolStartedPayload,
+  ConversationTurnRetryingPayload,
 } from '../../shared/conversation-runtime'
 import type {
   ConversationProviderAdapter,
@@ -1814,7 +1816,7 @@ function spawnLocalChild(spawnInput: SpawnOptions): ChildProcess {
   try {
     child = spawn(spawnInput.command, spawnInput.args, {
       cwd: spawnInput.cwd,
-      env: { ...withoutLaunchToken(env), ...(launch ? { [MCP_CHANNEL_TOKEN_ENV]: launch.token } : {}) },
+      env: claudeLocalChildEnv(env, launch?.token ?? null, spawnInput.cwd),
       stdio: ['pipe', 'pipe', 'pipe'],
       signal: spawnInput.signal,
       windowsHide: true,
@@ -1830,6 +1832,25 @@ function spawnLocalChild(spawnInput: SpawnOptions): ChildProcess {
     })
   }
   return child
+}
+
+/**
+ * The environment a Claude child on this machine starts with: the SDK's, with
+ * this child's own gateway token in place of any inherited one, and, on This
+ * PC in a folder inside a WSL distribution, that folder listed as safe for
+ * the agent's own git, as the app's git has it.
+ */
+export function claudeLocalChildEnv(
+  env: Record<string, string | undefined>,
+  launchToken: string | null,
+  cwd: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  return wslShareSafeDirectoryEnv(
+    { ...withoutLaunchToken(env), ...(launchToken ? { [MCP_CHANNEL_TOKEN_ENV]: launchToken } : {}) },
+    cwd,
+    platform,
+  )
 }
 
 function withoutLaunchToken(env: Record<string, string | undefined>): NodeJS.ProcessEnv {
@@ -2052,6 +2073,27 @@ export function mapSdkMessage(
     case 'system': {
       if (message.subtype === 'local_command_output') {
         if (typeof message.content === 'string') commandOutput(stripLocalCommandTags(message.content), undefined)
+        break
+      }
+      // A model call failed and the CLI will try it again after a wait. It
+      // backs off for minutes before it gives up, and a turn that only ever
+      // said "Thinking…" through all of it looked hung, an expired sign-in
+      // most of all.
+      if (message.subtype === 'api_retry') {
+        const attempt = finiteNumber(message.attempt)
+        const maxAttempts = finiteNumber(message.max_retries)
+        if (attempt === undefined || maxAttempts === undefined) break
+        const status = finiteNumber(message.error_status)
+        events.push(
+          eventFor(state, 'turn_retrying', {
+            turnId,
+            attempt,
+            maxAttempts,
+            retryInMs: finiteNumber(message.retry_delay_ms) ?? 0,
+            ...(typeof message.error === 'string' && message.error ? { error: message.error } : {}),
+            ...(status !== undefined ? { status } : {}),
+          } satisfies ConversationTurnRetryingPayload),
+        )
         break
       }
       // The CLI summarised the conversation to free context, on /compact or

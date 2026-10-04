@@ -1,9 +1,10 @@
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
-import { isWslHostId, type ExecutionHostId, type ExecutionHostSettings } from '../../shared/execution-host'
-import { comparablePath } from '../../shared/host-paths'
+import { gitHostIdForPath, type ExecutionHostId, type ExecutionHostSettings } from '../../shared/execution-host'
+import { distroOfUncPath } from '../../shared/host-paths'
 import { ensureSkillInstalled } from '../../main/builtin-skills'
 import { cliResumeCapabilities } from '../../main/cli-resume-capabilities'
 import {
@@ -11,6 +12,12 @@ import {
   type AgentPermissionResolver,
 } from '../../main/automation/launch-permission-cap'
 import { createConversationGatewayHost } from '../../main/automation/tailnet/tailnet-conversation-host'
+import {
+  conversationHostOf,
+  conversationPullRequestsOf,
+  tailnetSelfMachine,
+  type ConversationMachineContext,
+} from '../../main/automation/tailnet/tailnet-conversation-machine'
 import { ConversationApprovalRuleStore } from '../../main/conversation-approval-rules'
 import { ConversationAttachmentStore } from '../../main/conversation-attachment-store'
 import { createConversationLaunchService } from '../../main/conversation-launch-service'
@@ -102,6 +109,12 @@ export type StudioCoreOptions = {
   sshServers?: {
     servers: SshRoutedServers
     onConnected(listener: (connection: SshRoutedConnection) => void): void
+    /**
+     * A saved SSH machine's host, as its SSH config resolves it (else as it
+     * was typed), and its resolved port: what its kind and colour are keyed
+     * by. Without it a paired phone is not told which SSH machine a chat runs on.
+     */
+    machineOf?(savedId: string): { host: string; port?: number | null } | null
   }
 }
 
@@ -177,29 +190,17 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     resolveResumeCapabilities: cliResumeCapabilities,
   })
 
-  // Git for a repository on a WSL machine runs in that distribution: a folder
-  // inside it (`\\wsl.localhost\<distro>\…`), or one an open workspace on that
-  // machine holds. Everything else keeps this machine's git. macOS and Linux
-  // have one machine, so their git never asks.
+  // Git for a repository runs on the machine of the open workspace holding
+  // it, which is where its agents run theirs: a `C:\` folder of a WSL
+  // workspace in that distribution, and a folder inside a distribution on
+  // This PC when its workspace runs here (owner ruling 2026-10-03). A folder
+  // no workspace holds goes by where it lives. macOS and Linux have one
+  // machine, so their git never asks.
   installGitHostResolver((cwd) => {
     if (process.platform !== 'win32') return null
-    const byFolder = hosts.resolve({ folder: cwd })
-    if (byFolder.kind === 'wsl') return byFolder
-    const owner = findWorkspaceHostForPath(cwd)
-    return owner ? hosts.get(owner) : null
+    const id = gitHostIdForPath(cwd, workspaceSyncService.getSnapshot().state.workspaces)
+    return id ? hosts.get(id) : null
   })
-  // The WSL machine of the open workspace whose folder holds `path`: a WSL
-  // workspace whose folder sits on a Windows drive still runs its git in the
-  // distribution, where its agents run theirs.
-  function findWorkspaceHostForPath(path: string): string | null {
-    const target = comparablePath(path)
-    for (const workspace of workspaceSyncService.getSnapshot().state.workspaces) {
-      if (!isWslHostId(workspace.hostId) || !workspace.folderPath) continue
-      const folder = comparablePath(workspace.folderPath)
-      if (target === folder || target.startsWith(`${folder}/`)) return workspace.hostId
-    }
-    return null
-  }
 
   // The conversation runtime: chat sessions and the providers and agent CLI
   // children behind them, transcripts, the thread index and checkpoints. Owned
@@ -256,6 +257,13 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       },
     })
     wslServers?.onConnected((connection) => routed.attach(connection))
+    // A distribution's server that stopped under its chats (a crash, `wsl
+    // --shutdown`): the turns it was running show as interrupted now, not
+    // when the server next starts and its transcripts are read again.
+    wslServers?.onStatus((status) => {
+      if (status.state === 'unavailable' || status.state === 'shut-down')
+        routed.lost(status.distro, `The Studio server in ${status.distro} stopped while this turn was running.`)
+    })
     sshServers?.onConnected((connection) => routed.attach(connection))
     conversations = routed
   }
@@ -303,6 +311,12 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     conversations,
     workspaceFolder: (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
     isSuspended: () => powerActivity.isSuspended(),
+    // A distribution the person shut down stays down until a chat there is
+    // sent to: reading a checkout in it would start WSL again.
+    pathAsleep: (path) => {
+      const distro = distroOfUncPath(path)
+      return Boolean(distro && wslServers?.manager.status(distro).state === 'shut-down')
+    },
     log: (message, error) => {
       void writeDiagnosticLog({
         level: 'warning',
@@ -335,6 +349,29 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
    * device follows chats through, and the Studio RPC a local app does. One
    * factory, so a chat lists, resumes and switches the same by either.
    */
+  // The machine a chat runs on and its pull requests, as a paired phone's
+  // list shows them: read from the registry, the launch settings and the pull
+  // request record, never from a machine or GitHub.
+  const machineContext = (): ConversationMachineContext => ({
+    hostName: readHostName(),
+    platform: process.platform,
+    marks: agentLaunchSettings.get().machineMarks,
+    ...(sshServers?.machineOf ? { sshMachineOf: (id: string) => sshServers.machineOf?.(id) ?? null } : {}),
+  })
+  const listMarks = {
+    machineOf: (workspaceId: string) =>
+      conversationHostOf(workspaceRegistry.getRecord(workspaceId) ?? null, machineContext()),
+    pullRequestsOf: async (keys: Array<{ workspaceId: string; agentId: string }>) => {
+      const found = await pullRequests.list({ conversations: keys })
+      return new Map(
+        found.conversations.map((entry) => [
+          `${entry.workspaceId}:${entry.agentId}`,
+          conversationPullRequestsOf(entry.pullRequests),
+        ]),
+      )
+    },
+    selfMachine: () => tailnetSelfMachine(machineContext()),
+  }
   const createConversationHost = () =>
     createConversationGatewayHost(
       conversations,
@@ -361,6 +398,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       // The chat's CLI catalog as this machine's own picker lists it, so a
       // paired device offers the same models and can switch to no other.
       conversationModelCatalog,
+      listMarks,
     )
 
   /**
@@ -427,4 +465,13 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
 export function studioBridgeScriptPath(paths: StudioPaths): string {
   const root = paths.isPackaged() ? paths.resourcesDir() : join(paths.appRoot() ?? process.cwd(), 'resources')
   return join(root ?? '', 'automation', 'mcp-stdio-bridge.mjs')
+}
+
+/** This machine's host name, or empty when the OS will not say. */
+function readHostName(): string {
+  try {
+    return hostname().trim()
+  } catch {
+    return ''
+  }
 }

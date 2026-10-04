@@ -3,6 +3,8 @@ import {
   type ConversationCommand,
   type ConversationThread,
   type ConversationWireErrorCode,
+  type ConversationWireHost,
+  type ConversationWirePullRequest,
   type ConversationWireModels,
 } from '../../../../packages/conversation-protocol/src/public'
 import { isPlaceholderAgentName } from '../../../shared/agent-names'
@@ -85,6 +87,11 @@ export async function readBoundedConversationUpload(path: string, expectedBytes:
 
 export type ConversationGatewayHost = {
   list(): Promise<ConversationThread[]>
+  /**
+   * This machine's own kind and colour, for the identity endpoint's
+   * `machine`: how a paired device draws the desktop it is paired with.
+   */
+  machine?(): { kind: string; color: string } | null
   resolveKey(workspaceId: string, agentId: string): ConversationKey | null
   subscribe(
     key: ConversationKey,
@@ -163,6 +170,22 @@ export type ConversationGatewayCommandResult = {
 }
 
 /**
+ * What a listed chat carries beside its conversation: the machine it runs on
+ * and the pull requests its branches have. Both are read from records this
+ * desktop already keeps, so listing never starts a process or asks GitHub.
+ */
+export type ConversationListMarks = {
+  /** The machine a workspace's chats run on; null when it cannot be named yet. */
+  machineOf?: (workspaceId: string) => ConversationWireHost | null
+  /** The pull requests the record holds for these chats, keyed `workspaceId:agentId`. */
+  pullRequestsOf?: (
+    keys: Array<{ workspaceId: string; agentId: string }>,
+  ) => Promise<Map<string, ConversationWirePullRequest[]>>
+  /** This machine's own kind and colour. */
+  selfMachine?: () => { kind: string; color: string }
+}
+
+/**
  * Both IPC and the network wrap this one session API; only root resolution
  * differs. `defaultPermissionPreset` answers for a conversation this app has
  * not run since it started: the preset its agent record holds, else the app's
@@ -179,6 +202,7 @@ export function createConversationGatewayHost(
     DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
   agentName: (key: { workspaceId: string; agentId: string }) => string | null | undefined = () => null,
   modelCatalog: (providerId: string) => Promise<ConversationModelCatalog | null> = async () => null,
+  marks: ConversationListMarks = {},
 ): ConversationGatewayHost {
   // A slot placeholder ("Agent 2", the record id) is not a name; the thread's
   // title says more than it does.
@@ -327,6 +351,40 @@ export function createConversationGatewayHost(
     if (!switched.ok) return { ok: false, message: switched.message }
     return { ok: true, ...(switched.notice ? { notice: switched.notice } : {}) }
   }
+  // The machine once per workspace, and the pull requests in one read of the
+  // record for the whole list. A failed read leaves the rows without them, as
+  // from a desktop that never listed them: the list itself still answers.
+  const withMarks = async (listed: ConversationThread[]): Promise<ConversationThread[]> => {
+    if (!marks.machineOf && !marks.pullRequestsOf) return listed
+    const machines = new Map<string, ConversationWireHost | null>()
+    const machineOf = (workspaceId: string): ConversationWireHost | null => {
+      if (!marks.machineOf) return null
+      if (!machines.has(workspaceId)) {
+        let found: ConversationWireHost | null = null
+        try {
+          found = marks.machineOf(workspaceId)
+        } catch {
+          found = null
+        }
+        machines.set(workspaceId, found)
+      }
+      return machines.get(workspaceId) ?? null
+    }
+    let pullRequests: Map<string, ConversationWirePullRequest[]> | null = null
+    if (marks.pullRequestsOf && listed.length > 0) {
+      pullRequests = await marks
+        .pullRequestsOf(listed.map((thread) => ({ workspaceId: thread.workspaceId, agentId: thread.agentId })))
+        .catch(() => null)
+    }
+    return listed.map((thread) => {
+      const host = machineOf(thread.workspaceId)
+      return {
+        ...thread,
+        ...(host ? { host } : {}),
+        ...(pullRequests ? { pullRequests: pullRequests.get(`${thread.workspaceId}:${thread.agentId}`) ?? [] } : {}),
+      }
+    })
+  }
   return {
     async list() {
       const result = api.listSessions()
@@ -381,8 +439,10 @@ export function createConversationGatewayHost(
           capabilities: wireCapabilities(summary),
         })
       }
-      return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt)
+      const listed = [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt)
+      return withMarks(listed)
     },
+    ...(marks.selfMachine ? { machine: () => marks.selfMachine?.() ?? null } : {}),
     permissionOf(key) {
       const listed = api.listSessions({ workspaceId: key.workspaceId, agentId: key.agentId })
       return permissionFor(key, listed.ok ? listed.sessions : []).permissionPreset

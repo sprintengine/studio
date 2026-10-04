@@ -293,14 +293,20 @@ export function effectiveWindowMaterial(material: WindowMaterial, platform: stri
   return material === 'glass' && platform !== 'darwin' ? 'tinted' : material
 }
 
-// How far the conversation column may grow. `full` is the pane's own width —
-// the chat's shape before this setting existed, and so the default: a new
-// setting that re-lays everyone's transcript is a change nobody asked for.
-// The other two cap the transcript and the composer together at a reading
-// measure and centre them, the scrollbar staying at the pane's edge.
+// How far the conversation column may grow. `comfortable` and `wide` cap the
+// transcript and the composer together at a reading measure and centre them,
+// the scrollbar staying at the pane's edge; `full` is the pane's own width.
+//
+// A new install opens on Comfortable (owner ruling 2026-10-04: the composer and
+// the transcript read best at `size.chat-column.comfortable`). A profile that
+// already holds a width keeps it, and one stored before the setting existed
+// keeps `full`, the chat's shape back then: a default that re-lays an existing
+// transcript is a change nobody asked for.
 const CHAT_WIDTHS = ['comfortable', 'wide', 'full'] as const
 export type ChatWidth = (typeof CHAT_WIDTHS)[number]
-export const DEFAULT_CHAT_WIDTH: ChatWidth = 'full'
+export const DEFAULT_CHAT_WIDTH: ChatWidth = 'comfortable'
+/** The width a stored appearance from before the setting reads as. */
+export const LEGACY_CHAT_WIDTH: ChatWidth = 'full'
 
 export function isChatWidth(value: unknown): value is ChatWidth {
   return typeof value === 'string' && (CHAT_WIDTHS as readonly string[]).includes(value)

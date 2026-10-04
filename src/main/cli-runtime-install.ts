@@ -1003,6 +1003,24 @@ export async function installCli(
   }
 }
 
+// Why an update failed, in the words of the command that failed. "Exited with
+// code 1" alone names no cause, and the person reading it is in Settings, not
+// in the terminal the command printed to: npm's EACCES, an updater refusing to
+// touch a copy it did not install, a network error all used to read the same.
+// The banner line (`$ …`) is what ran, not what it said, so it is left out.
+export function updateFailure(code: number, log: string): string {
+  const said = log
+    // Colour and cursor escapes, and the OSC 8 hyperlinks some CLIs print.
+    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, '')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .split(/\r?\n|\r/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('$ '))
+    .slice(-3)
+    .join(' ')
+  return said ? `Update command exited with code ${code}: ${said}` : `Update command exited with code ${code}.`
+}
+
 // Builds the descriptor that runs the CLI's own updater: the resolved binary
 // with the manifest `update.args`, in the target shell so PATH resolution
 // matches detection and terminal launches.
@@ -1061,9 +1079,7 @@ export async function updateCli(
         capture,
         updateEnv,
       )
-      if (outcome.code !== 0) {
-        runError = `Update command exited with code ${outcome.code}.`
-      }
+      if (outcome.code !== 0) runError = updateFailure(outcome.code, log)
     } catch (error) {
       runError = error instanceof Error ? error.message : String(error)
     }
@@ -1105,7 +1121,7 @@ export async function updateCli(
         capture,
         updateEnv,
       )
-      if (outcome.code !== 0) runError = `Update command exited with code ${outcome.code}.`
+      if (outcome.code !== 0) runError = updateFailure(outcome.code, log)
     } catch (error) {
       runError = error instanceof Error ? error.message : String(error)
     }

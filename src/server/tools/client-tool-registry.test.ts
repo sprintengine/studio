@@ -546,6 +546,18 @@ test('offers are rate limited and bounded per connection', () => {
   assert.ok(!limited.ok && (limited.retryAfterMs ?? 0) > 0)
 })
 
+test('the shell’s reserved toolsets do not count against a connection’s bound, and its own toolsets still do', () => {
+  // The WSL front door offers a server the shell's six and the Windows side's
+  // own families: more reserved names than the bound holds.
+  const shell = connect('owner', { shell: 'all' })
+  const reserved = ['browser', 'canvas', 'editor', 'tour', 'terminal', 'backlog', 'schedule', 'cli', 'module']
+  for (const name of reserved) assert.equal(registry.offer(shell.connectionId, toolset(name)).ok, true, name)
+  for (let index = 0; index < 8; index++)
+    assert.equal(registry.offer(shell.connectionId, toolset(`set-${index}`)).ok, true)
+  const ninth = registry.offer(shell.connectionId, toolset('set-extra'))
+  assert.equal(ninth.ok ? null : ninth.code, 'too_large')
+})
+
 test('revoking an app releases its names and ends what it was running', async () => {
   reach.set('game-app', 'all')
   const game = connect('game-app')

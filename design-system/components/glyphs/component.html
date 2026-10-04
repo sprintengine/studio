@@ -54,6 +54,14 @@
   .demo-tone-warn { color: var(--sem-color-status-warn); }
   .demo-tone-danger { color: var(--sem-color-status-danger); }
   .demo-tone-disabled { color: var(--sem-color-text-disabled); }
+  .demo-mark-blue { color: var(--sem-color-mark-blue); }
+  .demo-mark-teal { color: var(--sem-color-mark-teal); }
+  .demo-mark-cyan { color: var(--sem-color-mark-cyan); }
+  .demo-mark-orange { color: var(--sem-color-mark-orange); }
+  .demo-mark-yellow { color: var(--sem-color-mark-yellow); }
+  .demo-mark-violet { color: var(--sem-color-mark-violet); }
+  .demo-mark-red { color: var(--sem-color-mark-red); }
+  .demo-mark-neutral { color: var(--sem-color-text-muted); }
 </style>
 </head>
 <body>
@@ -267,10 +275,34 @@
       <path d="M6.9 12.1h2.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
     </symbol>
     <symbol id="g-remote-machine" viewBox="0 0 16 16" fill="none">
-      <rect x="2" y="2.8" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4"/>
-      <rect x="2" y="8.6" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4"/>
-      <circle cx="4.7" cy="5.1" r="0.75" fill="currentColor"/>
-      <circle cx="4.7" cy="10.9" r="0.75" fill="currentColor"/>
+      <path d="M1.8 6.6h7.4v5.2H1.8ZM5.5 11.8v1.8M3.6 13.6h3.8M10.6 3.2a2.2 2.2 0 0 1 2.2 2.2M10.6 1.4a4 4 0 0 1 4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-wsl-machine" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="2.4" width="12" height="11.2" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M2 5.4h12M4.8 7.8l1.8 1.6-1.8 1.6M8.4 11h2.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-machine-mini" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="7.4" width="12" height="4.6" rx="1.3" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M3.3 7.4 4.5 4.6h7l1.2 2.8M4.6 9.7h1.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-machine-tower" viewBox="0 0 16 16" fill="none">
+      <rect x="4.4" y="1.8" width="7.2" height="12.4" rx="1.3" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M6.6 4.6h2.8M6.6 6.8h2.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-machine-server" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="2.2" width="12" height="11.6" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M2 6.07h12M2 9.93h12M4.4 4.13h1.6M4.4 8h1.6M4.4 11.87h1.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-machine-cloud" viewBox="0 0 16 16" fill="none">
+      <path d="M4.4 12.2A2.6 2.6 0 0 1 4.9 7.1A3.4 3.4 0 0 1 11.3 6.7A2.8 2.8 0 0 1 11.6 12.2Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-machine-container" viewBox="0 0 16 16" fill="none">
+      <path d="M8 1.9 13.4 5v6L8 14.1 2.6 11V5ZM2.6 5 8 8.1 13.4 5M8 8.1v6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-machine-board" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="3" width="12" height="10" rx="1.2" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <rect x="4.2" y="5.6" width="4.6" height="4.8" rx="0.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M10.9 6.4h1.2M10.9 9.6h1.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
   </defs>
 </svg>
@@ -311,7 +343,22 @@
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-desktop"/></svg><span class="demo-name">device-desktop</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-laptop"/></svg><span class="demo-name">device-laptop</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-phone"/></svg><span class="demo-name">device-phone</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-remote-machine"/></svg><span class="demo-name">remote-machine · fallback</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-remote-machine"/></svg><span class="demo-name">remote-machine · the Beam, fallback</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Machine kinds — 16-grid, stroke 1.4, each in a machine colour (the seven mark hues and the neutral)</h2>
+    <div class="demo-row">
+      <span class="demo-cell demo-mark-blue"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-laptop"/></svg><span class="demo-name">laptop · blue</span></span>
+      <span class="demo-cell demo-mark-teal"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-desktop"/></svg><span class="demo-name">desktop · teal</span></span>
+      <span class="demo-cell demo-mark-cyan"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-mini"/></svg><span class="demo-name">mini · cyan</span></span>
+      <span class="demo-cell demo-mark-orange"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-tower"/></svg><span class="demo-name">tower · orange</span></span>
+      <span class="demo-cell demo-mark-yellow"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-server"/></svg><span class="demo-name">server · yellow</span></span>
+      <span class="demo-cell demo-mark-violet"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-cloud"/></svg><span class="demo-name">cloud · violet</span></span>
+      <span class="demo-cell demo-mark-red"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-container"/></svg><span class="demo-name">container · red</span></span>
+      <span class="demo-cell demo-mark-neutral"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-board"/></svg><span class="demo-name">board · neutral</span></span>
+      <span class="demo-cell demo-mark-blue"><svg class="ds-glyph" aria-hidden="true"><use href="#g-wsl-machine"/></svg><span class="demo-name">wsl · blue</span></span>
     </div>
   </div>
 
@@ -421,7 +468,22 @@
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-desktop"/></svg><span class="demo-name">device-desktop</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-laptop"/></svg><span class="demo-name">device-laptop</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-phone"/></svg><span class="demo-name">device-phone</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-remote-machine"/></svg><span class="demo-name">remote-machine · fallback</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-remote-machine"/></svg><span class="demo-name">remote-machine · the Beam, fallback</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Machine kinds — 16-grid, stroke 1.4, each in a machine colour (the seven mark hues and the neutral)</h2>
+    <div class="demo-row">
+      <span class="demo-cell demo-mark-blue"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-laptop"/></svg><span class="demo-name">laptop · blue</span></span>
+      <span class="demo-cell demo-mark-teal"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-desktop"/></svg><span class="demo-name">desktop · teal</span></span>
+      <span class="demo-cell demo-mark-cyan"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-mini"/></svg><span class="demo-name">mini · cyan</span></span>
+      <span class="demo-cell demo-mark-orange"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-tower"/></svg><span class="demo-name">tower · orange</span></span>
+      <span class="demo-cell demo-mark-yellow"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-server"/></svg><span class="demo-name">server · yellow</span></span>
+      <span class="demo-cell demo-mark-violet"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-cloud"/></svg><span class="demo-name">cloud · violet</span></span>
+      <span class="demo-cell demo-mark-red"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-container"/></svg><span class="demo-name">container · red</span></span>
+      <span class="demo-cell demo-mark-neutral"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-board"/></svg><span class="demo-name">board · neutral</span></span>
+      <span class="demo-cell demo-mark-blue"><svg class="ds-glyph" aria-hidden="true"><use href="#g-wsl-machine"/></svg><span class="demo-name">wsl · blue</span></span>
     </div>
   </div>
 

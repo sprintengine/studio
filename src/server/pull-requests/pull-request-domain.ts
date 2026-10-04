@@ -137,6 +137,13 @@ export type PullRequestDomainOptions = {
   readPushedBranches?(gitRoot: string, since: number): Promise<string[]>
   /** Whether the machine is asleep: the poll skips its ticks then. */
   isSuspended?(): boolean
+  /**
+   * Whether a folder is where nothing should be woken to read it: a WSL
+   * distribution the person shut down, which any read of its files (git, `gh`
+   * run there) would start again. The poll passes over a chat whose checkout
+   * is there; a turn's end, which only comes while it runs, does not.
+   */
+  pathAsleep?(path: string): boolean
   /** Null turns the poll off (tests drive `pollOnce`). */
   timers?: Timers | null
   now?: () => number
@@ -388,8 +395,12 @@ export function createPullRequestDomain(options: PullRequestDomainOptions): Pull
     // branch is noted like a turn's. GitHub is asked again only for a chat
     // that did something in the last half hour: one left open for a week has
     // the watch on its open pull requests, and costs nothing more.
+    const asleep = (path: string | null | undefined) => Boolean(path && options.pathAsleep?.(path))
     for (const chat of liveChats().slice(0, MAX_POLLED_CONVERSATIONS)) {
       visited.add(`${chat.key.workspaceId}\0${chat.key.agentId}`)
+      const root =
+        options.conversations.sessionWorkspaceRoot?.(chat.sessionId) ?? options.workspaceFolder(chat.key.workspaceId)
+      if (asleep(root)) continue
       const home = await chatHome(chat.sessionId, chat.key.workspaceId)
       if (disposed) return
       if (!home) continue
@@ -407,6 +418,7 @@ export function createPullRequestDomain(options: PullRequestDomainOptions): Pull
       const id = `${key.workspaceId}\0${key.agentId}`
       if (visited.has(id)) continue
       visited.add(id)
+      if (asleep(record.homeOf(key)?.gitRoot)) continue
       record.refreshConversation(key)
     }
   }

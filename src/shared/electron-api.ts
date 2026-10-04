@@ -225,6 +225,7 @@ import type {
   WorkspaceSyncSnapshot,
 } from './workspace-sync'
 import type { VersionControlProviderProbe } from './version-control'
+import type { HostGhStatus } from './host-gh'
 import type { ExecutionHostId, HostHomeResult, HostsListResult } from './execution-host'
 // Re-exported because the probe shape is part of this IPC contract: the
 // version-control settings sections read it straight off the api surface.
@@ -1229,6 +1230,12 @@ export type ElectronApi = {
   // What this machine actually has: probed `git`/`gh` versions plus gh's own
   // auth login. Read-only and argument-free — see src/shared/version-control.ts.
   probeVersionControlProviders: () => Promise<VersionControlProviderProbe[]>
+  /**
+   * A WSL machine's `gh`: installed, its version, and whether it holds a
+   * token for github.com. Read-only; null when the machine did not answer.
+   * Absent in a browser tab, which has no WSL machines of its own.
+   */
+  probeHostGh?: (hostId: string) => Promise<HostGhStatus | null>
   getGitRepoRoot: (folderPath: string, hostId?: string) => Promise<string | null>
   getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
   /**

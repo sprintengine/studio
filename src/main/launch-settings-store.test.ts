@@ -20,6 +20,7 @@ function settings(overrides: Partial<AgentLaunchSettings> = {}): AgentLaunchSett
   return {
     cliRuntimes: { claude: { command: 'claude' } },
     hosts: {},
+    machineMarks: {},
     mcp: { syncEnabled: true, servers: {} },
     projectKnowledgeRoots: { '/repo': 'knowledge' },
     lastSelectedCli: 'claude-code',

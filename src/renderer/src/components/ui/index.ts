@@ -24,6 +24,7 @@ export {
   MediaButton,
   OutlineButton,
   PrimaryButton,
+  SendButton,
 } from './Buttons'
 export type { ButtonAlign, ButtonSize, ButtonTone, CaptionButtonTone, GhostTone, IconButtonSize } from './Buttons'
 // The one copy affordance (design-system/components/button → The copy glyph):
@@ -187,6 +188,21 @@ export type { ScopePillProps } from './ScopePill'
 // gets re-derived backwards.
 export { deviceGlyphFor } from './deviceGlyph'
 export type { DeviceGlyphComponent, DeviceGlyphInput } from './deviceGlyph'
+// A machine's mark — its kind's drawing in its colour (owner ruling
+// 2026-10-04; design-system/components/glyphs → Machine kinds).
+export { MachineGlyph, MachineKindGlyph, MACHINE_COLOUR_FILL, MACHINE_COLOUR_INK } from './MachineMark'
+// The system's file dialog behind a kit control (design-system/components/input → The file dialog).
+export { HiddenFileInput } from './HiddenFileInput'
+// The composer's own marks (design-system/components/glyphs → Composer).
+export {
+  AttachGlyph,
+  ComposerPlusGlyph,
+  ConversationGlyph,
+  PluginsGlyph,
+  SendGlyph,
+  TerminalAgentGlyph,
+  WorktreeGlyph,
+} from './ComposerGlyphs'
 export { GroupHeader, GroupHeaderAction } from './GroupHeader'
 export type { GroupHeaderProps } from './GroupHeader'
 export { Toolbar, ToolbarButton, ToolbarDivider, ToolbarSpacer } from './Toolbar'
@@ -209,6 +225,7 @@ export { Tooltip } from './Tooltip'
 export { TruncatedText } from './TruncatedText'
 export type { Tone, StatusTone } from './tokens'
 export {
+  COMPOSER_MATERIAL_CLASS,
   COMPOSER_SURFACE_CLASS,
   FOCUS_RING_CLASS,
   FOCUS_RING_INSET_CLASS,

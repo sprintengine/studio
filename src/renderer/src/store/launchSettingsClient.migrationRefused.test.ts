@@ -14,6 +14,7 @@ const { APP_SETTINGS_STORAGE_KEY, WORKSPACE_STORE_VERSION } = await import('./sl
 const fakeMain = createFakeLaunchSettingsMain({
   cliRuntimes: { codex: { command: 'codex' } },
   hosts: {},
+  machineMarks: {},
   mcp: { syncEnabled: false, servers: {} },
   projectKnowledgeRoots: {},
   lastSelectedCli: 'claude-code',

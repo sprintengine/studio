@@ -53,6 +53,10 @@ export const CONVERSATION_EVENT_TYPES = [
   // belong to its thread, never to the reply of the conversation that spawned
   // it. Session-scoped for the same reason as subagent_status.
   'subagent_message',
+  // A model call in the turn failed and the provider will try it again
+  // (payload: `ConversationTurnRetryingPayload`). Says why the turn has
+  // produced nothing yet; the next event of the same turn supersedes it.
+  'turn_retrying',
 ] as const
 
 export type ConversationEventType = (typeof CONVERSATION_EVENT_TYPES)[number]
@@ -79,6 +83,23 @@ export type ConversationEvent = {
   type: ConversationEventType
   createdAt: number
   payload?: Record<string, unknown>
+}
+
+/**
+ * Payload carried on `turn_retrying`. `error` is the provider's category for
+ * the failure when it names one (`authentication_failed`, `rate_limit`,
+ * `overloaded`, `server_error`, …); `status` is the HTTP status, absent when
+ * the request got no response at all.
+ */
+export type ConversationTurnRetryingPayload = {
+  turnId?: string
+  /** The attempt about to run, counting from 1 for the first retry. */
+  attempt: number
+  maxAttempts: number
+  /** How long the provider waits before that attempt. */
+  retryInMs: number
+  error?: string
+  status?: number
 }
 
 /**

@@ -230,6 +230,7 @@ test('client: nothing is adopted while an update is in flight, then the newest r
   const main = createFakeLaunchSettingsMain({
     cliRuntimes: {},
     hosts: {},
+    machineMarks: {},
     mcp: { syncEnabled: false, servers: {} },
     projectKnowledgeRoots: {},
     lastSelectedCli: 'codex',
@@ -245,6 +246,7 @@ test('client: nothing is adopted while an update is in flight, then the newest r
     legacyOffer: () => ({
       cliRuntimes: {},
       hosts: {},
+      machineMarks: {},
       mcp: { syncEnabled: false, servers: {} },
       projectKnowledgeRoots: {},
       lastSelectedCli: 'ignored',
@@ -286,6 +288,7 @@ test('client: a main that does not answer the boot read leaves the legacy values
   const legacy = {
     cliRuntimes: {},
     hosts: {},
+    machineMarks: {},
     mcp: { syncEnabled: false, servers: {} },
     projectKnowledgeRoots: {},
     lastSelectedCli: 'codex',

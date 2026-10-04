@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, mkdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, vi } from 'vitest'
@@ -503,6 +503,50 @@ test('an agent edit to a file the user marked assume-unchanged or skip-worktree 
     assert.equal(await readFile(join(f.root, 'existing.txt'), 'utf8'), 'local setting\n')
     assert.equal(await readFile(join(f.root, 'deleted.txt'), 'utf8'), 'local override\n')
     assert.equal(await git(f.root, ['ls-files', '-v']), flags, "the user's own index keeps its flags")
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})
+
+test("an index another git wrote is not trusted for a file whose inode it does not know, whatever the repository's checkStat", async () => {
+  // Linux git on a Windows drive (`/mnt/c/…`) reads an index Git for Windows
+  // wrote: every entry's inode and owner differ from what the mount reports,
+  // and only size and mtime agree. Git for Windows usually converts CRLF on
+  // add (core.autocrlf), so the blob it recorded is not the bytes on disk.
+  // Were that entry trusted, the turn's "before" would hold LF for a CRLF
+  // file: the diff would show every line changed, and revert would write LF.
+  const f = await repository()
+  try {
+    const crlf = 'one\r\ntwo\r\n'
+    await git(f.root, ['config', 'core.autocrlf', 'false'])
+    await writeFile(join(f.root, 'windows.txt'), crlf)
+    const past = new Date('2020-01-02T03:04:05Z')
+    await utimes(join(f.root, 'windows.txt'), past, past)
+    await git(f.root, ['-c', 'core.autocrlf=true', 'add', 'windows.txt'])
+    await git(f.root, ['-c', 'core.autocrlf=true', 'commit', '-m', 'From Windows'])
+    // The same bytes and mtime under a new inode, as the drive mount shows them.
+    await copyFile(join(f.root, 'windows.txt'), join(f.root, 'windows.tmp'))
+    await rename(join(f.root, 'windows.tmp'), join(f.root, 'windows.txt'))
+    await utimes(join(f.root, 'windows.txt'), past, past)
+    // What Studio's own git on the drive mount runs with, plus no ctime, which
+    // a rename changes and the mount does not.
+    await git(f.root, ['config', 'core.checkStat', 'minimal'])
+    await git(f.root, ['config', 'core.trustCtime', 'false'])
+
+    const checkpoints = new ConversationCheckpoints()
+    assert.ok((await checkpoints.capture(f.key, 1, 'pre')).ok)
+    await writeFile(join(f.root, 'windows.txt'), 'one\r\nTWO\r\n')
+    assert.ok((await checkpoints.capture(f.key, 1, 'post')).ok)
+    const diff = await checkpoints.getTurnDiff({ key: f.key, turnSeq: 1 })
+    assert.ok(diff.ok)
+    assert.deepEqual(
+      diff.diff.files.map(({ path, addedLines, removedLines }) => ({ path, addedLines, removedLines })),
+      [{ path: 'windows.txt', addedLines: 1, removedLines: 1 }],
+      'the turn changed one line',
+    )
+    const reverted = await previewThenRevert((input) => checkpoints.revert(input), { key: f.key, turnSeq: 1 })
+    assert.ok(reverted.ok && reverted.reverted, JSON.stringify(reverted))
+    assert.equal(await readFile(join(f.root, 'windows.txt'), 'utf8'), crlf, 'revert brings back the bytes it replaced')
   } finally {
     await rm(f.directory, { recursive: true, force: true })
   }

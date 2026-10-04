@@ -383,8 +383,8 @@ test('WorkspaceSidebar.projectColour', async () => {
     // A chat running on a paired machine (owner, 2026-09-11). It is a row of its
     // project, so it wears the project's hue on the same folder glyph every other
     // row of that project wears — a project is a repository, and one repository
-    // is one colour wherever it runs. The machine glyph sits immediately right of
-    // that folder icon and is the only thing marking the row as remote.
+    // is one colour wherever it runs. The machine's own mark trails the project's
+    // name (owner ruling 2026-10-04) and is the only thing marking the row as remote.
     const foxtrot = rowFor(stream.container, 'Foxtrot')
     assert.equal(
       hueOf(glyphOf(stream.container, 'Foxtrot')),
@@ -393,14 +393,15 @@ test('WorkspaceSidebar.projectColour', async () => {
     )
     const marks = [...foxtrot.firstElementChild!.children]
     assert.equal(marks[0]?.tagName.toLowerCase(), 'svg', 'the folder glyph leads the project line')
+    assert.equal(marks[1]?.textContent, 'projA', 'the project’s name follows it')
     assert.equal(
-      marks[1]?.querySelector('[data-remote-row-glyph]')?.getAttribute('data-remote-row-glyph') ??
-        marks[1]?.getAttribute('data-remote-row-glyph'),
+      marks[2]?.querySelector('[data-remote-row-glyph]')?.getAttribute('data-remote-row-glyph') ??
+        marks[2]?.getAttribute('data-remote-row-glyph'),
       'MacBook Air',
-      'and the machine glyph is immediately right of it, naming the device',
+      'and the machine’s mark trails the name, naming the device',
     )
     assert.ok(!(foxtrot.textContent ?? '').includes('MacBook Air'), 'never as row text')
-    assert.equal(hueOf(foxtrot.querySelectorAll('svg')[1]), null, 'no second glyph on the row carries one either')
+    assert.equal(hueOf(foxtrot.querySelectorAll('svg')[1]), null, 'the machine’s colour is not a project hue')
 
     act(() => {
       stream.root.unmount()

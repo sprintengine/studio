@@ -1660,3 +1660,75 @@ test('a chat’s prompt cache survives a restart: resumed from the transcript, i
     await rm(workspaceRoot, { recursive: true, force: true })
   }
 })
+
+test("a turn left open when its chat's server stopped shows as interrupted, and the server's own log replaces it once back", async () => {
+  const key = { workspaceRoot: '/home/dev/repo', workspaceId: 'workspace', agentId: 'agent' }
+  const base = {
+    sessionId: 'conv_1',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: 'mock-provider',
+    modelId: 'mock-model',
+    createdAt: 1,
+  }
+  const asked: Array<{ afterSeq?: number; generation?: string }> = []
+  let resumed: (key: string) => void = () => undefined
+  let lost: (key: string, message: string) => void = () => undefined
+  const routed = {
+    onEvent: () => () => undefined,
+    recoverTranscript: async () => undefined,
+    readConversationSync: async (_key: unknown, input: { afterSeq?: number; generation?: string }) => {
+      asked.push(input)
+      if (asked.length === 1)
+        return {
+          ok: true,
+          kind: 'events',
+          head: 2,
+          generation: 'g1',
+          events: [
+            { ...base, id: 'e1', seq: 1, type: 'user_message', payload: { turnId: 't1', text: 'go' } },
+            { ...base, id: 'e2', seq: 2, type: 'turn_started', payload: { turnId: 't1' } },
+          ],
+        }
+      return { ok: true, kind: 'snapshot', head: 3, generation: 'g1', page: { events: [], hasMore: false } }
+    },
+    routeOf: () => 'Ubuntu',
+    onRouteResumed: (listener: (key: string) => void) => {
+      resumed = listener
+      return () => undefined
+    },
+    onRouteLost: (listener: (key: string, message: string) => void) => {
+      lost = listener
+      return () => undefined
+    },
+  }
+  const api = new ConversationSessionApi(routed as never)
+  const frames: ConversationSessionFrame[] = []
+  const subscription = api.subscribe({ key, afterSeq: 0, generation: 'g1' }, (frame) => frames.push(frame))
+  await subscription.ready
+  frames.length = 0
+
+  lost('Debian', 'another distribution')
+  assert.equal(frames.length, 0, "another server's loss is not this chat's")
+  lost('Ubuntu', 'The Studio server in Ubuntu stopped while this turn was running.')
+  assert.equal(frames.length, 1)
+  const closed = frames[0].type === 'event' ? frames[0].event : null
+  assert.equal(closed?.type, 'turn_failed')
+  assert.equal(closed?.seq, 3)
+  assert.deepEqual(closed?.payload, {
+    turnId: 't1',
+    reason: 'interrupted',
+    message: 'The Studio server in Ubuntu stopped while this turn was running.',
+  })
+  lost('Ubuntu', 'again')
+  assert.equal(frames.length, 1, 'a turn is closed once')
+
+  // Back: a reset snapshot from the log, which the restarted server closed
+  // in its own words, rather than events after a turn this side closed.
+  resumed('Ubuntu')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(asked.at(-1), { afterSeq: 2, generation: undefined, turnLimit: undefined })
+  const snapshot = frames.find((frame) => frame.type === 'snapshot')
+  assert.ok(snapshot && snapshot.type === 'snapshot' && snapshot.reset === true)
+  subscription.dispose()
+})
