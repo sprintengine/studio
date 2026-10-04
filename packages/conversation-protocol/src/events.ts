@@ -174,6 +174,12 @@ export type ConversationToolOutputPayload = {
    * wherever it started and needs no turn.
    */
   backgroundResult?: boolean
+  /**
+   * On a background result: the provider's id for the agent. An agent resumed
+   * after the process that knew its lane ended reports under the call that
+   * resumed it, and this is how a reader finds the lane it started in.
+   */
+  taskId?: string
 }
 
 export type ConversationSubagentState = 'running' | 'completed' | 'failed' | 'stopped'
@@ -209,6 +215,13 @@ export type ConversationSubagentStatusPayload = {
   /** Why a failed or stopped agent ended, when known. */
   error?: string
   endedAt?: number
+  /**
+   * The agent started again after it ended (Claude Code's SendMessage to an
+   * agent that finished, or whose process ended): its lane reopens. A plain
+   * `running` never reopens an ended lane, since a late progress report can
+   * arrive after the end.
+   */
+  resumed?: boolean
 }
 
 /**

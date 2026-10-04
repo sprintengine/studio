@@ -260,6 +260,8 @@ function sameLists(a: ConversationPullRequests, b: ConversationPullRequests): bo
       // changes a tooltip, which is not worth a sidebar repaint.
       if (left[i].url !== right[i].url || left[i].state !== right[i].state) return false
       if (left[i].isDraft !== right[i].isDraft) return false
+      // When it ended is what Settle on merge reads.
+      if (left[i].endedAt !== right[i].endedAt) return false
     }
   }
   return true

@@ -194,6 +194,64 @@ test('workspaceSettle', async () => {
   )
   assert.equal(decide(ws({ settledOverride: 'active' })), 'none', 'a hand Un-settle holds against the sweep')
 
+  // Settle on merge: a chat a day old (too recent for the idle rule) whose
+  // pull requests have landed.
+  const recent = (fields: Partial<Workspace> = {}) =>
+    ws({ createdAt: NOW - 2 * DAY, lastUserMessageAt: NOW - DAY, ...fields })
+  const pr = (state: 'open' | 'merged' | 'closed', endedAt?: number) =>
+    ({
+      url: `https://github.com/o/r/pull/${state}${endedAt ?? ''}`,
+      repoKey: 'github.com/o/r',
+      repoName: 'r',
+      number: 1,
+      title: '',
+      state,
+      isDraft: false,
+      openedAt: NOW - 2 * DAY,
+      stateAt: NOW,
+      ...(endedAt !== undefined ? { endedAt } : {}),
+    }) as const
+  const onMerge = (workspace: Workspace, pullRequests: ReturnType<typeof pr>[], settleOnMerge = true) =>
+    decideWorkspaceSettlement({
+      workspace,
+      now: NOW,
+      active: false,
+      busy: false,
+      held: false,
+      context: { pullRequests, settleOnMerge },
+    })
+  assert.equal(onMerge(recent(), [pr('merged', NOW - 60_000)]), 'settle', 'a merged pull request settles its chat')
+  assert.equal(
+    onMerge(recent(), [pr('merged', NOW - 60_000), pr('closed', NOW - 30_000)]),
+    'settle',
+    'one merged and one closed is still landed',
+  )
+  assert.equal(onMerge(recent(), [pr('closed', NOW - 60_000)]), 'none', 'closed without merging did not land')
+  assert.equal(
+    onMerge(recent(), [pr('merged', NOW - 60_000), pr('open')]),
+    'none',
+    'an open pull request is work still going',
+  )
+  assert.equal(
+    onMerge(recent({ lastUserMessageAt: NOW - 1000 }), [pr('merged', NOW - 60_000)]),
+    'none',
+    'a message after the merge is the person carrying on',
+  )
+  assert.equal(
+    onMerge(recent({ lastTerminalActivityAt: NOW - 1000 }), [pr('merged', NOW - 60_000)]),
+    'none',
+    'so is a keystroke into one of its terminals: a dev server started after the merge would die with the chat',
+  )
+  assert.equal(onMerge(recent(), [pr('merged')]), 'none', 'a merge with no time cannot say who came after it')
+  assert.equal(onMerge(recent(), [pr('merged', NOW - 60_000)], false), 'none', 'the setting off, merges settle nothing')
+  assert.equal(onMerge(recent(), []), 'none', 'no pull requests, nothing landed')
+  assert.equal(
+    onMerge(recent({ autoSettleDisabled: true }), [pr('merged', NOW - 60_000)]),
+    'none',
+    'auto-settle off for the chat holds it against a merge',
+  )
+  assert.equal(decide(ws({ autoSettleDisabled: true })), 'none', 'and against three quiet days')
+
   // The two transitions as field patches. A rest decision carries the input
   // clock so main is never behind the decision; a wake clears the stamp and
   // sets (or spends) the hand decision. Rest also supersedes sleep, so a settle

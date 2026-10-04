@@ -181,7 +181,7 @@ export type EditorRevealDiffTarget = {
   scope: 'staged' | 'unstaged' | null
   /** The branch step the pane's viewer opens on. Null for the working-tree views. */
   step: BranchStepSelection | null
-  /** Filter to one changelist (`agent:<agentId>`), or null for every change. */
+  /** Filter to one changelist (an agent's is `changelistOwnerId`), or null for every change. */
   changelistId: string | null
   /** Show only these repo-relative paths, with a "Show all" way out. Null shows everything. */
   paths: string[] | null

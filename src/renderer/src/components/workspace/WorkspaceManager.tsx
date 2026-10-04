@@ -50,6 +50,7 @@ import {
 import { recencyEqual, stableRecord, stableSet, type RowRecency } from './stableRowSlices'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { meshConversationSessionId } from '../../../../shared/tailnet-mesh'
+import { newAgentId, newAgentIdSuffix } from '../../../../shared/agent-ids'
 import { nextNewChatName } from '../../../../shared/workspace-title'
 import { machinePath } from '../../../../shared/machine-paths'
 import { combinedAgentActivity, conversationFinishedAt, conversationLastInputAt } from './sidebar/conversationLines'
@@ -1347,8 +1348,8 @@ export default function WorkspaceManager() {
       if (chosenCli) setLastSelectedCli(chosenCli)
       // The solo template carries exactly one agent tab, and the seed patch above
       // was merged onto it at creation, so the lone agent record IS this chat's
-      // agent. Read back rather than guessed: the id is the template's, not one
-      // this function minted.
+      // agent. Read back rather than guessed: `addWorkspace` minted its id, which
+      // is not the template's placeholder.
       if (!workspaceId) return null
       const created = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)
       const agentId = Object.keys(created?.agents ?? {})[0]
@@ -2430,7 +2431,7 @@ export default function WorkspaceManager() {
     const tabName =
       placement?.agentName ||
       pickRandomAgentName(Object.values(activeWorkspace?.agents ?? {}).map((agent) => agent.name))
-    const newId = `agent-${spawnCli}-${nanoid(6)}`
+    const newId = newAgentId(spawnCli)
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
     let execution: AgentExecution | undefined
@@ -2503,7 +2504,7 @@ export default function WorkspaceManager() {
 
     const tabName =
       placement?.agentName || pickRandomAgentName(Object.values(activeWorkspace.agents).map((agent) => agent.name))
-    const newId = `conversation-${target.providerId}-${nanoid(6)}`
+    const newId = `conversation-${target.providerId}-${newAgentIdSuffix()}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
     // Keep launch skills as agent state: the chat composer displays them as
@@ -3157,7 +3158,7 @@ export default function WorkspaceManager() {
               DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
           ),
         permissionModeFor: (cli) => cliPermissionModeLaunch(cli).permissionMode,
-        newAgentId: (providerId) => `conversation-${providerId}-${nanoid(6)}`,
+        newAgentId: (providerId) => `conversation-${providerId}-${newAgentIdSuffix()}`,
         pickName: pickRandomAgentName,
         writeAgent: (workspaceId, agentId, patch) =>
           useWorkspaceStore.getState().updateAgent(workspaceId, agentId, patch),

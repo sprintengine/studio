@@ -11,7 +11,11 @@ import { DEFAULT_CLI_PERMISSION_PRESET, type CliPermissionPreset } from './cli-p
 
 /** An agent CLI runtime id (`claude`, `codex`, …). Open: plugins add their own. */
 export type AgentCli = string
-/** A renderer agent record's id, unique within its workspace. */
+/**
+ * A renderer agent record's id. One minted now (`newAgentId`) is unique across
+ * workspaces, but a chat made before that may still hold a template's `agent-1`,
+ * so only the pair (workspace id, agent id) is guaranteed to name one agent.
+ */
 export type AgentId = string
 
 type AgentMessage = {

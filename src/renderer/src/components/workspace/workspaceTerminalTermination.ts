@@ -91,8 +91,11 @@ export async function terminateWorkspaceTerminals(workspace: Workspace): Promise
  * End the child process of every chat agent the workspace holds. A chat agent
  * has no pty, so neither `terminalKill` nor `terminalSuspend` reaches it: main
  * owns the process, and its sessions are asked for rather than collected from
- * the record. A session belongs here when its agent is one of the workspace's,
- * or when it was started under the workspace's id.
+ * the record. A session belongs here when it was started under the workspace's
+ * id, and only then. An agent id is unique within a workspace, not across them
+ * — nearly every chat's first agent is `agent-1` — so matching on it settled
+ * one chat and suspended every other chat's agent with it, ending the
+ * background agents they were running.
  *
  * Suspended, not stopped, for Settle and Close alike: a stopped session refuses
  * every later turn, and a settled chat can be un-settled and typed into. The
@@ -100,16 +103,13 @@ export async function terminateWorkspaceTerminals(workspace: Workspace): Promise
  * the same conversation. A running turn is interrupted: the person put the
  * chat away. Failures are absorbed like the pty kills'.
  */
-async function suspendWorkspaceConversations(passed: Workspace): Promise<void> {
-  const workspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === passed.id) ?? passed
+async function suspendWorkspaceConversations(workspace: Workspace): Promise<void> {
   try {
     const listed = await window.api.conversationSessionsList()
     if (!listed.ok) return
-    const agentIds = new Set(Object.keys(workspace.agents ?? {}))
     await Promise.all(
       listed.sessions
-        .filter((session) => session.status !== 'stopped')
-        .filter((session) => session.workspaceId === workspace.id || agentIds.has(session.agentId))
+        .filter((session) => session.status !== 'stopped' && session.workspaceId === workspace.id)
         .map((session) => window.api.conversationSessionSuspend({ sessionId: session.sessionId }).catch(() => {})),
     )
   } catch {

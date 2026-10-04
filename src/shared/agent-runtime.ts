@@ -47,6 +47,10 @@ export type AgentSessionExitListener = (event: AgentSessionExitEvent) => void | 
 // names at the call site (a CLI's vocabulary is its manifest's business).
 export type AgentPhaseEvent = {
   workspaceId: string | null
+  // Set when a terminal agent was launched in another workspace than the one
+  // it is in now (it was moved to another chat): the workspace its process
+  // still names in its MCP calls, and so in what it created through them.
+  launchWorkspaceId?: string
   agentId: string
   executionId: string | null
   phase: AgentPhase

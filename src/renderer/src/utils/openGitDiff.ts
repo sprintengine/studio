@@ -17,7 +17,7 @@ export type OpenGitDiffInput = {
   /** Which side to open on: `staged` is HEAD↔index, `unstaged` index↔worktree. */
   scope: 'staged' | 'unstaged'
   /**
-   * Show only one changelist's files (`agent:<agentId>` for an owned list).
+   * Show only one changelist's files (`changelistOwnerId` for an owned list).
    * Absent means "All changes", which is what every caller meant before agent
    * changelists existed and still means today — the filter is additive, never
    * a default the viewer invents for itself.

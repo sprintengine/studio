@@ -863,7 +863,10 @@ export function createAppServices(
     // swallows its own failures, so none of them can cost a session anything.
     onAgentLaunched: (session) => agentChangelistFeed.onAgentLaunched(session),
     onAgentFileEdit: (input) => {
-      agentWrittenFiles.note(input.session.agentId, input.path)
+      // Under the workspace the process reports itself in, which is where the
+      // editor tools look: an agent moved to another chat still names that one.
+      const { launchWorkspaceId, workspaceId, agentId } = input.session
+      agentWrittenFiles.note(launchWorkspaceId ?? workspaceId, agentId, input.path)
       agentChangelistFeed.onAgentFileEdit(input)
     },
     onAgentSessionExit: (session) => agentChangelistFeed.onAgentSessionExit(session),

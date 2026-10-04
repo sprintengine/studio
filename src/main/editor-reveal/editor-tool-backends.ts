@@ -44,15 +44,24 @@ export function editorSessionFrom(snapshot: TerminalSessionSnapshot): EditorAgen
 /**
  * The session an agent connection speaks for: its agent terminal in that
  * workspace, the live one first when a relaunch left an exited one behind.
+ *
+ * An agent id is only unique within its workspace, so a session of this
+ * workspace always wins over one that names none; the latter is a fallback
+ * for a session with no workspace on record, never preferred over the
+ * caller's own (whose launch directories widen what the caller may show).
  */
 export function findEditorAgentSession(
   sessions: readonly TerminalSessionSnapshot[],
   workspaceId: string,
   agentId: string,
 ): EditorAgentSession | null {
-  const candidates = sessions.filter(
-    (session) => session.agentId === agentId && (!session.workspaceId || session.workspaceId === workspaceId),
+  const named = sessions.filter((session) => session.agentId === agentId)
+  // The caller's workspace is the one its process was launched with, which an
+  // agent moved to another chat still names while its session has moved on.
+  const own = named.filter(
+    (session) => session.workspaceId === workspaceId || session.launchWorkspaceId === workspaceId,
   )
+  const candidates = own.length > 0 ? own : named.filter((session) => !session.workspaceId)
   const chosen = candidates.find((session) => session.processAlive) ?? candidates[0]
   return chosen ? editorSessionFrom(chosen) : null
 }
@@ -89,9 +98,9 @@ export function createGitEditorDiffSource(userDataDir: () => string): EditorDiff
     async branchCommits(repoRoot) {
       return (await listBranchSteps(repoRoot)).steps.map((step) => step.hash)
     },
-    async agentChangelistPaths(repoRoot, agentId) {
+    async agentChangelistPaths(repoRoot, owner) {
       const lists = await getGitChangelists(userDataDir(), repoRoot)
-      const mine = lists.find((list) => list.id === changelistOwnerId(agentId))
+      const mine = lists.find((list) => list.id === changelistOwnerId(owner))
       return mine ? pathsOfChangelist(mine) : null
     },
   }
@@ -109,7 +118,7 @@ export function createEditorToolBackends(options: {
     findWorkspace: options.findWorkspace,
     findAgentSession: (workspaceId, agentId) =>
       findEditorAgentSession(options.listTerminalSessions(), workspaceId, agentId),
-    agentWrittenPaths: (agentId) => options.agentWrittenFiles.pathsOf(agentId),
+    agentWrittenPaths: (workspaceId, agentId) => options.agentWrittenFiles.pathsOf(workspaceId, agentId),
     resolveRepoRoot: (directory) => getGitRepoRoot(directory),
     listWorktreePaths: async (repoRoot) => {
       const listed = await listGitWorktrees(repoRoot, { resolvedRoot: true })

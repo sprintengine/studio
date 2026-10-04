@@ -1,7 +1,7 @@
 // The sidebar's right-click menus for a workspace row and a folder header.
 
 import { type Workspace, type HighlightColor } from '../../../types/workspace'
-import { resolveEnabledWorkspaceType } from '../../AppIcons'
+import { CheckIcon, resolveEnabledWorkspaceType } from '../../AppIcons'
 import type { WorkspaceTypeRowAction } from '../../../modules/renderer-host'
 import {
   type SnoozePresetId,
@@ -56,6 +56,8 @@ export type ContextMenuAction =
   | 'close'
   | 'toggle-star'
   | 'toggle-settle'
+  | 'auto-settle:on'
+  | 'auto-settle:off'
   // Snooze presets dispatch as `snooze:<presetId>` so the union stays closed
   // while the list of wake times remains data: a new wake time is a row in the
   // preset table, not a new member of this union.
@@ -74,6 +76,7 @@ export function WorkspaceContextMenu({
   moduleOverrides,
   isDetachedWindow,
   now,
+  working,
   onClose,
   onSelect,
   onPickColor,
@@ -83,6 +86,8 @@ export function WorkspaceContextMenu({
   workspace: Workspace | null
   moduleOverrides: Parameters<typeof resolveEnabledWorkspaceType>[1]
   isDetachedWindow: boolean
+  /** An agent in the chat is still working, so Settle and Snooze wait (`workspaceIsWorking`). */
+  working: boolean
   /** The clock the wake times and the asleep/awake reading are resolved against. */
   now: number
   onClose: () => void
@@ -100,6 +105,7 @@ export function WorkspaceContextMenu({
   const settled = isSettledWorkspace(workspace)
   const snoozed = isSnoozedWorkspace(workspace, now)
   const canSnooze = canSnoozeWorkspace(workspace)
+  const autoSettle = workspace.autoSettleDisabled !== true
   const currentColor = workspace.highlight?.color ?? null
 
   return (
@@ -138,8 +144,14 @@ export function WorkspaceContextMenu({
       {/* Rest by hand (settled-chats, 2026-09-07). Un-settle also holds the
           row out of the sweep until it sees new activity. A row born on a
           paired machine is the Remote band's, which has no shelf. */}
-      {workspace.remoteOrigin ? null : (
-        <MenuItem onClick={() => onSelect('toggle-settle')}>{settled ? 'Un-settle' : 'Settle'}</MenuItem>
+      {workspace.remoteOrigin ? null : settled ? (
+        <MenuItem onClick={() => onSelect('toggle-settle')}>Un-settle</MenuItem>
+      ) : (
+        // Settling ends the chat's agents, and their work with them: it waits
+        // until they finish.
+        <MenuItem disabled={working} hint={working ? 'Working' : undefined} onClick={() => onSelect('toggle-settle')}>
+          Settle
+        </MenuItem>
       )}
       {/* Sleep by hand (snooze, 2026-09-10), beneath Settle because it is the
           softer of the two: Settle says the work is done, Snooze says only
@@ -154,10 +166,37 @@ export function WorkspaceContextMenu({
       {snoozed ? (
         <MenuItem onClick={() => onSelect('wake')}>Wake now</MenuItem>
       ) : workspace.remoteOrigin || settled ? null : (
-        <MenuFlyoutItem label="Snooze" ariaLabel="Snooze chat" disabled={!canSnooze}>
+        <MenuFlyoutItem label="Snooze" ariaLabel="Snooze chat" disabled={!canSnooze || working}>
           {resolveSnoozePresets(Date.now()).map((preset) => (
             <MenuItem key={preset.id} hint={preset.whenLabel} onClick={() => onSelect(`snooze:${preset.id}`)}>
               {preset.label}
+            </MenuItem>
+          ))}
+        </MenuFlyoutItem>
+      )}
+      {/* Whether this chat settles by itself: after three quiet days, or when
+          its pull requests land. A setting rather than a verb, so a submenu
+          with the current choice checked. */}
+      {workspace.remoteOrigin ? null : (
+        <MenuFlyoutItem label="Auto-settle" ariaLabel="Auto-settle">
+          {[
+            { on: true, label: 'Enabled' },
+            { on: false, label: 'Disabled' },
+          ].map((option) => (
+            <MenuItem
+              key={option.label}
+              checked={autoSettle === option.on}
+              selection="one-of"
+              icon={
+                autoSettle === option.on ? (
+                  <CheckIcon className="icon-sm" />
+                ) : (
+                  <span className="inline-block icon-sm" aria-hidden="true" />
+                )
+              }
+              onClick={() => onSelect(option.on ? 'auto-settle:on' : 'auto-settle:off')}
+            >
+              {option.label}
             </MenuItem>
           ))}
         </MenuFlyoutItem>

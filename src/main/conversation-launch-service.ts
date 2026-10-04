@@ -34,6 +34,7 @@
  */
 import { randomUUID } from 'crypto'
 
+import { newAgentIdSuffix } from '../shared/agent-ids'
 import { pickRandomAgentName } from '../shared/agent-names'
 import { defaultAgent, type AgentState } from '../shared/agent-state'
 import {
@@ -57,7 +58,7 @@ import { workspaceHostIdOf, type ExecutionHostId } from '../shared/execution-hos
 import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
 import { conversationCliRuntimesForHost } from '../shared/conversation-cli-runtimes'
 import type { McpServerConfig } from '../shared/ipc/mcp'
-import { SOLO_CHAT_AGENT_ID, SOLO_CHAT_TEMPLATE_ID } from '../shared/layouts/templates'
+import { SOLO_CHAT_TEMPLATE_AGENT_ID, SOLO_CHAT_TEMPLATE_ID } from '../shared/layouts/templates'
 import { deriveWorkspaceTitle, nextNewChatName } from '../shared/workspace-title'
 import type { WorkspaceWorktree } from '../renderer/src/types/workspace'
 import type { WorkspaceCreateRequest } from './workspace-registry-service'
@@ -217,7 +218,7 @@ export type ConversationLaunchService = {
 }
 
 export function createConversationLaunchService(deps: ConversationLaunchServiceDeps): ConversationLaunchService {
-  const newAgentSuffix = deps.newAgentSuffix ?? (() => randomUUID().replace(/-/g, '').slice(0, 6))
+  const newAgentSuffix = deps.newAgentSuffix ?? newAgentIdSuffix
   const newCommandId = deps.newCommandId ?? (() => randomUUID())
 
   async function launch(request: ConversationLaunchRequest): Promise<ConversationLaunchResult> {
@@ -315,9 +316,10 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       }
     }
 
-    // A new chat's agent is its workspace's one template tab, as a window's
-    // New chat makes it; one joining a workspace takes an id of its own.
-    const agentId = newChat ? SOLO_CHAT_AGENT_ID : `agent-${cli}-${newAgentSuffix()}`
+    // An id of its own either way, unique across workspaces. A new chat's agent
+    // fills its workspace's one template tab (`templateAgentIds` below), so the
+    // tab names it rather than the template's placeholder every chat shared.
+    const agentId = `agent-${cli}-${newAgentSuffix()}`
     const name =
       request.name?.trim() ||
       pickRandomAgentName(
@@ -370,6 +372,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         ...(workspace.worktree ? { worktree: workspace.worktree } : {}),
         ...(request.scheduledAgentId?.trim() ? { scheduledAgentId: request.scheduledAgentId.trim() } : {}),
         ...(request.background ? { background: true } : {}),
+        templateAgentIds: { [SOLO_CHAT_TEMPLATE_AGENT_ID]: agentId },
         agents: { [agentId]: agent },
       })
       if (!created.ok) return { ok: false, code: 'workspace_create_failed', message: created.message }

@@ -46,6 +46,7 @@ function session(partial: Partial<TerminalSessionSnapshot>): TerminalSessionSnap
     sessionId: 's1',
     processAlive: true,
     kind: 'agent',
+    workspaceId: 'ws-1',
     agentId: 'agent-1',
     activity: { kind: 'idle', since: 0 },
     ...partial,
@@ -66,6 +67,7 @@ function harness(options: { focused?: boolean; files?: TourFileSnapshot[] } = {}
   let nextId = 0
   let terminals: TerminalSessionSnapshot[] = [session({})]
   const store = createTourStore(dir)
+  const checkoutLookups: Array<{ workspaceId: string; agentId: string }> = []
 
   const deps: TourServiceDeps = {
     store,
@@ -82,8 +84,13 @@ function harness(options: { focused?: boolean; files?: TourFileSnapshot[] } = {}
     now: () => clock,
     newId: () => `id-${String(++nextId).padStart(6, '0')}`,
     resolveWorkspaceRoot: () => '/Users/dev/app',
-    resolveAgentCheckout: () => null,
-    readChangelistPaths: async () => ['src/retry.ts'],
+    resolveAgentCheckout: (workspaceId, agentId) => {
+      checkoutLookups.push({ workspaceId, agentId })
+      return null
+    },
+    // Every chat's agent has a list here but ws-empty's: `agent-1` recurs in
+    // every chat, and one chat's list must never answer for another's.
+    readChangelistPaths: async (_root, owner) => (owner.workspaceId === 'ws-empty' ? null : ['src/retry.ts']),
     broadcastToWorkspaceWindows: (channel, payload) => workspaceBroadcasts.push({ channel, payload }),
     broadcastToViewers: (channel, payload) => viewerBroadcasts.push({ channel, payload }),
     isAppFocused: () => options.focused ?? true,
@@ -103,6 +110,7 @@ function harness(options: { focused?: boolean; files?: TourFileSnapshot[] } = {}
   const service = createTourService(deps)
   return {
     service,
+    checkoutLookups,
     store,
     dir,
     workspaceBroadcasts,
@@ -155,10 +163,14 @@ function input(
   return { title: 'Retry', changes: { kind: 'changelist' }, steps }
 }
 
-async function created(h: ReturnType<typeof harness>, focusedAck = true): Promise<Tour> {
-  const pending = h.service.create(input(), CALLER)
+async function created(h: ReturnType<typeof harness>, focusedAck = true, caller = CALLER): Promise<Tour> {
+  const pending = h.service.create(input(), caller)
   const request = await waitFor(() =>
-    h.workspaceBroadcasts.find((entry) => entry.channel === TOUR_CHANNELS.revealRequest),
+    h.workspaceBroadcasts.find(
+      (entry) =>
+        entry.channel === TOUR_CHANNELS.revealRequest &&
+        (entry.payload as { workspaceId: string }).workspaceId === caller.workspaceId,
+    ),
   )
   if (focusedAck) h.service.acknowledgeReveal((request.payload as { requestId: string }).requestId)
   else await h.advance(2_000)
@@ -208,6 +220,13 @@ test('a changelist tour with no owned files says what to use instead', async () 
   const result = await h.service.create(input(), { workspaceId: 'ws-1' })
   assert.equal(result.ok, false)
   if (!result.ok) assert.match(result.errors[0], /needs the calling agent/)
+})
+
+test("a changelist tour reads its own chat's agent's list, not another chat's agent-1", async () => {
+  const h = harness()
+  const result = await h.service.create(input(), { ...CALLER, workspaceId: 'ws-empty' })
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.match(result.errors[0], /Your changelist has no uncommitted files/)
 })
 
 test('a working-tree tour re-finds its lines, and says moved and gone', async () => {
@@ -392,4 +411,108 @@ test('only the author may change a tour or point at it', async () => {
   assert.equal(closed.ok, true)
   const afterClose = await h.service.goto('ws-1', tour.id, 'options', 'agent-1')
   assert.equal(afterClose.ok, false, 'a closed tour is not pointed at')
+})
+
+// Agent ids are only unique within a workspace: nearly every chat's first agent
+// is `agent-1`. Each of these has a second chat whose agent shares the author's
+// id, and nothing of one may reach the other.
+
+function phaseOf(partial: Partial<AgentPhaseEvent>): AgentPhaseEvent {
+  return {
+    workspaceId: 'ws-1',
+    agentId: 'agent-1',
+    executionId: null,
+    phase: 'idle',
+    previousPhase: 'thinking',
+    event: 'Stop',
+    turnEnd: true,
+    turnFailure: false,
+    ts: 0,
+    pendingWakeupAt: null,
+    ...partial,
+  }
+}
+
+const IDLE = { agentState: { phase: 'idle' as const, since: 0, source: 'hook' as const } }
+
+test("a question goes to the author's own terminal, never another chat's agent of the same id", async () => {
+  const h = harness()
+  const tour = await created(h)
+  h.setTerminals([session({ ...IDLE, sessionId: 's-other', workspaceId: 'ws-2' })])
+  const gone = await h.service.ask('ws-1', tour.id, 'options', 'Why?')
+  assert.equal(gone.ok, false)
+  assert.equal(gone.authorGone, true, "another chat's agent-1 is not the author")
+  assert.equal(h.writes.length, 0)
+
+  h.setTerminals([
+    session({ ...IDLE, sessionId: 's-other', workspaceId: 'ws-2' }),
+    session({ ...IDLE, sessionId: 's-author' }),
+  ])
+  const asked = await h.service.ask('ws-1', tour.id, 'options', 'Why?')
+  assert.equal(asked.ok && asked.value.state, 'sent')
+  assert.deepEqual(
+    h.writes.map((write) => write.sessionId),
+    ['s-author'],
+  )
+})
+
+test("another chat's agent of the same id ending its turn or exiting leaves this tour's questions alone", async () => {
+  const h = harness()
+  const tour = await created(h)
+  h.setTerminals([session({ agentState: { phase: 'thinking', since: 0, source: 'hook' } })])
+  const queued = await h.service.ask('ws-1', tour.id, 'options', 'Why?')
+  assert.equal(queued.ok && queued.value.state, 'queued')
+
+  h.service.onAgentPhase(phaseOf({ workspaceId: 'ws-2' }))
+  assert.equal(h.writes.length, 0, "another chat's turn end is not the author's")
+  h.service.onAgentPhase(phaseOf({ workspaceId: 'ws-2', phase: 'exited', turnEnd: false }))
+  const still = await h.service.status('ws-1', tour.id)
+  assert.equal(still.ok && still.status.asks[0].state, 'queued')
+
+  h.service.onAgentPhase(phaseOf({}))
+  assert.equal(h.writes.length, 1, "sent on the author's own turn end")
+  h.service.onAgentPhase(phaseOf({ workspaceId: 'ws-2' }))
+  const sent = await h.service.status('ws-1', tour.id)
+  assert.equal(sent.ok && sent.status.asks[0].state, 'sent', "another chat's turn end answers nothing here")
+})
+
+test('an author moved to another chat still reads as the author, and its turn ends answer', async () => {
+  // Its tour names ws-1, the chat its process was launched in and still names;
+  // its session and its phase events now name ws-2, the chat it was dragged to.
+  const h = harness()
+  const tour = await created(h)
+  const moved = { workspaceId: 'ws-2', launchWorkspaceId: 'ws-1' }
+  h.setTerminals([session({ ...moved, agentState: { phase: 'thinking', since: 0, source: 'hook' } })])
+  const queued = await h.service.ask('ws-1', tour.id, 'options', 'Why?')
+  assert.equal(queued.ok && queued.value.state, 'queued', 'the author is not gone')
+
+  h.service.onAgentPhase(phaseOf(moved))
+  assert.equal(h.writes.length, 1, "sent on the moved author's turn end")
+  h.service.onAgentPhase(phaseOf(moved))
+  const answered = await h.service.status('ws-1', tour.id)
+  assert.equal(answered.ok && answered.status.asks[0].state, 'answered')
+})
+
+test("a question being answered in one chat does not hold back another chat's agent of the same id", async () => {
+  const h = harness()
+  const mine = await created(h)
+  const theirs = await created(h, true, { ...CALLER, workspaceId: 'ws-2' })
+  h.setTerminals([
+    session({ ...IDLE, sessionId: 's-mine' }),
+    session({ ...IDLE, sessionId: 's-theirs', workspaceId: 'ws-2' }),
+  ])
+  const first = await h.service.ask('ws-2', theirs.id, 'options', 'Theirs?')
+  assert.equal(first.ok && first.value.state, 'sent')
+  const second = await h.service.ask('ws-1', mine.id, 'options', 'Mine?')
+  assert.equal(second.ok && second.value.state, 'sent', 'a different agent, so nothing is under way for it')
+  assert.deepEqual(
+    h.writes.filter((write) => write.data !== '\r').map((write) => write.sessionId),
+    ['s-theirs', 's-mine'],
+  )
+})
+
+test("the agent's own checkout is looked up in the caller's workspace", async () => {
+  const h = harness()
+  await created(h, true, { ...CALLER, workspaceId: 'ws-2' })
+  assert.deepEqual(h.checkoutLookups, [{ workspaceId: 'ws-2', agentId: 'agent-1' }])
 })

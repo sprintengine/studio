@@ -465,14 +465,17 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
       title?: string | null
       openedAt?: number | null
       number?: number | null
+      endedAt?: number
     },
   ): void {
     const entry = entries.get(url)
     if (!entry) return
     // The host's word wins where it gave one; a read that said nothing never
-    // blanks what we have.
+    // blanks what we have. One that is open again (reopened) has no end.
+    const { endedAt: _endedAt, ...unended } = entry
     const updated: BranchPullRequest = {
-      ...entry,
+      ...(next.state === 'open' ? unended : entry),
+      ...(next.state !== 'open' && typeof next.endedAt === 'number' ? { endedAt: next.endedAt } : {}),
       ...(next.title ? { title: next.title } : {}),
       ...(typeof next.openedAt === 'number' && next.openedAt > 0 ? { openedAt: next.openedAt } : {}),
       ...(typeof next.number === 'number' && next.number > 0 ? { number: next.number } : {}),
@@ -697,6 +700,7 @@ function sameReading(a: BranchPullRequest, b: BranchPullRequest): boolean {
     a.state === b.state &&
     a.isDraft === b.isDraft &&
     a.openedAt === b.openedAt &&
+    a.endedAt === b.endedAt &&
     a.number === b.number &&
     a.headRefName === b.headRefName
   )
@@ -776,6 +780,8 @@ function parseEntry(raw: unknown, branch: string | null): BranchPullRequest | nu
   const number = typeof raw.number === 'number' && Number.isInteger(raw.number) && raw.number > 0 ? raw.number : 0
   const openedAt = typeof raw.openedAt === 'number' && Number.isFinite(raw.openedAt) ? raw.openedAt : 0
   const stateAt = typeof raw.stateAt === 'number' && Number.isFinite(raw.stateAt) ? raw.stateAt : 0
+  const endedAt =
+    state !== 'open' && typeof raw.endedAt === 'number' && Number.isFinite(raw.endedAt) ? raw.endedAt : null
   const text = (value: unknown, max: number) =>
     typeof value === 'string' && value.length > 0 && value.length <= max ? value : null
   const workspaceId = text(raw.openedByWorkspaceId, 200)
@@ -793,6 +799,7 @@ function parseEntry(raw: unknown, branch: string | null): BranchPullRequest | nu
     isDraft: raw.isDraft === true && state === 'open',
     openedAt,
     stateAt,
+    ...(endedAt !== null && classified.forge === 'github' ? { endedAt } : {}),
     ...(classified.forge !== 'github' ? { forge: classified.forge } : {}),
     ...(workspaceId ? { openedByWorkspaceId: workspaceId } : {}),
     ...(agentId ? { openedByAgentId: agentId } : {}),

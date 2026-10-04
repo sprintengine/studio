@@ -220,6 +220,11 @@ export type TerminalSession = {
   // This pty's hold on its machine (see `retainSessionHost`); cleared on release.
   hostLease?: string
   workspaceId?: string
+  // The workspace this pty's process was launched with — the
+  // SPRINTENGINE_WORKSPACE_ID its hooks report. `workspaceId` follows an agent
+  // moved to another chat (its pane reattaches from there); the process env
+  // does not, so its hook frames go on naming this one.
+  launchWorkspaceId?: string
   agentId?: string
   // Display name from spawn metadata, surfaced on the snapshot so the session
   // manager can label agents that have no workspace.agents record.
@@ -1105,6 +1110,7 @@ export function getTerminalSnapshotBase(session: TerminalSession): TerminalSessi
     pathStyle: session.pathStyle,
     ...(session.hostId ? { hostId: session.hostId } : {}),
     workspaceId: session.workspaceId,
+    ...(session.launchWorkspaceId ? { launchWorkspaceId: session.launchWorkspaceId } : {}),
     agentId: session.agentId,
     agentName: session.agentName,
     terminalId: session.terminalId,

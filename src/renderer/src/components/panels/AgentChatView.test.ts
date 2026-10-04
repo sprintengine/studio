@@ -1604,6 +1604,14 @@ test('AgentChatView', async () => {
     /^[\s\S]{0,600}?permissionPreset: resolveCliPermissionPreset\(confirm\.cli, agentSpawnPermissionPreset\),/,
     'the chat spawn stamps the preset the picker showed for its CLI, like every CLI spawn',
   )
+  // Every open chat's layer stays mounted and nearly every chat has an
+  // `agent-1`, so a DOM id built from the agent id names several elements and a
+  // label points at whichever came first — another chat's composer.
+  assert.doesNotMatch(
+    chatViewSource,
+    /(?:\bid|htmlFor|aria-[a-z]+)=\{`[^`]*\$\{agentId\}/,
+    'no DOM id in the chat view is built from the agent id alone',
+  )
   // A refused change must never leave the pill claiming a preset the session is
   // not on: both failure branches of changePermissionPreset (refused, threw)
   // write the old value back. A window whose bridge is missing is answered

@@ -108,7 +108,8 @@ function PaneDiffTab({
   // makes no changelist call at all, which is what keeps every diff opened from
   // a Git row exactly the diff it was before.
   const { changelists } = useChangelists(wantsDefault ? repoRoot : null)
-  const changelistId = asked ?? (wantsDefault ? defaultDiffChangelistId({ lastActiveAgentId }, changelists) : null)
+  const changelistId =
+    asked ?? (wantsDefault ? defaultDiffChangelistId({ id: workspaceId, lastActiveAgentId }, changelists) : null)
   // Diff tours. The tab keeps what the viewer has open (so a tab switch does
   // not lose a playing tour) and a tour an agent has offered; the viewer tells
   // it when either changes.

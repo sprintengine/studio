@@ -2378,6 +2378,61 @@ test('a background Claude agent keeps its lane open until it reports, then close
   assert.equal(state.subagents.size, 0)
 })
 
+// Recorded from a real run: the child running five background agents ended,
+// and the next child resumed each with SendMessage. The resumed agent's task
+// messages name the SendMessage call while its steps still name the Agent call
+// that spawned it, so the lane it reports to is the one it started in.
+test('a Claude agent resumed by SendMessage in a later child reports to the lane that spawned it', () => {
+  const state = { ...mapperState(), subagents: new Map(), agentLanes: new Map<string, string>() }
+  const map = (message: Record<string, unknown>) => mapSdkMessage(state, { session_id: 'native', ...message })
+  map({
+    type: 'system',
+    subtype: 'task_started',
+    task_id: 'task_swift',
+    tool_use_id: 'toolu_agent',
+    description: 'Build Swift macOS app',
+    task_type: 'local_agent',
+    subagent_type: 'general-purpose',
+    is_backgrounded: true,
+  })
+  // The child ends, and its agents with it.
+  state.subagents.clear()
+
+  const resumed = map({
+    type: 'system',
+    subtype: 'task_started',
+    task_id: 'task_swift',
+    tool_use_id: 'toolu_send',
+    description: 'Build Swift macOS app',
+    task_type: 'local_agent',
+    subagent_type: 'general-purpose',
+    is_backgrounded: true,
+  })
+  assert.equal(resumed[0]?.payload?.toolUseId, 'toolu_agent')
+  assert.equal(resumed[0]?.payload?.status, 'running')
+  assert.equal(resumed[0]?.payload?.resumed, true, 'and its ended lane reopens')
+  const progress = map({
+    type: 'system',
+    subtype: 'task_progress',
+    task_id: 'task_swift',
+    tool_use_id: 'toolu_send',
+    last_tool_name: 'Bash',
+  })
+  assert.equal(progress[0]?.payload?.toolUseId, 'toolu_agent')
+  const finished = map({
+    type: 'system',
+    subtype: 'task_notification',
+    task_id: 'task_swift',
+    tool_use_id: 'toolu_send',
+    status: 'completed',
+    summary: 'Built it.',
+  })
+  assert.equal(finished[0]?.type, 'tool_output')
+  assert.equal(finished[0]?.payload?.toolUseId, 'toolu_agent', 'its answer lands in its own lane, not on SendMessage')
+  assert.equal(finished[1]?.payload?.toolUseId, 'toolu_agent')
+  assert.equal(finished[1]?.payload?.status, 'completed')
+})
+
 test('a foreground Claude agent keeps its own result and background shells are not agents', () => {
   const state = { ...mapperState(), subagents: new Map() }
   const map = (message: Record<string, unknown>) => mapSdkMessage(state, { session_id: 'native', ...message })

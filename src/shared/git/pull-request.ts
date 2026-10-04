@@ -36,6 +36,13 @@ export type BranchPullRequest = {
   /** When `state` was last read from its host, ms epoch; 0 when it never has been. */
   stateAt: number
   /**
+   * When it merged, or closed without merging, as GitHub says, ms epoch.
+   * Absent while open, and on an entry read before this was kept. What says
+   * whether the person went on with the chat after it landed, which decides
+   * whether a merge settles the chat (`pullRequestsLanded`).
+   */
+  endedAt?: number
+  /**
    * The forge the pull request is on, when it is not GitHub (GitHub Enterprise
    * included). The app reads a pull request's state through `gh` only, so one
    * on another forge is shown as opened, and its `state` stays `open`.

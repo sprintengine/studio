@@ -187,6 +187,24 @@ test('agent-control-plane', async () => {
     if (resolved.ok) assert.equal(resolved.session.sessionId, 'live', 'a respawn is never addressed at its corpse')
   })
 
+  run('a live agent in one chat does not outrank a dead namesake in another', () => {
+    const harness = makeHarness({
+      sessions: [
+        agentSession({ sessionId: 'closed-chat', workspaceId: 'ws-a', agentId: 'agent-1', processAlive: false }),
+        agentSession({ sessionId: 'open-chat', workspaceId: 'ws-b', agentId: 'agent-1' }),
+      ],
+    })
+    const resolved = harness.plane.resolve('agentId:agent-1')
+    assert.equal(resolved.ok, false, 'two chats each have an agent-1: the caller must say which')
+    if (!resolved.ok) {
+      assert.equal(resolved.reason, 'ambiguous')
+      assert.deepEqual(resolved.matches, ['closed-chat', 'open-chat'])
+    }
+    const scoped = harness.plane.resolve({ agentId: 'agent-1', workspaceId: 'ws-b' })
+    assert.equal(scoped.ok, true)
+    if (scoped.ok) assert.equal(scoped.session.sessionId, 'open-chat')
+  })
+
   run('a target matching nothing fails as not_found', () => {
     const harness = makeHarness()
     const resolved = harness.plane.resolve('cwd:/nowhere')

@@ -8,9 +8,9 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   changelistOwnerId,
   DEFAULT_CHANGELIST_ID,
@@ -172,6 +172,8 @@ test('git-changelists', async () => {
 
       await assertPatches(repo)
       await assertAgentChangelists(userData, root)
+      await assertChatsKeepTheirOwnLists(userData, root)
+      await assertLegacyStoreIsRetired(userData, root)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -196,8 +198,8 @@ test('git-changelists', async () => {
 
     const nadia: ChangelistOwner = { kind: 'agent', agentId: 'agent-nadia', name: 'Nadia', workspaceId: 'ws-1' }
     const ivo: ChangelistOwner = { kind: 'agent', agentId: 'agent-ivo', name: 'Ivo', workspaceId: 'ws-1' }
-    const nadiaId = changelistOwnerId(nadia.agentId)
-    const ivoId = changelistOwnerId(ivo.agentId)
+    const nadiaId = changelistOwnerId(nadia)
+    const ivoId = changelistOwnerId(ivo)
 
     // A launch makes the agent's list and makes it ACTIVE, and says so twice
     // without moving anything: launch calls it, and so does every edit frame.
@@ -261,7 +263,7 @@ test('git-changelists', async () => {
     )
 
     // The agent leaves with nothing left to show: the list goes.
-    const afterIvoExit = await markOwnerExited(userData, repo, ivo.agentId)
+    const afterIvoExit = await markOwnerExited(userData, repo, ivo)
     assert.equal(
       afterIvoExit.some((list) => list.id === ivoId),
       false,
@@ -270,7 +272,7 @@ test('git-changelists', async () => {
 
     // Nadia's is not empty, so hers stays — named after an agent that has gone,
     // until a person commits, moves or deletes it.
-    const afterNadiaExit = await markOwnerExited(userData, repo, nadia.agentId)
+    const afterNadiaExit = await markOwnerExited(userData, repo, nadia)
     assert.deepEqual(pathsOf(afterNadiaExit, nadiaId), ['shared.ts'], 'a list with work in it survives its agent')
     assert.equal(afterNadiaExit.find((list) => list.id === nadiaId)?.owner?.exited, true)
 
@@ -284,6 +286,119 @@ test('git-changelists', async () => {
       'the committed list is gone and the default is all that is left',
     )
     assert.equal(afterCommit.filter((list) => list.active).length, 1, 'and something is still active')
+  }
+
+  /**
+   * Two chats in ONE checkout whose first agents are both `agent-1` — which is
+   * nearly every pair of chats. Each gets a list of its own, neither's files
+   * show in the other's, and one exiting leaves the other's list live.
+   */
+  async function assertChatsKeepTheirOwnLists(userData: string, root: string): Promise<void> {
+    const repo = join(root, 'repo-two-chats')
+    git(root, ['init', '--initial-branch=main', repo])
+    configureRepo(repo)
+    writeFileSync(join(repo, 'a.ts'), 'base\n')
+    writeFileSync(join(repo, 'b.ts'), 'base\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-m', 'base'])
+
+    const inA: ChangelistOwner = { kind: 'agent', agentId: 'agent-1', name: 'Nadia', workspaceId: 'ws-a' }
+    const inB: ChangelistOwner = { kind: 'agent', agentId: 'agent-1', name: 'Ivo', workspaceId: 'ws-b' }
+    const idA = changelistOwnerId(inA)
+    const idB = changelistOwnerId(inB)
+
+    await ensureOwnedChangelist(userData, repo, inA, { activate: true })
+    await ensureOwnedChangelist(userData, repo, inB, { activate: true })
+    writeFileSync(join(repo, 'a.ts'), 'chat a\n')
+    writeFileSync(join(repo, 'b.ts'), 'chat b\n')
+    await recordAgentEdits(userData, repo, inA, [{ path: 'a.ts' }])
+    const both = await recordAgentEdits(userData, repo, inB, [{ path: 'b.ts' }])
+    assert.deepEqual(pathsOf(both, idA), ['a.ts'], "chat A's list holds chat A's file")
+    assert.deepEqual(pathsOf(both, idB), ['b.ts'], "and chat B's holds chat B's, not both in one")
+    assert.equal(byName(both, 'Nadia').id, idA, "chat B's launch did not rename chat A's list")
+
+    const afterAExit = await markOwnerExited(userData, repo, inA)
+    assert.equal(afterAExit.find((list) => list.id === idA)?.owner?.exited, true)
+    assert.equal(
+      afterAExit.find((list) => list.id === idB)?.owner?.exited,
+      undefined,
+      "chat A's agent exiting does not mark chat B's agent exited",
+    )
+
+    // Committing B's work must not delete B's list: it is still running.
+    git(repo, ['add', 'b.ts'])
+    git(repo, ['commit', '-m', 'chat b'])
+    const afterCommit = await getGitChangelists(userData, repo)
+    assert.ok(
+      afterCommit.some((list) => list.id === idB),
+      'a live agent keeps its emptied list, whatever another chat did',
+    )
+  }
+
+  /**
+   * A store an older build wrote, where the list was `agent:<agentId>`. It is
+   * read back with every entry it held, flagged exited, and a new launch of the
+   * agent its owner names gets a list of its own instead of inheriting it — the
+   * old list may hold another chat's files, and no chat is handed them.
+   */
+  async function assertLegacyStoreIsRetired(userData: string, root: string): Promise<void> {
+    const repo = join(root, 'repo-legacy')
+    git(root, ['init', '--initial-branch=main', repo])
+    configureRepo(repo)
+    writeFileSync(join(repo, 'a.ts'), 'base\n')
+    writeFileSync(join(repo, 'b.ts'), 'base\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-m', 'base'])
+    writeFileSync(join(repo, 'a.ts'), 'from before the upgrade\n')
+
+    const storePath = changelistsStorePath(userData, repo)
+    mkdirSync(dirname(storePath), { recursive: true })
+    const legacyOwner: ChangelistOwner = { kind: 'agent', agentId: 'agent-1', name: 'Nadia', workspaceId: 'ws-a' }
+    writeFileSync(
+      storePath,
+      JSON.stringify({
+        version: 1,
+        repoRoot: repo,
+        lists: [
+          { id: DEFAULT_CHANGELIST_ID, name: 'Changes', paths: [], active: false },
+          { id: 'agent:agent-1', name: 'Nadia', paths: ['a.ts'], active: true, owner: legacyOwner },
+        ],
+      }),
+    )
+
+    const read = await getGitChangelists(userData, repo)
+    const legacy = read.find((list) => list.id === 'agent:agent-1')
+    assert.deepEqual(legacy?.paths, ['a.ts'], 'the legacy list keeps every entry it held')
+    assert.equal(legacy?.owner?.exited, true, 'and is retired: no running agent will write to it again')
+    assert.equal(legacy?.owner?.workspaceId, 'ws-a', 'its recorded owner is kept as it was')
+    const onDisk = JSON.parse(readFileSync(storePath, 'utf8')) as { lists: Changelist[] }
+    assert.deepEqual(
+      onDisk.lists.find((list) => list.id === 'agent:agent-1')?.paths,
+      ['a.ts'],
+      'and the rewrite on disk still holds them',
+    )
+
+    // The same agent of the same chat its owner record names, relaunched.
+    const owner = legacyOwner
+    const fresh = changelistOwnerId(owner)
+    writeFileSync(join(repo, 'b.ts'), 'after the upgrade\n')
+    await ensureOwnedChangelist(userData, repo, owner, { activate: true })
+    const after = await recordAgentEdits(userData, repo, owner, [{ path: 'b.ts' }])
+    assert.deepEqual(pathsOf(after, fresh), ['b.ts'], 'the relaunched agent writes into a list of its own')
+    assert.deepEqual(pathsOf(after, 'agent:agent-1'), ['a.ts'], 'and the legacy list is not merged into it')
+
+    // Exiting the new list's agent leaves the legacy list untouched, and the
+    // legacy list goes the moment the person commits what it held.
+    await markOwnerExited(userData, repo, owner)
+    git(repo, ['add', 'a.ts'])
+    git(repo, ['commit', '-m', 'old work'])
+    const committed = await getGitChangelists(userData, repo)
+    assert.equal(
+      committed.some((list) => list.id === 'agent:agent-1'),
+      false,
+      'an emptied legacy list is deleted like any exited one',
+    )
+    assert.deepEqual(pathsOf(committed, fresh), ['b.ts'])
   }
 
   async function assertPatches(repo: string): Promise<void> {

@@ -399,6 +399,29 @@ test('WorkspaceSidebar.snoozed', async () => {
       })
       await settle()
 
+      // But not a row whose agent is working. Pausing ends the agent processes,
+      // and an agent working in the background ends with them and does not
+      // come back on the wake.
+      await render({
+        ...baseProps,
+        activityByWorkspaceId: { w1: 'working', w2: 'idle', w3: 'idle', w4: 'idle' },
+      } as unknown as SidebarProps)
+      act(() => {
+        rowFor('Alpha')!.dispatchEvent(
+          new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+        )
+      })
+      await settle()
+      const workingSnooze = [
+        ...dom.window.document.querySelectorAll<HTMLButtonElement>('[role="menu"] [data-menu-item="true"]'),
+      ].find((el) => el.textContent?.trim() === 'Snooze')
+      assert.ok(workingSnooze, 'Snooze is still listed on a row whose agent is working')
+      assert.equal(workingSnooze.disabled, true, 'but it cannot be chosen until the agent finishes')
+      act(() => {
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      })
+      await settle()
+
       // Suspend, never kill, and never an automatic resume: a woken row returns
       // to the sidebar with its terminals still paused, and the person's own
       // keystroke is what starts an agent again.

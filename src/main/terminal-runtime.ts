@@ -2006,6 +2006,8 @@ function resolveSessionForAgentStateFrame(frame: AgentStateFrame): TerminalSessi
       executionId: session.agentSession?.executionId,
       sessionId: session.sessionId,
       workspaceId: session.workspaceId,
+      launchWorkspaceId: session.launchWorkspaceId,
+      alive: isTerminalProcessAlive(session),
       startedAt: session.startedAt,
     }))
   return selectAgentStateTarget(candidates, frame)
@@ -2588,6 +2590,9 @@ function notifyAgentPhaseListeners(
 
   const phaseEvent: AgentPhaseEvent = {
     workspaceId: session.workspaceId ?? null,
+    ...(session.launchWorkspaceId && session.launchWorkspaceId !== session.workspaceId
+      ? { launchWorkspaceId: session.launchWorkspaceId }
+      : {}),
     // A session carrying no agentId of its own was matched on the id the frame
     // carries, so that id is still its correlation handle.
     agentId: session.agentId ?? frame.agentId,
@@ -3392,6 +3397,7 @@ async function spawnTerminalFromIpc(
       pathStyle,
       hostId: host.id,
       workspaceId,
+      launchWorkspaceId: workspaceId,
       agentId,
       agentName,
       terminalId,

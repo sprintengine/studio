@@ -65,6 +65,16 @@ export function isAttentionEvent(event: AgentPhaseEvent): boolean {
   return event.turnEnd
 }
 
+/**
+ * The waiting item an agent counts as. An agent id is only unique within its
+ * workspace — nearly every chat's first agent is `agent-1` — so two chats'
+ * agents are two items, and one going back to work clears only its own. The
+ * prefix keeps it apart from the keys `notify` is given (`tour:<id>`).
+ */
+function agentKey(event: AgentPhaseEvent): string {
+  return `agent:${event.workspaceId ?? ''}\0${event.agentId}`
+}
+
 export function createAgentAttention(deps: AgentAttentionDeps): AgentAttention {
   const pending = new Set<string>()
   const badgeSupported = deps.platform === 'darwin' || deps.platform === 'linux'
@@ -103,14 +113,14 @@ export function createAgentAttention(deps: AgentAttentionDeps): AgentAttention {
 
   function onAgentPhase(event: AgentPhaseEvent): void {
     if (WORKING_PHASES.has(event.phase)) {
-      if (pending.delete(event.agentId)) {
+      if (pending.delete(agentKey(event))) {
         publishBadge()
         if (pending.size === 0) flash(false)
       }
       return
     }
     if (!isAttentionEvent(event)) return
-    raise(event.agentId)
+    raise(agentKey(event))
   }
 
   function onWindowFocused(): void {

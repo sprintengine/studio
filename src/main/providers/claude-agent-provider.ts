@@ -277,6 +277,11 @@ type SessionState = {
   declinedToolUseIds: Set<string>
   // Agents the child has running, by spawning tool call.
   subagents: Map<string, TrackedSubagent>
+  // The tool call that first spawned each agent this chat has seen, by task.
+  // Kept across children: an agent resumed later (SendMessage, after the
+  // child that ran it ended) reports under the resuming call, and its lane is
+  // still the one that spawned it.
+  agentLanes: Map<string, string>
   // What the child's last init said about its commands: which names are
   // skills and which are bound to the terminal, so a later `commands_changed`
   // push is read the same way. Null until an init has said.
@@ -1120,6 +1125,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         textSeam: false,
         declinedToolUseIds: new Set(),
         subagents: new Map(),
+        agentLanes: new Map(),
         commandSkills: null,
         terminalCommands: null,
         commandOutputShown: false,
@@ -1984,6 +1990,7 @@ export function mapSdkMessage(
     queryCostUsd?: number
     declinedToolUseIds?: Set<string>
     subagents?: Map<string, TrackedSubagent>
+    agentLanes?: Map<string, string>
     lastChainUuid?: string | null
     settledChainUuid?: string | null
     openToolUseIds?: Set<string>
@@ -2432,9 +2439,15 @@ function mapTaskMessage(
 
   switch (message.subtype) {
     case 'task_started': {
-      const toolUseId = text(message.tool_use_id)
-      if (!toolUseId || message.ambient === true || message.skip_transcript === true) return []
+      const startedBy = text(message.tool_use_id)
+      if (!startedBy || message.ambient === true || message.skip_transcript === true) return []
       if (message.task_type !== undefined && message.task_type !== 'local_agent') return []
+      // A resumed agent starts again under the call that resumed it, while its
+      // steps still name the call that spawned it: it goes on in that lane,
+      // which reopens.
+      const lane = state.agentLanes?.get(taskId)
+      const toolUseId = lane ?? startedBy
+      state.agentLanes?.set(taskId, toolUseId)
       const agent: TrackedSubagent = {
         taskId,
         toolUseId,
@@ -2443,7 +2456,12 @@ function mapTaskMessage(
         description: text(message.description),
       }
       subagents.set(toolUseId, agent)
-      return [eventFor(state, 'subagent_status', subagentStatusFields(agent, 'running'))]
+      return [
+        eventFor(state, 'subagent_status', {
+          ...subagentStatusFields(agent, 'running'),
+          ...(lane ? { resumed: true } : {}),
+        }),
+      ]
     }
     case 'task_progress': {
       const agent = find()
@@ -2489,6 +2507,7 @@ function mapTaskMessage(
           status: status === 'failed' ? 'error' : status === 'stopped' ? 'stopped' : 'ok',
           isError: status === 'failed',
           backgroundResult: true,
+          taskId: agent.taskId,
         }
         events.push(eventFor(state, 'tool_output', payload))
       }

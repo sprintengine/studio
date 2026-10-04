@@ -19,12 +19,14 @@
 
 import { changelistOwnerId, type Changelist } from '../../../shared/git/changelists'
 
-/** The one field of a workspace this decision rests on. Structural rather than
- *  `Workspace`, so the test can state its input in a line. */
-export type LastActiveAgentSource = { lastActiveAgentId?: string | null }
+/** The two fields of a workspace this decision rests on. Structural rather than
+ *  `Workspace`, so the test can state its input in a line. The id is needed as
+ *  much as the agent: `agent-1` is the first agent of nearly every chat, and the
+ *  list is this chat's `agent-1`'s, not the one another chat left behind. */
+export type LastActiveAgentSource = { id: string; lastActiveAgentId?: string | null }
 
 /**
- * `agent:<lastActiveAgentId>` when the repository really has that list, else
+ * The last-active agent's list when the repository really has it, else
  * null. Null is not a failure — it is "all changes", which is the right answer
  * for a workspace with no agent, an agent that has committed everything, and a
  * repository whose lists have not been read yet.
@@ -33,8 +35,9 @@ export function defaultDiffChangelistId(
   workspace: LastActiveAgentSource | null | undefined,
   changelists: Changelist[] | null | undefined,
 ): string | null {
-  const agentId = workspace?.lastActiveAgentId
+  if (!workspace) return null
+  const agentId = workspace.lastActiveAgentId
   if (typeof agentId !== 'string' || agentId.trim().length === 0) return null
-  const id = changelistOwnerId(agentId)
+  const id = changelistOwnerId({ workspaceId: workspace.id, agentId })
   return (changelists ?? []).some((list) => list.id === id) ? id : null
 }

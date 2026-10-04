@@ -147,6 +147,7 @@ export type WorkspaceFieldsPatch = {
   memory?: Workspace['memory']
   settledAt?: number | null
   settledOverride?: Workspace['settledOverride']
+  autoSettleDisabled?: boolean | null
   snoozedUntil?: number | null
   highlight?: Workspace['highlight'] | null
   worktree?: Workspace['worktree']
