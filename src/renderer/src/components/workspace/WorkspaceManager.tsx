@@ -2524,7 +2524,7 @@ export default function WorkspaceManager() {
       }),
       // The typed prompt is the chat's first message, sent as soon as the chat
       // is ready — the same promise a terminal agent's startup prompt makes.
-      ...conversationLaunchDraftPatch(skills, placement?.prompt),
+      ...conversationLaunchDraftPatch(skills, placement?.prompt, placement?.images),
     })
     placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
   }
@@ -2607,9 +2607,11 @@ export default function WorkspaceManager() {
     // The worktree New chat made for it: `folderPath` is already the worktree,
     // and the marker files the chat under the project it was cut from.
     worktree?: WorkspaceWorktree,
+    startupImages?: string[],
   ) => {
     const seed = conversationNewChatSeed(confirm, {
       prompt: startupPrompt,
+      images: startupImages,
       permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
       ...cliPermissionModeLaunch(confirm.cli),
     })
@@ -3350,11 +3352,13 @@ export default function WorkspaceManager() {
     folderPathOverride?: string | null,
     startupPrompt?: string,
     extension?: { id: string },
+    // A chat's staged images, sent as images with `startupPrompt`.
+    startupImages?: string[],
   ) => {
     if (newChatConfirmInFlight.current) return
     newChatConfirmInFlight.current = true
     try {
-      await confirmNewChatNow(confirm, folderPathOverride, startupPrompt, extension)
+      await confirmNewChatNow(confirm, folderPathOverride, startupPrompt, extension, startupImages)
     } finally {
       newChatConfirmInFlight.current = false
     }
@@ -3364,13 +3368,14 @@ export default function WorkspaceManager() {
     folderPathOverride?: string | null,
     startupPrompt?: string,
     extension?: { id: string },
+    startupImages?: string[],
   ) => {
     const scopedFolder = folderPathOverride !== undefined ? folderPathOverride : (newChatPanelState?.folderPath ?? null)
     // The machine the door's dropdown stands on rides every creation below
     // (they all end in createSoloChatWorkspace), then lets go.
     newChatHostRef.current = confirm.hostId ?? null
     try {
-      await confirmNewChatOnHost(confirm, scopedFolder, startupPrompt, extension)
+      await confirmNewChatOnHost(confirm, scopedFolder, startupPrompt, extension, startupImages)
     } finally {
       newChatHostRef.current = null
     }
@@ -3380,6 +3385,7 @@ export default function WorkspaceManager() {
     scopedFolder: string | null,
     startupPrompt?: string,
     extension?: { id: string },
+    startupImages?: string[],
   ) => {
     // An agent asked for a worktree starts IN it: the folder becomes the
     // worktree and the marker rides along. A worktree that cannot be made
@@ -3434,7 +3440,7 @@ export default function WorkspaceManager() {
         break
       case 'conversation':
         setLastNewChatAgent({ kind: 'conversation' })
-        openConversationInNewChat(folderPath, confirm, startupPrompt, worktree)
+        openConversationInNewChat(folderPath, confirm, startupPrompt, worktree, startupImages)
         break
     }
     closeNewChatPanel()
@@ -4104,7 +4110,9 @@ export default function WorkspaceManager() {
           conversationWorkspaceSupported={conversationSpawnEnabled}
           initialSelection={lastNewChatAgent}
           permissionPreset={agentSpawnPermissionPreset}
-          onLaunch={({ prompt, ...confirm }) => runComposerSpawnRef.current(confirm, { tabId, prompt, agentName })}
+          onLaunch={({ prompt, images, ...confirm }) =>
+            runComposerSpawnRef.current(confirm, { tabId, prompt, images, agentName })
+          }
           onClose={() => {
             if (windowActiveWorkspaceId) removeNewAgentTab(windowActiveWorkspaceId, tabId)
           }}
@@ -4661,13 +4669,13 @@ export default function WorkspaceManager() {
                               initialSelection={newChatPanelState.forcedSelection ?? lastNewChatAgent}
                               forceSelection={newChatPanelState.forcedSelection}
                               permissionPreset={agentSpawnPermissionPreset}
-                              onLaunch={({ prompt, extension, environment, ...confirm }) => {
+                              onLaunch={({ prompt, images, extension, environment, ...confirm }) => {
                                 if (environment) {
                                   confirmSshNewChat(confirm, environment, prompt)
                                   return
                                 }
                                 // confirmNewChat closes the panel (and forgets the draft) itself.
-                                void confirmNewChat(confirm, newChatPanelState.folderPath, prompt, extension)
+                                void confirmNewChat(confirm, newChatPanelState.folderPath, prompt, extension, images)
                               }}
                               // The promise itself, not a void wrapper: the panel's
                               // one-launch-at-a-time guard waits on it, and a wrapper
