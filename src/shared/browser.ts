@@ -99,6 +99,11 @@ export type BrowserPointerEvent = {
   x: number
   y: number
   kind: 'move' | 'click' | 'wheel'
+  /**
+   * The guest viewport's size in the same CSS px, read with the point: what a
+   * recording needs to place the cursor on a frame of any size.
+   */
+  viewport?: { width: number; height: number }
 }
 
 export type BrowserClearResult = { ok: true } | { ok: false; message: string }
