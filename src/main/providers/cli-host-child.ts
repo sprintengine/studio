@@ -57,6 +57,7 @@ import {
 import { argvToPosixShellCommand } from '../agent-launch-render'
 import { wslDistroArgs } from '../hosts/wsl-distro'
 import { cliSpawnTarget } from './cli-child-process'
+import { wslShareSafeDirectoryEnv } from '../git-run'
 
 /**
  * The variables that say which chat a child belongs to, carried into a
@@ -211,6 +212,9 @@ export function cliHostSpawn(
       args: target.args,
       options: {
         ...base,
+        // On This PC in a folder inside a WSL distribution, the agent's own
+        // git needs the folder listed as safe, as the app's git has it.
+        env: wslShareSafeDirectoryEnv(input.env, input.cwd, deps.platform),
         cwd: input.cwd,
         ...(target.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       },

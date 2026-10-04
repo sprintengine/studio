@@ -18,7 +18,9 @@ import {
   runGitCommand,
   withGitHost,
   wslShareSafeDirectories,
+  wslShareSafeDirectoryEnv,
 } from './git-run'
+import { claudeLocalChildEnv } from './providers/claude-agent-provider'
 
 test('reads are told apart from writes, so only reads get a deadline and skip optional locks', () => {
   const reads: string[][] = [
@@ -261,4 +263,49 @@ test('the environment form carries the same entries after any already there', ()
     ],
   )
   assert.equal(gitSafetyEnv({}, 'C:\\Users\\dev\\repo', 'win32').GIT_CONFIG_COUNT, '1')
+})
+
+test("an agent's own git on This PC is told a distribution's folder is safe, after the person's own entries", () => {
+  const base = {
+    PATH: 'C:\\Windows',
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'a.b',
+    GIT_CONFIG_VALUE_0: '1',
+    GIT_CONFIG_KEY_1: 'c.d',
+    GIT_CONFIG_VALUE_1: '2',
+  }
+  const env = wslShareSafeDirectoryEnv(base, '\\\\wsl$\\Debian\\srv\\app', 'win32')
+  assert.equal(env.GIT_CONFIG_COUNT, '5')
+  assert.equal(env.GIT_CONFIG_KEY_1, 'c.d', 'the entries already there keep their places')
+  assert.deepEqual(
+    [2, 3, 4].map((n) => [env[`GIT_CONFIG_KEY_${n}`], env[`GIT_CONFIG_VALUE_${n}`]]),
+    [
+      ['safe.directory', '%(prefix)///wsl$/Debian/srv/app'],
+      ['safe.directory', '%(prefix)///wsl$/Debian/srv'],
+      ['safe.directory', '%(prefix)///wsl$/Debian'],
+    ],
+  )
+  // Only the safe-directory entries: the app's own fsmonitor override is not the agent's.
+  assert.equal(Object.values(env).includes('core.fsmonitor'), false)
+  // Anywhere else, the environment is the one given.
+  assert.equal(wslShareSafeDirectoryEnv(base, 'C:\\Users\\dev\\app', 'win32'), base)
+  assert.equal(wslShareSafeDirectoryEnv(base, '//wsl.localhost/Ubuntu/home/dev', 'darwin'), base)
+  assert.equal(wslShareSafeDirectoryEnv(base, undefined, 'win32'), base)
+  // A count that is not a number starts the agent's entries at 0.
+  assert.equal(
+    wslShareSafeDirectoryEnv({ GIT_CONFIG_COUNT: 'x' }, '//wsl.localhost/Ubuntu', 'win32').GIT_CONFIG_KEY_0,
+    'safe.directory',
+  )
+})
+
+test("a Claude chat on This PC in a distribution's folder starts with that folder safe for its git", () => {
+  const env = claudeLocalChildEnv(
+    { PATH: 'C:\\Windows', SPRINTENGINE_MCP_CHANNEL_TOKEN: 'inherited' },
+    'tok_child',
+    '\\\\wsl.localhost\\Ubuntu\\home\\dev\\app',
+    'win32',
+  )
+  assert.equal(env.GIT_CONFIG_COUNT, '4')
+  assert.equal(env.GIT_CONFIG_VALUE_0, '%(prefix)///wsl.localhost/Ubuntu/home/dev/app')
+  assert.equal(claudeLocalChildEnv({ PATH: '/usr/bin' }, null, '/Users/dev/app', 'darwin').GIT_CONFIG_COUNT, undefined)
 })

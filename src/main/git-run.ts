@@ -242,12 +242,38 @@ export function gitSafetyEnv(
   cwd?: string,
   platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv {
-  const existing = Number.parseInt(base.GIT_CONFIG_COUNT ?? '0', 10)
-  const index = Number.isInteger(existing) && existing > 0 ? existing : 0
-  const pairs: Array<[string, string]> = [
+  return withGitConfigEnv(base, [
     ['core.fsmonitor', 'false'],
     ...(cwd ? wslShareSafeDirectories(cwd, platform) : []).map((dir): [string, string] => ['safe.directory', dir]),
-  ]
+  ])
+}
+
+/**
+ * The {@link wslShareSafeDirectories} of `cwd` for an agent's own git: the
+ * environment a chat's CLI starts with on This PC in a folder inside a WSL
+ * distribution, reached over its share. Without it every `git` the agent runs
+ * there stops at "dubious ownership", as the app's own git did before it was
+ * given these. Appended after any `GIT_CONFIG_COUNT` pairs the person's
+ * environment already sets, which keep their places. Any other folder, or off
+ * Windows, returns `base` unchanged; nothing is written to a config file.
+ */
+export function wslShareSafeDirectoryEnv(
+  base: NodeJS.ProcessEnv,
+  cwd: string | null | undefined,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const dirs = cwd ? wslShareSafeDirectories(cwd, platform) : []
+  if (dirs.length === 0) return base
+  return withGitConfigEnv(
+    base,
+    dirs.map((dir): [string, string] => ['safe.directory', dir]),
+  )
+}
+
+/** `pairs` as `GIT_CONFIG_KEY_n`/`VALUE_n`, numbered after any the environment already holds. */
+function withGitConfigEnv(base: NodeJS.ProcessEnv, pairs: ReadonlyArray<[string, string]>): NodeJS.ProcessEnv {
+  const existing = Number.parseInt(base.GIT_CONFIG_COUNT ?? '0', 10)
+  const index = Number.isInteger(existing) && existing > 0 ? existing : 0
   const env: NodeJS.ProcessEnv = { ...base, GIT_CONFIG_COUNT: String(index + pairs.length) }
   pairs.forEach(([key, value], offset) => {
     env[`GIT_CONFIG_KEY_${index + offset}`] = key
