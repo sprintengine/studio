@@ -6,7 +6,17 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, test } from 'vitest'
@@ -300,10 +310,20 @@ test("the probe finds a gh a package manager put off the plain ssh PATH, and gh 
     '#!/bin/sh\ncase "$1" in --version) echo "gh version 2.62.0 (2024-11-14)" ;; auth) cat >/dev/null; exit 0 ;; esac\n',
   )
   chmodSync(join(bin, 'gh'), 0o755)
+  // The system's own tools, less any gh this machine has there (CI runners
+  // ship one in /usr/bin), as the plain ssh PATH.
+  const system = join(home, 'system-bin')
+  mkdirSync(system)
+  for (const dir of ['/usr/bin', '/bin']) {
+    for (const name of readdirSync(dir)) {
+      if (name === 'gh' || existsSync(join(system, name))) continue
+      symlinkSync(join(dir, name), join(system, name))
+    }
+  }
   const session = RemoteSession.start(() => {
-    const child = spawn('sh', ['-s'], {
+    const child = spawn('/bin/sh', ['-s'], {
       cwd: home,
-      env: { PATH: '/usr/bin:/bin', HOME: home, SHELL: '/bin/sh' },
+      env: { PATH: system, HOME: home, SHELL: '/bin/sh' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     return child as unknown as SessionProcess
