@@ -37,7 +37,7 @@ export function ComposerActionButton({
         aria-label={ariaLabel}
         onClick={onClick}
         disabled={disabled}
-        className="w-control-sm shrink-0 px-0"
+        className="w-control-sm shrink-0"
       >
         {children}
       </SendButton>

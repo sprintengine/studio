@@ -23,7 +23,9 @@ export function hostMachineRef(hostId: ExecutionHostId | null | undefined): Mach
 
 /** The ref for an SSH machine, by the host its config resolves to (what every device agrees on). */
 export function sshMachineRef(machine: Pick<SshEnvironmentSummary, 'resolved' | 'destination'>): MachineRef {
-  return { kind: 'ssh', host: machine.resolved?.hostname ?? machine.destination }
+  return machine.resolved
+    ? { kind: 'ssh', host: machine.resolved.hostname, port: machine.resolved.port }
+    : { kind: 'ssh', host: machine.destination }
 }
 
 // ── SSH machines by saved id ──────────────────────────────────────────────
@@ -93,12 +95,14 @@ export function useWorkspaceMachineRef(
   const remoteName = workspace?.remoteOrigin?.machineName ?? null
   const hostId = workspace?.hostId ?? LOCAL_HOST_ID
   const sshMachine = sshId ? (sshMachines.find((machine) => machine.id === sshId) ?? null) : null
+  // The same ref the composer and Settings › Machines build for this machine.
   const sshHost = sshMachine ? (sshMachine.resolved?.hostname ?? sshMachine.destination) : null
+  const sshPort = sshMachine?.resolved?.port ?? null
   return React.useMemo<MachineRef | null>(() => {
-    if (sshId) return sshHost ? { kind: 'ssh', host: sshHost } : null
+    if (sshId) return sshHost ? { kind: 'ssh', host: sshHost, port: sshPort } : null
     if (remoteName) return { kind: 'paired', name: remoteName }
     return hostMachineRef(hostId)
-  }, [hostId, remoteName, sshHost, sshId])
+  }, [hostId, remoteName, sshHost, sshId, sshPort])
 }
 
 function noopSubscribe(): () => void {

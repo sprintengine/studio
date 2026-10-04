@@ -27,6 +27,11 @@ primary button, and it shares its hue with selection chrome.
   the one-accent rule still holds. Use it where a ghost reads too weak to be
   found but the action is not the view's primary — and only where it stands on
   its own: inside a toolbar or a panel header the same action is a ghost.
+- `ds-button--round` — the primary at `radius.pill`, and only for the
+  composer's send (owner ruling 2026-10-04; see "The round send" below). With
+  `ds-button--icon-only` it is a `size.control.sm` disc; with a word it is a
+  capsule of the same height. Its hover, press, focus ring and disabled step
+  are the primary's own.
 - Sizes: `ds-button--xs` at `size.control.xs` with a `font.size.meta` label
   (dense chrome — toolbars, row actions), default sm at `size.control.sm`, and
   `ds-button--md` at `size.control.md`. The icon-only species has one step
@@ -358,7 +363,7 @@ entry, and the numbers here come from the tokens.
 ## Shipped implementation
 
 `src/renderer/src/components/ui/Buttons.tsx`, exporting `PrimaryButton`,
-`DangerButton`, `GhostButton`, `OutlineButton`, `IconButton`, `MediaButton`,
+`SendButton` (the round send above, the composer's alone), `DangerButton`, `GhostButton`, `OutlineButton`, `IconButton`, `MediaButton`,
 `CaptionButton` and `CloseIconButton` — the last being the canonical close
 affordance named under Variants, exported separately so no surface has to re-pick
 the glyph or the label. `CopyGlyphButton`

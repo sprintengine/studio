@@ -241,6 +241,17 @@ export const OVERLAY_CHROME_CLASS =
 export const COMPOSER_SURFACE_CLASS =
   'rounded-[var(--sem-radius-composer)] border bg-[image:linear-gradient(var(--bg-surface-raised),var(--bg-surface))] shadow-[var(--shadow-control-raised)]'
 
+/**
+ * The composer's material without its corner: the wash, the hairline and the
+ * lit edge of `COMPOSER_SURFACE_CLASS`, and no radius. For a box that is
+ * written in like the composer but is not it — the Git pane's commit message
+ * (owner ruling 2026-10-01) — which keeps the shell radius: `radius.composer`
+ * is the composer's alone, and a square button in a 22px corner pokes out of
+ * the curve.
+ */
+export const COMPOSER_MATERIAL_CLASS =
+  'border bg-[image:linear-gradient(var(--bg-surface-raised),var(--bg-surface))] shadow-[var(--shadow-control-raised)]'
+
 /* ------------------------------------------------------------------ *
  * Overlay geometry — one scale for every floating surface
  * ------------------------------------------------------------------ */

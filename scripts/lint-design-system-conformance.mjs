@@ -230,6 +230,14 @@ function readTokenDimensionPx(tokens, path) {
   return px ? Number(px[1]) : null
 }
 
+// The `sem.radius.*` steps allowed to stand outside the ramp, by name: the
+// composer's box and the strip tucked under it (owner ruling 2026-10-04). The
+// list is here, not only in the bundle, so the exception stays exactly these
+// two: a step the list does not name that marks itself `offRamp` is refused
+// (exit 2) rather than skipped, or the flag would let any radius past the
+// ceiling.
+const OFF_RAMP_RADIUS_STEPS = new Set(['composer', 'composer-strip'])
+
 // Whether a `sem.radius.*` step is a named exception rather than a rung of the
 // ramp: its metadata carries `offRamp: true` (see readBundleDimensions).
 function radiusStepIsOffRamp(tokens, step) {
@@ -287,6 +295,17 @@ function readBundleDimensions() {
   // reason: a named exception to the ceiling, not a rung — the composer's 22px
   // box and its 16px strip (owner ruling 2026-10-04). The app reaches them by
   // their variable, never by a `rounded-[Npx]` the ramp check would read.
+  const strayOffRamp = Object.keys(tokens?.sem?.radius ?? {}).filter(
+    (step) => !step.startsWith('$') && radiusStepIsOffRamp(tokens, step) && !OFF_RAMP_RADIUS_STEPS.has(step),
+  )
+  if (strayOffRamp.length > 0) {
+    process.stderr.write(
+      `${TOKENS_JSON_PATH}: ${strayOffRamp.map((step) => `sem.radius.${step}`).join(', ')} is marked offRamp, ` +
+        `but the only named exceptions to the radius ceiling are ${[...OFF_RAMP_RADIUS_STEPS].join(' and ')}. ` +
+        'A new one is an owner ruling and an edit to OFF_RAMP_RADIUS_STEPS, not a flag.\n',
+    )
+    process.exit(2)
+  }
   const radiusSteps = Object.keys(tokens?.sem?.radius ?? {})
     .filter((step) => !step.startsWith('$') && step !== 'pill' && !radiusStepIsOffRamp(tokens, step))
     .map((step) => readTokenDimensionPx(tokens, `sem.radius.${step}`))
