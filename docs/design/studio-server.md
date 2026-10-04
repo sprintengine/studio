@@ -676,7 +676,7 @@ this.
 wore every pull request on every branch it worked on: a chat started in a
 checkout that happened to be on someone else's branch wore that branch's
 merged pull requests, and two agents on one branch both wore its pull request.
-Two things say a conversation opened one, and nothing else does:
+These say a conversation opened one, and nothing else does:
 
 - **Its agent ran a create command or tool, and the output named it.** One
   reader decides (`src/shared/git/pull-request-opened.ts`), for chats and
@@ -693,6 +693,17 @@ Two things say a conversation opened one, and nothing else does:
   conversation is the calling agent's own, from the connection, never from an
   argument. This is the way for every other forge and every other way of
   opening one.
+- **The person pressed the chat's "Create PR".** The desktop pushes the
+  branch and runs `gh pr create` in the conversation's own checkout on this
+  computer (on other forges it opens the forge's prefilled page instead, and
+  nothing exists to record yet), then records the pull request with the
+  owner-only `pullRequests.link` (capability `pull-request-link`; refused as
+  `claimed` when another conversation opened it first). The button shows only
+  when the branch is ready to propose: a named branch that is not the default,
+  nothing uncommitted, commits no merged pull request carried, and no open
+  pull request from the branch, whoever opened it. That last check is a
+  branch lookup (`gh pr list --head`): it says whether a pull request exists,
+  never whose it is.
 
 A chat's calls are read off its stream (`tool_started`, then the final
 `tool_output`, whose whole output is read from the tool's detail when the
@@ -726,8 +737,8 @@ minutes, and nothing is reported as an error.
 
 **The protocol** (`pull-requests` capability, owners only, `workspaces:read`):
 `pullRequests.list` by workspace or by conversation, `pullRequests.refresh`,
-`pullRequests.noteWork`, `pullRequests.noteToolCall`, and the
-`pullRequests.changed` stream, which names what moved and never carries the
+`pullRequests.noteWork`, `pullRequests.noteToolCall`, `pullRequests.link`, and
+the `pullRequests.changed` stream, which names what moved and never carries the
 lists. The desktop's sidebar reads rows through the window's Studio client;
 the shell's own client forwards its terminal agents' calls and checkouts, and
 puts the lists the server answers on the terminal snapshot, which carries them

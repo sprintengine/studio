@@ -53,6 +53,8 @@ export type BranchPullRequest = {
   openedByAgentId?: string
   /** The branch the pull request is from, once its host has said; the record stamps `onSessionBranch` from it. */
   headRefName?: string
+  /** The commit its head was at, from a branch lookup; never stored on the record. */
+  headRefOid?: string
   /**
    * Set by the record's `forConversation` (`src/server/pull-requests/`): true
    * when this pull request is from the branch the conversation's own checkout

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { StudioClient } from '../../../../../packages/agent-sdk/src/index'
 import {
+  STUDIO_PULL_REQUEST_LINK_CAPABILITY,
   STUDIO_PULL_REQUESTS_CAPABILITY,
   STUDIO_PULL_REQUESTS_MAX_IDS,
   type StudioPullRequest,
@@ -145,6 +146,31 @@ export function usePullRequestsOfConversation(
   }, [ask])
   useAskWhenPullRequestsMove(ask)
   return list
+}
+
+/**
+ * Record a pull request the person just opened from the chat's "Create PR" as
+ * the conversation's, through the same record the gateway's tool and the
+ * captured create commands write. Never throws.
+ */
+export async function linkPullRequestToConversation(
+  conversation: { workspaceId: string; agentId: string },
+  url: string,
+  title: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const client = await pullRequestClient()
+  if (!client?.supports(STUDIO_PULL_REQUEST_LINK_CAPABILITY)) {
+    return { ok: false, message: `The pull request is open (${url}), but this Studio cannot record it.` }
+  }
+  try {
+    await client.request('pullRequests.link', { conversation, url, title })
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      message: `The pull request is open (${url}), but it could not be recorded: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
 }
 
 /**

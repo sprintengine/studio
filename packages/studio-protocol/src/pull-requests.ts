@@ -1,5 +1,9 @@
 import type { StudioErrorCode } from './envelope.js'
-import { STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY, STUDIO_PULL_REQUESTS_CAPABILITY } from './handshake.js'
+import {
+  STUDIO_PULL_REQUEST_LINK_CAPABILITY,
+  STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY,
+  STUDIO_PULL_REQUESTS_CAPABILITY,
+} from './handshake.js'
 import type { StudioScope } from './scopes.js'
 
 // The pull requests a Studio's conversations opened. A conversation owns a
@@ -21,8 +25,10 @@ import type { StudioScope } from './scopes.js'
 // it reads its own chats' calls; the second says which checkout the agent is
 // in, which decides which of its pull requests are from the branch it is on.
 //
-// Owners only in this version, behind the `pull-requests` capability, and
-// `pullRequests.noteToolCall` behind `pull-request-tool-calls`.
+// Owners only in this version, behind the `pull-requests` capability,
+// `pullRequests.noteToolCall` behind `pull-request-tool-calls`, and
+// `pullRequests.link` (an owner that opened a pull request for a conversation)
+// behind `pull-request-link`.
 
 export type StudioPullRequestState = 'open' | 'merged' | 'closed'
 
@@ -125,6 +131,16 @@ export type StudioPullRequestsMethodMap = {
     }
     result: Record<string, never>
   }
+  /**
+   * The owner opened this pull request for the conversation (the desktop's
+   * "Create PR"). Recorded as the conversation's unless another one claimed it
+   * first, which is refused as `conflict`; a URL that is not a pull request is
+   * `invalid_params`. `recorded` is false when it was already this one's.
+   */
+  'pullRequests.link': {
+    params: { conversation: StudioPullRequestOwner; url: string; title?: string }
+    result: { recorded: boolean; pullRequest: StudioPullRequest }
+  }
 }
 
 export type StudioPullRequestsMethod = keyof StudioPullRequestsMethodMap
@@ -137,7 +153,10 @@ export type StudioPullRequestsTopicMap = {
 type MethodSpec = {
   scope: StudioScope
   mutation: false
-  capability: typeof STUDIO_PULL_REQUESTS_CAPABILITY | typeof STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY
+  capability:
+    | typeof STUDIO_PULL_REQUESTS_CAPABILITY
+    | typeof STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY
+    | typeof STUDIO_PULL_REQUEST_LINK_CAPABILITY
   owner: true
 }
 
@@ -155,6 +174,7 @@ export const STUDIO_PULL_REQUESTS_METHODS: { readonly [M in StudioPullRequestsMe
   // Its own capability: a client that runs agents asks for it before it
   // forwards a call, and a Studio from before it has none to offer.
   'pullRequests.noteToolCall': { ...owned, capability: STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY },
+  'pullRequests.link': { ...owned, capability: STUDIO_PULL_REQUEST_LINK_CAPABILITY },
 }
 
 export const STUDIO_PULL_REQUESTS_TOPICS: {
@@ -255,6 +275,15 @@ export function parseStudioPullRequestsParams<M extends StudioPullRequestsMethod
         ...(typeof call.failed === 'boolean' ? { failed: call.failed } : {}),
       },
     })
+  }
+  if (method === 'pullRequests.link') {
+    const conversation = parseStudioPullRequestOwner(value.conversation)
+    if (!conversation) return refuse('"conversation" is { workspaceId, agentId }.')
+    if (typeof value.url !== 'string' || value.url.length === 0 || value.url.length > 2048)
+      return refuse('"url" is the pull request\'s web URL.')
+    if (value.title !== undefined && (typeof value.title !== 'string' || value.title.length > 300))
+      return refuse('"title" is a string of at most 300 characters.')
+    return ok({ conversation, url: value.url, ...(typeof value.title === 'string' ? { title: value.title } : {}) })
   }
   if (method !== 'pullRequests.noteWork') return refuse(`${method} is not a pullRequests method.`)
   const conversation = parseStudioPullRequestOwner(value.conversation)

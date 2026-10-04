@@ -67,6 +67,7 @@ async function bridgeOver(sessions: PullRequestTerminalSession[]) {
     noteToolCall: async (input) => {
       calls.push(input)
     },
+    link: async () => ({ ok: false, code: 'not_a_pull_request', message: 'not here' }),
     onChanged: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)

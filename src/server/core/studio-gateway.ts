@@ -78,7 +78,7 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
       launch: (request) => core.conversationLaunchService.launch(request),
       resolveAgentPermissionPreset: core.resolveAgentPermissionPreset,
     }),
-    ...createPullRequestTools({ link: (key, input) => core.pullRequests.link(key, input) }),
+    ...createPullRequestTools({ link: (key, input) => core.pullRequests.linkForAgent(key, input) }),
   ]
 
   // The gateway's own tools: what no client may offer under the same family.

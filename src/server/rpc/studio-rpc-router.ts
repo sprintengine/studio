@@ -567,6 +567,12 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
           options.log?.(`A pull request note failed: ${error instanceof Error ? error.message : String(error)}`)
         })
         return { ok: true, result: {} }
+      case 'pullRequests.link': {
+        const linked = await pullRequests.link(params as StudioMethodParams<'pullRequests.link'>)
+        if (!linked.ok)
+          return refuse(linked.code === 'not_a_pull_request' ? 'invalid_params' : 'claimed', linked.message)
+        return { ok: true, result: { recorded: linked.recorded, pullRequest: linked.pullRequest } }
+      }
       case 'pullRequests.noteToolCall':
         // Answered at once, like a note: what it records reports through
         // `pullRequests.changed`.

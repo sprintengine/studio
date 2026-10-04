@@ -61,6 +61,11 @@ export const STUDIO_PULL_REQUESTS_CAPABILITY = 'pull-requests' as const
  * only, beside `pull-requests`.
  */
 export const STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY = 'pull-request-tool-calls' as const
+/**
+ * `pullRequests.link`: an owner records a pull request it opened for one of
+ * the Studio's conversations (the desktop's "Create PR" button). Owners only.
+ */
+export const STUDIO_PULL_REQUEST_LINK_CAPABILITY = 'pull-request-link' as const
 
 /**
  * Every Studio capability this version of the package knows, in the order
@@ -83,6 +88,7 @@ export const STUDIO_CAPABILITIES = [
   STUDIO_BOARD_FILES_CAPABILITY,
   STUDIO_PULL_REQUESTS_CAPABILITY,
   STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY,
+  STUDIO_PULL_REQUEST_LINK_CAPABILITY,
 ] as const
 
 /**
