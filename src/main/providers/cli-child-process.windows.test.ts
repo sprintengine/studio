@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, expect, test } from 'vitest'
@@ -10,10 +10,14 @@ import { cliSpawnTarget } from './cli-child-process'
 // that reports what it was given. A chat on This PC in a folder inside a WSL
 // distribution runs its agent with a UNC working directory, where the command
 // processor cannot start; the admin share (`\\localhost\C$\…`) is a UNC folder
-// every Windows runner has. Skipped elsewhere: only Windows has shims.
+// every Windows runner has. Run through the PowerShell twin, this measured
+// stdin held until it closed, its non-ASCII bytes as `?`, CRLF for LF, and
+// `model="o3"` and an empty argument mangled. Skipped elsewhere: only Windows
+// has shims.
 
 const onWindows = process.platform === 'win32'
-const root = onWindows ? mkdtempSync(join(tmpdir(), 'cli-shim-')) : ''
+// The long name: the runner's temp folder is given in its 8.3 form.
+const root = onWindows ? realpathSync.native(mkdtempSync(join(tmpdir(), 'cli-shim-'))) : ''
 afterAll(() => {
   if (root) rmSync(root, { recursive: true, force: true })
 })
