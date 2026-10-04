@@ -46,6 +46,7 @@ export function ContextRing({
   usedPercentage,
   tokens,
   layer,
+  decorative = false,
   className,
 }: {
   /** 0–100. Clamped and rounded here: the tooltip and the sweep must agree. */
@@ -63,6 +64,12 @@ export function ContextRing({
    * the card that owns it. See `Tooltip`.
    */
   layer?: 'popover' | 'menu'
+  /**
+   * The glyph alone — no tooltip, no focus stop, hidden from assistive tech —
+   * for a ring that sits beside text already saying the number (the peek
+   * card's context line). A tooltip there would only restate its neighbour.
+   */
+  decorative?: boolean
   className?: string
 }): JSX.Element | null {
   if (!Number.isFinite(usedPercentage)) return null
@@ -77,6 +84,41 @@ export function ContextRing({
   // The dash is the spent arc, the gap the whole circumference — so the sweep
   // is the value and nothing else has to be computed at paint time.
   const sweep = (RING_CIRCUMFERENCE * percentage) / 100
+  const ring = (
+    <svg
+      viewBox="0 0 16 16"
+      className={`block h-[14px] w-[14px] shrink-0 ${decorative ? (className ?? '') : ''}`.trim()}
+      aria-hidden="true"
+    >
+      {/* The unspent remainder. `border.strong`, not a status tone: a
+          coloured track would read as a second value. */}
+      <circle
+        cx="8"
+        cy="8"
+        r={RING_RADIUS}
+        fill="none"
+        strokeWidth="2"
+        className="stroke-[color:var(--border-strong)]"
+      />
+      {/* The spent sweep. `butt` caps because a round cap at 2px overhangs
+          by about a degree, which draws a visible dot at 0%. */}
+      <circle
+        cx="8"
+        cy="8"
+        r={RING_RADIUS}
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="butt"
+        strokeDasharray={`${sweep.toFixed(2)} ${RING_CIRCUMFERENCE.toFixed(2)}`}
+        // Deliberate tempo, because the value moves in visible steps as a
+        // turn ends and a step that snapped would read as a glitch.
+        className={`origin-center -rotate-90 transition-[stroke-dasharray] duration-[var(--motion-deliberate)] motion-reduce:transition-none ${
+          high ? 'stroke-[color:var(--tone-warn)]' : 'stroke-[color:var(--accent-primary)]'
+        }`}
+      />
+    </svg>
+  )
+  if (decorative) return ring
   return (
     <Tooltip content={counts ?? label} layer={layer} wrapperClassName="flex shrink-0">
       <span
@@ -90,34 +132,7 @@ export function ContextRing({
         // design-tokens-allow: geometry, not spacing — `-my-[5px]` is exactly (hit-target-min − 14) / 2, the overhang of the hit target around the mark. Rounding it to a 4px or 6px space step would leave the target either 2px proud of the line or 2px short of the 24px floor; the value is derived from the mark's diameter, which no space token names (see design-system/components/context-ring).
         className={`-my-[5px] inline-grid size-[var(--hit-target-min)] shrink-0 place-items-center rounded-full ${FOCUS_RING_CLASS} ${className ?? ''}`}
       >
-        <svg viewBox="0 0 16 16" className="block h-[14px] w-[14px]" aria-hidden="true">
-          {/* The unspent remainder. `border.strong`, not a status tone: a
-              coloured track would read as a second value. */}
-          <circle
-            cx="8"
-            cy="8"
-            r={RING_RADIUS}
-            fill="none"
-            strokeWidth="2"
-            className="stroke-[color:var(--border-strong)]"
-          />
-          {/* The spent sweep. `butt` caps because a round cap at 2px overhangs
-              by about a degree, which draws a visible dot at 0%. */}
-          <circle
-            cx="8"
-            cy="8"
-            r={RING_RADIUS}
-            fill="none"
-            strokeWidth="2"
-            strokeLinecap="butt"
-            strokeDasharray={`${sweep.toFixed(2)} ${RING_CIRCUMFERENCE.toFixed(2)}`}
-            // Deliberate tempo, because the value moves in visible steps as a
-            // turn ends and a step that snapped would read as a glitch.
-            className={`origin-center -rotate-90 transition-[stroke-dasharray] duration-[var(--motion-deliberate)] motion-reduce:transition-none ${
-              high ? 'stroke-[color:var(--tone-warn)]' : 'stroke-[color:var(--accent-primary)]'
-            }`}
-          />
-        </svg>
+        {ring}
       </span>
     </Tooltip>
   )

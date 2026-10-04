@@ -1006,7 +1006,8 @@ export type SessionStatusLine = {
  * Fold one status-line reading into the session.
  *
  * Returns whether the SNAPSHOT changed — that is, whether the whole-percent
- * context usage moved. It is the only part of this that a window renders today,
+ * context usage (or the window it is a percent of) moved. That is the only part
+ * of this that a window renders today besides the prompt cache,
  * and the status line refreshes after every assistant message: broadcasting on
  * a cost that ticked by a thousandth of a cent would be a broadcast per turn
  * per session for nothing anyone can see.
@@ -1041,9 +1042,23 @@ export function recordSessionStatusLine(
     session.promptCache = reading.promptCache
     changed = true
   }
-  const usedPercentage = reading.usedPercentage
-  if (usedPercentage !== undefined && session.contextUsage?.usedPercentage !== usedPercentage) {
-    session.contextUsage = { usedPercentage, at }
+  // The window size comes from the MERGED reading: a refresh that carries the
+  // percentage need not repeat the size, and one that carries only the size
+  // (before the first API call) has no percentage to hang it on yet.
+  const contextWindowSize = session.statusLine.contextWindowSize
+  const usedPercentage = reading.usedPercentage ?? session.contextUsage?.usedPercentage
+  if (
+    usedPercentage !== undefined &&
+    (session.contextUsage?.usedPercentage !== usedPercentage ||
+      session.contextUsage?.contextWindowSize !== contextWindowSize)
+  ) {
+    session.contextUsage = {
+      usedPercentage,
+      // Only a moved PERCENT re-stamps `at`; a new window size (a model switch)
+      // is the same reading described against a different whole.
+      at: session.contextUsage?.usedPercentage === usedPercentage ? session.contextUsage.at : at,
+      ...(contextWindowSize !== undefined ? { contextWindowSize } : {}),
+    }
     changed = true
   }
   return changed
@@ -1064,7 +1079,12 @@ export function parseSessionContextUsage(raw: unknown, now = Date.now()): Sessio
   // Clamped to arrival, exactly as a reporter frame's `ts` is: a far-future
   // time on disk would be re-written to the sidecar on the next suspend and
   // ride into every window from there.
-  return { usedPercentage: Math.round(usedPercentage), at: Math.min(Math.floor(at), now) }
+  const usage: SessionContextUsage = { usedPercentage: Math.round(usedPercentage), at: Math.min(Math.floor(at), now) }
+  // Optional, and dropped alone when bad: a sidecar written before the field
+  // existed, or a mangled size, still keeps its percentage.
+  const size = candidate.contextWindowSize
+  if (typeof size === 'number' && Number.isFinite(size) && size > 0) usage.contextWindowSize = Math.floor(size)
+  return usage
 }
 
 /**

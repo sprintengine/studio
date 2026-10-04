@@ -2166,35 +2166,18 @@ samp,
  * `components/workspace/ConversationPeekCard.tsx` and the popover that carries
  * it (design: backlog/mockups/2026-09-07-conversation-peek.html, frame 5).
  *
- * Only what a class list cannot state lives here: a two-part staggered
- * entrance. The SURFACE rises out of the row it came from — 8px toward the
- * anchor, landing at full size — and the LINES follow it in one beat apart,
- * which is what makes a thread read as arriving rather than as a block
- * appearing. The dwell before any of it is the hover-intent timer in
+ * Only what a class list cannot state lives here: the entrance. The SURFACE
+ * rises out of the row it came from — 8px toward the anchor, landing at full
+ * size. The dwell before any of it is the hover-intent timer in
  * `useConversationPeek`, not a delay here: the surface does not exist until the
  * dwell has passed, so a sweep down the sidebar fires nothing.
  *
  * Leaving is immediate and has no counterpart below — a card that trailed the
- * pointer out is the failure this whole surface is trying not to be.
- *
- * Every duration is a token. The stagger step is derived from `--motion-fast`
- * rather than spelled in milliseconds, so the rhythm follows the motion scale
- * if the scale ever moves. */
+ * pointer out is the failure this whole surface is trying not to be. */
 @keyframes conversation-peek-in {
   from {
     opacity: 0;
     transform: translateX(-8px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes conversation-peek-line-in {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
   }
   to {
     opacity: 1;
@@ -2207,44 +2190,8 @@ samp,
   animation: conversation-peek-in var(--motion-normal) var(--motion-ease) both;
 }
 
-.conversation-peek-line {
-  animation: conversation-peek-line-in var(--motion-fast) var(--motion-ease) var(--peek-line-delay, 0ms) both;
-}
-
-/* The quoted first message leads; each thread row is one step behind the one
- * above it. Past the fourth the list is scrolling anyway, so the rows that
- * arrive off-screen share the last delay rather than growing the tail. */
-.conversation-peek-line {
-  --peek-line-delay: calc(var(--motion-fast) / 2);
-}
-
-.conversation-peek-thread > .conversation-peek-line:nth-child(1) {
-  --peek-line-delay: calc(var(--motion-fast) * 3 / 4);
-}
-
-.conversation-peek-thread > .conversation-peek-line:nth-child(2) {
-  --peek-line-delay: var(--motion-fast);
-}
-
-.conversation-peek-thread > .conversation-peek-line:nth-child(3) {
-  --peek-line-delay: calc(var(--motion-fast) * 5 / 4);
-}
-
-.conversation-peek-thread > .conversation-peek-line:nth-child(n + 4) {
-  --peek-line-delay: calc(var(--motion-fast) * 3 / 2);
-}
-
-/* A thread taller than its scroll box fades at the top edge, so it is obvious
- * there is more above. A mask, not a gradient overlay: the surface behind the
- * list is glass, and a painted fade would have to know what it is sitting on. */
-.conversation-peek-thread--faded {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black var(--sem-space-xl));
-  mask-image: linear-gradient(to bottom, transparent 0, black var(--sem-space-xl));
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .conversation-peek-surface,
-  .conversation-peek-line {
+  .conversation-peek-surface {
     animation: none;
   }
 }
