@@ -58,23 +58,31 @@ test('SplitButton', async () => {
     }
   }
 
-  run('quiet drops the outer border, the ground and the raised edge', () => {
+  run('the default group is tier 2: flat on the strong hairline; quiet drops the border', () => {
     const quiet = (group({ quiet: true }).getAttribute('class') ?? '').split(/\s+/)
     const bordered = (group({}).getAttribute('class') ?? '').split(/\s+/)
 
     assert.ok(bordered.includes('border'), 'the default group is the bordered one')
     assert.ok(
-      bordered.some((c) => c.includes('bg-surface-raised')),
-      'the default group sits on the raised ground',
+      bordered.includes('border-[color:var(--border-strong)]'),
+      'on the outline button’s border.strong hairline (owner ruling 2026-10-04)',
     )
-    assert.ok(bordered.includes('control-edge'), 'the default group carries the press edge')
+    assert.ok(bordered.includes('bg-transparent'), 'over a transparent ground')
+    assert.ok(!bordered.some((c) => c.startsWith('control-') || c.includes('shadow')), 'and no depth at all')
 
     assert.ok(!quiet.includes('border'), 'quiet has no outer border')
-    assert.ok(!quiet.some((c) => c.includes('bg-surface-raised')), 'quiet has no raised ground')
-    assert.ok(
-      !quiet.includes('control-edge'),
-      'quiet has no press edge — the raised ground it would sink is what the variant removes',
-    )
+    assert.ok(!quiet.some((c) => c.startsWith('control-') || c.includes('shadow')), 'and no depth either')
+  })
+
+  run('a half presses by its ground, never by the shared scale', () => {
+    for (const half of halves(group({}))) {
+      const classes = (half.getAttribute('class') ?? '').split(/\s+/)
+      assert.ok(
+        !classes.includes('interactive'),
+        'the scale would shrink one half inside the group’s clip while the other stood still',
+      )
+      assert.ok(classes.includes('enabled:active:bg-[color:var(--bg-active)]'), 'the pressed half steps its ground')
+    }
   })
 
   run('quiet comes down to the hit-target floor, and no lower', () => {
