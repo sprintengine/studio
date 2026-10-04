@@ -10,6 +10,7 @@ import {
   conversationLineMark,
   conversationLineText,
   conversationsWithTabs,
+  workspaceIsWorking,
 } from './sidebar/conversationLines'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
@@ -545,8 +546,13 @@ function WorkspaceSidebar({
   // Read through refs, so these keep their identity while sessions move: the
   // sweep below is keyed on `quietSettledWorkspace`, and a new one on every
   // chat refresh re-ran the sweep over every workspace for nothing.
-  const openAgentSourcesRef = useRef({ sessionsByWorkspaceId, conversationsByWorkspaceId, workspaces })
-  openAgentSourcesRef.current = { sessionsByWorkspaceId, conversationsByWorkspaceId, workspaces }
+  const openAgentSourcesRef = useRef({
+    sessionsByWorkspaceId,
+    conversationsByWorkspaceId,
+    workspaces,
+    activityByWorkspaceId,
+  })
+  openAgentSourcesRef.current = { sessionsByWorkspaceId, conversationsByWorkspaceId, workspaces, activityByWorkspaceId }
   const rowHasOpenAgents = useCallback((workspace: Workspace) => {
     const sources = openAgentSourcesRef.current
     return (
@@ -554,6 +560,13 @@ function WorkspaceSidebar({
       (sources.conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS).some(
         (session) => session.status !== 'stopped',
       )
+    )
+  }, [])
+  const rowIsWorking = useCallback((id: WorkspaceId) => {
+    const sources = openAgentSourcesRef.current
+    return workspaceIsWorking(
+      sources.activityByWorkspaceId[id] ?? 'idle',
+      sources.conversationsByWorkspaceId.get(id) ?? NO_CONVERSATIONS,
     )
   }, [])
   const quietSettledWorkspace = useCallback(
@@ -576,14 +589,19 @@ function WorkspaceSidebar({
   // coming back on a clock, so the session is kept resumable and the person's
   // first keystroke relaunches the agent with `--resume`. Waking resumes
   // nothing; see `suspendWorkspaceTerminals`.
+  //
+  // Never while an agent in it is working, for Settle's reason: pausing ends
+  // the agent processes, and an agent working in the background ends with
+  // them and does not come back on the wake.
   const snoozeWorkspaceById = useCallback(
     (id: WorkspaceId, wakeAt: number) => {
+      if (rowIsWorking(id)) return
       setWorkspaceSnoozed(id, wakeAt)
       const workspace = openAgentSourcesRef.current.workspaces.find((candidate) => candidate.id === id)
       if (!workspace || !rowHasOpenAgents(workspace)) return
       void suspendWorkspaceTerminals(workspace)
     },
-    [setWorkspaceSnoozed, rowHasOpenAgents],
+    [rowIsWorking, setWorkspaceSnoozed, rowHasOpenAgents],
   )
 
   // The rest sweep (settled-chats, 2026-09-07): on the 30 s tick the idle
@@ -682,8 +700,13 @@ function WorkspaceSidebar({
   // Settling the chat you are in moves you on to the next one. The row you are
   // in is never shelved (`isShelved`), so without the hand-off it sat there,
   // checked off and still open, until you clicked somewhere else.
+  //
+  // Never while an agent in it is working (T3 Code's rule too): settling ends
+  // the chat's agent processes, and whatever they were doing with them. The
+  // row's button and menu item say so; this is the guard for every path.
   const settleWorkspaceById = useCallback(
     (id: WorkspaceId) => {
+      if (rowIsWorking(id)) return
       const settlingActive = id === activeWorkspaceId
       const successor = settlingActive ? successorRowOf(id) : null
       setWorkspaceSettled(id, true)
@@ -694,7 +717,15 @@ function WorkspaceSidebar({
       // it stayed open and checked off.
       else if (settlingActive) onNewChat()
     },
-    [activeWorkspaceId, successorRowOf, setWorkspaceSettled, quietSettledWorkspace, onSelectWorkspace, onNewChat],
+    [
+      activeWorkspaceId,
+      rowIsWorking,
+      successorRowOf,
+      setWorkspaceSettled,
+      quietSettledWorkspace,
+      onSelectWorkspace,
+      onNewChat,
+    ],
   )
 
   // Drilling into a surface hides this rail (item 1993), and hiding a scrollport
@@ -2589,6 +2620,7 @@ function WorkspaceSidebar({
           moduleOverrides={moduleOverrides}
           isDetachedWindow={isDetachedWindow}
           now={now}
+          working={rowIsWorking(contextMenu.workspaceId)}
           onClose={() => setContextMenu(null)}
           onSelect={(action) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
@@ -3178,6 +3210,8 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     hasLiveLines: rowLines.lines.length > 0,
     conversation: rowConversationPullRequests,
   })
+  // Settle waits while an agent in the chat works (`settleWorkspaceById`).
+  const settleBlocked = workspaceIsWorking(activity, conversationSessions)
   const tabbedConversations = useMemo(
     () => conversationsWithTabs(conversationSessions, workspace.layoutModel),
     [conversationSessions, workspace.layoutModel],
@@ -3347,13 +3381,14 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
             </IconButton>
           </Tooltip>
         ) : (
-          <Tooltip content="Settle">
+          <Tooltip content={settleBlocked ? 'Settle once its agents finish' : 'Settle'}>
             <IconButton
               onClick={(event) => {
                 event.stopPropagation()
                 settleWorkspaceById(workspace.id)
               }}
               tone="quiet"
+              disabled={settleBlocked}
               aria-label={`Settle ${workspace.name}`}
             >
               {/* `CheckIcon`'s geometry (24-grid, M5 12.5L10 17L19 7.5)

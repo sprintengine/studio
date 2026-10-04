@@ -74,6 +74,7 @@ export function WorkspaceContextMenu({
   moduleOverrides,
   isDetachedWindow,
   now,
+  working,
   onClose,
   onSelect,
   onPickColor,
@@ -83,6 +84,8 @@ export function WorkspaceContextMenu({
   workspace: Workspace | null
   moduleOverrides: Parameters<typeof resolveEnabledWorkspaceType>[1]
   isDetachedWindow: boolean
+  /** An agent in the chat is still working, so Settle and Snooze wait (`workspaceIsWorking`). */
+  working: boolean
   /** The clock the wake times and the asleep/awake reading are resolved against. */
   now: number
   onClose: () => void
@@ -138,8 +141,14 @@ export function WorkspaceContextMenu({
       {/* Rest by hand (settled-chats, 2026-09-07). Un-settle also holds the
           row out of the sweep until it sees new activity. A row born on a
           paired machine is the Remote band's, which has no shelf. */}
-      {workspace.remoteOrigin ? null : (
-        <MenuItem onClick={() => onSelect('toggle-settle')}>{settled ? 'Un-settle' : 'Settle'}</MenuItem>
+      {workspace.remoteOrigin ? null : settled ? (
+        <MenuItem onClick={() => onSelect('toggle-settle')}>Un-settle</MenuItem>
+      ) : (
+        // Settling ends the chat's agents, and their work with them: it waits
+        // until they finish.
+        <MenuItem disabled={working} hint={working ? 'Working' : undefined} onClick={() => onSelect('toggle-settle')}>
+          Settle
+        </MenuItem>
       )}
       {/* Sleep by hand (snooze, 2026-09-10), beneath Settle because it is the
           softer of the two: Settle says the work is done, Snooze says only
@@ -154,7 +163,7 @@ export function WorkspaceContextMenu({
       {snoozed ? (
         <MenuItem onClick={() => onSelect('wake')}>Wake now</MenuItem>
       ) : workspace.remoteOrigin || settled ? null : (
-        <MenuFlyoutItem label="Snooze" ariaLabel="Snooze chat" disabled={!canSnooze}>
+        <MenuFlyoutItem label="Snooze" ariaLabel="Snooze chat" disabled={!canSnooze || working}>
           {resolveSnoozePresets(Date.now()).map((preset) => (
             <MenuItem key={preset.id} hint={preset.whenLabel} onClick={() => onSelect(`snooze:${preset.id}`)}>
               {preset.label}

@@ -188,10 +188,11 @@ export function isSnoozedWorkspace(workspace: Pick<Workspace, 'snoozedUntil'>, n
 /**
  * May this row be snoozed at all?
  *
- * Anything the person is looking at may be: a working agent (suspending it
- * interrupts the turn, which is the licence a hand Settle already has, and the
- * CLI session survives so resuming picks the conversation back up), and a chat
- * blocked on a question (the question waits and is re-asked on resume).
+ * A chat blocked on a question may be (the question waits and is re-asked on
+ * resume). A chat with an agent still working may not, but that is the
+ * caller's to know (`workspaceIsWorking`), not the record's: suspending ends
+ * the agent processes, and an agent working in the background does not come
+ * back on the wake.
  *
  * The two that may not are the two with nowhere to sleep. A settled row is
  * already out of the list, so a snooze underneath it would do nothing visible

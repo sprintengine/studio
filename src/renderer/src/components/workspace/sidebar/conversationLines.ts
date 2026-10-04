@@ -145,6 +145,18 @@ export function conversationPhaseActivity(phase: ConversationPhase): Activity {
   return 'idle'
 }
 
+/**
+ * Whether anything in the chat is still working, which a hand Settle refuses:
+ * settling ends the chat's agent processes, and the work with them. Read per
+ * chat session as well as from the row's combined activity, because a waiting
+ * prompt outranks working there, and an agent the chat launched in the
+ * background goes on working while its parent waits on the person.
+ */
+export function workspaceIsWorking(activity: Activity, conversations: readonly ConversationSessionSummary[]): boolean {
+  if (activity === 'working') return true
+  return conversations.some((summary) => conversationPhaseActivity(conversationSummaryPhase(summary)) === 'working')
+}
+
 /** The row's existing status vocabulary, including when a terminal shares it. */
 export function combinedAgentActivity(
   terminal: Activity,
