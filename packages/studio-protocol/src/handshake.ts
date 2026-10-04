@@ -66,6 +66,12 @@ export const STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY = 'pull-request-tool-call
  * the Studio's conversations (the desktop's "Create PR" button). Owners only.
  */
 export const STUDIO_PULL_REQUEST_LINK_CAPABILITY = 'pull-request-link' as const
+/**
+ * The local servers a Studio's conversations started: `localServers.list`,
+ * `run`, `stop` and `remove`, and the `localServers.changed` stream. Owners
+ * only.
+ */
+export const STUDIO_LOCAL_SERVERS_CAPABILITY = 'local-servers' as const
 
 /**
  * Every Studio capability this version of the package knows, in the order
@@ -89,6 +95,7 @@ export const STUDIO_CAPABILITIES = [
   STUDIO_PULL_REQUESTS_CAPABILITY,
   STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY,
   STUDIO_PULL_REQUEST_LINK_CAPABILITY,
+  STUDIO_LOCAL_SERVERS_CAPABILITY,
 ] as const
 
 /**
