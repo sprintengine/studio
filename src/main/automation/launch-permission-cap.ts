@@ -143,6 +143,7 @@ export function createAgentPermissionResolver(deps: {
   listTerminalSessions(): ReadonlyArray<{
     kind?: string
     workspaceId?: string
+    launchWorkspaceId?: string
     agentId?: string
     processAlive: boolean
     agentRecord?: { cliPermissionPreset?: unknown }
@@ -170,6 +171,9 @@ export function createAgentPermissionResolver(deps: {
         ),
       )
 
+    // A terminal agent moved to another chat keeps its process, which goes on
+    // naming the workspace it was launched in; its session and record have
+    // moved to the other chat. Either workspace is its own.
     const terminals = deps
       .listTerminalSessions()
       .filter(
@@ -177,16 +181,22 @@ export function createAgentPermissionResolver(deps: {
           session.kind === 'agent' &&
           session.processAlive &&
           session.agentId === agentId &&
-          sameWorkspace(session.workspaceId) &&
-          session.agentRecord !== undefined,
+          (sameWorkspace(session.workspaceId) || sameWorkspace(session.launchWorkspaceId)),
       )
-    if (terminals.length > 0) {
-      return strictest(terminals.map((session) => parseCliPermissionPreset(session.agentRecord?.cliPermissionPreset)))
+    const launched = terminals.filter((session) => session.agentRecord !== undefined)
+    if (launched.length > 0) {
+      return strictest(launched.map((session) => parseCliPermissionPreset(session.agentRecord?.cliPermissionPreset)))
     }
 
     if (!workspaceId) return null
     const record = deps.readAgentRecordPreset(workspaceId, agentId)
-    return record.found ? normalizeCliPermissionPreset(record.preset) : null
+    if (record.found) return normalizeCliPermissionPreset(record.preset)
+    const moved = terminals.flatMap((session) => {
+      if (!session.workspaceId || session.workspaceId === workspaceId) return []
+      const found = deps.readAgentRecordPreset(session.workspaceId, agentId)
+      return found.found ? [normalizeCliPermissionPreset(found.preset)] : []
+    })
+    return moved.length > 0 ? strictest(moved) : null
   }
 }
 

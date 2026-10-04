@@ -361,6 +361,7 @@ type ChatSession = { workspaceId: string; agentId: string; status: string; permi
 type TerminalSession = {
   kind?: string
   workspaceId?: string
+  launchWorkspaceId?: string
   agentId?: string
   processAlive: boolean
   agentRecord?: { cliPermissionPreset?: unknown }
@@ -453,6 +454,23 @@ test("resolver: another workspace's terminal agent of the same id does not answe
   assert.equal(resolve({ workspaceId: 'ws-1', agentId: 'agent-1' }), 'bypass', "ws-2's none does not hold ws-1 back")
   assert.equal(resolve({ workspaceId: 'ws-2', agentId: 'agent-1' }), 'none', "ws-1's bypass lends ws-2 nothing")
   assert.equal(resolve({ workspaceId: 'ws-3', agentId: 'agent-1' }), null)
+})
+
+test('resolver: an agent moved to another chat answers for the chat its process names', () => {
+  // Its process names ws-1, where it was launched; its session and its record
+  // are in ws-2 now. A window-spawned terminal carries no launch record, so the
+  // record is read from where the agent is.
+  const moved: TerminalSession = {
+    kind: 'agent',
+    workspaceId: 'ws-2',
+    launchWorkspaceId: 'ws-1',
+    agentId: 'agent-1',
+    processAlive: true,
+  }
+  const resolve = resolverOver({ terminals: [moved], records: { 'ws-2/agent-1': 'none' } })
+  assert.equal(resolve({ workspaceId: 'ws-1', agentId: 'agent-1' }), 'none')
+  const launched = resolverOver({ terminals: [{ ...moved, agentRecord: { cliPermissionPreset: 'none' } }] })
+  assert.equal(launched({ workspaceId: 'ws-1', agentId: 'agent-1' }), 'none')
 })
 
 test('resolver: a connection naming no workspace is held to the strictest agent of its id anywhere', () => {

@@ -25,3 +25,11 @@ test("an agent's checkout is its own chat's, not another chat's agent of the sam
   assert.equal(agentCheckoutOf(sessions, 'ws-2', 'agent-1'), '/Users/dev/other')
   assert.equal(agentCheckoutOf(sessions, 'ws-3', 'agent-1'), null)
 })
+
+test('an agent moved to another chat is still found under the chat its tour names', () => {
+  // The tour was written through the process's MCP binding, which names the
+  // chat the agent was launched in; its session now sits in the other one.
+  const moved = session({ workspaceId: 'ws-2', launchWorkspaceId: 'ws-1', cwd: '/Users/dev/app' })
+  assert.equal(agentCheckoutOf([moved], 'ws-1', 'agent-1'), '/Users/dev/app')
+  assert.equal(agentCheckoutOf([moved], 'ws-2', 'agent-1'), '/Users/dev/app')
+})

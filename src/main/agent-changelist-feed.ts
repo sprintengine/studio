@@ -65,6 +65,7 @@ export type AgentChangelistSession = {
   agentId?: string
   agentName?: string
   workspaceId?: string
+  launchWorkspaceId?: string
   worktreePath?: string
   cwd?: string
   observedCheckout?: { resolved: boolean; gitRoot: string | null } | null
@@ -111,13 +112,22 @@ type CheckoutQueue = {
 function ownerOf(session: AgentChangelistSession): ChangelistOwner | null {
   const agentId = session.agentId?.trim()
   if (!agentId) return null
+  // The workspace the process was launched with, not the one it sits in now.
+  // An agent dragged to another chat keeps its process, and that process goes
+  // on naming its launch workspace in every MCP call: the editor's "show my
+  // changes" and a tour's author look the list up under that name. Keyed by
+  // the current workspace, the move would open a second list for the same
+  // agent, its exit would mark only that one, and the first would be left
+  // live for ever. So one process is one list, from launch to exit; a resume
+  // after the move launches under the new chat and starts its list there.
+  const workspaceId = session.launchWorkspaceId?.trim() || session.workspaceId?.trim()
   return {
     kind: 'agent',
     agentId,
     // A session that never carried a display name is still an agent; its id is
     // a worse label than its name and a better one than an empty header.
     name: session.agentName?.trim() || agentId,
-    ...(session.workspaceId?.trim() ? { workspaceId: session.workspaceId.trim() } : {}),
+    ...(workspaceId ? { workspaceId } : {}),
   }
 }
 

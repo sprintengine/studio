@@ -31,11 +31,12 @@ export function agentCheckoutOf(
   agentId: string,
 ): string | null {
   // An agent id is only unique within its workspace: another chat's `agent-1`
-  // is a different agent, in a different checkout.
+  // is a different agent, in a different checkout. The tour names the workspace
+  // its author was launched in, which an agent moved to another chat still is.
   const session = sessions.find(
     (candidate) =>
       candidate.kind === 'agent' &&
-      candidate.workspaceId === workspaceId &&
+      (candidate.workspaceId === workspaceId || candidate.launchWorkspaceId === workspaceId) &&
       candidate.agentId === agentId &&
       candidate.processAlive,
   )

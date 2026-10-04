@@ -176,6 +176,10 @@ export type TerminalSessionSnapshot = {
   // existed, which ran on this machine or, for a `wsl` path style, in WSL.
   hostId?: ExecutionHostId
   workspaceId?: string
+  // The workspace the process was launched with, which its hooks, MCP calls and
+  // tours go on naming after the agent is moved to another chat (`workspaceId`
+  // follows the move). Absent on sessions from before it was recorded.
+  launchWorkspaceId?: string
   agentId?: string
   // Display name from spawn metadata. The session-manager label for agent
   // sessions whose agentId has no workspace.agents record (e.g. an agent main

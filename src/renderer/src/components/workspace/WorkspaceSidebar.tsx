@@ -3837,10 +3837,12 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
         // opens that agent's changelist. The agent id comes from the row's
         // sessions rather than from the line, because a line is a drawing of
         // a terminal and the diff is a fact about the agent inside it.
-        const lineAgentId =
-          line.kind === 'agent'
-            ? (peekSessions.find((session) => session.sessionId === line.key)?.agentId ?? null)
-            : null
+        const lineSession =
+          line.kind === 'agent' ? peekSessions.find((session) => session.sessionId === line.key) : undefined
+        const lineAgentId = lineSession?.agentId ?? null
+        // An agent's list is filed under the workspace its process was launched
+        // in, which for one moved here from another chat is not this one.
+        const lineListWorkspaceId = lineSession?.launchWorkspaceId ?? workspace.id
         return (
           <TerminalLineView
             key={line.key}
@@ -3858,7 +3860,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
                       diff: {
                         focusPath: null,
                         focusKind: null,
-                        changelistId: changelistOwnerId({ workspaceId: workspace.id, agentId: lineAgentId }),
+                        changelistId: changelistOwnerId({ workspaceId: lineListWorkspaceId, agentId: lineAgentId }),
                       },
                     })
                 : undefined

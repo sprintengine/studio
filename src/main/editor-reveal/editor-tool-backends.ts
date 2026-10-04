@@ -56,7 +56,11 @@ export function findEditorAgentSession(
   agentId: string,
 ): EditorAgentSession | null {
   const named = sessions.filter((session) => session.agentId === agentId)
-  const own = named.filter((session) => session.workspaceId === workspaceId)
+  // The caller's workspace is the one its process was launched with, which an
+  // agent moved to another chat still names while its session has moved on.
+  const own = named.filter(
+    (session) => session.workspaceId === workspaceId || session.launchWorkspaceId === workspaceId,
+  )
   const candidates = own.length > 0 ? own : named.filter((session) => !session.workspaceId)
   const chosen = candidates.find((session) => session.processAlive) ?? candidates[0]
   return chosen ? editorSessionFrom(chosen) : null

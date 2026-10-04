@@ -1110,6 +1110,7 @@ export function getTerminalSnapshotBase(session: TerminalSession): TerminalSessi
     pathStyle: session.pathStyle,
     ...(session.hostId ? { hostId: session.hostId } : {}),
     workspaceId: session.workspaceId,
+    ...(session.launchWorkspaceId ? { launchWorkspaceId: session.launchWorkspaceId } : {}),
     agentId: session.agentId,
     agentName: session.agentName,
     terminalId: session.terminalId,

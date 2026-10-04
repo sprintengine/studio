@@ -476,6 +476,23 @@ test("another chat's agent of the same id ending its turn or exiting leaves this
   assert.equal(sent.ok && sent.status.asks[0].state, 'sent', "another chat's turn end answers nothing here")
 })
 
+test('an author moved to another chat still reads as the author, and its turn ends answer', async () => {
+  // Its tour names ws-1, the chat its process was launched in and still names;
+  // its session and its phase events now name ws-2, the chat it was dragged to.
+  const h = harness()
+  const tour = await created(h)
+  const moved = { workspaceId: 'ws-2', launchWorkspaceId: 'ws-1' }
+  h.setTerminals([session({ ...moved, agentState: { phase: 'thinking', since: 0, source: 'hook' } })])
+  const queued = await h.service.ask('ws-1', tour.id, 'options', 'Why?')
+  assert.equal(queued.ok && queued.value.state, 'queued', 'the author is not gone')
+
+  h.service.onAgentPhase(phaseOf(moved))
+  assert.equal(h.writes.length, 1, "sent on the moved author's turn end")
+  h.service.onAgentPhase(phaseOf(moved))
+  const answered = await h.service.status('ws-1', tour.id)
+  assert.equal(answered.ok && answered.status.asks[0].state, 'answered')
+})
+
 test("a question being answered in one chat does not hold back another chat's agent of the same id", async () => {
   const h = harness()
   const mine = await created(h)

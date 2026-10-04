@@ -563,9 +563,16 @@ export function createTourService(deps: TourServiceDeps) {
   // successor there too), so the tour's workspace is the author's, and every
   // match below pairs the two. Without it a question is typed into another
   // chat's `agent-1`, and that agent exiting fails this tour's questions.
+  //
+  // "The tour's workspace" is the one the author's process was launched in. An
+  // author moved to another chat since sits in that chat, but its process (and
+  // so its tour) still names the first, so either of the two matches.
 
-  function isAuthor(tour: Tour, workspaceId: string | null | undefined, agentId: string | null | undefined): boolean {
-    return Boolean(tour.author.agentId) && tour.author.agentId === agentId && tour.workspaceId === workspaceId
+  type AuthorPlace = { workspaceId?: string | null; launchWorkspaceId?: string | null }
+
+  function isAuthor(tour: Tour, place: AuthorPlace, agentId: string | null | undefined): boolean {
+    if (!tour.author.agentId || tour.author.agentId !== agentId) return false
+    return tour.workspaceId === place.workspaceId || tour.workspaceId === place.launchWorkspaceId
   }
 
   function authorSession(tour: Tour): TerminalSessionSnapshot | null {
@@ -574,8 +581,7 @@ export function createTourService(deps: TourServiceDeps) {
       deps
         .listTerminals()
         .find(
-          (session) =>
-            session.kind === 'agent' && isAuthor(tour, session.workspaceId, session.agentId) && session.processAlive,
+          (session) => session.kind === 'agent' && isAuthor(tour, session, session.agentId) && session.processAlive,
         ) ?? null
     )
   }
@@ -601,7 +607,7 @@ export function createTourService(deps: TourServiceDeps) {
    */
   function hasSentAsk(workspaceId: string, agentId: string): boolean {
     for (const tour of tours.values()) {
-      if (isAuthor(tour, workspaceId, agentId) && tour.asks.some((entry) => entry.state === 'sent')) return true
+      if (isAuthor(tour, { workspaceId }, agentId) && tour.asks.some((entry) => entry.state === 'sent')) return true
     }
     return false
   }
@@ -683,7 +689,7 @@ export function createTourService(deps: TourServiceDeps) {
   /** The author's phase moved: flush a queued question, or mark a sent one answered. */
   function onAgentPhase(event: AgentPhaseEvent): void {
     for (const tour of tours.values()) {
-      if (!isAuthor(tour, event.workspaceId, event.agentId) || tour.closed) continue
+      if (!isAuthor(tour, event, event.agentId) || tour.closed) continue
       const waiting = tour.asks.filter((entry) => entry.state === 'queued' || entry.state === 'sent')
       if (waiting.length === 0) continue
       let dirty = false

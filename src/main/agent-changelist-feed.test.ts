@@ -75,6 +75,7 @@ test('agent-changelist-feed', async () => {
       await assertLinkedWorktreeWins(userData, repo, worktree)
       await assertLaunchAndExitOrder(userData, repo)
       await assertChatsAreSeparateOwners(userData, repo)
+      await assertMovedAgentKeepsOneList(userData, repo)
       await assertNothingEscapes(userData, repo)
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -342,6 +343,41 @@ test('agent-changelist-feed', async () => {
       ].sort(),
       "chat B's checkouts were not forgotten when chat A's agent left",
     )
+    feed.dispose()
+  }
+
+  /**
+   * An agent dragged from chat A to chat B keeps its process, which names chat
+   * A in every MCP call. Its list stays chat A's from launch to exit: the move
+   * opens no second list, and its exit marks the one it has.
+   */
+  async function assertMovedAgentKeepsOneList(userData: string, repo: string): Promise<void> {
+    const { store, calls } = createStubStore()
+    const feed = createAgentChangelistFeed({
+      userDataDir: userData,
+      store,
+      resolveRepoRoot: async () => repo,
+      coalesceMs: 10_000,
+    })
+    const launched = { agentId: 'agent-0123456789abcdef', workspaceId: 'ws-a', launchWorkspaceId: 'ws-a', cwd: repo }
+    const moved = { ...launched, workspaceId: 'ws-b' }
+
+    feed.onAgentLaunched(launched)
+    feed.onAgentFileEdit({ session: launched, path: join(repo, 'src/before.ts'), ts: Date.now() })
+    feed.onAgentFileEdit({ session: moved, path: join(repo, 'src/after.ts'), ts: Date.now() })
+    feed.onAgentSessionExit(moved)
+    await feed.flush()
+    assert.deepEqual(
+      calls.map((call) => [call.kind, call.workspaceId]),
+      [
+        ['ensure', 'ws-a'],
+        ['record', 'ws-a'],
+        ['exit', 'ws-a'],
+      ],
+      'every write before and after the move is under the chat the process was launched in',
+    )
+    const record = calls.find((call) => call.kind === 'record')
+    assert.deepEqual(record?.kind === 'record' ? record.paths : null, ['src/before.ts', 'src/after.ts'])
     feed.dispose()
   }
 

@@ -872,6 +872,27 @@ test('terminal-runtime', async () => {
         String(replay?.payload ?? '').includes('headless output before any window'),
         'replay carries output produced while headless',
       )
+
+      // The agent dragged to another chat reattaches from there: the session
+      // follows it, and still says which chat its process was launched in,
+      // which is the one that process names in everything it reports.
+      const moved = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+        sessionId: 'session-headless',
+        cols: 100,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'codex',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-moved',
+        agentId: 'session-headless',
+        visible: true,
+        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+      })
+      assert.equal(moved.ok, true, JSON.stringify(moved))
+      const snapshot = runtime.ipcHandlers.listTerminals().find((entry) => entry.sessionId === 'session-headless')
+      assert.equal(snapshot?.workspaceId, 'ws-moved')
+      assert.equal(snapshot?.launchWorkspaceId, 'ws-headless')
     } finally {
       runtime.ipcHandlers.killTerminal('session-headless')
     }
