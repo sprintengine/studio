@@ -24,6 +24,7 @@ import 'flexlayout-react/style/combined.css'
 import { AgentRevealStrip } from './AgentRevealStrip'
 import { FLEX_LAYOUT_ICONS } from './flexLayoutIcons'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { normalizeAgentRuntime } from '../../store/slices/agentsSlice'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { samePath } from '../../utils/paths'
@@ -1107,10 +1108,28 @@ function WorkspaceLayoutBody({
         )
       }
 
+      // A tab whose pane paints --agent-surface — a chat, the New chat surface,
+      // a chat on another machine — says so on its label, and index.css paints
+      // the tab strip that ground while that tab is the selected one. The pane
+      // is not inside the tabset in FlexLayout's DOM, so the label is the only
+      // place the strip can learn what it sits over.
+      const tabComponent = node.getComponent()
+      const tabAgent =
+        tabComponent === 'agent'
+          ? workspaceAgents[(node.getConfig() as { agentId?: string } | undefined)?.agentId ?? node.getId()]
+          : undefined
+      const tabSurface =
+        tabComponent === NEW_AGENT_TAB_COMPONENT ||
+        tabComponent === MESH_CONVERSATION_COMPONENT ||
+        (tabAgent !== undefined && normalizeAgentRuntime(tabAgent).runtimeKind === 'conversation')
+          ? 'agent'
+          : undefined
+
       if (renamingTabId === node.getId()) {
         renderValues.content = (
           <input
             ref={renameInputRef}
+            data-tab-surface={tabSurface}
             className="flexlayout__tab_button_textbox"
             type="text"
             value={renameValue}
@@ -1206,6 +1225,7 @@ function WorkspaceLayoutBody({
       const tabNameSpan = (
         <span
           className={`min-w-0 truncate ${isLiveTab ? 'font-semibold' : ''}`}
+          data-tab-surface={tabSurface}
           draggable={canDragOut}
           onDragStart={handleTabDragStart}
           onDragEnd={handleTabDragEnd}

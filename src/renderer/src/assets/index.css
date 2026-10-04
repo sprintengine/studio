@@ -194,7 +194,8 @@
      2026-10-04, option D of tmp/conversation-colors.html). Declared once here
      and resolved against each theme's own ramp through the cascade, so no theme
      needs an override; one that wants a different centerpiece can still set its
-     own --agent-surface in its block. */
+     own --agent-surface in its block. The Dark theme does — see the Dark-only
+     block below the git ref pills. */
   --agent-surface: var(--bg-surface-raised);
   /* What sits IN the conversation and has to read as a shape on it — the
      user's message bubble, a command's plain output. --bg-hover is the ramp's
@@ -1556,6 +1557,18 @@ samp,
   background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff5a5f);
   border-color: color-mix(in oklab, var(--bg-surface) 66%, #ff5a5f);
   color: color-mix(in oklab, var(--text-strong) 30%, #ff5a5f);
+}
+
+/* Dark keeps the conversation on its black: --bg-app, the window frame's own
+ * ground, so the frame, the conversation and the tab strip over it (which
+ * follows --agent-surface, see the tab strip rules) are one black and only the
+ * composer is lifted off it. The raised paper (#101418) read as a grey slab on
+ * the right of the window (owner ruling 2026-10-04). Scoped here, not in the
+ * shared :root block, because every other dark theme inherits from that block
+ * and keeps its raised paper. */
+:root:not([data-theme]),
+:root[data-theme="dark"] {
+  --agent-surface: var(--bg-app);
 }
 
 /* Light-theme legibility: deepen lane strokes and pull pill labels to
@@ -3663,6 +3676,18 @@ body:has([data-selection-pane]:focus-within)
   background: var(--terminal-bg);
   background-image: none !important;
   border-bottom-color: var(--border-subtle);
+}
+
+/* Over a conversation the strip is the conversation's ground, not the
+   terminal's: the pane reads as one surface with its tabs on top, rather than
+   a near-black bar across the top of the theme's paper (owner ruling
+   2026-10-04). The pane is not inside the tabset in FlexLayout's DOM, so the
+   selected tab's label carries `data-tab-surface="agent"` (WorkspaceLayout's
+   renderTab) and the strip reads it from there. Covers the focused strip too:
+   this out-specifies the `.flexlayout__tabset-selected` rule above. */
+.flexlayout__layout
+  .flexlayout__tabset_tabbar_outer:has(.flexlayout__tab_button--selected [data-tab-surface="agent"]) {
+  background: var(--agent-surface);
 }
 
 /* Focus ring for the terminal you're currently using — the documented terminal
