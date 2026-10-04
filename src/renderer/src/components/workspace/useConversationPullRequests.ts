@@ -106,6 +106,53 @@ export function useConversationPullRequests(workspaceIds: readonly string[]): Co
   // …and whenever the server says something moved, or the connection comes
   // back from a server restart. The ids on a push are not filtered against what
   // is on screen: the answer is filtered by the ask itself.
+  useAskWhenPullRequestsMove(ask)
+
+  return byWorkspace
+}
+
+/**
+ * The pull requests ONE conversation opened, newest first: what the open
+ * chat's composer strip shows (owner ruling 2026-10-04). The same record and
+ * the same protocol as the sidebar's rows, asked by conversation rather than
+ * by workspace. Null asks nothing (a chat on a paired machine, whose record
+ * is that machine's).
+ */
+export function usePullRequestsOfConversation(
+  conversation: { workspaceId: string; agentId: string } | null,
+): readonly BranchPullRequest[] {
+  const [list, setList] = useState<readonly BranchPullRequest[]>(EMPTY)
+  const workspaceId = conversation?.workspaceId ?? null
+  const agentId = conversation?.agentId ?? null
+  const ask = useCallback(async (): Promise<void> => {
+    if (!workspaceId || !agentId) {
+      setList((current) => (current === EMPTY ? current : EMPTY))
+      return
+    }
+    const client = await pullRequestClient()
+    if (!client) return
+    try {
+      const page = await client.request('pullRequests.list', { conversations: [{ workspaceId, agentId }] })
+      const found = page.conversations.find((entry) => entry.workspaceId === workspaceId && entry.agentId === agentId)
+      const next = found ? found.pullRequests.map(fromWire) : EMPTY
+      setList((current) => (sameList(current, next) ? current : next))
+    } catch {
+      // A read that reached nobody leaves what is on screen alone.
+    }
+  }, [workspaceId, agentId])
+  useEffect(() => {
+    void ask()
+  }, [ask])
+  useAskWhenPullRequestsMove(ask)
+  return list
+}
+
+/**
+ * Ask again whenever the server says pull requests moved, when the window's
+ * Studio connection comes back, and ask the server to re-read stale states
+ * when the window comes to the front (decision 9).
+ */
+function useAskWhenPullRequestsMove(ask: () => Promise<void>): void {
   useEffect(() => {
     const api = typeof window === 'undefined' ? null : window.api
     if (typeof api?.studioConnect !== 'function') return
@@ -150,14 +197,27 @@ export function useConversationPullRequests(workspaceIds: readonly string[]): Co
       window.removeEventListener('focus', onFocus)
     }
   }, [ask])
-
-  return byWorkspace
 }
 
 /** A wire entry as the marks read it. A workspace's list says nothing about any one branch. */
 function fromWire(entry: StudioPullRequest): BranchPullRequest {
   const { onConversationBranch: _onBranch, ...rest } = entry
   return rest
+}
+
+/** Whether two lists draw the same: URL, state, draft and number, in order. */
+function sameList(a: readonly BranchPullRequest[], b: readonly BranchPullRequest[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (entry, i) =>
+        entry.url === b[i].url &&
+        entry.state === b[i].state &&
+        entry.isDraft === b[i].isDraft &&
+        entry.title === b[i].title &&
+        entry.forge === b[i].forge,
+    )
+  )
 }
 
 /** Whether two answers say the same thing, so an unchanged read commits nothing. */

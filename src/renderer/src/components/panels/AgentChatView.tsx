@@ -123,6 +123,7 @@ import { useComposerDraft, type ComposerDraftMetadata } from './agentChat/useCom
 import { useComposerRecall } from './agentChat/composerRecall'
 import { ComposerContextChips, SkillContextChip, useComposerContextPicker } from './agentChat/composerContextPicker'
 import { ComposerPlusMenu } from '../workspace/agentComposer/ComposerPlusMenu'
+import { usePullRequestsOfConversation } from '../workspace/useConversationPullRequests'
 import { conversationContextReading } from './agentChat/contextReading'
 import { ConversationComposerStrip } from './agentChat/conversationStrip'
 import { useConversationStripFacts } from './agentChat/conversationStripFacts'
@@ -2668,6 +2669,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     workspaceRoot,
     transport,
   })
+  // The pull requests this conversation opened, from the record the sidebar
+  // reads. A chat on a paired machine has its record there, not here.
+  const conversationPullRequests = usePullRequestsOfConversation(
+    transport.kind === 'remote' ? null : { workspaceId, agentId },
+  )
   return (
     <ConversationLinkProvider
       workspaceId={workspaceId}
@@ -3245,6 +3251,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               branch={stripFacts.branch}
               changes={stripFacts.changes}
               context={contextReading}
+              pullRequests={conversationPullRequests}
             />
           </div>
           {replay ? (

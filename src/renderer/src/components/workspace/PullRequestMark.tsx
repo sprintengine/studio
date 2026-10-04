@@ -494,27 +494,7 @@ export function PullRequestPeekMark({
   const primary = primaryPullRequest(pullRequests)
   const copy = peekMarkCopy(pullRequests, now)
   if (!primary || !copy) return null
-  const groups = pullRequestMenuGroups(pullRequests, now)
-  const items: SplitButtonItem[] = groups.flatMap((group) =>
-    group.rows.map((row) => ({
-      id: row.url,
-      group: group.label,
-      label: (
-        <>
-          <span className="mr-1.5 font-mono tabular-nums">{row.number}</span>
-          {row.title}
-        </>
-      ),
-      ariaLabel: row.ariaLabel,
-      icon: (
-        <span style={{ color: PULL_REQUEST_TONE_VAR[pullRequestTone(row.state)] }}>
-          <PullRequestGlyph state={row.state} className="icon-xs" />
-        </span>
-      ),
-      hint: row.age || undefined,
-      onSelect: () => openPullRequest(row.url),
-    })),
-  )
+  const items = pullRequestMenuItems(pullRequests, now)
   return (
     <Tooltip
       content={<MarkTooltip copy={copy} />}
@@ -556,6 +536,110 @@ export function PullRequestPeekMark({
           // pull request and a 24px one with two.
           items={items}
           onPrimary={() => openPullRequest(primary.url)}
+        />
+      </span>
+    </Tooltip>
+  )
+}
+
+/** The record behind a split control's chevron, grouped Open / Merged / Closed; choosing a row opens it. */
+function pullRequestMenuItems(pullRequests: readonly BranchPullRequest[], now: number): SplitButtonItem[] {
+  return pullRequestMenuGroups(pullRequests, now).flatMap((group) =>
+    group.rows.map((row) => ({
+      id: row.url,
+      group: group.label,
+      label: (
+        <>
+          <span className="mr-1.5 font-mono tabular-nums">{row.number}</span>
+          {row.title}
+        </>
+      ),
+      ariaLabel: row.ariaLabel,
+      icon: (
+        <span style={{ color: PULL_REQUEST_TONE_VAR[pullRequestTone(row.state)] }}>
+          <PullRequestGlyph state={row.state} className="icon-xs" />
+        </span>
+      ),
+      hint: row.age || undefined,
+      onSelect: () => openPullRequest(row.url),
+    })),
+  )
+}
+
+/**
+ * What the open chat's composer strip says about the pull requests its
+ * conversation opened (owner ruling 2026-10-04): the words on the button, and
+ * the pull request they are about. Null draws nothing.
+ *
+ * The pull request is the mark's own (`primaryPullRequest`: the newest still
+ * open, else the newest of all), so the strip, the sidebar row and the peek
+ * never disagree about which one it is. A pull request closed without merging
+ * is left off, as the sidebar row leaves it off (owner, 2026-10-02); the menu
+ * still lists it. The state is in the words, not only the colour:
+ *
+ * - open: "Open PR #123"; a draft: "Open draft PR #123";
+ * - merged: "Merged PR #123";
+ * - on a forge whose state is not read: "Opened PR #5".
+ */
+export function stripPullRequestCopy(
+  list: readonly BranchPullRequest[],
+  now: number,
+): { pr: BranchPullRequest; text: string; tooltip: PullRequestCopy } | null {
+  const shown = list.filter((pr) => pr.state !== 'closed')
+  const pr = primaryPullRequest(shown)
+  const tooltip = peekMarkCopy(shown, now)
+  if (!pr || !tooltip) return null
+  const number = pullRequestsSpanRepositories(shown) ? `${pr.repoName} #${pr.number}` : `#${pr.number}`
+  const text = pr.forge
+    ? `Opened PR ${number}`
+    : pr.state === 'merged'
+      ? `Merged PR ${number}`
+      : pr.isDraft
+        ? `Open draft PR ${number}`
+        : `Open PR ${number}`
+  return { pr, text, tooltip }
+}
+
+/**
+ * The open chat's "Open PR" button, at the bottom of the conversation on the
+ * composer's strip (owner ruling 2026-10-04). Nothing is drawn when the
+ * conversation opened no pull request (decision 3).
+ *
+ * The same split control the peek wears: the button opens the pull request in
+ * the browser, through the app's one external-open path, and with more than
+ * one a chevron opens the whole record, grouped by state. Its words say the
+ * state; the glyph and its tone agree with them.
+ */
+export function PullRequestStripButton({
+  pullRequests,
+  now,
+}: {
+  pullRequests: readonly BranchPullRequest[]
+  now: number
+}): JSX.Element | null {
+  const copy = stripPullRequestCopy(pullRequests, now)
+  if (!copy) return null
+  const { pr, text, tooltip } = copy
+  return (
+    <Tooltip content={<MarkTooltip copy={tooltip} />} multiline placement="top" wrapperClassName="flex shrink-0">
+      {/* A plain wrapper: `SplitButton` takes a closed set of props, so the
+          tooltip's handlers live here (see `PullRequestPeekMark`). */}
+      <span className="flex items-center">
+        <SplitButton
+          quiet
+          label={
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <span className="inline-flex" style={{ color: PULL_REQUEST_TONE_VAR[pullRequestTone(pr.state)] }}>
+                <PullRequestGlyph state={pr.state} className="icon-xs" />
+              </span>
+              {text}
+            </span>
+          }
+          primaryAriaLabel={`${text}. ${tooltip.ariaLabel}`}
+          primaryData={{ name: 'data-strip-pull-request', value: pr.url }}
+          menuAriaLabel={`All pull requests from this conversation, ${pullRequests.length}`}
+          items={pullRequestMenuItems(pullRequests, now)}
+          onPrimary={() => openPullRequest(pr.url)}
         />
       </span>
     </Tooltip>
