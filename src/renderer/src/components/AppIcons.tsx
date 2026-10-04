@@ -80,18 +80,25 @@ export function GitBranchGlyph({ className }: IconProps) {
   )
 }
 
-// The stacked-server mark — the epic's ONE machine-provenance glyph
-// (remote-sessions-ux decision 7): it marks anything that lives on another
-// machine, wherever it appears (session rows, pickers, the Remote popover).
-// Local is the unmarked default. 16-grid; mirrored framework-neutral as
+// The Beam — the ONE mark for "another machine" in general (remote-sessions-ux
+// decision 7; redrawn as the Beam, owner ruling 2026-10-04): a screen on its
+// stand with two arcs of signal off its corner, a machine reached over the air.
+// It marks anything that lives on another machine when the surface does not
+// say WHICH machine — the paired-devices list, the "Other machines" group of
+// the machine picker, the tailnet UI. A surface that names one machine wears
+// that machine's own mark instead (`MachineGlyph`). Local is the unmarked
+// default. 16-grid, stroke 1.4; mirrored framework-neutral as
 // design-system/glyphs/remote-machine.svg.
 export function RemoteMachineGlyph({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
-      <rect x="2" y="2.8" width="12" height="4.6" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="2" y="8.6" width="12" height="4.6" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
-      <circle cx="4.7" cy="5.1" r="0.75" fill="currentColor" />
-      <circle cx="4.7" cy="10.9" r="0.75" fill="currentColor" />
+      <path
+        d="M1.8 6.6h7.4v5.2H1.8ZM5.5 11.8v1.8M3.6 13.6h3.8M10.6 3.2a2.2 2.2 0 0 1 2.2 2.2M10.6 1.4a4 4 0 0 1 4 4"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -132,25 +139,22 @@ export function ScheduleGlyph({ className }: IconProps) {
 //
 // Spec: design-system/components/glyphs/component.md → "Device identity".
 //
-// What KIND of machine a tailnet row is about. `RemoteMachineGlyph` above says
-// "elsewhere"; these four say "elsewhere, and it is a Mac mini / a monitor / a
+// What KIND of machine a tailnet row is about. `RemoteMachineGlyph` above (the
+// Beam) says "elsewhere"; these four say "elsewhere, and it is a Mac mini / a monitor / a
 // laptop / a phone" — which is what the rebuilt Settings › Remote needs, because
 // its list is one row per machine and merges this device, paired devices,
 // outbound connections and the peer scan into a single set.
 //
-// Drawn to RemoteMachineGlyph's discipline on purpose, since that mark is this
-// family's fallback and the five have to read as one set: 16-grid, stroke 1.4,
+// Drawn to one discipline, since `RemoteMachineGlyph` is this family's
+// fallback and the five have to read as one set: 16-grid, stroke 1.4,
 // `fill="none"` line work in currentColor, rounded rects at rx 1.3-1.8, and a
-// filled 0.75r dot where a unit needs a light. The Mac's dot sits at the same cx
-// as the server mark's two, so the two boxes are visibly the same drawing at
-// different counts. Framework-neutral copies live at
+// filled 0.75r dot where a unit needs a light. Framework-neutral copies live at
 // design-system/glyphs/device-{mac,desktop,laptop,phone}.svg.
 //
 // Never pick one of these by hand at a call site — `deviceGlyphFor` in
 // `ui/deviceGlyph` owns the rule, and the reason is in its own comment.
 
-// The flat wide box with one small dot: a Mac mini seen head-on, which is
-// remote-machine's single unit at the same width, corner and light.
+// The flat wide box with one small dot: a Mac mini seen head-on.
 export function DeviceMacGlyph({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>

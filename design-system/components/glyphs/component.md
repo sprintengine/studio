@@ -132,16 +132,14 @@ list merges this machine, paired devices, outbound connections and the peer
 scan into one set of rows — and a list that is one row per *machine* has to say
 which machine at a glance.
 
-They are drawn to `remote-machine.svg`'s discipline, deliberately, because that
-mark is the family's fallback and the five have to read as one set: the 16-grid,
+They are drawn to one discipline, because `remote-machine.svg` (the Beam) is
+the family's fallback and the five have to read as one set: the 16-grid,
 stroke **1.4**, `fill="none"` line work in `currentColor`, rounded rects at
-`rx` 1.3–1.8, and a filled 0.75r dot where a unit needs a light. The Mac's dot
-sits at the same `cx` as the server mark's two, so the two boxes are visibly
-the same drawing at different counts.
+`rx` 1.3–1.8, and a filled 0.75r dot where a unit needs a light.
 
 | Export | Asset | Drawing |
 |---|---|---|
-| `DeviceMacGlyph` | `glyphs/device-mac.svg` | The flat wide box with one small dot — a Mac mini seen head-on. It is `remote-machine`'s single unit: same width, same corner, same light, one box instead of two |
+| `DeviceMacGlyph` | `glyphs/device-mac.svg` | The flat wide box with one small dot — a Mac mini seen head-on |
 | `DeviceDesktopGlyph` | `glyphs/device-desktop.svg` | A monitor on a stand: the screen rect, a short neck, a foot |
 | `DeviceLaptopGlyph` | `glyphs/device-laptop.svg` | An open lid over a base line. The gap between them is the hinge, and it is what separates this from the monitor at a glance |
 | `DevicePhoneGlyph` | `glyphs/device-phone.svg` | A tall rounded rect with a short bottom mark |
@@ -442,7 +440,7 @@ working tree), `FileTypeGlyph` `lock` (the padlock), `glyphs/commit.svg`,
 | `RefreshIcon` | The canonical two-arrow refresh, shared by every panel that offers a manual re-read (Git status, Backlog scan) |
 | `GitBranchGlyph` | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. `glyphs/git-branch.svg` |
 | `PresetDialGlyph` · `LockGlyph` · `UnlockedGlyph` · `SparkGlyph` | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in `AppIcons.tsx`; no standalone asset. |
-| `RemoteMachineGlyph` | Also the Device identity family's fallback (above). The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. `glyphs/remote-machine.svg` |
+| `RemoteMachineGlyph` | **The Beam** (redrawn 2026-10-04, owner ruling; it was a stack of two server units): a screen on its stand with two arcs of signal off its corner — a machine reached over the air. The one mark for "another machine" in general, where a surface does not say which: the paired-devices list, the "Other machines" group of the machine picker, the tailnet UI, a remote group header (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Also the Device identity family's fallback (above). A surface that names one machine wears that machine's own mark instead (Machine kinds). Stroke 1.4. `glyphs/remote-machine.svg` |
 | `ScheduleGlyph` | A scheduled agent: a prompt that starts a new chat each time its schedule comes round. The plain clock face — hands at the hour, nothing else — on the New chat panel's Scheduled agent switch, its schedule row, the entry beside New chat, each scheduled agent's row in the sidebar's Scheduled section, and beside the title of every chat a scheduled run started, where it is named "Started by a schedule" (accessible name and tooltip) and says where the chat came from, never that it is working. **Not** `glyphs/history.svg`, whose clock carries a rewind arrow and means *the past* (the Git log); this one means *a time that is coming*. Stroke 1.4. `glyphs/schedule.svg` |
 | `WslMachineGlyph` | A WSL distribution on this computer, which is a machine of its own ("WSL: Ubuntu"): a window with a title bar and a prompt, because the distribution is reached as a shell. The title bar (redrawn 2026-10-04) is what keeps it apart from the plain terminal's frame, `TerminalPromptGlyph`, which the composer's "Start as" choice draws beside it. It is also the `wsl` machine kind (Machine kinds, above). Stroke 1.4. `glyphs/wsl-machine.svg` |
 
