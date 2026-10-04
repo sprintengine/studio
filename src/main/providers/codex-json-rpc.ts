@@ -18,6 +18,9 @@ export type CodexRpcTransport = {
   close(): void
   readonly pid: number | null
 }
+/** How long a request waits for Codex's answer unless the caller says otherwise. */
+export const CODEX_RPC_TIMEOUT_MS = 30_000
+
 export type CodexRpcOptions = {
   command: string
   cwd: string
@@ -217,7 +220,7 @@ export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTrans
         const timer = setTimeout(() => {
           pending.delete(id)
           reject(new Error(`Codex ${method} timed out.`))
-        }, options.timeoutMs ?? 30_000)
+        }, options.timeoutMs ?? CODEX_RPC_TIMEOUT_MS)
         pending.set(id, { resolve, reject, timer })
         try {
           write({ id, method, params })

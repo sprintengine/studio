@@ -23,6 +23,12 @@ import {
 } from './cli-permission-preset'
 import { defaultPermissionPresetFor, parseCliPermissionModeId } from './cli-permission-mode'
 import {
+  normalizeMachineMarkSetting,
+  normalizeMachineMarkSettings,
+  type MachineMarkSetting,
+  type MachineMarkSettings,
+} from './machine-identity'
+import {
   normalizeExecutionHostId,
   normalizeExecutionHostSettings,
   type ExecutionHostId,
@@ -54,6 +60,13 @@ export type AgentLaunchSettings = {
    * has no entry in normal use: its commands live on `cliRuntimes`.
    */
   hosts: Partial<Record<ExecutionHostId, ExecutionHostSettings>>
+  /**
+   * The kind and colour a person chose for a machine (Settings › Machines),
+   * keyed by its machine id (`shared/machine-identity`): a WSL host id,
+   * `ssh:<host>` or `tailnet:<name>`. A machine with no entry wears its
+   * defaults. Kept beside `hosts` and written the same way, per machine.
+   */
+  machineMarks: MachineMarkSettings
   mcp: McpSettings
   projectKnowledgeRoots: Record<string, string | null>
   /**
@@ -107,6 +120,7 @@ export type AgentLaunchSettingsRecord = {
  * - `cliRuntimes`: per CLI, an entry replaces that CLI's runtime whole and
  *   `null` removes it. CLIs the patch does not name are untouched.
  * - `hosts`: the same, per machine.
+ * - `machineMarks`: the same, per machine id.
  * - `mcp.syncEnabled` sets the switch; `mcp.servers` upserts per server id,
  *   `null` removing that server.
  * - `projectKnowledgeRoots`: per project root, a string sets it and `null`
@@ -123,6 +137,8 @@ export type AgentLaunchSettingsPatch = {
   cliRuntimes?: Record<string, AgentLaunchCliRuntimeSettings | null>
   /** Per host id, an entry replaces that host's settings whole and `null` removes them. */
   hosts?: Partial<Record<ExecutionHostId, ExecutionHostSettings | null>>
+  /** Per machine id, an entry replaces that machine's mark whole and `null` returns it to the defaults. */
+  machineMarks?: Record<string, MachineMarkSetting | null>
   mcp?: {
     syncEnabled?: boolean
     servers?: Record<string, McpServerConfig | null>
@@ -272,6 +288,7 @@ export function emptyAgentLaunchSettings(): AgentLaunchSettings {
   return {
     cliRuntimes: {},
     hosts: {},
+    machineMarks: {},
     mcp: { syncEnabled: false, servers: {} },
     projectKnowledgeRoots: {},
     lastSelectedCli: null,
@@ -363,6 +380,7 @@ export function normalizeAgentLaunchSettings(raw: unknown): AgentLaunchSettings 
   return {
     cliRuntimes,
     hosts: normalizeAgentLaunchHosts(raw.hosts),
+    machineMarks: normalizeMachineMarkSettings(raw.machineMarks),
     mcp,
     projectKnowledgeRoots,
     lastSelectedCli: normalizeLastSelectedCli(raw.lastSelectedCli),
@@ -402,6 +420,19 @@ export function normalizeAgentLaunchSettingsPatch(raw: unknown): AgentLaunchSett
       else if (isPlainObject(value)) hosts[id] = normalizeExecutionHostSettings(value)
     }
     patch.hosts = hosts
+  }
+  if (isPlainObject(raw.machineMarks)) {
+    const marks: NonNullable<AgentLaunchSettingsPatch['machineMarks']> = {}
+    for (const [id, value] of Object.entries(raw.machineMarks)) {
+      if (!id) continue
+      if (value === null) {
+        marks[id] = null
+        continue
+      }
+      const mark = normalizeMachineMarkSetting(value)
+      if (mark) marks[id] = mark
+    }
+    patch.machineMarks = marks
   }
   if (isPlainObject(raw.mcp)) {
     const mcp: NonNullable<AgentLaunchSettingsPatch['mcp']> = {}
@@ -471,6 +502,7 @@ export function applyAgentLaunchSettingsPatch(
     ...settings,
     cliRuntimes: { ...settings.cliRuntimes },
     hosts: { ...settings.hosts },
+    machineMarks: { ...settings.machineMarks },
     mcp: { ...settings.mcp, servers: { ...settings.mcp.servers } },
     projectKnowledgeRoots: { ...settings.projectKnowledgeRoots },
     cliPermissionPresets: { ...settings.cliPermissionPresets },
@@ -485,6 +517,10 @@ export function applyAgentLaunchSettingsPatch(
   >) {
     if (host === null) delete next.hosts[id]
     else next.hosts[id] = host
+  }
+  for (const [id, mark] of Object.entries(patch.machineMarks ?? {})) {
+    if (mark === null) delete next.machineMarks[id]
+    else next.machineMarks[id] = mark
   }
   if (patch.mcp?.syncEnabled !== undefined) next.mcp.syncEnabled = patch.mcp.syncEnabled
   for (const [id, server] of Object.entries(patch.mcp?.servers ?? {})) {

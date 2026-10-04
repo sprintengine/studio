@@ -30,14 +30,19 @@ Commands marked **PowerShell** run in a Windows terminal. Commands marked
    version.
 3. **PowerShell:** `wsl --install -d Debian`, for the isolation checks.
 4. Install the build under test with its installer, not a dev build.
-   **Expect:** `%LOCALAPPDATA%\Programs\SprintEngine Studio\resources\wsl-server\server.cjs`
+   **Expect:** `%LOCALAPPDATA%\Programs\sprintengine-studio\resources\wsl-server\server.cjs`
    and `build.json` exist.
    - To use a dev build instead, run `npm run build:server:wsl` first. If you
      skip it, a chat on the server fails with "this build shipped without the
      Studio server for WSL".
 5. Know where the logs are.
-   - Windows: `%APPDATA%\SprintEngine Studio\logs\`. Search for `WSL server`.
-   - **distro:** `~/.local/state/sprintengine-studio/logs/`.
+   - Windows: `%APPDATA%\sprintengine-studio\logs\diagnostics-YYYY-MM-DD.jsonl`.
+     Search for `WSL server`.
+   - **distro:** the server's own log,
+     `~/.local/state/sprintengine-studio/logs/data/server-YYYY-MM-DD.log`
+     (`data-<id>/` for a nightly or a pinned profile, as for its data). A day's
+     file stops at 10 MB and the next part begins (`server-YYYY-MM-DD.1.log`);
+     fourteen days are kept.
    - **distro:** the server's data is in
      `~/.local/share/sprintengine-studio/data/` (`data-<id>/` for a nightly
      or a pinned profile).
@@ -143,23 +148,44 @@ Commands marked **PowerShell** run in a Windows terminal. Commands marked
 
 1. Open New chat on a workspace in `C:\` bound to WSL: Ubuntu-24.04, with
    the switch on.
-   **Expect:** "Faster in the Linux file system: clone into ~/ in this
-   distribution." under the scope line. The chat still starts.
+   **Expect:** "On C: — slow from Ubuntu-24.04. Run on This PC for full
+   speed." under the scope line. The chat still starts.
    **distro:** `ps -ef | grep -E 'claude|codex'`.
    **Expect:** its working directory is under `/mnt/c/...`.
 2. V4: in a repository of about 50,000 files, time `git status` and a
    mention search three ways: on ext4 through the server, on `/mnt/c`
    through the server, and natively on `C:\` with "One process per chat".
    Write the three numbers down.
+   Then run `git status` once from PowerShell in the `C:\` repository (so
+   Git for Windows writes the index) and open the Git pane of its WSL
+   workspace.
+   **Expect:** the pane fills in about as fast as for a Windows workspace,
+   not after tens of seconds (R89).
 3. V5: with the Windows-side workspace open, run a server chat on `/mnt/c`
    for several turns.
    **Expect:** the chat list and the transcript stay intact, with no
    duplicated or missing turns.
-4. **distro:** add `[automount]` and `root = /win/` to `/etc/wsl.conf`.
+4. Open New chat, pick a project inside the distribution
+   (`\\wsl.localhost\Ubuntu-24.04\home\dev\repo`), and pick "This PC
+   (Windows)" in the machine list.
+   **Expect:** the machine can be picked, with "In Ubuntu-24.04 — slow from
+   Windows. Run on WSL: Ubuntu-24.04 for full speed." under the scope line.
+   Send a message.
+   **PowerShell:** `Get-CimInstance Win32_Process -Filter "Name like 'claude%' or Name like 'node%'" | Select ProcessId, CommandLine`.
+   **Expect:** the agent runs on Windows, and asked for its working
+   directory it answers the `\\wsl.localhost\…` folder. The Git pane shows
+   the repository's branch and changes, with no "dubious ownership" error,
+   and `git config --global --get-all safe.directory` is unchanged. A
+   terminal opened in the chat starts in the same folder.
+5. In the same New chat, pick WSL: Ubuntu-24.04 again, then a second
+   distribution if one is enabled.
+   **Expect:** the second distribution is greyed out with "WSL: <name>
+   cannot open a folder inside Ubuntu-24.04."
+6. **distro:** add `[automount]` and `root = /win/` to `/etc/wsl.conf`.
    **PowerShell:** `wsl --terminate Ubuntu-24.04`. Send in a `C:\`
    workspace's server chat.
    **Expect:** the agent runs under `/win/c/...`.
-5. Change that section to `enabled = false` and terminate the distribution
+7. Change that section to `enabled = false` and terminate the distribution
    again. Send in the `C:\` workspace's server chat.
    **Expect:** the chat is refused with a message saying automount is off in
    `/etc/wsl.conf`. Remove the section afterwards.

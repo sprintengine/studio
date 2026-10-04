@@ -5,7 +5,7 @@ import { test } from 'vitest'
 
 import type { HelperProcess } from '../../main/hosts/wsl-helper-client'
 import { WslSetupError } from '../../main/hosts/wsl-setup-error'
-import { startWslServer } from './wsl-server-starter'
+import { describeServerExit, lastErrorLine, startWslServer } from './wsl-server-starter'
 
 // What `wsl.exe` says about itself is UTF-16LE with CRLF line ends, unlike
 // anything the server prints: the starter reads it as text before it
@@ -64,4 +64,38 @@ test('a start that fails in words other than the classified ones shows them with
   assert.ok(error instanceof WslSetupError)
   assert.match(error.message, /The virtual machine could not be started\./u)
   assert.doesNotMatch(error.message, /[\0\r]/u)
+})
+
+// What a library warns about while a chat works, as the server's stderr had
+// it on a PC when the server was killed: none of it is why the server stopped.
+const SDK_WARNINGS = [
+  "(node:6993) [SDK_TOOL_HOOK_SHADOWED] Warning: the tool hook will not be invoked: permissionMode 'bypassPermissions' auto-approves every tool call",
+  '(Use `node --trace-warnings ...` to show where the warning was created)',
+  "(node:6993) [SDK_TOOL_HOOK_SHADOWED] Warning: the tool hook will not be invoked: permissionMode 'bypassPermissions' auto-approves every tool call",
+  '[studio-server] ready in 812 ms: gateway /home/dev/.local/share/sprintengine-studio/data/run/gateway.sock',
+].join('\n')
+
+test('a killed server is said to be killed, whichever way the kill arrives, and never by its warnings', () => {
+  // `wsl.exe` passes the signal's number on as its exit code.
+  assert.equal(describeServerExit({ code: 9, signal: null, stderrTail: SDK_WARNINGS }), 'killed')
+  // A shell says 128 + n; Node itself names the signal.
+  assert.equal(describeServerExit({ code: 137, signal: null, stderrTail: '' }), 'killed')
+  assert.equal(describeServerExit({ code: null, signal: 'SIGKILL', stderrTail: SDK_WARNINGS }), 'killed')
+  assert.equal(describeServerExit({ code: 15, signal: null, stderrTail: '' }), 'killed by SIGTERM')
+  assert.equal(describeServerExit({ code: null, signal: 'SIGSEGV', stderrTail: '' }), 'killed by SIGSEGV')
+})
+
+test('an exit code is said with the last line that says what went wrong, or alone', () => {
+  assert.equal(describeServerExit({ code: 1, signal: null, stderrTail: SDK_WARNINGS }), 'exit code 1')
+  const crashed = `${SDK_WARNINGS}\nTypeError: Cannot read properties of undefined (reading 'id')\n    at Object.<anonymous> (/home/dev/server.cjs:1:2)\n${SDK_WARNINGS}`
+  assert.equal(
+    describeServerExit({ code: 70, signal: null, stderrTail: crashed }),
+    "exit code 70: TypeError: Cannot read properties of undefined (reading 'id')",
+  )
+  assert.equal(lastErrorLine(SDK_WARNINGS), null)
+  assert.equal(
+    lastErrorLine('RangeError: Maximum call stack size exceeded'),
+    'RangeError: Maximum call stack size exceeded',
+  )
+  assert.equal(describeServerExit({ code: null, signal: null, stderrTail: '' }), 'no exit code')
 })

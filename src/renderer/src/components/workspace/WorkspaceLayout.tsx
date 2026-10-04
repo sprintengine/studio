@@ -53,7 +53,11 @@ import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPaylo
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
-import { ChatGlyph, RemoteMachineGlyph } from '../AppIcons'
+import { ChatGlyph } from '../AppIcons'
+import { MachineGlyph } from '../ui'
+import { resolveMachineIdentity, type MachineIdentity } from '../../../../shared/machine-identity'
+import { distroOfHostId, isWslHostId } from '../../../../shared/execution-host'
+import { useMachineIdentity, useWorkspaceMachineRef } from '../../hooks/useMachineIdentity'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import { conversationTabSignature } from './stableRowSlices'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
@@ -190,6 +194,23 @@ type TabMenuState = {
  */
 const TAB_CHIP_CLASS = 'flex h-4 w-4 shrink-0 items-center justify-center rounded-xs'
 const TAB_CHIP_GLYPH_CLASS = 'h-3.5 w-3.5'
+
+// The mark a chat or terminal tab wears after its name when it runs on another
+// machine: that machine's glyph in its colour (owner ruling 2026-10-04), named
+// for a screen reader and on hover. This computer's tabs wear none.
+function tabMachineMark(identity: MachineIdentity | null, machineName: string): React.ReactNode {
+  if (!identity) return null
+  return (
+    <span
+      role="img"
+      className="inline-flex shrink-0 items-center"
+      title={`On ${machineName}`}
+      aria-label={`On ${machineName}`}
+    >
+      <MachineGlyph identity={identity} className={TAB_CHIP_GLYPH_CLASS} />
+    </span>
+  )
+}
 const loadedPanelComponents = new Set<string>()
 const EMPTY_WORKSPACE_AGENTS: Workspace['agents'] = {}
 const NO_CONVERSATION_SESSIONS: readonly ConversationSessionSummary[] = []
@@ -354,6 +375,42 @@ function WorkspaceLayoutBody({
   const conversationSessions = useConversationTabSessions(conversationSessionsProp)
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
+  // The machine this workspace runs on, for the mark its chat and terminal
+  // tabs wear when it is not this computer (owner ruling 2026-10-04). Read as
+  // primitives so a write elsewhere on the workspace does not redraw the tabs.
+  const workspaceHostId = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.hostId ?? null)
+  const workspaceSshId = useWorkspaceStore((s) => {
+    const environment = s.workspaces.find((w) => w.id === workspaceId)?.environment
+    return environment?.kind === 'ssh' ? environment.id : null
+  })
+  const workspaceSshLabel = useWorkspaceStore((s) => {
+    const environment = s.workspaces.find((w) => w.id === workspaceId)?.environment
+    return environment?.kind === 'ssh' ? environment.label : null
+  })
+  const workspaceRemoteName = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.remoteOrigin?.machineName ?? null,
+  )
+  const workspaceMachineRef = useWorkspaceMachineRef(
+    React.useMemo(
+      () => ({
+        hostId: workspaceHostId,
+        environment:
+          workspaceSshId && workspaceSshLabel
+            ? { kind: 'ssh' as const, id: workspaceSshId, label: workspaceSshLabel }
+            : null,
+        remoteOrigin: workspaceRemoteName ? { machineName: workspaceRemoteName } : null,
+      }),
+      [workspaceHostId, workspaceRemoteName, workspaceSshId, workspaceSshLabel],
+    ),
+  )
+  const workspaceMachineIdentity = useMachineIdentity(workspaceMachineRef)
+  const workspaceMachineName =
+    workspaceSshLabel ??
+    workspaceRemoteName ??
+    (workspaceHostId && isWslHostId(workspaceHostId)
+      ? `WSL: ${distroOfHostId(workspaceHostId) ?? workspaceHostId}`
+      : null)
+  const machineMarks = useWorkspaceStore((s) => s.appSettings.machineMarks)
   // A file the peek card lists opens in the workspace pane's Diff tab, the same
   // tab and the same focus a Git panel row opens (see GitPanel.handleOpenFile).
   const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
@@ -1228,27 +1285,46 @@ function WorkspaceLayoutBody({
             renderValues.content = (
               <span className="inline-flex min-w-0 items-center gap-1.5">
                 {tabContent}
+                {workspaceMachineIdentity && workspaceMachineName
+                  ? tabMachineMark(workspaceMachineIdentity, workspaceMachineName)
+                  : null}
                 {indicator}
               </span>
             )
             return
           }
         } else if (isMeshConversationPane(componentId)) {
-          // A pane on another machine's conversation wears the shared remote
-          // glyph as its identity (remote-sessions-in-the-sidebar, epic decision
-          // 4): the same message means different things on two machines, and the
-          // tab's name alone is one truncation away from not saying so.
+          // A pane on another machine's conversation is a chat, and wears the
+          // machine's own mark after its name (remote-sessions-in-the-sidebar,
+          // epic decision 4; owner ruling 2026-10-04): the same message means
+          // different things on two machines, and the tab's name alone is one
+          // truncation away from not saying so.
           const config = node.getConfig() as { machineName?: string } | undefined
-          const machineLabel = config?.machineName ? `On ${config.machineName}` : 'On a paired machine'
           renderValues.leading = (
-            <span
-              className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`}
-              title={machineLabel}
-              aria-label={machineLabel}
-            >
-              <RemoteMachineGlyph className={TAB_CHIP_GLYPH_CLASS} />
+            <span className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`} title="Chat" aria-label="Chat">
+              <ChatGlyph className={TAB_CHIP_GLYPH_CLASS} />
             </span>
           )
+          const identity = config?.machineName
+            ? resolveMachineIdentity({ kind: 'paired', name: config.machineName }, machineMarks)
+            : null
+          renderValues.content = (
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              {tabContent}
+              {tabMachineMark(identity, config?.machineName ?? 'a paired machine')}
+            </span>
+          )
+          return
+        }
+        // A terminal in a workspace on another machine says which one.
+        if (componentId === 'terminal' && workspaceMachineIdentity && workspaceMachineName) {
+          renderValues.content = (
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              {tabContent}
+              {tabMachineMark(workspaceMachineIdentity, workspaceMachineName)}
+            </span>
+          )
+          return
         }
         renderValues.content = tabContent
         return
@@ -1511,6 +1587,9 @@ function WorkspaceLayoutBody({
           }
         >
           {tabNameSpan}
+          {workspaceMachineIdentity && workspaceMachineName
+            ? tabMachineMark(workspaceMachineIdentity, workspaceMachineName)
+            : null}
           {trailing}
         </AgentTabIdentityPopover>
       )
@@ -1531,6 +1610,9 @@ function WorkspaceLayoutBody({
       worktreeGitRoot,
       worktreeMissing,
       workspaceId,
+      workspaceMachineIdentity,
+      workspaceMachineName,
+      machineMarks,
     ],
   )
 

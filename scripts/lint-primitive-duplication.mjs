@@ -152,7 +152,7 @@ const RAW_PRIMITIVES = [
     tag: 'button',
     pattern: /<button\b/g,
     spec: 'design-system/components/button/',
-    canonical: 'ui/Buttons — PrimaryButton | GhostButton | OutlineButton | IconButton | CloseIconButton',
+    canonical: 'ui/Buttons — PrimaryButton | SendButton | GhostButton | OutlineButton | IconButton | CloseIconButton',
   },
   {
     tag: 'input',

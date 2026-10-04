@@ -1,6 +1,7 @@
 import React from 'react'
 
-import { ChipButton, CloseIconButton, GhostButton, Input, Popover, SegmentedControl } from '../../../ui'
+import { AttachmentChip } from '../../../ui/AttachmentChip'
+import { ChipButton, CloseIconButton, Input, LinkButton, Popover, SegmentedControl } from '../../../ui'
 import { ScheduleGlyph } from '../../../AppIcons'
 import { ComposerTray, ComposerTrayRow } from '../../../panels/agentChat/composerTray'
 import { CRON_FIELD_NAMES, describeCronSchedule, parseCronSchedule } from '../../../../../../shared/cron'
@@ -59,62 +60,77 @@ export function readSchedule(
 }
 
 /**
- * The schedule, as one row in the composer's tray: what it says, when it next
- * runs, and Change, which opens the picker over it. The prompt box stays the
- * prompt's alone — nothing about when is typed into what.
+ * The schedule, as a tag beside the composer's "+" (owner ruling 2026-10-04):
+ * the schedule glyph, what the schedule says, and × to stop scheduling. The
+ * words open the picker over the tag; the prompt box stays the prompt's alone
+ * — nothing about when is typed into what. While a scheduled agent is being
+ * edited there is no ×: it stays a scheduled agent.
  */
-export function ScheduleTray({
+export function ScheduleTag({
   cron,
   timezone,
   onChange,
-  failure,
-  onDismissFailure,
+  onRemove,
 }: {
   cron: string
   timezone: string
   onChange: (cron: string) => void
-  /** Why the last run did not start, said until the person has seen it. */
-  failure?: string | null
-  onDismissFailure?: () => void
+  /** Stop scheduling. Absent, the tag cannot be removed. */
+  onRemove?: () => void
 }) {
   const [open, setOpen] = React.useState(false)
   const read = readSchedule(cron, timezone, Date.now())
+  const words = read.ok ? read.words : 'Schedule'
+  const editor = (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel="Schedule"
+      popupRole="dialog"
+      placement="bottom-start"
+      surfaceClassName="w-[380px] p-3"
+      renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        <LinkButton
+          ref={ref}
+          ink="quiet"
+          size="inherit"
+          onClick={togglePopover}
+          // The words name the schedule; the accessible name says what a press does.
+          aria-label={read.ok ? `Schedule: ${read.words}, next ${read.next[0]}. Change it` : 'Change the schedule'}
+          title={read.ok ? `Next ${read.next[0]}` : read.message}
+          data-schedule-tag="true"
+          {...triggerProps}
+        >
+          {read.ok ? words : <span className="text-[color:var(--tone-error)]">{read.message}</span>}
+        </LinkButton>
+      )}
+    >
+      <ScheduleEditor cron={cron} timezone={timezone} onChange={onChange} />
+    </Popover>
+  )
+  const glyph = <ScheduleGlyph className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
+  if (onRemove) {
+    return (
+      <AttachmentChip glyph={glyph} label={words} removeLabel="Stop scheduling" onRemove={onRemove}>
+        {editor}
+      </AttachmentChip>
+    )
+  }
+  // The same tag without its ×, for a scheduled agent being edited.
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-sm bg-[color:var(--bg-selected)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
+      {glyph}
+      {editor}
+    </span>
+  )
+}
+
+/** Why the last run of a scheduled agent did not start, said until the person has seen it. */
+export function ScheduleFailureTray({ failure, onDismiss }: { failure: string; onDismiss: () => void }) {
   return (
     <ComposerTray>
-      {failure ? (
-        <ComposerTrayRow tone="error" onDismiss={onDismissFailure}>
-          The last run did not start: {failure}
-        </ComposerTrayRow>
-      ) : null}
-      <ComposerTrayRow
-        glyph={<ScheduleGlyph className="icon-sm text-[color:var(--accent-primary)]" />}
-        ariaLabel="Schedule"
-        actions={
-          <Popover
-            open={open}
-            onOpenChange={setOpen}
-            ariaLabel="Schedule"
-            popupRole="dialog"
-            placement="bottom-end"
-            surfaceClassName="w-[380px] p-3"
-            renderTrigger={({ ref, triggerProps, togglePopover }) => (
-              <GhostButton ref={ref} size="xs" pressed={open} onClick={togglePopover} {...triggerProps}>
-                Change
-              </GhostButton>
-            )}
-          >
-            <ScheduleEditor cron={cron} timezone={timezone} onChange={onChange} />
-          </Popover>
-        }
-      >
-        {read.ok ? (
-          <>
-            <span className="font-medium">{read.words}</span>
-            <span className="text-meta text-[color:var(--text-subtle)]"> · next {read.next[0]}</span>
-          </>
-        ) : (
-          <span className="text-[color:var(--tone-error)]">{read.message}</span>
-        )}
+      <ComposerTrayRow tone="error" onDismiss={onDismiss}>
+        The last run did not start: {failure}
       </ComposerTrayRow>
     </ComposerTray>
   )
@@ -122,8 +138,8 @@ export function ScheduleTray({
 
 /**
  * The picker. Daily, Weekly and Monthly write the everyday shapes; Cron takes
- * anything. Every change that reads is handed back at once, so the tray row
- * above says the new schedule while the picker is still open; one that does
+ * anything. Every change that reads is handed back at once, so the tag it
+ * opens from says the new schedule while the picker is still open; one that does
  * not read is kept here, marked, and the last schedule that did stays.
  */
 export function ScheduleEditor({

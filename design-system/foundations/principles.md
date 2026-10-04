@@ -47,7 +47,8 @@ home accents its cards' buttons and deliberately leaves its tile glyphs in
 neutral ink for exactly this reason.
 
 **Identity colour** (ruled 2026-09-06, revising the 2026-09-02 monochrome
-ruling for two families). Two kinds of glyph carry a colour of their own, and
+ruling for two families; a third added 2026-10-04). Three kinds of glyph carry
+a colour of their own, and
 the accent budget does not count them, because the colour is not ours: it
 names something.
 
@@ -76,6 +77,16 @@ names something.
   (`config`, `text`, `generic` stay in the row's ink), or a row wash stacked
   under the two — the file-tree clause below still caps the washes at two, and
   interaction state still outranks every one of them.
+
+- **A machine's glyph may wear its machine's colour** (owner ruling
+  2026-10-04). Every machine other than this one has a kind — laptop, desktop,
+  mini, tower, server, cloud VM, container, board or WSL — drawn as the device,
+  and one of eight colours: the seven `color.mark.*` hues and a neutral
+  (`text.muted`). The default kind comes from what the machine is and the
+  default colour from a hash of its stable id, so every device that sees the
+  machine shows the same one; a person can change both in Settings › Machines.
+  The colour is on the glyph and nowhere else — never the machine's name, a row
+  wash or a pill — and this machine wears no mark at all.
 
 What does not change: the hue identifies, it never grades. `color.mark.*` is
 not a status ramp and not an accent. A gear or a plain document — glyphs that
@@ -290,14 +301,36 @@ person with everything at once.
   `shadow.popover` for trigger-anchored surfaces, `shadow.drawer` for drawers
   and side panels, `shadow.modal` for centred dialogs. Nothing in the document
   flow — no card, row, or hover state — takes a shadow.
-- **Control elevation is the one in-flow exception** (2026-09-02, widened by
-  owner ruling 2026-10-01): a control that is pressed to act stands off the page
-  on `shadow.control-edge` / `shadow.control-raised` — a 1px lit top lip over a
-  shallow drop — with the matching `gradient.control-*` sheen across its face,
-  and sinks on `shadow.control-pressed`. Outline and filled buttons, raised
-  chips, launcher tiles and a segmented control's thumb take it; fields, rows,
-  cards and borderless controls do not. See
-  [button → Elevation](../components/button/component.md).
+- **Controls come in three tiers, and only the first catches the light**
+  (owner ruling 2026-10-04):
+  1. **The primary action** — the filled accent, and the destructive fill that
+     stands in for it — carries one faint lit top edge,
+     `shadow.control-raised`, and nothing else: no drop, no sheen.
+  2. **A standalone secondary** — an outline button, a split button, a launcher
+     tile, a field trigger in a form — is flat on a hairline: `border.strong`
+     on a transparent ground for the buttons, and the field and tile grounds
+     they already had. No highlight, no sheen, no drop.
+  3. **A control inside a surface** — a toolbar, a panel header, a composer's
+     control row — is ghost: no edge and no ground until the pointer arrives,
+     then `bg.hover`. Ghost and icon buttons always were; the toolbar chip and a
+     trigger in a toolbar now are too.
+
+  Every control presses the same way, by `scale(0.97)` on the shared hover and
+  press motion, and not at all under `prefers-reduced-motion: reduce`. A
+  segmented control's selected thumb is the one in-flow lift besides tier 1:
+  `bg.selected` over `shadow.control-thumb`, a small drop with no lip, so the
+  chosen segment reads as a piece set on its track. See
+  [button → Control tiers](../components/button/component.md).
+
+  This recuts the control elevation of 2026-09-02, widened on 2026-10-01, which
+  stood every bordered control off the page on a lit lip, a shallow drop and a
+  sheen, and sank it on an inset shadow while held. Spread across every
+  outline, chip, tile and thumb, that depth stopped saying *this one is
+  pressable* and became texture; the five tokens that carried it
+  (`shadow.control-edge`, `shadow.control-pressed`, `shadow.control-track`,
+  `gradient.control-sheen`, `gradient.control-raised-sheen`) are retired. A
+  bevel, an inset press or a sheen coming back on any control is a regression,
+  not a refinement.
 - In light mode, `bg.surface-raised` is deliberately the same white as
   `bg.surface`: raised surfaces separate by shadow and `border.strong`, not by
   tone. In dark mode the tone step does the work.
@@ -337,6 +370,15 @@ person with everything at once.
 - At most 2 radii per view. `radius.control` (5px) is the default; larger radii
   belong to overlay and modal shells. Marketing radii (`rounded-2xl` and up)
   never appear on operational chrome.
+- **The composer is the one named exception to that ceiling** (owner ruling
+  2026-10-04). Its box takes `radius.composer` (22px), and the context strip
+  tucked under it takes `radius.composer-strip` (16px) on its two bottom
+  corners only, so the two read as one piece. The composer is the surface a
+  person types into all day, and the soft corner is what sets it apart from the
+  chrome around it. Both tokens are marked `offRamp`: they are not rungs of the
+  shape scale, the conformance guard leaves them out of its ramp exactly as it
+  does `pill`, and nothing else may borrow them — a card, popover or control
+  inside the composer keeps the ramp.
 - A capped column is centred or it is a bug. When a `max-width` element IS the
   page's content — a wizard step, a settings body, a door canvas — it centres
   (`max-w-*` + `mx-auto`), and its footer actions cap to the same measure so
@@ -828,10 +870,12 @@ surface rather than patching it.
 - A card inside a card with no containment reason.
 - A hero composition — oversized headline, decorative blob, three-up stat
   row — inside an operational panel.
-- A primary button with a two-hue gradient fill, a coloured glow, or a blurred
-  halo. The lit lip, the shallow drop and the same-hue sheen of the control
-  elevation tokens are the system's own and are not this; anything past them
+- A primary button with a gradient fill of any kind, a drop shadow, a coloured
+  glow, or a blurred halo. The one faint lit top edge of
+  `shadow.control-raised` is the system's own and is not this; anything past it
   is.
+- Depth on a control below tier 1: a lit lip, a drop or a sheen on an outline
+  button, a chip, a tile or a trigger, or an inset shadow on press.
 - Decorative emoji as iconography, or celebration copy ("✅", "🎉", "Awesome!").
 - Placeholder content: "Lorem ipsum", "Card title", "Item 1 / 2 / 3".
 - Empty-state copy that explains an obvious interaction ("Click here to

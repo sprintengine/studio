@@ -554,15 +554,16 @@ export function WorkspaceActions({
             onOpenAutoFocus={focusFirstViewMenuItem}
             renderTrigger={({ ref, triggerProps, togglePopover }) => (
               <Tooltip content={`${activeWorkspaceViews?.label ?? 'View'} panels`} placement="bottom">
-                {/* The kit's popover trigger. `open` is the state this
-                      spelled by hand and paints it identically —
-                      `--border-strong` over `--bg-selected` with `--text-strong`
-                      ink — and the field variant is the `--bg-surface-raised`
-                      ground and `--border-default` edge it rested on. The
-                      tooltip and `aria-label` carry the meaning in the icon-only
-                      state. */}
+                {/* The kit's popover trigger, ghost: it sits in the workspace
+                      bar among ghost icon buttons, so it is a control inside a
+                      surface and takes no edge or ground until the pointer
+                      arrives (owner ruling 2026-10-04). Open, it holds the
+                      neutral `--bg-selected` fill the Sessions toggle beside it
+                      takes when thrown. The tooltip and `aria-label` carry the
+                      meaning in the icon-only state. */}
                 <TriggerButton
                   ref={ref}
+                  variant="ghost"
                   open={viewMenuOpen}
                   onClick={togglePopover}
                   aria-label="Toggle workspace panels"

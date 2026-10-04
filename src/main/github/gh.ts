@@ -166,7 +166,7 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
 
 /** The child's environment: the git-safe one, less anything the caller unset. */
 function ghEnv(options: GhRunOptions): NodeJS.ProcessEnv {
-  const env = gitSafetyEnv()
+  const env = gitSafetyEnv(process.env, options.cwd)
   for (const name of options.unsetEnv ?? []) delete env[name]
   return env
 }

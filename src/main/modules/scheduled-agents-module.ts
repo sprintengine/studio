@@ -18,7 +18,7 @@ import {
   type ScheduledAgentsService,
 } from '../scheduled-agents/service'
 import { createScheduledAgentsStore, scheduledAgentsFilePath } from '../scheduled-agents/store'
-import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
+import type { ExecutionHostId } from '../../shared/execution-host'
 import {
   SCHEDULED_AGENTS_CHANGED_CHANNEL,
   SCHEDULED_AGENTS_IPC,
@@ -28,10 +28,11 @@ import {
 import { isRecord } from '../../shared/records'
 import type { StudioPlatform } from '../../server/platform/platform'
 
-// The machine whose git answers for a folder: a WSL distribution's own git for
-// a folder in it, so the run's worktree names a gitdir that machine can follow.
+// The machine whose git answers for a folder: the run's own machine, so its
+// worktree names a gitdir that machine can follow. Nothing named leaves the
+// resolver to decide.
 function gitHostFor(hostId: ExecutionHostId | null) {
-  return hostId && isWslHostId(hostId) ? hostRegistry().get(hostId) : null
+  return hostId ? hostRegistry().get(hostId) : null
 }
 
 /** `paths` places the schedule file; `clients` hears every change to the list. */

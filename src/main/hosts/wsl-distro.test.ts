@@ -50,6 +50,19 @@ test('the distribution list names the default by its star, whatever the header s
   assert.deepEqual(parseWslListVerbose('Windows Subsystem for Linux has no installed distributions.\r\n'), [])
 })
 
+test('a state in words of more than one, as many languages put it, still lists the distribution', () => {
+  const french = [
+    '  NOM                    ÉTAT                    VERSION',
+    "* Ubuntu                 En cours d'exécution    2",
+    '  Debian                 Arrêté                  2',
+    '',
+  ].join('\r\n')
+  assert.deepEqual(parseWslListVerbose(french), [
+    { name: 'Ubuntu', isDefault: true, state: "En cours d'exécution", version: 2 },
+    { name: 'Debian', isDefault: false, state: 'Arrêté', version: 2 },
+  ])
+})
+
 test('the default distribution is asked for once and then remembered', async () => {
   let runs = 0
   const runList = async () => {

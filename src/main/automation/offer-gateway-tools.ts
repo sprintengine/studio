@@ -11,10 +11,11 @@ import { isStudioGatewayMutation } from './studio-gateway-tools'
 // them in process.
 
 /**
- * How long Studio waits for each built-in tool: enough to cover each one's own
- * internal deadlines (the pane's open and load waits, `wait_for`, the canvas
- * worker's cold start and its mermaid import), so moving a tool behind the
- * protocol never cuts one short.
+ * How long Studio waits for each of its own tools a client runs (the shell's
+ * built-ins, and the Windows side's tools a WSL server is offered): enough to
+ * cover each one's own internal deadlines (the pane's open and load waits,
+ * `wait_for`, the canvas worker's cold start and its mermaid import, a
+ * launch), so moving a tool behind the protocol never cuts one short.
  */
 export const BUILT_IN_TOOL_TIMEOUTS_MS: Readonly<Record<string, number>> = {
   'browser.open': 30_000,
@@ -26,9 +27,15 @@ export const BUILT_IN_TOOL_TIMEOUTS_MS: Readonly<Record<string, number>> = {
   'canvas.screenshot': 45_000,
   // A launch may cut a worktree, then waits up to 20 s for a live session.
   'agent.launch': 120_000,
+  'backlog.work': 120_000,
   'terminal.create': 120_000,
 }
 const BUILT_IN_DEFAULT_TIMEOUT_MS: Readonly<Record<string, number>> = { browser: 20_000, canvas: 15_000 }
+
+/** How long Studio waits for one of its own tools, `<toolset>.<tool>`, once a client runs it. */
+export function gatewayToolTimeoutMs(name: string): number {
+  return BUILT_IN_TOOL_TIMEOUTS_MS[name] ?? BUILT_IN_DEFAULT_TIMEOUT_MS[name.split('.')[0]] ?? 60_000
+}
 
 /** The connection a gateway handler reads, rebuilt from what the call says about its caller. */
 export function connectionContextOf(call: Pick<ToolCall, 'context'>): McpConnectionContext {
@@ -52,7 +59,7 @@ export function gatewayToolDefinitions(toolset: string, registrations: McpToolRe
       // A built-in's mutation is the gateway's own classification, which the
       // audit and a paired device's scopes have always read.
       mutates: registration.mutates ?? isStudioGatewayMutation(registration.name),
-      timeoutMs: BUILT_IN_TOOL_TIMEOUTS_MS[registration.name] ?? BUILT_IN_DEFAULT_TIMEOUT_MS[toolset] ?? 60_000,
+      timeoutMs: gatewayToolTimeoutMs(registration.name),
       handler: (input, call) => registration.handler(input, connectionContextOf(call)),
     }
   })

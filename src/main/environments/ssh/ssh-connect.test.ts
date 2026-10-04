@@ -6,7 +6,17 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, test } from 'vitest'
@@ -269,6 +279,62 @@ test('machines Studio cannot run on are named, with what was found', () => {
     /Not enough space on build-box: Studio needs 60 MB/u,
   )
   assert.equal(parseProbe(['@@SPRINTENGINE_PROBE os=Linux']), null, 'a probe cut off is not read')
+})
+
+test("the probe reads the machine's gh: installed, its version, and whether it holds a token", () => {
+  assert.deepEqual(
+    probeOfFields({ gh_version: 'gh version 2.62.0 (2024-11-14)', gh_auth: '0' }, ['@@SPRINTENGINE_PROBE has=gh']).gh,
+    { installed: true, version: '2.62.0', signedIn: false },
+  )
+  assert.equal(probeOfFields({ gh_auth: '1' }, ['@@SPRINTENGINE_PROBE has=gh']).gh.signedIn, true)
+  assert.deepEqual(probeOfFields({}).gh, { installed: false, version: null, signedIn: null })
+  // The script asks without reading the token back, and never signs in.
+  const text = script('gh')
+  assert.match(text, /auth token <\/dev\/null >\/dev\/null 2>&1/u)
+  assert.doesNotMatch(text, /gh auth login/u)
+})
+
+test("the probe finds a gh a package manager put off the plain ssh PATH, and gh can't read the script's stdin", async () => {
+  // `ssh host sh -s` runs no login profile, so its PATH is the system's (on a
+  // Mac: no Homebrew). The server's own gh runs fall back to the login shell
+  // and find it there, so the probe must too, or Settings says to install a
+  // gh that is installed. `$HOME/.local/bin` stands in for the Homebrew
+  // folders a test cannot write to.
+  const home = join(scratch, 'gh-off-path')
+  const bin = join(home, '.local', 'bin')
+  mkdirSync(bin, { recursive: true })
+  // A gh that would swallow whatever is on its stdin: the script's own stdin
+  // carries the decision line, so the probe hands gh nothing.
+  writeFileSync(
+    join(bin, 'gh'),
+    '#!/bin/sh\ncase "$1" in --version) echo "gh version 2.62.0 (2024-11-14)" ;; auth) cat >/dev/null; exit 0 ;; esac\n',
+  )
+  chmodSync(join(bin, 'gh'), 0o755)
+  // The system's own tools, less any gh this machine has there (CI runners
+  // ship one in /usr/bin), as the plain ssh PATH.
+  const system = join(home, 'system-bin')
+  mkdirSync(system)
+  for (const dir of ['/usr/bin', '/bin']) {
+    for (const name of readdirSync(dir)) {
+      if (name === 'gh' || existsSync(join(system, name))) continue
+      symlinkSync(join(dir, name), join(system, name))
+    }
+  }
+  const session = RemoteSession.start(() => {
+    const child = spawn('/bin/sh', ['-s'], {
+      cwd: home,
+      env: { PATH: system, HOME: home, SHELL: '/bin/sh' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    return child as unknown as SessionProcess
+  }, script('g1'))
+  try {
+    const probe = await probeOf(session)
+    assert.deepEqual(probe.gh, { installed: true, version: '2.62.0', signedIn: true })
+  } finally {
+    session.kill()
+    await session.closed()
+  }
 })
 
 test('a home shared with another machine is refused, naming it', () => {

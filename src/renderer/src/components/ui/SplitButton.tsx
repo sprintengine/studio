@@ -148,9 +148,15 @@ export type SplitButtonProps = {
   className?: string
 }
 
+// No `.interactive`: its press scale would shrink one half inside the group's
+// clip, pulling it off its own border while the other half stood still. It is
+// the one control the shared press does not fit (the split-button spec, under
+// States). The pressed half takes one more step of ground instead; `enabled:`
+// so a disabled half does not answer the press.
 const HALF =
-  'interactive inline-flex items-center bg-transparent text-[color:var(--text-default)] ' +
+  'inline-flex items-center bg-transparent text-[color:var(--text-default)] ' +
   'text-meta font-medium transition-colors hover:bg-[color:var(--bg-hover)] ' +
+  'enabled:active:bg-[color:var(--bg-active)] ' +
   'hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-45 ' +
   // Inset: the group clips its overflow, so an outward gap would be cut off
   // on the joined edge between the halves.
@@ -250,21 +256,12 @@ export function SplitButton({
     // clip stays — it is what keeps each half's hover fill inside the corners —
     // and so does the halves' internal hairline, which is what still says one
     // object with two halves.
+    // Tier 2 (owner ruling 2026-10-04): the outline button's `border.strong`
+    // hairline on a transparent ground, and no depth. Until then the group
+    // stood on a raised ground and sank as one piece under either half.
     quiet
       ? 'h-[var(--hit-target-min)] rounded-xs'
-      : 'h-control-sm rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]',
-    // The GROUP carries the elevation, not the halves: it already owns the
-    // border and the radius, and two sunken halves inside one outline would
-    // read as two controls. `:active` matches an ancestor of the pressed
-    // element, so pressing either half sinks the whole group — which is what a
-    // split button is.
-    //
-    // Conditional because the group is a <span>: `.control-edge:disabled`
-    // cannot match it the way it matches the kit's <button>s, so a disabled
-    // split button would otherwise keep standing off the page. A quiet group
-    // has no edge to press: the raised ground it would sink is exactly what the
-    // variant takes away.
-    disabled || quiet ? '' : 'control-edge',
+      : 'h-control-sm rounded-sm border border-[color:var(--border-strong)] bg-transparent',
   ].join(' ')
 
   const primaryHalf = (

@@ -1,12 +1,11 @@
 /* Segmented control — a radiogroup of 2–4 always-visible, mutually exclusive
  * choices (src/renderer/src/components/ui/SegmentedControl.tsx).
  *
- * A TRACK and a THUMB (owner ruling 2026-10-01). The group is a groove set into
- * the surface — bg.well, a border.subtle hairline, and shadow.control-track
- * light falling into it — and owns the ramp height. The selected segment is a
- * raised thumb standing out of the groove on shadow.control-edge and
- * gradient.control-sheen: the same step every bordered control stands off the
- * page. Unselected segments are bare ink on the groove.
+ * A TRACK and a THUMB (owner ruling 2026-10-04). The group is a plain well —
+ * bg.well, no hairline, no inset shadow — and owns the ramp height. The
+ * selected segment is a thumb on it: the bg.selected fill over
+ * shadow.control-thumb, a small drop with no lip and no sheen. Unselected
+ * segments are bare ink on the well.
  *
  * Selection stays neutral — a lifted ground and an ink lift, never the accent:
  * a selected segment is a state display, not the view's one primary action. */
@@ -17,10 +16,8 @@
   gap: var(--sem-space-3xs);
   height: var(--sem-size-control-sm);
   padding: var(--sem-space-3xs);
-  border: 1px solid var(--sem-color-border-subtle);
   border-radius: var(--sem-radius-control);
   background: var(--sem-color-bg-well);
-  box-shadow: var(--sem-shadow-control-track);
 }
 
 .ds-segmented-control-segment {
@@ -50,12 +47,11 @@
   color: var(--sem-color-text-primary);
 }
 
-/* The thumb: the raised ground over the groove, lit from above. A luminance
- * step AND an edge, which is why the checked segment survives grayscale. */
+/* The thumb: the selection fill over a small drop. A luminance step AND a
+ * lift, which is why the checked segment survives grayscale. */
 .ds-segmented-control-segment[aria-checked='true'] {
-  background-color: var(--sem-color-bg-surface-raised);
-  background-image: var(--sem-gradient-control-sheen);
-  box-shadow: var(--sem-shadow-control-edge);
+  background: var(--sem-color-bg-selected);
+  box-shadow: var(--sem-shadow-control-thumb);
   color: var(--sem-color-text-primary);
 }
 

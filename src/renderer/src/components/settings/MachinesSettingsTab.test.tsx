@@ -7,9 +7,10 @@ import type { ExecutionHostSettings, HostsListResult } from '../../../../shared/
 
 const fixtures = vi.hoisted(() => ({
   state: {
-    appSettings: { hosts: {} as Record<string, unknown> },
+    appSettings: { hosts: {} as Record<string, unknown>, machineMarks: {} as Record<string, unknown> },
     pluginCatalogEntries: [] as unknown[],
     setHostSettings: (() => {}) as (id: string, settings: unknown) => void,
+    setMachineMark: (() => {}) as (id: string, mark: unknown) => void,
   },
 }))
 vi.mock('../../store/workspaceStore', () => ({
@@ -114,7 +115,7 @@ test('a distribution that is off offers no link: the Agents tab does not list it
 test('the machine detail holds the machine, and no list of CLIs', async () => {
   fixtures.state.pluginCatalogEntries = [{ id: 'codex', displayName: 'Codex', binary: 'codex', source: 'bundled' }]
   await render()
-  const disclosure = host.querySelector<HTMLElement>('[aria-expanded="false"]')
+  const disclosure = host.querySelector<HTMLElement>('[aria-label="WSL: Ubuntu details"]')
   await act(async () => disclosure!.click())
   expect(host.querySelector('textarea[aria-label="WSL: Ubuntu environment"]')).toBeTruthy()
   expect(host.querySelector('input[aria-label="WSL: Ubuntu shell"]')).toBeTruthy()
@@ -130,7 +131,7 @@ test('WSL that did not answer says so', async () => {
 
 async function openUbuntuEnvironment(): Promise<HTMLTextAreaElement> {
   await render()
-  const disclosure = host.querySelector<HTMLElement>('[aria-expanded="false"]')
+  const disclosure = host.querySelector<HTMLElement>('[aria-label="WSL: Ubuntu details"]')
   expect(disclosure).toBeTruthy()
   await act(async () => disclosure!.click())
   const field = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="WSL: Ubuntu environment"]')
@@ -203,7 +204,7 @@ test('a distribution that can run a Studio server says where its chats run, and 
   }
   fixtures.state.appSettings.hosts = { 'wsl:Ubuntu': { enabled: true, cliCommands: {}, env: {}, chatServer: 'on' } }
   await render()
-  const disclosure = host.querySelector<HTMLElement>('[aria-expanded="false"]')
+  const disclosure = host.querySelector<HTMLElement>('[aria-label="WSL: Ubuntu details"]')
   await act(async () => disclosure!.click())
   expect(host.querySelector('[aria-label="Where chats in WSL: Ubuntu run"]')).toBeTruthy()
   expect(host.querySelector('[aria-label="How Windows reaches the Studio server in WSL: Ubuntu"]')).toBeTruthy()
@@ -237,4 +238,31 @@ test('SSH machines show only with their preview on', async () => {
   )
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
   expect(host.textContent).toContain('SSH machines')
+})
+
+test('every machine but this one wears its mark, and Change sets its kind and colour', async () => {
+  const marks: Array<[string, unknown]> = []
+  fixtures.state.appSettings.machineMarks = {}
+  fixtures.state.setMachineMark = (id, mark) => {
+    marks.push([id, mark])
+    if (mark) fixtures.state.appSettings.machineMarks = { ...fixtures.state.appSettings.machineMarks, [id]: mark }
+  }
+  await render()
+  const rows = [...host.querySelectorAll('li')]
+  const thisPc = rows.find((row) => (row.textContent ?? '').includes('This PC'))
+  const ubuntu = rows.find((row) => (row.textContent ?? '').includes('WSL: Ubuntu'))
+  expect(thisPc?.querySelector('[data-machine-mark]')).toBeNull()
+  expect(thisPc?.querySelector('[aria-label^="Change the mark"]')).toBeNull()
+  expect(ubuntu?.querySelector('[data-machine-mark]')?.getAttribute('data-machine-kind')).toBe('wsl')
+  const change = ubuntu!.querySelector<HTMLElement>('[aria-label="Change the mark for WSL: Ubuntu"]')
+  await act(async () => change!.click())
+  const tower = document.querySelector<HTMLElement>('[data-machine-kind-choice="tower"]')
+  expect(tower?.getAttribute('role')).toBe('radio')
+  await act(async () => tower!.click())
+  expect(marks).toEqual([['wsl:Ubuntu', { kind: 'tower' }]])
+  const neutral = document.querySelector<HTMLElement>('[data-machine-colour-choice="neutral"]')
+  await act(async () => neutral!.click())
+  // This fake store does not re-render on a write, so only the colour is checked here.
+  expect(marks[1]?.[0]).toBe('wsl:Ubuntu')
+  expect((marks[1]?.[1] as { colour?: string }).colour).toBe('neutral')
 })

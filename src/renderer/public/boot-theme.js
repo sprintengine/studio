@@ -108,7 +108,10 @@
     // types/appTheme.ts (85–200 in steps of 5, 100 is the default).
     var appearance =
       persisted && persisted.state && persisted.state.appSettings && persisted.state.appSettings.appearance
-    var chatWidth = appearance && appearance.chatWidth
+    // No stored appearance at all is a new install, which opens on
+    // Comfortable; a stored one without a width predates the setting and
+    // keeps Full (DEFAULT_CHAT_WIDTH and LEGACY_CHAT_WIDTH in types/appTheme.ts).
+    var chatWidth = appearance ? appearance.chatWidth : 'comfortable'
     document.documentElement.setAttribute(
       'data-chat-width',
       chatWidth === 'comfortable' || chatWidth === 'wide' ? chatWidth : 'full',

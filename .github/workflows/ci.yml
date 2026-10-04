@@ -70,11 +70,13 @@ jobs:
       - name: Typecheck
         run: npm run typecheck:all
 
-      # Windows runs only the one test file ever measured there. The Linux suite
-      # is the js-tests job below, so a broken test no longer hides a broken build.
-      - name: Test mobile control command
+      # Windows runs only the test files measured there. The Linux suite is the
+      # js-tests job below, so a broken test no longer hides a broken build.
+      # The CLI spawn test starts real batch and PowerShell shims, which only
+      # Windows has.
+      - name: Test mobile control command and CLI spawn
         if: runner.os == 'Windows'
-        run: npx vitest run src/main/mobile/control/command.test.ts
+        run: npx vitest run src/main/mobile/control/command.test.ts src/main/providers/cli-child-process.windows.test.ts
 
       # macOS is where the app is developed and most of it is used, and the whole
       # suite has been measured green there: the terminal, PTY and path handling

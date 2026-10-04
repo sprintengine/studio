@@ -18,9 +18,9 @@ document flow is what the hairline clause rules out for anything that is not a
 pressable control standing on its own.
 
 That single rule is why this is not [button](../button/component.md)'s outline
-variant with a column flow. The outline variant carries `shadow.control-edge`,
-pins a `size.control.*` height, centres its label and sets `font.weight.medium`
-— four decisions a tile has already made for itself, and four that a caller
+variant with a column flow. The outline variant presses by scale, pins a
+`size.control.*` height, centres its label and sets `font.weight.medium` —
+four decisions a tile has already made for itself, and four that a caller
 cannot reliably cancel, because two `justify-*` or two `height` declarations on
 one element are resolved by stylesheet order.
 
@@ -46,16 +46,18 @@ utility every caller had to out-specify.
   `border.strong`. For a tile whose content does not draw its own box. The
   hairline is present **at rest**, which is what lets it lift on hover without
   moving anything.
-- **`--raised`** (owner ruling 2026-10-01) — `--bordered`'s hairline over
-  `bg.surface-raised`, standing off the page on `shadow.control-edge` and
-  `gradient.control-sheen` exactly as an outline button does. For a
-  **launcher** tile: one of a grid of things to open and be done with — the
-  empty pane's Browser / Terminal / Files grid. A tile like that *is* a
-  pressable control standing on its own, which is the one case The rule leaves
-  room for. The elevation is present at rest, so hover still changes only the
-  ground and the edge colour; nothing appears and nothing reflows. Chosen, it
-  sits down into the selection fill like `--bordered`, because the selection
-  edge is itself a shadow and a chosen tile is a place, not a thing to press.
+- **`--raised`** (owner rulings 2026-10-01 and 2026-10-04) — `--bordered`'s
+  hairline over `bg.surface-raised`, and nothing else: tier 2 of
+  [button → Control tiers](../button/component.md), a standalone control that
+  is flat on its hairline. For a **launcher** tile: one of a grid of things to
+  open and be done with — the empty pane's Browser / Terminal / Files grid. A
+  tile like that *is* a pressable control standing on its own, so it answers
+  the press: the ground steps to `bg.active` and the edge to `border.strong`
+  while held. Hover changes only the ground and the edge colour, so nothing
+  appears and nothing reflows. Chosen, it takes the selection fill like
+  `--bordered`. The name stays because the shipped primitive's callers import
+  it. From 2026-10-01 to 2026-10-04 the tile stood off the page on the retired
+  `shadow.control-edge` and `gradient.control-sheen`.
 
 ## States
 
@@ -66,7 +68,7 @@ utility every caller had to out-specify.
 | Selected | `bg.selected` fill, ink at `text.primary`, 2px inset `accent.primary` edge. Hover **not applied** |
 | Focus-visible | The shared ring |
 | Disabled | 45% opacity, `not-allowed`, hover suppressed |
-| Pressed | **Nothing** on the flat variants — no scale, see The rule. `--raised` sinks: `shadow.control-pressed` replaces the edge and the sheen drops |
+| Pressed | **No scale on any variant**, see The rule. Nothing at all on the default and `--bordered`; `--raised` steps its ground to `bg.active` and its edge to `border.strong` while held |
 
 Hover is *excluded* from the selected state rather than repainted over it, for
 the reason [row-button](../row-button/component.md) documents: `bg.hover` sits

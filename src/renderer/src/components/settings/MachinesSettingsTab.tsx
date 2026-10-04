@@ -8,10 +8,12 @@ import {
   type ExecutionHostSummary,
   type WslChatServerSummary,
 } from '../../../../shared/execution-host'
+import type { MeshConnection } from '../../../../shared/tailnet-mesh'
 import { useExecutionHosts } from '../../hooks/useExecutionHosts'
+import { useMachineIdentity } from '../../hooks/useMachineIdentity'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { WslMachineGlyph } from '../AppIcons'
 import { GhostButton, InlineNotice, Input, OutlineButton, ProviderRow, ProviderStateId, Select, Textarea } from '../ui'
+import { MachineMarkPicker, MachineRowMark, machineMarkWords } from './MachineMarkPicker'
 import { SettingCard, SettingsPageHeader, SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
 import { SshMachinesSection } from './SshMachinesSection'
 
@@ -165,7 +167,7 @@ export function MachinesSettingsTab({
                 key={host.id}
                 as="li"
                 surface="card"
-                icon={<WslMachineGlyph className="size-icon-lg text-[color:var(--text-default)]" />}
+                icon={<MachineRowMark machine={{ kind: 'wsl', hostId: host.id }} />}
                 recessed={host.state === 'unavailable'}
                 name={host.label}
                 version={host.isDefaultDistro ? 'default' : null}
@@ -177,7 +179,12 @@ export function MachinesSettingsTab({
                 // Only a machine that is on is one the Agents tab offers, so
                 // only its row can open it there.
                 actions={
-                  own.enabled ? <AgentClisLink hostId={host.id} label={host.label} onShow={onShowAgentClis} /> : null
+                  <>
+                    <MachineMarkPicker machine={{ kind: 'wsl', hostId: host.id }} name={host.label} />
+                    {own.enabled ? (
+                      <AgentClisLink hostId={host.id} label={host.label} onShow={onShowAgentClis} />
+                    ) : null}
+                  </>
                 }
               >
                 <MachineDetail host={host} settings={own} onChange={(patch) => write(host.id, patch)} />
@@ -193,7 +200,68 @@ export function MachinesSettingsTab({
       </section>
 
       {window.api?.sshMachinesEnabled ? <SshMachinesSection /> : null}
+
+      <PairedMachinesSection />
     </div>
+  )
+}
+
+/**
+ * The machines this one is paired with over the tailnet, for their kind and
+ * colour (owner ruling 2026-10-04). Pairing itself — and forgetting a pairing —
+ * stays in Settings › Remote; this list is here so every machine's mark is
+ * changed in one place. Absent while nothing is paired.
+ */
+function PairedMachinesSection(): React.JSX.Element | null {
+  const [machines, setMachines] = useState<MeshConnection[]>([])
+  useEffect(() => {
+    if (typeof window.api?.meshListConnections !== 'function') return
+    let cancelled = false
+    const load = (): void => {
+      void window.api
+        .meshListConnections()
+        .then((connections) => {
+          if (!cancelled) setMachines(Array.isArray(connections) ? connections : [])
+        })
+        .catch(() => undefined)
+    }
+    load()
+    const off =
+      typeof window.api.onMeshEvent === 'function'
+        ? window.api.onMeshEvent((event) => {
+            if (event.kind === 'machine-paired' || event.kind === 'machine-forgotten') load()
+          })
+        : null
+    return () => {
+      cancelled = true
+      off?.()
+    }
+  }, [])
+  if (machines.length === 0) return null
+  return (
+    <section className="space-y-2">
+      <SettingsSectionTitle count={machines.length}>Paired machines</SettingsSectionTitle>
+      <SettingCard as="ul" ariaLabel="Paired machines">
+        {machines.map((machine) => (
+          <PairedMachineRow key={machine.id} machine={machine} />
+        ))}
+      </SettingCard>
+    </section>
+  )
+}
+
+function PairedMachineRow({ machine }: { machine: MeshConnection }): React.JSX.Element {
+  const ref = React.useMemo(() => ({ kind: 'paired' as const, name: machine.machineName }), [machine.machineName])
+  const identity = useMachineIdentity(ref)
+  return (
+    <ProviderRow
+      as="li"
+      surface="card"
+      icon={<MachineRowMark machine={ref} />}
+      name={machine.machineName}
+      stateLine={identity ? `Paired · ${machineMarkWords(identity)}` : 'Paired'}
+      actions={<MachineMarkPicker machine={ref} name={machine.machineName} />}
+    />
   )
 }
 

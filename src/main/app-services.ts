@@ -663,6 +663,16 @@ export function createAppServices(
                 servers: ssh.environments.routed,
                 onConnected: (listener: Parameters<typeof ssh.environments.onConnected>[0]) =>
                   ssh.environments.onConnected(listener),
+                // The host and port every device keys the machine's mark by,
+                // as Settings › Machines does (`sshMachineRef`): what its SSH
+                // config resolves to, else what was typed.
+                machineOf: (savedId: string) => {
+                  const machine = ssh.environments.list().find((entry) => entry.id === savedId)
+                  if (!machine) return null
+                  return machine.resolved
+                    ? { host: machine.resolved.hostname, port: machine.resolved.port }
+                    : { host: machine.destination }
+                },
               },
             }
           : {}),
@@ -1482,7 +1492,8 @@ export function createAppServices(
       })
   tailnetToolsFrontDoor = automationService
   // A chat agent in WSL reaches its own server's gateway: the desktop's
-  // toolsets are offered there too, and run here (phase 7).
+  // toolsets, and this side's own tools of the families the WSL server cannot
+  // serve, are offered there too, and run here (phase 7).
   const wslServersOfCore = 'wslServers' in core ? core.wslServers : null
   // An SSH machine's agents get the pane's browser, whose tabs reach that
   // machine's network, and the canvas (phase 8).
@@ -1508,6 +1519,7 @@ export function createAppServices(
     relayShellToolsets({
       onConnected: (listener) => wslServersOfCore.onConnected(listener),
       registry: automationService.clientTools,
+      gatewayTools: () => automationService.ownTools(),
       log: (message) => {
         void writeDiagnosticLog({ level: 'info', title: 'WSL server', message, source: 'workspace' })
       },
