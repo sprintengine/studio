@@ -2006,6 +2006,7 @@ function resolveSessionForAgentStateFrame(frame: AgentStateFrame): TerminalSessi
       executionId: session.agentSession?.executionId,
       sessionId: session.sessionId,
       workspaceId: session.workspaceId,
+      launchWorkspaceId: session.launchWorkspaceId,
       startedAt: session.startedAt,
     }))
   return selectAgentStateTarget(candidates, frame)
@@ -3392,6 +3393,7 @@ async function spawnTerminalFromIpc(
       pathStyle,
       hostId: host.id,
       workspaceId,
+      launchWorkspaceId: workspaceId,
       agentId,
       agentName,
       terminalId,
