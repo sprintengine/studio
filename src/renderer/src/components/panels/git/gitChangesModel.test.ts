@@ -233,10 +233,12 @@ test('gitChangesModel', async () => {
   // hunks nobody's spans cover — is the home list's, which is why the home row is
   // never marked partial and never disappears.
 
+  // Each agent list's id is the one its owner is given (`changelistOwnerId`);
+  // an id that is not would read as an older build's list and be retired.
   const spanLists = [
     { id: 'default', name: 'Changes', paths: ['src/main/checkpoint-store.ts'], active: false },
     {
-      id: 'agent:nadia',
+      id: 'agent:/nadia',
       name: 'Nadia',
       paths: ['src/main/app-services.ts'],
       spans: { 'src/main/checkpoint-store.ts': [{ start: 4, lines: 3 }] },
@@ -244,7 +246,7 @@ test('gitChangesModel', async () => {
       owner: { kind: 'agent' as const, agentId: 'nadia', name: 'Nadia' },
     },
     {
-      id: 'agent:otto',
+      id: 'agent:/otto',
       name: 'Otto',
       paths: [],
       spans: { 'src/main/checkpoint-store.ts': [{ start: 40, lines: 2 }] },
@@ -261,7 +263,7 @@ test('gitChangesModel', async () => {
   }
 
   assert.deepEqual(
-    groupOf('changelist:agent:nadia').rows.map((row) => [row.relativePath, row.partial === true]),
+    groupOf('changelist:agent:/nadia').rows.map((row) => [row.relativePath, row.partial === true]),
     [
       ['design-system/components/modal/component.css', false],
       ['src/main/app-services.ts', false],
@@ -270,7 +272,7 @@ test('gitChangesModel', async () => {
     'the guest row sits with the home rows, in path order, marked partial',
   )
   assert.deepEqual(
-    groupOf('changelist:agent:otto').rows.map((row) => [row.relativePath, row.partial === true]),
+    groupOf('changelist:agent:/otto').rows.map((row) => [row.relativePath, row.partial === true]),
     [['src/main/checkpoint-store.ts', true]],
     'a list with nothing but spans is still a list, with one row in it',
   )
@@ -279,13 +281,13 @@ test('gitChangesModel', async () => {
     [['src/main/checkpoint-store.ts', false]],
     'the home row is never partial: the remainder is the home list’s',
   )
-  assert.equal(groupOf('changelist:agent:otto').totalCount, 1, 'a guest row counts in its list’s header')
+  assert.equal(groupOf('changelist:agent:/otto').totalCount, 1, 'a guest row counts in its list’s header')
 
   // Every row knows which list it is standing in — the guest row's is NOT the
   // file's home, which is the whole reason the panel cannot re-derive it.
-  const guest = groupOf('changelist:agent:otto').rows[0]
+  const guest = groupOf('changelist:agent:/otto').rows[0]
   const homeRow = groupOf('changelist:default').rows[0]
-  assert.equal(guest.changelistId, 'agent:otto')
+  assert.equal(guest.changelistId, 'agent:/otto')
   assert.equal(homeRow.changelistId, 'default')
   assert.equal(guest.path, homeRow.path, 'the same file')
   assert.notEqual(guest.key, homeRow.key, 'and never the same row key')
@@ -293,7 +295,7 @@ test('gitChangesModel', async () => {
 
   // The group box, and what a click on it acts on: guest rows come back apart
   // from the paths, because `git add` on that file would stage Otto's lines too.
-  const toggle = groupToggleAction(groupOf('changelist:agent:nadia').allRows, true)
+  const toggle = groupToggleAction(groupOf('changelist:agent:/nadia').allRows, true)
   assert.deepEqual(
     toggle.paths,
     ['/repo/design-system/components/modal/component.css'],
@@ -312,7 +314,7 @@ test('gitChangesModel', async () => {
     changelists: [
       { id: 'default', name: 'Changes', paths: ['src/main/app-services.ts'], active: true },
       {
-        id: 'agent:otto',
+        id: 'agent:/otto',
         name: 'Otto',
         paths: [],
         spans: { 'src/main/gone.ts': [{ start: 1, lines: 2 }] },
@@ -321,7 +323,7 @@ test('gitChangesModel', async () => {
     ],
   })
   assert.equal(
-    goneSpan.find((group) => group.id === 'changelist:agent:otto')?.totalCount,
+    goneSpan.find((group) => group.id === 'changelist:agent:/otto')?.totalCount,
     0,
     'a span on a file git does not report is not a row',
   )
@@ -333,7 +335,7 @@ test('gitChangesModel', async () => {
     changelists: [
       { id: 'default', name: 'Changes', paths: [], active: true },
       {
-        id: 'agent:otto',
+        id: 'agent:/otto',
         name: 'Otto',
         paths: ['swap2-top.png'],
         active: false,
@@ -342,7 +344,7 @@ test('gitChangesModel', async () => {
     ],
   })
   assert.deepEqual(
-    agentCreated.find((group) => group.id === 'changelist:agent:otto')?.rows.map((row) => row.relativePath),
+    agentCreated.find((group) => group.id === 'changelist:agent:/otto')?.rows.map((row) => row.relativePath),
     ['swap2-top.png'],
     'the untracked file an agent created draws in that agent’s list',
   )
@@ -363,7 +365,7 @@ test('gitChangesModel', async () => {
   // count is what the confirm dialog spends saying which files it will not touch.
   {
     const home = groupOf('changelist:default').rows[0]
-    const other = groupOf('changelist:agent:nadia').rows[1]
+    const other = groupOf('changelist:agent:/nadia').rows[1]
     const split = revertableRows([other, guest])
     assert.deepEqual(
       split.actionable.map((row) => row.relativePath),
@@ -375,7 +377,7 @@ test('gitChangesModel', async () => {
     assert.deepEqual(revertableRows([home]), { actionable: [home], skippedPartial: 0 })
     // ...but a guest row whose file the selection ALSO holds through its home row
     // is not "skipped": that file is about to be discarded by the row that may.
-    const nadiaGuest = groupOf('changelist:agent:nadia').rows[2]
+    const nadiaGuest = groupOf('changelist:agent:/nadia').rows[2]
     assert.equal(nadiaGuest.partial, true)
     assert.equal(revertableRows([home, guest, nadiaGuest]).skippedPartial, 0)
     assert.equal(revertableRows([guest, nadiaGuest]).skippedPartial, 1, 'one FILE, not two rows')

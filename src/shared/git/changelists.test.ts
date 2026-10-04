@@ -319,8 +319,20 @@ test('changelists', async () => {
     assert.ok(old, 'the legacy list is kept under its own id')
     assert.deepEqual(old.paths, ['src/a.ts'], 'with every path it held')
     assert.deepEqual(old.spans, { [FILE]: [{ start: 3, lines: 2 }] }, 'and every span')
-    assert.equal(old.active, true, 'and still active if it was')
     assert.deepEqual(old.owner, { ...legacyOwner, exited: true }, 'flagged exited, its recorded workspace kept')
+    // Left active it would adopt every unclaimed change and never empty; the
+    // default takes the flag, and there is still exactly one active list.
+    assert.equal(old.active, false, 'no longer active once retired')
+    assert.deepEqual(
+      legacy.filter((list) => list.active).map((list) => list.id),
+      [DEFAULT_CHANGELIST_ID],
+    )
+    const adopted = reconcileChangelists(legacy, ['src/a.ts', 'src/new.ts'])
+    assert.deepEqual(pathsOf(adopted, 'agent:agent-1'), ['src/a.ts'], 'a new change does not land in it')
+    assert.ok(pathsOf(adopted, DEFAULT_CHANGELIST_ID).includes('src/new.ts'))
+    // Retired once: made active again by the person afterwards, it stays so.
+    const chosen = setActiveChangelist(legacy, 'agent:agent-1')
+    assert.equal(normalizeChangelists(chosen).find((list) => list.id === 'agent:agent-1')?.active, true)
 
     // The agent of the workspace it records relaunches: it gets a list of its
     // own, and the legacy one is neither merged into it nor revived.

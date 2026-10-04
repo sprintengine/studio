@@ -188,6 +188,12 @@ function normalizeOwner(value: unknown): ChangelistOwner | undefined {
  * those entries are a person's division of their working tree. Exited, because
  * no session will ever write to or exit it again — the feed only speaks the new
  * id — so without the flag a list emptied by a commit would sit there forever.
+ *
+ * And no longer active, at the moment it is retired (see `normalizeChangelists`):
+ * an active list adopts every change no list claims, so a retired one left
+ * active would take in the person's own edits for good and never empty. The
+ * flag passes to the default, as it does when an active list is deleted. Only
+ * at that moment: a person who makes the retired list active afterwards meant to.
  */
 function retireForeignOwner(id: string, owner: ChangelistOwner | undefined): ChangelistOwner | undefined {
   if (!owner || owner.exited || id === changelistOwnerId(owner)) return owner
@@ -395,13 +401,15 @@ export function normalizeChangelists(value: unknown): Changelist[] {
     paths.sort()
     const spans = readSpanRecord(entry.spans)
     if (Object.keys(spans).length > 0) rawSpans.set(id, spans)
-    const owner = retireForeignOwner(id, normalizeOwner(entry.owner))
+    const storedOwner = normalizeOwner(entry.owner)
+    const owner = retireForeignOwner(id, storedOwner)
+    const retiredNow = owner !== storedOwner
     out.push({
       id,
       name: normalizeName(entry.name, id === DEFAULT_CHANGELIST_ID ? DEFAULT_CHANGELIST_NAME : 'Changelist'),
       ...(normalizeComment(entry.comment) ? { comment: normalizeComment(entry.comment) as string } : {}),
       paths,
-      active: entry.active === true,
+      active: entry.active === true && !retiredNow,
       ...(owner ? { owner } : {}),
     })
   }
