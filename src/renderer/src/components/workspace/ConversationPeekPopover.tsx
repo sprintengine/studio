@@ -2,10 +2,9 @@ import React, { useEffect, useRef, useState } from 'react'
 
 import { PointerPopover } from '../ui'
 import type { ConversationPeekIdentity } from './ConversationPeekCard'
-import { useConversationPeek, useCopyValue } from './useConversationPeek'
+import { useConversationPeek } from './useConversationPeek'
 
-// The peek card itself — the thread, the file list, the image strip — behind a
-// `React.lazy` boundary at this call site. It is only ever rendered inside an
+// The peek card itself behind a `React.lazy` boundary at this call site. It is only ever rendered inside an
 // OPEN popover, so the
 // hover that opens one fetches it; nothing on first paint reads it. The named
 // export stays where it was, so anything importing the card directly is
@@ -46,7 +45,6 @@ export function ConversationPeekPopover({
   children,
   now,
   className,
-  onOpenDiff,
 }: {
   /**
    * One identity per agent this row can peek at, most recently active first.
@@ -57,10 +55,6 @@ export function ConversationPeekPopover({
   children: React.ReactNode
   now: number
   className?: string
-  /** Open the diff for one of this agent's changed paths, or the whole of the
-   *  agent's diff for `null`. The agent id rides along so the shell can open
-   *  that agent's changelist (agent changelists). */
-  onOpenDiff?: (path: string | null, agentId: string | null) => void
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null)
   // The card's own subtree, so a scroll that starts inside it can be told apart
@@ -90,7 +84,6 @@ export function ConversationPeekPopover({
   const identity = identities.find((entry) => entry.agent.sessionId === chosen) ?? identities[0] ?? null
   const sessionId = identity?.agent.sessionId ?? null
   const hover = useConversationPeek(sessionId)
-  const { copied, copy } = useCopyValue(sessionId)
   const { openNow, openSoon, closeSoon, closeNow, keepOpen } = hover
 
   // THE WHOLE ROW is the trigger (owner, 2026-09-07). A chat row is two lines —
@@ -114,7 +107,7 @@ export function ConversationPeekPopover({
   // `PointerPopover` stops click / dblclick / mousedown / contextmenu / keydown
   // at its surface, because a portal is still a React CHILD of its opener and
   // React propagates through the React tree. Without that, pressing Copy on
-  // this card selected the row it opened from.
+  // the card selected the row it opened from.
   //
   // Focus rides the same element because the ROW is the tree item that takes
   // focus, and focus does not bubble into its children. Arrowing onto a row
@@ -187,13 +180,9 @@ export function ConversationPeekPopover({
   // But it must be a scroll of the PAGE UNDER the card, never one inside it.
   // `scroll` does not bubble, so this listens in the capture phase to catch
   // nested scrollers — and capture on `window` sees every scroller in the
-  // document, the card's own thread included. That closed the card a frame
-  // after it opened: the thread scrolls itself to its newest message in a
-  // layout effect (see `Thread`), that programmatic scroll reached this
-  // listener, and the card dismissed itself before it had been seen. It also
-  // meant a person scrolling the thread by hand destroyed what they were
-  // reading. So a scroll that starts inside the card is not the app moving
-  // beneath it, and is ignored.
+  // document, the card's own included (a pull request list, a long name). So
+  // a scroll that starts inside the card is not the app moving beneath it,
+  // and is ignored.
   const open = hover.open
   useEffect(() => {
     if (!open) return
@@ -217,22 +206,14 @@ export function ConversationPeekPopover({
           popupRole="dialog"
           onClose={closeNow}
           material="glass"
-          surfaceClassName="conversation-peek-surface w-[340px]"
+          surfaceClassName="conversation-peek-surface w-[300px]"
         >
           {/* The card keeps itself open while the pointer rests on it — that is
-              what makes the copy button and the file links reachable
+              what makes its pull request mark and Compact button reachable
               across the gap from the row. */}
           <div ref={cardRef} onMouseEnter={keepOpen} onMouseLeave={closeSoon}>
             <React.Suspense fallback={null}>
-              <ConversationPeekCard
-                identity={identity}
-                peek={hover.peek}
-                loading={hover.loading}
-                now={now}
-                copied={copied}
-                onCopySession={copy}
-                onOpenDiff={onOpenDiff}
-              />
+              <ConversationPeekCard identity={identity} now={now} />
             </React.Suspense>
           </div>
         </PointerPopover>

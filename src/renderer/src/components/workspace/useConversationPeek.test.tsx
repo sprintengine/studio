@@ -4,10 +4,10 @@ import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
 test('useConversationPeek', async () => {
-  // The caching and one-card-at-a-time contract behind the peek. None of this is
-  // visible in markup: which session is read, how often, and what a close throws
-  // away. So this drives the hook in a real DOM against a counted stub of the
-  // preload call.
+  // The hover and one-card-at-a-time contract behind the peek. None of this is
+  // visible in markup, so this drives the hook in a real DOM — against a counted
+  // stub of the preload call the card USED to make, which it must not make any
+  // more (2026-10-04): everything the card says rides its identity.
   //
   // The hook no longer owns a SELECTION (2026-09-09). One card is one agent, and
   // which agent is the shell's business: the sidebar reads the `data-peek-session`
@@ -35,12 +35,7 @@ test('useConversationPeek', async () => {
   }
 
   const reads: string[] = []
-  let answer: (sessionId: string) => Promise<Peek> = async (sessionId) => ({
-    sessionId,
-    source: 'live',
-    first: null,
-    since: [],
-  })
+  const answer = async (sessionId: string): Promise<Peek> => ({ sessionId, source: 'live', first: null, since: [] })
 
   ;(dom.window as unknown as { api: unknown }).api = {
     readConversationPeek: (sessionId: string) => {
@@ -111,87 +106,24 @@ test('useConversationPeek', async () => {
     const DS = 'session-ds'
     const LL = 'session-ll'
 
-    await run('the card opens on the terminal it was given', async () => {
+    await run('opening reads nothing from main — the card is drawn from its identity', async () => {
       reads.length = 0
       const mounted = mount(DS)
       act(() => hook!.openNow())
       await settle()
-      assert.equal(hook!.peek?.sessionId, DS, 'the session it was handed is the one on screen')
-      assert.deepEqual(reads, [DS], 'exactly one read, for the terminal on screen')
-      mounted.unmount()
-    })
-
-    await run('moving to another agent line reads that agent', async () => {
-      reads.length = 0
-      const mounted = mount(DS)
-      act(() => hook!.openNow())
-      await settle()
+      assert.equal(hook!.open, true, 'the card is up')
       mounted.moveTo(LL)
       await settle()
-      assert.equal(hook!.peek?.sessionId, LL, 'the card is the agent the pointer is on')
-      assert.deepEqual(reads, [DS, LL], 'and that agent’s conversation is read')
+      assert.equal(hook!.open, true, 'and stays up as the pointer moves to another agent line')
+      assert.deepEqual(reads, [], 'no conversation read, for either agent')
       mounted.unmount()
     })
 
-    await run('a terminal already viewed is not read again while the card is open', async () => {
-      reads.length = 0
-      const mounted = mount(DS)
+    await run('a row with no session to describe never opens', async () => {
+      const mounted = mount(null)
       act(() => hook!.openNow())
       await settle()
-      mounted.moveTo(LL)
-      await settle()
-      mounted.moveTo(DS)
-      await settle()
-      mounted.moveTo(LL)
-      await settle()
-      assert.deepEqual(reads, [DS, LL], 'sweeping back up the row’s agent lines is instant and never asks main twice')
-      mounted.unmount()
-    })
-
-    await run('the body is never blank: a terminal not yet read is loading, not unreadable', async () => {
-      const mounted = mount(DS)
-      act(() => hook!.openNow())
-      assert.equal(hook!.loading, true, 'the very first frame already says it is reading')
-      // Read through a snapshot: `assert.equal` narrows what it is handed, and
-      // narrowing `hook!.peek` to null here would make the post-settle read below
-      // impossible to type.
-      const inFlight = hook!
-      assert.equal(inFlight.peek, null, 'with nothing to show yet')
-      await settle()
-      assert.equal(hook!.loading, false, 'and it settles')
-      assert.equal(hook!.peek?.sessionId, DS)
-      mounted.unmount()
-    })
-
-    await run('a read that fails settles rather than spinning forever', async () => {
-      answer = async () => {
-        throw new Error('main said no')
-      }
-      const mounted = mount(DS)
-      act(() => hook!.openNow())
-      await settle()
-      assert.equal(hook!.loading, false, 'no endless skeleton')
-      assert.equal(hook!.peek, null, 'and the card falls back to saying so')
-      answer = async (sessionId) => ({ sessionId, source: 'live', first: null, since: [] })
-      mounted.unmount()
-    })
-
-    await run('closing drops the answers, so re-opening reads fresh', async () => {
-      reads.length = 0
-      const mounted = mount(DS)
-      act(() => hook!.openNow())
-      await settle()
-      mounted.moveTo(LL)
-      await settle()
-      mounted.moveTo(DS)
-      act(() => hook!.closeNow())
-      act(() => hook!.openNow())
-      await settle()
-      assert.deepEqual(
-        reads,
-        [DS, LL, DS],
-        'the conversation is re-read — the last visit’s messages may have moved on since',
-      )
+      assert.equal(hook!.open, false)
       mounted.unmount()
     })
 

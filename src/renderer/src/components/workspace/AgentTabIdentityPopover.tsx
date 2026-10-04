@@ -1,11 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { PointerPopover } from '../ui'
 import type { ConversationPeekIdentity } from './ConversationPeekCard'
-import { useConversationPeek, useCopyValue } from './useConversationPeek'
+import { useConversationPeek } from './useConversationPeek'
 import { refreshPullRequestsForLine } from './PullRequestMark'
 
-// The peek card itself — the thread, the file list, the image strip — behind a
-// `React.lazy` boundary at this call site. It is only ever rendered inside an
+// The peek card itself behind a `React.lazy` boundary at this call site. It is only ever rendered inside an
 // OPEN popover, so the
 // hover that opens one fetches it; nothing on first paint reads it. The named
 // export stays where it was, so anything importing the card directly is
@@ -20,21 +19,20 @@ import { useRelativeNow } from '../../hooks/useRelativeNow'
 // Identity shown for an agent terminal tab. Assembled by the caller from the
 // agent record + runtime state so this component stays presentational.
 //
-// The card the tab opens IS the conversation peek (2026-09-07): the identity
-// half is model and session id, and everything else on the surface is what has
-// actually been said. Role, Runtime and Checkout are gone — "No role" was the
+// The card the tab opens IS the conversation peek (2026-09-07), without its
+// place lines (2026-10-04): project, machine and branch are what the window
+// around the tab already says. Role, Runtime and Checkout are gone — "No role" was the
 // answer for almost every agent, the runtime repeated the mark already on the
 // tab, and the checkout repeated the branch already on the topbar — and the
 // label column went with them. See ConversationPeekCard for the rest of the
-// ruling and backlog/mockups/2026-09-09-conversation-peek-one-thread.html for
-// the design.
+// ruling.
 export type AgentTabIdentity = ConversationPeekIdentity
 
 // Hover opens after a beat so a quick sweep across the tab strip never flickers
 // cards open; focus opens immediately so keyboard users don't wait. The close
 // grace period lets the pointer travel from the tab into the card without it
-// vanishing — that's what makes the copy button reachable, unlike a tooltip.
-// Both numbers, and the read behind the card, come from `useConversationPeek`
+// vanishing — that's what makes its controls reachable, unlike a tooltip.
+// Both numbers come from `useConversationPeek`
 // so the tab and the sidebar row open on the same beat.
 const ANCHOR_GAP = 6
 
@@ -54,16 +52,13 @@ const ANCHOR_GAP = 6
 export function AgentTabIdentityPopover({
   identity,
   children,
-  onOpenDiff,
   lookupBranch = null,
 }: {
   identity: AgentTabIdentity
   children: React.ReactNode
-  /** Open the diff for one of this agent's changed paths, or the whole diff for `null`. */
-  onOpenDiff?: (path: string | null, agentId: string | null) => void
   /**
    * The branch this agent's session was last observed on, for the pull request
-   * lookup below. Not shown anywhere and NOT part of the card — the card
+   * lookup below. Not shown anywhere and NOT part of the card — the tab's card
    * deliberately carries no branch and no checkout — it is only what the ask is
    * coalesced by, so a session that moves to another branch is asked about
    * again rather than being answered from the last branch's reading.
@@ -80,7 +75,6 @@ export function AgentTabIdentityPopover({
   // would be a third way to reach them.
   const sessionId = identity.agent.sessionId || null
   const hover = useConversationPeek(sessionId)
-  const { copied, copy } = useCopyValue(sessionId)
   // The ages on the card have to keep moving while it is open — a `Date.now()`
   // read inline froze them at the moment the card mounted, so a card left up
   // still said "2m" ten minutes later. Gated on `open`, so a tab that is not
@@ -160,22 +154,14 @@ export function AgentTabIdentityPopover({
           popupRole="dialog"
           onClose={closeNow}
           material="glass"
-          surfaceClassName="conversation-peek-surface w-[340px]"
+          surfaceClassName="conversation-peek-surface w-[300px]"
         >
-          {/* Keep the card open while the pointer rests on it, so the session-id
-              copy button and the file links are reachable across the gap
+          {/* Keep the card open while the pointer rests on it, so its pull
+              request mark and Compact button are reachable across the gap
               from the tab. */}
           <div onMouseEnter={hover.keepOpen} onMouseLeave={closeSoon}>
             <React.Suspense fallback={null}>
-              <ConversationPeekCard
-                identity={identity}
-                peek={hover.peek}
-                loading={hover.loading}
-                now={now}
-                copied={copied}
-                onCopySession={copy}
-                onOpenDiff={onOpenDiff}
-              />
+              <ConversationPeekCard identity={identity} now={now} />
             </React.Suspense>
           </div>
         </PointerPopover>

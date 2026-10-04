@@ -18,6 +18,7 @@ import { summariesEqual, useSidebarGitSummaries } from './useSidebarGitSummaries
 import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf } from './terminalLines'
 import { suspendWorkspaceTerminals, terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
+import { hostPlatform } from '../../clientCapabilities'
 import { openPullRequestCount, ProjectPullRequestMark, PullRequestMark } from './PullRequestMark'
 import {
   pullRequestsForRow,
@@ -3461,6 +3462,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     conversations: conversationSessions,
     status: peekStatusOf(activity, idleRecencyText),
     now,
+    platform: hostPlatform(),
   })
   const hasPeek = peekIdentities.length > 0
   // The whole row is the peek's hover target (owner ruling 2026-09-07), which
@@ -3523,25 +3525,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     </>
   )
   const titleCluster = hasPeek ? (
-    <ConversationPeekPopover
-      identities={peekIdentities}
-      now={now}
-      className={titleClusterClass}
-      onOpenDiff={(path, agentId) =>
-        openPaneTab(workspace.id, {
-          kind: 'diff',
-          diff: {
-            focusPath: path,
-            focusKind: path ? 'unstaged' : null,
-            // The card is one agent's conversation, so "open the diff" is
-            // that agent's changelist — named outright rather than left to
-            // the workspace's last-active default, which answers a different
-            // question and could answer it with a different agent.
-            ...(agentId ? { changelistId: changelistOwnerId(agentId) } : {}),
-          },
-        })
-      }
-    >
+    <ConversationPeekPopover identities={peekIdentities} now={now} className={titleClusterClass}>
       {titleClusterContent}
     </ConversationPeekPopover>
   ) : (

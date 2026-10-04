@@ -139,6 +139,9 @@ function getTerminalSessionSignatureRow(session: TerminalSessionSnapshot) {
     // would notice. -1 for absent, which no reading can be: the parser
     // refuses anything outside 0..100, so zero is a reading, not an absence.
     session.contextUsage?.usedPercentage ?? -1,
+    // The window the percent is of, which the peek reads as "84k / 200k". It
+    // moves on a model switch and on nothing else, so it costs no repaints.
+    session.contextUsage?.contextWindowSize ?? -1,
     // The conversation's pull request marks, for the same reason again: a
     // pull request lands on GitHub, or a lookup finally answers, and NO other
     // field on the snapshot moves — so without this term a mark that was blue

@@ -4,8 +4,13 @@ import type { TerminalSessionSnapshot } from '../../../../shared/electron-api'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import type { AgentState, Workspace } from '../../types/workspace'
-import type { ConversationPeekIdentity, ConversationPeekStatus } from './ConversationPeekCard'
-import { terminalCompactBlocker } from '../../../../shared/prompt-cache'
+import type {
+  ConversationPeekIdentity,
+  ConversationPeekMachine,
+  ConversationPeekPlace,
+  ConversationPeekStatus,
+} from './ConversationPeekCard'
+import { executionHostLabel, isWslHostId, LOCAL_HOST_ID } from '../../../../shared/execution-host'
 
 // What a SIDEBAR ROW knows about the conversations behind it.
 //
@@ -72,6 +77,42 @@ export function peekStatusOf(activity: ConversationPeekRowActivity, idleFor: str
   return { kind: 'idle', label: 'Idle' }
 }
 
+type PlaceWorkspace = Partial<Pick<Workspace, 'hostId' | 'environment' | 'worktree' | 'remoteOrigin'>>
+
+/**
+ * The machine a chat runs on, by the one rule the workspace records: a chat
+ * born on a paired machine is that machine's, one on an SSH machine is that
+ * one's, and everything else runs in one of this computer's WSL hosts or on
+ * this computer itself — which is null, because local is the unmarked default.
+ */
+export function peekMachineOf(workspace: PlaceWorkspace, platform: string): ConversationPeekMachine | null {
+  if (workspace.remoteOrigin) return { label: workspace.remoteOrigin.machineName, kind: 'remote' }
+  if (workspace.environment) return { label: workspace.environment.label, kind: 'remote' }
+  const hostId = workspace.hostId ?? LOCAL_HOST_ID
+  return isWslHostId(hostId) ? { label: executionHostLabel(hostId, platform), kind: 'wsl' } : null
+}
+
+/**
+ * Where one agent of the chat runs. The branch is the one its own hooks last
+ * SAW it on when there is such a reading — an agent that switched branch is on
+ * the new one — and otherwise the branch the chat was made on.
+ */
+export function peekPlaceOf(
+  workspace: PlaceWorkspace,
+  session: Pick<TerminalSessionSnapshot, 'observedCheckout'> | null,
+  platform: string,
+): ConversationPeekPlace {
+  const observed = session?.observedCheckout?.resolved ? session.observedCheckout.branch : null
+  return {
+    machine: peekMachineOf(workspace, platform),
+    branch:
+      observed?.trim() ||
+      workspace.worktree?.branch?.trim() ||
+      workspace.remoteOrigin?.checkout?.branch?.trim() ||
+      null,
+  }
+}
+
 /**
  * One card per terminal this row can peek at, live first and then most recently
  * active — which is also why the FIRST entry is the one a row with no hovered
@@ -105,11 +146,13 @@ export function peekStatusOf(activity: ConversationPeekRowActivity, idleFor: str
  * signal to draw no card at all.
  */
 export function rowConversationPeekIdentities(input: {
-  workspace: Pick<Workspace, 'name' | 'remoteOrigin'> & { agents?: Record<string, AgentState> }
+  workspace: Pick<Workspace, 'name'> & PlaceWorkspace & { agents?: Record<string, AgentState> }
   sessions: ReadonlyArray<TerminalSessionSnapshot>
   conversations?: ReadonlyArray<ConversationSessionSummary>
   status: ConversationPeekStatus
   now: number
+  /** The OS the Studio server runs on, which names this computer ("This Mac"). */
+  platform: string
 }): ConversationPeekIdentity[] {
   const agents = input.workspace.agents
   const byId = new Map<string, { identity: ConversationPeekIdentity; live: boolean; at: number }>()
@@ -130,16 +173,13 @@ export function rowConversationPeekIdentities(input: {
         // has to be recognisable as that row's card (mockup frame 3, where the
         // card opened from an agent line still names the chat).
         name: input.workspace.name,
+        place: peekPlaceOf(input.workspace, session, input.platform),
         status: agentStatusOf(session, input.now),
         agent: {
           sessionId: session.sessionId,
-          // The agent, not only the session: the card's "open the diff" opens
-          // that agent's changelist, and a session id is not what a list is
-          // named after.
           agentId: session.agentId ?? record?.id ?? null,
           cli: record?.cli ?? session.cli ?? null,
           model: record?.cliModel ?? null,
-          fileChanges: session.fileChanges ?? [],
           // What this conversation produced (epic pull-request-marks): main's
           // own union of the branch's pull requests and the ones this session
           // opened itself in any repository. Absent on an older snapshot, and
@@ -147,9 +187,6 @@ export function rowConversationPeekIdentities(input: {
           pullRequests: session.pullRequests ?? [],
           activeSubagents: session.activeSubagents ?? 0,
           contextUsage: session.contextUsage ?? null,
-          promptCache: session.promptCache ?? null,
-          // A Claude Code agent's prompt is one this app can type `/compact` at.
-          compact: (record?.cli ?? session.cli) === 'claude-code' ? { blocker: terminalCompactBlocker(session) } : null,
         },
       },
       live: session.exitedAt === null,
@@ -162,6 +199,7 @@ export function rowConversationPeekIdentities(input: {
     byId.set(session.sessionId, {
       identity: {
         name: input.workspace.name,
+        place: peekPlaceOf(input.workspace, null, input.platform),
         status:
           phase === 'running' || phase === 'starting'
             ? { kind: 'working', label: 'Working' }
@@ -177,13 +215,9 @@ export function rowConversationPeekIdentities(input: {
           agentId: session.agentId,
           cli: null,
           model: session.modelId,
-          fileChanges: [],
           pullRequests: [],
           activeSubagents: session.backgroundAgents ?? 0,
           contextUsage: null,
-          // A chat compacts from its own composer, where its notice offers it.
-          promptCache: session.promptCache ?? null,
-          compact: null,
         },
       },
       live: phase !== 'completed',
@@ -203,6 +237,7 @@ export function rowConversationPeekIdentities(input: {
       byId.set(sessionId, {
         identity: {
           name: input.workspace.name,
+          place: peekPlaceOf(input.workspace, null, input.platform),
           status: agentStatusOf(null, input.now),
           agent: {
             sessionId,
@@ -214,7 +249,6 @@ export function rowConversationPeekIdentities(input: {
             // Its pull requests are the same story — the record is keyed by
             // repo and branch on main's side, and this row has no session to
             // ask about.
-            fileChanges: [],
             pullRequests: [],
             activeSubagents: 0,
             contextUsage: null,

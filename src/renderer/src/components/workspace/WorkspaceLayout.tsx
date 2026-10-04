@@ -64,7 +64,6 @@ import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { cliForConversationProvider } from '../../../../shared/conversation-harness'
 import { conversationFinishedAt } from './sidebar/conversationLines'
 import { PromptCacheMark } from './PromptCacheMark'
-import { terminalCompactBlocker } from '../../../../shared/prompt-cache'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
@@ -75,7 +74,6 @@ import { chatResumesInTerminal, resumeChatInTerminalOrToast } from '../panels/ag
 import { requestChatReplay } from '../panels/agentChat/chatReplayRequests'
 import { ModuleContributionBoundary } from '../../modules/ModuleContributionBoundary'
 import { GitBranchGlyph } from './WorkspaceActions'
-import { changelistOwnerId } from '../../../../shared/git/changelists'
 import {
   ContextMenu,
   IconButton,
@@ -411,9 +409,6 @@ function WorkspaceLayoutBody({
       ? `WSL: ${distroOfHostId(workspaceHostId) ?? workspaceHostId}`
       : null)
   const machineMarks = useWorkspaceStore((s) => s.appSettings.machineMarks)
-  // A file the peek card lists opens in the workspace pane's Diff tab, the same
-  // tab and the same focus a Git panel row opens (see GitPanel.handleOpenFile).
-  const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const workspaceAgents = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents ?? EMPTY_WORKSPACE_AGENTS,
@@ -1537,24 +1532,15 @@ function WorkspaceLayoutBody({
           // there is nothing to ask, and the alternative the roster used to take
           // was to open the card on a SIBLING agent's conversation.
           sessionId: agentSessionId ?? '',
-          // Whose changelist the card's "open the diff" filters to.
           agentId,
           cli: agent?.cli ?? null,
           model: conversation?.modelId ?? agent?.cliModel ?? null,
-          fileChanges: agentSnapshot?.fileChanges ?? [],
           // The tab anchor shows the same head as the sidebar anchor because
           // both feed one card: the pull requests are this agent's session's,
-          // exactly as its ledger and its context reading are.
+          // exactly as its context reading is.
           pullRequests: agentSnapshot?.pullRequests ?? [],
           activeSubagents: agentSnapshot?.activeSubagents ?? 0,
           contextUsage: agentSnapshot?.contextUsage ?? null,
-          promptCache: agentPromptCache,
-          // Only a Claude Code terminal can be sent `/compact` from the card; a
-          // chat compacts from its own composer.
-          compact:
-            agentSnapshot && agent?.runtimeKind !== 'conversation' && agent?.cli === 'claude-code'
-              ? { blocker: terminalCompactBlocker(agentSnapshot) }
-              : null,
         },
       }
 
@@ -1572,19 +1558,6 @@ function WorkspaceLayoutBody({
           // checkout — it only keys the ask, so a session that moves branch is
           // asked about again instead of being answered from the old reading.
           lookupBranch={agentSnapshot?.observedCheckout?.branch ?? null}
-          onOpenDiff={(path, diffAgentId) =>
-            openPaneTab(workspaceId, {
-              kind: 'diff',
-              diff: {
-                focusPath: path,
-                focusKind: path ? 'unstaged' : null,
-                // The card is one agent's, so the diff it opens is that
-                // agent's changelist — explicitly, not through the workspace's
-                // last-active default, which is about a different question.
-                ...(diffAgentId ? { changelistId: changelistOwnerId(diffAgentId) } : {}),
-              },
-            })
-          }
         >
           {tabNameSpan}
           {workspaceMachineIdentity && workspaceMachineName
