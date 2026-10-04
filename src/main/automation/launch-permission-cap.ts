@@ -150,6 +150,11 @@ export function createAgentPermissionResolver(deps: {
   readAgentRecordPreset(workspaceId: string, agentId: string): { found: false } | { found: true; preset: unknown }
 }): AgentPermissionResolver {
   return ({ workspaceId, agentId }) => {
+    // An agent id is only unique within its workspace: nearly every chat's
+    // first agent is `agent-1`. With the caller's workspace known, only its own
+    // sessions answer, so another chat's `agent-1` on `bypass` lends it
+    // nothing and one on `none` does not hold it back. A connection that names
+    // no workspace could be any of them, so it is held to the strictest.
     const sameWorkspace = (candidate: string | undefined): boolean => !workspaceId || candidate === workspaceId
 
     const chats = deps

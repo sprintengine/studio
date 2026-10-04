@@ -441,6 +441,31 @@ test("resolver: another workspace's agent of the same id does not answer", () =>
   assert.equal(resolve({ workspaceId: 'ws-1', agentId: 'agent-a' }), null)
 })
 
+test("resolver: another workspace's terminal agent of the same id does not answer either way", () => {
+  const terminal = (workspaceId: string, preset: string): TerminalSession => ({
+    kind: 'agent',
+    workspaceId,
+    agentId: 'agent-1',
+    processAlive: true,
+    agentRecord: { cliPermissionPreset: preset },
+  })
+  const resolve = resolverOver({ terminals: [terminal('ws-2', 'none'), terminal('ws-1', 'bypass')] })
+  assert.equal(resolve({ workspaceId: 'ws-1', agentId: 'agent-1' }), 'bypass', "ws-2's none does not hold ws-1 back")
+  assert.equal(resolve({ workspaceId: 'ws-2', agentId: 'agent-1' }), 'none', "ws-1's bypass lends ws-2 nothing")
+  assert.equal(resolve({ workspaceId: 'ws-3', agentId: 'agent-1' }), null)
+})
+
+test('resolver: a connection naming no workspace is held to the strictest agent of its id anywhere', () => {
+  const resolve = resolverOver({
+    chats: [
+      { workspaceId: 'ws-1', agentId: 'agent-1', status: 'ready', permissionPreset: 'bypass' },
+      { workspaceId: 'ws-2', agentId: 'agent-1', status: 'ready', permissionPreset: 'none' },
+    ],
+  })
+  assert.equal(resolve({ agentId: 'agent-1' }), 'none')
+  assert.equal(resolve({ workspaceId: 'ws-1', agentId: 'agent-1' }), 'bypass')
+})
+
 test('resolver: an agent nothing knows is unresolved', () => {
   assert.equal(resolverOver({})({ workspaceId: 'ws-1', agentId: 'agent-ghost' }), null)
   assert.equal(resolverOver({})({ agentId: 'agent-ghost' }), null)
