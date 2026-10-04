@@ -51,6 +51,8 @@ export type StudioPullRequest = {
   openedAt: number
   /** When its state was last read from the host, ms epoch; 0 when it never has been. */
   stateAt: number
+  /** When it merged, or closed without merging, ms epoch. Absent while open, or when the host never said. */
+  endedAt?: number
   /**
    * Set when it is not on GitHub. Its state is not read, so `state` stays
    * `open` and a client says "opened" rather than "open".

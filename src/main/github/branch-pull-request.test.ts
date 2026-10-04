@@ -125,6 +125,11 @@ test('branch-pull-request', async () => {
       assert.equal(read.pullRequests[0].openedAt, Date.parse('2026-09-08T10:00:00.000Z'))
       assert.equal(read.pullRequests[0].stateAt, NOW, 'stateAt is when GitHub was asked')
       assert.equal(read.pullRequests[0].openedByWorkspaceId, undefined, 'a lookup names no conversation')
+      assert.deepEqual(
+        read.pullRequests.map((pr) => pr.endedAt),
+        [undefined, undefined, Date.parse('2026-09-06T18:00:00.000Z'), Date.parse('2026-09-05T18:00:00.000Z')],
+        'one that ended says when: its merge, else its close; an open one says nothing',
+      )
     }
 
     // A pull request whose payload says CLOSED but carries a mergedAt is merged.
@@ -316,6 +321,7 @@ test('branch-pull-request', async () => {
         title: null,
         openedAt: null,
         number: null,
+        endedAt: Date.parse('2026-09-09T09:00:00.000Z'),
       })
     }
     {
@@ -331,6 +337,7 @@ test('branch-pull-request', async () => {
         title: null,
         openedAt: null,
         number: null,
+        endedAt: Date.parse('2026-09-09T09:00:00.000Z'),
       })
     }
     {

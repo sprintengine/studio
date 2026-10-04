@@ -330,6 +330,7 @@ function sameList(a: readonly BranchPullRequest[], b: readonly BranchPullRequest
       entry.title === b[index].title &&
       entry.number === b[index].number &&
       entry.openedAt === b[index].openedAt &&
+      entry.endedAt === b[index].endedAt &&
       entry.onSessionBranch === b[index].onSessionBranch,
   )
 }
