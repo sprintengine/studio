@@ -296,6 +296,9 @@ export function wslShareSafeDirectories(cwd: string, platform: NodeJS.Platform =
  * index was written is still read, by git's racy-entry check. Studio's own
  * git keeps running where the chat's agents run theirs (one git per
  * repository), so checkpoints and revert see the files as the agent does.
+ * A checkpoint snapshot sets `core.checkStat=default` after this, and so
+ * re-reads: there a trusted entry would be Git for Windows' blob, after a
+ * line-ending conversion Linux git does not make (conversation-checkpoints.ts).
  */
 export const DRIVE_MOUNT_GIT_CONFIG: readonly string[] = ['-c', 'core.checkStat=minimal']
 

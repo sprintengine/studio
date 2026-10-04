@@ -53,7 +53,7 @@ import type {
 import type { EnsureSkillInstalledResult } from '../shared/modules/skills'
 import type { CliPermissionPreset } from '../shared/cli-permission-preset'
 import { parseCliPermissionModeId } from '../shared/cli-permission-mode'
-import type { ExecutionHostId } from '../shared/execution-host'
+import { workspaceHostIdOf, type ExecutionHostId } from '../shared/execution-host'
 import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
 import { conversationCliRuntimesForHost } from '../shared/conversation-cli-runtimes'
 import type { McpServerConfig } from '../shared/ipc/mcp'
@@ -387,7 +387,13 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
 
     // The chat's CLI on the machine the chat runs on: a WSL workspace's chat
     // runs that distribution's CLI, whichever it is, as a window's chat would.
-    const cliRuntimes = conversationCliRuntimesForHost(settings.cliRuntimes, workspace.hostId, settings.hosts)
+    // A workspace that records no machine runs where its folder defaults to,
+    // as the router and Studio's git read it (owner ruling 2026-10-03).
+    const cliRuntimes = conversationCliRuntimesForHost(
+      settings.cliRuntimes,
+      workspaceHostIdOf(workspace),
+      settings.hosts,
+    )
     const started = await deps
       .startSession({
         workspaceRoot: workingRoot,
