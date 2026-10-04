@@ -883,16 +883,24 @@ function parseFrameWakeup(raw: unknown): AgentStateFrameWakeup | null {
 //
 // A frame with no workspace (a session launched without one, or a reporter that
 // predates the variable) is placed only when that cannot be a guess: every
-// matching session lives in the same workspace. Two chats' `agent-1`s are
-// ambiguous, and an ambiguous frame is dropped — a missed phase is corrected by
-// the next frame, a wrong one paints another chat working.
+// matching LIVE session lives in the same workspace. Two chats' live `agent-1`s
+// are ambiguous, and an ambiguous frame is dropped — a missed phase is corrected
+// by the next frame, a wrong one paints another chat working. Sessions with no
+// process are left out of that count: after a restart every old chat holds a
+// parked `agent-1`, and counting them dropped every such frame even with one
+// `agent-1` running. They are still the answer when nothing matching is live,
+// for the caller to drop as a late frame.
 //
 // The execution and PTY session ids are unique on their own, so a frame naming
 // one of them is placed whatever the workspace says.
 //
 // A session's workspace can change under a live process: an agent moved to
 // another chat reattaches its pane from there, while the process env (and so
-// every frame) still names the chat it was launched in. A frame matches either.
+// every frame) still names the chat it was launched in. So the frame's
+// workspace is matched against the one each session was launched with first.
+// Only a session with no launch workspace on record is matched by the one it
+// is in now: one that moved in from another chat names that chat in its
+// frames, so a frame naming this one was never its.
 // =============================================================================
 
 export type AgentStateCandidate<T> = {
@@ -902,6 +910,9 @@ export type AgentStateCandidate<T> = {
   sessionId?: string
   workspaceId?: string
   launchWorkspaceId?: string
+  // False for a session with no process behind it (exited, or parked after a
+  // restart). Absent reads as live.
+  alive?: boolean
   startedAt: number
 }
 
@@ -921,13 +932,17 @@ export function selectAgentStateTarget<T>(
   const matches = candidates.filter((candidate) => candidate.agentId === frame.agentId)
   if (matches.length === 0) return undefined
   if (frame.workspaceId) {
-    const scoped = matches.filter(
-      (candidate) => candidate.workspaceId === frame.workspaceId || candidate.launchWorkspaceId === frame.workspaceId,
-    )
+    const launched = matches.filter((candidate) => candidate.launchWorkspaceId === frame.workspaceId)
+    const scoped =
+      launched.length > 0
+        ? launched
+        : matches.filter((candidate) => !candidate.launchWorkspaceId && candidate.workspaceId === frame.workspaceId)
     return scoped.length > 0 ? newestCandidate(scoped).value : undefined
   }
-  const workspaces = new Set(matches.map((candidate) => candidate.workspaceId))
-  return workspaces.size === 1 ? newestCandidate(matches).value : undefined
+  const live = matches.filter((candidate) => candidate.alive !== false)
+  const pool = live.length > 0 ? live : matches
+  const workspaces = new Set(pool.map((candidate) => candidate.workspaceId))
+  return workspaces.size === 1 ? newestCandidate(pool).value : undefined
 }
 
 // =============================================================================

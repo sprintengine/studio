@@ -949,6 +949,66 @@ test('agent-state', async () => {
     }
     assert.equal(selectAgentStateTarget([movedAgent, dupB], { agentId: 'agent-1', workspaceId: 'w1' })?.id, 'moved')
     assert.equal(selectAgentStateTarget([movedAgent, dupB], { agentId: 'agent-1', workspaceId: 'w2' })?.id, 'new')
+    // The frame's workspace is its process's launch workspace, so a session
+    // launched there wins over a newer one that only sits there now, having
+    // moved in from another chat: that one's frames name the chat it left.
+    const movedOut = {
+      ...cand({ id: 'moved-out', agentId: 'agent-1', workspaceId: 'w2', startedAt: 1 }),
+      launchWorkspaceId: 'w1',
+    }
+    const movedIn = {
+      ...cand({ id: 'moved-in', agentId: 'agent-1', workspaceId: 'w1', startedAt: 5 }),
+      launchWorkspaceId: 'w3',
+    }
+    assert.equal(
+      selectAgentStateTarget([movedIn, movedOut], { agentId: 'agent-1', workspaceId: 'w1' })?.id,
+      'moved-out',
+    )
+    assert.equal(selectAgentStateTarget([movedIn, movedOut], { agentId: 'agent-1', workspaceId: 'w3' })?.id, 'moved-in')
+    assert.equal(
+      selectAgentStateTarget([movedIn], { agentId: 'agent-1', workspaceId: 'w1' }),
+      undefined,
+      'a session that moved in never sent a frame naming the chat it moved into',
+    )
+    // A session with no launch workspace on record (one parked across a
+    // restart) is matched by the workspace it is in.
+    assert.equal(selectAgentStateTarget([dupA], { agentId: 'agent-1', workspaceId: 'w1' })?.id, 'old')
+
+    // After a restart every old chat has a parked `agent-1` with no process. A
+    // frame with no workspace is still placed when only one `agent-1` is live.
+    const parked = (id: string, workspaceId: string) => ({
+      ...cand({ id, agentId: 'agent-1', workspaceId, startedAt: 9 }),
+      alive: false,
+    })
+    const running = { ...cand({ id: 'running', agentId: 'agent-1', workspaceId: 'w2', startedAt: 1 }), alive: true }
+    assert.equal(
+      selectAgentStateTarget([parked('p1', 'w1'), parked('p3', 'w3'), running], {
+        agentId: 'agent-1',
+        workspaceId: null,
+      })?.id,
+      'running',
+    )
+    // Two live ones in two chats are still ambiguous.
+    const runningElsewhere = {
+      ...running,
+      id: 'running-w1',
+      value: { ...running.value, id: 'running-w1' },
+      workspaceId: 'w1',
+    }
+    assert.equal(
+      selectAgentStateTarget([parked('p3', 'w3'), running, runningElsewhere], {
+        agentId: 'agent-1',
+        workspaceId: null,
+      }),
+      undefined,
+    )
+    // With none live the old rule holds: one chat's parked session is the
+    // answer (the caller drops the frame as late), two chats' are ambiguous.
+    assert.equal(selectAgentStateTarget([parked('p1', 'w1')], { agentId: 'agent-1', workspaceId: null })?.id, 'p1')
+    assert.equal(
+      selectAgentStateTarget([parked('p1', 'w1'), parked('p3', 'w3')], { agentId: 'agent-1', workspaceId: null }),
+      undefined,
+    )
     // The execution and session ids are unique on their own: placed whatever
     // workspace the frame names.
     assert.equal(

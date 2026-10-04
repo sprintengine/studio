@@ -2007,6 +2007,7 @@ function resolveSessionForAgentStateFrame(frame: AgentStateFrame): TerminalSessi
       sessionId: session.sessionId,
       workspaceId: session.workspaceId,
       launchWorkspaceId: session.launchWorkspaceId,
+      alive: isTerminalProcessAlive(session),
       startedAt: session.startedAt,
     }))
   return selectAgentStateTarget(candidates, frame)
