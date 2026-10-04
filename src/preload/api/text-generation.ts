@@ -1,8 +1,33 @@
 import { ipc as ipcRenderer } from '../ipc-router'
 import type { ElectronApi } from '../../shared/electron-api'
-import type { ChatTitleRequest, TextGenerationResult } from '../../shared/text-generation/contract'
+import type {
+  ChatTitleRequest,
+  PullRequestTextResult,
+  TextGenerationCliRuntimeOverrides,
+  TextGenerationEngine,
+  TextGenerationResult,
+} from '../../shared/text-generation/contract'
+import type {
+  CreatePullRequestOutcome,
+  CreatePullRequestState,
+  PushForPullRequestOutcome,
+} from '../../shared/git/pull-request-create'
 
 export const textGenerationApi = {
   generateChatTitle: (request: ChatTitleRequest): Promise<TextGenerationResult> =>
     ipcRenderer.invoke('text-generation:chat-title', request),
-} satisfies Pick<ElectronApi, 'generateChatTitle'>
+  createPullRequestState: (cwd: string): Promise<CreatePullRequestState | null> =>
+    ipcRenderer.invoke('pull-request-create:state', cwd),
+  draftPullRequestText: (request: {
+    cwd: string
+    engine: TextGenerationEngine
+    cliRuntimes?: TextGenerationCliRuntimeOverrides
+  }): Promise<PullRequestTextResult> => ipcRenderer.invoke('pull-request-create:draft', request),
+  pushForPullRequest: (cwd: string): Promise<PushForPullRequestOutcome> =>
+    ipcRenderer.invoke('pull-request-create:push', cwd),
+  createPullRequest: (input: { cwd: string; title: string; body: string }): Promise<CreatePullRequestOutcome> =>
+    ipcRenderer.invoke('pull-request-create:create', input),
+} satisfies Pick<
+  ElectronApi,
+  'generateChatTitle' | 'createPullRequestState' | 'draftPullRequestText' | 'pushForPullRequest' | 'createPullRequest'
+>

@@ -73,6 +73,8 @@ test('WorkspaceSidebar.allChats', async () => {
     },
     refresh: async () => ({ asked: true }),
     noteWork: async () => undefined,
+    noteToolCall: async () => undefined,
+    link: async () => ({ ok: false, code: 'not_a_pull_request', message: 'not here' }),
     onChanged: (listener) => {
       pullRequestListeners.add(listener)
       return () => pullRequestListeners.delete(listener)

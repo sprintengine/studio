@@ -865,15 +865,14 @@ export function createAppServices(
     onAgentFileEdit: (input) => {
       agentWrittenFiles.note(input.session.agentId, input.path)
       agentChangelistFeed.onAgentFileEdit(input)
-      // The repositories a terminal agent changed files in are looked up for
-      // pull requests at its next turn end, as a chat's are.
-      terminalPullRequests?.noteFileEdit(input.session, input.path)
     },
     onAgentSessionExit: (session) => agentChangelistFeed.onAgentSessionExit(session),
-    // Where an agent is, each time git answers: the Studio server looks its
-    // branch up for pull requests (terminal-pull-requests.ts, below).
+    // Where an agent is, each time git answers, and the tool calls that may
+    // have opened a pull request: the Studio server reads both
+    // (terminal-pull-requests.ts, below).
     onObservedCheckoutResolved: (session, resolution) =>
       terminalPullRequests?.noteCheckoutResolved(session, resolution),
+    onAgentToolCall: (session, toolCall) => terminalPullRequests?.noteToolCall(session, toolCall),
     // Durable freeze-the-view: suspended agent terminals persist their painted
     // screen to disk and reopen painted-and-paused after an app restart.
     snapshotSidecars: createTerminalSnapshotSidecarStore({

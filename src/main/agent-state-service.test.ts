@@ -8,7 +8,8 @@ import { join } from 'node:path'
 
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { studioEnvEntry } from '../shared/studio-env'
-import type { AgentStateFrame } from './agent-state'
+import { parseAgentStateFrame, type AgentStateFrame } from './agent-state'
+import { readOpenedPullRequest } from '../shared/git/pull-request-opened'
 import { createAgentStateService, resolveAgentStateSocketPath } from './agent-state-service'
 import { localLauncherRef } from './integrations/launcher'
 import { test } from 'vitest'
@@ -1342,27 +1343,87 @@ test('agent-state-service', async () => {
 
       vocabServer.close()
 
-      // --- no pull request capture -------------------------------------------
-      // Pull requests come only from asking GitHub about the branches an agent
-      // worked on (owner ruling 2026-10-03). The reporter reads no command and
-      // no result for them: a `gh pr create` is an ordinary tool call, and no
-      // frame carries a URL.
+      // --- tool calls forwarded for the pull request reader -------------------
+      // The reporter decides nothing about pull requests (owner ruling
+      // 2026-10-04): it forwards a shell or MCP call whose output holds a URL,
+      // and the server's one reader decides. Held to that reader here: what
+      // the reporter forwards must read exactly as the chat path's input for the
+      // same call does, so the two can never disagree.
       const prSockPath = join(sockDir, 'pr-instance.sock')
       const prFrames: string[] = []
       const prServer = await listenLines(prSockPath, prFrames)
-      await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
-        hook_event_name: 'PostToolUse',
-        session_id: 'pr-session',
-        cwd: vocabDir,
-        tool_name: 'Bash',
-        tool_input: { command: "gh pr create --title 'Ship it' --body 'Because'" },
-        tool_response: { stdout: 'https://github.com/acme/app/pull/12\n', stderr: '' },
-      })
-      await waitFor(() => prFrames.length >= 1)
-      const prFrame = JSON.parse(prFrames[0]) as Record<string, unknown>
-      assert.equal(prFrame.event, 'PostToolUse', 'the call still reports its phase')
-      assert.equal('pullRequest' in prFrame, false, 'and carries no pull request')
-      assert.equal(prFrames[0].includes('github.com/acme/app/pull'), false, 'nor any of the output')
+      const forwarded = async (payload: Record<string, unknown>): Promise<AgentStateFrame['toolCall']> => {
+        const before = prFrames.length
+        await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+          hook_event_name: 'PostToolUse',
+          session_id: 'pr-session',
+          cwd: vocabDir,
+          ...payload,
+        })
+        await waitFor(() => prFrames.length > before)
+        const frame = parseAgentStateFrame(JSON.parse(prFrames[before]) as unknown, Date.now() + 60_000)
+        assert.ok(frame, 'main accepts the frame')
+        return frame.toolCall
+      }
+      const parityCases: Array<{ name: string; tool_name: string; tool_input: unknown; tool_response: unknown }> = [
+        {
+          name: 'Claude Code Bash',
+          tool_name: 'Bash',
+          tool_input: { command: "gh pr create --title 'Ship it' --body 'Because'" },
+          tool_response: { stdout: 'https://github.com/acme/app/pull/12\n', stderr: 'Creating pull request' },
+        },
+        {
+          name: 'Codex shell, argv command, string result',
+          tool_name: 'shell',
+          tool_input: { command: ['bash', '-lc', 'glab mr create --fill --yes'] },
+          tool_response:
+            'Exit code: 0\nWall time: 2.1 seconds\nOutput:\n!4 Ship it (feature)\n https://gitlab.example.com/acme/app/-/merge_requests/4\n',
+        },
+        {
+          name: 'an MCP create tool',
+          tool_name: 'mcp__github__create_pull_request',
+          tool_input: { owner: 'acme', repo: 'app', title: 'Ship it', head: 'feature', base: 'main' },
+          tool_response: [
+            {
+              type: 'text',
+              text: '{"url":"https://api.github.com/repos/acme/app/pulls/13","html_url":"https://github.com/acme/app/pull/13"}',
+            },
+          ],
+        },
+        {
+          name: 'a listing, forwarded and refused by the reader',
+          tool_name: 'Bash',
+          tool_input: { command: 'gh pr list' },
+          tool_response: { stdout: '12 Ship it https://github.com/acme/app/pull/12\n', stderr: '' },
+        },
+      ]
+      for (const parity of parityCases) {
+        const toolCall = await forwarded(parity)
+        assert.ok(toolCall, `${parity.name}: forwarded`)
+        assert.deepEqual(
+          readOpenedPullRequest(toolCall),
+          readOpenedPullRequest({ name: parity.tool_name, input: parity.tool_input, output: parity.tool_response }),
+          `${parity.name}: the reporter's call reads as the chat path's does`,
+        )
+      }
+      assert.equal(
+        readOpenedPullRequest((await forwarded(parityCases[0]))!)?.url,
+        'https://github.com/acme/app/pull/12',
+      )
+      // Nothing to forward: a call with no URL in its output, and a tool that
+      // is neither a shell nor an MCP tool.
+      assert.equal(
+        await forwarded({ tool_name: 'Bash', tool_input: { command: 'ls' }, tool_response: { stdout: 'a b' } }),
+        undefined,
+      )
+      assert.equal(
+        await forwarded({
+          tool_name: 'Read',
+          tool_input: { file_path: join(vocabDir, 'notes.md') },
+          tool_response: 'see https://github.com/acme/app/pull/12',
+        }),
+        undefined,
+      )
       prServer.close()
 
       // --- status-line forwarder ---------------------------------------------

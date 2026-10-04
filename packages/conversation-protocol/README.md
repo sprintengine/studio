@@ -89,7 +89,7 @@ know out rather than guessing at it (`isConversationWirePermissionPreset`).
 A listed chat may name the machine it runs on in `host` — `{ id, kind, label,
 color }`, where `id` is `local` for the desktop answering (draw no machine mark
 for it), `wsl:<distro>`, `ssh:<host>` or `tailnet:<host>` — and the pull
-requests its branches have in `pullRequests` — `{ number, state, url, title }`,
+requests it opened in `pullRequests` — `{ number, state, url, title }`,
 `state` being `open`, `merged` or `closed`, at most
 `CONVERSATION_MAX_PULL_REQUESTS`. Both are optional with no capability: a
 desktop that does not send them sends neither, and an empty `pullRequests` says

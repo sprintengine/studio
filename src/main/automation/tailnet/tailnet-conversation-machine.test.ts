@@ -27,7 +27,7 @@ import { TAILNET_IDENTITY_PATH, TAILNET_PAIR_PATH } from './tailnet-routes'
 
 // What a paired phone's conversation list and identity read say about
 // machines and pull requests: the machine each chat runs on, this desktop's
-// own kind and colour, and the pull requests each chat's branches have.
+// own kind and colour, and the pull requests each chat opened.
 
 const windows: ConversationMachineContext = { hostName: 'build-box', platform: 'win32', marks: {} }
 

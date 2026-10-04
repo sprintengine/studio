@@ -65,6 +65,8 @@ test('useConversationPullRequests', async () => {
       return { asked: true }
     },
     noteWork: async () => undefined,
+    noteToolCall: async () => undefined,
+    link: async () => ({ ok: false, code: 'not_a_pull_request', message: 'not here' }),
     onChanged: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)

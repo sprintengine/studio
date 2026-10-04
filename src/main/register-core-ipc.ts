@@ -18,6 +18,7 @@ import { registerStudioPluginIpc } from './ipc/studio-plugin-ipc'
 import { registerStudioAreaSkillsIpc } from './ipc/studio-area-skills-ipc'
 import { registerCliRuntimeIpc } from './ipc/cli-runtime-ipc'
 import { registerTextGenerationIpc } from './ipc/text-generation-ipc'
+import { registerPullRequestCreateIpc } from './ipc/pull-request-create-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { registerConversationPeekIpc } from './ipc/conversation-peek-ipc'
 import { registerAgentCompactIpc } from './ipc/agent-compact-ipc'
@@ -140,6 +141,8 @@ export function registerCoreIpc(
     options.server ? { discoverModels: (input) => options.server!.discoverModels(input) } : {},
   )
   registerTextGenerationIpc(ipcMain)
+  // The chat's "Create PR": git, gh and the drafting CLI all run on this computer.
+  registerPullRequestCreateIpc(ipcMain)
   // Voice dictation is a dev-only capability (the `voice-dictation` module). Its
   // main IPC is not yet a capability module, so gate it on the build channel
   // here so `voice:transcribe` is genuinely absent in a packaged build, not just

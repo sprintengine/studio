@@ -263,6 +263,8 @@ export const STUDIO_ERROR_CODES = [
   'name_taken',
   // A withdrawal or a grant naming a toolset that is not offered.
   'not_offered',
+  // A pull request another conversation opened first, which stays with it.
+  'claimed',
 ] as const
 
 export type StudioErrorCode = (typeof STUDIO_ERROR_CODES)[number]

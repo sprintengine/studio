@@ -289,6 +289,74 @@ test('the launcher’s prompt is sent as the first message the moment the chat i
   }
 })
 
+// The launcher holds a staged screenshot as a file; macOS's own thumbnail sits
+// in a temporary folder like this one.
+const LAUNCH_SHOT = '/var/folders/x1/T/TemporaryItems/NSIRD_screencaptureui_ab12/Screenshot 2026-10-04 at 12.15.13.png'
+
+test('the launcher’s images go with the first message as images, the way a later message’s do', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const readImageDataUrl = vi.fn(async () => 'data:image/png;base64,iVBORw0KGgo=')
+  const chat = await mountChat({
+    capabilities: { images: true },
+    agent: { chatStartupPrompt: 'It looks wrong', chatStartupImages: [LAUNCH_SHOT] },
+    sendTurn,
+    api: { readImageDataUrl },
+  })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(readImageDataUrl).toHaveBeenCalledWith(LAUNCH_SHOT)
+    expect(sendTurn).toHaveBeenCalledOnce()
+    expect(sendTurn.mock.calls[0][0]).toMatchObject({
+      message: 'It looks wrong',
+      attachments: [{ mediaType: 'image/png', name: 'Screenshot 2026-10-04 at 12.15.13.png' }],
+    })
+    expect(chat.agent().chatStartupImages, 'one-shot, with the prompt').toBeUndefined()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chat whose provider reads no images is given the launcher’s image paths after the text', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const readImageDataUrl = vi.fn(async () => 'data:image/png;base64,iVBORw0KGgo=')
+  const chat = await mountChat({
+    agent: { chatStartupPrompt: 'It looks wrong', chatStartupImages: [LAUNCH_SHOT] },
+    sendTurn,
+    api: { readImageDataUrl },
+  })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(readImageDataUrl).not.toHaveBeenCalled()
+    expect(sendTurn).toHaveBeenCalledOnce()
+    expect(sendTurn.mock.calls[0][0]).toMatchObject({ message: `It looks wrong '${LAUNCH_SHOT}'` })
+    expect(sendTurn.mock.calls[0][0]).not.toHaveProperty('attachments')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a launcher image that is gone leaves the text as the draft, with the reason, and sends nothing', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({
+    capabilities: { images: true },
+    agent: { chatStartupPrompt: 'It looks wrong', chatStartupImages: [LAUNCH_SHOT] },
+    sendTurn,
+    api: {
+      readImageDataUrl: async () => {
+        throw new Error("Error invoking remote method 'fs:read-image-data-url': Error: ENOENT: no such file")
+      },
+    },
+  })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(sendTurn).not.toHaveBeenCalled()
+    expect(chat.host.querySelector('textarea')!.value).toBe('It looks wrong')
+    expect(chat.host.textContent).toContain('Could not attach Screenshot 2026-10-04 at 12.15.13.png')
+  } finally {
+    await chat.unmount()
+  }
+})
+
 test('the composer offers one engine chip — no plan toggle, no separate permission or effort pill, no dollars', async () => {
   const chat = await mountChat({
     providerId: 'claude-agent',

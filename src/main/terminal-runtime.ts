@@ -237,11 +237,14 @@ type TerminalRuntimeOptions = {
   // --- Pull request marks ------------------------------------------------------
   //
   // Where an agent session is, each time git answers for it: at every turn end
-  // and session start (`fresh`), and when its working directory moves. The
-  // Studio server looks up pull requests for the branches agents work on, and
-  // this is how it hears about a terminal agent's (terminal-pull-requests.ts).
-  // Fire-and-forget like the changelist seams above.
+  // and session start (`fresh`), and when its working directory moves. It
+  // decides which of the agent's pull requests are from the branch it is on.
+  // And every tool call the reporter forwarded for the Studio server's pull
+  // request reader, which is how the server hears that a terminal agent opened
+  // one (terminal-pull-requests.ts). Fire-and-forget like the changelist seams
+  // above.
   onObservedCheckoutResolved?(session: TerminalSession, resolution: { fresh: boolean }): void
+  onAgentToolCall?(session: TerminalSession, toolCall: NonNullable<AgentStateFrame['toolCall']>): void
 }
 
 type TerminalIpcHandlers = {
@@ -323,6 +326,7 @@ let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
 let onAgentLaunched: TerminalRuntimeOptions['onAgentLaunched']
 let onAgentFileEdit: TerminalRuntimeOptions['onAgentFileEdit']
 let onObservedCheckoutResolved: TerminalRuntimeOptions['onObservedCheckoutResolved']
+let onAgentToolCall: TerminalRuntimeOptions['onAgentToolCall']
 let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
 
 // Whether a CLI can report authoritative agent state: true exactly when its
@@ -368,6 +372,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   onAgentLaunched = options.onAgentLaunched
   onAgentFileEdit = options.onAgentFileEdit
   onObservedCheckoutResolved = options.onObservedCheckoutResolved
+  onAgentToolCall = options.onAgentToolCall
   onAgentSessionExit = options.onAgentSessionExit
   reapSkipLogState.clear()
   logMainPerfEvent = options.logMainPerfEvent
@@ -2353,6 +2358,17 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
       })
     } catch (error) {
       console.warn('[terminal-runtime] agent changelist edit feed failed', error)
+    }
+  }
+  // A tool call that may have opened a pull request, handed on before the
+  // guards below for the same reason as the edit: the call happened whatever
+  // becomes of the frame's phase. Recording one is idempotent, so a second
+  // registration's identical frame costs nothing.
+  if (frame.toolCall && session.agentId && onAgentToolCall) {
+    try {
+      onAgentToolCall(session, frame.toolCall)
+    } catch (error) {
+      console.warn('[terminal-runtime] agent tool call feed failed', error)
     }
   }
   // How full the context window is, from the session's own status line — folded

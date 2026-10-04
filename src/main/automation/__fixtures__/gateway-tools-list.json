@@ -149,6 +149,10 @@
       "sha256": "3fdc72693f56234a839c0c37442c3f07aced25da87c9362bb1850cb804a89563"
     },
     {
+      "name": "pull_request.link",
+      "sha256": "20e4fcd9314ed05c8a6af5d22ef5d58e61e8949bc61ecf229eee512b71fcdee9"
+    },
+    {
       "name": "workspace.checkout",
       "sha256": "0afb536c6142df85c46b0e126675982fd5df43b7a286db59085bc20688572006"
     },
@@ -425,6 +429,10 @@
     {
       "name": "conversation.create",
       "sha256": "3fdc72693f56234a839c0c37442c3f07aced25da87c9362bb1850cb804a89563"
+    },
+    {
+      "name": "pull_request.link",
+      "sha256": "20e4fcd9314ed05c8a6af5d22ef5d58e61e8949bc61ecf229eee512b71fcdee9"
     },
     {
       "name": "workspace.checkout",

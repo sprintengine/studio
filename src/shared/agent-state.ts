@@ -189,6 +189,11 @@ export type AgentState = {
   // surface typed, sent as the chat's first message once its provider is ready.
   // One-shot — the chat clears it before sending, so a remount never resends.
   chatStartupPrompt?: string
+  // The images the launch surface staged, as the files on this computer that
+  // hold them: they go with `chatStartupPrompt` as the first message's images,
+  // not as paths in its text. Paths, not bytes, because this record rides the
+  // workspace registry. One-shot, cleared with the prompt.
+  chatStartupImages?: string[]
   // The Backlog item this agent was last handed (drag-drop or send-to-agent).
   // Powers the top-right glyph on the agent terminal that navigates back to the
   // item. Latest-wins: one ref per agent, mirroring the most-recent-wins

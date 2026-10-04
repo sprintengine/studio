@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
+import { peekMachineOf, peekPlaceOf, peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
 import type { TerminalSessionSnapshot } from '../../../../shared/electron-api'
 import type { AgentState } from '../../types/workspace'
 import { test } from 'vitest'
@@ -69,6 +69,7 @@ test('conversationPeekRow', async () => {
       sessions,
       status: peekStatusOf('idle', ''),
       now: NOW,
+      platform: 'darwin',
     })
 
   /** Session ids in the order the row would offer them. */
@@ -136,7 +137,6 @@ test('conversationPeekRow', async () => {
     )
     assert.equal(only.agent.model, 'claude-opus-5', 'and the record carries the model too')
     assert.equal(only.agent.cli, 'claude-code', 'and the runtime')
-    assert.deepEqual(only.agent.fileChanges, [], 'a record is not a session: it has no ledger to report')
     assert.equal(only.agent.contextUsage, null)
   })
 
@@ -191,6 +191,7 @@ test('conversationPeekRow', async () => {
       sessions: [],
       status: peekStatusOf('idle', ''),
       now: NOW,
+      platform: 'darwin',
     })
     assert.deepEqual(
       identities,
@@ -215,6 +216,7 @@ test('conversationPeekRow', async () => {
       sessions: [session({ sessionId: 'sess-1', agentId: 'a1' })],
       status: peekStatusOf('needs-input', ''),
       now: NOW,
+      platform: 'darwin',
     })
     const only = identities[0]
     assert.ok(only)
@@ -244,6 +246,7 @@ test('conversationPeekRow', async () => {
       ],
       status: peekStatusOf('working', ''),
       now: NOW,
+      platform: 'darwin',
     })
     assert.deepEqual(ids(identities), ['s1', 's2'], 'busiest first, shells excluded')
     assert.deepEqual(identities[0]?.status, { kind: 'working', label: 'Working' })
@@ -260,25 +263,20 @@ test('conversationPeekRow', async () => {
     const identities = chat([
       session({
         sessionId: 'sess-1',
-        fileChanges: [
-          { path: '/repo/src/main/scheduler.ts', additions: 14, deletions: 6, edits: 2, lastEditedAt: NOW },
-        ],
         activeSubagents: 2,
-        contextUsage: { usedPercentage: 38, at: NOW },
+        contextUsage: { usedPercentage: 38, at: NOW, contextWindowSize: 200_000 },
       } as never),
     ])
     const only = identities[0]
     assert.ok(only)
-    assert.equal(only.agent.fileChanges.length, 1, 'the ledger this session’s own hooks kept')
     assert.equal(only.agent.activeSubagents, 2)
-    assert.deepEqual(only.agent.contextUsage, { usedPercentage: 38, at: NOW })
+    assert.deepEqual(only.agent.contextUsage, { usedPercentage: 38, at: NOW, contextWindowSize: 200_000 })
   })
 
   run('a session from an older main, with no ledger fields, reads as empty rather than undefined', () => {
     const identities = chat([session({ sessionId: 'legacy' })])
     const only = identities[0]
     assert.ok(only)
-    assert.deepEqual(only.agent.fileChanges, [], 'a consumer can count without a guard')
     assert.equal(only.agent.activeSubagents, 0)
     assert.equal(only.agent.contextUsage, null)
   })
@@ -289,6 +287,7 @@ test('conversationPeekRow', async () => {
       sessions: [session({ sessionId: 'sess-2', agentId: 'ghost', agentName: 'roaming-agent-1', cli: 'codex' })],
       status: peekStatusOf('idle', ''),
       now: NOW,
+      platform: 'darwin',
     })
     assert.equal(identities[0]?.agent.cli, 'codex', 'the session knows what it is running')
     assert.equal(identities[0]?.agent.model, null, 'and claims no model it was never told')
@@ -317,6 +316,7 @@ test('conversationPeekRow', async () => {
       sessions: [session({ sessionId: 'sess-live', agentId: 'live', pullRequests: [opened] })],
       status: peekStatusOf('idle', ''),
       now: NOW,
+      platform: 'darwin',
     })
     const byId = new Map(identities.map((entry) => [entry.agent.sessionId, entry.agent.pullRequests]))
     assert.deepEqual(byId.get('sess-live'), [opened], 'the card shows what the conversation produced')
@@ -324,6 +324,55 @@ test('conversationPeekRow', async () => {
     // and there is nothing here to ask about, so an empty list is the honest
     // answer rather than a stale one.
     assert.deepEqual(byId.get('sess-parked'), [])
+  })
+
+  // --- Where the chat runs ----------------------------------------------------
+  run('a local chat names no machine, and the branch its agent is on', () => {
+    const place = peekPlaceOf(
+      { worktree: { branch: 'launch-branch' } as never },
+      { observedCheckout: { resolved: true, branch: 'moved-on' } as never },
+      'darwin',
+    )
+    assert.deepEqual(place, { machine: null, branch: 'moved-on' })
+  })
+
+  run('before git has answered, the branch is the one the chat was made on', () => {
+    const place = peekPlaceOf(
+      { worktree: { branch: 'launch-branch' } as never },
+      { observedCheckout: { resolved: false, branch: null } as never },
+      'win32',
+    )
+    assert.equal(place.branch, 'launch-branch')
+  })
+
+  run('a plain folder has no branch line to draw', () => {
+    assert.equal(peekPlaceOf({}, null, 'linux').branch, null)
+  })
+
+  run('the machine is the paired machine, the SSH machine, a WSL distro — or unmarked', () => {
+    assert.deepEqual(peekMachineOf({ remoteOrigin: { machineName: 'studio-mini' } as never }, 'darwin'), {
+      label: 'studio-mini',
+      kind: 'remote',
+    })
+    assert.deepEqual(peekMachineOf({ environment: { kind: 'ssh', id: 'x', label: 'build-box' } }, 'darwin'), {
+      label: 'build-box',
+      kind: 'remote',
+    })
+    assert.deepEqual(peekMachineOf({ hostId: 'wsl:Ubuntu' }, 'win32'), { label: 'WSL: Ubuntu', kind: 'wsl' })
+    assert.equal(peekMachineOf({}, 'win32'), null, 'this computer is the unmarked default')
+    assert.equal(peekMachineOf({ hostId: 'local' }, 'darwin'), null)
+  })
+
+  run('every card a row offers carries its place', () => {
+    const identities = rowConversationPeekIdentities({
+      workspace: { name: 'Studio', hostId: 'wsl:Ubuntu', agents: { a1: agent() } },
+      sessions: [session({ sessionId: 'live' })],
+      status: peekStatusOf('idle', ''),
+      now: NOW,
+      platform: 'darwin',
+    })
+    assert.equal(identities.length, 2, 'the live session and the parked record')
+    for (const identity of identities) assert.equal(identity.place?.machine?.label, 'WSL: Ubuntu')
   })
 
   if (failures !== 0) process.exit(1)

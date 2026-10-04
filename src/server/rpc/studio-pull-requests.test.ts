@@ -22,6 +22,7 @@ function stubPullRequests() {
     listening = resolve
   })
   const noted: Array<StudioPullRequestsMethodMap['pullRequests.noteWork']['params']> = []
+  const calls: Array<StudioPullRequestsMethodMap['pullRequests.noteToolCall']['params']> = []
   const stub: StudioPullRequests = {
     list: async (target): Promise<StudioPullRequestsMethodMap['pullRequests.list']['result']> => ({
       workspaces: (target.workspaceIds ?? []).includes('ws-1')
@@ -47,6 +48,10 @@ function stubPullRequests() {
     noteWork: async (input) => {
       noted.push(input)
     },
+    noteToolCall: async (input) => {
+      calls.push(input)
+    },
+    link: async () => ({ ok: false, code: 'not_a_pull_request', message: 'not here' }),
     onChanged: (listener) => {
       listeners.add(listener)
       listening()
@@ -56,6 +61,7 @@ function stubPullRequests() {
   return {
     stub,
     noted,
+    calls,
     subscribed,
     emit: (change: PullRequestsChanged) => listeners.forEach((listener) => listener(change)),
   }
@@ -80,14 +86,22 @@ async function ownerOver(pullRequests?: StudioPullRequests) {
 test('a Studio with a pull request record advertises it, and one without does not', async () => {
   const withRecord = await ownerOver(stubPullRequests().stub)
   assert.equal(withRecord.welcome.t === 'welcome' && withRecord.welcome.capabilities.includes('pull-requests'), true)
+  assert.equal(
+    withRecord.welcome.t === 'welcome' && withRecord.welcome.capabilities.includes('pull-request-tool-calls'),
+    true,
+  )
   const without = await ownerOver()
   assert.equal(without.welcome.t === 'welcome' && without.welcome.capabilities.includes('pull-requests'), false)
+  assert.equal(
+    without.welcome.t === 'welcome' && without.welcome.capabilities.includes('pull-request-tool-calls'),
+    false,
+  )
   const refused = await without.request('pullRequests.list', { workspaceIds: ['ws-1'] })
   assert.equal(refused.t === 'res' && !refused.ok && refused.error.code, 'unavailable')
 })
 
-test('an owner lists, refreshes and notes work, and malformed params are refused', async () => {
-  const { stub, noted } = stubPullRequests()
+test('an owner lists, refreshes, notes work and tool calls, and malformed params are refused', async () => {
+  const { stub, noted, calls } = stubPullRequests()
   const { request } = await ownerOver(stub)
   const listed = await request('pullRequests.list', { workspaceIds: ['ws-1', 'ws-2'] })
   assert.equal(listed.t === 'res' && listed.ok, true)
@@ -112,6 +126,16 @@ test('an owner lists, refreshes and notes work, and malformed params are refused
   assert.deepEqual(accepted.t === 'res' && accepted.ok && accepted.result, {})
   assert.deepEqual(noted, [note])
 
+  const toolCall = {
+    conversation: { workspaceId: 'ws-1', agentId: 'term-1' },
+    toolCall: { name: 'Bash', command: 'gh pr create --fill', output: 'https://github.com/acme/app/pull/4\n' },
+    extra: 'dropped',
+  }
+  const heard = await request('pullRequests.noteToolCall', toolCall)
+  assert.deepEqual(heard.t === 'res' && heard.ok && heard.result, {})
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(calls, [{ conversation: toolCall.conversation, toolCall: toolCall.toolCall }])
+
   for (const [method, params] of [
     ['pullRequests.list', { workspaceIds: 'ws-1' }],
     ['pullRequests.list', { conversations: [{ workspaceId: 'ws-1' }] }],
@@ -120,6 +144,12 @@ test('an owner lists, refreshes and notes work, and malformed params are refused
       { conversation: { workspaceId: 'ws-1', agentId: 'a' }, checkout: { gitRoot: '/x', branch: '--upload-pack' } },
     ],
     ['pullRequests.noteWork', { conversation: { workspaceId: 'ws-1', agentId: 'a' }, changedPaths: [42] }],
+    ['pullRequests.noteToolCall', { conversation: { workspaceId: 'ws-1', agentId: 'a' }, toolCall: { name: 'Bash' } }],
+    [
+      'pullRequests.noteToolCall',
+      { conversation: { workspaceId: 'ws-1', agentId: 'a' }, toolCall: { name: 'Bash', output: 'x'.repeat(40_000) } },
+    ],
+    ['pullRequests.noteToolCall', { toolCall: { name: 'Bash', output: '' } }],
   ] as const) {
     const refused = await request(method, params)
     assert.deepEqual([method, refused.t === 'res' && !refused.ok && refused.error.code], [method, 'invalid_params'])
@@ -153,4 +183,44 @@ test('the stream names what moved, never the lists', async () => {
     workspaceIds: ['ws-1'],
     conversations: [{ workspaceId: 'ws-1', agentId: 'agent-1' }],
   })
+})
+
+test('an owner links a pull request it opened; one another conversation claimed is refused as claimed', async () => {
+  const { stub } = stubPullRequests()
+  const linked: unknown[] = []
+  stub.link = async (input) => {
+    linked.push(input)
+    if (input.url.endsWith('/9')) {
+      return { ok: false, code: 'opened_by_another_conversation', message: 'Another conversation opened it.' }
+    }
+    return {
+      ok: true,
+      recorded: true,
+      pullRequest: {
+        url: input.url,
+        repoKey: 'github.com/acme/app',
+        repoName: 'app',
+        number: 4,
+        title: input.title ?? '',
+        state: 'open',
+        isDraft: false,
+        openedAt: 1,
+        stateAt: 0,
+      },
+    }
+  }
+  const { request, welcome } = await ownerOver(stub)
+  assert.equal(welcome.t === 'welcome' && welcome.capabilities.includes('pull-request-link'), true)
+  const conversation = { workspaceId: 'ws-1', agentId: 'agent-1' }
+  const ok = await request('pullRequests.link', {
+    conversation,
+    url: 'https://github.com/acme/app/pull/4',
+    title: 'Marks',
+  })
+  assert.equal(ok.t === 'res' && ok.ok && (ok.result as { recorded: boolean }).recorded, true)
+  const claimed = await request('pullRequests.link', { conversation, url: 'https://github.com/acme/app/pull/9' })
+  assert.equal(claimed.t === 'res' && !claimed.ok && claimed.error.code, 'claimed')
+  const malformed = await request('pullRequests.link', { conversation, url: 42 })
+  assert.equal(malformed.t === 'res' && !malformed.ok && malformed.error.code, 'invalid_params')
+  assert.equal(linked.length, 2)
 })

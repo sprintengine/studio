@@ -4,15 +4,15 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import { ConversationPeekCard } from './ConversationPeekCard'
 import type { AgentTabIdentity } from './AgentTabIdentityPopover'
-import type { ConversationPeek } from '../../../../shared/conversation-peek'
 import { test } from 'vitest'
 
 test('AgentTabIdentityPopover', async () => {
   // QA for what an agent TAB's hover card now is. The card itself is
-  // `ConversationPeekCard` (its own suite covers the message half); this one holds
-  // the tab-specific rulings: 2026-09-07, when the identity card stopped being six
-  // definition rows and became the conversation; and 2026-09-09, when it became
-  // ONE agent's card — the tab's own — with no roster to move it elsewhere.
+  // `ConversationPeekCard` (its own suite covers the facts); this one holds the
+  // tab-specific rulings: 2026-09-09, when it became ONE agent's card — the
+  // tab's own — with no roster to move it elsewhere; and 2026-10-04, when the
+  // card became a glance, and the tab's took no place lines because the window
+  // around it already says them.
   //
   // The portal/hover half cannot be server-rendered, so this exercises the card
   // with a tab-shaped identity — which is exactly what the popover hands it.
@@ -40,7 +40,6 @@ test('AgentTabIdentityPopover', async () => {
     sessionId: 'a21ac8e7-548f-6f89',
     cli: 'claude-code',
     model: 'claude-opus-4-8',
-    fileChanges: [],
     pullRequests: [],
     activeSubagents: 0,
     contextUsage: null,
@@ -54,36 +53,8 @@ test('AgentTabIdentityPopover', async () => {
     agent: SELF,
   }
 
-  const PEEK: ConversationPeek = {
-    sessionId: SELF.sessionId,
-    source: 'live',
-    first: {
-      id: 'm1',
-      text: 'Freeze the title after the first prompt and put the rest on the hover.',
-      at: NOW - 3 * 3_600_000,
-      truncatedChars: 0,
-    },
-    since: [
-      {
-        id: 'm2',
-        text: 'Drop the role row from the tab card while you are in there',
-        at: NOW - 32 * 60_000,
-        truncatedChars: 0,
-      },
-    ],
-  }
-
-  function tabCard(identity: AgentTabIdentity = TAB, peek: ConversationPeek | null = PEEK): string {
-    return renderToStaticMarkup(
-      <ConversationPeekCard
-        identity={identity}
-        peek={peek}
-        loading={false}
-        now={NOW}
-        copied={false}
-        onCopySession={() => {}}
-      />,
-    )
+  function tabCard(identity: AgentTabIdentity = TAB): string {
+    return renderToStaticMarkup(<ConversationPeekCard identity={identity} now={NOW} />)
   }
 
   // Both anchors show the same head, because both are this one card (epic
@@ -120,13 +91,12 @@ test('AgentTabIdentityPopover', async () => {
     assert.equal(tabCard().includes('data-pull-request-mark'), false)
   })
 
-  run('the tab card keeps the two facts that earned their place', () => {
+  run('the tab card names the agent, its model and its state', () => {
     const markup = tabCard()
     assert.match(markup, /planner-agent/, 'names the agent')
-    assert.match(markup, /claude-opus-4-8/, 'shows the exact model')
-    assert.match(markup, /a21ac8e7…6f89/, 'shows the session id, elided in the middle')
-    assert.match(markup, /aria-label="Copy session id"/, 'and the session keeps its copy button')
+    assert.match(markup, /Model: claude-opus-4-8 · Claude Code/, 'shows the exact model and its runtime')
     assert.match(markup, /Working/, 'shows the status label')
+    assert.equal(markup.includes('Copy session id'), false, 'the session id went with the reader')
   })
 
   run('a paused or idle tab card reads its age on its own clock, not the tab’s draw time', () => {
@@ -150,24 +120,19 @@ test('AgentTabIdentityPopover', async () => {
     assert.equal(fresh.includes('Last typed'), false)
   })
 
-  run('Role, Runtime and Checkout are gone, and so is the label column that held them up', () => {
+  run('the tab card has no place lines — the window around it says them', () => {
     const markup = tabCard()
-    for (const gone of ['No role', 'General agent', 'Claude Code', 'Main checkout']) {
-      assert.equal(markup.includes(gone), false, `"${gone}" is not a thing the tab card says any more`)
-    }
-    assert.equal(/<dl[\s>]/.test(markup), false, 'no definition list — the label column went with the rows')
+    assert.equal(/Machine:|Branch:/.test(markup), false)
+    assert.equal(/<dl[\s>]/.test(markup), false, 'and no definition list')
   })
 
-  run('the space they freed is the conversation', () => {
-    const markup = tabCard()
-    assert.match(markup, /Freeze the title after the first prompt/, 'the message that started the work')
-    assert.match(markup, /Drop the role row from the tab card/, 'and everything sent since')
+  run('and no conversation: the rail shows that now', () => {
+    assert.equal(tabCard().includes('conversation-peek-thread'), false)
   })
 
   run('a tab whose agent has no session yet is still identified', () => {
-    const markup = tabCard({ ...TAB, agent: { ...SELF, sessionId: '' } }, null)
+    const markup = tabCard({ ...TAB, agent: { ...SELF, sessionId: '' } })
     assert.match(markup, /planner-agent/, 'the tab is still named')
-    assert.equal(markup.includes('Copy session id'), false, 'nothing to copy, so no button')
   })
 
   run('the tab card is its own agent’s, with no way to move it to another', () => {
@@ -178,21 +143,17 @@ test('AgentTabIdentityPopover', async () => {
     assert.match(markup, /planner-agent/, 'the tab you hovered is the conversation shown')
   })
 
-  run('the tab card draws this agent’s own files, subagents and context', () => {
+  run('the tab card draws this agent’s own subagents and context', () => {
     const markup = tabCard({
       ...TAB,
       agent: {
         ...SELF,
         activeSubagents: 3,
-        contextUsage: { usedPercentage: 61, at: NOW },
-        fileChanges: [
-          { path: '/repo/src/main/agent-state.ts', additions: 12, deletions: 3, edits: 1, lastEditedAt: NOW },
-        ],
+        contextUsage: { usedPercentage: 61, at: NOW, contextWindowSize: 200_000 },
       },
     })
     assert.match(markup, />3 running</, 'the corner says what it is doing')
-    assert.match(markup, /aria-label="Context 61% used"/, 'the ring reads this session')
-    assert.match(markup, /aria-label="Open the diff for \/repo\/src\/main\/agent-state\.ts"/, 'and its edits open')
+    assert.match(markup, /Context: 122k \/ 200k tokens · 61%/, 'the context line reads this session')
   })
 
   if (failures !== 0) process.exit(1)

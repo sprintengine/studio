@@ -10,6 +10,8 @@
  * bridge) and the renderer (the settings row and the title requester).
  */
 
+import type { PullRequestText, PullRequestTextInput } from './pull-request-text'
+
 /** Which CLI runs the job, on which model, at which effort. */
 export type TextGenerationEngine = {
   cli: string
@@ -51,6 +53,17 @@ export type ChatTitleRequest = {
   /** Caller-owned deadline. Defaults to DEFAULT_TEXT_GENERATION_TIMEOUT_MS. */
   timeoutMs?: number
 }
+
+/** The title and description of a pull request, drafted for the person to edit before anything is sent. */
+export type PullRequestTextRequest = {
+  input: PullRequestTextInput
+  engine: TextGenerationEngine
+  cliRuntimes?: TextGenerationCliRuntimeOverrides
+  timeoutMs?: number
+}
+
+export type PullRequestTextResult =
+  { ok: true; value: PullRequestText; ms: number } | Extract<TextGenerationResult, { ok: false }>
 
 /**
  * A title is a background job with nothing waiting on it, so the budget is

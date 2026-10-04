@@ -127,7 +127,7 @@ export type StudioRpcConnectionOptions = {
   tools?: ClientToolRegistry
   /** Files under a workspace's roots: the `files.watch` stream. */
   files?: StudioFiles
-  /** The pull requests the conversations' branches have: the `pullRequests.changed` stream. */
+  /** The pull requests the conversations opened: the `pullRequests.changed` stream. */
   pullRequests?: StudioPullRequests
   /** The welcome's server-wide members: who this Studio is and what it serves. */
   welcome: () => Omit<StudioWelcomeFrame, 't' | 'grant' | 'pairing'>

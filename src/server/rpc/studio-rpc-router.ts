@@ -107,7 +107,7 @@ export type StudioRpcRouterOptions = {
   tools?: ClientToolRegistry
   /** Files under a workspace's roots; without it, `files.*` by root is answered `unavailable`. */
   files?: StudioFiles
-  /** The pull requests the conversations' branches have; without it, `pullRequests.*` is answered `unavailable`. */
+  /** The pull requests the conversations opened; without it, `pullRequests.*` is answered `unavailable`. */
   pullRequests?: StudioPullRequests
   uploads?: StudioUploads
   now?: () => number
@@ -561,11 +561,28 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       case 'pullRequests.refresh':
         return { ok: true, result: await pullRequests.refresh(params as StudioMethodParams<'pullRequests.refresh'>) }
       case 'pullRequests.noteWork':
-        // Answered at once: the lookups it starts report through
+        // Answered at once: what it changes reports through
         // `pullRequests.changed`, and a turn end must not wait on GitHub.
         void pullRequests.noteWork(params as StudioMethodParams<'pullRequests.noteWork'>).catch((error: unknown) => {
-          options.log?.(`A pull request lookup failed: ${error instanceof Error ? error.message : String(error)}`)
+          options.log?.(`A pull request note failed: ${error instanceof Error ? error.message : String(error)}`)
         })
+        return { ok: true, result: {} }
+      case 'pullRequests.link': {
+        const linked = await pullRequests.link(params as StudioMethodParams<'pullRequests.link'>)
+        if (!linked.ok)
+          return refuse(linked.code === 'not_a_pull_request' ? 'invalid_params' : 'claimed', linked.message)
+        return { ok: true, result: { recorded: linked.recorded, pullRequest: linked.pullRequest } }
+      }
+      case 'pullRequests.noteToolCall':
+        // Answered at once, like a note: what it records reports through
+        // `pullRequests.changed`.
+        void pullRequests
+          .noteToolCall(params as StudioMethodParams<'pullRequests.noteToolCall'>)
+          .catch((error: unknown) => {
+            options.log?.(
+              `A tool call could not be read for a pull request: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          })
         return { ok: true, result: {} }
     }
   }

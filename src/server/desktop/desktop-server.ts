@@ -487,7 +487,7 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
         // What a person would miss most: every chat's buffered transcript.
         ['chat transcripts', () => core.conversationOwner.flushTranscripts()],
         ['chats', () => core.conversationOwner.shutdown()],
-        // After the chats: a turn that ended on the way out has its lookup
+        // After the chats: a pull request a turn opened on the way out is
         // written down, and the watch's timers stop.
         [
           'pull requests',

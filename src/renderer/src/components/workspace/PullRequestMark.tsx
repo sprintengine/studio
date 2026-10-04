@@ -6,6 +6,7 @@ import {
   earlierPullRequests,
   groupPullRequests,
   primaryPullRequest,
+  pullRequestOpenLabel,
   pullRequestStateLabel,
   pullRequestTone,
   PULL_REQUEST_TONE_VAR,
@@ -27,8 +28,8 @@ import {
 // cannot drift.
 //
 // NOTHING IS DRAWN FOR AN EMPTY LIST (decision 3). There is no "unknown" mark
-// and no placeholder: a branch with no pull request, a lookup that has not run,
-// and a lookup that failed all draw exactly what a plain terminal draws.
+// and no placeholder: a conversation that opened no pull request, and a record
+// that has not been read yet, draw exactly what a plain terminal draws.
 //
 // Colour is a reinforcement, never the message: every state has its own shape
 // (`PullRequestGlyph`) and every tooltip and accessible name says the state in
@@ -49,9 +50,9 @@ export type PullRequestCopy = {
 }
 
 /**
- * More than one repository in the list (epic decision 10). An agent that
- * changes files in another repository wears the pull requests on the branch it
- * worked on there, so a conversation's marks are not always all in one repo — and
+ * More than one repository in the list (epic decision 10). An agent can open a
+ * pull request in another repository than its own, so a conversation's marks
+ * are not always all in one repo — and
  * when they are not, every LINE of a tooltip and every menu row has to say
  * which repository it is talking about. When they are, naming the repo on every
  * line would be noise on the case that is almost always true.
@@ -97,7 +98,7 @@ export function sidebarMarkCopy(list: readonly BranchPullRequest[]): PullRequest
       ? `${writtenNumber(primary, spans)} · ${stateOf(primary)}`
       : `Pull request ${writtenNumber(primary, spans)} ${stateOf(primary)}`,
     lines: [
-      'Open it on GitHub',
+      pullRequestOpenLabel(primary),
       ...earlier.map((pr) =>
         spans
           ? `Earlier: ${writtenNumber(pr, spans)} · ${stateOf(pr)}`
@@ -110,7 +111,7 @@ export function sidebarMarkCopy(list: readonly BranchPullRequest[]): PullRequest
     ariaLabel: [
       `${spokenNumber(primary, spans)}, ${stateOf(primary)}.`,
       ...earlier.map((pr) => `Earlier: ${spokenNumber(pr, spans).toLowerCase()}, ${stateOf(pr)}.`),
-      'Open it on GitHub',
+      pullRequestOpenLabel(primary),
     ].join(' '),
   }
 }
@@ -127,9 +128,9 @@ export function peekMarkCopy(list: readonly BranchPullRequest[], now: number): P
   const state = pullRequestStateLabel(primary)
   const opened = relativeFromNow(primary.openedAt, now)
   const identity = spans ? writtenNumber(primary, spans) : `Pull request ${writtenNumber(primary, spans)}`
-  // A pull request the hooks CAPTURED (a record written before marks came from
-  // branch lookups alone) has no title until GitHub answers — and
-  // never gets one if `gh` cannot reach it. Untitled, the identity moves up
+  // A pull request recorded from its URL alone has no title until GitHub
+  // answers — and never gets one if `gh` cannot reach it, or it is on
+  // another forge. Untitled, the identity moves up
   // into the title line, because a bold empty line over "Pull request #418 ·
   // open · 12 minutes ago" is a tooltip whose first line is missing, and a
   // spoken "Pull request 418, open: . Open it on GitHub" is a sentence with a
@@ -142,11 +143,11 @@ export function peekMarkCopy(list: readonly BranchPullRequest[], now: number): P
       // Identity only ONCE: it is the title line above when there is no title,
       // and this line then carries what is left to say about it.
       (titled ? [identity, state, opened] : [state, opened]).filter((part) => part.length > 0).join(' · '),
-      'Open it on GitHub',
+      pullRequestOpenLabel(primary),
     ],
     ariaLabel: titled
-      ? `${spokenNumber(primary, spans)}, ${state}: ${primary.title}. Open it on GitHub`
-      : `${spokenNumber(primary, spans)}, ${state}. Open it on GitHub`,
+      ? `${spokenNumber(primary, spans)}, ${state}: ${primary.title}. ${pullRequestOpenLabel(primary)}`
+      : `${spokenNumber(primary, spans)}, ${state}. ${pullRequestOpenLabel(primary)}`,
   }
 }
 
@@ -192,8 +193,8 @@ export function pullRequestMenuGroups(list: readonly BranchPullRequest[], now: n
       age: formatRelativeMs(pr.openedAt, now),
       state: pr.state,
       ariaLabel: titled
-        ? `${spokenNumber(pr, spans)}, ${pullRequestStateLabel(pr)}: ${pr.title}. Open it on GitHub`
-        : `${spokenNumber(pr, spans)}, ${pullRequestStateLabel(pr)}. Open it on GitHub`,
+        ? `${spokenNumber(pr, spans)}, ${pullRequestStateLabel(pr)}: ${pr.title}. ${pullRequestOpenLabel(pr)}`
+        : `${spokenNumber(pr, spans)}, ${pullRequestStateLabel(pr)}. ${pullRequestOpenLabel(pr)}`,
     }
   }
   return (
@@ -252,27 +253,27 @@ function askKey(sessionId: string, branch: string | null): string {
 }
 
 /**
- * Whether pointing at this line should ask main to look its branch up (epic
- * decision 8a):
+ * Whether pointing at this line should ask main to re-read its pull requests
+ * (epic decision 8a):
  *
  * - an AGENT line, because a shell has no conversation and a remote pane's
  *   checkout is on another machine's disk;
- * - with a BRANCH, because the lookup is `gh pr list --head <branch>` and there
- *   is nothing to ask about without one.
+ * - with a BRANCH, because main only answers for an agent once git has said
+ *   where it is.
  *
  * A line that already WEARS a mark asks too, which it used to be barred from.
  * The bar made decision 9's "refresh on hover when the reading is older than
  * ~60s" unreachable — the only lines with a reading to refresh were exactly the
  * lines this refused to ask about — and it is not what keeps this from becoming
- * a poller: the TTL above does, and main holds the lookup behind its own hold
- * and coalesces the refreshes it accepts.
+ * a poller: the TTL above does, and the server holds each read behind its own
+ * hold and coalesces the refreshes it accepts.
  */
 export function shouldLookUpPullRequests(line: { kind: 'agent' | 'shell' | 'remote'; branch: string | null }): boolean {
   return line.kind === 'agent' && line.branch !== null
 }
 
 /**
- * Ask main to look this conversation's pull requests up — the ONE path both
+ * Ask main to re-read this conversation's pull requests — the ONE path both
  * anchors use, so the sidebar line and the agent tab cannot ask at two
  * different rates or key their coalescing two different ways.
  *
@@ -493,27 +494,7 @@ export function PullRequestPeekMark({
   const primary = primaryPullRequest(pullRequests)
   const copy = peekMarkCopy(pullRequests, now)
   if (!primary || !copy) return null
-  const groups = pullRequestMenuGroups(pullRequests, now)
-  const items: SplitButtonItem[] = groups.flatMap((group) =>
-    group.rows.map((row) => ({
-      id: row.url,
-      group: group.label,
-      label: (
-        <>
-          <span className="mr-1.5 font-mono tabular-nums">{row.number}</span>
-          {row.title}
-        </>
-      ),
-      ariaLabel: row.ariaLabel,
-      icon: (
-        <span style={{ color: PULL_REQUEST_TONE_VAR[pullRequestTone(row.state)] }}>
-          <PullRequestGlyph state={row.state} className="icon-xs" />
-        </span>
-      ),
-      hint: row.age || undefined,
-      onSelect: () => openPullRequest(row.url),
-    })),
-  )
+  const items = pullRequestMenuItems(pullRequests, now)
   return (
     <Tooltip
       content={<MarkTooltip copy={copy} />}
@@ -555,6 +536,110 @@ export function PullRequestPeekMark({
           // pull request and a 24px one with two.
           items={items}
           onPrimary={() => openPullRequest(primary.url)}
+        />
+      </span>
+    </Tooltip>
+  )
+}
+
+/** The record behind a split control's chevron, grouped Open / Merged / Closed; choosing a row opens it. */
+function pullRequestMenuItems(pullRequests: readonly BranchPullRequest[], now: number): SplitButtonItem[] {
+  return pullRequestMenuGroups(pullRequests, now).flatMap((group) =>
+    group.rows.map((row) => ({
+      id: row.url,
+      group: group.label,
+      label: (
+        <>
+          <span className="mr-1.5 font-mono tabular-nums">{row.number}</span>
+          {row.title}
+        </>
+      ),
+      ariaLabel: row.ariaLabel,
+      icon: (
+        <span style={{ color: PULL_REQUEST_TONE_VAR[pullRequestTone(row.state)] }}>
+          <PullRequestGlyph state={row.state} className="icon-xs" />
+        </span>
+      ),
+      hint: row.age || undefined,
+      onSelect: () => openPullRequest(row.url),
+    })),
+  )
+}
+
+/**
+ * What the open chat's composer strip says about the pull requests its
+ * conversation opened (owner ruling 2026-10-04): the words on the button, and
+ * the pull request they are about. Null draws nothing.
+ *
+ * The pull request is the mark's own (`primaryPullRequest`: the newest still
+ * open, else the newest of all), so the strip, the sidebar row and the peek
+ * never disagree about which one it is. A pull request closed without merging
+ * is left off, as the sidebar row leaves it off (owner, 2026-10-02); the menu
+ * still lists it. The state is in the words, not only the colour:
+ *
+ * - open: "Open PR #123"; a draft: "Open draft PR #123";
+ * - merged: "Merged PR #123";
+ * - on a forge whose state is not read: "Opened PR #5".
+ */
+export function stripPullRequestCopy(
+  list: readonly BranchPullRequest[],
+  now: number,
+): { pr: BranchPullRequest; text: string; tooltip: PullRequestCopy } | null {
+  const shown = list.filter((pr) => pr.state !== 'closed')
+  const pr = primaryPullRequest(shown)
+  const tooltip = peekMarkCopy(shown, now)
+  if (!pr || !tooltip) return null
+  const number = pullRequestsSpanRepositories(shown) ? `${pr.repoName} #${pr.number}` : `#${pr.number}`
+  const text = pr.forge
+    ? `Opened PR ${number}`
+    : pr.state === 'merged'
+      ? `Merged PR ${number}`
+      : pr.isDraft
+        ? `Open draft PR ${number}`
+        : `Open PR ${number}`
+  return { pr, text, tooltip }
+}
+
+/**
+ * The open chat's "Open PR" button, at the bottom of the conversation on the
+ * composer's strip (owner ruling 2026-10-04). Nothing is drawn when the
+ * conversation opened no pull request (decision 3).
+ *
+ * The same split control the peek wears: the button opens the pull request in
+ * the browser, through the app's one external-open path, and with more than
+ * one a chevron opens the whole record, grouped by state. Its words say the
+ * state; the glyph and its tone agree with them.
+ */
+export function PullRequestStripButton({
+  pullRequests,
+  now,
+}: {
+  pullRequests: readonly BranchPullRequest[]
+  now: number
+}): JSX.Element | null {
+  const copy = stripPullRequestCopy(pullRequests, now)
+  if (!copy) return null
+  const { pr, text, tooltip } = copy
+  return (
+    <Tooltip content={<MarkTooltip copy={tooltip} />} multiline placement="top" wrapperClassName="flex shrink-0">
+      {/* A plain wrapper: `SplitButton` takes a closed set of props, so the
+          tooltip's handlers live here (see `PullRequestPeekMark`). */}
+      <span className="flex items-center">
+        <SplitButton
+          quiet
+          label={
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <span className="inline-flex" style={{ color: PULL_REQUEST_TONE_VAR[pullRequestTone(pr.state)] }}>
+                <PullRequestGlyph state={pr.state} className="icon-xs" />
+              </span>
+              {text}
+            </span>
+          }
+          primaryAriaLabel={`${text}. ${tooltip.ariaLabel}`}
+          primaryData={{ name: 'data-strip-pull-request', value: pr.url }}
+          menuAriaLabel={`All pull requests from this conversation, ${pullRequests.length}`}
+          items={pullRequestMenuItems(pullRequests, now)}
+          onPrimary={() => openPullRequest(pr.url)}
         />
       </span>
     </Tooltip>

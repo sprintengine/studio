@@ -107,9 +107,10 @@ test('ConversationPeekPopover', async () => {
       await act(async () => {
         row!.dispatchEvent(new dom.window.MouseEvent('mouseenter', { bubbles: false }))
       })
-      // The dwell, then the read.
+      // The dwell — long on purpose, so a pointer passing over a row on its
+      // way somewhere else opens nothing.
       await act(async () => {
-        await sleep(400)
+        await sleep(750)
       })
       return {
         row: row!,
@@ -121,6 +122,38 @@ test('ConversationPeekPopover', async () => {
     }
 
     const isOpen = (): boolean => Boolean(document.querySelector('[role="dialog"]'))
+
+    await run('a pointer that passes over a row without resting opens nothing', async () => {
+      const host = document.createElement('div')
+      document.body.appendChild(host)
+      const root = createRoot(host)
+      await act(async () => {
+        root.render(
+          React.createElement(
+            'div',
+            { 'data-row-key': 'ws-pass' },
+            React.createElement(ConversationPeekPopover, {
+              identities,
+              now: Date.now(),
+              children: React.createElement('span', null, identities[0]!.name),
+            }),
+          ),
+        )
+      })
+      const row = host.querySelector('[data-row-key]')!
+      await act(async () => {
+        row.dispatchEvent(new dom.window.MouseEvent('mouseenter', { bubbles: false }))
+        await sleep(300)
+      })
+      assert.equal(isOpen(), false, 'still nothing after the old 220ms dwell')
+      await act(async () => {
+        row.dispatchEvent(new dom.window.MouseEvent('mouseleave', { bubbles: false }))
+        await sleep(500)
+      })
+      assert.equal(isOpen(), false, 'and leaving cancels it outright')
+      act(() => root.unmount())
+      host.remove()
+    })
 
     await run('the card opens on a hover over the row and stays open', async () => {
       const { cleanup } = await openCard()
@@ -134,13 +167,12 @@ test('ConversationPeekPopover', async () => {
       const inside =
         document.querySelector('[role="dialog"]')!.querySelector('*') ?? document.querySelector('[role="dialog"]')!
       await act(async () => {
-        // Exactly what the thread's own layout effect produces: a scroll event
-        // whose target is inside the card. `scroll` does not bubble, so it is
+        // A scroll event whose target is inside the card. `scroll` does not bubble, so it is
         // dispatched on the element itself and reaches the listener by capture.
         inside.dispatchEvent(new dom.window.Event('scroll', { bubbles: false }))
         await sleep(50)
       })
-      assert.equal(isOpen(), true, 'the card survived its own thread scrolling')
+      assert.equal(isOpen(), true, 'the card survived a scroll of its own')
       cleanup()
     })
 

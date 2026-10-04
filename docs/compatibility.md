@@ -237,7 +237,12 @@ and `progress`. A Studio sends `call` only to a connection that offered a
 toolset, and the SDK sends `reply` only to a Studio that advertised the
 capability, so neither end is handed a frame type it does not know.
 `files-write` adds the owner-only `files.*` by root, which the canvas uses
-over a Studio's boards. A hello's `client.kind` and `client.instanceId` are
+over a Studio's boards. `pull-requests` adds the owner-only `pullRequests.*`
+methods and stream, and `pull-request-tool-calls` the one method a client that
+runs its own agents forwards their tool calls with, `pullRequests.noteToolCall`,
+and `pull-request-link` `pullRequests.link`, which records a pull request an
+owner opened for a conversation (refused as `claimed` when another
+conversation opened it first). A hello's `client.kind` and `client.instanceId` are
 optional hints a Studio that does not know them ignores. Every method names its scope in `STUDIO_METHODS`,
 typed over the method map so a method without one does not compile.
 

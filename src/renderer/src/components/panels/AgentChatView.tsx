@@ -123,6 +123,8 @@ import { useComposerDraft, type ComposerDraftMetadata } from './agentChat/useCom
 import { useComposerRecall } from './agentChat/composerRecall'
 import { ComposerContextChips, SkillContextChip, useComposerContextPicker } from './agentChat/composerContextPicker'
 import { ComposerPlusMenu } from '../workspace/agentComposer/ComposerPlusMenu'
+import { usePullRequestsOfConversation } from '../workspace/useConversationPullRequests'
+import { useCreatePullRequestState } from './agentChat/createPullRequest'
 import { conversationContextReading } from './agentChat/contextReading'
 import { ConversationComposerStrip } from './agentChat/conversationStrip'
 import { useConversationStripFacts } from './agentChat/conversationStripFacts'
@@ -1552,22 +1554,64 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // never left in the composer for a second Enter. One-shot: the record is
   // cleared before the send, so a remount cannot send it twice. A chat whose
   // provider cannot start keeps the text as its draft instead of dropping it.
+  //
+  // The launcher's images go with it as images, read from the files it holds
+  // them in and prepared the way a pasted path's are, so the first message
+  // carries them exactly as a later one does. A provider that reads no images
+  // is given their paths after the text instead, as a terminal agent is; an
+  // image that cannot be read leaves the text as the draft, with the reason.
   const startupPrompt = agent?.chatStartupPrompt
+  const startupImages = agent?.chatStartupImages
+  const startupTakesImages =
+    readiness.kind === 'ready' && capabilities?.images === true && transport.capabilities.composerContext
   const startupHandledRef = useRef(false)
   useEffect(() => {
-    if (!startupPrompt || startupHandledRef.current || !hydrated) return
+    if ((!startupPrompt && !startupImages?.length) || startupHandledRef.current || !hydrated) return
     if (readiness.kind === 'loading') return
     startupHandledRef.current = true
-    updateBinding({ chatStartupPrompt: undefined })
+    updateBinding({ chatStartupPrompt: undefined, chatStartupImages: undefined })
     const started = userTurns.length > 0 || shape.hasUserMessage
     if (started) return
-    if (readiness.kind !== 'ready') {
-      setDraft((current) => current || startupPrompt)
+    const text = startupPrompt ?? ''
+    const paths = startupImages ?? []
+    if (!startupTakesImages) {
+      const withPaths = [text, ...paths.map(quotePromptPath)].filter(Boolean).join(' ')
+      if (readiness.kind !== 'ready') setDraft((current) => current || withPaths)
+      else void sendTurn(withPaths, [], draftMetadata)
       return
     }
-    void sendTurn(startupPrompt, [], draftMetadata)
+    if (paths.length === 0) {
+      void sendTurn(text, [], draftMetadata)
+      return
+    }
+    void (async () => {
+      setAttachingCount((count) => count + paths.length)
+      let failure: string | null = null
+      const turnAttachments: ConversationImageAttachment[] = []
+      try {
+        const read = await readPastedImagePaths(paths)
+        if (!read.ok) failure = read.message
+        else
+          for (const file of read.files) {
+            attachmentSeqRef.current += 1
+            turnAttachments.push(await readImageAttachment(file, `att-${attachmentSeqRef.current}-${Date.now()}`))
+          }
+      } catch (err) {
+        failure = err instanceof Error ? err.message : 'That image could not be attached.'
+      } finally {
+        setAttachingCount((count) => Math.max(0, count - paths.length))
+      }
+      if (failure) {
+        setDraft((current) => current || text)
+        setActionError(failure)
+        return
+      }
+      void sendTurn(text, turnAttachments, draftMetadata)
+    })()
   }, [
     startupPrompt,
+    startupImages,
+    startupTakesImages,
     hydrated,
     readiness.kind,
     userTurns.length,
@@ -2626,6 +2670,46 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     workspaceRoot,
     transport,
   })
+  // The pull requests this conversation opened, from the record the sidebar
+  // reads. A chat on a paired machine has its record there, not here.
+  const conversationPullRequests = usePullRequestsOfConversation(
+    transport.kind === 'remote' ? null : { workspaceId, agentId },
+  )
+  // "Create PR" works in this computer's checkout only: a chat on a paired
+  // machine, WSL or an SSH machine (the strip names its machine) has no git
+  // or `gh` here.
+  const createPullRequestCwd =
+    transport.kind !== 'remote' && transport.capabilities.localFiles && !stripFacts.machine ? workspaceRoot : null
+  const lastTurnEnd = useMemo(() => {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index]
+      if (event.type === 'turn_completed' || event.type === 'turn_failed') return event.id
+    }
+    return ''
+  }, [events])
+  const [createPullRequestAsk, setCreatePullRequestAsk] = useState(0)
+  const createPullRequestState = useCreatePullRequestState(
+    // Not asked while the conversation owns an open pull request: the slot is that one's.
+    conversationPullRequests.some((pr) => pr.state === 'open') ? null : createPullRequestCwd,
+    [
+      lastTurnEnd,
+      stripFacts.branch?.name ?? '',
+      stripFacts.changes ? `${stripFacts.changes.added}:${stripFacts.changes.removed}` : '',
+      conversationPullRequests.map((pr) => `${pr.url}:${pr.state}`).join(','),
+      createPullRequestAsk,
+    ].join('|'),
+  )
+  const createPullRequest = useMemo(
+    () =>
+      createPullRequestCwd && createPullRequestState?.readiness.ready
+        ? {
+            cwd: createPullRequestCwd,
+            conversation: { workspaceId, agentId },
+            onSettled: () => setCreatePullRequestAsk((count) => count + 1),
+          }
+        : null,
+    [createPullRequestCwd, createPullRequestState, workspaceId, agentId],
+  )
   return (
     <ConversationLinkProvider
       workspaceId={workspaceId}
@@ -3203,6 +3287,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               branch={stripFacts.branch}
               changes={stripFacts.changes}
               context={contextReading}
+              pullRequests={conversationPullRequests}
+              createPullRequest={createPullRequest}
             />
           </div>
           {replay ? (

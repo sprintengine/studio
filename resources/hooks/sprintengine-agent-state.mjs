@@ -666,9 +666,9 @@ const WRITE_TOOL_NAMES = new Set(['write'])
 // what the file edit read below needs. Claude/Codex/Kimi send `PostToolUse`;
 // Grok's payload spells the same event `post_tool_use`. Cursor's `postToolUse`
 // is deliberately NOT here — its payload carries no tool detail at all, so its
-// edits arrive on the dedicated `afterFileEdit` event instead. Pull requests
-// are not read here at all: the app finds them by asking GitHub about the
-// branches an agent worked on (owner ruling 2026-10-03).
+// edits arrive on the dedicated `afterFileEdit` event instead. The same events
+// carry the tool call the app reads for a pull request the agent opened (see
+// `forwardedToolCall`).
 const FILE_EDIT_EVENT_NAMES = new Set(['PostToolUse', 'post_tool_use'])
 const CURSOR_FILE_EDIT_EVENT = 'afterFileEdit'
 
@@ -702,6 +702,79 @@ function toolCallFailed(response) {
   if (typeof response === 'string') return /^\s*error\b/i.test(response)
   if (!response || typeof response !== 'object') return false
   return Boolean(response.error || response.is_error || response.isError)
+}
+
+// ---------------------------------------------------------------------------
+// A tool call that may have opened a pull request (owner ruling 2026-10-04: a
+// conversation owns a pull request when its agent opened it).
+//
+// This reporter DECIDES NOTHING about that. Whether a call opened one is the
+// app's one reader's question (src/shared/git/pull-request-opened.ts), asked
+// in the server for chats and terminals alike, so the rule cannot drift
+// between a copy here and a copy there. This forwards the call: the tool's
+// name, the shell command it ran, and its output as text, bounded.
+//
+// Forwarded only for a call that can matter: a shell command or an MCP tool
+// (Claude/Kimi `mcp__…`, Grok's server-prefixed names) whose output holds a
+// URL at all. Every pull request URL starts `http`, so the filter can only
+// ever drop calls the reader would also refuse.
+// ---------------------------------------------------------------------------
+
+// Both ends of a long output are kept: `gh` prints the URL last, an MCP
+// server's JSON names it near the top. Mirrors STUDIO_PULL_REQUESTS_MAX_OUTPUT
+// (half each), and the frame stays well under the reader's 64KB line cap.
+const TOOL_CALL_OUTPUT_HALF = 8 * 1024
+// Mirrors STUDIO_PULL_REQUESTS_MAX_COMMAND.
+const TOOL_CALL_MAX_COMMAND = 4096
+const MAX_TOOL_NAME_LENGTH = 200
+
+// The shell command a tool call ran: a string on `command` (Claude, Kimi,
+// Grok), an argv array (Codex), or `cmd` / `script`. The twin of
+// `toolCommandOf` in src/shared/git/pull-request-opened.ts, held to it by
+// src/main/agent-state-tool-call.test.ts.
+function readToolCommand(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  for (const candidate of [input.command, input.cmd, input.script]) {
+    if (typeof candidate === 'string' && candidate.length > 0) return candidate
+    if (Array.isArray(candidate)) {
+      const parts = candidate.filter((part) => typeof part === 'string')
+      if (parts.length > 0) return parts.join(' ')
+    }
+  }
+  return null
+}
+
+// A result as text: a string is itself, anything else its JSON. The twin of
+// `outputText` in the same shared file.
+function toolOutputText(response) {
+  if (typeof response === 'string') return response
+  if (response === null || response === undefined) return ''
+  try {
+    return JSON.stringify(response) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function forwardedToolCall(event, toolName, payload) {
+  if (!FILE_EDIT_EVENT_NAMES.has(event) || !toolName || toolName.length > MAX_TOOL_NAME_LENGTH) return null
+  const input = payload?.tool_input ?? payload?.toolInput
+  const command = readToolCommand(input)
+  const mcp = /^mcp(?:__|[.:/])/i.test(toolName) || /create[_-]?(?:pull|merge)[_-]?request$/i.test(toolName)
+  if (!command && !mcp) return null
+  const response = payload?.tool_response ?? payload?.toolResponse ?? payload?.tool_output ?? payload?.toolOutput
+  const text = toolOutputText(response)
+  if (!/https?:\/\//.test(text)) return null
+  const output =
+    text.length <= TOOL_CALL_OUTPUT_HALF * 2
+      ? text
+      : `${text.slice(0, TOOL_CALL_OUTPUT_HALF - 1)}\n${text.slice(-(TOOL_CALL_OUTPUT_HALF - 1))}`
+  return {
+    name: toolName,
+    ...(command ? { command: command.slice(0, TOOL_CALL_MAX_COMMAND) } : {}),
+    output,
+    ...(toolCallFailed(response) ? { failed: true } : {}),
+  }
 }
 
 /**
@@ -986,6 +1059,16 @@ async function main() {
     if (trimmed && trimmed.length <= MAX_TOOL_USE_ID_LENGTH) frame.toolUseId = trimmed
   }
 
+  // The call itself, for the app's pull request reader (see the section above).
+  // Its own field on the frame, so a call that also changed a file still
+  // carries it, once: it rides only the first of the file-change frames below.
+  let toolCall = null
+  try {
+    toolCall = forwardedToolCall(event, toolName, payload)
+  } catch {
+    toolCall = null
+  }
+
   // Where the session IS: Claude Code, Codex and Grok put the
   // session's working directory on every hook payload. Forwarded verbatim (the
   // reader shape-checks it) so the app can resolve the checkout the agent is
@@ -1026,6 +1109,7 @@ async function main() {
   // reads each file change once. No file change: the phase frame still goes,
   // exactly as before.
   const frames = fileChanges.length > 0 ? fileChanges.map((fileChange) => ({ ...frame, fileChange })) : [frame]
+  if (toolCall) frames[0] = { ...frames[0], toolCall }
   await writeFrame(socketPath, frames)
 }
 

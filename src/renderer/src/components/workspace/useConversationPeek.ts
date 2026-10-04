@@ -1,48 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
-import type { ConversationPeek } from '../../../../shared/conversation-peek'
-
-// Hover intent + the one IPC read behind the conversation peek. Split from the
-// card so the two anchors (a sidebar row, an agent tab) share one set of
-// timings and one answer, and so neither shell reimplements the dwell.
+// Hover intent behind the conversation peek. Split from the card so the two
+// anchors (a sidebar row, an agent tab) share one set of timings, and so
+// neither shell reimplements the dwell.
 //
-// The main-process half owns everything about WHAT the answer is — which
-// runtimes report prompts, which prompts were captured, how a message is
-// capped. This side asks once per open and renders exactly what came back.
+// There is no read any more (2026-10-04): everything the card says rides the
+// identity its anchor already holds, so opening it costs no round trip.
 
 /**
- * The dwell before the card opens. 220ms is the mockup's own number and it is
- * doing real work: a sweep down a sidebar of forty chats crosses every row, and
- * without a dwell it would fire forty cards. Focus skips it — a keyboard user
- * asked for this row explicitly and should not be made to wait.
+ * The dwell before the card opens. Long enough that the card is something you
+ * ASK for by resting on a row (owner, 2026-10-04): at the old 220ms, moving the
+ * pointer across the sidebar on the way somewhere else kept flashing cards up,
+ * and a sweep down forty chats fired one per pause. Focus skips it — a keyboard
+ * user asked for this row explicitly and should not be made to wait.
  */
-const PEEK_DWELL_MS = 220
+const PEEK_DWELL_MS = 600
 
 /**
  * Grace after the pointer leaves the anchor or the card. This is a POPOVER, not
- * a tooltip: it holds controls (a copy button, a thumbnail, a file chip), so the
- * pointer has to be able to cross the gap into it. Without this the gap closes
+ * a tooltip: it holds a control (the pull request mark), so the pointer has to
+ * be able to cross the gap into it. Without this the gap closes
  * the card before it can be reached, which makes those controls unpressable.
  */
 const PEEK_CLOSE_GRACE_MS = 140
-
-/**
- * The call the preload exposes for this feature, typed here as optional.
- * It may be absent — an older main, a window that never got them — and every
- * consumer treats absence as "the card says it cannot read the conversation"
- * rather than as an error, exactly the way the clipboard bridge is guarded.
- */
-type ConversationPeekApi = {
-  readConversationPeek?: (sessionId: string) => Promise<ConversationPeek>
-}
-
-function peekApi(): ConversationPeekApi {
-  return (window.api ?? {}) as typeof window.api & ConversationPeekApi
-}
-
-function hasReader(): boolean {
-  return typeof peekApi().readConversationPeek === 'function'
-}
 
 /**
  * The one open peek, app-wide. Mockup frame 3: the tab and the row get the same
@@ -59,10 +39,6 @@ let openPeek: (() => void) | null = null
 export type ConversationPeekHover = {
   /** Whether the card should be mounted. */
   open: boolean
-  /** The answer FOR THIS SESSION, or null while it is in flight. */
-  peek: ConversationPeek | null
-  /** A read is outstanding. The card shows identity plus a skeleton, never a blank. */
-  loading: boolean
   /** Pointer entered the anchor: open after the dwell. */
   openSoon: () => void
   /** Focus landed on the anchor: open now, no dwell. */
@@ -76,7 +52,7 @@ export type ConversationPeekHover = {
 }
 
 /**
- * Hover intent and reads for one AGENT's peek.
+ * Hover intent for one AGENT's peek.
  *
  * `sessionId` is the terminal the card is about. Null means there is nothing to
  * ask about (a chat that never started a session, a row mid-rename) and the
@@ -85,18 +61,10 @@ export type ConversationPeekHover = {
  * It may CHANGE while the card is open, and that is ordinary rather than
  * exceptional: a sidebar row lists a chat's agents as sub-lines, and moving the
  * pointer from one to the next moves the card to that agent (one card per
- * agent, 2026-09-09). Which is why the answers below are keyed by session and
- * not cleared when it changes — sweeping back up the lines must not re-ask for
- * an answer that arrived a moment ago.
+ * agent, 2026-09-09). The card simply re-renders on the new identity.
  */
 export function useConversationPeek(sessionId: string | null): ConversationPeekHover {
   const [open, setOpen] = useState(false)
-  // Answers keyed by session, so switching back to an agent already viewed is
-  // instant and never asks main twice. A key present with a `null`
-  // value is a read that finished with no answer — which is how `loading` can
-  // be derived rather than raced (an effect runs after paint, so a card whose
-  // loading flag waited for one painted its "not readable" arm for a frame).
-  const [answers, setAnswers] = useState<Map<string, ConversationPeek | null>>(() => new Map())
   const openTimer = useRef<number | null>(null)
   const closeTimer = useRef<number | null>(null)
   // This instance's own closer, with a stable identity, so the latch above can
@@ -117,13 +85,9 @@ export function useConversationPeek(sessionId: string | null): ConversationPeekH
     }
   }, [])
 
-  // Opening drops every answer from the previous visit. A card that showed the
-  // last visit's messages while quietly re-reading is telling you about a
-  // conversation that has moved on since.
   const reveal = useCallback(() => {
     if (openPeek && openPeek !== selfClose.current) openPeek()
     openPeek = selfClose.current
-    setAnswers(new Map())
     setOpen(true)
   }, [])
 
@@ -173,84 +137,12 @@ export function useConversationPeek(sessionId: string | null): ConversationPeekH
     clearCloseTimer()
   }, [clearCloseTimer])
 
-  const peek = sessionId ? (answers.get(sessionId) ?? null) : null
-  // Derived, never raced: a session with no entry in `answers` is one nobody
-  // has finished reading. The `has` check and not the value, so a read that
-  // came back empty settles instead of spinning forever.
-  const loading = open && sessionId !== null && !answers.has(sessionId) && hasReader()
-
-  // One read per session per opening. Re-reading on a tick would make a card
-  // the pointer is resting on flicker between answers; the conversation it
-  // describes is not moving fast enough for that to buy anything.
-  useEffect(() => {
-    if (!open || !sessionId || answers.has(sessionId)) return
-    const read = peekApi().readConversationPeek
-    if (typeof read !== 'function') return
-    let cancelled = false
-    const settle = (answer: ConversationPeek | null): void => {
-      if (cancelled) return
-      setAnswers((previous) => {
-        if (previous.has(sessionId)) return previous
-        return new Map(previous).set(sessionId, answer)
-      })
-    }
-    read(sessionId)
-      .then(settle)
-      // Main could not answer. The card keeps its identity half and says the
-      // conversation is not readable — never a spinner that never resolves.
-      .catch(() => settle(null))
-    return () => {
-      cancelled = true
-    }
-  }, [answers, open, sessionId])
-
   return {
     open: open && sessionId !== null,
-    peek,
-    loading,
     openSoon,
     openNow,
     closeSoon,
     closeNow,
     keepOpen,
   }
-}
-
-/** How long the copy button holds its "copied" tick before going back. */
-const COPIED_FLASH_MS = 1_200
-
-type ClipboardApi = { clipboardWriteText?: (text: string) => Promise<void> }
-
-/**
- * The session id's copy button, shared by both anchors so the flash lasts the
- * same beat in each. A denied clipboard leaves `copied` false: the id is still
- * on screen and still selectable, and a silent success would be a lie.
- */
-export function useCopyValue(value: string | null): { copied: boolean; copy: () => void } {
-  const [copied, setCopied] = useState(false)
-  const timer = useRef<number | null>(null)
-
-  useEffect(
-    () => () => {
-      if (timer.current !== null) window.clearTimeout(timer.current)
-    },
-    [],
-  )
-
-  const copy = useCallback(() => {
-    if (!value) return
-    const write = (window.api as (typeof window.api & ClipboardApi) | undefined)?.clipboardWriteText
-    if (typeof write !== 'function') return
-    void write(value)
-      .then(() => {
-        setCopied(true)
-        if (timer.current !== null) window.clearTimeout(timer.current)
-        timer.current = window.setTimeout(() => setCopied(false), COPIED_FLASH_MS)
-      })
-      .catch(() => {
-        // Clipboard denied. No flash, no toast — the id has not moved.
-      })
-  }, [value])
-
-  return { copied, copy }
 }

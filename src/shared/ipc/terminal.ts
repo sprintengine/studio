@@ -157,9 +157,14 @@ export type SessionFileChange = {
 // the moment of the last reading — the CLI refreshes its status line after
 // every assistant message, and a timestamp that advanced on each one would be
 // a repaint per message for a number that had not changed.
+//
+// `contextWindowSize` is the window the percentage is OF, in tokens, when the
+// CLI has said. It is what turns "42%" into "84k / 200k" on the peek card, and
+// it moves only when the model does, so carrying it costs no extra repaints.
 export type SessionContextUsage = {
   usedPercentage: number
   at: number
+  contextWindowSize?: number
 }
 
 export type TerminalSessionSnapshot = {
