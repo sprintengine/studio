@@ -337,11 +337,34 @@ test('WorkspaceSidebar.settled', async () => {
       for (const [why, fields] of [
         ['a turn running', { activityByWorkspaceId: { w1: 'idle', w6: 'working' }, conversationSessions: [] }],
         [
-          'a background agent working',
+          'a background agent working under a waiting prompt',
           {
             activityByWorkspaceId: { w1: 'idle', w6: 'needs-input' },
             conversationSessions: [
-              { sessionId: 'fox-chat', workspaceId: 'w6', agentId: 'agent-1', status: 'ready', backgroundAgents: 1 },
+              {
+                sessionId: 'fox-chat',
+                workspaceId: 'w6',
+                agentId: 'agent-1',
+                status: 'awaiting_approval',
+                phase: 'waiting_for_input',
+                backgroundAgents: 1,
+              },
+            ],
+          },
+        ],
+        [
+          'a background agent working after its parent failed',
+          {
+            activityByWorkspaceId: { w1: 'idle', w6: 'failed' },
+            conversationSessions: [
+              {
+                sessionId: 'fox-chat',
+                workspaceId: 'w6',
+                agentId: 'agent-1',
+                status: 'failed',
+                phase: 'failed',
+                backgroundAgents: 1,
+              },
             ],
           },
         ],

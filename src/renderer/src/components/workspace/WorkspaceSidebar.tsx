@@ -605,6 +605,20 @@ function WorkspaceSidebar({
     [rowIsWorking, setWorkspaceSnoozed, rowHasOpenAgents],
   )
 
+  // ─── The pull requests a chat holds after its agents are gone ──────────
+  //
+  // Owner, 2026-09-10: "he is no longer active, but it doesn't show on his card
+  // that he has an open pull request… if I'm scanning through the old chats I
+  // don't know is there a pull request open that I'm missing."
+  //
+  // A live agent's marks arrive on its terminal session and are drawn on its
+  // own line; those are the more precise answer and this never overrides them
+  // (`pullRequestsForRow`). This is for the rows that have no line left. The
+  // rest sweep below reads it too: a chat whose pull requests have landed
+  // settles (Settle on merge).
+  const allWorkspaceIds = useMemo(() => workspaces.map((workspace) => workspace.id), [workspaces])
+  const conversationPullRequests = useConversationPullRequests(allWorkspaceIds)
+
   // The rest sweep (settled-chats, 2026-09-07): on the 30 s tick the idle
   // labels ride, and whenever an agent's activity flips — so a resting row
   // whose agent starts working wakes at once, not a tick later. This is the
@@ -620,27 +634,17 @@ function WorkspaceSidebar({
   // Keyed on whether both lists have landed rather than on the terminal list
   // itself: a terminal's semantic change moves no row's activity that
   // `activityByWorkspaceId` does not already carry.
-  // ─── The pull requests a chat holds after its agents are gone ──────────
   //
-  // Owner, 2026-09-10: "he is no longer active, but it doesn't show on his card
-  // that he has an open pull request… if I'm scanning through the old chats I
-  // don't know is there a pull request open that I'm missing."
-  //
-  // A live agent's marks arrive on its terminal session and are drawn on its
-  // own line; those are the more precise answer and this never overrides them
-  // (`pullRequestsForRow`). This is for the rows that have no line left. The
-  // rest sweep below reads it too: a chat whose pull requests have landed
-  // settles (Settle on merge).
-  const allWorkspaceIds = useMemo(() => workspaces.map((workspace) => workspace.id), [workspaces])
-  const conversationPullRequests = useConversationPullRequests(allWorkspaceIds)
-
+  // Busy is `workspaceIsWorking`, the rule Settle by hand follows: a row whose
+  // prompt or failed turn outranks a background agent still working is busy
+  // all the same, or a merge would settle it and end that agent.
   const sessionsListed = hasTerminalSessionsSnapshot() && conversationSessionsReady
   useEffect(() => {
     if (!sessionsListed) return
     const busyIds = new Set<WorkspaceId>()
     const heldIds = new Set<WorkspaceId>(unseenDoneIds)
     for (const [id, activity] of Object.entries(activityByWorkspaceId)) {
-      if (activity === 'working') busyIds.add(id)
+      if (rowIsWorking(id)) busyIds.add(id)
       else if (activity === 'needs-input') heldIds.add(id)
     }
     const settledNow = useWorkspaceStore.getState().reconcileWorkspaceSettlement({
@@ -650,7 +654,16 @@ function WorkspaceSidebar({
       pullRequestsByWorkspaceId: conversationPullRequests,
     })
     for (const id of settledNow) quietSettledWorkspace(id)
-  }, [now, activityByWorkspaceId, unseenDoneIds, sessionsListed, quietSettledWorkspace, conversationPullRequests])
+  }, [
+    now,
+    activityByWorkspaceId,
+    conversationSessions,
+    unseenDoneIds,
+    sessionsListed,
+    rowIsWorking,
+    quietSettledWorkspace,
+    conversationPullRequests,
+  ])
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   // Which Snoozed shelves are open. Session-only and closed by default: the
