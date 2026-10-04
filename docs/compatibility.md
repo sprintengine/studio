@@ -191,7 +191,11 @@ older desktop answers the route 404. The machine each chat runs on (`host`),
 its pull requests (`pullRequests`) and the desktop's own kind and colour
 (`machine` on `identity`) are optional members with no capability: an older
 phone ignores them, and a phone reads their absence as a desktop that does not
-send them (`docs/conversations.md`, "Machines and pull requests in the list"). Breaking frame changes require a new
+send them (`docs/conversations.md`, "Machines and pull requests in the list").
+The context a chat has spent (`contextWindow` and `contextUsed` on a
+`usage_updated` event) is the same kind of member: a phone that does not read
+them shows no context ring, and one that does draws none for a desktop that
+does not send them. Breaking frame changes require a new
 negotiated capability or the tailnet version-window process above, not merely
 a package version change. Presentation-only fixes use a package patch.
 Both ESM and CommonJS tarball consumers and Node16 declarations are checked by
