@@ -23,7 +23,13 @@ const LSTAT_BATCH = 64
 const SIDECARS = ['.sprintengine', '.multi-code']
 // The copy must never write a split index into the repository's git
 // directory, and a filesystem monitor's answers belong to the real index.
-const SNAPSHOT_CONFIG = ['-c', 'core.splitIndex=false', '-c', 'core.fsmonitor=false']
+// Every stat field is compared, whatever runs the snapshot: Linux git on a
+// Windows drive trusts size and mtime alone (R89), and there the copy is
+// Git for Windows' index, whose blobs may be the file after a line-ending
+// conversion Linux git does not make. A trusted entry would put LF in the
+// turn's "before" for a CRLF file, so its diff would show every line and
+// revert would write LF. The inode it does not know makes git read the file.
+const SNAPSHOT_CONFIG = ['-c', 'core.splitIndex=false', '-c', 'core.fsmonitor=false', '-c', 'core.checkStat=default']
 const IDENTITY = {
   GIT_AUTHOR_NAME: 'SprintEngine Studio',
   GIT_AUTHOR_EMAIL: 'studio@example.com',
