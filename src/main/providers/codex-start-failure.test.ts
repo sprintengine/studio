@@ -78,3 +78,19 @@ test('the size is asked of the machine the chat ran on, and a failed read still 
   expect(asked).toEqual(['Ubuntu'])
   expect(error.message).toBe("Codex didn't answer in 30 s. Run `codex` in a terminal on WSL: Ubuntu to see why.")
 })
+
+test('a size read that never answers cannot hold the failure back', async () => {
+  // The machine Codex just failed to start on is the one most likely to be
+  // wedged: a distribution whose share stopped answering would leave the
+  // listing pending, and the chat would never say why it did not start.
+  const started = Date.now()
+  const error = await explainCodexInitializeTimeout({
+    timeoutMs: 30_000,
+    wslDistro: 'Ubuntu',
+    env: {},
+    readLogBytes: () => new Promise<number | null>(() => {}),
+    readDeadlineMs: 50,
+  })
+  expect(Date.now() - started).toBeLessThan(2_000)
+  expect(error.message).toBe("Codex didn't answer in 30 s. Run `codex` in a terminal on WSL: Ubuntu to see why.")
+})

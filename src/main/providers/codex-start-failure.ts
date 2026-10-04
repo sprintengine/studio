@@ -106,12 +106,22 @@ export async function codexHomeFor(wslDistro: string | null, env: NodeJS.Process
   }
 }
 
+/**
+ * How long the failure waits for the log database's size. The machine Codex
+ * just failed to start on is the one most likely to be stuck, and a listing
+ * of a distribution's share that stopped answering never settles: past this,
+ * the message goes out without the size.
+ */
+export const CODEX_LOG_SIZE_DEADLINE_MS = 5_000
+
 /** The error a start that timed out on `initialize` fails with. */
 export async function explainCodexInitializeTimeout(input: {
   timeoutMs: number
   wslDistro: string | null
   env: NodeJS.ProcessEnv
   readLogBytes?: (wslDistro: string | null, env: NodeJS.ProcessEnv) => Promise<number | null>
+  /** Tests shorten it; {@link CODEX_LOG_SIZE_DEADLINE_MS} otherwise. */
+  readDeadlineMs?: number
 }): Promise<Error> {
   const readLogBytes =
     input.readLogBytes ??
@@ -119,7 +129,13 @@ export async function explainCodexInitializeTimeout(input: {
       const home = await codexHomeFor(distro, env)
       return home ? codexLogDatabaseBytes(home) : null
     })
-  const logBytes = await readLogBytes(input.wslDistro, input.env).catch(() => null)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), input.readDeadlineMs ?? CODEX_LOG_SIZE_DEADLINE_MS)
+  })
+  const logBytes = await Promise.race([readLogBytes(input.wslDistro, input.env).catch(() => null), deadline]).finally(
+    () => clearTimeout(timer),
+  )
   return new Error(
     codexStartTimeoutMessage({
       seconds: Math.round(input.timeoutMs / 1000),
