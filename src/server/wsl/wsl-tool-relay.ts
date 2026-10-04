@@ -301,6 +301,10 @@ export function relayShellToolsets(input: {
         (target.moduleTools === true && !STUDIO_RESERVED_TOOLSET_NAMES.includes(named.toolset))
       if (!taken) continue
       const entry = sets.get(named.toolset) ?? { title: named.toolset, tools: [] }
+      // Two of this side's names can cross as one (`backlog.list` and a
+      // module's `backlog_list`): the first registered keeps it, as the core's
+      // do on Windows, rather than the whole toolset being refused for it.
+      if (entry.tools.some((tool) => tool.name === named.tool)) continue
       entry.tools.push({
         name: named.tool,
         description: registration.description,
@@ -375,8 +379,9 @@ export function relayShellToolsets(input: {
     }
     for (const [name, set] of wanted) {
       const current = entry.offered.get(name)
-      const names = set.tools.map((tool) => tool.name).sort()
-      if (current && current.wireNames.length === names.length) continue
+      // Offered again when its tools change, though their number may not.
+      const wire = set.tools.map((tool) => `${name}.${tool.name}`).sort()
+      if (current && [...current.wireNames].sort().join('\n') === wire.join('\n')) continue
       try {
         const offered = await entry.client.tools.offer({
           name,
