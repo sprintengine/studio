@@ -750,6 +750,15 @@ export default function NewAgentPanel({
   React.useEffect(() => {
     if (remoteChosenAway) setRemoteTarget(null)
   }, [remoteChosenAway])
+  // A scheduled agent runs on this computer, so the machine list drops the SSH
+  // machines while scheduling; one picked before must go with them, or the
+  // strip would keep asking for a folder on that machine while the agent is
+  // saved for the project here.
+  const sshPickedWhileScheduled = scheduled && pickedSshId !== null
+  React.useEffect(() => {
+    if (sshPickedWhileScheduled) pickSsh(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sshPickedWhileScheduled])
   // The project in hand, as an identity the next machine can be searched for:
   // the local folder's repository, or the remote project's as its machine
   // served it. Null when nothing is chosen or the folder has no remote.
