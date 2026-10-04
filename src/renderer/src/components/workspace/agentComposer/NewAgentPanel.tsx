@@ -1,6 +1,5 @@
 import { parseMachinePath } from '../../../../../shared/machine-paths'
 import React from 'react'
-import { AttachmentChip } from '../../ui/AttachmentChip'
 import type { AgentCli, CliPermissionPreset, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type {
   MeshBrowse,
@@ -10,7 +9,7 @@ import type {
 } from '../../../../../shared/tailnet-mesh'
 import { sameRepository, type RepositoryIdentity } from '../../../../../shared/repository-identity'
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
-import { ExtensionsGlyph, FolderTypeIcon, RemoteMachineGlyph, ScheduleGlyph, WslMachineGlyph } from '../../AppIcons'
+import { ExtensionsGlyph, FolderTypeIcon, GitBranchGlyph, RemoteMachineGlyph } from '../../AppIcons'
 import {
   distroOfHostId,
   hostIdForFolder,
@@ -39,6 +38,8 @@ import {
   readFileAsBase64,
   readPastedImagePaths,
   sortDroppedFiles,
+  sortFiles,
+  type DroppedFiles,
 } from '../../../utils/imageFileTransfer'
 import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
 import { basename } from '../../../utils/paths'
@@ -48,8 +49,11 @@ import {
   ChipButton,
   CloseIconButton,
   COMPOSER_SURFACE_CLASS,
+  ComposerPlusGlyph,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
-  MENU_DIVIDER_CLASS,
+  HiddenFileInput,
+  IconButton,
+  MachineGlyph,
   MENU_LIST_CLASS,
   Input,
   EmptyState,
@@ -59,7 +63,7 @@ import {
   MenuOption,
   Popover,
   PrimaryButton,
-  SegmentedControl,
+  SendGlyph,
   Textarea,
   StarGlyph,
   Tooltip,
@@ -67,10 +71,12 @@ import {
   useCliPermissionPreset,
   type InlineSkillPickerHandle,
 } from '../../ui'
-import { CheckIcon } from '../../AppIcons'
+import { AttachmentChip } from '../../ui/AttachmentChip'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
-import SprintEngineFrond from '../../brand/SprintEngineFrond'
+import { MENU_GROUP_LABEL_CLASS } from '../../ui/menuClasses'
+import type { MachineRef } from '../../../../../shared/machine-identity'
+import { hostMachineRef, sshMachineRef, useMachineIdentity } from '../../../hooks/useMachineIdentity'
 import { CliInstallCta } from '../cliInstallRoute'
 import { menuRadioRowKeyDown } from './agentSpawnShared'
 import { SpawnPermissionFooter } from './spawnFooter'
@@ -84,8 +90,8 @@ import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
 import { WorktreeChip } from './WorktreeChip'
-import { FoldedControls, useMeasuredFold } from '../../ui/FoldedControls'
-import { ScheduleTray } from './schedule/SchedulePicker'
+import { ScheduleFailureTray, ScheduleTag } from './schedule/SchedulePicker'
+import { ComposerOptions, StartAsGlyph, startAsLabel, type StartAs } from './ComposerOptionsMenu'
 import { ScheduledRuns } from './schedule/ScheduledRuns'
 import type { ScheduledRunEntry } from '../../../utils/scheduledAgentRuns'
 import { ExtensionNameChip } from './ExtensionNameChip'
@@ -349,17 +355,6 @@ type RemoteTargetState = {
   checkout: MeshWorkspaceCheckout | null
 }
 
-// The greeting rotates per tab open. No exclamation marks and no "we" (the copy
-// voice bans both); the name is the first token of the signed-in display name,
-// and every line reads correctly without it — a signed-out person gets the same
-// welcome, not a prompt to sign in.
-const GREETINGS: ReadonlyArray<(name: string | null) => string> = [
-  (name) => (name ? `What's up, ${name}?` : "What's up?"),
-  (name) => (name ? `What's next, ${name}?` : "What's next?"),
-  (name) => (name ? `Ready when you are, ${name}.` : 'Ready when you are.'),
-  (name) => (name ? `Where do you want to start, ${name}?` : 'Where do you want to start?'),
-]
-
 // The machine picked last, for THIS session only (never persisted): reopening
 // New chat keeps the target a person just used, while a fresh app start opens
 // on This device — a remote is never preselected on first open.
@@ -430,24 +425,19 @@ const EXTENSION_BUILDER_CHIP = scheduledSkill({ id: EXTENSION_BUILDER_SKILL_ID, 
 const SCHEDULE_COMMAND = /(?:^|\s)\/schedule(?:[ \t]+([^\n]*))?$/u
 
 /**
- * The launch surface behind the tab strip's "+" (v2).
+ * The launch surface: New chat, and the tab strip's "+".
  *
- * One column: who is being greeted, what to do, how it runs, and what to start
- * with. The box sits on the terminal's own ground and carries a `❯`, because it
- * becomes that terminal in place.
- *
- * The control row shows only what a launch usually changes — engine and access —
- * plus the two attachments people reach for. Everything rarer (worktree, debug)
- * lives behind `⋯` and rises onto the row as a chip once set, so the row is a
- * picture of this launch rather than a panel of every knob.
+ * One composer, and nothing above it (owner ruling 2026-10-04): no mark, no
+ * greeting, no switch between a chat and a scheduled agent. The box holds the
+ * prompt and one row of quiet controls — the "+" that opens how the launch
+ * starts and what it starts with, a tag beside it for each choice that is not
+ * the default, the model, and a small round send. Tucked under the box, one
+ * piece with it, is the context strip: the machine, the project, and the
+ * worktree and branch, which say where the launch runs.
  *
  * Nothing here creates anything: `onLaunch` hands the host a confirm plus the
  * prompt, and the host retypes this tab into the agent's terminal.
  */
-// The width below which the launch row folds worktree and skills: the model
-// chip, worktree, skills, ⋯ and Start side by side at typical label widths.
-const LAUNCH_ROW_FOLD_WIDTH = 520
-
 export default function NewAgentPanel({
   workspaceId,
   conversationModeEnabled = true,
@@ -936,14 +926,13 @@ export default function NewAgentPanel({
   const branch = folderPath !== undefined && folderPath !== activeWorkspaceRoot ? null : activeBranch
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const displayName = useWorkspaceStore((s) => s.authState.user?.displayName ?? null)
 
   const [prompt, setPrompt] = React.useState(() => editing?.prompt ?? draft?.prompt ?? '')
   const [enginePopoverOpen, setEnginePopoverOpen] = React.useState(false)
-  const [moreOpen, setMoreOpen] = React.useState(false)
-  // Below its budget the launch row folds worktree and skills behind one
-  // chevron rather than wrapping onto a second line (owner ruling 2026-10-01).
-  const [launchRowFolded, launchRowRef] = useMeasuredFold(LAUNCH_ROW_FOLD_WIDTH)
+  // The "+" menu, and the skills picker it opens over the same "+".
+  const [optionsOpen, setOptionsOpen] = React.useState(false)
+  const [skillsOpen, setSkillsOpen] = React.useState(false)
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
   const [seed] = React.useState(() => newSuggestionSeed())
   const promptRef = React.useRef<HTMLTextAreaElement>(null)
@@ -993,9 +982,10 @@ export default function NewAgentPanel({
   // A drop, whatever it carries: every file with a path is typed as its path,
   // the way a drop onto a terminal would be; images attach; a file with no path
   // is uploaded where the shell can (a browser) and typed as the server's path,
-  // and is otherwise refused with a message rather than swallowed.
-  const dropFiles = (data: DataTransfer) => {
-    const { paths, images, pathless } = sortDroppedFiles(data, true)
+  // and is otherwise refused with a message rather than swallowed. Files picked
+  // through "Attach files" are taken the same way.
+  const dropFiles = (data: DataTransfer) => takeFiles(sortDroppedFiles(data, true))
+  const takeFiles = ({ paths, images, pathless }: DroppedFiles) => {
     for (const path of paths) insertPromptPath(path)
     if (images.length > 0) void attachDroppedFiles(images)
     else setAttachNote(null)
@@ -1061,16 +1051,6 @@ export default function NewAgentPanel({
   }
 
   const removeImage = (id: string) => setImages((current) => current.filter((image) => image.id !== id))
-
-  // The name is a greeting, not an identity claim: an email local-part reads
-  // worse than no name at all, so only a real display name is used.
-  const firstName = React.useMemo(() => {
-    const token = (displayName ?? '').trim().split(/\s+/)[0] ?? ''
-    return token.length > 0 ? token : null
-  }, [displayName])
-  // Held for the life of the tab — a re-render must not re-greet.
-  const [greetingIndex] = React.useState(() => Math.floor(Math.random() * GREETINGS.length))
-  const greeting = GREETINGS[greetingIndex % GREETINGS.length](firstName)
 
   // A plain shell launches no CLI, so it wears no CLI chip. A chat agent is a
   // CLI too — the same one, driven as a chat — so it wears the same chip and
@@ -1569,19 +1549,139 @@ export default function NewAgentPanel({
   // no suggested task to start it with. Saying so beats a field that silently
   // drops what was typed.
   const isTerminalLaunch = selection.kind === 'terminal'
-  // The Skills & MCPs trigger on the row is where skills are offered now; the
-  // inline `$`/`/` type-ahead still works, it just no longer needs advertising.
+  // The skills picker is where skills are offered; the inline `$`/`/`
+  // type-ahead still works, it just no longer needs advertising. A plain shell
+  // takes no prompt: nothing types a command into it for you.
   const placeholder = isTerminalLaunch
     ? 'A shell opens with nothing typed'
     : scheduled
       ? 'What each run should do…'
       : extensionMode
         ? 'Describe the extension…'
-        : 'Describe the task…'
+        : selection.kind === 'general'
+          ? 'Describe the task. It runs in a terminal you can take over.'
+          : 'Describe the task…'
   // No agent CLI at all, or (for a chat agent) none with a chat runtime: the
   // same install route either way, because installing a CLI is the answer to
   // both.
   const terminalUnavailable = (composer.noAgentCliInstalled && localHosts.length <= 1) || chatUnavailable
+
+  // ── The "+" menu ──────────────────────────────────────────────────────────
+  // How the launch starts. A conversation wherever the workspace can host one;
+  // a terminal agent and a plain shell wherever this client runs terminals,
+  // except for an extension (built in a chat, with its skill) and a scheduled
+  // agent being edited (it stays one).
+  const offeredKinds = React.useMemo(() => {
+    const kinds = new Set<StartAs>()
+    if (chatAvailable) kinds.add('conversation')
+    if (!extensionMode && !editing && clientSupports('terminals')) {
+      kinds.add('general')
+      kinds.add('terminal')
+    }
+    return kinds
+  }, [chatAvailable, editing, extensionMode])
+  const startAs = (kind: StartAs): void => {
+    // A scheduled agent's runs are chats: a terminal needs someone at it, so
+    // choosing one stops scheduling rather than lying about what would run.
+    if (kind !== 'conversation' && mode === 'scheduled' && !editing) setMode('chat')
+    const next: AgentComposerSelection = { kind } as AgentComposerSelection
+    composer.setSelection(next)
+    setLastNewChatAgent(next)
+  }
+  // What the launch reads skills and MCP servers through: nothing for a plain shell.
+  const skillsOffered = selection.kind !== 'terminal'
+  const skillsCount = composer.skills.length + composer.mcpServers.length
+  const scheduleOption =
+    scheduleOffered || editing
+      ? {
+          on: scheduled,
+          disabled: editing
+            ? 'A scheduled agent stays one'
+            : selection.kind !== 'conversation'
+              ? 'Only a conversation can run on a schedule'
+              : null,
+          onToggle: () => setMode(scheduled ? 'chat' : 'scheduled'),
+        }
+      : undefined
+
+  // ── The context strip ─────────────────────────────────────────────────────
+  // Where the launch runs: the machine, the project, the worktree and the
+  // branch. It replaces the machine · project line that sat above the box and
+  // the Worktree chip that sat on its row (owner ruling 2026-10-04).
+  const machinePickerShown =
+    (remoteSelectable && remoteMachines.length > 0) || localHosts.length > 1 || sshMachines.length > 0
+  // Worktree is offered only inside a git repository on this machine, for an
+  // agent: absent, not disabled. A paired machine's chat has no checkout here
+  // to fork, and an extension's folder is new.
+  const worktreeOffered = !extensionMode && selection.kind !== 'terminal' && !remoteTarget && workspaceIsGitRepo
+  // The branch the launch starts from: the remote project's as its machine
+  // read it, else this checkout's. An SSH machine's folder is typed, not read.
+  const stripBranch = remoteTarget ? (remoteTarget.checkout?.branch ?? null) : pickedSsh ? null : branch
+  const projectControl = pickedSsh ? (
+    <Input
+      aria-label={`Folder on ${pickedSsh.label}`}
+      value={sshFolder}
+      onChange={(event) => setSshFolder(event.target.value)}
+      placeholder={`Folder on ${pickedSsh.label}, such as /home/dev/repo`}
+      size="sm"
+      variant="well"
+      fullWidth={false}
+      className="w-72 max-w-full font-mono"
+    />
+  ) : remoteTarget ? (
+    <RemoteProjectPicker
+      target={remoteTarget}
+      color={scopeProjectColor}
+      onPick={(project) => {
+        setRemoteTarget((current) => (current ? { ...current, picked: project, checkout: null } : current))
+      }}
+    />
+  ) : canChooseProject ? (
+    <ProjectScopePicker
+      label={projectLabel ?? 'Choose a project'}
+      // The branch has its own place on the strip.
+      branch={null}
+      options={projectOptions ?? []}
+      selectedPath={workspaceRoot}
+      onSelect={(path) => onSelectProject?.(path)}
+      onBrowse={onBrowseProject ? () => onBrowseProject(hostId) : undefined}
+      onClone={onCloneProject}
+      // The hue, resolved here because only this component holds the
+      // repository identity behind the folder; the identity map goes with it
+      // so the rows IN the list wear their own colours too, read from the map
+      // this panel already asked main for rather than a second round of the
+      // same IPC.
+      color={scopeProjectColor}
+      unfiled={!workspaceRoot?.trim()}
+      identities={localIdentities}
+    />
+  ) : projectLabel ? (
+    // The tab strip's "+": the project is a fact rather than a choice, so this
+    // is a line and not a control — but it is the same line, and it wears the
+    // same glyph in the same hue. Every state of the strip carries the colour,
+    // or the colour stops being how you tell one project from another.
+    <span
+      data-project-line="true"
+      className="inline-flex h-control-xs min-w-0 items-center gap-1.5 px-2 text-meta text-[color:var(--text-subtle)]"
+    >
+      <FolderIdentityIcon folderPath={workspaceRoot} className="icon-xs shrink-0" color={scopeProjectColor} />
+      <span className="min-w-0 truncate">{projectLabel}</span>
+    </span>
+  ) : null
+  const stripShown = machinePickerShown || projectControl !== null || worktreeOffered || Boolean(stripBranch)
+
+  const sendTip =
+    selection.kind === 'terminal'
+      ? 'Opens a shell in this folder'
+      : extensionMode
+        ? `Makes ${extensionName || 'the extension'} in ${projectLabel ?? 'the project'} and starts ${engineNames.cliLabel} there`
+        : isChatLaunch
+          ? `Starts ${engineNames.cliLabel} as a chat`
+          : commandLine.status === 'ready'
+            ? commandLine.preview.display
+            : commandLine.status === 'error'
+              ? commandLine.message
+              : 'Reading this agent’s launch command…'
 
   return (
     <div
@@ -1593,174 +1693,21 @@ export default function NewAgentPanel({
           <CloseIconButton onClick={onClose} aria-label="Cancel" />
         </div>
       ) : null}
-      <div className="@container mx-auto w-full max-w-[620px]">
-        <div className="text-center">
-          {/* What the door starts: a chat now, or a scheduled agent that starts
-              one each time its schedule comes round. A choice of value, so the
-              kit's segmented control; the rest of the panel is the same either
-              way, bar the schedule's row in the tray. Not offered while editing
-              one — a scheduled agent stays one. */}
-          {scheduleOffered && !editing ? (
-            <div className="mb-4 flex justify-center">
-              <SegmentedControl
-                ariaLabel="What to start"
-                items={[
-                  { value: 'chat', label: 'Chat' },
-                  { value: 'scheduled', label: 'Scheduled agent' },
-                ]}
-                value={mode}
-                onChange={(next) => setMode(next)}
-              />
-            </div>
-          ) : null}
-          {/* icon-lg is the top of the icon scale and the step the system names for
-            empty-state glyphs. There is no larger token, and an off-scale hero
-            mark is what made this fill the pane. */}
-          {scheduled ? (
-            <ScheduleGlyph className="icon-lg mx-auto text-[color:var(--text-strong)]" />
-          ) : extensionMode ? (
+      {/* Centred in the pane while it fits, and scrolling from the top when it
+          does not: auto margins in a column collapse to nothing once the
+          content outgrows it. */}
+      <div className="@container m-auto flex w-full max-w-[680px] flex-col">
+        {/* No mark and no greeting above the box (owner ruling 2026-10-04):
+            the composer is the page. An extension keeps its question, which
+            says what the box is for when it is not the usual task. */}
+        {extensionMode ? (
+          <div className="mb-5 text-center">
             <ExtensionsGlyph className="icon-lg mx-auto text-[color:var(--text-strong)]" />
-          ) : (
-            <SprintEngineFrond tone="current" className="icon-lg mx-auto text-[color:var(--text-strong)]" />
-          )}
-          <h1 className="mt-2.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
-            {/* Editing, the tray below already says when; the heading names what. */}
-            {scheduled
-              ? editing
-                ? 'Scheduled agent'
-                : 'What should run on a schedule?'
-              : extensionMode
-                ? 'What should your extension do?'
-                : greeting}
-          </h1>
-          {/* State, not decoration: where this agent will run.
-              Whether this is a PICKER is decided by what the host can do, never
-              by what it currently has. Gating on `projectLabel` hid the control
-              outright when no project was set, and gating on a non-empty
-              `projectOptions` hid it when no other workspace happened to be
-              open — so the two moments a person most needs to choose a project
-              were the two moments the choice disappeared, taking the Browse
-              escape hatch with it. A host that passes no project handlers (the
-              tab strip's "+", which spawns into the workspace it was pressed
-              in) still gets the plain line, because there its project is a fact
-              rather than a choice. */}
-          <div className="mt-1 flex items-center justify-center gap-1.5">
-            {/* One machine dropdown, This device first (owner ruling 2026-09-03
-                — no separate Local/Remote switch). Shown whenever a remote
-                launch is possible and a machine is paired; on This device the
-                line reads exactly as it always did. */}
-            {(remoteSelectable && remoteMachines.length > 0) || localHosts.length > 1 || sshMachines.length > 0 ? (
-              <MachineScopePicker
-                // A scheduled agent runs on this computer or one of its WSL
-                // distributions: the scheduler is this computer's, and a paired
-                // machine's chat would need its own.
-                machines={remoteSelectable && !chatOnly ? remoteMachines : []}
-                selected={remoteTarget?.connection ?? null}
-                onSelect={(connection) => {
-                  pickSsh(null)
-                  pickRemoteMachine(connection)
-                }}
-                sshMachines={scheduled ? [] : sshMachines}
-                selectedSshId={pickedSsh?.id ?? null}
-                onSelectSsh={(id) => {
-                  pickRemoteMachine(null)
-                  pickSsh(id)
-                }}
-                localHosts={localHosts}
-                selectedHostId={hostId}
-                onSelectHost={(next) => {
-                  pickRemoteMachine(null)
-                  pickLocalHost(next)
-                }}
-                hostDisabledReason={(host) => {
-                  // Any folder runs on the machine picked (owner ruling
-                  // 2026-10-03): This PC opens a folder inside a distribution
-                  // over its share, more slowly, and the hint under the scope
-                  // line says so. Only another distribution cannot reach it.
-                  const refused = hostRefusesFolder(host.id, scopeFolder)
-                  if (refused) return refused
-                  if (host.state === 'unavailable') return host.reason ?? 'Not available.'
-                  return null
-                }}
-                availability={(machine) =>
-                  machineAvailabilityOf(machine, browseOf(machineBrowses.get(machine.id)), activeIdentity)
-                }
-                // With a project in hand, opening the list asks every machine
-                // what it holds — once, then again when the answer is old or
-                // was "not answering" (a machine asleep at the first open
-                // must be pickable once it wakes). Without a project there
-                // is nothing to filter by, and the list is the plain one.
-                onOpen={() => {
-                  if (!activeIdentity) return
-                  for (const machine of remoteMachines) {
-                    if (machineBrowseStale(machineBrowses.get(machine.id))) void browseMachine(machine)
-                  }
-                }}
-                projectName={activeIdentity?.name ?? null}
-              />
-            ) : null}
-            {pickedSsh ? (
-              <Input
-                aria-label={`Folder on ${pickedSsh.label}`}
-                value={sshFolder}
-                onChange={(event) => setSshFolder(event.target.value)}
-                placeholder={`Folder on ${pickedSsh.label}, such as /home/dev/repo`}
-                size="sm"
-                variant="well"
-                fullWidth={false}
-                className="w-72 max-w-full font-mono"
-              />
-            ) : remoteTarget ? (
-              <RemoteProjectPicker
-                target={remoteTarget}
-                color={scopeProjectColor}
-                onPick={(project) => {
-                  setRemoteTarget((current) => (current ? { ...current, picked: project, checkout: null } : current))
-                }}
-              />
-            ) : canChooseProject ? (
-              <ProjectScopePicker
-                label={projectLabel ?? 'Choose a project'}
-                branch={branch}
-                options={projectOptions ?? []}
-                selectedPath={workspaceRoot}
-                onSelect={(path) => onSelectProject?.(path)}
-                onBrowse={onBrowseProject ? () => onBrowseProject(hostId) : undefined}
-                onClone={onCloneProject}
-                // The hue, resolved here because only this component holds the
-                // repository identity behind the folder; the identity map goes
-                // with it so the rows IN the list wear their own colours too,
-                // read from the map this panel already asked main for rather
-                // than a second round of the same IPC.
-                color={scopeProjectColor}
-                unfiled={!workspaceRoot?.trim()}
-                identities={localIdentities}
-              />
-            ) : projectLabel ? (
-              // The tab strip's "+": the project is a fact rather than a choice,
-              // so this is a line and not a control — but it is the same line,
-              // and it wears the same glyph in the same hue. Every state of the
-              // scope line carries the colour, or the colour stops being how you
-              // tell one project from another.
-              <p className="inline-flex items-center gap-1.5 text-meta text-[color:var(--text-subtle)]">
-                <FolderIdentityIcon folderPath={workspaceRoot} className="icon-xs shrink-0" color={scopeProjectColor} />
-                <span className="min-w-0 truncate">
-                  {projectLabel}
-                  {branch ? ` · ${branch}` : ''}
-                </span>
-              </p>
-            ) : null}
-            {/* The scope line is machine · project, and nothing else (owner,
-                2026-09-11). A "Current checkout" chip and a branch segment used
-                to grow here the moment a remote project was picked, which put
-                the worktree question in TWO places on one surface: up on this
-                line for a remote target, and down behind ⋯ for a local one.
-                One control now — the Worktree chip beside the agent picker. */}
+            <h1 className="mt-2.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
+              What should your extension do?
+            </h1>
           </div>
-          {driveAdvisory ? (
-            <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{driveAdvisory}</p>
-          ) : null}
-        </div>
+        ) : null}
 
         {terminalUnavailable ? (
           <EmptyState
@@ -1778,29 +1725,22 @@ export default function NewAgentPanel({
             action={<CliInstallCta />}
           />
         ) : null}
-        {/* The schedule is one sentence in the tray behind the box, where the
-            composer says everything it has to say — not a field in the prompt,
-            which stays the prompt's alone. Change opens the picker over it. */}
-        {scheduled && !terminalUnavailable ? (
-          <div className="mt-5">
-            <ScheduleTray
-              cron={cron}
-              timezone={scheduleTimezone}
-              onChange={setCron}
-              failure={lastRunFailure}
-              onDismissFailure={() => setLastRunFailure(null)}
-            />
-          </div>
+        {/* Why the last run of the scheduled agent being edited did not
+            start, in the tray behind the box, until the person has seen it. */}
+        {scheduled && lastRunFailure && !terminalUnavailable ? (
+          <ScheduleFailureTray failure={lastRunFailure} onDismiss={() => setLastRunFailure(null)} />
         ) : null}
         <div
           // The box owns the visible border while the textarea inside it is the
           // tab stop, so the product's one focus ring lands on the box keyed to
           // the textarea's own focus (`FOCUS_RING_WITHIN_TEXTAREA_CLASS`) — not
           // an accent border swap on `focus-within`, which lit the box for the
-          // footer's buttons too and was a second focus idiom.
-          className={`relative ${scheduled ? '' : 'mt-5'} px-3 pb-2 pt-2.5 ${terminalUnavailable ? 'hidden' : ''} ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+          // row's buttons too and was a second focus idiom. Positioned, so it
+          // paints over the strip tucked under its lower edge.
+          className={`relative ${terminalUnavailable ? 'hidden' : ''} ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
+          data-new-chat-composer="true"
           onDragEnter={(event) => {
             if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
             dragDepthRef.current += 1
@@ -1828,7 +1768,7 @@ export default function NewAgentPanel({
           {/* Opaque, not a scrim: the field's own text ghosting through the
               drop state reads as a rendering artifact rather than a state. */}
           {dropActive && !isTerminalLaunch ? (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-app)] text-meta font-medium text-[color:var(--accent-primary)]">
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[var(--sem-radius-composer)] bg-[color:var(--bg-app)] text-meta font-medium text-[color:var(--accent-primary)]">
               Drop to attach
             </div>
           ) : null}
@@ -1860,45 +1800,22 @@ export default function NewAgentPanel({
             attachments={images}
             reading={attachingCount}
             onRemove={removeImage}
-            className="pb-2"
+            className="px-5 pt-4"
           />
 
-          <div className="flex items-start gap-2">
-            {/* The prompt caret as an SVG glyph, not a text character: a
-                character picks up the font's rendering and the guard's
-                emoji-as-icon rule for a reason. A chat is not a terminal, so
-                it gets no caret; the model picker below already says what
-                answers. */}
-            {isChatLaunch ? null : (
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 16 16"
-                fill="none"
-                className="mt-1 size-icon-sm shrink-0 select-none text-[color:var(--accent-primary)]"
-              >
-                <path
-                  d="M5.5 3.5 10 8l-4.5 4.5"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            )}
-            {/* Grows with its content (field-sizing: content) from the two-row
-                floor to a ceiling, then scrolls — a box that showed two lines
-                of a six-line prompt was hiding what the person was about to
-                send. Same treatment as the automation editor's prompt field. */}
-            {/* `composer` is the kit's hosted multiline field: no box of its
-                own, because `COMPOSER_SURFACE_CLASS` around it draws the
-                border, the ground and the ring, and `field-sizing-content`
-                between the caller's floor and ceiling. */}
+          <div className="px-5 pb-1 pt-4">
+            {/* Grows with its content (field-sizing: content) from the
+                three-row floor to a ceiling, then scrolls — a box that showed
+                two lines of a six-line prompt was hiding what the person was
+                about to send. `composer` is the kit's hosted multiline field:
+                no box of its own, because `COMPOSER_SURFACE_CLASS` around it
+                draws the border, the ground and the ring. */}
             <Textarea
               ref={promptRef}
               variant="composer"
               resize="none"
               value={prompt}
-              rows={2}
+              rows={3}
               onPaste={(event) => {
                 // A pasted screenshot only exists as a clipboard item; a text
                 // paste reports no image and falls through to the default —
@@ -1926,17 +1843,157 @@ export default function NewAgentPanel({
               placeholder={placeholder}
               disabled={isTerminalLaunch}
               aria-label="What this agent should do"
-              className="max-h-[280px] min-h-[44px] flex-1 overflow-y-auto font-mono text-body"
+              className="max-h-[280px] min-h-[66px] w-full overflow-y-auto font-mono text-body"
             />
           </div>
 
-          <div
-            ref={launchRowRef}
-            className="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-[color:var(--border-subtle)] pt-2"
-          >
-            {/* Engine: the CLI's own mark, then the model. The mark is the
-                identity — the word "claude" beside a Claude asterisk was saying
-                it twice. */}
+          {/* The controls, on the box's own ground with no rule above them:
+              the "+", a tag for every choice that is not the default, the
+              model, and the send. Each control is quiet — the box is the
+              surface, and a standing edge on each drew a box in a box. */}
+          <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2.5 pt-1.5">
+            <HiddenFileInput ref={fileInputRef} onFiles={(files) => takeFiles(sortFiles(files, true))} />
+            <Popover
+              open={optionsOpen}
+              onOpenChange={(next) => {
+                if (next) setSkillsOpen(false)
+                setOptionsOpen(next)
+              }}
+              ariaLabel="Options"
+              popupRole="menu"
+              placement="bottom-start"
+              surfaceClassName={`w-[304px] ${MENU_LIST_CLASS}`}
+              onOpenAutoFocus={(surface) =>
+                (
+                  surface.querySelector<HTMLElement>('[data-menu-item="true"][aria-checked="true"]') ??
+                  surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')
+                )?.focus()
+              }
+              renderTrigger={({ ref: optionsRef, triggerProps, togglePopover }) => {
+                const plus = (anchor: (node: HTMLButtonElement | null) => void) => (
+                  <IconButton
+                    ref={anchor}
+                    size="md"
+                    aria-label="Options"
+                    onClick={togglePopover}
+                    data-composer-options="true"
+                    {...triggerProps}
+                  >
+                    <ComposerPlusGlyph className="icon-sm" />
+                  </IconButton>
+                )
+                // The skills picker opens from a row of this menu and stands on
+                // the same "+": one anchor for both, so it opens where the
+                // person was looking.
+                return skillsOffered ? (
+                  <SkillsAndMcpsPicker
+                    workspaceRoot={workspaceRoot}
+                    // A chat stages skills itself rather than through the CLI's
+                    // own skill directory, so the workspace-wide inventory is
+                    // its list.
+                    pluginId={commandCli}
+                    skills={composer.skills}
+                    onSkillsChange={composer.setSkills}
+                    mcpServers={composer.mcpServers}
+                    onMcpServersChange={composer.setMcpServers}
+                    placement="bottom-start"
+                    open={skillsOpen}
+                    onOpenChange={setSkillsOpen}
+                    renderTrigger={({ ref: skillsRef }) =>
+                      plus((node) => {
+                        optionsRef.current = node
+                        skillsRef.current = node
+                      })
+                    }
+                  />
+                ) : (
+                  plus((node) => {
+                    optionsRef.current = node
+                  })
+                )
+              }}
+            >
+              <ComposerOptions
+                startAs={selection.kind}
+                offered={offeredKinds}
+                onStartAs={startAs}
+                onAttach={
+                  isTerminalLaunch
+                    ? undefined
+                    : () => {
+                        fileInputRef.current?.click()
+                      }
+                }
+                onSkills={skillsOffered ? () => setSkillsOpen(true) : undefined}
+                skillsCount={skillsCount}
+                schedule={scheduleOption}
+                close={() => setOptionsOpen(false)}
+              />
+            </Popover>
+
+            {/* The tags: each choice the "+" made that is not the default. */}
+            {scheduled ? (
+              <ScheduleTag
+                cron={cron}
+                timezone={scheduleTimezone}
+                onChange={setCron}
+                onRemove={editing ? undefined : () => setMode('chat')}
+              />
+            ) : null}
+            {selection.kind !== 'conversation' ? (
+              chatAvailable ? (
+                <AttachmentChip
+                  glyph={<StartAsGlyph kind={selection.kind} className="icon-xs shrink-0" />}
+                  label={startAsLabel(selection.kind)}
+                  removeLabel={`Start as a conversation instead of ${startAsLabel(selection.kind).toLowerCase()}`}
+                  onRemove={() => startAs('conversation')}
+                />
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-sm bg-[color:var(--bg-selected)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
+                  <StartAsGlyph kind={selection.kind} className="icon-xs shrink-0" />
+                  {startAsLabel(selection.kind)}
+                </span>
+              )
+            ) : null}
+            {/* An extension's folder is new, so there is nothing to fork: its
+                name is a tag of its own, in the extension violet. It is a field
+                the launch cannot start without. */}
+            {extensionMode ? (
+              <ExtensionNameChip name={extensionName} onChange={setExtensionName} invalid={extensionNote !== null} />
+            ) : null}
+            {/* Every skill and MCP server picked is a tag; the "+" opens the
+                picker for more. A terminal launches nothing that reads one. */}
+            {skillsOffered ? (
+              <>
+                {composer.skills.map((skill) => (
+                  <AttachmentChip
+                    key={`skill-${skill.id}`}
+                    glyph={<StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />}
+                    label={skill.name}
+                    removeLabel={`Remove skill ${skill.name}`}
+                    onRemove={() => composer.setSkills(composer.skills.filter((entry) => entry.id !== skill.id))}
+                  />
+                ))}
+                {composer.mcpServers.map((server) => (
+                  <AttachmentChip
+                    key={`mcp-${server.id}`}
+                    glyph={
+                      <ExtensionIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={13} />
+                    }
+                    label={server.name}
+                    removeLabel={`Remove MCP server ${server.name}`}
+                    onRemove={() =>
+                      composer.setMcpServers(composer.mcpServers.filter((entry) => entry.id !== server.id))
+                    }
+                  />
+                ))}
+              </>
+            ) : null}
+
+            <span className="flex-1" />
+
+            {/* Engine: the CLI's own mark, then the model. A plain shell runs
+                no CLI, so it has none. */}
             {launchCli ? (
               <EnginePickerChip
                 cli={launchCli}
@@ -1964,183 +2021,142 @@ export default function NewAgentPanel({
               />
             ) : null}
 
-            {/* An extension's folder is new, so there is nothing to fork: its
-                name takes the worktree chip's place, in the extension violet.
-                It never folds — it is a field the launch cannot start without,
-                and a required field behind a chevron is one nobody fills. */}
-            {extensionMode ? (
-              <ExtensionNameChip name={extensionName} onChange={setExtensionName} invalid={extensionNote !== null} />
+            {/* Run now starts what is saved; only a scheduled agent that exists
+                has anything saved to run. */}
+            {scheduled && editing ? (
+              <GhostButton size="xs" onClick={() => void runSavedNow()}>
+                Run now
+              </GhostButton>
             ) : null}
 
-            {/* Worktree and skills fold behind a chevron when the row is too
-                narrow for them; the model, ⋯ and Start never do. */}
-            <FoldedControls folded={launchRowFolded} ariaLabel="More launch settings" placement="bottom-start">
-              {/* Worktree sits beside the agent it isolates rather than behind ⋯
-                (owner, 2026-09-30): off until turned on or named. This machine
-                only, and only inside a git repository — a paired machine's
-                chat has no checkout here to fork. */}
-              {!extensionMode && selection.kind !== 'terminal' && !remoteTarget && workspaceIsGitRepo ? (
-                <WorktreeChip name={composer.worktreeName} onChange={composer.setWorktreeName} />
-              ) : null}
-
-              {/* Every pick is a chip; the one trigger opens the picker for more.
-                A terminal launches nothing that reads a skill or an MCP. */}
-              {selection.kind !== 'terminal' ? (
-                <>
-                  {composer.skills.map((skill) => (
-                    <AttachmentChip
-                      key={`skill-${skill.id}`}
-                      glyph={<StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />}
-                      label={skill.name}
-                      removeLabel={`Remove skill ${skill.name}`}
-                      onRemove={() => composer.setSkills(composer.skills.filter((entry) => entry.id !== skill.id))}
-                    />
-                  ))}
-                  {composer.mcpServers.map((server) => (
-                    <AttachmentChip
-                      key={`mcp-${server.id}`}
-                      glyph={
-                        <ExtensionIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={13} />
-                      }
-                      label={server.name}
-                      removeLabel={`Remove MCP server ${server.name}`}
-                      onRemove={() =>
-                        composer.setMcpServers(composer.mcpServers.filter((entry) => entry.id !== server.id))
-                      }
-                    />
-                  ))}
-                  <SkillsAndMcpsPicker
-                    workspaceRoot={workspaceRoot}
-                    // A chat stages skills itself rather than through the CLI's own
-                    // skill directory, so the workspace-wide inventory is its list.
-                    pluginId={commandCli}
-                    skills={composer.skills}
-                    onSkillsChange={composer.setSkills}
-                    mcpServers={composer.mcpServers}
-                    onMcpServersChange={composer.setMcpServers}
-                    placement="bottom-start"
-                  />
-                </>
-              ) : null}
-            </FoldedControls>
-
-            {/* Always rendered, whatever is selected: this menu is the only way
-                to change WHAT is being launched, so hiding it for a terminal
-                stranded the surface with no way back to an agent. */}
-            {
-              <Popover
-                open={moreOpen}
-                onOpenChange={setMoreOpen}
-                ariaLabel="More launch options"
-                popupRole="menu"
-                placement="bottom-start"
-                surfaceClassName={`w-[264px] ${MENU_LIST_CLASS}`}
-                renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                  <ChipButton
-                    ref={ref}
-                    variant="raised"
-                    aria-label="More launch options"
-                    onClick={togglePopover}
-                    {...triggerProps}
-                  >
-                    ⋯
-                  </ChipButton>
-                )}
-              >
-                <MoreMenu
-                  selection={selection}
-                  chatAvailable={chatAvailable}
-                  onSelectKind={(next) => {
-                    composer.setSelection(next)
-                    setLastNewChatAgent(next)
-                    setMoreOpen(false)
-                  }}
-                  // A scheduled agent's runs are chats, and so is an extension's
-                  // build; the kinds that are not are not offered.
-                  scheduled={chatOnly}
-                />
-              </Popover>
-            }
-
-            <span className="flex-1" />
-
-            {/* The invocation lives on Start's hover: the one moment someone
-                asks "what am I about to run?", and it answers with the line
-                main renders through the spawn's own argv renderer. */}
-            {scheduled ? (
-              <>
-                {/* Run now starts what is saved; only a scheduled agent that
-                    exists has anything saved to run. */}
-                {editing ? (
-                  <GhostButton size="xs" onClick={() => void runSavedNow()}>
-                    Run now
-                  </GhostButton>
-                ) : null}
-                {/* A scheduled agent is made, not started, so this primary says
-                    so in a word rather than the ⏎ that starts a chat now. */}
-                <Tooltip
-                  content={
-                    editing
-                      ? 'Save the prompt, schedule and settings'
-                      : `Starts a new ${engineNames.cliLabel} chat with this prompt each time the schedule comes round`
-                  }
-                  placement="top"
-                  multiline
-                >
-                  <PrimaryButton
-                    size="xs"
-                    onClick={() => launch(prompt)}
-                    disabled={!canLaunch}
-                    busy={scheduleBusy}
-                    aria-keyshortcuts="Enter"
-                    className="shrink-0 gap-1.5"
-                  >
-                    <ScheduleGlyph className="icon-xs" />
-                    {editing ? 'Save' : 'Schedule'}
-                  </PrimaryButton>
-                </Tooltip>
-              </>
-            ) : (
-              <Tooltip
-                content={
-                  selection.kind === 'terminal'
-                    ? 'Opens a shell in this folder'
-                    : extensionMode
-                      ? `Makes ${extensionName || 'the extension'} in ${projectLabel ?? 'the project'} and starts ${engineNames.cliLabel} there`
-                      : isChatLaunch
-                        ? `Starts ${engineNames.cliLabel} as a chat`
-                        : commandLine.status === 'ready'
-                          ? commandLine.preview.display
-                          : commandLine.status === 'error'
-                            ? commandLine.message
-                            : 'Reading this agent’s launch command…'
-                }
-                placement="top"
-                multiline
-              >
-                {/* The key that starts it, not the word "Start" and not a chat
-                    send-arrow: this launches a command, and a circle-arrow is the
-                    idiom for posting a message into a thread. The glyph names the
-                    keyboard path, so the shortcut stops being invisible, and the
-                    accessible name carries the verb for anyone who cannot see it. */}
-                {/* The composer's one primary, built from the kit (ruling 9):
-                    `PrimaryButton` squared to the `xs` control step, so the
-                    send carries the accent fill, the canon disabled treatment
-                    and the shared ring rather than a private 28px recipe. */}
+            {/* The send: a small round accent button with an up arrow (owner
+                ruling 2026-10-04). A scheduled agent is made, not started, so
+                its send says so in a word. The invocation rides the tooltip:
+                the one moment someone asks "what am I about to run?". */}
+            <Tooltip
+              content={
+                scheduled
+                  ? editing
+                    ? 'Save the prompt, schedule and settings'
+                    : `Starts a new ${engineNames.cliLabel} chat with this prompt each time the schedule comes round`
+                  : sendTip
+              }
+              placement="top"
+              multiline
+            >
+              {scheduled ? (
                 <PrimaryButton
-                  size="xs"
+                  size="sm"
+                  shape="round"
+                  onClick={() => launch(prompt)}
+                  disabled={!canLaunch}
+                  busy={scheduleBusy}
+                  aria-keyshortcuts="Enter"
+                  className="shrink-0 gap-1.5 pl-3 pr-2.5"
+                >
+                  {editing ? 'Save' : 'Schedule'}
+                  <SendGlyph className="icon-sm" />
+                </PrimaryButton>
+              ) : (
+                <PrimaryButton
+                  size="sm"
+                  shape="round"
                   onClick={() => launch(prompt)}
                   disabled={!canLaunch || !extensionReady}
-                  aria-label="Start agent"
+                  aria-label={isTerminalLaunch ? 'Open terminal' : 'Start agent'}
                   aria-keyshortcuts="Enter"
-                  className="aspect-square shrink-0 font-mono"
+                  className="w-control-sm shrink-0 px-0"
                 >
-                  <span aria-hidden="true">⏎</span>
+                  <SendGlyph className="icon-sm" />
                 </PrimaryButton>
-              </Tooltip>
-            )}
+              )}
+            </Tooltip>
           </div>
         </div>
+
+        {/* The context strip, tucked under the box and one piece with it:
+            rounded at the bottom only, inset from the box's sides, its top
+            hidden under the box's lower edge (owner ruling 2026-10-04). */}
+        {stripShown && !terminalUnavailable ? (
+          <div
+            data-composer-strip="true"
+            className="mx-6 -mt-4 flex flex-wrap items-center gap-0.5 rounded-b-[var(--sem-radius-composer-strip)] border border-t-0 border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-2 pb-1 pt-5"
+          >
+            {/* One machine dropdown, this computer first (owner ruling
+                2026-09-03 — no separate Local/Remote switch). Shown whenever
+                there is another machine to pick. */}
+            {machinePickerShown ? (
+              <MachineScopePicker
+                // A scheduled agent runs on this computer or one of its WSL
+                // distributions: the scheduler is this computer's, and a paired
+                // machine's chat would need its own.
+                machines={remoteSelectable && !chatOnly ? remoteMachines : []}
+                selected={remoteTarget?.connection ?? null}
+                onSelect={(connection) => {
+                  pickSsh(null)
+                  pickRemoteMachine(connection)
+                }}
+                sshMachines={scheduled ? [] : sshMachines}
+                selectedSshId={pickedSsh?.id ?? null}
+                onSelectSsh={(id) => {
+                  pickRemoteMachine(null)
+                  pickSsh(id)
+                }}
+                localHosts={localHosts}
+                selectedHostId={hostId}
+                onSelectHost={(next) => {
+                  pickRemoteMachine(null)
+                  pickLocalHost(next)
+                }}
+                hostDisabledReason={(host) => {
+                  // Any folder runs on the machine picked (owner ruling
+                  // 2026-10-03): This PC opens a folder inside a distribution
+                  // over its share, more slowly, and the hint under the strip
+                  // says so. Only another distribution cannot reach it.
+                  const refused = hostRefusesFolder(host.id, scopeFolder)
+                  if (refused) return refused
+                  if (host.state === 'unavailable') return host.reason ?? 'Not available.'
+                  return null
+                }}
+                availability={(machine) =>
+                  machineAvailabilityOf(machine, browseOf(machineBrowses.get(machine.id)), activeIdentity)
+                }
+                // With a project in hand, opening the list asks every machine
+                // what it holds — once, then again when the answer is old or
+                // was "not answering" (a machine asleep at the first open must
+                // be pickable once it wakes). Without a project there is
+                // nothing to filter by, and the list is the plain one.
+                onOpen={() => {
+                  if (!activeIdentity) return
+                  for (const machine of remoteMachines) {
+                    if (machineBrowseStale(machineBrowses.get(machine.id))) void browseMachine(machine)
+                  }
+                }}
+                projectName={activeIdentity?.name ?? null}
+              />
+            ) : null}
+            {projectControl}
+            {worktreeOffered || stripBranch ? (
+              <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-[color:var(--border-default)]" />
+            ) : null}
+            {/* Worktree, then the branch it is cut from (or the launch runs
+                on): off until turned on or named. */}
+            {worktreeOffered ? <WorktreeChip name={composer.worktreeName} onChange={composer.setWorktreeName} /> : null}
+            {stripBranch ? (
+              <span
+                className="inline-flex h-control-xs min-w-0 items-center gap-1.5 px-2 text-meta text-[color:var(--text-subtle)]"
+                data-composer-branch={stripBranch}
+              >
+                <GitBranchGlyph className="icon-xs shrink-0" />
+                {worktreeOffered && composer.worktreeName !== null ? <span>from</span> : null}
+                <span className="min-w-0 truncate font-mono">{stripBranch}</span>
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {driveAdvisory ? (
+          <p className="mt-2 px-6 text-meta leading-5 text-[color:var(--text-muted)]">{driveAdvisory}</p>
+        ) : null}
 
         {attachNote ? (
           <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--tone-error)]">
@@ -2160,7 +2176,7 @@ export default function NewAgentPanel({
         {/* Extension mode's cards fill the box and start nothing: the words
             are the person's to change, and the chat needs a name first. */}
         {extensionMode && !terminalUnavailable ? (
-          <section aria-label="Extension ideas" className="mt-4">
+          <section aria-label="Extension ideas" className="mt-6">
             <div className="mb-2 flex items-baseline justify-between gap-3">
               <h2 className="m-0 text-meta font-medium text-[color:var(--text-subtle)]">Start from an idea</h2>
               <LinkButton ink="quiet" onClick={() => setAllIdeas((current) => !current)}>
@@ -2178,7 +2194,7 @@ export default function NewAgentPanel({
           <ScheduledRuns runs={scheduledRuns} onOpen={onOpenScheduledRun} />
         ) : null}
         {terminalUnavailable || isTerminalLaunch || scheduled || extensionMode ? null : (
-          <div className="mt-4 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
+          <div className="mt-6 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
             {suggestions.map((entry) => (
               <SuggestionCard
                 key={entry.id}
@@ -2211,9 +2227,29 @@ function ChevronGlyph() {
 }
 
 /**
+ * A machine's mark in a menu row's leading slot, or the empty slot the width of
+ * one for this computer, which wears none (owner ruling 2026-10-04).
+ */
+function MachineSlot({ machine, className = 'icon-xs shrink-0' }: { machine: MachineRef; className?: string }) {
+  const identity = useMachineIdentity(machine)
+  return identity ? (
+    <MachineGlyph identity={identity} className={className} />
+  ) : (
+    <span aria-hidden="true" className={className} />
+  )
+}
+
+/** The trigger's mark: the picked machine's, and nothing for this computer. */
+function TriggerMachineMark({ machine }: { machine: MachineRef }) {
+  const identity = useMachineIdentity(machine)
+  return identity ? <MachineGlyph identity={identity} /> : null
+}
+
+/**
  * The machine dropdown (remote-sessions-ux / new-chat-on-a-remote-machine):
- * This device is the first entry and the default; paired machines follow with
- * the shared stacked-server mark. One dropdown — the owner rejected a
+ * This device is the first entry and the default; every other machine follows
+ * wearing its own mark — its kind's drawing in its colour (owner ruling
+ * 2026-10-04) — under "Other machines". One dropdown — the owner rejected a
  * separate Local/Remote switch as redundant.
  *
  * On Windows the machines on THIS computer lead it (owner decision
@@ -2268,6 +2304,12 @@ function MachineScopePicker({
     menuRadioRowKeyDown(event, '[data-machine-option="true"]', activate)
   const hostRows = localHosts.length > 1 ? localHosts : []
   const selectedHost = selected || selectedSsh ? null : (hostRows.find((host) => host.id === selectedHostId) ?? null)
+  // The machine the trigger names, as its mark knows it. This computer has none.
+  const selectedRef: MachineRef = selected
+    ? { kind: 'paired', name: selected.machineName }
+    : selectedSsh
+      ? sshMachineRef(selectedSsh)
+      : hostMachineRef(selectedHost?.id ?? null)
   const localSelected =
     selected === null && selectedSsh === null && (hostRows.length === 0 || selectedHostId === LOCAL_HOST_ID)
   // This machine can be ruled out too: a folder inside a distribution runs there.
@@ -2302,12 +2344,10 @@ function MachineScopePicker({
       surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusChecked}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        // The kit's raised chip, and the `subtle` tone's `--text-default`
-        // hover ink: one of the launch row's controls, so it stands on the
-        // same edge and height as the model and skills chips beside it.
+        // The kit's quiet chip, the context strip's control (owner ruling
+        // 2026-10-04): the machine's own mark, its name and the caret.
         <ChipButton ref={ref} variant="raised" onClick={togglePopover} data-machine-trigger="true" {...triggerProps}>
-          {selected || selectedSsh ? <RemoteMachineGlyph className="icon-xs shrink-0" /> : null}
-          {!selected && selectedHost?.kind === 'wsl' ? <WslMachineGlyph className="icon-xs shrink-0" /> : null}
+          <TriggerMachineMark machine={selectedRef} />
           {selected
             ? selected.machineName
             : selectedSsh
@@ -2364,7 +2404,12 @@ function MachineScopePicker({
               tabIndex={isSelected ? 0 : -1}
               onKeyDown={(event) => rowKey(event, activate)}
               onClick={activate}
-              icon={<WslMachineGlyph className={`icon-xs shrink-0${reason ? ' mt-0.5' : ''}`} />}
+              icon={
+                <MachineSlot
+                  machine={hostMachineRef(host.id)}
+                  className={`icon-xs shrink-0${reason ? ' mt-0.5' : ''}`}
+                />
+              }
               trailing={
                 !reason && host.isDefaultDistro ? (
                   <span className="shrink-0 text-micro text-[color:var(--text-disabled)]">default</span>
@@ -2378,7 +2423,14 @@ function MachineScopePicker({
             </MenuOption>
           )
         })}
-      {sshMachines.length > 0 ? <div className={MENU_DIVIDER_CLASS} role="separator" /> : null}
+      {/* Every machine not on this computer, under the one mark that means
+          "another machine" in general. */}
+      {sshMachines.length > 0 || machines.length > 0 ? (
+        <div className={`${MENU_GROUP_LABEL_CLASS} flex items-center gap-1.5 pb-1 pt-2`}>
+          <RemoteMachineGlyph className="icon-xs shrink-0" />
+          Other machines
+        </div>
+      ) : null}
       {sshMachines.map((machine) => {
         // A machine Studio cannot run on, or whose server this app cannot
         // speak to, is listed with why, and cannot be picked.
@@ -2402,16 +2454,15 @@ function MachineScopePicker({
             tabIndex={isSelected ? 0 : -1}
             onKeyDown={(event) => rowKey(event, activate)}
             onClick={activate}
-            icon={<RemoteMachineGlyph className={`icon-xs shrink-0${hint ? ' mt-0.5' : ''}`} />}
+            icon={
+              <MachineSlot machine={sshMachineRef(machine)} className={`icon-xs shrink-0${hint ? ' mt-0.5' : ''}`} />
+            }
           >
             <span className={hint ? 'block truncate text-body font-medium' : 'block truncate'}>{machine.label}</span>
             {hint ? <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span> : null}
           </MenuOption>
         )
       })}
-      {(hostRows.length > 0 || sshMachines.length > 0) && machines.length > 0 ? (
-        <div className={MENU_DIVIDER_CLASS} role="separator" />
-      ) : null}
       {machines.map((machine) => {
         const state = availabilityOf(machine)
         const pickable = chosen(machine)
@@ -2444,7 +2495,12 @@ function MachineScopePicker({
             tabIndex={selected?.id === machine.id ? 0 : -1}
             onKeyDown={(event) => rowKey(event, activate)}
             onClick={activate}
-            icon={<RemoteMachineGlyph className={`icon-xs shrink-0${hint ? ' mt-0.5' : ''}`} />}
+            icon={
+              <MachineSlot
+                machine={{ kind: 'paired', name: machine.machineName }}
+                className={`icon-xs shrink-0${hint ? ' mt-0.5' : ''}`}
+              />
+            }
             trailing={
               hint ? null : (
                 <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">
@@ -2593,106 +2649,10 @@ function RemoteProjectPicker({
   )
 }
 
-/**
- * The ⋯ surface: what a launch rarely changes. Reasoning effort went into the
- * model's own picker, where it is a property of the model rather than a second
- * control the row must carry.
- */
-function MoreMenu({
-  selection,
-  chatAvailable,
-  onSelectKind,
-  scheduled,
-}: {
-  selection: AgentComposerSelection
-  /** Whether the Chat agent row is offered (the roster has it). */
-  chatAvailable: boolean
-  onSelectKind: (next: AgentComposerSelection) => void
-  /** A scheduled agent runs as a chat, so only that kind is offered. */
-  scheduled: boolean
-}) {
-  // The Popover surface is the menu and carries the list class; this is its
-  // content, not a second menu.
-  return (
-    <>
-      {/* The only place the kind of launch is chosen. The two agent rows are
-          the same CLI with the same picker; they differ only in the interface
-          it opens in. Chat agent is listed only where the workspace can host
-          one. Worktree left this menu for the launch row (2026-09-30). */}
-      {scheduled || !clientSupports('terminals') ? null : (
-        <MenuRow
-          selected={selection.kind === 'general'}
-          label="Agent"
-          hint="A CLI agent, in a terminal"
-          onClick={() => onSelectKind({ kind: 'general' })}
-        />
-      )}
-      {chatAvailable ? (
-        <MenuRow
-          selected={selection.kind === 'conversation'}
-          label="Chat agent"
-          hint={scheduled ? 'Each run is a chat of its own' : 'The same CLI agent, as a chat'}
-          onClick={() => onSelectKind({ kind: 'conversation' })}
-        />
-      ) : null}
-      {scheduled || !clientSupports('terminals') ? null : (
-        <MenuRow
-          selected={selection.kind === 'terminal'}
-          label="Terminal"
-          hint="A plain shell — no agent"
-          onClick={() => onSelectKind({ kind: 'terminal' })}
-        />
-      )}
-    </>
-  )
-}
-
 // An image staged on the prompt: the chat composer's attachment shape (so the
 // shared strip renders it) plus the file path that stands in for it once the
 // prompt becomes text.
 type PromptImage = NewChatDraftImage
-
-function MenuRow({
-  selected,
-  disabled = false,
-  label,
-  hint,
-  onClick,
-}: {
-  selected: boolean
-  /** Listed but not choosable yet — the hint says what is missing. */
-  disabled?: boolean
-  label: string
-  hint?: string
-  onClick: () => void
-}) {
-  // The menu spec's two row shapes (remote-sessions-ux /
-  // selector-menus-premium): full-bleed on the list's own inset — the inset
-  // rounded fill this row shipped with is the card-in-a-card the spec retires
-  // by name. `aria-disabled`, not `disabled`: a dimmed row here can still
-  // route somewhere useful (the Chat row opens provider Settings).
-  return (
-    <MenuOption
-      role="menuitemradio"
-      selected={selected}
-      stacked={Boolean(hint)}
-      aria-disabled={disabled || undefined}
-      onClick={onClick}
-      trailing={
-        selected && !disabled ? (
-          <CheckIcon className={`${hint ? 'mt-0.5 ' : ''}icon-xs shrink-0 text-[color:var(--accent-primary)]`} />
-        ) : null
-      }
-    >
-      {/* The hint WRAPS rather than truncating. These sentences are the whole
-          explanation — "connect one in S…" and "works the…" told nobody
-          anything, and a tooltip to recover a sentence the surface had room
-          for is a worse answer than two lines. */}
-      <span className={hint ? 'block text-body font-medium' : 'block'}>{label}</span>
-      {hint ? <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span> : null}
-    </MenuOption>
-  )
-}
 
 function SuggestionCard({
   entry,

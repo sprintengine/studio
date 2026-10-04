@@ -45,6 +45,7 @@ import {
   DEFAULT_CHAT_WIDTH,
   isAppTheme,
   isChatWidth,
+  LEGACY_CHAT_WIDTH,
   isWindowMaterial,
   normalizeChatContrast,
   type AppearanceSettings,
@@ -107,9 +108,10 @@ export function normalizeAppearanceSettings(value: unknown): AppearanceSettings 
     windowMaterial: isWindowMaterial(candidate.windowMaterial) ? candidate.windowMaterial : defaults.windowMaterial,
     // Both chat fields arrived after the envelope's other appearance fields, so
     // a stored appearance without them is an older profile, not a corrupt one:
-    // it takes the defaults, which are the chat as it looked before.
+    // it reads as the chat looked before — the default contrast, and the full
+    // width, which is not the default a new install opens on.
     chatContrast: normalizeChatContrast(candidate.chatContrast),
-    chatWidth: isChatWidth(candidate.chatWidth) ? candidate.chatWidth : defaults.chatWidth,
+    chatWidth: isChatWidth(candidate.chatWidth) ? candidate.chatWidth : LEGACY_CHAT_WIDTH,
     agentCharacters:
       typeof candidate.agentCharacters === 'boolean' ? candidate.agentCharacters : defaults.agentCharacters,
   }
