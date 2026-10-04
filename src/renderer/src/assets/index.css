@@ -184,15 +184,43 @@
      file, exactly as it rebinds the fill and the ink — so a pane that is not
      holding focus keeps its remembered choice and gives up the edge. */
   --selection-edge: var(--accent-primary);
-  /* Agent conversation panel canvas. Anchored to --bg-app — the same darkest ink
-     the terminal content area sits on — so the chat reads as a working surface
-     like the terminal, with the composer (--bg-surface) and the user's message
-     bubbles (--bg-hover) reading as raised chrome above it. Declared once here and
-     resolved against each theme's own --bg-app through the cascade, so every theme
-     inherits the right dark canvas without a per-theme override; a theme that
-     wants a lighter centerpiece can still set its own --agent-surface in its
-     block. */
-  --agent-surface: var(--bg-app);
+  /* Agent conversation panel canvas — and the new chat page, so starting a chat
+     does not change the ground under the composer. The brightest paper the
+     theme has: the conversation is the thing being read, so it is the one
+     surface lifted above the cards around it. It used to be --bg-app, the
+     window canvas itself, which on every theme read as a hole cut through the
+     workspace card down to the window behind it — darker than the sidebar
+     beside it, and the same colour as the frame round the cards (owner ruling
+     2026-10-04, option D of tmp/conversation-colors.html). Declared once here
+     and resolved against each theme's own ramp through the cascade, so no theme
+     needs an override; one that wants a different centerpiece can still set its
+     own --agent-surface in its block. */
+  --agent-surface: var(--bg-surface-raised);
+  /* What sits IN the conversation and has to read as a shape on it — the
+     user's message bubble, a command's plain output. --bg-hover is the ramp's
+     next step off the paper in both directions: a shade under it on a light
+     theme, so the bubble reads as pressed into the page, a shade over it on a
+     dark one, so it reads as lifted. */
+  --agent-inset: var(--bg-hover);
+  /* The composer's ground: one step above --agent-surface, which now holds the
+     ramp's top rung. On a dark theme that step is --bg-hover; a light theme
+     has no ramp tone brighter than its raised paper, so the light-theme block
+     below sets it to white. --composer-fill is the wash COMPOSER_MATERIAL_CLASS
+     paints: the ground at the top, settling a little toward the conversation
+     at the bottom, the way the old raised → surface wash did. */
+  --composer-surface: var(--bg-hover);
+  --composer-fill: linear-gradient(
+    var(--composer-surface),
+    color-mix(in oklab, var(--composer-surface) 55%, var(--agent-surface))
+  );
+  /* The composer ground under the pointer, for the one CONTROL that wears it —
+     the floating "Jump to latest" pill (FloatingButton in ui/Buttons). It has
+     to step AWAY from the conversation, never back toward it: on a dark theme
+     that is --bg-active, the rung above the composer's --bg-hover; on a light
+     one the white ground has nowhere brighter to go, so the light-theme block
+     below steps it down to --bg-hover instead. A plain --bg-hover here would be
+     the composer's own ground on a dark theme, and the hover would not show. */
+  --composer-surface-hover: var(--bg-active);
   /* Window-canvas layers — the surfaces that touch the window edge (body, the
      shell root, the workspace sidebar, the right aside column) and the title
      strip. Declared once as pass-throughs and resolved against each theme's
@@ -1537,6 +1565,14 @@ samp,
 :root[data-theme="vellum"],
 :root[data-theme="herbarium"],
 :root[data-theme="paper"] {
+  /* The composer's one step above the conversation's raised paper (see
+     --composer-surface in :root). Pure white, which the anti-dither rule
+     exempts. Light's raised paper is already white, so there the composer is
+     told apart by its hairline and lit edge alone. */
+  --composer-surface: #ffffff;
+  /* And the floating pill's hover, one shade under the white rather than over
+     it (see --composer-surface-hover in :root). */
+  --composer-surface-hover: var(--bg-hover);
   --git-lane-0: color-mix(in oklab, var(--text-strong) 35%, #5c7cff);
   --git-lane-1: color-mix(in oklab, var(--text-strong) 35%, #a78bfa);
   --git-lane-2: color-mix(in oklab, var(--text-strong) 35%, #30d158);

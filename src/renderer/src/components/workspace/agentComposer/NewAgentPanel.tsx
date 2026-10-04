@@ -1710,7 +1710,7 @@ export default function NewAgentPanel({
   return (
     <div
       ref={rootRef}
-      className="relative flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--bg-app)] px-6 pb-8 pt-8"
+      className="relative flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--agent-surface)] px-6 pb-8 pt-8"
     >
       {showCloseButton ? (
         <div className="absolute right-3 top-3">
