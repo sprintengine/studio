@@ -19,7 +19,9 @@ const RENDERER = join(process.cwd(), 'src', 'renderer', 'src')
 /**
  * The files allowed to draw the composer's corner: the token itself, the two
  * composers, and the strip both tuck under their box, whose lower corners are
- * `radius.composer-strip` — the same family, named for that one strip.
+ * `radius.composer-strip` — the same family, named for that one strip. The
+ * tray docked on an open conversation's composer takes the family's
+ * `radius.composer-companion` on its top corners, as New chat's tiles do.
  */
 const COMPOSERS = new Set([
   'components/ui/tokens.ts',
@@ -27,6 +29,7 @@ const COMPOSERS = new Set([
   'components/workspace/agentComposer/NewAgentPanel.tsx',
   'components/workspace/agentComposer/ComposerStrip.tsx',
   'components/panels/AgentChatView.tsx',
+  'components/panels/agentChat/composerTray.tsx',
 ])
 
 function sources(dir: string): string[] {

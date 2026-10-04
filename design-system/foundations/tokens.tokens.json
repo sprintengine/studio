@@ -1569,6 +1569,19 @@
           }
         }
       },
+      "composer-companion": {
+        "$type": "dimension",
+        "$value": "16px",
+        "$description": "The cards that sit against the composer and read as a set with it (owner ruling 2026-10-05).",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "shape",
+            "offRamp": true,
+            "use": "The tiles under the New chat composer (the suggestion and extension-idea cards) and the top corners of the tray docked on an open conversation's composer, where a question, permission or plan waits. Beside a 22px composer a ramp corner reads as a different family; this is the strip's 16px, one step softer than the box, so the set reads as one.",
+            "doNotUse": "A card, popover or control anywhere else, or inside the composer, which keep the ramp. The tray's bottom corners, hidden under the composer. Not a ramp step: a tool reading sem.radius.* as a ramp must exclude it."
+          }
+        }
+      },
       "pill": {
         "$type": "dimension",
         "$value": "999px",

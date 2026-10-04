@@ -101,7 +101,11 @@ export const CardButton = React.forwardRef<HTMLButtonElement, CardButtonProps>(f
         // a composition decision (a preview frame wants 4px, a summary tile
         // wants 12px over 10px) and a default here would be one more utility
         // every caller had to out-specify.
-        'flex flex-col rounded-md text-left transition-colors',
+        'flex flex-col text-left transition-colors',
+        // `rounded-md` unless the caller names a radius of its own: a tile set
+        // under the composer rounds with it (`radius.composer-companion`), and
+        // two radii on one element would be settled by stylesheet order.
+        /(?:^|\s)rounded(?:-|\s|$)/.test(className ?? '') ? '' : 'rounded-md',
         // No `.interactive`: the press scale on a grid tile moves its neighbours'
         // apparent alignment, and a tile's press is already the ground.
         selected === true ? SELECTED[variant] : RESTING[variant],
