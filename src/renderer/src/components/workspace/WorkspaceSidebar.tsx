@@ -21,6 +21,8 @@ import { suspendWorkspaceTerminals, terminateWorkspaceTerminals } from './worksp
 import { ConversationPeekPopover } from './ConversationPeekPopover'
 import { hostPlatform } from '../../clientCapabilities'
 import { openPullRequestCount, ProjectPullRequestMark, PullRequestMark } from './PullRequestMark'
+import { LocalServersRowMark } from './LocalServerMarks'
+import { useWorkspaceLocalServers, type WorkspaceLocalServers } from './useLocalServers'
 import {
   pullRequestsForRow,
   useConversationPullRequests,
@@ -623,6 +625,10 @@ function WorkspaceSidebar({
   // settles (Settle on merge).
   const allWorkspaceIds = useMemo(() => workspaces.map((workspace) => workspace.id), [workspaces])
   const conversationPullRequests = useConversationPullRequests(allWorkspaceIds)
+  // The local servers each chat's agents started, so the list says what is
+  // running right now without opening every chat. Asked of the same ids, and
+  // pushed by the Studio when one starts or stops.
+  const workspaceLocalServers = useWorkspaceLocalServers(allWorkspaceIds)
 
   // The rest sweep (settled-chats, 2026-09-07): on the 30 s tick the idle
   // labels ride, and whenever an agent's activity flips — so a resting row
@@ -1900,6 +1906,7 @@ function WorkspaceSidebar({
         conversationSessions={conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS}
         gitSummaries={rowGitSummaries.get(workspace.id) ?? NO_GIT_SUMMARIES}
         rowConversationPullRequests={conversationPullRequests[workspace.id]}
+        rowLocalServers={workspaceLocalServers[workspace.id]}
         moduleOverrides={moduleOverrides}
         isRovingTarget={rovingKey === rowKey}
         anyRenaming={renamingId !== null}
@@ -3028,6 +3035,7 @@ type WorkspaceRowProps = {
   /** Only this row's checkouts, so a sweep that moved another row's numbers leaves this one alone. */
   gitSummaries: RowGitSummaries
   rowConversationPullRequests: ConversationPullRequests[string] | undefined
+  rowLocalServers: WorkspaceLocalServers[string] | undefined
   moduleOverrides: ReturnType<typeof useWorkspaceStore.getState>['appSettings']['modules']
   isRovingTarget: boolean
   anyRenaming: boolean
@@ -3060,6 +3068,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   conversationSessions,
   gitSummaries,
   rowConversationPullRequests,
+  rowLocalServers,
   moduleOverrides,
   isRovingTarget,
   anyRenaming,
@@ -3773,6 +3782,14 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
         ) : (
           titleCluster
         )}
+
+        {/* What this chat's agents have running: a dev server, a preview.
+            On the title line rather than the meta line because it is about
+            the chat as a whole and is live state, which a parked row with no
+            second line still has. Drawn only while one is up. */}
+        {rowLocalServers && !renaming ? (
+          <LocalServersRowMark workspaceId={workspace.id} servers={rowLocalServers} dim={emphasis === 'quiet'} />
+        ) : null}
 
         {folderMissing ? (
           <svg
