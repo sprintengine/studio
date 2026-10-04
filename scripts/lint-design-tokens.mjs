@@ -173,7 +173,7 @@ const NATIVE_DIALOG = /(?<![\w$.])(?:window\s*\.\s*)?(?:confirm|prompt|alert)\s*
 // non-interactive primitives (Section, Modal, PanelHeader, etc.) are not
 // matched because their tag name does not appear in the alternation.
 const INTERACTIVE_TAG_OPEN =
-  /<(button|a|IconButton|PrimaryButton|GhostButton|OutlineButton|DangerButton|CloseIconButton)\b/g
+  /<(button|a|IconButton|PrimaryButton|SendButton|GhostButton|OutlineButton|DangerButton|CloseIconButton)\b/g
 
 // Offset kinds for the tag walk. The walker used to track only quotes and
 // brace depth, which made it comment-blind three ways (audit 2026-09-02): an

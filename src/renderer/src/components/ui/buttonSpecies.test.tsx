@@ -76,8 +76,17 @@ test('buttonSpecies', async () => {
     const { act } = React
     const { createRoot } = await import('react-dom/client')
 
-    const { CaptionButton, DangerButton, GhostButton, IconButton, MediaButton, OutlineButton, PrimaryButton } =
-      await import('./Buttons')
+    const {
+      CaptionButton,
+      DangerButton,
+      GhostButton,
+      IconButton,
+      MediaButton,
+      OutlineButton,
+      PrimaryButton,
+      SendButton,
+    } = await import('./Buttons')
+    const { ComposerActionButton } = await import('../panels/agentChat/composerControls')
     const { RowButton } = await import('./RowButton')
     const { MenuOption } = await import('./MenuOption')
     const { TriggerButton } = await import('./TriggerButton')
@@ -182,6 +191,37 @@ test('buttonSpecies', async () => {
           )
         }
       }
+    })
+
+    // ── The round send (owner ruling 2026-10-04) ─────────────────────────────
+
+    run('SendButton is the primary made round: the pill corner replaces the size step’s', () => {
+      for (const size of ['inline', 'xs', 'sm', 'md'] as const) {
+        const classes = classesOf(<SendButton size={size}>Schedule</SendButton>)
+        assert.match(classes, /rounded-\[var\(--sem-radius-pill\)\]/, `size=${size} is round`)
+        assert.ok(!/(?:^|\s)rounded-(?:xs|sm)(?:\s|$)/.test(classes), `size=${size} drops the step’s own radius`)
+        assert.deepEqual(duplicateUtilities(classes), [], `SendButton size=${size} declares a property twice`)
+        assert.match(classes, /bg-\[color:var\(--accent-primary\)\]/, 'the primary’s fill')
+        assert.match(classes, /disabled:hover:bg-\[color:var\(--accent-primary\)\]/, 'and its disabled hover guard')
+        assert.match(classes, /control-raised/, 'and its one lit edge (tier 1)')
+      }
+      assert.equal(attrOf(<SendButton busy>Save</SendButton>, 'aria-busy'), 'true')
+      assert.equal(attrOf(<SendButton>Save</SendButton>, 'type'), 'button')
+    })
+
+    run('the open composer’s send is one disc: one width and one inline padding', () => {
+      const classes = classesOf(
+        <ComposerActionButton tone="accent" ariaLabel="Send" onClick={() => {}}>
+          <svg />
+        </ComposerActionButton>,
+      )
+      assert.match(classes, /rounded-\[var\(--sem-radius-pill\)\]/)
+      assert.deepEqual(duplicateUtilities(classes), [])
+      // `px-0` beside the size step's `px-2` is resolved by stylesheet order
+      // (Tailwind emits `px-2` after `px-0`, so it is dead weight that reads as
+      // a decision). The disc is squared by its width alone.
+      const paddings = classes.split(/\s+/).filter((c) => c.startsWith('px-'))
+      assert.ok(paddings.length <= 1, `two inline paddings on the send: ${paddings.join(' ')}`)
     })
 
     // ── Ghost tones ───────────────────────────────────────────────────────────

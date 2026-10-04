@@ -10279,6 +10279,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-glyphs .demo-tone-warn { color: var(--sem-color-status-warn); }
 .ds-embed-component-glyphs .demo-tone-danger { color: var(--sem-color-status-danger); }
 .ds-embed-component-glyphs .demo-tone-disabled { color: var(--sem-color-text-disabled); }
+.ds-embed-component-glyphs .demo-mark-blue { color: var(--sem-color-mark-blue); }
+.ds-embed-component-glyphs .demo-mark-teal { color: var(--sem-color-mark-teal); }
+.ds-embed-component-glyphs .demo-mark-cyan { color: var(--sem-color-mark-cyan); }
+.ds-embed-component-glyphs .demo-mark-orange { color: var(--sem-color-mark-orange); }
+.ds-embed-component-glyphs .demo-mark-yellow { color: var(--sem-color-mark-yellow); }
+.ds-embed-component-glyphs .demo-mark-violet { color: var(--sem-color-mark-violet); }
+.ds-embed-component-glyphs .demo-mark-red { color: var(--sem-color-mark-red); }
+.ds-embed-component-glyphs .demo-mark-neutral { color: var(--sem-color-text-muted); }
 .ds-embed-component-group-header {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -15378,6 +15386,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><path d="M8 12.8V3.6M4.3 7.3 8 3.6l3.7 3.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
     <button type="button" class="ds-button ds-button--primary ds-button--round">Schedule</button>
+    <button type="button" class="ds-button ds-button--primary ds-button--round ds-button--icon-only" aria-label="Start agent" disabled>
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><path d="M8 12.8V3.6M4.3 7.3 8 3.6l3.7 3.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <button type="button" class="ds-button ds-button--outline" disabled>Disabled outline</button>
     <button type="button" class="ds-button ds-button--ghost" disabled>Disabled ghost</button>
   </div>
@@ -15443,6 +15454,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><path d="M8 12.8V3.6M4.3 7.3 8 3.6l3.7 3.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
     <button type="button" class="ds-button ds-button--primary ds-button--round">Schedule</button>
+    <button type="button" class="ds-button ds-button--primary ds-button--round ds-button--icon-only" aria-label="Start agent" disabled>
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><path d="M8 12.8V3.6M4.3 7.3 8 3.6l3.7 3.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <button type="button" class="ds-button ds-button--outline" disabled>Disabled outline</button>
     <button type="button" class="ds-button ds-button--ghost" disabled>Disabled ghost</button>
   </div>
@@ -15497,7 +15511,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>Anatomy</h4>
 <ul><li>A single <code>&lt;button&gt;</code> element with the base class <code>ds-button</code> plus one variant modifier.</li><li>Optional leading icon sized by <code>sem.icon.size.sm</code>, gap 6px.</li><li>Label set in <code>font.size.body</code> at <code>font.weight.medium</code>, sentence case.</li></ul>
 <h4>Variants</h4>
-<ul><li><code>ds-button--primary</code> — accent fill (<code>accent.primary</code>), <code>text.on-accent</code> label, and the one faint lit top edge of <code>shadow.control-raised</code>. The single primary action of a view, and the only control that catches the light.</li><li><code>ds-button--ghost</code> — transparent, <code>text.muted</code> label; hover lifts to <code>bg.hover</code> + <code>text.primary</code>. Secondary and tertiary actions.</li><li><code>ds-button--icon</code> — a <code>size.control.xs</code> square padded out to <code>size.hit-target-min</code>, borderless, icon-only. Must carry an <code>aria-label</code>. The canonical close affordance uses the <code>close</code> glyph.</li><li><code>ds-button--outline</code> — a standalone neutral secondary: a <code>border.strong</code> hairline on a transparent ground, <code>text.default</code> label, and no depth at all (owner ruling 2026-10-04). Outlined rather than a third *filled* variant, so the one-accent rule still holds. Use it where a ghost reads too weak to be found but the action is not the view's primary — and only where it stands on its own: inside a toolbar or a panel header the same action is a ghost.</li><li>Sizes: <code>ds-button--xs</code> at <code>size.control.xs</code> with a <code>font.size.meta</code> label (dense chrome — toolbars, row actions), default sm at <code>size.control.sm</code>, and <code>ds-button--md</code> at <code>size.control.md</code>. The icon-only species has one step more, <code>size.control.lg</code>, for the app rail's foot alone (the account badge and the Settings gear, 2026-09-07) — a labelled button never takes it.</li></ul>
+<ul><li><code>ds-button--primary</code> — accent fill (<code>accent.primary</code>), <code>text.on-accent</code> label, and the one faint lit top edge of <code>shadow.control-raised</code>. The single primary action of a view, and the only control that catches the light.</li><li><code>ds-button--ghost</code> — transparent, <code>text.muted</code> label; hover lifts to <code>bg.hover</code> + <code>text.primary</code>. Secondary and tertiary actions.</li><li><code>ds-button--icon</code> — a <code>size.control.xs</code> square padded out to <code>size.hit-target-min</code>, borderless, icon-only. Must carry an <code>aria-label</code>. The canonical close affordance uses the <code>close</code> glyph.</li><li><code>ds-button--outline</code> — a standalone neutral secondary: a <code>border.strong</code> hairline on a transparent ground, <code>text.default</code> label, and no depth at all (owner ruling 2026-10-04). Outlined rather than a third *filled* variant, so the one-accent rule still holds. Use it where a ghost reads too weak to be found but the action is not the view's primary — and only where it stands on its own: inside a toolbar or a panel header the same action is a ghost.</li><li><code>ds-button--round</code> — the primary at <code>radius.pill</code>, and only for the composer's send (owner ruling 2026-10-04; see &quot;The round send&quot; below). With <code>ds-button--icon-only</code> it is a <code>size.control.sm</code> disc; with a word it is a capsule of the same height. Its hover, press, focus ring and disabled step are the primary's own.</li><li>Sizes: <code>ds-button--xs</code> at <code>size.control.xs</code> with a <code>font.size.meta</code> label (dense chrome — toolbars, row actions), default sm at <code>size.control.sm</code>, and <code>ds-button--md</code> at <code>size.control.md</code>. The icon-only species has one step more, <code>size.control.lg</code>, for the app rail's foot alone (the account badge and the Settings gear, 2026-09-07) — a labelled button never takes it.</li></ul>
 <p>Label padding tracks the size rather than being constant: 8px at xs and sm, 12px at md. A single 12px inset makes a dense <code>xs</code> control read as mostly padding.</p>
 <h5>The inline size (2026-09-08)</h5>
 <p><code>ds-button--inline</code> is the one step that spends <strong>no height</strong>. It is not an unstyled escape hatch and it is not &quot;bare&quot;: it carries the ink, the hover, the press and the focus ring exactly as the ramp steps do, and gives up only the control height — because the control sits <strong>inside</strong> a line of running text or a 16–20px metadata line, where a 26px box would set that line's height instead of riding it. A task id in a dot-separated sentence, a &quot;More&quot; disclosure under a clamped description, an epic pill on a card's meta row.</p>
@@ -15559,7 +15573,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <ul><li><strong>Label padding</strong> — 8px at xs/sm, 12px at md. The reference CSS's constant <code>0 var(--sem-space-lg)</code> predates the <code>xs</code> step; applied to a 26px control it is mostly padding.</li><li><strong><code>xs</code> size</strong> — real, in use across dense chrome, and it has a token (<code>size.control.xs</code>). A ramp step the tokens already carry is not drift.</li><li><strong><code>OutlineButton</code></strong> — canonical. It is outlined rather than filled, so the one-accent rule is untouched.</li></ul>
 <p>Control <strong>heights were never drift</strong>: both the reference CSS and the shipped code already sit on <code>size.control.*</code>. The drift ruling's own table listed a 28/32px prose ramp against the tokens' 26/30/34 — that prose is not in this entry, and the numbers here come from the tokens.</p>
 <h4>Shipped implementation</h4>
-<p><code>src/renderer/src/components/ui/Buttons.tsx</code>, exporting <code>PrimaryButton</code>, <code>DangerButton</code>, <code>GhostButton</code>, <code>OutlineButton</code>, <code>IconButton</code>, <code>MediaButton</code>, <code>CaptionButton</code> and <code>CloseIconButton</code> — the last being the canonical close affordance named under Variants, exported separately so no surface has to re-pick the glyph or the label. <code>CopyGlyphButton</code> (<code>src/renderer/src/components/ui/CopyGlyphButton.tsx</code>) is the copy glyph above, built on <code>IconButton</code> for the same reason.</p>
+<p><code>src/renderer/src/components/ui/Buttons.tsx</code>, exporting <code>PrimaryButton</code>, <code>SendButton</code> (the round send above, the composer's alone), <code>DangerButton</code>, <code>GhostButton</code>, <code>OutlineButton</code>, <code>IconButton</code>, <code>MediaButton</code>, <code>CaptionButton</code> and <code>CloseIconButton</code> — the last being the canonical close affordance named under Variants, exported separately so no surface has to re-pick the glyph or the label. <code>CopyGlyphButton</code> (<code>src/renderer/src/components/ui/CopyGlyphButton.tsx</code>) is the copy glyph above, built on <code>IconButton</code> for the same reason.</p>
 <p>The five shapes this family deliberately does <strong>not</strong> absorb each have an entry of their own, and each says why: [row-button](../row-button/component.md), [menu-option](../menu-option/component.md), [trigger-button](../trigger-button/component.md), [card-button](../card-button/component.md), [chip-button](../chip-button/component.md) and [link-button](../link-button/component.md).</p>
 </div>
 </div>
@@ -15971,6 +15985,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot; height=&quot;16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M8 12.8V3.6M4.3 7.3 8 3.6l3.7 3.7&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
     &lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--round&quot;&gt;Schedule&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--round ds-button--icon-only&quot; aria-label=&quot;Start agent&quot; disabled&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot; height=&quot;16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M8 12.8V3.6M4.3 7.3 8 3.6l3.7 3.7&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+    &lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--outline&quot; disabled&gt;Disabled outline&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot; disabled&gt;Disabled ghost&lt;/button&gt;
   &lt;/div&gt;
@@ -16036,6 +16053,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot; height=&quot;16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M8 12.8V3.6M4.3 7.3 8 3.6l3.7 3.7&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
     &lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--round&quot;&gt;Schedule&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--round ds-button--icon-only&quot; aria-label=&quot;Start agent&quot; disabled&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot; height=&quot;16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M8 12.8V3.6M4.3 7.3 8 3.6l3.7 3.7&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+    &lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--outline&quot; disabled&gt;Disabled outline&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot; disabled&gt;Disabled ghost&lt;/button&gt;
   &lt;/div&gt;
@@ -19607,7 +19627,7 @@ line 22&lt;/code&gt;&lt;/pre&gt;
             <kbd class="ds-command-palette-shortcut">&#8984;,</kbd>
           </div>
           <div class="ds-command-palette-option" id="demo-option-remote" role="option" aria-selected="false">
-            <svg class="ds-command-palette-option-mark" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2.8" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/><rect x="2" y="8.6" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/><circle cx="4.7" cy="5.1" r="0.75" fill="currentColor"/><circle cx="4.7" cy="10.9" r="0.75" fill="currentColor"/></svg>
+            <svg class="ds-command-palette-option-mark" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1.8 6.6h7.4v5.2H1.8ZM5.5 11.8v1.8M3.6 13.6h3.8M10.6 3.2a2.2 2.2 0 0 1 2.2 2.2M10.6 1.4a4 4 0 0 1 4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="ds-command-palette-option-text">
               <span class="ds-command-palette-option-label">Open remote connections</span>
             </span>
@@ -20412,7 +20432,7 @@ line 22&lt;/code&gt;&lt;/pre&gt;
             &lt;kbd class=&quot;ds-command-palette-shortcut&quot;&gt;&amp;#8984;,&lt;/kbd&gt;
           &lt;/div&gt;
           &lt;div class=&quot;ds-command-palette-option&quot; id=&quot;demo-option-remote&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
-            &lt;svg class=&quot;ds-command-palette-option-mark&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;rect x=&quot;2&quot; y=&quot;2.8&quot; width=&quot;12&quot; height=&quot;4.6&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; fill=&quot;none&quot;/&gt;&lt;rect x=&quot;2&quot; y=&quot;8.6&quot; width=&quot;12&quot; height=&quot;4.6&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; fill=&quot;none&quot;/&gt;&lt;circle cx=&quot;4.7&quot; cy=&quot;5.1&quot; r=&quot;0.75&quot; fill=&quot;currentColor&quot;/&gt;&lt;circle cx=&quot;4.7&quot; cy=&quot;10.9&quot; r=&quot;0.75&quot; fill=&quot;currentColor&quot;/&gt;&lt;/svg&gt;
+            &lt;svg class=&quot;ds-command-palette-option-mark&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M1.8 6.6h7.4v5.2H1.8ZM5.5 11.8v1.8M3.6 13.6h3.8M10.6 3.2a2.2 2.2 0 0 1 2.2 2.2M10.6 1.4a4 4 0 0 1 4 4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
             &lt;span class=&quot;ds-command-palette-option-text&quot;&gt;
               &lt;span class=&quot;ds-command-palette-option-label&quot;&gt;Open remote connections&lt;/span&gt;
             &lt;/span&gt;
@@ -25786,10 +25806,34 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <path d="M6.9 12.1h2.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
     </symbol>
     <symbol id="g-remote-machine" viewBox="0 0 16 16" fill="none">
-      <rect x="2" y="2.8" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4"/>
-      <rect x="2" y="8.6" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4"/>
-      <circle cx="4.7" cy="5.1" r="0.75" fill="currentColor"/>
-      <circle cx="4.7" cy="10.9" r="0.75" fill="currentColor"/>
+      <path d="M1.8 6.6h7.4v5.2H1.8ZM5.5 11.8v1.8M3.6 13.6h3.8M10.6 3.2a2.2 2.2 0 0 1 2.2 2.2M10.6 1.4a4 4 0 0 1 4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-wsl-machine" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="2.4" width="12" height="11.2" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M2 5.4h12M4.8 7.8l1.8 1.6-1.8 1.6M8.4 11h2.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-machine-mini" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="7.4" width="12" height="4.6" rx="1.3" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M3.3 7.4 4.5 4.6h7l1.2 2.8M4.6 9.7h1.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-machine-tower" viewBox="0 0 16 16" fill="none">
+      <rect x="4.4" y="1.8" width="7.2" height="12.4" rx="1.3" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M6.6 4.6h2.8M6.6 6.8h2.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-machine-server" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="2.2" width="12" height="11.6" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M2 6.07h12M2 9.93h12M4.4 4.13h1.6M4.4 8h1.6M4.4 11.87h1.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-machine-cloud" viewBox="0 0 16 16" fill="none">
+      <path d="M4.4 12.2A2.6 2.6 0 0 1 4.9 7.1A3.4 3.4 0 0 1 11.3 6.7A2.8 2.8 0 0 1 11.6 12.2Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-machine-container" viewBox="0 0 16 16" fill="none">
+      <path d="M8 1.9 13.4 5v6L8 14.1 2.6 11V5ZM2.6 5 8 8.1 13.4 5M8 8.1v6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-machine-board" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="3" width="12" height="10" rx="1.2" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <rect x="4.2" y="5.6" width="4.6" height="4.8" rx="0.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M10.9 6.4h1.2M10.9 9.6h1.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
   </defs>
 </svg>
@@ -25830,7 +25874,22 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-desktop"/></svg><span class="demo-name">device-desktop</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-laptop"/></svg><span class="demo-name">device-laptop</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-phone"/></svg><span class="demo-name">device-phone</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-remote-machine"/></svg><span class="demo-name">remote-machine · fallback</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-remote-machine"/></svg><span class="demo-name">remote-machine · the Beam, fallback</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Machine kinds — 16-grid, stroke 1.4, each in a machine colour (the seven mark hues and the neutral)</h2>
+    <div class="demo-row">
+      <span class="demo-cell demo-mark-blue"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-laptop"/></svg><span class="demo-name">laptop · blue</span></span>
+      <span class="demo-cell demo-mark-teal"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-desktop"/></svg><span class="demo-name">desktop · teal</span></span>
+      <span class="demo-cell demo-mark-cyan"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-mini"/></svg><span class="demo-name">mini · cyan</span></span>
+      <span class="demo-cell demo-mark-orange"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-tower"/></svg><span class="demo-name">tower · orange</span></span>
+      <span class="demo-cell demo-mark-yellow"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-server"/></svg><span class="demo-name">server · yellow</span></span>
+      <span class="demo-cell demo-mark-violet"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-cloud"/></svg><span class="demo-name">cloud · violet</span></span>
+      <span class="demo-cell demo-mark-red"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-container"/></svg><span class="demo-name">container · red</span></span>
+      <span class="demo-cell demo-mark-neutral"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-board"/></svg><span class="demo-name">board · neutral</span></span>
+      <span class="demo-cell demo-mark-blue"><svg class="ds-glyph" aria-hidden="true"><use href="#g-wsl-machine"/></svg><span class="demo-name">wsl · blue</span></span>
     </div>
   </div>
 
@@ -25940,7 +25999,22 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-desktop"/></svg><span class="demo-name">device-desktop</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-laptop"/></svg><span class="demo-name">device-laptop</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-phone"/></svg><span class="demo-name">device-phone</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-remote-machine"/></svg><span class="demo-name">remote-machine · fallback</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-remote-machine"/></svg><span class="demo-name">remote-machine · the Beam, fallback</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Machine kinds — 16-grid, stroke 1.4, each in a machine colour (the seven mark hues and the neutral)</h2>
+    <div class="demo-row">
+      <span class="demo-cell demo-mark-blue"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-laptop"/></svg><span class="demo-name">laptop · blue</span></span>
+      <span class="demo-cell demo-mark-teal"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-desktop"/></svg><span class="demo-name">desktop · teal</span></span>
+      <span class="demo-cell demo-mark-cyan"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-mini"/></svg><span class="demo-name">mini · cyan</span></span>
+      <span class="demo-cell demo-mark-orange"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-tower"/></svg><span class="demo-name">tower · orange</span></span>
+      <span class="demo-cell demo-mark-yellow"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-server"/></svg><span class="demo-name">server · yellow</span></span>
+      <span class="demo-cell demo-mark-violet"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-cloud"/></svg><span class="demo-name">cloud · violet</span></span>
+      <span class="demo-cell demo-mark-red"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-container"/></svg><span class="demo-name">container · red</span></span>
+      <span class="demo-cell demo-mark-neutral"><svg class="ds-glyph" aria-hidden="true"><use href="#g-machine-board"/></svg><span class="demo-name">board · neutral</span></span>
+      <span class="demo-cell demo-mark-blue"><svg class="ds-glyph" aria-hidden="true"><use href="#g-wsl-machine"/></svg><span class="demo-name">wsl · blue</span></span>
     </div>
   </div>
 
@@ -26011,9 +26085,9 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>One mark per row, and the glyph never carries the online/offline state: an offline row dims its glyph, title and supporting line together with the row's own treatment, and the row's words say what happened.</p>
 <h5>Machine kinds (16-grid — <code>AppIcons.tsx</code>, drawn by <code>ui/MachineMark</code>)</h5>
 <p>What a machine IS, drawn as the device, in the machine's own colour (owner ruling 2026-10-04). Where Device identity above is a guess the tailnet list makes from an OS string and a host name, this family is a machine's settled identity: a default kind from what the machine is, a default colour from a hash of its stable id, and both changeable in Settings › Machines. It marks a machine wherever a surface names one — the composer's context strip, a sidebar row (trailing), a chat tab, the machine picker's rows and Settings › Machines — and <strong>never this machine</strong>, which is the unmarked default.</p>
-<p>| Kind | Export | Asset | Drawing | Default for | |---|---|---|---|---| | <code>laptop</code> | <code>DeviceLaptopGlyph</code> | <code>glyphs/device-laptop.svg</code> | The Device identity laptop, shared | A paired Mac (its name says nothing else) | | <code>desktop</code> | <code>DeviceDesktopGlyph</code> | <code>glyphs/device-desktop.svg</code> | The Device identity monitor, shared | Any other paired machine | | <code>mini</code> | <code>MachineMiniGlyph</code> | <code>glyphs/machine-mini.svg</code> | A small box under a sloped lid, with a slot of light | A paired Mac whose name says <code>mini</code> | | <code>tower</code> | <code>MachineTowerGlyph</code> | <code>glyphs/machine-tower.svg</code> | A tall case with two bays | Chosen by hand | | <code>server</code> | <code>MachineServerGlyph</code> | <code>glyphs/machine-server.svg</code> | Three units in one rack, each with its light | An SSH machine | | <code>cloud</code> | <code>MachineCloudGlyph</code> | <code>glyphs/machine-cloud.svg</code> | A cloud | Chosen by hand | | <code>container</code> | <code>MachineContainerGlyph</code> | <code>glyphs/machine-container.svg</code> | A cube | Chosen by hand | | <code>board</code> | <code>MachineBoardGlyph</code> | <code>glyphs/machine-board.svg</code> | A board with its chip and two pins | Chosen by hand | | <code>wsl</code> | <code>WslMachineGlyph</code> | <code>glyphs/wsl-machine.svg</code> | A window with a title bar and a prompt | A WSL distribution |</p>
+<p>| Kind | Export | Asset | Drawing | Default for | |---|---|---|---|---| | <code>laptop</code> | <code>DeviceLaptopGlyph</code> | <code>glyphs/device-laptop.svg</code> | The Device identity laptop, shared | A paired Mac (its name says nothing else) | | <code>desktop</code> | <code>DeviceDesktopGlyph</code> | <code>glyphs/device-desktop.svg</code> | The Device identity monitor, shared | Any other paired machine | | <code>mini</code> | <code>MachineMiniGlyph</code> | <code>glyphs/machine-mini.svg</code> | A small box under a sloped lid, with a slot of light | A paired Mac whose name says <code>mini</code> or <code>studio</code>, or a <code>mini</code> PC | | <code>tower</code> | <code>MachineTowerGlyph</code> | <code>glyphs/machine-tower.svg</code> | A tall case with two bays | A paired Mac Pro | | <code>server</code> | <code>MachineServerGlyph</code> | <code>glyphs/machine-server.svg</code> | Three units in one rack, each with its light | An SSH machine | | <code>cloud</code> | <code>MachineCloudGlyph</code> | <code>glyphs/machine-cloud.svg</code> | A cloud | Chosen by hand | | <code>container</code> | <code>MachineContainerGlyph</code> | <code>glyphs/machine-container.svg</code> | A cube | Chosen by hand | | <code>board</code> | <code>MachineBoardGlyph</code> | <code>glyphs/machine-board.svg</code> | A board with its chip and two pins | Chosen by hand | | <code>wsl</code> | <code>WslMachineGlyph</code> | <code>glyphs/wsl-machine.svg</code> | A window with a title bar and a prompt | A WSL distribution |</p>
 <p>There is no phone and no tablet: the server never runs on one. (<code>device-phone</code> stays in Device identity, where a phone pairs as a client.)</p>
-<p><strong>Colour.</strong> One of eight: the seven <code>--sem-color-mark-*</code> hues and a neutral (<code>--sem-color-text-muted</code>). The default is the top half of a 32-bit FNV-1a hash of the machine's id, over the seven hues — never the neutral, which is a choice a person makes. The id is what every device agrees on — the WSL host id, <code>ssh:&lt;host name&gt;</code>, <code>tailnet:&lt;short host name&gt;</code> — so the same machine is the same colour wherever it is seen. The colour is on the glyph and nowhere else: never the machine's name, a row wash or a pill.</p>
+<p><strong>Colour.</strong> One of eight: the seven <code>--sem-color-mark-*</code> hues and a neutral (<code>--sem-color-text-muted</code>). The default is the top half of a 32-bit FNV-1a hash of the machine's id, over the seven hues — never the neutral, which is a choice a person makes. The id is what every device agrees on — the WSL host id, <code>ssh:&lt;host name&gt;</code> (no user, and <code>:&lt;port&gt;</code> only when it is not 22), <code>tailnet:&lt;short host name&gt;</code> — so the same machine is the same colour wherever it is seen. Only a host name is shortened: a tailnet address or a typed name with a full stop in it is kept whole, or every <code>100.x</code> address would share one id. A paired machine's default kind reads its host name as words, so <code>macro-runner</code> is not a Mac; a wrong guess is one pick away in Settings › Machines. The colour is on the glyph and nowhere else: never the machine's name, a row wash or a pill.</p>
 <p><code>MachineGlyph({ identity })</code> is the one way to draw one: the kind's drawing inside a span inked by <code>MACHINE_COLOUR_INK</code>, decorative, carrying <code>data-machine-mark</code> with the machine's id. The surface names the machine.</p>
 <h5>Composer (16-grid — <code>ui/ComposerGlyphs.tsx</code>)</h5>
 <p>The New chat composer's own marks (owner ruling 2026-10-04). Stroke 1.4, <code>currentColor</code>, round caps and joins.</p>
@@ -26206,6 +26280,14 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
   .demo-tone-warn { color: var(--sem-color-status-warn); }
   .demo-tone-danger { color: var(--sem-color-status-danger); }
   .demo-tone-disabled { color: var(--sem-color-text-disabled); }
+  .demo-mark-blue { color: var(--sem-color-mark-blue); }
+  .demo-mark-teal { color: var(--sem-color-mark-teal); }
+  .demo-mark-cyan { color: var(--sem-color-mark-cyan); }
+  .demo-mark-orange { color: var(--sem-color-mark-orange); }
+  .demo-mark-yellow { color: var(--sem-color-mark-yellow); }
+  .demo-mark-violet { color: var(--sem-color-mark-violet); }
+  .demo-mark-red { color: var(--sem-color-mark-red); }
+  .demo-mark-neutral { color: var(--sem-color-text-muted); }
 &lt;/style&gt;
 &lt;/head&gt;
 &lt;body&gt;
@@ -26419,10 +26501,34 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;path d=&quot;M6.9 12.1h2.2&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;
     &lt;/symbol&gt;
     &lt;symbol id=&quot;g-remote-machine&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
-      &lt;rect x=&quot;2&quot; y=&quot;2.8&quot; width=&quot;12&quot; height=&quot;4.6&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;
-      &lt;rect x=&quot;2&quot; y=&quot;8.6&quot; width=&quot;12&quot; height=&quot;4.6&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;
-      &lt;circle cx=&quot;4.7&quot; cy=&quot;5.1&quot; r=&quot;0.75&quot; fill=&quot;currentColor&quot;/&gt;
-      &lt;circle cx=&quot;4.7&quot; cy=&quot;10.9&quot; r=&quot;0.75&quot; fill=&quot;currentColor&quot;/&gt;
+      &lt;path d=&quot;M1.8 6.6h7.4v5.2H1.8ZM5.5 11.8v1.8M3.6 13.6h3.8M10.6 3.2a2.2 2.2 0 0 1 2.2 2.2M10.6 1.4a4 4 0 0 1 4 4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
+    &lt;/symbol&gt;
+    &lt;symbol id=&quot;g-wsl-machine&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
+      &lt;rect x=&quot;2&quot; y=&quot;2.4&quot; width=&quot;12&quot; height=&quot;11.2&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; fill=&quot;none&quot;/&gt;
+      &lt;path d=&quot;M2 5.4h12M4.8 7.8l1.8 1.6-1.8 1.6M8.4 11h2.8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
+    &lt;/symbol&gt;
+    &lt;symbol id=&quot;g-machine-mini&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
+      &lt;rect x=&quot;2&quot; y=&quot;7.4&quot; width=&quot;12&quot; height=&quot;4.6&quot; rx=&quot;1.3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; fill=&quot;none&quot;/&gt;
+      &lt;path d=&quot;M3.3 7.4 4.5 4.6h7l1.2 2.8M4.6 9.7h1.6&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
+    &lt;/symbol&gt;
+    &lt;symbol id=&quot;g-machine-tower&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
+      &lt;rect x=&quot;4.4&quot; y=&quot;1.8&quot; width=&quot;7.2&quot; height=&quot;12.4&quot; rx=&quot;1.3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; fill=&quot;none&quot;/&gt;
+      &lt;path d=&quot;M6.6 4.6h2.8M6.6 6.8h2.8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
+    &lt;/symbol&gt;
+    &lt;symbol id=&quot;g-machine-server&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
+      &lt;rect x=&quot;2&quot; y=&quot;2.2&quot; width=&quot;12&quot; height=&quot;11.6&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; fill=&quot;none&quot;/&gt;
+      &lt;path d=&quot;M2 6.07h12M2 9.93h12M4.4 4.13h1.6M4.4 8h1.6M4.4 11.87h1.6&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
+    &lt;/symbol&gt;
+    &lt;symbol id=&quot;g-machine-cloud&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
+      &lt;path d=&quot;M4.4 12.2A2.6 2.6 0 0 1 4.9 7.1A3.4 3.4 0 0 1 11.3 6.7A2.8 2.8 0 0 1 11.6 12.2Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
+    &lt;/symbol&gt;
+    &lt;symbol id=&quot;g-machine-container&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
+      &lt;path d=&quot;M8 1.9 13.4 5v6L8 14.1 2.6 11V5ZM2.6 5 8 8.1 13.4 5M8 8.1v6&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
+    &lt;/symbol&gt;
+    &lt;symbol id=&quot;g-machine-board&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
+      &lt;rect x=&quot;2&quot; y=&quot;3&quot; width=&quot;12&quot; height=&quot;10&quot; rx=&quot;1.2&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; fill=&quot;none&quot;/&gt;
+      &lt;rect x=&quot;4.2&quot; y=&quot;5.6&quot; width=&quot;4.6&quot; height=&quot;4.8&quot; rx=&quot;0.6&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; fill=&quot;none&quot;/&gt;
+      &lt;path d=&quot;M10.9 6.4h1.2M10.9 9.6h1.2&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
     &lt;/symbol&gt;
   &lt;/defs&gt;
 &lt;/svg&gt;
@@ -26463,7 +26569,22 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-desktop&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-desktop&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-laptop&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-laptop&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-phone&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-phone&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-remote-machine&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;remote-machine · fallback&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-remote-machine&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;remote-machine · the Beam, fallback&lt;/span&gt;&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;demo-section&quot;&gt;
+    &lt;h2 class=&quot;demo-heading&quot;&gt;Machine kinds — 16-grid, stroke 1.4, each in a machine colour (the seven mark hues and the neutral)&lt;/h2&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-cell demo-mark-blue&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-laptop&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;laptop · blue&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-teal&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-desktop&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;desktop · teal&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-cyan&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-machine-mini&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;mini · cyan&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-orange&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-machine-tower&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;tower · orange&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-yellow&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-machine-server&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;server · yellow&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-violet&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-machine-cloud&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;cloud · violet&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-red&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-machine-container&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;container · red&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-neutral&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-machine-board&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;board · neutral&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-blue&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-wsl-machine&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;wsl · blue&lt;/span&gt;&lt;/span&gt;
     &lt;/div&gt;
   &lt;/div&gt;
 
@@ -26573,7 +26694,22 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-desktop&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-desktop&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-laptop&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-laptop&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-phone&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-phone&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-remote-machine&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;remote-machine · fallback&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-remote-machine&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;remote-machine · the Beam, fallback&lt;/span&gt;&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;demo-section&quot;&gt;
+    &lt;h2 class=&quot;demo-heading&quot;&gt;Machine kinds — 16-grid, stroke 1.4, each in a machine colour (the seven mark hues and the neutral)&lt;/h2&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-cell demo-mark-blue&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-laptop&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;laptop · blue&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-teal&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-desktop&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;desktop · teal&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-cyan&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-machine-mini&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;mini · cyan&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-orange&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-machine-tower&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;tower · orange&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-yellow&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-machine-server&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;server · yellow&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-violet&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-machine-cloud&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;cloud · violet&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-red&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-machine-container&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;container · red&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-neutral&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-machine-board&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;board · neutral&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell demo-mark-blue&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-wsl-machine&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;wsl · blue&lt;/span&gt;&lt;/span&gt;
     &lt;/div&gt;
   &lt;/div&gt;
 

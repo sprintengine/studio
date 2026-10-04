@@ -181,8 +181,8 @@ Machines — and **never this machine**, which is the unmarked default.
 |---|---|---|---|---|
 | `laptop` | `DeviceLaptopGlyph` | `glyphs/device-laptop.svg` | The Device identity laptop, shared | A paired Mac (its name says nothing else) |
 | `desktop` | `DeviceDesktopGlyph` | `glyphs/device-desktop.svg` | The Device identity monitor, shared | Any other paired machine |
-| `mini` | `MachineMiniGlyph` | `glyphs/machine-mini.svg` | A small box under a sloped lid, with a slot of light | A paired Mac whose name says `mini` |
-| `tower` | `MachineTowerGlyph` | `glyphs/machine-tower.svg` | A tall case with two bays | Chosen by hand |
+| `mini` | `MachineMiniGlyph` | `glyphs/machine-mini.svg` | A small box under a sloped lid, with a slot of light | A paired Mac whose name says `mini` or `studio`, or a `mini` PC |
+| `tower` | `MachineTowerGlyph` | `glyphs/machine-tower.svg` | A tall case with two bays | A paired Mac Pro |
 | `server` | `MachineServerGlyph` | `glyphs/machine-server.svg` | Three units in one rack, each with its light | An SSH machine |
 | `cloud` | `MachineCloudGlyph` | `glyphs/machine-cloud.svg` | A cloud | Chosen by hand |
 | `container` | `MachineContainerGlyph` | `glyphs/machine-container.svg` | A cube | Chosen by hand |
@@ -196,8 +196,13 @@ stays in Device identity, where a phone pairs as a client.)
 (`--sem-color-text-muted`). The default is the top half of a 32-bit FNV-1a hash
 of the machine's id, over the seven hues — never the neutral, which is a choice
 a person makes. The id is what every device agrees on — the WSL host id,
-`ssh:<host name>`, `tailnet:<short host name>` — so the same machine is the same
-colour wherever it is seen. The colour is on the glyph and nowhere else: never
+`ssh:<host name>` (no user, and `:<port>` only when it is not 22),
+`tailnet:<short host name>` — so the same machine is the same colour wherever
+it is seen. Only a host name is shortened: a tailnet address or a typed name
+with a full stop in it is kept whole, or every `100.x` address would share one
+id. A paired machine's default kind reads its host name as words, so
+`macro-runner` is not a Mac; a wrong guess is one pick away in Settings ›
+Machines. The colour is on the glyph and nowhere else: never
 the machine's name, a row wash or a pill.
 
 `MachineGlyph({ identity })` is the one way to draw one: the kind's drawing
