@@ -13,7 +13,7 @@
 
 import { parseMachinePath } from '../../../../shared/machine-paths'
 import { workspaceHostIdOf } from '../../../../shared/execution-host'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import {
   LegendList,
@@ -700,6 +700,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const [anchoredUserId, setAnchoredUserId] = useState<string | null>(null)
   const chromeRef = useRef<TimelineChrome | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  // The composer's DOM id, for its label. Not built from the agent id: every
+  // open chat's layer stays mounted and nearly every chat has an `agent-1`, so
+  // `chat-composer-agent-1` would name several textareas and the label would
+  // point at whichever came first in the document.
+  const composerId = useId()
   // Completed assistant replies the user has "seen" (was at the bottom for);
   // the jump pill counts completions past this baseline while scrolled up.
   const repliesSeenRef = useRef(0)
@@ -3050,7 +3055,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                   }))
                 }
               />
-              <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
+              <label htmlFor={composerId} className="sr-only">
                 Message {label}
               </label>
               <div className="px-5 pb-1 pt-4">
@@ -3059,7 +3064,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                   variant="composer"
                   resize="none"
                   {...contextPicker.comboboxProps}
-                  id={`chat-composer-${agentId}`}
+                  id={composerId}
                   value={draft}
                   onBlur={flushDraft}
                   onPaste={(event) => {
