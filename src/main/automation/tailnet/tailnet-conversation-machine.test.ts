@@ -79,7 +79,7 @@ test('a chat on an SSH machine is keyed by its host, and is left unmarked while 
   const record = { environment: { kind: 'ssh' as const, id: 'saved-1', label: 'Build box' } }
   const known = conversationHostOf(record, {
     ...windows,
-    sshHostOf: (id) => (id === 'saved-1' ? 'build-box.example.ts.net' : null),
+    sshMachineOf: (id) => (id === 'saved-1' ? { host: 'build-box.example.ts.net', port: 22 } : null),
     marks: { 'ssh:build-box.example.ts.net': { kind: 'cloud' } },
   })
   assert.deepEqual(known, {
@@ -88,9 +88,27 @@ test('a chat on an SSH machine is keyed by its host, and is left unmarked while 
     label: 'Build box',
     color: defaultMachineColour('ssh:build-box.example.ts.net'),
   })
+  // The id the desktop's own rows use: no `user@`, and a port only when it is not 22.
+  assert.equal(
+    conversationHostOf(record, { ...windows, sshMachineOf: () => ({ host: 'build-box', port: 2222 }) })?.id,
+    'ssh:build-box:2222',
+  )
+  assert.equal(
+    conversationHostOf(record, { ...windows, sshMachineOf: () => ({ host: 'dev@build-box' }) })?.id,
+    'ssh:build-box',
+  )
   // Never a guess that would recolour the row once the host is known.
   assert.equal(conversationHostOf(record, windows), null)
-  assert.equal(conversationHostOf(record, { ...windows, sshHostOf: () => null }), null)
+  assert.equal(conversationHostOf(record, { ...windows, sshMachineOf: () => null }), null)
+})
+
+test('a chat born on a paired machine reached by its address keeps the address whole', () => {
+  assert.equal(conversationHostOf({ remoteOrigin: { machineName: '100.64.0.7' } }, windows)?.id, 'tailnet:100.64.0.7')
+  // A desktop named by its address is drawn the way a second desktop draws it.
+  const self = conversationHostOf(null, { hostName: '100.64.0.7', platform: 'linux', marks: {} })
+  assert.equal(self?.color, defaultMachineColour('tailnet:100.64.0.7'))
+  // Words, not substrings: a runner whose name begins `macro` is no Mac.
+  assert.equal(conversationHostOf(null, { hostName: 'macro-runner', platform: 'linux', marks: {} })?.kind, 'desktop')
 })
 
 test('a chat born on a paired machine is keyed by its short tailnet name', () => {

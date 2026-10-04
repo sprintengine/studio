@@ -419,8 +419,10 @@ machine?: { kind: string; color: string }
 - **`host.id`** is the machine's stable id, the one every device keys its mark
   by (`src/shared/machine-identity.ts`): `local` for the desktop answering,
   `wsl:<distro>` for one of its WSL distributions, `ssh:<host>` for an SSH
-  machine (the host its SSH config resolves to), `tailnet:<short host>` for a
-  chat born on a paired machine. A client draws no machine mark for `local`.
+  machine (the host its SSH config resolves to, with `:<port>` when that is
+  not 22), `tailnet:<short host>` for a chat born on a paired machine (an
+  address, or a name typed with a full stop in it, stays whole). A client
+  draws no machine mark for `local`.
 - **`host.kind`** is one of `laptop`, `desktop`, `mini`, `tower`, `server`,
   `cloud`, `container`, `board` or `wsl`, and **`host.color`** one of `blue`,
   `teal`, `cyan`, `orange`, `yellow`, `violet`, `red` or `neutral`: the

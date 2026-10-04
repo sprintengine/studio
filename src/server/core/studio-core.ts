@@ -110,11 +110,11 @@ export type StudioCoreOptions = {
     servers: SshRoutedServers
     onConnected(listener: (connection: SshRoutedConnection) => void): void
     /**
-     * A saved SSH machine's host name, as its SSH config resolves it, else as
-     * it was typed: the key its kind and colour are kept under. Without it a
-     * paired phone is not told which SSH machine a chat runs on.
+     * A saved SSH machine's host, as its SSH config resolves it (else as it
+     * was typed), and its resolved port: what its kind and colour are keyed
+     * by. Without it a paired phone is not told which SSH machine a chat runs on.
      */
-    hostOf?(savedId: string): string | null
+    machineOf?(savedId: string): { host: string; port?: number | null } | null
   }
 }
 
@@ -356,7 +356,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     hostName: readHostName(),
     platform: process.platform,
     marks: agentLaunchSettings.get().machineMarks,
-    ...(sshServers?.hostOf ? { sshHostOf: (id: string) => sshServers.hostOf?.(id) ?? null } : {}),
+    ...(sshServers?.machineOf ? { sshMachineOf: (id: string) => sshServers.machineOf?.(id) ?? null } : {}),
   })
   const listMarks = {
     machineOf: (workspaceId: string) =>

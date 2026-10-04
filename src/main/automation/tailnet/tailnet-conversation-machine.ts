@@ -42,11 +42,12 @@ export type ConversationMachineContext = {
   /** The person's kinds and colours, by machine id (`AgentLaunchSettings.machineMarks`). */
   marks: MachineMarkSettings | null | undefined
   /**
-   * An SSH machine's host name by its saved id, as its SSH config resolves
-   * it, else as it was typed: what every device keys the machine by. Null
-   * when this process does not hold the SSH machines.
+   * An SSH machine by its saved id: the host its SSH config resolves to (else
+   * what was typed) and the resolved port, as Settings › Machines keys its
+   * mark (`sshMachineRef`). Null when this process does not hold the SSH
+   * machines.
    */
-  sshHostOf?: (savedId: string) => string | null
+  sshMachineOf?: (savedId: string) => { host: string; port?: number | null } | null
 }
 
 /** This desktop's own kind and colour, as the identity endpoint sends them. */
@@ -79,8 +80,9 @@ export function conversationHostOf(
     return identity ? { id: identity.id, kind: identity.kind, label, color: identity.colour } : null
   }
   if (workspace.environment?.kind === 'ssh') {
-    const host = context.sshHostOf?.(workspace.environment.id)?.trim()
-    return host ? marked({ kind: 'ssh', host }, workspace.environment.label || host) : null
+    const ssh = context.sshMachineOf?.(workspace.environment.id)
+    const host = ssh?.host.trim()
+    return host ? marked({ kind: 'ssh', host, port: ssh?.port ?? null }, workspace.environment.label || host) : null
   }
   if (workspace.remoteOrigin?.machineName) {
     const name = workspace.remoteOrigin.machineName
