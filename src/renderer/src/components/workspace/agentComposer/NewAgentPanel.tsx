@@ -124,6 +124,12 @@ export type NewAgentLaunch = AgentComposerConfirm & {
   /** The agent's startup prompt. Empty means "start with nothing typed". */
   prompt: string
   /**
+   * A chat's staged images, as the files on this computer that hold them: its
+   * first message carries them as images. A terminal agent has none here — its
+   * images are typed into `prompt` as paths.
+   */
+  images?: string[]
+  /**
    * The machine on this computer the new chat runs on (the door's dropdown):
    * absent where the surface offers no choice (the tab strip's "+", which
    * spawns into a workspace whose machine is already fixed).
@@ -946,13 +952,14 @@ export default function NewAgentPanel({
   const promptRef = React.useRef<HTMLTextAreaElement>(null)
 
   // ── Images pasted or dropped into the prompt box ──────────────────────────
-  // The prompt becomes text — retyped into a CLI agent's terminal, or a
-  // conversation's first message — so an image travels as a file path the agent
-  // opens itself, the same shape as a drop onto a running terminal. A file
-  // dropped from the OS already has a path; a pasted screenshot (or an image
-  // dragged out of a browser) exists only as bytes and is saved to a temp file
-  // first. Either way the box shows the image, not the path: the thumbnail is
-  // the attachment, and its path joins the prompt only at launch.
+  // Each image is held as a file on this computer. A chat's first message
+  // carries it as an image, read from that file the way a later message's
+  // pasted path is; a CLI agent's prompt is text retyped into its terminal, so
+  // there the path joins the prompt, the same shape as a drop onto a running
+  // terminal. A file dropped from the OS already has a path; a pasted
+  // screenshot (or an image dragged out of a browser) exists only as bytes and
+  // is saved to a temp file first. Either way the box shows the image, not the
+  // path: the thumbnail is the attachment.
   const [dropActive, setDropActive] = React.useState(false)
   const dragDepthRef = React.useRef(0)
   const [attachNote, setAttachNote] = React.useState<string | null>(null)
@@ -1458,10 +1465,13 @@ export default function NewAgentPanel({
         .catch(() => {})
       return
     }
-    // The attached images ride along as paths after the text, quoted only when
-    // the path needs it — the terminal drop idiom.
-    const prompt = [text.trim(), ...images.map((image) => quotePath(image.path))].filter(Boolean).join(' ')
     const confirm = composer.buildConfirm(selection)
+    // A chat sends the attached images as images with its first message. A
+    // terminal agent is typed them as paths after the text, quoted only when
+    // the path needs it — the terminal drop idiom.
+    const imagePaths = images.map((image) => image.path)
+    const asImages = confirm.kind === 'conversation' && imagePaths.length > 0
+    const prompt = [text.trim(), ...(asImages ? [] : imagePaths.map(quotePath))].filter(Boolean).join(' ')
     if (confirm.kind === 'conversation') {
       // The picker's CLI and model, mapped onto the conversation provider that
       // drives that CLI as a chat. The CLI's own default row asks for no model.
@@ -1476,6 +1486,7 @@ export default function NewAgentPanel({
     onLaunch({
       ...confirm,
       prompt,
+      ...(asImages ? { images: imagePaths } : {}),
       ...(hostChoosable ? { hostId } : {}),
       ...(extensionMode ? { extension: { id: extensionName } } : {}),
     })

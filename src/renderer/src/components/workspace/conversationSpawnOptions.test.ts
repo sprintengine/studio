@@ -30,6 +30,21 @@ test('the launch prompt becomes the chat’s first message, not a composer draft
   )
 })
 
+test('the launch’s images go with the first message as images, not as paths in its text', () => {
+  const shot = '/var/folders/x1/T/TemporaryItems/Screenshot 2026-09-27 at 22.41.31.png'
+  assert.deepEqual(conversationLaunchDraftPatch(undefined, 'It looks wrong', [shot]), {
+    chatStartupPrompt: 'It looks wrong',
+    chatStartupImages: [shot],
+  })
+  assert.deepEqual(conversationLaunchDraftPatch(undefined, '', [shot]), { chatStartupImages: [shot] }, 'image only')
+  const seeded = conversationNewChatSeed(
+    { provider: { providerId: 'claude-agent', modelId: 'opus', modelLabel: 'Opus' } },
+    { prompt: 'It looks wrong', images: [shot], permissionPreset: 'none' },
+  )
+  assert.equal(seeded?.agentPatch.chatStartupPrompt, 'It looks wrong')
+  assert.deepEqual(seeded?.agentPatch.chatStartupImages, [shot])
+})
+
 test('the engine patch carries the picker’s permission preset and effort', () => {
   assert.deepEqual(conversationLaunchEnginePatch({ permissionPreset: 'bypass', reasoning: 'high' }), {
     cliPermissionPreset: 'bypass',

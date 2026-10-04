@@ -520,7 +520,8 @@ test('NewAgentPanel interaction', async () => {
         field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       })
       assert.equal(view.launches.length, 1)
-      assert.match(String(view.launches[0]!.prompt), /\/tmp\/shot\.png/, 'its path rides the prompt')
+      assert.equal(view.launches[0]!.prompt, 'look', 'the prompt is only what was typed')
+      assert.deepEqual(view.launches[0]!.images, ['/tmp/shot.png'], 'the image rides the launch as an image')
       view.unmount()
     })
 
@@ -547,7 +548,10 @@ test('NewAgentPanel interaction', async () => {
       await act(async () => {
         field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       })
-      assert.match(String(view.launches[0]?.prompt), /\/tmp\/shot\.png/)
+      // A chat's first message carries the screenshot as an image, the way a
+      // later message does; its path in the text would reach the agent as words.
+      assert.equal(view.launches[0]?.prompt, 'see')
+      assert.deepEqual(view.launches[0]?.images, ['/tmp/shot.png'])
       view.unmount()
     })
 
@@ -587,7 +591,10 @@ test('NewAgentPanel interaction', async () => {
       await act(async () => {
         start!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
+      // A terminal agent's prompt is typed into its terminal, so there the
+      // image is its path.
       assert.match(String(third.launches[0]?.prompt), /^keep me \/tmp\/a\.png$/, 'and rides the launch')
+      assert.equal(third.launches[0]?.images, undefined, 'as a path, not an image')
       third.unmount()
       resetNewChatDraftsForTests()
     })
