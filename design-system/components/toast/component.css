@@ -6,9 +6,10 @@
  * tone is carried by the status mark's shape and the words — never by
  * tinting the surface — so every toast survives greyscale.
  *
- * Elevation is its own token, shadow.toast (owner ruling 2026-09-28): the
- * button's lit top edge over a drop deeper than a popover's, so the card
- * reads as sitting on the page rather than printed into it. */
+ * Elevation is its own token, shadow.toast (owner ruling 2026-09-28): a lit
+ * top edge, lit from above like the primary button's, over a drop deeper than
+ * a popover's, so the card reads as sitting on the page rather than printed
+ * into it. */
 
 /* The one corner. pointer-events pass through the empty column so the region
  * never blocks the content it floats over; each toast re-enables its own. */

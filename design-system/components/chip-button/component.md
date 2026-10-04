@@ -48,31 +48,37 @@ and it must not outweigh what it qualifies.
   Still **no shadow**: the elevation ramp is for surfaces a person opened, not
   for chrome that was always there.
 
-### Raised (owner ruling 2026-10-01)
+### The toolbar chip, `--raised` (owner rulings 2026-10-01 and 2026-10-04)
 
 **`--raised`** is a chip that is a **control in a toolbar row** rather than a
 label inside a line: the composer's model, skills & MCPs, permissions, worktree
 and ⋯ triggers, and the project and machine pickers on the launch row. Those
 had been `--outline` and ghost chips at `radius.chip` on their line box, and
-beside the composer's raised buttons they read as squarer, shorter and flatter
-than everything they shared a row with.
+they read as squarer and shorter than the buttons they shared a row with.
 
-It wears the outline button's shell exactly: `size.control.xs`,
-`radius.control`, the `border.default` hairline, and the control elevation —
-`shadow.control-edge` (a lit top lip over a shallow drop) with
-`gradient.control-sheen` across the face. It keeps everything that makes it a
-chip rather than a button: the tones, the identity tint, and the thrown states.
+It takes the toolbar's box: `size.control.xs`, `radius.control`, the
+`space.md` inset and a `font.size.meta` label. And it is **ghost** — tier 3 of
+[button → Control tiers](../button/component.md): no edge and no ground at
+rest, `text.muted` ink, `bg.hover` and `text.primary` under the pointer, and
+`bg.active` under the shared press scale. A control inside a surface has the
+surface for an edge; a hairline and a lift on every chip of a row made the row
+read as a strip of tiles. It keeps everything that makes it a chip rather than
+a button: the tones, the identity tint, and the thrown states.
 
 It is the **one chip variant that is not content-height**, and that is the whole
-reason it is a variant rather than a re-skin of `--outline`: a toolbar row has
+reason it is a variant rather than a re-skin of the default: a toolbar row has
 already decided it is a row of controls, so riding a line box there is the
 defect, not the virtue. A chip inside a sentence, a card's meta line or a
 canvas HUD stays on one of the three inline variants.
 
+The name is the 2026-10-01 one and stays, because modules import it; since
+2026-10-04 it draws flat. From 2026-10-01 to 2026-10-04 it wore the outline
+button's border and the retired lit lip, drop and sheen.
+
 A composite that has to wear the same box without being one button — the
-worktree switch is a glyph button and a name field in one bordered box — takes
-the shell from the shipped primitive's `RAISED_CHIP_SHELL` export rather than
-spelling it, so it cannot drift a pixel from the chips beside it.
+worktree switch is a glyph button and a name field in one box — takes the shell
+from the shipped primitive's `RAISED_CHIP_SHELL` export rather than spelling
+it, so it cannot drift a pixel from the chips beside it.
 
 ### Folding a raised row (owner ruling 2026-10-01)
 
@@ -141,7 +147,7 @@ over it while it lasts — the same ordering the file tree's row washes follow.
 | Thrown | `bg.selected` (neutral tones) or the tone's soft tint, held through hover |
 | Focus-visible | The shared ring |
 | Disabled | 45% opacity, `not-allowed` |
-| Pressed | `scale(0.97)` — flat controls press by scale. `--raised` presses like an elevated button instead: `shadow.control-pressed` replaces the edge and the sheen drops, with no scale |
+| Pressed | `scale(0.97)`, like every control (removed under reduced motion). `--raised` also steps its ground to `bg.active` while held |
 
 ## Accessibility
 
