@@ -432,6 +432,26 @@ test("a WSL chat runs that distribution's CLI, whichever chat CLI it is", async 
   assert.deepEqual(local.record.starts[0]!.cliRuntimes, settings.cliRuntimes, 'a chat on this machine is unchanged')
 })
 
+test('a chat in a folder inside a distribution runs where its workspace runs: that distribution unless This PC was picked', async () => {
+  const settings = {
+    cliRuntimes: { codex: { command: 'codex-local' } },
+    hosts: { 'wsl:Ubuntu': { enabled: true, cliCommands: { codex: '/home/dev/.local/bin/codex' }, env: {} } },
+  }
+  const folderPath = '\\\\wsl.localhost\\Ubuntu\\home\\dev\\app'
+  // A workspace that records no machine runs in its folder's distribution, as
+  // the router and Studio's git have it (`workspaceHostIdOf`), so its chat's
+  // CLI is that distribution's too, not this PC's against the same folder.
+  const older = harness({ settings, workspace: { id: 'ws-1', folderPath, agents: {} } })
+  await older.service.launch({ workspaceId: 'ws-1', cli: 'codex' })
+  assert.deepEqual(older.record.starts[0]!.cliRuntimes?.codex, {
+    command: '/home/dev/.local/bin/codex',
+    hostId: 'wsl:Ubuntu',
+  })
+  const onThisPc = harness({ settings, workspace: { id: 'ws-1', folderPath, hostId: 'local', agents: {} } })
+  await onThisPc.service.launch({ workspaceId: 'ws-1', cli: 'codex' })
+  assert.deepEqual(onThisPc.record.starts[0]!.cliRuntimes, settings.cliRuntimes, "This PC picked runs this PC's CLI")
+})
+
 test("skills are installed in the working root, attached to the first message and kept as the chat's chips", async () => {
   const { service, record } = harness()
   const result = await service.launch({
