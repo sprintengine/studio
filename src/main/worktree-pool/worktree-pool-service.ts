@@ -783,11 +783,16 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     // Idle slots, the least recently used first: the slot a settled chat gave
     // back most recently is the last to go to someone else, so reopening that
     // chat finds its worktree still free to reclaim (`reclaim`).
+    // Idle slots passed over for this lease (a terminal sits in one): it stays
+    // idle, and picking it again would never get past it.
+    const passedOver = new Set<string>()
     for (let attempt = 0; attempt <= POOL_MAX_SLOTS; attempt += 1) {
       let created = false
       let slot: SlotRecord | null = await withPool(pool, async () => {
         const picked = pool.record.slots
-          .filter((candidate) => candidate.state === 'idle' && !pool.busy.has(candidate.id))
+          .filter(
+            (candidate) => candidate.state === 'idle' && !pool.busy.has(candidate.id) && !passedOver.has(candidate.id),
+          )
           .sort((a, b) => (a.lastUsedAt ?? a.createdAt) - (b.lastUsedAt ?? b.createdAt))[0]
         if (!picked) return null
         picked.state = 'leasing'
@@ -809,6 +814,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         if (!created) {
           if (somethingRunsIn(slot.path)) {
             // Someone opened a terminal in an idle slot; it is not reset under them.
+            passedOver.add(slot.id)
             await withPool(pool, async () => {
               slot!.state = 'idle'
               await persist(pool)

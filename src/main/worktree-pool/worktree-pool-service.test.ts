@@ -343,6 +343,18 @@ test('a return waits while a terminal is inside, and a merge in progress holds t
   assert.equal((await slotAt(harness, 'pool-01')).held?.reason, 'operation')
 })
 
+test('a lease passes over an idle slot a terminal sits in and makes a new one', async () => {
+  const live: string[] = []
+  const harness = makeService({ live })
+  const first = await lease(harness, 'first')
+  await returnAll(harness)
+  live.push(first.path)
+  const second = await lease(harness, 'second')
+  assert.notEqual(second.path, first.path)
+  assert.equal(second.created, true)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle', 'left as it was')
+})
+
 test('a detached HEAD holding commits no ref reaches gets a branch before the slot is reused', async () => {
   const harness = makeService()
   const leased = await lease(harness, 'detach')
