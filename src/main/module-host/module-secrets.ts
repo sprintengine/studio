@@ -285,7 +285,10 @@ export function createModuleSecretsRegistry(deps: ModuleSecretsDeps): ModuleSecr
         }
 
         if (!encryptionAvailable()) return unavailable()
-        const stored = (await readRecord(moduleId)).secrets[name]
+        const record = await readRecord(moduleId)
+        // Own names only: `constructor` or `toString` would otherwise read
+        // the object's inherited function as a stored secret.
+        const stored = Object.hasOwn(record.secrets, name) ? record.secrets[name] : undefined
         if (!stored) return failure('not_set', `Secret "${name}" is not set.`)
         if (!stored.allowedOrigins.includes(target.origin)) {
           return failure(

@@ -314,6 +314,17 @@ test('an echoing server cannot hand the secret back', async () => {
   assert.equal(echoed.includes(encodeURIComponent(spaced)), false)
 })
 
+test('a name an object inherits is not a stored secret', async () => {
+  const { secrets, calls } = await harness()
+  const weather = secrets.forModule('weather')
+  await weather.set('api-key', SECRET, { allowedOrigins: ['https://api.example.com'] })
+  for (const name of ['constructor', 'toString', 'valueOf']) {
+    const fetched = await weather.fetchWithSecret(name, 'https://api.example.com/', { placement: { query: 'k' } })
+    assert.equal(fetched.ok === false && fetched.code, 'not_set')
+  }
+  assert.equal(calls.length, 0)
+})
+
 test('a malformed request shape is refused before anything is sent', async () => {
   const { secrets, calls } = await harness()
   const weather = secrets.forModule('weather')
