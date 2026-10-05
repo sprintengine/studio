@@ -221,3 +221,22 @@ test('a settled agent-branch chat whose folder is gone comes back even without t
     [`${CONTAINER}/unmarked`],
   )
 })
+
+test('an unmarked settled chat in a pool slot asks main even with its folder there: the slot may be another chat’s', async () => {
+  state.workspaces = [
+    { id: 'pooled', folderPath: `${CONTAINER}/pool-03`, worktree: { branch: 'agent/pooled' }, settledAt: 1 },
+    { id: 'own', folderPath: `${CONTAINER}/own`, worktree: { branch: 'agent/own' }, settledAt: 1 },
+  ]
+  const restores = stubApi(new Set([`${CONTAINER}/pool-03`, `${CONTAINER}/own`]), () => ({
+    ok: false,
+    message: `The worktree this chat used at ${CONTAINER}/pool-03 has since been given to another agent (agent/other).`,
+  }))
+  assert.equal(await ensureChatWorktree('own'), true)
+  assert.equal(restores.length, 0)
+  assert.equal(await ensureChatWorktree('pooled'), false)
+  assert.deepEqual(
+    restores.map((input) => input.path),
+    [`${CONTAINER}/pool-03`],
+  )
+  assert.deepEqual(missing, [['pooled', true]])
+})
