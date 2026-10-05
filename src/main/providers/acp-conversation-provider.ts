@@ -1194,17 +1194,19 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
             },
           ]
           const seeding = Boolean(prior)
-          if (!command) {
-            state.replayHistory = false
-            state.seedPending = false
-          }
           if (input.attachments?.length && !state.capabilities.images)
             throw new Error('This ACP agent does not support images.')
           for (const attachment of input.attachments ?? [])
             prompt.push({ type: 'image', data: attachment.dataBase64, mimeType: attachment.mediaType })
           const result = await state.connection!.prompt({ sessionId: state.nativeId!, prompt })
-          // The agent has the conversation now; until here a fork that was
-          // owed it is owed it still, after a restart too.
+          // The agent has the conversation now. Until it answered the prompt
+          // (a refused image, an agent that died on it) the conversation is
+          // owed still, to the next message and after a restart too, as Codex
+          // owes it until its turn starts.
+          if (!command) {
+            state.replayHistory = false
+            state.seedPending = false
+          }
           if (seeding) emit(state, 'session_updated', { historySeeded: true })
           if (result.usage)
             emit(state, 'usage_updated', {

@@ -16,6 +16,7 @@ import {
 } from './acp-conversation-provider'
 import type {
   ConversationEvent,
+  ConversationImageAttachment,
   ConversationMcpServer,
   ConversationPermissionPreset,
 } from '../../shared/conversation-runtime'
@@ -34,7 +35,7 @@ const request=(method,params)=>new Promise(resolve=>{const id=++serial;pending.s
 createInterface({input:process.stdin}).on('line',async line=>{
  const m=JSON.parse(line),p=m.params||{};
  if(!m.method){pending.get(m.id)?.(m.result||{error:m.error});pending.delete(m.id);return}
- if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:true},mcpCapabilities:{http:!!process.env.MCP_HTTP},sessionCapabilities:process.env.FORK?{fork:{}}:{}},authMethods:[],_meta:{availableCommands:[{name:'handshake',description:'Listed before any session'}]}});
+ if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:!process.env.NO_IMAGES},mcpCapabilities:{http:!!process.env.MCP_HTTP},sessionCapabilities:process.env.FORK?{fork:{}}:{}},authMethods:[],_meta:{availableCommands:[{name:'handshake',description:'Listed before any session'}]}});
  if(m.method==='session/load'&&p.sessionId==='gone')return send({id:m.id,error:{code:-32002,message:'Resource not found'}});
  if(m.method==='session/load'&&require('node:fs').existsSync('busy-session'))return send({id:m.id,error:{code:-32603,message:'Internal error',data:{details:'rate limit reached'}}});
  if((m.method==='session/new'||m.method==='session/load')&&require('node:fs').existsSync('fail-session'))return send({id:m.id,error:{code:-32603,message:'session store unavailable'}});
@@ -1095,6 +1096,46 @@ test('an ACP fork the agent could not branch hands its first message the convers
     expect(first).toContain('persisted answer')
     expect(first).toContain('inspect history')
     expect(await said('inspect history again')).not.toContain('persisted answer')
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('an ACP fork whose first message the agent refused still owes the next one the conversation', async () => {
+  const f = await fixture(false, undefined, { NO_IMAGES: '1' })
+  try {
+    const fork = {
+      ...f.input,
+      sessionId: 'fork-session',
+      agentId: 'fork',
+      seedFromHistory: true,
+      fallbackHistory: [
+        { role: 'user' as const, content: 'persisted question' },
+        { role: 'assistant' as const, content: 'persisted answer' },
+      ],
+    }
+    await f.provider.startSession(fork)
+    const send = async (message: string, attachments?: ConversationImageAttachment[]) => {
+      const events: ConversationEvent[] = []
+      for await (const event of await f.provider.sendTurn({
+        ...fork,
+        turnId: message,
+        requestId: 'r',
+        message,
+        ...(attachments ? { attachments } : {}),
+      }))
+        events.push(event)
+      return events
+    }
+    // An image this agent does not read: the prompt carrying the conversation never goes.
+    const refused = await send('inspect history first', [
+      { id: 'img', mediaType: 'image/png', dataBase64: 'iVBORw0KGgo=', byteLength: 8 },
+    ])
+    expect(refused.some((event) => event.type === 'turn_failed')).toBe(true)
+    expect(refused.some((event) => event.payload?.historySeeded === true)).toBe(false)
+    const next = await send('inspect history')
+    expect(next.find((event) => event.type === 'content_delta')?.payload?.text).toContain('persisted answer')
+    expect(next.some((event) => event.payload?.historySeeded === true)).toBe(true)
   } finally {
     await f.cleanup()
   }
