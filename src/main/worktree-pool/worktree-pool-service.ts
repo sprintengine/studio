@@ -16,6 +16,7 @@ import { lockAgentWorktree } from '../agent-worktree-lock'
 import { hiddenEditPaths, insideAny, pathSpellings } from '../agent-worktree-keep-checks'
 import { pathExists } from '../git-utils'
 import { withWorktreeRegistryLock } from '../worktree-registry-lock'
+import { measureDiskUsage, type MeasureDiskUsage } from './disk-usage'
 import {
   acquireInstanceLock,
   heartbeatInstanceLock,
@@ -66,7 +67,9 @@ import {
  *
  * Nothing but disk (owner ruling 2026-09-24). No refresh, no fetch and no
  * install runs in the background. Every git step happens because someone asked
- * for a worktree (a lease) or a sweep found one nobody uses (a return). The
+ * for a worktree (a lease) or a sweep found one nobody uses (a return), and a
+ * slot's size is measured only when Settings ▸ Worktrees asks or, with a disk
+ * limit set, when the slot comes back. The
  * pool never installs dependencies; an agent that needs them runs its own
  * install, which on a reused slot finds most of the work already done.
  *
@@ -76,7 +79,7 @@ import {
  *   idle → leasing → leased                             (fetch, reset to base, branch)
  *   leased → returning → idle                           (clean return)
  *   leased → returning → held                           (work left in it)
- *   idle → evicting → gone                              (over the idle limit)
+ *   idle → evicting → gone                              (over the idle, slot or disk limit)
  *
  * A lease always forks from `origin/<default>` as fetched at that moment (at
  * most once a minute per repository, and never waiting longer than
@@ -124,8 +127,14 @@ import {
  * adopted as held, never reset.
  */
 
-/** Slots a pool may have in all, leased ones included; past it a lease falls back to a plain worktree. */
+/**
+ * The most slots a pool may ever have, leased ones included, whatever the
+ * `maxSlots` setting says; past the setting a lease falls back to a plain
+ * worktree.
+ */
 export const POOL_MAX_SLOTS = 32
+/** Slots measured at once: each is a `du` over a tree of many thousand files. */
+const MEASURE_CONCURRENCY = 3
 const FETCH_FRESH_MS = 60_000
 const HEARTBEAT_INTERVAL_MS = 5 * 60_000
 const SLOT_NAME = /^pool-(\d{2,})$/u
@@ -146,6 +155,8 @@ export type WorktreePoolServiceDeps = {
   fetchFreshMs?: number
   /** Copies the repository's `.worktreeinclude` set into a slot (git.ts). */
   seedIncludedFiles?: (repoRoot: string, slotPath: string) => Promise<unknown>
+  /** How much disk a slot takes (disk-usage.ts). */
+  measure?: MeasureDiskUsage
 }
 
 export type WorktreePoolLeaseInput = {
@@ -252,6 +263,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   const log = deps.log ?? ((line: string) => console.info(`[worktree-pool] ${line}`))
   const instanceId = deps.instanceId ?? randomUUID()
   const fetchFreshMs = deps.fetchFreshMs ?? FETCH_FRESH_MS
+  const measureSize = deps.measure ?? measureDiskUsage
   const pools = new Map<string, PoolRuntime>()
   const resolvedRepos = new Map<string, Promise<ResolvedRepo | null>>()
   let settings: WorktreePoolSettings | null = null
@@ -445,11 +457,15 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
               leaseId: slot.lease.leaseId,
               branch: slot.lease.branch,
               owner: slot.lease.owner,
+              agentId: slot.lease.agentId,
               leasedAt: slot.lease.leasedAt,
             }
           : null,
         held: slot.held ? { ...slot.held } : null,
         lastUsedAt: slot.lastUsedAt,
+        uses: slot.uses,
+        lastBranch: slot.lastBranch,
+        size: slot.size,
       })),
     }
   }
@@ -679,8 +695,9 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   ): Promise<SlotRecord | 'full' | 'error'> {
     // The name is picked under the pool's mutex, in the same step that records
     // it: two leases creating at once must never both pick `pool-01`.
+    const { maxSlots } = await getSettings()
     const slot = await withPool(pool, async () => {
-      if (pool.record.slots.length >= POOL_MAX_SLOTS) return null
+      if (pool.record.slots.length >= Math.min(maxSlots, POOL_MAX_SLOTS)) return null
       const target = await nextSlotPath(pool)
       if (!target) return null
       const created: SlotRecord = {
@@ -695,6 +712,9 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         lastUsedAt: null,
         createdAt: now(),
         op: { kind: 'create', startedAt: now(), pid: process.pid },
+        uses: 0,
+        lastBranch: null,
+        size: null,
       }
       pool.record.slots.push(created)
       pool.busy.add(created.id)
@@ -778,7 +798,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       if (!slot) {
         const made = await createSlot(pool, base)
         if (made === 'full') {
-          return { ok: false, reason: 'full', message: `The pool already has ${POOL_MAX_SLOTS} worktrees.` }
+          const { maxSlots } = await getSettings()
+          return { ok: false, reason: 'full', message: `The pool already has ${maxSlots} worktrees.` }
         }
         if (made === 'error') return { ok: false, reason: 'error', message: 'Could not create a pool worktree.' }
         slot = made
@@ -844,6 +865,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           slot!.baseSha = base.sha
           slot!.lease = { leaseId, branch, owner, agentId: input.agentId ?? null, leasedAt: now(), claimed: false }
           slot!.lastUsedAt = now()
+          slot!.uses += 1
           pool.record.lastLeaseAt = now()
           await persist(pool)
         })
@@ -1113,6 +1135,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         slot.state = 'idle'
         // Where the slot is now: the next lease holds it if anything moves it.
         slot.baseSha = oid
+        if (branch) slot.lastBranch = branch
         slot.lease = null
         slot.held = null
         slot.op = null
@@ -1128,6 +1151,12 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       pool.busy.delete(slot.id)
     }
     await evictOverLimit(pool)
+    // A slot comes back bigger than it left (the agent installed, built); with
+    // a disk limit set, that is when the pool learns it went over.
+    if ((await getSettings()).diskLimitGb !== null && pool.record.slots.includes(slot)) {
+      await measureSlot(pool, slot)
+      await enforceDiskLimit()
+    }
     return 'returned'
   }
 
@@ -1255,14 +1284,107 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     }
   }
 
-  /** Remove the least recently used idle slots beyond the kept number. */
+  /**
+   * Remove the least recently used idle slots beyond the kept number, and
+   * beyond what `maxSlots` leaves room for beside the slots in use.
+   */
   async function evictOverLimit(pool: PoolRuntime): Promise<void> {
-    const { keepIdle, enabled } = await getSettings()
-    const limit = enabled ? keepIdle : 0
+    const { keepIdle, enabled, maxSlots } = await getSettings()
     const idle = pool.record.slots
       .filter((slot) => slot.state === 'idle' && !pool.busy.has(slot.id))
       .sort((a, b) => (b.lastUsedAt ?? b.createdAt) - (a.lastUsedAt ?? a.createdAt))
+    const others = pool.record.slots.length - idle.length
+    const limit = enabled ? Math.min(keepIdle, Math.max(0, maxSlots - others)) : 0
     for (const slot of idle.slice(limit)) await evictSlot(pool, slot, 'over the idle limit')
+  }
+
+  // ── Disk ─────────────────────────────────────────────────────────────────
+
+  async function measureSlot(pool: PoolRuntime, slot: SlotRecord): Promise<void> {
+    if (!(await pathExists(slot.path))) return
+    const size = await measureSize(slot.path).catch(() => null)
+    if (!size) return
+    await withPool(pool, async () => {
+      if (!pool.record.slots.includes(slot)) return
+      slot.size = size
+      await persist(pool)
+    })
+  }
+
+  /**
+   * Measure every slot of every pool this instance drives (or of one
+   * repository's), a few at a time, then hold the pools to the disk limit.
+   * Settings ▸ Worktrees asks; nothing else measures in bulk.
+   */
+  async function measure(repoRoot?: string): Promise<void> {
+    await load()
+    const target = repoRoot ? await poolFor(repoRoot, false) : null
+    const targets = repoRoot ? (target ? [target] : []) : [...pools.values()]
+    const queue: Array<{ pool: PoolRuntime; slot: SlotRecord }> = []
+    for (const pool of targets) {
+      if (!(await ready(pool))) continue
+      for (const slot of pool.record.slots) {
+        if (slot.state !== 'creating' && slot.state !== 'evicting') queue.push({ pool, slot })
+      }
+    }
+    const worker = async (): Promise<void> => {
+      for (let next = queue.shift(); next; next = queue.shift()) await measureSlot(next.pool, next.slot)
+    }
+    await Promise.all(Array.from({ length: Math.min(MEASURE_CONCURRENCY, queue.length) }, worker))
+    await enforceDiskLimit()
+  }
+
+  /**
+   * Remove idle slots, least recently used first across every pool, while all
+   * of them together take more than the disk limit. Leased and held slots are
+   * counted but never removed, so the pools may stay over the limit. A slot
+   * never measured counts as nothing: the limit acts on what is known.
+   */
+  async function enforceDiskLimit(): Promise<void> {
+    const { diskLimitGb } = await getSettings()
+    if (diskLimitGb === null) return
+    const limit = diskLimitGb * 1024 ** 3
+    const driven = [...pools.values()].filter((pool) => pool.instance === 'held')
+    let total = driven.reduce(
+      (sum, pool) => sum + pool.record.slots.reduce((poolSum, slot) => poolSum + (slot.size?.bytes ?? 0), 0),
+      0,
+    )
+    if (total <= limit) return
+    const idle = driven
+      .flatMap((pool) => pool.record.slots.map((slot) => ({ pool, slot })))
+      .filter(({ pool, slot }) => slot.state === 'idle' && !pool.busy.has(slot.id))
+      .sort((a, b) => (a.slot.lastUsedAt ?? a.slot.createdAt) - (b.slot.lastUsedAt ?? b.slot.createdAt))
+    for (const { pool, slot } of idle) {
+      if (total <= limit) break
+      const bytes = slot.size?.bytes ?? 0
+      if (await evictSlot(pool, slot, 'over the disk limit')) total -= bytes
+    }
+  }
+
+  /**
+   * Delete an idle slot's ignored files (`git clean -fdX`): installed
+   * dependencies, build output, caches. The slot stays in the pool, clean and
+   * on its commit; the next agent in it installs from nothing.
+   */
+  async function clearIgnored(pool: PoolRuntime, slot: SlotRecord): Promise<WorktreePoolActionResult> {
+    if (somethingRunsIn(slot.path)) {
+      return { ok: false, message: 'A terminal is open in that worktree. Close it first.' }
+    }
+    const began = await withPool(pool, async () => {
+      if (pool.busy.has(slot.id) || slot.state !== 'idle') return false
+      pool.busy.add(slot.id)
+      return true
+    })
+    if (!began) return { ok: false, message: 'Only a worktree that is ready to reuse can be cleared.' }
+    try {
+      const cleaned = await git(slot.path, ['clean', '-fdX', '--quiet'])
+      if (!cleaned.ok) return { ok: false, message: cleaned.message ?? 'git clean failed.' }
+      log(`${slot.path}: ignored files cleared`)
+    } finally {
+      pool.busy.delete(slot.id)
+    }
+    await measureSlot(pool, slot)
+    return { ok: true, message: 'Cleared. The next agent in it runs the install from the start.' }
   }
 
   /**
@@ -1442,6 +1564,9 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         lastUsedAt: null,
         createdAt: now(),
         op: null,
+        uses: 0,
+        lastBranch: null,
+        size: null,
       })
       log(`${entry.path}: adopted into the pool (${leased ? 'leased' : 'held'})`)
     }
@@ -1590,6 +1715,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         ? { ok: true, message: 'Removed.' }
         : { ok: false, message: 'Only an idle, clean worktree can be removed.' }
     }
+    if (input.kind === 'clear-ignored') return clearIgnored(pool, slot)
     return heldAction(pool, slot, input.action, input.message)
   }
 
@@ -1618,9 +1744,12 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     const next = normalizePoolSettings({ ...(await getSettings()), ...patch })
     settings = next
     await deps.store.writeSettings(next)
+    // A lower limit takes effect now, and the caller (Settings) sees the pools
+    // it leaves behind.
     for (const pool of pools.values()) {
-      if (pool.instance === 'held') void evictOverLimit(pool)
+      if (pool.instance === 'held') await evictOverLimit(pool)
     }
+    await enforceDiskLimit()
     return next
   }
 
@@ -1658,6 +1787,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     },
     getSettings,
     updateSettings,
+    measure,
     ownsPath,
     shutdown,
   }

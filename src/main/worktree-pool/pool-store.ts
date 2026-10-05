@@ -5,6 +5,9 @@ import { join } from 'path'
 import {
   DEFAULT_WORKTREE_POOL_SETTINGS,
   WORKTREE_POOL_KEEP_IDLE_MAX,
+  WORKTREE_POOL_MAX_SLOTS_CEILING,
+  WORKTREE_POOL_MAX_SLOTS_MIN,
+  type WorktreeDiskUsage,
   type WorktreePoolHeldReason,
   type WorktreePoolSettings,
   type WorktreePoolSlotState,
@@ -79,6 +82,12 @@ export type SlotRecord = {
   lastUsedAt: number | null
   createdAt: number
   op: SlotOp | null
+  /** Leases served. */
+  uses: number
+  /** The branch of the last lease, once the slot is back. */
+  lastBranch: string | null
+  /** As last measured (Settings ▸ Worktrees, or a return while a disk limit is set). */
+  size: WorktreeDiskUsage | null
 }
 
 export type PoolRecord = {
@@ -138,6 +147,22 @@ const OP_KINDS = new Set<SlotOp['kind']>(['create', 'lease', 'reset', 'return', 
 const str = (value: unknown): string | null => (typeof value === 'string' && value ? value : null)
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null)
 
+function parseSize(value: unknown): WorktreeDiskUsage | null {
+  if (!isRecord(value)) return null
+  const bytes = num(value.bytes)
+  if (bytes === null || bytes < 0) return null
+  return {
+    bytes,
+    measuredAt: num(value.measuredAt) ?? 0,
+    parts: Array.isArray(value.parts)
+      ? value.parts
+          .filter(isRecord)
+          .map((part) => ({ name: str(part.name) ?? '', bytes: num(part.bytes) ?? 0 }))
+          .filter((part) => part.name)
+      : [],
+  }
+}
+
 function parseSlot(value: unknown): SlotRecord | null {
   if (!isRecord(value)) return null
   const id = str(value.id)
@@ -188,6 +213,9 @@ function parseSlot(value: unknown): SlotRecord | null {
             toSha: str(op.toSha),
           }
         : null,
+    uses: num(value.uses) ?? 0,
+    lastBranch: str(value.lastBranch),
+    size: parseSize(value.size),
   }
 }
 
@@ -253,13 +281,20 @@ export type PoolStore = {
 
 export function normalizePoolSettings(input: Partial<WorktreePoolSettings> | null | undefined): WorktreePoolSettings {
   const base = DEFAULT_WORKTREE_POOL_SETTINGS
-  const keepIdle = input?.keepIdle
+  const clamp = (value: unknown, min: number, max: number, fallback: number): number =>
+    typeof value === 'number' && Number.isFinite(value) ? Math.max(min, Math.min(max, Math.round(value))) : fallback
+  const diskLimitGb = input?.diskLimitGb
   return {
     enabled: typeof input?.enabled === 'boolean' ? input.enabled : base.enabled,
-    keepIdle:
-      typeof keepIdle === 'number' && Number.isFinite(keepIdle)
-        ? Math.max(0, Math.min(WORKTREE_POOL_KEEP_IDLE_MAX, Math.round(keepIdle)))
-        : base.keepIdle,
+    keepIdle: clamp(input?.keepIdle, 0, WORKTREE_POOL_KEEP_IDLE_MAX, base.keepIdle),
+    maxSlots: clamp(input?.maxSlots, WORKTREE_POOL_MAX_SLOTS_MIN, WORKTREE_POOL_MAX_SLOTS_CEILING, base.maxSlots),
+    // Absent keeps the default; an explicit null is "no limit".
+    diskLimitGb:
+      diskLimitGb === null
+        ? null
+        : typeof diskLimitGb === 'number' && Number.isFinite(diskLimitGb) && diskLimitGb > 0
+          ? Math.min(100_000, diskLimitGb)
+          : base.diskLimitGb,
   }
 }
 

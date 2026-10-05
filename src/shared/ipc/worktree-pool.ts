@@ -36,12 +36,43 @@ export type WorktreePoolSettings = {
   enabled: boolean
   /** Idle worktrees each repository keeps for reuse; a return beyond this removes the oldest. */
   keepIdle: number
+  /**
+   * Worktrees one repository's pool may hold in all, leased ones included.
+   * Past it a new chat still gets a worktree, but a fresh one the cleanup
+   * removes when the chat is done.
+   */
+  maxSlots: number
+  /**
+   * Disk every pool together may use, in gigabytes, or null for no limit.
+   * Past it the least recently used idle worktrees are removed; one in use or
+   * holding work never is. Sizes are measured only while a limit is set, or
+   * when Settings ▸ Worktrees asks.
+   */
+  diskLimitGb: number | null
 }
 
 export const WORKTREE_POOL_KEEP_IDLE_MAX = 6
+export const WORKTREE_POOL_MAX_SLOTS_MIN = 2
+/** The hard ceiling `maxSlots` is clamped to. */
+export const WORKTREE_POOL_MAX_SLOTS_CEILING = 32
+export const WORKTREE_POOL_DISK_LIMIT_CHOICES_GB = [10, 20, 30, 50, 100, 200] as const
 export const DEFAULT_WORKTREE_POOL_SETTINGS: WorktreePoolSettings = {
   enabled: true,
   keepIdle: 3,
+  maxSlots: 12,
+  diskLimitGb: null,
+}
+
+/**
+ * How much disk a worktree takes, as allocated on disk (`du`), with the
+ * biggest entries at its top level (`node_modules`, `out`, …) so a person can
+ * see what the space is. Measured on request, never on a timer.
+ */
+export type WorktreeDiskUsage = {
+  bytes: number
+  measuredAt: number
+  /** The largest top-level entries, largest first; the rest are summed as `…`. */
+  parts: Array<{ name: string; bytes: number }>
 }
 
 export type WorktreePoolSlotView = {
@@ -56,6 +87,8 @@ export type WorktreePoolSlotView = {
     leaseId: string
     branch: string
     owner: string
+    /** The agent that leased it itself through MCP (`worktree.lease`); null for a chat's own worktree. */
+    agentId: string | null
     leasedAt: number
   } | null
   held: {
@@ -66,6 +99,12 @@ export type WorktreePoolSlotView = {
     since: number
   } | null
   lastUsedAt: number | null
+  /** How many leases the slot has served. */
+  uses: number
+  /** The branch of its last lease, kept after the slot came back. */
+  lastBranch: string | null
+  /** As last measured; null until something asked. */
+  size: WorktreeDiskUsage | null
 }
 
 export type WorktreePoolSnapshot = {
@@ -85,5 +124,55 @@ export type WorktreePoolHeldAction = 'commit' | 'stash' | 'discard' | 'keep'
 export type WorktreePoolActionInput =
   | { kind: 'held'; repoRoot: string; slotId: string; action: WorktreePoolHeldAction; message?: string }
   | { kind: 'evict'; repoRoot: string; slotId: string }
+  /** Delete an idle slot's ignored files (`git clean -dX`): the space, at the price of the next install. */
+  | { kind: 'clear-ignored'; repoRoot: string; slotId: string }
 
 export type WorktreePoolActionResult = { ok: true; message: string | null } | { ok: false; message: string }
+
+// ── Settings ▸ Worktrees ────────────────────────────────────────────────────
+
+/** One git worktree of a project, as Settings ▸ Worktrees lists it. The main checkout is never one. */
+export type WorktreeInventoryEntry = {
+  path: string
+  branch: string | null
+  head: string | null
+  /** The pool slot at this path; null for a worktree the pool does not own. */
+  slotId: string | null
+  /** Locked by hand or by another Studio profile (not the pool's or this profile's agent lock). */
+  lockedByOther: boolean
+  /** Registered with git but gone from disk: `git worktree prune` forgets it. */
+  missing: boolean
+  /** Commits on it the default branch lacks, or null when unknown (no default branch, git failed). */
+  uniqueCommits: number | null
+  /** Commits on the default branch it lacks. */
+  behindCommits: number | null
+  /** Every change on it is on the default branch already (by ancestry, or by content after a squash merge). */
+  merged: boolean | null
+  /** Uncommitted and untracked paths, ignored ones aside; null when status failed. */
+  changedPaths: number | null
+  /** The first few of those, as `git status --short` codes and paths. */
+  changes: Array<{ code: string; path: string }>
+  size: WorktreeDiskUsage | null
+}
+
+export type WorktreeInventoryProject = {
+  /** The main checkout. */
+  repoRoot: string
+  defaultRef: string | null
+  pool: WorktreePoolSnapshot | null
+  worktrees: WorktreeInventoryEntry[]
+  error: string | null
+}
+
+export type WorktreeInventoryInput = {
+  /** Projects the window knows of; pools on record are added to them. */
+  repoRoots: string[]
+  /** Measure every worktree's size now (slow: seconds per worktree), instead of reporting the last one. */
+  measure?: boolean
+}
+
+export type WorktreeInventory = {
+  projects: WorktreeInventoryProject[]
+  /** When sizes were last measured, or null if never. */
+  measuredAt: number | null
+}
