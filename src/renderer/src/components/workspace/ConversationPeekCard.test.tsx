@@ -77,7 +77,7 @@ test('ConversationPeekCard', async () => {
     )
   }
 
-  // --- The facts: one line each, in T3 Code's order --------------------------
+  // --- The facts: one line each, where the chat runs before what it runs ------
   run('the card lists machine, branch, model and context, in that order', () => {
     const markup = card()
     const at = (needle: string) => {
