@@ -690,16 +690,27 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     const subscription: Subscription = { id, topic: 'files.watch', key: null, replay: null, handle: null }
     subscriptions.set(id, subscription)
     void files
-      .watch(params.root, params.path, (names) => {
-        if (state === 'closed' || subscriptions.get(id) !== subscription) return
-        const grant = liveGrant()
-        if (!grant) return
-        if (!studioScopesGrant(grant.scopes, STUDIO_TOPICS['files.watch'].scope)) {
-          refreshGrant()
-          return
-        }
-        enqueueLive({ t: 'push', sub: id, payload: { names } }, id)
-      })
+      .watch(
+        params.root,
+        params.path,
+        (names) => {
+          if (state === 'closed' || subscriptions.get(id) !== subscription) return
+          const grant = liveGrant()
+          if (!grant) return
+          if (!studioScopesGrant(grant.scopes, STUDIO_TOPICS['files.watch'].scope)) {
+            refreshGrant()
+            return
+          }
+          enqueueLive({ t: 'push', sub: id, payload: { names } }, id)
+        },
+        () => {
+          // The folder stopped reporting (removed, or the watcher failed): the
+          // client is told, and may follow it again.
+          if (state === 'closed' || subscriptions.get(id) !== subscription) return
+          subscriptions.delete(id)
+          subscriptionFailed(id, 'unavailable', 'Studio stopped watching that folder.', SUBSCRIBE_RETRY_MS)
+        },
+      )
       .then(
         (watched) => {
           if (!watched.ok) {
