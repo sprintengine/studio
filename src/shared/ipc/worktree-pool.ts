@@ -89,6 +89,8 @@ export type WorktreePoolSlotView = {
     owner: string
     /** The agent that leased it itself through MCP (`worktree.lease`); null for a chat's own worktree. */
     agentId: string | null
+    /** The chat that agent is in; null for a chat's own worktree and a lease taken before chats were recorded. */
+    workspaceId: string | null
     leasedAt: number
   } | null
   held: {

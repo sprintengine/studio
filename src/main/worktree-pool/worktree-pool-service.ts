@@ -167,6 +167,8 @@ export type WorktreePoolLeaseInput = {
   owner?: string | null
   /** The agent that asked for the worktree itself (MCP), which keeps it while it exists. */
   agentId?: string | null
+  /** The chat that agent is in: an agent id is unique only within its chat. */
+  workspaceId?: string | null
   /** The machine the worktree is for; the pool serves only this machine's own git. */
   hostId?: string | null
   /** Copy the repository's `.worktreeinclude` set in, as a fresh worktree would. */
@@ -458,6 +460,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
               branch: slot.lease.branch,
               owner: slot.lease.owner,
               agentId: slot.lease.agentId,
+              workspaceId: slot.lease.workspaceId,
               leasedAt: slot.lease.leasedAt,
             }
           : null,
@@ -869,7 +872,15 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           slot!.error = notes.length ? notes.join('; ') : null
           slot!.baseRef = base.ref
           slot!.baseSha = base.sha
-          slot!.lease = { leaseId, branch, owner, agentId: input.agentId ?? null, leasedAt: now(), claimed: false }
+          slot!.lease = {
+            leaseId,
+            branch,
+            owner,
+            agentId: input.agentId ?? null,
+            workspaceId: input.agentId ? (input.workspaceId ?? null) : null,
+            leasedAt: now(),
+            claimed: false,
+          }
           slot!.lastUsedAt = now()
           slot!.uses += 1
           pool.record.lastLeaseAt = now()
@@ -1016,6 +1027,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           branch,
           owner: input.owner,
           agentId: null,
+          workspaceId: null,
           leasedAt: now(),
           claimed: false,
         }
@@ -1563,6 +1575,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
               branch: entry.branch!,
               owner: entry.branch!,
               agentId: null,
+              workspaceId: null,
               leasedAt: now(),
               claimed: false,
             }
@@ -1747,10 +1760,15 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   }
 
   /** The lease an agent took through MCP, by the slot path it was given. */
-  function leaseAt(path: string): { leaseId: string; agentId: string | null; branch: string } | null {
+  function leaseAt(
+    path: string,
+  ): { leaseId: string; agentId: string | null; workspaceId: string | null; branch: string } | null {
     for (const pool of pools.values()) {
       const slot = pool.record.slots.find((candidate) => comparablePath(candidate.path) === comparablePath(path))
-      if (slot?.lease) return { leaseId: slot.lease.leaseId, agentId: slot.lease.agentId, branch: slot.lease.branch }
+      if (slot?.lease) {
+        const { leaseId, agentId, workspaceId, branch } = slot.lease
+        return { leaseId, agentId, workspaceId, branch }
+      }
     }
     return null
   }

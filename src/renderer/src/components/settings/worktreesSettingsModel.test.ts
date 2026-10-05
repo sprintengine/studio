@@ -57,11 +57,12 @@ function entry(path: string, patch: Partial<WorktreeInventoryEntry> = {}): Workt
   }
 }
 
-const lease = (branch: string, agentId: string | null = null) => ({
+const lease = (branch: string, agentId: string | null = null, workspaceId: string | null = null) => ({
   leaseId: `lease-${branch}`,
   branch,
   owner: branch,
   agentId,
+  workspaceId,
   leasedAt: NOW - 14 * MIN,
 })
 

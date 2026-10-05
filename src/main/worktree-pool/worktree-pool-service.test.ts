@@ -690,6 +690,12 @@ test('worktree.lease serves only an agent Studio started, and only that agent ca
     { metadata: { kind: 'studio-agent', workspaceId: 'ws-1', agentId: 'agent-2' } },
   )
   assert.equal(stranger.isError, true)
+  // Another chat's agent with the same id (ids repeat across older chats).
+  const namesake = await releaseTool.handler(
+    { path },
+    { metadata: { kind: 'studio-agent', workspaceId: 'ws-2', agentId: 'agent-1' } },
+  )
+  assert.equal(namesake.isError, true)
 
   const released = await releaseTool.handler({ path }, agent)
   assert.equal((released.structuredContent as { released: boolean }).released, true)
