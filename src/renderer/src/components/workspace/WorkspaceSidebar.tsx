@@ -746,7 +746,7 @@ function WorkspaceSidebar({
   // in is never shelved (`isShelved`), so without the hand-off it sat there,
   // checked off and still open, until you clicked somewhere else.
   //
-  // Never while an agent in it is working (T3 Code's rule too): settling ends
+  // Never while an agent in it is working: settling ends
   // the chat's agent processes, and whatever they were doing with them. The
   // row's button and menu item say so; this is the guard for every path.
   const settleWorkspaceById = useCallback(
