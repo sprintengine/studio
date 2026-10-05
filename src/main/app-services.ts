@@ -109,7 +109,7 @@ import { createPoolStore } from './worktree-pool/pool-store'
 import { createWorktreePoolService } from './worktree-pool/worktree-pool-service'
 import { createWorktreePoolTools } from './worktree-pool/worktree-pool-tools'
 import { createConversationPeekService } from './conversation-peek/service'
-import { createConversationTerminalHandoff } from './conversation-terminal-handoff'
+import { chatHandoffStart, createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
 import {
   createTerminalRuntime,
@@ -1186,6 +1186,12 @@ export function createAppServices(
         chatName: (workspaceId, agentId) =>
           workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
             ?.agents?.[agentId]?.name,
+        chatStart: (workspaceId, agentId) =>
+          chatHandoffStart(
+            workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId),
+            agentId,
+            agentLaunchSettings.get(),
+          ),
       })
 
   // Built after workspace sync because adopting the retired skill packs needs to

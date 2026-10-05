@@ -733,11 +733,23 @@ export function registerConversationIpc(
   ipcMain.handle(
     'conversation:sessions:terminal-handoff',
     async (_, input: unknown): Promise<ConversationTerminalHandoffResult> => {
-      const parsed = parseSessionIdInput(input)
+      // A session, or the chat by its identity (a tab's menu holds no session).
+      const chat =
+        isRecord(input) &&
+        input.sessionId === undefined &&
+        typeof input.workspaceId === 'string' &&
+        input.workspaceId.trim() &&
+        typeof input.agentId === 'string' &&
+        input.agentId.trim()
+          ? { workspaceId: input.workspaceId, agentId: input.agentId }
+          : null
+      const parsed = chat ? { ok: true as const, input: chat } : parseSessionIdInput(input)
       if (!parsed.ok) return parsed
       if (!handlers.terminalHandoff) return { ok: false, message: 'Resuming a chat in a terminal is unavailable.' }
       try {
-        return await handlers.terminalHandoff(parsed.input)
+        return await handlers.terminalHandoff(
+          'sessionId' in parsed.input ? { sessionId: parsed.input.sessionId } : parsed.input,
+        )
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }

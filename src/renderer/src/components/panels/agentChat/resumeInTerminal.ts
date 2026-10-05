@@ -29,13 +29,13 @@ export async function resumeChatInTerminal(input: {
   workspaceId: string
   agentId: string
 }): Promise<{ ok: true } | { ok: false; message: string }> {
-  const listed = await window.api.conversationSessionsList({ workspaceId: input.workspaceId, agentId: input.agentId })
-  // The chat's current session: the one its next message would go to.
-  const session = listed.ok
-    ? listed.sessions.filter((candidate) => candidate.status !== 'stopped').sort((a, b) => b.updatedAt - a.updatedAt)[0]
-    : undefined
-  if (!session) return { ok: false, message: 'This chat has no CLI session yet. Send it a message first.' }
-  const result = await window.api.conversationSessionTerminalHandoff({ sessionId: session.sessionId })
+  // By the chat's identity: main hands over the session it is running, or,
+  // for a chat not sent anything since the app started, starts one to read
+  // the CLI session from its transcript.
+  const result = await window.api.conversationSessionTerminalHandoff({
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+  })
   return result.ok ? { ok: true } : { ok: false, message: result.message }
 }
 

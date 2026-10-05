@@ -31,7 +31,6 @@ import type {
   ConversationStartSessionResult,
   ConversationStopSessionInput,
   ConversationSuspendSessionInput,
-  ConversationTerminalHandoffInput,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
   ConversationToolDetailInput,
@@ -1610,9 +1609,9 @@ export class ConversationRuntime {
   // since the terminal and the chat's child would both write to the one
   // session. Everything that does refuse is checked here first, so a handoff
   // that cannot happen never stops anything.
-  async terminalHandoffTarget(
-    input: ConversationTerminalHandoffInput,
-  ): Promise<{ ok: true; target: ConversationTerminalHandoffTarget } | { ok: false; message: string }> {
+  async terminalHandoffTarget(input: {
+    sessionId: string
+  }): Promise<{ ok: true; target: ConversationTerminalHandoffTarget } | { ok: false; message: string }> {
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     if (!session.stateful)
@@ -1673,9 +1672,9 @@ export class ConversationRuntime {
   // chat started live in that child and end with it; their cards are closed
   // here rather than left showing agents nothing is running. Until
   // `endTerminalHandoff`, a send is refused (see `sendTurn`).
-  async stopForTerminalHandoff(
-    input: ConversationTerminalHandoffInput,
-  ): Promise<{ ok: true; stopped: { turn: boolean; agents: number } } | { ok: false; message: string }> {
+  async stopForTerminalHandoff(input: {
+    sessionId: string
+  }): Promise<{ ok: true; stopped: { turn: boolean; agents: number } } | { ok: false; message: string }> {
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     this.terminalHandoffs.add(session.sessionId)
@@ -1700,7 +1699,7 @@ export class ConversationRuntime {
     return { ok: true, stopped: { turn, agents: agents.length } }
   }
 
-  endTerminalHandoff(input: ConversationTerminalHandoffInput): void {
+  endTerminalHandoff(input: { sessionId: string }): void {
     this.terminalHandoffs.delete(input.sessionId)
   }
 
