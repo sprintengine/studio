@@ -369,6 +369,20 @@ test('an idle slot someone edited is held at the next lease, which gets a new sl
   assert.equal(await readFile(join(first.path, 'README.md'), 'utf8'), '# someone was here\n')
 })
 
+test('removing an idle slot holding commits no branch has holds it instead', async () => {
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await returnAll(harness)
+  // Someone commits on the idle slot's detached HEAD.
+  await writeFile(join(first.path, 'stray.txt'), 'stray\n')
+  await git(first.path, 'add', '.')
+  await git(first.path, 'commit', '-q', '-m', 'stray')
+  const evicted = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(evicted.ok, false)
+  assert.equal(await exists(first.path), true, 'the commit’s worktree is still on disk')
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'held')
+})
+
 test('an ignored file where the new base adds a tracked one holds the slot rather than being overwritten', async () => {
   const harness = makeService()
   const first = await lease(harness, 'first')

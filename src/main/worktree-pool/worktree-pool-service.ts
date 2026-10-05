@@ -1255,6 +1255,15 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           )
           return false
         }
+        // Commits made on the idle slot's detached HEAD (a person in a
+        // terminal there) are on no branch, and removing the worktree takes
+        // its HEAD reflog with it: they would be lost. Where the pool left
+        // it is the pool's to drop; anywhere else, unreachable, is held.
+        const oid = status.status.oid
+        if (oid && oid !== slot.baseSha && !(await commitIsReachable(git, slot.path, oid))) {
+          await hold(pool, slot, 'unexpected-head', 'found while evicting: commits no branch has')
+          return false
+        }
         // No --force: git checks cleanliness again at the moment of removal.
         // Only a tree with submodules, which plain `remove` always refuses, is
         // forced — and only after the status above read it clean.
