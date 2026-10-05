@@ -117,6 +117,88 @@ export function useConversationPullRequests(workspaceIds: readonly string[]): Co
   return byWorkspace
 }
 
+/** Workspace → agent → the pull requests that agent's conversation opened. */
+export type PullRequestsByConversation = Readonly<Record<string, ConversationPullRequests>>
+
+const NO_CONVERSATIONS: PullRequestsByConversation = {}
+
+/**
+ * The pull requests each of these CONVERSATIONS opened (a workspace and one
+ * agent in it), for the sidebar's chat lines: a chat line wears its own
+ * conversation's pull requests, not every one its workspace holds. The record
+ * files a pull request under the conversation whose agent opened it (owner
+ * ruling 2026-10-04), so this asks by conversation, as the open chat's strip
+ * does. Filed by workspace, and a workspace's map keeps its identity while
+ * its lists draw the same, so a memoized row re-renders only for its own.
+ */
+export function usePullRequestsByConversation(
+  conversations: readonly { workspaceId: string; agentId: string }[],
+): PullRequestsByConversation {
+  const [byWorkspace, setByWorkspace] = useState<PullRequestsByConversation>(NO_CONVERSATIONS)
+  const key = useMemo(
+    () =>
+      conversations
+        .map((entry) => `${entry.workspaceId}\0${entry.agentId}`)
+        .sort()
+        .join('\n'),
+    [conversations],
+  )
+  const keysRef = useRef(conversations)
+  keysRef.current = conversations
+  const aliveRef = useRef(true)
+  const latestRef = useRef(0)
+  useEffect(() => {
+    aliveRef.current = true
+    return () => {
+      aliveRef.current = false
+    }
+  }, [])
+  const ask = useCallback(async (): Promise<void> => {
+    const asked = ++latestRef.current
+    const keys = keysRef.current
+    if (keys.length === 0) {
+      setByWorkspace((current) => (current === NO_CONVERSATIONS ? current : NO_CONVERSATIONS))
+      return
+    }
+    const client = await pullRequestClient()
+    if (!client) return
+    try {
+      const answer: Record<string, Record<string, BranchPullRequest[]>> = {}
+      for (let start = 0; start < keys.length; start += STUDIO_PULL_REQUESTS_MAX_IDS) {
+        const page = await client.request('pullRequests.list', {
+          conversations: keys
+            .slice(start, start + STUDIO_PULL_REQUESTS_MAX_IDS)
+            .map(({ workspaceId, agentId }) => ({ workspaceId, agentId })),
+        })
+        for (const entry of page.conversations) {
+          ;(answer[entry.workspaceId] ??= {})[entry.agentId] = entry.pullRequests.map(fromWire)
+        }
+      }
+      if (!aliveRef.current || asked !== latestRef.current) return
+      setByWorkspace((current) => {
+        const next: Record<string, ConversationPullRequests> = {}
+        let changed = Object.keys(current).length !== Object.keys(answer).length
+        for (const [workspaceId, lists] of Object.entries(answer)) {
+          const previous = current[workspaceId]
+          if (previous && sameLists(previous, lists)) next[workspaceId] = previous
+          else {
+            next[workspaceId] = lists
+            changed = true
+          }
+        }
+        return changed ? next : current
+      })
+    } catch {
+      // A read that reached nobody leaves what is on screen alone.
+    }
+  }, [])
+  useEffect(() => {
+    void ask()
+  }, [ask, key])
+  useAskWhenPullRequestsMove(ask)
+  return byWorkspace
+}
+
 /**
  * The pull requests ONE conversation opened, newest first: what the open
  * chat's composer strip shows (owner ruling 2026-10-04). The same record and
