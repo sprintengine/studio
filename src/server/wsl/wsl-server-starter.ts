@@ -1,3 +1,5 @@
+import { StringDecoder } from 'node:string_decoder'
+
 import type { HelperProcess } from '../../main/hosts/wsl-helper-client'
 import { classifyWslFailure } from '../../main/hosts/wsl-helper-client'
 import { decodeWslOutput } from '../../main/hosts/wsl-distro'
@@ -107,8 +109,11 @@ class Attempt {
   exit: { code: number | null; signal: NodeJS.Signals | null } | null = null
   constructor(readonly process: HelperProcess) {
     let buffer = ''
+    // Decoded across chunk edges: a home or a folder named in a non-ASCII
+    // script can split between two reads, and the path built from it with it.
+    const decoder = new StringDecoder('utf8')
     process.stdout.on('data', (chunk: Buffer) => {
-      const text = chunk.toString('utf8')
+      const text = decoder.write(chunk)
       if (this.stdoutText.length < 64 * 1024) this.stdoutText += text
       buffer += text
       let newline = buffer.indexOf('\n')
