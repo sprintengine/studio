@@ -52,12 +52,14 @@ export function isSettledWorkspace(workspace: Pick<Workspace, 'settledAt'>): boo
  * a working or blocked agent, the unseen finished mark — live with the
  * caller, which knows them; this reads only the record and the clock.
  *
+ * Only a row the person switched Auto-settle on for from its menu
+ * (`autoSettleEnabled`) is a candidate at all; off is the default.
+ *
  * Exempt for good, whatever the clock says: a row already resting, a row with
  * a hand decision on it (`settledOverride`), a starred row (the star is the
  * person saying "keep this in front of me"), a row born on a paired machine
- * (the Remote band has its own model), the rail-hidden hosts, a row whose
- * module reports a run still in flight, and a row the person took out of
- * auto-settling from its menu (`autoSettleDisabled`).
+ * (the Remote band has its own model), the rail-hidden hosts, and a row whose
+ * module reports a run still in flight.
  *
  * Two ways in: three quiet days, or its pull requests landing
  * (`pullRequestsLanded`) when Settle on merge is on.
@@ -65,7 +67,7 @@ export function isSettledWorkspace(workspace: Pick<Workspace, 'settledAt'>): boo
 export function shouldAutoSettleWorkspace(workspace: Workspace, now: number, context: AutoSettleContext = {}): boolean {
   if (isSettledWorkspace(workspace)) return false
   if (workspace.settledOverride != null) return false
-  if (workspace.autoSettleDisabled === true) return false
+  if (workspace.autoSettleEnabled !== true) return false
   // A running snooze is a hand decision about this row's near future, and the
   // sweep never overrules one of those. Settling a row mid-snooze would strand
   // the person's "ask me again in an hour" behind an Un-settle they never asked

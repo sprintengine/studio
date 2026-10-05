@@ -2739,9 +2739,8 @@ function WorkspaceSidebar({
               })
               return
             }
-            if (action === 'auto-settle:on' || action === 'auto-settle:off') {
-              setWorkspaceAutoSettle(workspace.id, action === 'auto-settle:on')
-              setContextMenu(null)
+            if (action === 'toggle-auto-settle') {
+              setWorkspaceAutoSettle(workspace.id, workspace.autoSettleEnabled !== true)
               return
             }
             if (action === 'toggle-settle') {

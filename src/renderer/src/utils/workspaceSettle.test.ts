@@ -17,7 +17,8 @@ test('workspaceSettle', async () => {
   const DAY = 24 * 60 * 60 * 1000
 
   // Only the fields the rules read; cast at the test boundary keeps the
-  // fixtures readable without an `any`.
+  // fixtures readable without an `any`. Auto-settle is switched on here so the
+  // rules below are exercised; its default, off, is asserted on its own.
   function ws(fields: Partial<Workspace>): Workspace {
     return {
       id: 'w',
@@ -25,6 +26,7 @@ test('workspaceSettle', async () => {
       mode: 'standard',
       createdAt: NOW - 10 * DAY,
       lastTerminalActivityAt: null,
+      autoSettleEnabled: true,
       ...fields,
     } as unknown as Workspace
   }
@@ -47,6 +49,11 @@ test('workspaceSettle', async () => {
     NOW - DAY,
     'a turn that ended after the last keystroke counts as activity',
   )
+
+  // Auto-settle is opt-in per chat: a row nobody switched it on for never
+  // settles by itself, however long it has been quiet.
+  assert.equal(shouldAutoSettleWorkspace(ws({ autoSettleEnabled: undefined }), NOW), false, 'off by default')
+  assert.equal(shouldAutoSettleWorkspace(ws({ autoSettleEnabled: null }), NOW), false, 'a cleared switch is off')
 
   // The 3-day idle rule, measured from last activity.
   assert.equal(shouldAutoSettleWorkspace(ws({}), NOW), true, 'idle 10 days settles')
@@ -246,11 +253,11 @@ test('workspaceSettle', async () => {
   assert.equal(onMerge(recent(), [pr('merged', NOW - 60_000)], false), 'none', 'the setting off, merges settle nothing')
   assert.equal(onMerge(recent(), []), 'none', 'no pull requests, nothing landed')
   assert.equal(
-    onMerge(recent({ autoSettleDisabled: true }), [pr('merged', NOW - 60_000)]),
+    onMerge(recent({ autoSettleEnabled: null }), [pr('merged', NOW - 60_000)]),
     'none',
     'auto-settle off for the chat holds it against a merge',
   )
-  assert.equal(decide(ws({ autoSettleDisabled: true })), 'none', 'and against three quiet days')
+  assert.equal(decide(ws({ autoSettleEnabled: null })), 'none', 'and against three quiet days')
 
   // The two transitions as field patches. A rest decision carries the input
   // clock so main is never behind the decision; a wake clears the stamp and

@@ -992,14 +992,14 @@ export function createWorkspacesSlice(
       if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
     },
 
-    // The row menu's Auto-settle choice. Settles and wakes nothing by itself:
+    // The row menu's Auto-settle switch. Settles and wakes nothing by itself:
     // the sweep reads it on its next tick.
     setWorkspaceAutoSettle: (id, enabled) => {
-      const patch: WorkspaceFieldsPatch = { autoSettleDisabled: enabled ? null : true }
+      const patch: WorkspaceFieldsPatch = { autoSettleEnabled: enabled ? true : null }
       let changed = false
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
-        if (!ws || (ws.autoSettleDisabled === true) === !enabled) return
+        if (!ws || (ws.autoSettleEnabled === true) === enabled) return
         Object.assign(ws, patch)
         changed = true
       })
@@ -1033,7 +1033,7 @@ export function createWorkspacesSlice(
     },
 
     // The rest sweep (settled-chats, 2026-09-07), run by the sidebar on mount
-    // and on its 30 s tick: a quiet row settles after three idle days, a
+    // and on its 30 s tick: a quiet row with Auto-settle on settles after three idle days, a
     // resting row that is working again wakes. The sidebar passes what only
     // it knows — `busyIds`, the rows whose agent is working, and `heldIds`,
     // the rows that want the person (blocked on a prompt, or wearing the

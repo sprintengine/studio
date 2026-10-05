@@ -289,8 +289,8 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
         if (event.payload.patch.settledOverride !== undefined) {
           stamp(event.payload.workspaceId, 'settledOverride', event.payload.editedAt)
         }
-        if (event.payload.patch.autoSettleDisabled !== undefined) {
-          stamp(event.payload.workspaceId, 'autoSettleDisabled', event.payload.editedAt)
+        if (event.payload.patch.autoSettleEnabled !== undefined) {
+          stamp(event.payload.workspaceId, 'autoSettleEnabled', event.payload.editedAt)
         }
         break
       default:
@@ -739,8 +739,8 @@ function stampedFieldsForCommand(command: WorkspaceSyncCommand): [WorkspaceRegis
       if (command.payload.patch.settledOverride !== undefined) {
         fields.push(['settledOverride', command.payload.editedAt])
       }
-      if (command.payload.patch.autoSettleDisabled !== undefined) {
-        fields.push(['autoSettleDisabled', command.payload.editedAt])
+      if (command.payload.patch.autoSettleEnabled !== undefined) {
+        fields.push(['autoSettleEnabled', command.payload.editedAt])
       }
       if (command.payload.patch.snoozedUntil !== undefined) fields.push(['snoozedUntil', command.payload.editedAt])
       return fields

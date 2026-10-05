@@ -135,7 +135,7 @@ const RENDERED_FIELD_CHANGES: { [K in keyof Workspace]?: Workspace[K] } = {
   lastTurnEndedAt: 9_000,
   settledAt: 9_000,
   settledOverride: 'active',
-  autoSettleDisabled: true,
+  autoSettleEnabled: true,
   snoozedUntil: 9_000,
   paneState: {} as Workspace['paneState'],
 }

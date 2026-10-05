@@ -151,7 +151,7 @@ export { PointerPopover } from './PointerPopover'
 export { Tabs, TabPanel, TabsScroller } from './Tabs'
 export type { TabItem } from './Tabs'
 export { TaskCard } from './TaskCard'
-export { Switch } from './Switch'
+export { Switch, SwitchGlyph } from './Switch'
 export { Pager } from './Pager'
 export { SegmentedControl } from './SegmentedControl'
 // The ONE Field. `ui/Modal` used to export a second component under this name —

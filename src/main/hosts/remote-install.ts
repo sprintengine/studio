@@ -69,7 +69,11 @@ export function posixInstallFunctions(): string[] {
     '  seen=0',
     '  for c in /proc/[0-9]*/cmdline; do',
     // No `/proc` (macOS): the glob stays as written, and `ps` is asked instead.
-    '    [ -e "$c" ] || break',
+    // Told by the pattern itself, not by the entry being missing: a process
+    // that exits between the glob and the read takes its entry with it, and
+    // stopping there read every process after it as not running — a busy
+    // host pruned a tree still in use. A vanished entry just fails the grep.
+    `    [ "$c" = '/proc/[0-9]*/cmdline' ] && break`,
     '    seen=1',
     '    grep -qF -- "$1/" "$c" 2>/dev/null && return 0',
     '  done',

@@ -2101,6 +2101,11 @@ samp,
   translate: 18px 0;
 }
 
+/* `SwitchGlyph`: the same picture inside a menu row that carries the state. */
+.switch-track[data-checked="true"] .switch-thumb {
+  translate: 18px 0;
+}
+
 /* One detail, not a spring: under the press the thumb stretches 3px, anchored
  * at the end it is resting against, and settles back on release. */
 @media (prefers-reduced-motion: no-preference) {
