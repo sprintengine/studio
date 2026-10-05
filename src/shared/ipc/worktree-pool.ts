@@ -121,6 +121,15 @@ export type WorktreePoolSnapshot = {
   slots: WorktreePoolSlotView[]
 }
 
+/**
+ * An agent as a pool lease names it: its chat and its id together. Agent ids
+ * are unique only within a chat (older chats each have an `agent-1`), so a
+ * bare id says nothing about whose lease a slot is.
+ */
+export function agentLeaseKey(workspaceId: string, agentId: string): string {
+  return `${workspaceId}\u0000${agentId}`
+}
+
 export type WorktreePoolHeldAction = 'commit' | 'stash' | 'discard' | 'keep'
 
 export type WorktreePoolActionInput =

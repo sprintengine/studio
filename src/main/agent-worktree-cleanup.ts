@@ -363,6 +363,7 @@ export async function cleanupAgentWorktrees(
       repoRoot: root,
       protectedPaths: [...input.protectedPaths, ...((await deps.livePaths?.()) ?? [])],
       agentIds: input.agentIds ? new Set(input.agentIds) : null,
+      agentKeys: input.agentKeys ? new Set(input.agentKeys) : null,
       dryRun,
     })
     for (const entry of swept) record(poolEntry(entry))

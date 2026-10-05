@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { rm } from 'fs/promises'
 import { basename, dirname, isAbsolute, resolve } from 'path'
 import {
+  agentLeaseKey,
   type WorktreePoolActionInput,
   type WorktreePoolActionResult,
   type WorktreePoolHeldReason,
@@ -29,6 +30,7 @@ import {
   type InstanceLockDeps,
   type PoolRecord,
   type PoolStore,
+  type SlotLease,
   type SlotRecord,
 } from './pool-store'
 import {
@@ -225,6 +227,13 @@ export type WorktreePoolReturnInput = {
    * is kept. Left out or null: unknown, and every such slot is kept.
    */
   agentIds?: ReadonlySet<string> | null
+  /**
+   * The same agents with their chats (`agentLeaseKey`), which a lease that
+   * records its agent's chat is matched against: a bare id is unique only
+   * within a chat, so another chat's `agent-1` must not keep this one's slot.
+   * Left out or null: unknown, and every such slot is kept.
+   */
+  agentKeys?: ReadonlySet<string> | null
   dryRun?: boolean
 }
 
@@ -1178,6 +1187,16 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     return 'returned'
   }
 
+  /** Whether the agent that leased a slot through MCP is still in the app's records. */
+  function agentStillHeld(lease: SlotLease, input: WorktreePoolReturnInput): boolean {
+    if (lease.agentId === null) return false
+    if (lease.workspaceId !== null) {
+      return input.agentKeys == null || input.agentKeys.has(agentLeaseKey(lease.workspaceId, lease.agentId))
+    }
+    // A lease recorded before leases named their chat: the id alone.
+    return input.agentIds == null || input.agentIds.has(lease.agentId)
+  }
+
   /**
    * Return every leased slot of a repository that nothing uses any more. Asked
    * by the agent worktree cleanup, which already knows every path the app's
@@ -1208,8 +1227,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       const base = { path: slot.path, branch: lease.branch }
       const slotSpellings = await pathSpellings(slot.path)
       const inUse =
-        protectedSpellings.some((spellings) => insideAny(spellings, slotSpellings)) ||
-        (lease.agentId !== null && (input.agentIds == null || input.agentIds.has(lease.agentId)))
+        protectedSpellings.some((spellings) => insideAny(spellings, slotSpellings)) || agentStillHeld(lease, input)
       if (inUse) {
         if (!lease.claimed && !input.dryRun) {
           await withPool(pool, async () => {

@@ -11,6 +11,7 @@ import { setAgentWorktreeLockProfile } from '../agent-worktree-lock'
 import { createGitWorktree, restoreGitWorktree } from '../git'
 import { installWorktreePool } from './active-pool'
 import { acquireInstanceLock, createPoolStore, POOL_RECORD_VERSION, poolIdFor, type PoolRecord } from './pool-store'
+import { agentLeaseKey } from '../../shared/ipc/worktree-pool'
 import { parseSlotStatus } from './slot-git'
 import { createWorktreeInventory } from './worktree-inventory'
 import { createWorktreePoolService } from './worktree-pool-service'
@@ -451,6 +452,34 @@ test('a slot an agent leased for itself is kept while that agent exists, whereve
   swept = await harness.service.returnUnused({ repoRoot: repo, protectedPaths: [], agentIds: null })
   assert.equal(swept[0]?.verdict, 'in-use', 'agents unknown: kept')
   swept = await harness.service.returnUnused({ repoRoot: repo, protectedPaths: [], agentIds: new Set() })
+  assert.equal(swept[0]?.verdict, 'returned')
+})
+
+test('a slot an agent leased is kept by that agent in its own chat, not by a namesake in another', async () => {
+  const harness = makeService()
+  await harness.service.lease({
+    repoRoot: repo,
+    name: 'mcp',
+    owner: 'agent-1',
+    agentId: 'agent-1',
+    workspaceId: 'ws-1',
+  })
+  harness.clock.offset += 2 * HOUR
+  const ids = new Set(['agent-1'])
+  let swept = await harness.service.returnUnused({
+    repoRoot: repo,
+    protectedPaths: [],
+    agentIds: ids,
+    agentKeys: new Set([agentLeaseKey('ws-1', 'agent-1')]),
+  })
+  assert.equal(swept[0]?.verdict, 'in-use')
+  // Its chat is gone; another chat still has an `agent-1`.
+  swept = await harness.service.returnUnused({
+    repoRoot: repo,
+    protectedPaths: [],
+    agentIds: ids,
+    agentKeys: new Set([agentLeaseKey('ws-2', 'agent-1')]),
+  })
   assert.equal(swept[0]?.verdict, 'returned')
 })
 

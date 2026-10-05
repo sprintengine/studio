@@ -406,6 +406,12 @@ export type AgentWorktreeCleanupInput = {
    */
   agentIds?: string[]
   /**
+   * The same agents, each with its chat (`agentLeaseKey`): what a lease that
+   * records its agent's chat is matched against, since an agent id is unique
+   * only within its chat. Left out: unknown, and every such slot is kept.
+   */
+  agentKeys?: string[]
+  /**
    * Branches the app's records still name (a chat's `worktree.branch`, a
    * worktree entry's): never deleted, merged or not, because a chat whose
    * worktree was given back is restored from its branch. Left out: unknown,
