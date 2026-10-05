@@ -259,3 +259,32 @@ test('Free up space keeps what the person unticked when the page reads the workt
   expect(calls.actions).toEqual([{ kind: 'evict', repoRoot: REPO, slotId: 'pool-04' }])
   expect(calls.removed).toEqual([])
 })
+
+test('Prune says what git did: a missing worktree locked by hand is kept, and the page says so', async () => {
+  const gone = {
+    ...inventory.projects[0].worktrees[0],
+    path: '/code/gone-by-hand',
+    branch: 'feat/gone',
+    missing: true,
+    size: null,
+  }
+  Object.assign((window as unknown as { api: object }).api, {
+    getWorktreeInventory: async () => ({
+      ...inventory,
+      projects: [{ ...inventory.projects[0], worktrees: [...inventory.projects[0].worktrees, gone] }],
+    }),
+    listGitWorktrees: async () => ({
+      ok: true,
+      data: {
+        repoRoot: REPO,
+        updatedAt: now,
+        worktrees: [{ path: '/code/gone-by-hand', locked: true, lockedReason: 'on a USB drive' }],
+      },
+      message: null,
+    }),
+  })
+  await render()
+  await click(button(rowNamed('gone-by-hand')!, 'Prune'))
+  expect(host.textContent).toContain('Git kept gone-by-hand: it is locked (on a USB drive)')
+  expect(host.textContent).not.toContain('Git forgot')
+})
