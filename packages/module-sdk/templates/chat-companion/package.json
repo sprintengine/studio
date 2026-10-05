@@ -16,7 +16,7 @@
     "validate": "node scripts/validate.mjs",
     "check": "npm run typecheck && npm run build && npm test && npm run validate",
     "dev:install": "npm run build && node scripts/dev-install.mjs",
-    "keygen": "sprintengine-module keygen --out \"$HOME/.sprintengine/keys/{{id}}.key\""
+    "keygen": "sprintengine-module keygen --out \"~/.sprintengine/keys/{{id}}.key\""
   },
   "devDependencies": {
     "@sprintengine/module-sdk": "^{{sdkVersion}}",

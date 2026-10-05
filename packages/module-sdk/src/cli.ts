@@ -20,6 +20,7 @@
 // code; the app trusts a module by its publisher key only when those match.
 
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
@@ -64,8 +65,9 @@ works on it. --id defaults to the folder name, --name to the id title-cased;
 with an unknown --template to list the templates.
 
 keygen writes an ed25519 private key (PKCS#8 PEM) to --out
-(default module-signing.key). Keep it out of the module directory and out of
-version control; sign derives the public key from it.
+(default module-signing.key); a leading ~ is your home folder, on Windows too.
+Keep it out of the module directory and out of version control; sign derives
+the public key from it.
 
 pack validates <module-dir>/manifest.json and copies the module into --out
 (default packed/<id>) as an installable module directory. node_modules, .git,
@@ -269,12 +271,19 @@ function publishPackedDirectory(tempDir: string, outDir: string): void {
   if (previousDir) rmSync(previousDir, { recursive: true, force: true })
 }
 
+// A leading `~` is the home folder. The templates' `keygen` script quotes it,
+// so no shell expands it: npm runs scripts in cmd.exe on Windows, which
+// expands neither `~` nor `$HOME`.
+function expandHome(path: string): string {
+  return path === '~' || path.startsWith('~/') || path.startsWith('~\\') ? join(homedir(), path.slice(1)) : path
+}
+
 function keygen(args: string[]): void {
   const { values } = parseArgs({
     args,
     options: { out: { type: 'string' }, force: { type: 'boolean' } },
   })
-  const outPath = resolve(values.out ?? 'module-signing.key')
+  const outPath = resolve(expandHome(values.out ?? 'module-signing.key'))
   if (existsSync(outPath) && !values.force) {
     fail(`${outPath} already exists. Pass --force to overwrite it.`)
   }

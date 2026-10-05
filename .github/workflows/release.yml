@@ -235,6 +235,20 @@ jobs:
       - name: Vendor the bundled npm runtime
         run: npm run runtimes:fetch -- ${{ matrix.runtimeArgs }}
 
+      # The module SDK tarball "Build your own extension" copies into a new
+      # project (resources/module-sdk, gitignored like resources/runtime): a
+      # missing one packages green and scaffolds projects that cannot install.
+      # Guarded like the icon step: a promotion may build a commit from before
+      # the script existed.
+      - name: Pack the module SDK the app ships
+        shell: bash
+        run: |
+          if [ -f scripts/pack-module-sdk.mjs ]; then
+            npm run sdk:bundle
+          else
+            echo "This commit predates the bundled module SDK; packaging without it."
+          fi
+
       # Spotlight indexes each DMG the moment dmgbuild mounts it, and holds the
       # volume open, so the detach fails with `hdiutil: couldn't eject "diskN" -
       # Resource busy` -- after signing and notarisation have already passed.

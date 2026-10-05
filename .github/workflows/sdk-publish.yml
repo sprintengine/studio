@@ -10,8 +10,10 @@ name: Publish module SDK
 # the ones the SDK declares. A prerelease goes out under its own dist-tag
 # (`1.0.0-beta.0` → `beta`), never `latest`.
 #
-# The app release does not depend on this: scaffolded projects depend on the
-# npm release, and the app ships the templates and skill itself.
+# The app release does not depend on this: the app ships the templates, the
+# skill and the SDK tarball itself, and a project "Build your own extension"
+# scaffolds depends on that tarball. The npm release is for projects made on
+# the command line with `sprintengine-module init`.
 on:
   push:
     tags:

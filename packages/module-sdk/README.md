@@ -53,7 +53,10 @@ opens New chat in extension mode. You name the extension, pick the project it
 goes in and describe it (or start from one of the ideas, one per template);
 Studio scaffolds `<project>/<name>` from the `blank` template and opens a chat
 on it with the agent you pick and the extension-builder skill, which adds the
-surfaces your description needs.
+surfaces your description needs. The app ships this SDK beside itself, so such a
+project depends on its own copy, `vendor/sprintengine-module-sdk-<version>.tgz`,
+by `file:`: `npm install` needs no registry, and the project builds against the
+SDK of the Studio that made it. Commit `vendor/` with the project.
 
 ### The extension-builder skill
 
