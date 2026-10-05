@@ -42,6 +42,7 @@ import {
   type DroppedFiles,
 } from '../../../utils/imageFileTransfer'
 import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
+import { ComposerField, type ComposerFieldHandle, type ComposerKeyEvent } from '../../panels/agentChat/ComposerField'
 import { basename } from '../../../utils/paths'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
@@ -49,7 +50,7 @@ import {
   ChipButton,
   CloseIconButton,
   COMPOSER_SURFACE_CLASS,
-  FOCUS_RING_WITHIN_TEXTAREA_CLASS,
+  FOCUS_RING_WITHIN_EDITOR_CLASS,
   HiddenFileInput,
   MachineGlyph,
   MENU_LIST_CLASS,
@@ -62,7 +63,6 @@ import {
   Popover,
   SendButton,
   SendGlyph,
-  Textarea,
   StarGlyph,
   Tooltip,
   useCliPermissionMode,
@@ -949,7 +949,7 @@ export default function NewAgentPanel({
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
   const [seed] = React.useState(() => newSuggestionSeed())
-  const promptRef = React.useRef<HTMLTextAreaElement>(null)
+  const promptRef = React.useRef<ComposerFieldHandle>(null)
 
   // ── Images pasted or dropped into the prompt box ──────────────────────────
   // Each image is held as a file on this computer. A chat's first message
@@ -1520,7 +1520,7 @@ export default function NewAgentPanel({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const onPromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const onPromptKeyDown = (event: ComposerKeyEvent) => {
     // The Enter that commits an input method's composition belongs to the
     // input method: it picks the characters, it does not send them half-typed.
     if (event.nativeEvent.isComposing) return
@@ -1752,13 +1752,13 @@ export default function NewAgentPanel({
           <ScheduleFailureTray failure={lastRunFailure} onDismiss={() => setLastRunFailure(null)} />
         ) : null}
         <div
-          // The box owns the visible border while the textarea inside it is the
+          // The box owns the visible border while the field inside it is the
           // tab stop, so the product's one focus ring lands on the box keyed to
-          // the textarea's own focus (`FOCUS_RING_WITHIN_TEXTAREA_CLASS`) — not
+          // the field's own focus (`FOCUS_RING_WITHIN_EDITOR_CLASS`) — not
           // an accent border swap on `focus-within`, which lit the box for the
           // row's buttons too and was a second focus idiom. Positioned, so it
           // paints over the strip tucked under its lower edge.
-          className={`relative ${terminalUnavailable ? 'hidden' : ''} ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+          className={`relative ${terminalUnavailable ? 'hidden' : ''} ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_EDITOR_CLASS} ${
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           data-new-chat-composer="true"
@@ -1825,19 +1825,17 @@ export default function NewAgentPanel({
           />
 
           <div className="px-5 pb-1 pt-4">
-            {/* Grows with its content (field-sizing: content) from the
-                three-row floor to a ceiling, then scrolls — a box that showed
-                two lines of a six-line prompt was hiding what the person was
-                about to send. `composer` is the kit's hosted multiline field:
-                no box of its own, because `COMPOSER_SURFACE_CLASS` around it
-                draws the border, the ground and the ring. */}
-            <Textarea
+            {/* Grows with its content from the three-row floor to a ceiling,
+                then scrolls — a box that showed two lines of a six-line prompt
+                was hiding what the person was about to send. The chat
+                composer's field, drawing the prompt's markdown in place, with
+                no box of its own: `COMPOSER_SURFACE_CLASS` around it draws the
+                border, the ground and the ring. */}
+            <ComposerField
               ref={promptRef}
-              variant="composer"
-              resize="none"
               value={prompt}
-              rows={3}
-              onPaste={(event) => {
+              leavesDrop={dataTransferHasDroppableFiles}
+              onPaste={(event, field) => {
                 // A pasted screenshot only exists as a clipboard item; a text
                 // paste reports no image and falls through to the default —
                 // unless the text is only paths to images outside the project,
@@ -1849,22 +1847,21 @@ export default function NewAgentPanel({
                   void attachDroppedFiles(files)
                   return
                 }
-                const text = event.clipboardData.getData('text/plain')
+                const text = event.clipboardData?.getData('text/plain') ?? ''
                 const paths = pastedImagePaths(text, !remoteTarget && workspaceRoot ? [workspaceRoot] : [])
                 if (!paths) return
                 event.preventDefault()
-                const field = event.currentTarget
                 void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
               }}
-              onChange={(event) => {
-                setPrompt(event.currentTarget.value)
+              onChange={(value) => {
+                setPrompt(value)
                 setMentionDismissed(false)
               }}
               onKeyDown={onPromptKeyDown}
               placeholder={placeholder}
               disabled={isTerminalLaunch}
-              aria-label="What this agent should do"
-              className="max-h-[280px] min-h-[66px] w-full overflow-y-auto font-mono text-body"
+              contentAttributes={{ 'aria-label': 'What this agent should do' }}
+              className="max-h-[280px] min-h-[66px] w-full font-mono text-body"
             />
           </div>
 
