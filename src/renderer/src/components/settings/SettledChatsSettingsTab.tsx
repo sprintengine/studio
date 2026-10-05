@@ -52,7 +52,7 @@ export function SettledChatsSettingsTab({
       <SettingCard className="mb-5">
         <SettingToggle
           label="Settle when its pull requests merge"
-          description="Once every pull request a chat has is merged or closed, and at least one merged, the chat settles. Not if you wrote to it after the merge, and never while an agent in it is working. Turn a chat's auto-settle off from its menu. A settled chat's worktree is removed once its work is merged and clean, and checked out again from its branch when you come back."
+          description="For chats with Auto-settle switched on from their menu: once every pull request is merged or closed, and at least one merged, the chat settles. Not if you wrote to it after the merge, and never while an agent in it is working. A settled chat's worktree is removed once its work is merged and clean, and checked out again from its branch when you come back."
           enabled={settleOnMerge}
           onChange={setSettleOnMerge}
         />
@@ -61,7 +61,7 @@ export function SettledChatsSettingsTab({
         <EmptyState
           density="list"
           title="No settled chats."
-          body="A chat settles after three days without activity, when its pull requests merge, or when you settle it from its menu."
+          body="A chat settles when you settle it from its menu. Switch on Auto-settle there and it also settles after three days without activity, or when its pull requests merge."
         />
       ) : (
         <SettingCard as="ul" ariaLabel="Settled chats">

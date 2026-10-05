@@ -1178,6 +1178,12 @@ test('workspacesSlice', async () => {
     assert.equal(activeIds().has(settleId), false, 'the fixture row is not the active row of any window')
     const bornAt = rowOf(settleId).createdAt
 
+    // Auto-settle is off until the person switches it on from the row menu.
+    reconcile(bornAt + 30 * DAY)
+    assert.equal(rowOf(settleId).settledAt ?? null, null, 'a chat nobody switched Auto-settle on for never settles')
+    useWorkspaceStore.getState().setWorkspaceAutoSettle(settleId, true)
+    assert.equal(rowOf(settleId).autoSettleEnabled, true, 'the switch records the opt-in')
+
     // Too recent: the sweep leaves it.
     reconcile(bornAt + DAY)
     assert.equal(rowOf(settleId).settledAt ?? null, null, 'a day-old row does not settle')
@@ -1261,6 +1267,7 @@ test('workspacesSlice', async () => {
     const activeId = useWorkspaceStore.getState().activeWorkspaceId
     assert.ok(activeId, 'the fixture store has an active row')
     const activeBornAt = rowOf(activeId!).createdAt
+    useWorkspaceStore.getState().setWorkspaceAutoSettle(activeId!, true)
     reconcile(activeBornAt + 30 * DAY)
     assert.equal(rowOf(activeId!).settledAt ?? null, null, 'the active row is exempt from the sweep')
   }

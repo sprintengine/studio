@@ -1,7 +1,7 @@
 // The sidebar's right-click menus for a workspace row and a folder header.
 
 import { type Workspace, type HighlightColor } from '../../../types/workspace'
-import { CheckIcon, resolveEnabledWorkspaceType } from '../../AppIcons'
+import { resolveEnabledWorkspaceType } from '../../AppIcons'
 import type { WorkspaceTypeRowAction } from '../../../modules/renderer-host'
 import {
   type SnoozePresetId,
@@ -20,6 +20,7 @@ import {
   MenuFlyoutItem,
   MenuSwatchRow,
   ProjectColorSwatchRow,
+  SwitchGlyph,
 } from '../../ui'
 import { type ProjectColorSetting, type ProjectColor } from '../../../utils/projectColor'
 
@@ -56,8 +57,7 @@ export type ContextMenuAction =
   | 'close'
   | 'toggle-star'
   | 'toggle-settle'
-  | 'auto-settle:on'
-  | 'auto-settle:off'
+  | 'toggle-auto-settle'
   // Snooze presets dispatch as `snooze:<presetId>` so the union stays closed
   // while the list of wake times remains data: a new wake time is a row in the
   // preset table, not a new member of this union.
@@ -105,7 +105,7 @@ export function WorkspaceContextMenu({
   const settled = isSettledWorkspace(workspace)
   const snoozed = isSnoozedWorkspace(workspace, now)
   const canSnooze = canSnoozeWorkspace(workspace)
-  const autoSettle = workspace.autoSettleDisabled !== true
+  const autoSettle = workspace.autoSettleEnabled === true
   const currentColor = workspace.highlight?.color ?? null
 
   return (
@@ -175,31 +175,16 @@ export function WorkspaceContextMenu({
         </MenuFlyoutItem>
       )}
       {/* Whether this chat settles by itself: after three quiet days, or when
-          its pull requests land. A setting rather than a verb, so a submenu
-          with the current choice checked. */}
+          its pull requests land. Off unless switched on here. A standing
+          setting, so a switch row that stays open to show it flip, like Star. */}
       {workspace.remoteOrigin ? null : (
-        <MenuFlyoutItem label="Auto-settle" ariaLabel="Auto-settle">
-          {[
-            { on: true, label: 'Enabled' },
-            { on: false, label: 'Disabled' },
-          ].map((option) => (
-            <MenuItem
-              key={option.label}
-              checked={autoSettle === option.on}
-              selection="one-of"
-              icon={
-                autoSettle === option.on ? (
-                  <CheckIcon className="icon-sm" />
-                ) : (
-                  <span className="inline-block icon-sm" aria-hidden="true" />
-                )
-              }
-              onClick={() => onSelect(option.on ? 'auto-settle:on' : 'auto-settle:off')}
-            >
-              {option.label}
-            </MenuItem>
-          ))}
-        </MenuFlyoutItem>
+        <MenuItem
+          checked={autoSettle}
+          trailing={<SwitchGlyph checked={autoSettle} />}
+          onClick={() => onSelect('toggle-auto-settle')}
+        >
+          Auto-settle
+        </MenuItem>
       )}
       <MenuSwatchRow
         label="Highlight color"
