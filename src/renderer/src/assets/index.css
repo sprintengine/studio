@@ -1294,7 +1294,9 @@ code,
 kbd,
 pre,
 samp,
-.font-mono {
+.font-mono,
+.composer-markdown .cm-md-code,
+.composer-markdown .cm-line.cm-md-fence {
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
   font-feature-settings: 'tnum', 'zero';
 }
@@ -4046,6 +4048,108 @@ body:has([data-selection-pane]:focus-within)
 .markdown-rendered[data-tone="muted"] {
   --markdown-ink: var(--text-muted);
   --markdown-ink-strong: var(--text-default);
+}
+
+/* ── The composer's markdown, drawn in place ────────────────────────────────
+ * agentChat/markdownLivePreview.ts names these on the composer's editor
+ * (agentChat/ComposerField.tsx). A rendered line takes the transcript's
+ * compact chat scale — the size the composer's own text is set at — so a draft
+ * reads the way it will once it is sent. Markup still on screen (the line the
+ * caret is on, a fence, a task box) steps back to the subtle ink, so the words
+ * it wraps keep the eye. */
+.composer-markdown .cm-md-syntax {
+  color: var(--text-subtle);
+}
+
+.composer-markdown .cm-md-heading {
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-strong);
+}
+
+/* Sized against the field's own text, not a ramp step: the field inherits its
+ * size from where it sits, and a step fixed in pixels can land under it. */
+.composer-markdown .cm-md-h1 {
+  font-size: 1.3em;
+}
+
+.composer-markdown .cm-md-h2 {
+  font-size: 1.15em;
+}
+
+.composer-markdown .cm-md-h3 {
+  font-size: 1.05em;
+}
+
+.composer-markdown .cm-md-strong {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.composer-markdown .cm-md-em {
+  font-style: italic;
+}
+
+.composer-markdown .cm-md-strike {
+  text-decoration: line-through;
+}
+
+.composer-markdown .cm-md-code {
+  border-radius: var(--radius-xs);
+  background: var(--bg-active);
+  padding: 0.05em 0.3em;
+  font-size: 0.9em;
+  color: var(--text-strong);
+}
+
+.composer-markdown .cm-md-link {
+  color: var(--accent-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.composer-markdown .cm-md-bullet,
+.composer-markdown .cm-md-list-number {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A block quote's rule is the line's own left edge, so it runs unbroken down
+ * the quote whether its markers are hidden or shown. `.cm-line` is in the
+ * selector to outrank the editor theme's line padding, which the editor
+ * injects after this sheet. */
+.composer-markdown .cm-line.cm-md-quote {
+  border-left: 2px solid var(--border-default);
+  padding-left: 0.75em;
+  color: var(--text-muted);
+}
+
+/* A code block is a band of lines on the raised ground: the first and last
+ * lines round its corners, so the band reads as one block. */
+.composer-markdown .cm-line.cm-md-fence {
+  background: var(--bg-surface-raised);
+  padding-inline: 0.75em;
+  font-size: 0.9em;
+  color: var(--text-default);
+}
+
+.composer-markdown .cm-line.cm-md-fence-first {
+  padding-top: 0.25em;
+  border-top-left-radius: var(--radius-sm);
+  border-top-right-radius: var(--radius-sm);
+}
+
+.composer-markdown .cm-line.cm-md-fence-last {
+  padding-bottom: 0.25em;
+  border-bottom-left-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+.composer-markdown .cm-md-rule {
+  display: inline-block;
+  width: 100%;
+  vertical-align: middle;
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* Conversation list rhythm: items a quarter-line apart and a nested list

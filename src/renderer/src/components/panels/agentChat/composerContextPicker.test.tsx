@@ -2,6 +2,7 @@ import { JSDOM } from 'jsdom'
 import { expect, test, vi } from 'vitest'
 import type { FileSearchEntry, FileSearchResult } from '../../../../../shared/ipc/filesystem'
 import { fileMentionCandidates } from './composerContextPicker'
+import type { ComposerKeyEvent } from './ComposerField'
 import { rememberFileVisit } from '../../../utils/recentFileVisits'
 import { installStudioLoopback } from '../../../../../../tests/studio-chat-loopback'
 
@@ -146,7 +147,7 @@ test('file search debounces, cancels obsolete work and rejects stale results', a
         nativeEvent: { isComposing: false },
         preventDefault: vi.fn(),
         stopPropagation: vi.fn(),
-      }) as unknown as React.KeyboardEvent<HTMLTextAreaElement>
+      }) as unknown as ComposerKeyEvent
     const select = vi.fn(() => true)
     const move = vi.fn(() => true)
     picker.pickerRef.current = { pickActive: select, moveSelection: move, matchCount: () => 1 }
@@ -257,7 +258,7 @@ async function mountCommandPicker() {
       nativeEvent: { isComposing: false },
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
-    } as unknown as React.KeyboardEvent<HTMLTextAreaElement>
+    } as unknown as ComposerKeyEvent
     let handled = false
     await act(async () => {
       handled = picker.handleKeyDown(event)

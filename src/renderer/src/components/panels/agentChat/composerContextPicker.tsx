@@ -18,8 +18,19 @@ import { AttachmentChip } from '../../ui/AttachmentChip'
 import { recentFileVisit, workspaceFileVisits } from '../../../utils/recentFileVisits'
 import { rankConversationCommands, SlashCommandMenu, type SlashCommandMenuStatus } from './slashCommandMenu'
 import { useConversationTransport } from './conversationTransport'
+import type { ComposerKeyEvent } from './ComposerField'
 
 type TriggerRange = ComposerTrigger['range']
+
+// What the field carries while it drives the command menu, as attributes on
+// the composer's editable element.
+type ComboboxAttributes = {
+  role?: 'combobox'
+  'aria-autocomplete'?: 'list'
+  'aria-expanded'?: boolean
+  'aria-controls'?: string
+  'aria-activedescendant'?: string
+}
 
 /** Only workspace-relative references leave the picker, including parent folders. */
 export function fileMentionCandidates(root: string, files: FileSearchEntry[], query: string): ConversationMentionRef[] {
@@ -246,7 +257,7 @@ export function useComposerContextPicker({
   const optionId = useCallback((index: number) => `${listId}-option-${index}`, [listId])
 
   const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    (event: ComposerKeyEvent): boolean => {
       if (!trigger || event.nativeEvent.isComposing) return false
       // A token under the caret is not a request to pick: "ping @alice" + Enter
       // sends, arrows move the caret and Tab moves focus unless the open picker
@@ -310,7 +321,7 @@ export function useComposerContextPicker({
   // menu is a listbox the field points into; the skill and file pickers keep
   // their own semantics.
   const commandMenuOpen = commandOpen && commandMenu !== null
-  const comboboxProps: React.TextareaHTMLAttributes<HTMLTextAreaElement> = commandMenu
+  const comboboxProps: ComboboxAttributes = commandMenu
     ? {
         role: 'combobox',
         'aria-autocomplete': 'list',

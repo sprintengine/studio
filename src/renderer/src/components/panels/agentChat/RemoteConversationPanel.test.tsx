@@ -109,6 +109,7 @@ async function mountRemote({
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+    MutationObserver: dom.window.MutationObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
   }
   Object.assign(globalThis, globals)
@@ -163,6 +164,7 @@ async function mountRemote({
   const { act, createElement } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const { default: RemoteConversationPanel } = await import('./RemoteConversationPanel')
+  const { EditorView } = await import('@codemirror/view')
   const host = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(host)
   const root = createRoot(host)
@@ -206,7 +208,10 @@ async function mountRemote({
     receive({ type: 'synchronized', seq: events.at(-1)!.seq!, generation: 'g' })
     receive(link)
   })
-  const composer = () => host.querySelector('textarea')!
+  // The composer is an editor: its editable element takes the keys, and the
+  // draft is the editor's document.
+  const composer = () => host.querySelector<HTMLElement>('.cm-content')!
+  const editor = () => EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!
   return {
     host,
     document: dom.window.document,
@@ -217,8 +222,12 @@ async function mountRemote({
     button: (label: string) =>
       Array.from(host.querySelectorAll('button')).find((item) => item.textContent?.trim() === label),
     type: (value: string) => {
-      Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(composer(), value)
-      composer().dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      const view = editor()
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: value },
+        selection: { anchor: value.length },
+        userEvent: 'input.type',
+      })
     },
     enter: () =>
       composer().dispatchEvent(
@@ -322,7 +331,7 @@ test('a pairing that may only follow sees the conversation with every action clo
   try {
     expect(chat.host.textContent).toContain('Let me run it.')
     expect(chat.host.textContent).toContain('may follow this conversation on mac-mini but not drive it')
-    expect(chat.composer().disabled).toBe(true)
+    expect(chat.composer().getAttribute('contenteditable')).toBe('false')
     expect(chat.button('Deny')?.disabled).toBe(true)
     expect(chat.button('Allow once')?.disabled).toBe(true)
     expect(chat.host.querySelector('[aria-label="Stop responding"]')).toBeNull()

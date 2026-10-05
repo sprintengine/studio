@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { composerField, typeIntoComposer } from '../../../../../../tests/composer-field'
 import { test } from 'vitest'
 
 test('NewAgentPanel launch paths', async () => {
@@ -21,6 +22,7 @@ test('NewAgentPanel launch paths', async () => {
   anyGlobal.HTMLElement = dom.window.HTMLElement
   anyGlobal.HTMLInputElement = dom.window.HTMLInputElement
   anyGlobal.HTMLTextAreaElement = dom.window.HTMLTextAreaElement
+  anyGlobal.MutationObserver = dom.window.MutationObserver
   anyGlobal.Node = dom.window.Node
   anyGlobal.MouseEvent = dom.window.MouseEvent
   anyGlobal.KeyboardEvent = dom.window.KeyboardEvent
@@ -337,10 +339,9 @@ test('NewAgentPanel launch paths', async () => {
     const sendOf = (view: Harness): HTMLElement | undefined =>
       [...view.container.querySelectorAll<HTMLElement>('[data-new-chat-composer] button')].pop()
     const typePrompt = async (view: Harness, text: string): Promise<void> => {
-      const field = view.container.querySelector('textarea')!
+      const field = composerField(view.container)
       await act(async () => {
-        Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, text)
-        field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        typeIntoComposer(field, text)
       })
     }
 
