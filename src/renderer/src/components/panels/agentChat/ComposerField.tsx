@@ -1,0 +1,300 @@
+import React, { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from 'react'
+import { history, historyKeymap, insertNewline, standardKeymap } from '@codemirror/commands'
+import {
+  deleteMarkupBackward,
+  insertNewlineContinueMarkup,
+  markdown,
+  markdownLanguage,
+} from '@codemirror/lang-markdown'
+import { Annotation, Compartment, EditorSelection, EditorState, Prec } from '@codemirror/state'
+import { EditorView, keymap, placeholder as placeholderExtension } from '@codemirror/view'
+import { markdownLivePreview } from './markdownLivePreview'
+
+/**
+ * The composer's field: a CodeMirror editor drawing its markdown in place (see
+ * ./markdownLivePreview), in place of the `<textarea>` it used to be. The draft
+ * is still one string — the editor changes how it is drawn and nothing else —
+ * and the handle below is the slice of a textarea's surface the chat reads
+ * (value, selection, focus), so the caret and selection arithmetic around the
+ * composer did not have to learn a second shape.
+ */
+export type ComposerFieldHandle = {
+  readonly value: string
+  readonly selectionStart: number
+  readonly selectionEnd: number
+  focus(): void
+  setSelectionRange(start: number, end: number): void
+  getBoundingClientRect(): DOMRect
+  /** Whether the caret sits on the field's first and last visual line, wraps
+   *  included — where ArrowUp and ArrowDown leave the text for prompt recall. */
+  visualEdges(): { firstLine: boolean; lastLine: boolean }
+}
+
+/**
+ * A key pressed in the field, in the shape the composer's key handlers read.
+ * It is what a React keyboard event on the old textarea carried, so the
+ * handlers kept their bodies; `currentTarget` is the field's handle.
+ */
+export type ComposerKeyEvent = {
+  key: string
+  altKey: boolean
+  ctrlKey: boolean
+  metaKey: boolean
+  shiftKey: boolean
+  repeat: boolean
+  nativeEvent: KeyboardEvent
+  currentTarget: ComposerFieldHandle
+  preventDefault(): void
+  stopPropagation(): void
+}
+
+type Props = {
+  value: string
+  /** The draft after an edit, and the caret after it. */
+  onChange: (value: string, caret: number) => void
+  onSelectionChange?: (caret: number) => void
+  /** Runs before the editor's own keys; `preventDefault` keeps the key from it. */
+  onKeyDown?: (event: ComposerKeyEvent) => void
+  /** Runs before the editor pastes; `preventDefault` keeps the paste from it. */
+  onPaste?: (event: ClipboardEvent, field: ComposerFieldHandle) => void
+  onContextMenu?: (event: MouseEvent, field: ComposerFieldHandle) => void
+  onBlur?: () => void
+  /** A drop the field leaves to its host — files the composer types as paths or
+   *  attaches. Left to the editor, a dropped file is read and typed as its text. */
+  leavesDrop?: (dataTransfer: DataTransfer) => boolean
+  placeholder?: string
+  disabled?: boolean
+  /** Attributes on the editable element: its accessible name, and the combobox
+   *  wiring when a menu is open off the field. */
+  contentAttributes?: Record<string, string | boolean | undefined>
+  className?: string
+}
+
+// An edit that came in through `value` rather than from typing; the update
+// listener must not hand it back as a change.
+const fromProps = Annotation.define<boolean>()
+
+// The field takes the composer's type and ink rather than an editor's: the
+// body face at the body size, the textarea's 20px line, no gutters, no padding,
+// and the native caret and selection. The markdown classes are index.css's.
+// The host's `max-h-`/`min-h-` are the caller's; the editor takes them on
+// itself, so the editor's own scroller is the one that scrolls and the editor
+// keeps drawing only the lines in view.
+const composerTheme = EditorView.theme({
+  '&': {
+    color: 'inherit',
+    backgroundColor: 'transparent',
+    fontSize: 'inherit',
+    maxHeight: 'inherit',
+    minHeight: 'inherit',
+  },
+  '&.cm-focused': { outline: 'none' },
+  '.cm-scroller': { fontFamily: 'inherit', lineHeight: '20px', overflowX: 'hidden', overflowY: 'auto' },
+  '.cm-content': { padding: '0', caretColor: 'currentColor' },
+  '.cm-line': { padding: '0' },
+  '.cm-placeholder': { color: 'var(--text-disabled)' },
+})
+
+function attributesOf(attributes: Props['contentAttributes']): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [name, value] of Object.entries(attributes ?? {})) if (value !== undefined) out[name] = String(value)
+  return out
+}
+
+export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function ComposerField(props, ref) {
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const viewRef = useRef<EditorView | null>(null)
+  const propsRef = useRef(props)
+  propsRef.current = props
+  // The value the editor last held, so a render that passes the same draft
+  // back does not read the document out to compare.
+  const heldRef = useRef(props.value)
+  const compartments = useRef({
+    placeholder: new Compartment(),
+    editable: new Compartment(),
+    attributes: new Compartment(),
+  })
+
+  const handleRef = useRef<ComposerFieldHandle | null>(null)
+  if (!handleRef.current) {
+    const view = () => viewRef.current
+    handleRef.current = {
+      get value() {
+        return view()?.state.doc.toString() ?? heldRef.current
+      },
+      get selectionStart() {
+        return view()?.state.selection.main.from ?? 0
+      },
+      get selectionEnd() {
+        return view()?.state.selection.main.to ?? 0
+      },
+      focus: () => view()?.focus(),
+      setSelectionRange(start, end) {
+        const editor = view()
+        if (!editor) return
+        const length = editor.state.doc.length
+        const clamp = (pos: number) => Math.max(0, Math.min(length, pos))
+        editor.dispatch({ selection: EditorSelection.single(clamp(start), clamp(end)), scrollIntoView: true })
+      },
+      getBoundingClientRect: () => view()?.dom.getBoundingClientRect() ?? new DOMRect(),
+      visualEdges() {
+        const editor = view()
+        if (!editor) return { firstLine: true, lastLine: true }
+        const { state } = editor
+        const caret = state.selection.main
+        if (!caret.empty) return { firstLine: false, lastLine: false }
+        if (state.doc.length === 0) return { firstLine: true, lastLine: true }
+        const at = editor.coordsAtPos(caret.head)
+        const first = editor.coordsAtPos(0)
+        const last = editor.coordsAtPos(state.doc.length)
+        if (!at || !first || !last) {
+          // Not laid out: the logical lines are the closest answer.
+          const line = state.doc.lineAt(caret.head).number
+          return { firstLine: line === 1, lastLine: line === state.doc.lines }
+        }
+        // Compared at the caret's middle, not its top: a line holding inline
+        // code or a heading mixes glyph heights, and visual lines never overlap.
+        const middle = (at.top + at.bottom) / 2
+        return { firstLine: middle < first.bottom, lastLine: middle > last.top }
+      },
+    }
+  }
+  useImperativeHandle(ref, () => handleRef.current!, [])
+
+  useLayoutEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    const field = handleRef.current!
+    const { placeholder, editable, attributes } = compartments.current
+    const initial = propsRef.current
+    const view = new EditorView({
+      parent: host,
+      state: EditorState.create({
+        doc: initial.value,
+        selection: EditorSelection.cursor(initial.value.length),
+        extensions: [
+          Prec.highest(
+            EditorView.domEventHandlers({
+              keydown(event) {
+                const onKeyDown = propsRef.current.onKeyDown
+                if (!onKeyDown) return false
+                onKeyDown({
+                  key: event.key,
+                  altKey: event.altKey,
+                  ctrlKey: event.ctrlKey,
+                  metaKey: event.metaKey,
+                  shiftKey: event.shiftKey,
+                  repeat: event.repeat,
+                  nativeEvent: event,
+                  currentTarget: field,
+                  preventDefault: () => event.preventDefault(),
+                  stopPropagation: () => event.stopPropagation(),
+                })
+                return event.defaultPrevented
+              },
+              paste(event) {
+                propsRef.current.onPaste?.(event, field)
+                return event.defaultPrevented
+              },
+              contextmenu(event) {
+                const onContextMenu = propsRef.current.onContextMenu
+                if (!onContextMenu) return false
+                onContextMenu(event, field)
+                return true
+              },
+              drop(event) {
+                const transfer = event.dataTransfer
+                return Boolean(transfer && propsRef.current.leavesDrop?.(transfer))
+              },
+              blur() {
+                propsRef.current.onBlur?.()
+                return false
+              },
+            }),
+          ),
+          history(),
+          // Enter is the composer's (send); Shift+Enter is the newline, and it
+          // carries a list or quote on to the next line the way a markdown
+          // editor does. Backspace at a bare list marker takes the marker.
+          keymap.of([
+            { key: 'Shift-Enter', run: (editor) => insertNewlineContinueMarkup(editor) || insertNewline(editor) },
+            { key: 'Backspace', run: deleteMarkupBackward },
+            ...historyKeymap,
+            ...standardKeymap,
+          ]),
+          markdown({ base: markdownLanguage, addKeymap: false, completeHTMLTags: false }),
+          EditorView.lineWrapping,
+          markdownLivePreview,
+          composerTheme,
+          EditorView.contentAttributes.of({ spellcheck: 'true', autocorrect: 'on' }),
+          placeholder.of(placeholderExtension(initial.placeholder ?? '')),
+          editable.of([EditorView.editable.of(!initial.disabled), EditorState.readOnly.of(Boolean(initial.disabled))]),
+          attributes.of(EditorView.contentAttributes.of(attributesOf(initial.contentAttributes))),
+          EditorView.updateListener.of((update) => {
+            const caret = update.state.selection.main.head
+            if (update.docChanged && !update.transactions.some((tr) => tr.annotation(fromProps))) {
+              const value = update.state.doc.toString()
+              heldRef.current = value
+              propsRef.current.onChange(value, caret)
+            } else if (update.selectionSet) propsRef.current.onSelectionChange?.(caret)
+          }),
+        ],
+      }),
+    })
+    viewRef.current = view
+    heldRef.current = initial.value
+    return () => {
+      view.destroy()
+      viewRef.current = null
+    }
+  }, [])
+
+  // A draft set from outside — sent and cleared, recalled, restored, rewritten
+  // by a pick from the @ or / menu — replaces the document. The caret goes to
+  // its end, where a textarea given a new value puts it; a caller that wants it
+  // elsewhere sets it after.
+  const { value } = props
+  useLayoutEffect(() => {
+    const view = viewRef.current
+    if (!view || value === heldRef.current) return
+    heldRef.current = value
+    if (view.state.doc.toString() === value) return
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: value },
+      selection: EditorSelection.cursor(value.length),
+      annotations: fromProps.of(true),
+    })
+  }, [value])
+
+  const { placeholder, disabled, contentAttributes } = props
+  useLayoutEffect(() => {
+    viewRef.current?.dispatch({
+      effects: compartments.current.placeholder.reconfigure(placeholderExtension(placeholder ?? '')),
+    })
+  }, [placeholder])
+  useLayoutEffect(() => {
+    viewRef.current?.dispatch({
+      effects: compartments.current.editable.reconfigure([
+        EditorView.editable.of(!disabled),
+        EditorState.readOnly.of(Boolean(disabled)),
+      ]),
+    })
+  }, [disabled])
+  const attributeKey = JSON.stringify(attributesOf(contentAttributes))
+  useLayoutEffect(() => {
+    viewRef.current?.dispatch({
+      effects: compartments.current.attributes.reconfigure(
+        EditorView.contentAttributes.of(JSON.parse(attributeKey) as Record<string, string>),
+      ),
+    })
+  }, [attributeKey])
+
+  return (
+    <div
+      ref={hostRef}
+      data-composer-field=""
+      aria-disabled={disabled || undefined}
+      className={`composer-markdown ${disabled ? 'cursor-not-allowed opacity-45' : ''} ${props.className ?? ''}`}
+    />
+  )
+})

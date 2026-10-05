@@ -13,7 +13,7 @@
 
 import { parseMachinePath } from '../../../../shared/machine-paths'
 import { workspaceHostIdOf } from '../../../../shared/execution-host'
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import {
   LegendList,
@@ -60,7 +60,7 @@ import {
   COMPOSER_SURFACE_CLASS,
   SendGlyph,
   FOCUS_RING_INSET_CLASS,
-  FOCUS_RING_WITHIN_TEXTAREA_CLASS,
+  FOCUS_RING_WITHIN_EDITOR_CLASS,
   FloatingButton,
   GhostButton,
   HiddenFileInput,
@@ -68,7 +68,6 @@ import {
   OutlineButton,
   Spinner,
   useWorkspaceSkills,
-  Textarea,
   TruncatedText,
 } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
@@ -121,6 +120,7 @@ import { useLocalChatBinding, type ChatBinding } from './agentChat/chatBinding'
 import { latestReplyTurnId } from './agentChat/turnFolds'
 import { useComposerDraft, type ComposerDraftMetadata } from './agentChat/useComposerDraft'
 import { useComposerRecall } from './agentChat/composerRecall'
+import { ComposerField, type ComposerFieldHandle, type ComposerKeyEvent } from './agentChat/ComposerField'
 import { ComposerContextChips, SkillContextChip, useComposerContextPicker } from './agentChat/composerContextPicker'
 import { ComposerPlusMenu } from '../workspace/agentComposer/ComposerPlusMenu'
 import { usePullRequestsOfConversation } from '../workspace/useConversationPullRequests'
@@ -273,23 +273,18 @@ type Props = {
 }
 
 // The bordered/rounded surface and focus ring live on the composer container;
-// the textarea itself is transparent and borderless so the field reads as one
-// piece with the footer control row beneath it. The container wears
-// FOCUS_RING_WITHIN_TEXTAREA_CLASS, so the indicator here is the product's one
+// the field itself is transparent and borderless so it reads as one piece with
+// the footer control row beneath it. The container wears
+// FOCUS_RING_WITHIN_EDITOR_CLASS, so the indicator here is the product's one
 // ring — it used to be an accent border swap, a second idiom.
-// `text-body`, not the raw Tailwind `text-sm` it shipped with — the one type
-// scale is the token's (remote-sessions-ux / composer-surface-premium).
-// The composer's BOX only. Ground, ink, placeholder tier, the missing outline
-// and the content sizing are `Textarea variant="composer"`'s — the wrapper
-// already draws the border and takes the ring through
-// `FOCUS_RING_WITHIN_TEXTAREA_CLASS`, which is the pairing that variant exists
-// for. The bounds are the caller's, per the variant's contract, and they are the
-// same pair the new-chat composer uses.
-// The field inside the box: the box's own padding (`px-5 pb-1 pt-4`, the New
-// chat composer's) is on its wrapper, so the field draws none. One row to start
-// — a running chat's box should not take the transcript's room for an empty
-// prompt — growing with its content to a ceiling, then scrolling.
-const COMPOSER_CLASS = 'max-h-[280px] min-h-[40px] w-full overflow-y-auto'
+// The field is `ComposerField`, an editor that draws the draft's markdown in
+// place; its ground, ink, placeholder tier and type are its own, and the bounds
+// are the caller's — the same pair the new-chat composer uses.
+// The box's own padding (`px-5 pb-1 pt-4`, the New chat composer's) is on the
+// field's wrapper, so the field draws none. One row to start — a running chat's
+// box should not take the transcript's room for an empty prompt — growing with
+// its content to a ceiling, then scrolling.
+const COMPOSER_CLASS = 'max-h-[280px] min-h-[40px] w-full'
 
 type PendingAction = 'starting' | 'sending' | 'stopping' | null
 
@@ -700,12 +695,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const pendingUserScrollIdRef = useRef<string | null>(null)
   const [anchoredUserId, setAnchoredUserId] = useState<string | null>(null)
   const chromeRef = useRef<TimelineChrome | null>(null)
-  const composerRef = useRef<HTMLTextAreaElement | null>(null)
-  // The composer's DOM id, for its label. Not built from the agent id: every
-  // open chat's layer stays mounted and nearly every chat has an `agent-1`, so
-  // `chat-composer-agent-1` would name several textareas and the label would
-  // point at whichever came first in the document.
-  const composerId = useId()
+  const composerRef = useRef<ComposerFieldHandle | null>(null)
   // Completed assistant replies the user has "seen" (was at the bottom for);
   // the jump pill counts completions past this baseline while scrolled up.
   const repliesSeenRef = useRef(0)
@@ -1493,9 +1483,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // released once the handler returns. The menu key (Shift+F10) raises the same
   // event and is the keyboard path in; when it reports no pointer, the menu opens
   // at the field instead of the viewport corner.
-  const openComposerMenu = useCallback(async (event: React.MouseEvent<HTMLTextAreaElement>) => {
+  const openComposerMenu = useCallback(async (event: MouseEvent, field: ComposerFieldHandle) => {
     event.preventDefault()
-    const field = event.currentTarget
     const rect = field.getBoundingClientRect()
     const keyboardInvoked = event.clientX === 0 && event.clientY === 0
     const x = keyboardInvoked ? rect.left : event.clientX
@@ -1917,7 +1906,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // transcript is selected: there Esc belongs to what is showing. Nor while a
   // request waits in the dock: the turn is paused on the person's answer, Esc
   // reads there as "no", and a stop would throw away the turn it was asked in.
-  const stopsTurnOnEscape = (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+  const stopsTurnOnEscape = (event: ComposerKeyEvent): boolean => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat) return false
     if (!projection.activeTurn || !operate || stopDisabledForPending(pending)) return false
     if (modelMenuOpen || composerMenu) return false
@@ -3033,7 +3022,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
              * context is.
              */}
             <div
-              className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+              className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_EDITOR_CLASS} ${
                 dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
               }`}
             >
@@ -3065,19 +3054,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                   }))
                 }
               />
-              <label htmlFor={composerId} className="sr-only">
-                Message {label}
-              </label>
               <div className="px-5 pb-1 pt-4">
-                <Textarea
+                <ComposerField
                   ref={composerRef}
-                  variant="composer"
-                  resize="none"
-                  {...contextPicker.comboboxProps}
-                  id={composerId}
+                  contentAttributes={{ 'aria-label': `Message ${label}`, ...contextPicker.comboboxProps }}
                   value={draft}
                   onBlur={flushDraft}
-                  onPaste={(event) => {
+                  leavesDrop={dataTransferHasDroppableFiles}
+                  onPaste={(event, field) => {
                     // A pasted screenshot only exists as a clipboard item; a text
                     // paste reports no image and falls through to the default —
                     // unless the text is only paths to images outside the
@@ -3089,24 +3073,22 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                       void attachFiles(files)
                       return
                     }
-                    const text = event.clipboardData.getData('text/plain')
+                    const text = event.clipboardData?.getData('text/plain') ?? ''
                     const paths = pastedImagePaths(
                       text,
                       transport.capabilities.localFiles && workspaceRoot ? [workspaceRoot] : [],
                     )
                     if (!paths) return
                     event.preventDefault()
-                    const field = event.currentTarget
                     void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
                   }}
-                  onChange={(event) => {
+                  onChange={(value, caret) => {
                     detachRecall()
-                    const value = event.target.value
                     setDraft(value)
-                    setComposerCaret(event.target.selectionStart)
+                    setComposerCaret(caret)
                   }}
-                  onSelect={(event) => setComposerCaret(event.currentTarget.selectionStart)}
-                  onContextMenu={(event) => void openComposerMenu(event)}
+                  onSelectionChange={setComposerCaret}
+                  onContextMenu={(event, field) => void openComposerMenu(event, field)}
                   onKeyDown={(event) => {
                     if (event.nativeEvent.isComposing) return
                     if (contextPicker.handleKeyDown(event)) return
@@ -3148,15 +3130,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     }
                   }}
                   placeholder={composerPlaceholder}
-                  rows={1}
                   disabled={composerInputDisabled}
                   className={COMPOSER_CLASS}
                 />
               </div>
               {/* What the picked command takes after it, until the person types
-                past the pick. Under the field rather than as ghost text in it:
-                a textarea draws no inline decoration, and an overlay would
-                have to track its wrapping and scroll. */}
+                past the pick. Under the field rather than as ghost text in it,
+                where it would sit among the words being typed and read as part
+                of the draft. */}
               {commandHint && commandHint.draft === draft ? (
                 <p className="truncate px-5 pb-1 font-mono text-meta text-[color:var(--text-subtle)]">
                   /{commandHint.command} {commandHint.hint}
