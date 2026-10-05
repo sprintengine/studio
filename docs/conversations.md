@@ -509,7 +509,11 @@ Both tools need `conversation:operate` and are audited, like
 `conversation.create`. A paired desktop's Remote rows use all of it: they are
 titled with `chatTitle`, ordered by `lastUserMessageAt` (else `updatedAt`),
 offer Settle from their menu on a desktop with the capability, and say a chat
-opened here was visited there.
+opened here was visited there. A chat opened here offers Settle in its row menu
+too: the other desktop is asked, and once it has settled the chat the row here
+goes the way a local Settle takes a row. One that machine settles without
+asking here (on the phone, or on that machine) is followed once its browse says
+so, and the row here leaves the rail the same way.
 
 ### Following from another desktop
 

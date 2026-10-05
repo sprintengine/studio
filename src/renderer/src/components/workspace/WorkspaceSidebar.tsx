@@ -83,6 +83,7 @@ import {
   buildRemoteBand,
   openSpecOfConversation,
   remoteConversationTitle,
+  remoteRestToFollow,
   unattachedConversations,
   type RemoteConversation,
   type RemoteSessionOpenSpec,
@@ -1238,6 +1239,52 @@ function WorkspaceSidebar({
     recordWorkspaceVisit,
   ])
   useVisitStamp(visitTarget, windowActive)
+
+  // A row opened from a paired machine's chat is settled by that machine,
+  // which owns the chat; Settle from its menu asks it first, and only once it
+  // has said yes does the row here go the way a local Settle takes a row: the
+  // record rests, its view ends, and a window that has it in front moves on.
+  // A refusal leaves the row, with the machine's own words.
+  const remoteKeepsRest = useCallback(
+    (workspace: Workspace): boolean =>
+      Boolean(workspace.remoteOrigin) && remoteBrowses.get(workspace.remoteOrigin!.connectionId)?.lifecycle === true,
+    [remoteBrowses],
+  )
+  const settleOpenedRemote = useCallback(
+    (workspace: Workspace) => {
+      const origin = workspace.remoteOrigin
+      const settle = window.api?.meshSettleConversation
+      if (!origin || typeof settle !== 'function') return
+      const refused = (message: string) =>
+        showToast({ tone: 'error', title: `${workspace.name} was not settled`, description: message })
+      void settle({ connectionId: origin.connectionId, workspaceId: origin.workspaceId })
+        .then((answer) => {
+          if (answer.ok) settleWorkspaceById(workspace.id)
+          else refused(answer.message)
+        })
+        .catch((error: unknown) => refused(error instanceof Error ? error.message : String(error)))
+    },
+    [settleWorkspaceById],
+  )
+  // …and one its machine settled without asking here — on the phone, on that
+  // machine, from another desktop. Its browse says the chat is resting, and
+  // the row here follows, once (`remoteRestToFollow`). The window that routes
+  // the row settles it; any other window that has it in front learns from the
+  // broadcast and moves on (`settledElsewhere`).
+  const followedRemoteRest = useRef(new Map<string, number>())
+  useEffect(() => {
+    const due = remoteRestToFollow({
+      workspaces: railWorkspaces,
+      browses: remoteBrowses,
+      followed: followedRemoteRest.current,
+    })
+    for (const { workspaceId, settledAt } of due) {
+      followedRemoteRest.current.set(workspaceId, settledAt)
+      const workspace = railWorkspaces.find((candidate) => candidate.id === workspaceId)
+      if (!workspace || isSettledWorkspace(workspace)) continue
+      if (useWorkspaceStore.getState().speaksForWorkspace(workspaceId)) settleWorkspaceById(workspaceId)
+    }
+  }, [railWorkspaces, remoteBrowses, settleWorkspaceById])
 
   // Which project header a remote conversation files under. The same rule the
   // remote-born WORKSPACES follow (`groupKeyOf` + `resolveGroups`): this disk's
@@ -2882,7 +2929,14 @@ function WorkspaceSidebar({
           moduleOverrides={moduleOverrides}
           isDetachedWindow={isDetachedWindow}
           now={now}
-          working={rowIsWorking(contextMenu.workspaceId)}
+          working={
+            rowIsWorking(contextMenu.workspaceId) ||
+            remoteConversationByWorkspace.get(contextMenu.workspaceId)?.activity === 'working'
+          }
+          remoteSettle={(() => {
+            const workspace = workspaceById.get(contextMenu.workspaceId)
+            return workspace ? remoteKeepsRest(workspace) : false
+          })()}
           onClose={() => setContextMenu(null)}
           onSelect={(action) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
@@ -2955,7 +3009,8 @@ function WorkspaceSidebar({
               return
             }
             if (action === 'toggle-settle') {
-              if (isSettledWorkspace(workspace)) setWorkspaceSettled(workspace.id, false)
+              if (workspace.remoteOrigin) settleOpenedRemote(workspace)
+              else if (isSettledWorkspace(workspace)) setWorkspaceSettled(workspace.id, false)
               else settleWorkspaceById(workspace.id)
               setContextMenu(null)
               return

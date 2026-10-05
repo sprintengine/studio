@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import type { MeshBrowse, MeshConnection, MeshConversation } from '../../../../../shared/tailnet-mesh'
+import type { Workspace } from '../../../types/workspace'
 import {
   buildRemoteBand,
   conversationsOf,
+  remoteRestToFollow,
   unattachedConversations,
   type RemoteBrowseEntry,
 } from './remoteSessionsModel'
@@ -161,4 +163,59 @@ test('a row carries its clocks and whether its machine keeps its rest', () => {
   const [older] = band([[mini, { lifecycle: false, conversations: [chat('a')] }]])
   assert.equal(older!.rows[0]!.lifecycle, false)
   assert.equal(older!.rows[0]!.lastTurnEndedAt, null)
+})
+
+// A row here opened from a paired machine's chat, by the remote workspace it follows.
+const opened = (id: string, connectionId: string, remoteWorkspaceId: string): Workspace =>
+  ({
+    id,
+    name: id,
+    folderPath: null,
+    remoteOrigin: {
+      connectionId,
+      machineName: 'mac-mini',
+      workspaceId: remoteWorkspaceId,
+      workspaceName: remoteWorkspaceId,
+      workspaceRoot: null,
+    },
+  }) as unknown as Workspace
+
+const entry = (workspaces: MeshBrowse['workspaces'], lifecycle = true): RemoteBrowseEntry => ({
+  browse: browse(workspaces),
+  loading: false,
+  error: null,
+  at: 1,
+  lifecycle,
+})
+
+test('a row opened from a chat its machine has settled follows that settle', () => {
+  const due = remoteRestToFollow({
+    workspaces: [opened('here-1', 'c1', 'resting'), opened('here-2', 'c1', 'open'), { id: 'local' } as Workspace],
+    browses: new Map([['c1', entry([remoteWorkspace('resting', 'Done', 4_000), remoteWorkspace('open', 'Going')])]]),
+    followed: new Map(),
+  })
+  assert.deepEqual(due, [{ workspaceId: 'here-1', settledAt: 4_000 }])
+})
+
+test('a settle already followed is not followed again, so a row brought back here stays', () => {
+  const input = {
+    workspaces: [opened('here-1', 'c1', 'resting')],
+    browses: new Map([['c1', entry([remoteWorkspace('resting', 'Done', 4_000)])]]),
+  }
+  assert.deepEqual(remoteRestToFollow({ ...input, followed: new Map([['here-1', 4_000]]) }), [])
+  // Settled over there again, later: followed again.
+  assert.deepEqual(remoteRestToFollow({ ...input, followed: new Map([['here-1', 3_000]]) }), [
+    { workspaceId: 'here-1', settledAt: 4_000 },
+  ])
+})
+
+test('a machine that does not keep its chats’ rest is not followed', () => {
+  assert.deepEqual(
+    remoteRestToFollow({
+      workspaces: [opened('here-1', 'c1', 'resting')],
+      browses: new Map([['c1', entry([remoteWorkspace('resting', 'Done', 4_000)], false)]]),
+      followed: new Map(),
+    }),
+    [],
+  )
 })

@@ -77,6 +77,7 @@ export function WorkspaceContextMenu({
   isDetachedWindow,
   now,
   working,
+  remoteSettle = false,
   onClose,
   onSelect,
   onPickColor,
@@ -90,6 +91,11 @@ export function WorkspaceContextMenu({
   working: boolean
   /** The clock the wake times and the asleep/awake reading are resolved against. */
   now: number
+  /**
+   * A row born on a paired machine whose machine keeps its chats' rest
+   * (`conversation-lifecycle`): Settle asks that machine, which owns the chat.
+   */
+  remoteSettle?: boolean
   onClose: () => void
   onSelect: (action: ContextMenuAction) => void
   onPickColor: (color: HighlightColor) => void
@@ -143,8 +149,16 @@ export function WorkspaceContextMenu({
       </MenuItem>
       {/* Rest by hand (settled-chats, 2026-09-07). Un-settle also holds the
           row out of the sweep until it sees new activity. A row born on a
-          paired machine is the Remote band's, which has no shelf. */}
-      {workspace.remoteOrigin ? null : settled ? (
+          paired machine is settled by that machine, which owns the chat, so
+          it offers Settle only where the machine keeps its chats' rest, and
+          never Un-settle: a settled one is off the rail here. */}
+      {workspace.remoteOrigin ? (
+        remoteSettle && !settled ? (
+          <MenuItem disabled={working} hint={working ? 'Working' : undefined} onClick={() => onSelect('toggle-settle')}>
+            Settle
+          </MenuItem>
+        ) : null
+      ) : settled ? (
         <MenuItem onClick={() => onSelect('toggle-settle')}>Un-settle</MenuItem>
       ) : (
         // Settling ends the chat's agents, and their work with them: it waits

@@ -541,3 +541,35 @@ export function attachedConversations(
   }
   return byWorkspace
 }
+
+/**
+ * The rows here, opened from a paired machine's chats, whose chat that
+ * machine has since settled — on the phone, on that machine, or from another
+ * desktop — and the settle each would follow.
+ *
+ * A row here is a window onto the chat, and a chat that has come to rest over
+ * there has nothing left to show; left alone it stays on the rail as a pane
+ * onto a chat its own machine no longer lists. Read from the machine's browse
+ * (`settledAt` on its workspace), and only from a machine that keeps its
+ * chats' rest. `followed` holds the settle each row last followed, so one is
+ * followed once: a person who brings the row back here keeps it until the
+ * machine settles the chat again.
+ */
+export function remoteRestToFollow(input: {
+  workspaces: readonly Workspace[]
+  browses: ReadonlyMap<string, RemoteBrowseEntry>
+  followed: ReadonlyMap<string, number>
+}): Array<{ workspaceId: string; settledAt: number }> {
+  const due: Array<{ workspaceId: string; settledAt: number }> = []
+  for (const workspace of input.workspaces) {
+    const origin = workspace.remoteOrigin
+    if (!origin) continue
+    const entry = input.browses.get(origin.connectionId)
+    if (entry?.lifecycle !== true) continue
+    const remote = entry.browse?.workspaces.find((candidate) => candidate.id === origin.workspaceId)
+    if (typeof remote?.settledAt !== 'number') continue
+    if (input.followed.get(workspace.id) === remote.settledAt) continue
+    due.push({ workspaceId: workspace.id, settledAt: remote.settledAt })
+  }
+  return due
+}
