@@ -609,10 +609,17 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // (one-project-across-machines): it is how a paired Studio recognises
       // its own project on this machine. Read per folder, cached in main.
       const workspaces = await Promise.all(
-        state.workspaces.map(async (workspace) => ({
-          ...workspaceProjection(workspace),
-          repository: workspace.folderPath ? await backends.readRepositoryIdentity(workspace.folderPath) : null,
-        })),
+        state.workspaces.map(async (workspace) => {
+          const repository = workspace.folderPath ? await backends.readRepositoryIdentity(workspace.folderPath) : null
+          const colorKey = projectColorKey({ folderPath: workspace.folderPath ?? null, repository })
+          return {
+            ...workspaceProjection(workspace),
+            repository,
+            // The project's hue, as `terminal.list` sends it: derived here so a
+            // phone paints the degree the sidebar does; null for no folder.
+            projectHue: colorKey ? projectHue(colorKey) : null,
+          }
+        }),
       )
       return success({
         workspaces,
