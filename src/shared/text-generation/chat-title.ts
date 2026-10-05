@@ -138,6 +138,7 @@ export function sanitizeGeneratedChatTitle(raw: string | null | undefined): stri
     title = lastSpace > MIN_CHAT_TITLE_LENGTH ? cut.slice(0, lastSpace) : cut
   }
   title = title.replace(/[\s,;:.\-–—]+$/, '').trim()
-  if (title.length < MIN_CHAT_TITLE_LENGTH || !/[a-z]/i.test(title)) return null
+  // Any script's letters: a title in Japanese or Cyrillic names a chat as well as one in English.
+  if (title.length < MIN_CHAT_TITLE_LENGTH || !/\p{L}/u.test(title)) return null
   return title.charAt(0).toUpperCase() + title.slice(1)
 }

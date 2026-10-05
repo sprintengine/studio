@@ -53,6 +53,8 @@ test('chat-title', async () => {
     assert.equal(sanitizeGeneratedChatTitle('  fix   git   stash\nsecond line'), 'Fix git stash')
     assert.equal(sanitizeGeneratedChatTitle('Trailing punctuation.'), 'Trailing punctuation')
     assert.equal(sanitizeGeneratedChatTitle('“Curly quotes”'), 'Curly quotes')
+    assert.equal(sanitizeGeneratedChatTitle('サイドバーのちらつき'), 'サイドバーのちらつき', 'any script')
+    assert.equal(sanitizeGeneratedChatTitle('мерцание боковой панели'), 'Мерцание боковой панели')
   })
 
   run('caps at the workspace title length on a word boundary', () => {
