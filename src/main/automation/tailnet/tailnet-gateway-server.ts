@@ -1266,7 +1266,11 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
           writeJson(response, 413, {
             error: { code: 'body_too_large', message: `Request body exceeds the ${maxBytes}-byte limit.` },
           })
-          await new Promise<void>((resolve) => response.once('finish', resolve))
+          // A client that hangs up first never lets the answer finish.
+          await new Promise<void>((resolve) => {
+            response.once('finish', resolve)
+            response.once('close', resolve)
+          })
           break
         }
         chunks.push(buffer)
