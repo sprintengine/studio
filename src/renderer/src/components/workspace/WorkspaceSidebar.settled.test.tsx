@@ -420,6 +420,13 @@ test('WorkspaceSidebar.settled', async () => {
       await settle()
       assert.deepEqual(selected, [], 'settling a chat you are not in opens nothing')
 
+      // New chat up over the chat: the person has left it, and settling it from
+      // its row keeps them in New chat.
+      await render({ ...threeOpen, activeWorkspaceId: order[0], newChatOpen: true } as unknown as SidebarProps)
+      act(() => actionLabel(`Settle ${nameOf[order[0]!]}`)!.click())
+      await settle()
+      assert.deepEqual(selected, [], 'settling the chat under New chat opens nothing')
+
       // The last chat still going has nowhere to hand off to: New chat opens,
       // and the settled row leaves the rail rather than staying open, checked
       // off (owner, 2026-10-03).

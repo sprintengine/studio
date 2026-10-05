@@ -752,7 +752,10 @@ function WorkspaceSidebar({
   const settleWorkspaceById = useCallback(
     (id: WorkspaceId) => {
       if (rowIsWorking(id)) return
-      const settlingActive = id === activeWorkspaceId
+      // Only the chat on screen: with New chat or a full-page surface over it
+      // the person has already left it, and settling it from its row must not
+      // pull them out of where they are into another chat.
+      const settlingActive = id === activeWorkspaceId && !newChatOpen && !globalSurfaceActive
       const successor = settlingActive ? successorRowOf(id) : null
       setWorkspaceSettled(id, true)
       quietSettledWorkspace(id)
@@ -764,6 +767,8 @@ function WorkspaceSidebar({
     },
     [
       activeWorkspaceId,
+      newChatOpen,
+      globalSurfaceActive,
       rowIsWorking,
       successorRowOf,
       setWorkspaceSettled,
