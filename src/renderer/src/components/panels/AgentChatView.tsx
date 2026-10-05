@@ -2717,16 +2717,21 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       createPullRequestAsk,
     ].join('|'),
   )
+  // Held while the control shows its dialog, a step or a failure: the pull
+  // request it just opened makes the checkout stop reading as ready, and that
+  // must not take a failure to record it off the screen unread.
+  const [createPullRequestHeld, setCreatePullRequestHeld] = useState(false)
   const createPullRequest = useMemo(
     () =>
-      createPullRequestCwd && createPullRequestState?.readiness.ready
+      createPullRequestCwd && (createPullRequestState?.readiness.ready || createPullRequestHeld)
         ? {
             cwd: createPullRequestCwd,
             conversation: { workspaceId, agentId },
             onSettled: () => setCreatePullRequestAsk((count) => count + 1),
+            onHoldChange: setCreatePullRequestHeld,
           }
         : null,
-    [createPullRequestCwd, createPullRequestState, workspaceId, agentId],
+    [createPullRequestCwd, createPullRequestState, createPullRequestHeld, workspaceId, agentId],
   )
   return (
     <ConversationLinkProvider

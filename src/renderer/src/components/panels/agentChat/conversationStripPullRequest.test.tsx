@@ -199,6 +199,7 @@ test('Create PR takes the slot, drafts, pushes, creates, and says on the strip w
   }))
   const { ConversationComposerStrip } = await import('./conversationStrip')
   let settled = 0
+  const holds: boolean[] = []
   const mounted = await mount(
     <ConversationComposerStrip
       machine={null}
@@ -210,6 +211,7 @@ test('Create PR takes the slot, drafts, pushes, creates, and says on the strip w
         cwd: '/Users/dev/app',
         conversation: { workspaceId: 'ws-1', agentId: 'agent-1' },
         onSettled: () => (settled += 1),
+        onHoldChange: (held) => holds.push(held),
       }}
       now={NOW}
     />,
@@ -231,7 +233,11 @@ test('Create PR takes the slot, drafts, pushes, creates, and says on the strip w
   expect(calls).toEqual(['draft', 'push', 'create:feat: marks'])
   expect(error.textContent).toContain('https://github.com/acme/app/pull/40')
   expect(settled).toBe(1)
+  // The failure holds the slot: the pull request now exists, so the checkout
+  // stops reading as ready, and the control must stay to say what happened.
+  expect(holds.at(-1)).toBe(true)
   await mounted.unmount()
+  expect(holds.at(-1)).toBe(false)
 })
 
 async function waitFor<T>(read: () => T | null | undefined): Promise<T> {

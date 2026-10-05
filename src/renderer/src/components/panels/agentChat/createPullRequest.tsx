@@ -94,14 +94,28 @@ export function CreatePullRequestControl({
   cwd,
   conversation,
   onSettled,
+  onHoldChange,
 }: {
   cwd: string
   conversation: { workspaceId: string; agentId: string }
   /** The flow ended (created, opened a forge page, or failed): ask again whether the button may show. */
   onSettled: () => void
+  /**
+   * The control has something on screen of its own: the dialog, a step in
+   * progress, or a failure. The slot keeps it while it does, even once the
+   * checkout stops reading as ready, which it does the moment the pull
+   * request exists: the ask `onSettled` starts would otherwise unmount it
+   * with a failure to record it still unread.
+   */
+  onHoldChange?: (held: boolean) => void
 }): React.JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [progress, setProgress] = useState<Progress>(null)
+  const held = dialogOpen || progress !== null
+  useEffect(() => {
+    onHoldChange?.(held)
+  }, [held, onHoldChange])
+  useEffect(() => () => onHoldChange?.(false), [onHoldChange])
 
   const create = async (text: { title: string; body: string }) => {
     setDialogOpen(false)

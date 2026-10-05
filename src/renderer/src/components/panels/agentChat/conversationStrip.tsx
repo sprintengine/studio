@@ -103,6 +103,8 @@ export function ConversationComposerStrip({
     cwd: string
     conversation: { workspaceId: string; agentId: string }
     onSettled: () => void
+    /** Keeps the control in the slot while it shows its dialog, a step or a failure. */
+    onHoldChange?: (held: boolean) => void
   } | null
   /**
    * The local servers this conversation's agents linked, and the workspace
@@ -348,6 +350,7 @@ export function ConversationComposerStrip({
               cwd={createPullRequest.cwd}
               conversation={createPullRequest.conversation}
               onSettled={createPullRequest.onSettled}
+              onHoldChange={createPullRequest.onHoldChange}
             />
           ) : (
             <PullRequestStripButton pullRequests={pullRequests} now={now} />
