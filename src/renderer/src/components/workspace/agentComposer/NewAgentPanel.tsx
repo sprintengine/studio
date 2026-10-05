@@ -1288,9 +1288,11 @@ export default function NewAgentPanel({
     ? extensionNameProblem
     : extensionTargetState === 'taken'
       ? `${projectLabel ?? 'The project'} already has a ${extensionName} folder. Choose another name.`
-      : extensionTargetState === 'no_parent'
-        ? 'That project folder is not there any more. Choose another project.'
-        : null
+      : extensionTargetState === 'installed'
+        ? `An extension named ${extensionName} is already installed on this computer. Choose another name.`
+        : extensionTargetState === 'no_parent'
+          ? 'That project folder is not there any more. Choose another project.'
+          : null
   // Everything the extension needs before ⏎: a project to make it in, a name
   // that is free (or an extension to carry on), and something to build.
   const extensionReady =

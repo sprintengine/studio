@@ -42,6 +42,7 @@ afterEach(() => {
 function handlers() {
   return createExtensionScaffoldHandlers({
     roots: () => ({ templatesRoot: join(SDK, 'templates'), skillsRoot: join(SDK, 'skills'), sdkTarball }),
+    moduleRoot: () => join(parent, 'installed-modules'),
   })
 }
 
@@ -65,6 +66,22 @@ describe('extensions:scaffold:target', () => {
     assert.equal(h.target({ parentDir: parent, id: 'focus-timer' })?.state, 'extension')
 
     assert.equal(h.target({ parentDir: join(parent, 'gone'), id: 'pr-radar' })?.state, 'no_parent')
+  })
+
+  test('a free name an installed extension already holds is said, and not made', async () => {
+    const h = handlers()
+    mkdirSync(join(parent, 'installed-modules', 'weather-deck'), { recursive: true })
+    assert.equal(h.target({ parentDir: parent, id: 'weather-deck' })?.state, 'installed')
+    mkdirSync(join(parent, 'weather-deck'))
+    assert.equal(h.target({ parentDir: parent, id: 'weather-deck' })?.state, 'installed', 'nor its empty folder')
+    const made = await h.create({ parentDir: parent, id: 'weather-deck' })
+    assert.equal(made.ok === false && made.code, 'installed')
+    assert.equal(existsSync(join(parent, 'weather-deck', 'module')), false, 'nothing is written')
+
+    // The project that made it is carried on as before.
+    mkdirSync(join(parent, 'weather-deck', 'module'), { recursive: true })
+    writeFileSync(join(parent, 'weather-deck', 'module', 'manifest.json'), '{}')
+    assert.equal(h.target({ parentDir: parent, id: 'weather-deck' })?.state, 'extension')
   })
 
   test('a name that is not an id yet has no answer', () => {
