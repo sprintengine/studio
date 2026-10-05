@@ -506,6 +506,33 @@ test('a slot an agent leased is kept by that agent in its own chat, not by a nam
   assert.equal(swept[0]?.verdict, 'returned')
 })
 
+test('quitting waits for a lease in flight before giving the pool’s lock up', async () => {
+  const harness = makeService()
+  let leased = false
+  const pending = harness.service.lease({ repoRoot: repo, name: 'late', owner: 'agent-late' }).then((result) => {
+    leased = result.ok
+    return result
+  })
+  // Once the lease holds the lock, it is past the point quitting refuses.
+  while (!(await exists(join(container, '.pool.lock')))) await new Promise((resolveTick) => setTimeout(resolveTick, 5))
+  await harness.service.shutdown()
+  assert.equal(leased, true, 'the lease finished before the lock went')
+  assert.equal(await exists(join(container, '.pool.lock')), false)
+  await pending
+})
+
+test('a Studio that lost the pool’s lock no longer returns a slot', async () => {
+  const harness = makeService({ instanceId: 'this-one' })
+  const leased = await lease(harness, 'mine')
+  // Another Studio took the container over (it judged this one stale).
+  await writeFile(
+    join(container, '.pool.lock'),
+    JSON.stringify({ pid: 1, host: 'build-box', instanceId: 'other', startedAt: Date.now() }),
+  )
+  assert.equal(await harness.service.release(leased.leaseId), 'busy')
+  assert.equal(await git(leased.path, 'branch', '--show-current'), 'agent/mine', 'left as it was')
+})
+
 test('a second Studio holding the container gets no slot; a dead holder is taken over', async () => {
   await mkdir(container, { recursive: true })
   const held = await acquireInstanceLock(container, 'other-instance', { pidAlive: () => true, host: 'build-box' })

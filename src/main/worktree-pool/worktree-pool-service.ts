@@ -139,6 +139,14 @@ export const POOL_MAX_SLOTS = 32
 const MEASURE_CONCURRENCY = 3
 const FETCH_FRESH_MS = 60_000
 const HEARTBEAT_INTERVAL_MS = 5 * 60_000
+/**
+ * How long quitting waits for the pool's steps in flight (a lease's fetch and
+ * reset, a return) before it gives the container's lock up anyway. A step cut
+ * short is what crash recovery exists for; a lock given up under a step still
+ * running would let another Studio take over and "recover" a slot this one is
+ * moving.
+ */
+const SHUTDOWN_WAIT_MS = 10_000
 const SLOT_NAME = /^pool-(\d{2,})$/u
 
 export type WorktreePoolServiceDeps = {
@@ -281,6 +289,17 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   let loaded: Promise<void> | null = null
   let stopped = false
   let heartbeat: NodeJS.Timeout | null = null
+  /** Every public step still running, which quitting waits for (`shutdown`). */
+  const inFlight = new Set<Promise<unknown>>()
+
+  function track<T>(step: Promise<T>): Promise<T> {
+    inFlight.add(step)
+    void step.then(
+      () => inFlight.delete(step),
+      () => inFlight.delete(step),
+    )
+    return step
+  }
 
   // ── Plumbing ──────────────────────────────────────────────────────────────
 
@@ -924,6 +943,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   async function bind(leaseId: string, owner: string): Promise<boolean> {
     const found = findLease(leaseId)
     if (!found || !found.slot.lease) return false
+    if (!(await ready(found.pool))) return false
     await lockAgentWorktree(found.pool.record.repoRoot, found.slot.path, owner, git).catch(() => null)
     await withPool(found.pool, async () => {
       if (!found.slot.lease) return
@@ -1413,7 +1433,10 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     const { diskLimitGb } = await getSettings()
     if (diskLimitGb === null) return
     const limit = diskLimitGb * 1024 ** 3
-    const driven = [...pools.values()].filter((pool) => pool.instance === 'held')
+    const driven: PoolRuntime[] = []
+    // Confirmed, not remembered: a pool whose lock went to another Studio is
+    // that Studio's to evict from.
+    for (const pool of pools.values()) if (pool.instance === 'held' && (await ready(pool))) driven.push(pool)
     let total = driven.reduce(
       (sum, pool) => sum + pool.record.slots.reduce((poolSum, slot) => poolSum + (slot.size?.bytes ?? 0), 0),
       0,
@@ -1646,10 +1669,12 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     })
     // Finished in the background: a lease waiting on recovery needs the
     // records settled, not these slots.
-    void (async () => {
-      for (const slot of toReturn) await returnSlot(pool, slot, true)
-      for (const slot of toEvict) await evictSlot(pool, slot, 'resumed')
-    })().catch((error: unknown) => log(`${record.repoRoot}: resuming after recovery failed: ${messageOf(error)}`))
+    void track(
+      (async () => {
+        for (const slot of toReturn) await returnSlot(pool, slot, true)
+        for (const slot of toEvict) await evictSlot(pool, slot, 'resumed')
+      })(),
+    ).catch((error: unknown) => log(`${record.repoRoot}: resuming after recovery failed: ${messageOf(error)}`))
   }
 
   // ── Held-slot actions ────────────────────────────────────────────────────
@@ -1796,6 +1821,10 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   async function release(leaseId: string): Promise<'returned' | 'held' | 'postponed' | 'busy' | 'not-found'> {
     const found = findLease(leaseId)
     if (!found) return 'not-found'
+    // Only while this instance still holds the pool: one that lost the lock
+    // (another Studio judged it stale) must not move a slot that is now
+    // someone else's.
+    if (!(await ready(found.pool))) return 'busy'
     const outcome = await returnSlot(found.pool, found.slot)
     return outcome === 'skipped' ? 'busy' : outcome
   }
@@ -1821,7 +1850,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     // A lower limit takes effect now, and the caller (Settings) sees the pools
     // it leaves behind.
     for (const pool of pools.values()) {
-      if (pool.instance === 'held') await evictOverLimit(pool)
+      if (pool.instance === 'held' && (await ready(pool))) await evictOverLimit(pool)
     }
     await enforceDiskLimit()
     return next
@@ -1838,6 +1867,19 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   async function shutdown(): Promise<void> {
     stopped = true
     if (heartbeat) clearInterval(heartbeat)
+    // Nothing new starts now (`ready` refuses); what already runs is waited
+    // for, briefly, before the lock that keeps another Studio off it goes.
+    if (inFlight.size > 0) {
+      let timer: NodeJS.Timeout | null = null
+      await Promise.race([
+        Promise.allSettled([...inFlight]),
+        new Promise<void>((resolveWait) => {
+          timer = setTimeout(resolveWait, SHUTDOWN_WAIT_MS)
+          timer.unref?.()
+        }),
+      ])
+      if (timer) clearTimeout(timer)
+    }
     for (const pool of pools.values()) {
       await pool.chain.catch(() => {})
       if (pool.instance === 'held') await releaseInstanceLock(pool.containerPath, instanceId)
@@ -1847,21 +1889,21 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   return {
     /** Read the records. Recovery waits for each pool's first use: nothing runs at start. */
     load,
-    lease,
-    bind,
-    reclaim,
-    release,
-    returnUnused,
+    lease: (input: WorktreePoolLeaseInput) => track(lease(input)),
+    bind: (leaseId: string, owner: string) => track(bind(leaseId, owner)),
+    reclaim: (input: Parameters<typeof reclaim>[0]) => track(reclaim(input)),
+    release: (leaseId: string) => track(release(leaseId)),
+    returnUnused: (input: WorktreePoolReturnInput) => track(returnUnused(input)),
     leaseAt,
-    action,
+    action: (input: WorktreePoolActionInput) => track(action(input)),
     snapshot,
     snapshots: async () => {
       await load()
       return [...pools.values()].map(snapshotOf)
     },
     getSettings,
-    updateSettings,
-    measure,
+    updateSettings: (patch: Partial<WorktreePoolSettings>) => track(updateSettings(patch)),
+    measure: (repoRoot?: string) => track(measure(repoRoot)),
     ownsPath,
     shutdown,
   }
