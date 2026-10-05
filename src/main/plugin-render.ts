@@ -489,3 +489,19 @@ function renderEnv(
   }
   return env
 }
+
+/**
+ * The CLI a hosted runtime rides, or undefined for one that is its own.
+ * Derived, never declared: a runtime that is the claude binary redirected at an
+ * alternate provider endpoint (zai, kimi-claude) is a hosted model, and pickers
+ * group it under "Models via Claude Code". claude-code itself is the host, not
+ * hosted. `cli.runtime.list` reads it too, so a paired phone's picker names the
+ * host where this machine's does.
+ */
+export function pluginHostedVia(manifest: PluginManifest): 'claude-code' | undefined {
+  return manifest.binary === 'claude' &&
+    manifest.id !== 'claude-code' &&
+    typeof manifest.launch.env?.ANTHROPIC_BASE_URL === 'string'
+    ? 'claude-code'
+    : undefined
+}
