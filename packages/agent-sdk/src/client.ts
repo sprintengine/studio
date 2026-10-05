@@ -809,11 +809,19 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     // What this client offers goes first: a call Studio sends again after the
     // drop finds its toolset, and an agent's next call finds it at all.
     tools.reoffer()
+    // A retry a refusal before the drop scheduled is overtaken: left armed, it
+    // would subscribe the id a second time and be refused as a duplicate.
     for (const stream of streams.values()) {
+      if (stream.retry) clearTimeout(stream.retry)
+      stream.retry = null
       stream.parts = null
       subscribe(stream)
     }
-    for (const push of pushes.values()) subscribePush(push)
+    for (const push of pushes.values()) {
+      if (push.retry) clearTimeout(push.retry)
+      push.retry = null
+      subscribePush(push)
+    }
     for (const pending of unanswered)
       if (requests.get(pending.id) === pending)
         send({ t: 'req', id: pending.id, method: pending.method, params: pending.params })

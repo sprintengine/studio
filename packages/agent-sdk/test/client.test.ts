@@ -231,6 +231,30 @@ test('events resume across Studio restarting, with no gap and no repeat', async 
   stream.close()
 })
 
+test('a stream refused for now and then resumed by a reconnect is not subscribed a second time', async () => {
+  const target = await studio()
+  const app = await client(target, pairFakeClient(target.auth, 'app', ['conversation:read']))
+  // The first join cannot read the log: Studio refuses it as retryable.
+  const follow = target.backend.follow.bind(target.backend)
+  let refused = false
+  target.backend.follow = (key, cursor, listener) => {
+    if (refused) return follow(key, cursor, listener)
+    refused = true
+    listener({ type: 'error', message: 'The log is being written.' })
+    return { ready: Promise.resolve(), dispose: () => undefined }
+  }
+  const stream = app.conversation(ref).events()
+  await vi.waitFor(() => assert.ok(refused))
+  // Studio restarts before the retry is due; the reconnect resumes the stream.
+  await target.restart()
+  assert.deepEqual(seqs(await read(stream, (frame) => frame.type === 'synchronized')), ['snapshot', 'fence'])
+  // Past the retry the refusal asked for, the stream is still followed.
+  await new Promise((resolve) => setTimeout(resolve, 2_300))
+  target.backend.emit('agent-1', 'turn_started')
+  assert.deepEqual(seqs(await read(stream, () => true)), [1])
+  stream.close()
+}, 10_000)
+
 test('a command in flight when the connection drops is sent again under the same id, and runs once', async () => {
   const target = await studio()
   const app = await client(target, pairFakeClient(target.auth, 'app', ['conversation:operate']))
