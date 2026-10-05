@@ -2124,6 +2124,11 @@ export function mapSdkMessage(
       const trigger = metadata?.trigger === 'manual' || metadata?.trigger === 'auto' ? metadata.trigger : undefined
       const preTokens = finiteNumber(metadata?.pre_tokens)
       const postTokens = finiteNumber(metadata?.post_tokens)
+      // The window holds the summary from here, not the last request read off
+      // the stream: a `/compact` makes no request this mapper sees before its
+      // result, which would otherwise report the window as full as it was.
+      state.contextPromptTokens = postTokens
+      state.contextOutputTokens = 0
       events.push(
         eventFor(state, 'context_compacted', {
           turnId,

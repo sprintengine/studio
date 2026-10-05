@@ -2074,6 +2074,38 @@ test('a Claude compact boundary marks the transcript with what triggered it and 
   assert.deepEqual(mapSdkMessage(state, { type: 'system', subtype: 'status', session_id: 'native' }), [])
 })
 
+test('a /compact reports the window as the summary left it, not as full as the last request was', () => {
+  const state = mapperState()
+  mapSdkMessage(state, { type: 'system', subtype: 'init', session_id: 'native', model: 'claude-opus-4-7' })
+  mapSdkMessage(state, {
+    type: 'stream_event',
+    session_id: 'native',
+    parent_tool_use_id: null,
+    event: { type: 'message_start', message: { usage: { input_tokens: 10, cache_read_input_tokens: 180_000 } } },
+  })
+  const result = () =>
+    mapSdkMessage(state, {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 'native',
+      usage: { input_tokens: 10, output_tokens: 0 },
+      modelUsage: { 'claude-opus-4-7': { contextWindow: 200_000 } },
+    }).find((event) => event.type === 'usage_updated')
+  assert.equal(result()?.payload?.contextUsed, 180_010)
+  // The compaction makes no request the stream shows before its result.
+  mapSdkMessage(state, {
+    type: 'system',
+    subtype: 'compact_boundary',
+    session_id: 'native',
+    compact_metadata: { trigger: 'manual', pre_tokens: 180_010, post_tokens: 12_000 },
+  })
+  assert.equal(result()?.payload?.contextUsed, 12_000)
+  // A boundary that does not say what is left reports no reading at all.
+  mapSdkMessage(state, { type: 'system', subtype: 'compact_boundary', session_id: 'native' })
+  assert.equal(result()?.payload?.contextUsed, undefined)
+})
+
 test('a Claude API retry tells the turn why it has nothing yet and when the next attempt runs', () => {
   const state = mapperState()
   const [retrying] = mapSdkMessage(state, {
