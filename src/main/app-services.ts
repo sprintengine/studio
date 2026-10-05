@@ -1287,6 +1287,20 @@ export function createAppServices(
       resolveWorkspaceRoot: (workspaceId) =>
         workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
           ?.folderPath ?? null,
+      // The folder the agent's chat works in, its pool worktree for a New
+      // chat. Known here only when the chats are this process's; out of
+      // process the shell has no sessions, and the workspace folder is used.
+      resolveAgentRoot: ({ workspaceId, agentId }) => {
+        const conversations = core.conversations as Partial<typeof core.conversations>
+        if (
+          typeof conversations.listSessions !== 'function' ||
+          typeof conversations.sessionWorkspaceRoot !== 'function'
+        )
+          return null
+        const listed = conversations.listSessions({ workspaceId, agentId })
+        const latest = listed.ok ? [...listed.sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0] : undefined
+        return latest ? conversations.sessionWorkspaceRoot(latest.sessionId) : null
+      },
       machineLabel: (id) => ssh?.environments.list().find((machine) => machine.id === id)?.label ?? null,
     }),
     publish: (tabId, recording) => browserManager.setRecording(tabId, recording),
