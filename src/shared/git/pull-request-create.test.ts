@@ -50,6 +50,11 @@ test('a remote names its forge by host, and the forges the app does not drive op
     forge: 'gitlab',
     webUrl: 'https://gitlab.example.com/acme/platform/app',
   })
+  assert.equal(
+    forgeOfRemote('https://gitlab.example.com:8443/acme/app.git')?.webUrl,
+    'https://gitlab.example.com:8443/acme/app',
+    'a web remote keeps its port',
+  )
   assert.equal(forgeOfRemote('https://codeberg.org/acme/app.git')?.forge, 'gitea')
   assert.equal(forgeOfRemote('git@forgejo.example.com:acme/app.git')?.forge, 'gitea')
   assert.equal(forgeOfRemote('git@bitbucket.org:acme/app.git')?.forge, 'bitbucket')

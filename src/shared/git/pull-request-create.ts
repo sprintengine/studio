@@ -101,7 +101,7 @@ export type ForgeRemote = { forge: PullRequestForge; webUrl: string }
 export function forgeOfRemote(remoteUrl: string): ForgeRemote | null {
   const location = remoteLocation(remoteUrl)
   if (!location) return null
-  const { host, path } = location
+  const { host, port, path } = location
   const labels = host.split('.')
   const has = (label: string) => labels.includes(label) || labels.some((part) => part.startsWith(`${label}-`))
   let forge: PullRequestForge = 'github'
@@ -110,7 +110,7 @@ export function forgeOfRemote(remoteUrl: string): ForgeRemote | null {
   else if (host === 'codeberg.org' || has('gitea') || has('forgejo')) forge = 'gitea'
   else if (host === 'dev.azure.com' || host.endsWith('.visualstudio.com') || host === 'ssh.dev.azure.com')
     forge = 'azure-devops'
-  return { forge, webUrl: `https://${host}/${path}` }
+  return { forge, webUrl: `https://${port ? `${host}:${port}` : host}/${path}` }
 }
 
 /**
@@ -132,16 +132,23 @@ export function newPullRequestPageUrl(remote: ForgeRemote, base: string, head: s
   }
 }
 
-/** The host (lower case, no port, no user) and the repository path (no `.git`) of a remote URL. */
-function remoteLocation(remoteUrl: string): { host: string; path: string } | null {
+/**
+ * The host (lower case, no user), the web port, and the repository path (no
+ * `.git`) of a remote URL. Only an http(s) remote's port is the web server's:
+ * an SSH remote's (`ssh://git@host:2222/…`) is the SSH daemon's, and a page
+ * opened on it would not load.
+ */
+function remoteLocation(remoteUrl: string): { host: string; port: string; path: string } | null {
   const trimmed = remoteUrl.trim()
   if (!trimmed) return null
   let host = ''
+  let port = ''
   let path = ''
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
     try {
       const url = new URL(trimmed)
       host = url.hostname
+      if (url.protocol === 'https:' || url.protocol === 'http:') port = url.port
       path = url.pathname
     } catch {
       return null
@@ -161,5 +168,5 @@ function remoteLocation(remoteUrl: string): { host: string; path: string } | nul
   // Azure's SSH remote is `v3/<org>/<project>/<repo>`; its web path is not
   // derived from it here, and Azure is not offered anyway.
   if (!host || clean.length < 2) return null
-  return { host: host.toLowerCase(), path: clean.join('/') }
+  return { host: host.toLowerCase(), port, path: clean.join('/') }
 }
