@@ -396,6 +396,19 @@ test('removing an idle slot holding commits no branch has holds it instead', asy
   assert.equal((await slotAt(harness, 'pool-01')).state, 'held')
 })
 
+test('removing an idle slot with edits hidden from git status holds it instead', async () => {
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await returnAll(harness)
+  // Someone marks a tracked file skip-worktree in the idle slot and edits it.
+  await git(first.path, 'update-index', '--skip-worktree', 'README.md')
+  await writeFile(join(first.path, 'README.md'), 'local only\n')
+  const evicted = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(evicted.ok, false)
+  assert.equal(await readFile(join(first.path, 'README.md'), 'utf8'), 'local only\n', 'the edit is still on disk')
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'held')
+})
+
 test('an idle slot with ignored files that may be work is not removed until a person clears them', async () => {
   const harness = makeService()
   const first = await lease(harness, 'first')

@@ -1363,6 +1363,20 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           await hold(pool, slot, 'unexpected-head', 'found while evicting: commits no branch has')
           return 'It holds commits no branch has, and is held in the pool now.'
         }
+        // Tracked files hidden from `status` (`--assume-unchanged`,
+        // `--skip-worktree`): neither the read above nor git's own check at
+        // removal sees their edits, which would go with the folder.
+        const hidden = await hiddenEditPaths(slot.path, git)
+        if (!hidden.ok || hidden.paths.length > 0) {
+          await hold(
+            pool,
+            slot,
+            'dirty',
+            hidden.ok ? `edits hidden from git status: ${hidden.paths.slice(0, 5).join(', ')}` : hidden.message,
+            { changedPaths: hidden.ok ? hidden.paths.length : null },
+          )
+          return 'It has edits git status does not show, and is held in the pool now.'
+        }
         // Removing deletes the ignored files too, and the ones that may be
         // someone's work are kept as the agent worktree cleanup keeps them:
         // an edited `.env`, notes in an ignored folder (agent-worktree-keep-
