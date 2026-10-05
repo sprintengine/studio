@@ -343,9 +343,13 @@ export function WorktreesSettingsTab({
         const pruned = await window.api.pruneGitWorktrees(row.repoRoot)
         if (!pruned.ok) return pruned
         const listed = await window.api.listGitWorktrees(row.repoRoot)
-        const still = listed.ok
-          ? listed.data.worktrees.find((worktree) => samePath(worktree.path, row.path))
-          : undefined
+        // Without the listing there is nothing to say what git did, only that it ran.
+        if (!listed.ok)
+          return {
+            ok: true,
+            message: `Git pruned the project's missing worktrees; whether it forgot ${row.name} could not be read back.`,
+          }
+        const still = listed.data.worktrees.find((worktree) => samePath(worktree.path, row.path))
         if (still) {
           return {
             ok: false,
@@ -356,7 +360,13 @@ export function WorktreesSettingsTab({
         }
         const others = projects
           .find((project) => samePath(project.repoRoot, row.repoRoot))
-          ?.otherRows.filter((other) => other.state === 'missing' && other.key !== row.key).length
+          ?.otherRows.filter(
+            (other) =>
+              other.state === 'missing' &&
+              other.key !== row.key &&
+              // Forgotten, not kept: a locked one is still in git's listing.
+              !listed.data.worktrees.some((worktree) => samePath(worktree.path, other.path)),
+          ).length
         return {
           ok: true,
           message: others

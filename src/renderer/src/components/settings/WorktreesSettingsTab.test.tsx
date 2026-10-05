@@ -288,3 +288,34 @@ test('Prune says what git did: a missing worktree locked by hand is kept, and th
   expect(host.textContent).toContain('Git kept gone-by-hand: it is locked (on a USB drive)')
   expect(host.textContent).not.toContain('Git forgot')
 })
+
+test('Prune counts only the other missing worktrees git actually forgot', async () => {
+  const missing = (name: string) => ({
+    ...inventory.projects[0].worktrees[0],
+    path: `/code/${name}`,
+    branch: `feat/${name}`,
+    missing: true,
+    size: null,
+  })
+  Object.assign((window as unknown as { api: object }).api, {
+    getWorktreeInventory: async () => ({
+      ...inventory,
+      projects: [
+        {
+          ...inventory.projects[0],
+          worktrees: [...inventory.projects[0].worktrees, missing('gone'), missing('kept-on-usb')],
+        },
+      ],
+    }),
+    // The other missing one is locked, so git keeps it.
+    listGitWorktrees: async () => ({
+      ok: true,
+      data: { repoRoot: REPO, updatedAt: now, worktrees: [{ path: '/code/kept-on-usb', locked: true }] },
+      message: null,
+    }),
+  })
+  await render()
+  await click(button(rowNamed('gone')!, 'Prune'))
+  expect(host.textContent).toContain('Git forgot gone.')
+  expect(host.textContent).not.toContain('other missing worktree')
+})
