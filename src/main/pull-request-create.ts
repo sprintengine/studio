@@ -216,20 +216,24 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
     }
   }
 
-  /** Push the branch when its remote does not have all of it: `-u origin <branch>` the first time. */
+  /** Push the branch to its own name on origin when that does not have all of it, setting the upstream the first time. */
   async function push(cwd: string): Promise<PushForPullRequestOutcome> {
     const { facts, gitRoot } = await readFacts(cwd)
     const ready = createPullRequestReadiness(facts)
     if (!gitRoot || !facts.branch) return { ok: false, message: 'This folder is not a checkout on a branch.' }
     if (!ready.ready) return { ok: false, message: readinessMessage(ready) }
     const upstream = await out(gitRoot, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
-    if (upstream) {
+    // Only the branch's own namesake on origin is "already pushed". A branch
+    // cut from `origin/main` (`git worktree add -b x path origin/main`)
+    // tracks main, and a plain `git push` there is refused under the default
+    // `push.default=simple`, or lands the work on main under `upstream`.
+    if (upstream === `origin/${facts.branch}`) {
       const ahead = Number.parseInt((await out(gitRoot, ['rev-list', '--count', '@{u}..HEAD'])) ?? '0', 10)
       if (!(ahead > 0)) return { ok: true, pushed: false }
-      const pushed = await git(gitRoot, ['push'])
+      const pushed = await git(gitRoot, ['push', 'origin', `HEAD:refs/heads/${facts.branch}`])
       return pushed.ok ? { ok: true, pushed: true } : { ok: false, message: gitFailure('push', pushed) }
     }
-    const pushed = await git(gitRoot, ['push', '-u', 'origin', facts.branch])
+    const pushed = await git(gitRoot, ['push', '-u', 'origin', `HEAD:refs/heads/${facts.branch}`])
     return pushed.ok ? { ok: true, pushed: true } : { ok: false, message: gitFailure('push', pushed) }
   }
 

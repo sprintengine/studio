@@ -147,6 +147,20 @@ test('the push sets an upstream the first time, then pushes only what the remote
   assert.deepEqual(await creator.push(clone), { ok: true, pushed: false })
 })
 
+test('a branch cut from origin/main, and so tracking it, is pushed to its own name and never to main', async () => {
+  const { clone, origin } = await checkout()
+  await git(clone, 'push', '-q', origin, 'main')
+  await git(clone, 'fetch', '-q', origin, '+refs/heads/main:refs/remotes/origin/main')
+  await git(clone, 'branch', '--set-upstream-to=origin/main')
+  await git(clone, 'config', 'push.default', 'upstream')
+  const mainBefore = await git(origin, 'rev-parse', 'refs/heads/main')
+  const creator = createPullRequestCreator({ listBranch: lookupOf(NONE).listBranch })
+  assert.deepEqual(await creator.push(clone), { ok: true, pushed: true })
+  assert.equal(await git(origin, 'rev-parse', 'refs/heads/main'), mainBefore, 'main is untouched')
+  assert.equal(await git(origin, 'rev-parse', 'refs/heads/feature/marks'), await git(clone, 'rev-parse', 'HEAD'))
+  assert.equal(await git(clone, 'rev-parse', '--abbrev-ref', '@{u}'), 'origin/feature/marks')
+})
+
 test('GitHub: gh creates it with the body from a file, and an existing one is taken rather than failed', async () => {
   const { clone } = await checkout()
   const calls: Array<{ args: string[]; body: string }> = []
