@@ -175,6 +175,24 @@ export function ConversationComposerStrip({
   // What the slot draws, as a key its width is measured under.
   const pullRequestText = slot === 'create' ? 'create' : (pullRequest?.text ?? null)
   const serversText = serversCopy ? `${serversCopy.label} · ${serversCopy.state}` : null
+  // "Create PR" changes width without changing its key: the button gives way
+  // to a step ("Pushing the branch…") or a failure. The slot is watched, and
+  // a new width measures the line again.
+  const [slotResized, setSlotResized] = useState(0)
+  const slotDrawn = pullRequestText !== null
+  useLayoutEffect(() => {
+    const node = pullRequestRef.current
+    if (!slotDrawn || !node || typeof ResizeObserver !== 'function') return
+    let last = node.getBoundingClientRect().width
+    const observer = new ResizeObserver(() => {
+      const width = node.getBoundingClientRect().width
+      if (width === last) return
+      last = width
+      setSlotResized((count) => count + 1)
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [slotDrawn, stripEl])
   useLayoutEffect(() => {
     const strip = stripEl
     const known = widths.current
@@ -241,6 +259,7 @@ export function ConversationComposerStrip({
     changesKey,
     ringShown,
     pullRequestText,
+    slotResized,
     serversText,
     fit,
   ])
