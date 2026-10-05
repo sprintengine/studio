@@ -3454,13 +3454,17 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
           </Tooltip>
         ) : (
           <Tooltip content={settleBlocked ? 'Settle once its agents finish' : 'Settle'}>
+            {/* `aria-disabled`, not `disabled`: a disabled button takes no
+                hover and no focus, so the tooltip saying why it waits could
+                never open. `settleWorkspaceById` refuses a working chat too. */}
             <IconButton
               onClick={(event) => {
                 event.stopPropagation()
+                if (settleBlocked) return
                 settleWorkspaceById(workspace.id)
               }}
               tone="quiet"
-              disabled={settleBlocked}
+              aria-disabled={settleBlocked || undefined}
               aria-label={`Settle ${workspace.name}`}
             >
               {/* `CheckIcon`'s geometry (24-grid, M5 12.5L10 17L19 7.5)

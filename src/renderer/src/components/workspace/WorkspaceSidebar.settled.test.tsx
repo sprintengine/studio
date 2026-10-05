@@ -376,7 +376,10 @@ test('WorkspaceSidebar.settled', async () => {
         } as unknown as SidebarProps)
         const settleFoxtrot = actionLabel('Settle Foxtrot')
         assert.ok(settleFoxtrot, `Foxtrot still shows Settle with ${why}`)
-        assert.equal(settleFoxtrot.disabled, true, `but it is disabled with ${why}`)
+        // Announced unavailable but still focusable and hoverable, so the
+        // tooltip saying why can open.
+        assert.equal(settleFoxtrot.getAttribute('aria-disabled'), 'true', `but it is unavailable with ${why}`)
+        assert.equal(settleFoxtrot.disabled, false, `and keeps its tab stop with ${why}`)
         act(() => {
           settleFoxtrot.click()
         })
