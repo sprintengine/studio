@@ -171,6 +171,8 @@ type Instance = ClientToolInstanceInfo & {
   staleTimer: ReturnType<typeof setTimeout> | null
   /** Cancels for calls it was sent, held while it has no connection to tell. */
   pendingCancels: StudioCancelFrame[]
+  /** Whether it was ever sent a call, so a reply that comes late is a reply and not a frame out of place. */
+  called: boolean
 }
 
 type CallState = 'waiting' | 'sent' | 'orphaned'
@@ -376,6 +378,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         stale: new Set(),
         staleTimer: null,
         pendingCancels: [],
+        called: false,
       }
       instances.set(key, instance)
     }
@@ -845,6 +848,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     const redelivery = call.sentTo.size > 0
     call.sentTo.add(connection.connectionId)
     call.state = 'sent'
+    call.instance.called = true
     safeSend(connection, {
       t: 'call',
       id: call.id,
@@ -1176,9 +1180,9 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     mayAnswer: (connectionId: string): boolean => {
       const instance = connectionOf(connectionId)
       if (!instance) return false
-      if (instance.offers.size > 0) return true
-      for (const entry of calls.values()) if (entry.instance === instance) return true
-      return false
+      // One it called may answer after the call was settled, or after it
+      // withdrew the toolset: that reply is dropped, not the connection.
+      return instance.offers.size > 0 || instance.called
     },
     /** How many calls are waiting on clients, for tests and diagnostics. */
     pendingCalls: () => calls.size,
