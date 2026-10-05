@@ -2117,10 +2117,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       setActionError('A terminal cannot resume this kind of chat yet.')
       return
     }
-    void resumeChatInTerminal({ workspaceId, agentId }).then(
-      (result) => setActionError(result.ok ? null : result.message),
-      (error: unknown) =>
-        setActionError(error instanceof Error ? error.message : 'The chat could not be continued in a terminal.'),
+    void (async () => {
+      // After an app restart the chat holds no session until it is sent
+      // something, and main reads the CLI session to hand over through one.
+      // Claude and Codex start one without spawning their CLI, and the handoff
+      // suspends it again either way. One that could not start has said why,
+      // unless there was no folder to start in.
+      if (!sessionId && !(await ensureSession()) && workspaceRoot) return
+      const result = await resumeChatInTerminal({ workspaceId, agentId })
+      setActionError(result.ok ? null : result.message)
+    })().catch((error: unknown) =>
+      setActionError(error instanceof Error ? error.message : 'The chat could not be continued in a terminal.'),
     )
   }
   const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
