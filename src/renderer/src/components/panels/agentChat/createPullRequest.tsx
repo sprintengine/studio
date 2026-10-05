@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useState } from 'react'
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import type { CreatePullRequestState } from '../../../../../shared/git/pull-request-create'
 import type { BranchPullRequest } from '../../../../../shared/git/pull-request'
@@ -54,18 +54,25 @@ export function pullRequestSlotChoice(
  */
 export function useCreatePullRequestState(cwd: string | null, refreshKey: string): CreatePullRequestState | null {
   const [state, setState] = useState<CreatePullRequestState | null>(null)
+  // Asks overlap (a focus during a turn's end, a `gh` lookup that takes
+  // seconds), and only the latest may answer: an earlier one landing last
+  // would put back a reading the checkout has since moved on from.
+  const latest = useRef(0)
   const ask = useCallback(async () => {
+    const asked = ++latest.current
     const api = typeof window === 'undefined' ? undefined : window.api
     if (!cwd || typeof api?.createPullRequestState !== 'function') {
       setState(null)
       return
     }
+    let next: CreatePullRequestState | null
     try {
-      setState(await api.createPullRequestState(cwd))
+      next = await api.createPullRequestState(cwd)
     } catch {
       // A shell that cannot answer (the web client has no checkout here) draws no button.
-      setState(null)
+      next = null
     }
+    if (asked === latest.current) setState(next)
   }, [cwd])
   useEffect(() => {
     void ask()
