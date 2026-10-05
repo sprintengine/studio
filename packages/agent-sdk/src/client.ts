@@ -491,6 +491,9 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     const check = () => {
       heartbeatTimer = null
       if (state !== 'open' || transport !== watched) return
+      // Reading paused for a consumer that is behind hears nothing, however
+      // well the line works: quiet then says nothing about the connection.
+      if (paused) lastHeard = Date.now()
       const quiet = Date.now() - lastHeard
       if (quiet < heartbeat.intervalMs) {
         heartbeatTimer = quietly(setTimeout(check, heartbeat.intervalMs - quiet))
@@ -503,7 +506,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
         setTimeout(() => {
           heartbeatTimer = null
           if (state !== 'open' || transport !== watched) return
-          if (lastHeard >= asked) check()
+          if (lastHeard >= asked || paused) check()
           else watched?.close()
         }, heartbeat.timeoutMs),
       )
