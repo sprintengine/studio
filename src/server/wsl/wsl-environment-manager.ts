@@ -357,7 +357,12 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     const server = handle.server!
     const { stream, transport, reason } = await openDoor(handle, 'backend')
     const backend = connectRemoteConversationBackend(stream, { log })
-    await backend.refresh()
+    // A first read that fails leaves nobody holding the wire: closed here, or
+    // every later attempt would leave another stream open on the server.
+    await backend.refresh().catch((error: unknown) => {
+      backend.close()
+      throw error
+    })
     const connection: WslServerConnection = {
       distro: handle.distro,
       backend,
