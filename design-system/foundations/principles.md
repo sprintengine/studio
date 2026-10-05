@@ -373,12 +373,16 @@ person with everything at once.
 - **The composer is the one named exception to that ceiling** (owner ruling
   2026-10-04). Its box takes `radius.composer` (22px), and the context strip
   tucked under it takes `radius.composer-strip` (16px) on its two bottom
-  corners only, so the two read as one piece. The composer is the surface a
-  person types into all day, and the soft corner is what sets it apart from the
-  chrome around it. Both tokens are marked `offRamp`: they are not rungs of the
-  shape scale, the conformance guard leaves them out of its ramp exactly as it
-  does `pill`, and nothing else may borrow them — a card, popover or control
-  inside the composer keeps the ramp.
+  corners only, so the two read as one piece. The cards set against it — the
+  tiles under the New chat composer, and the top corners of the tray docked on
+  an open conversation's composer — take `radius.composer-companion` (16px,
+  owner ruling 2026-10-05), so a ramp corner beside the box does not read as a
+  second family. The composer is the surface a person types into all day, and
+  the soft corner is what sets it apart from the chrome around it. All three
+  tokens are marked `offRamp`: they are not rungs of the shape scale, the
+  conformance guard leaves them out of its ramp exactly as it does `pill`, and
+  nothing else may borrow them — a card, popover or control inside the composer
+  keeps the ramp.
 - A capped column is centred or it is a bug. When a `max-width` element IS the
   page's content — a wizard step, a settings body, a door canvas — it centres
   (`max-w-*` + `mx-auto`), and its footer actions cap to the same measure so
