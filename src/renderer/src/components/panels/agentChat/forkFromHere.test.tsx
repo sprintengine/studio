@@ -8,7 +8,7 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { useToastStore } from '../../../store/toastStore'
 import { addAgentTabAfter, registerModel, unregisterModel } from '../../../utils/modelRegistry'
 import { composerDraftStore } from './draftStore'
-import { forkChat, forkName, forkedAgentPatch } from './forkFromHere'
+import { forkChat, forkName, forkedAgentPatch, takeForkedAttachments } from './forkFromHere'
 
 const WS = 'fork-from-here-ws'
 const root = '/Users/dev/app-worktree'
@@ -112,6 +112,25 @@ test('a fork opens beside the chat it came from, as its twin, with the message f
   expect(tabs.agents).toEqual(['parent', asked.newAgentId, 'other'])
   expect(tabs.selected).toBe(1)
   expect(useToastStore.getState().toasts.at(-1)?.title).toContain('Both chats work in the same files')
+})
+
+test('a message forked before goes to the fork’s composer with its images, handed over once', async () => {
+  const t = setup()
+  const image = { id: 'img-1', mediaType: 'image/png', dataBase64: 'iVBORw0KGgo=', byteLength: 8, name: 'layout.png' }
+  await forkChat({
+    transport: t.transport,
+    key: t.key,
+    target: {
+      side: 'user',
+      turnSeq: 4,
+      draft: { text: 'what is wrong here?', skillIds: [], mentions: [] },
+      attachments: [image],
+    },
+  })
+  const forkId = t.forks[0].newAgentId
+  expect(takeForkedAttachments(WS, 'parent')).toEqual([])
+  expect(takeForkedAttachments(WS, forkId)).toEqual([image])
+  expect(takeForkedAttachments(WS, forkId)).toEqual([])
 })
 
 test('a refused fork opens nothing', async () => {

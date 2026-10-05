@@ -164,7 +164,7 @@ import { CompactGlyph } from './agentChat/toolRows/ToolKindGlyph'
 import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
 import { TimelineRow, type TimelineChrome } from './agentChat/timelineRows'
 import type { EditFromHereDraft } from './agentChat/editFromHere'
-import { forkChat, type ForkFromHereTarget } from './agentChat/forkFromHere'
+import { forkChat, takeForkedAttachments, type ForkFromHereTarget } from './agentChat/forkFromHere'
 import { EmptyChatState, ReadinessState, readinessLabel, type ChatReadiness } from './agentChat/chatStates'
 import { ComposerActionButton, ComposerContextMenu, type ComposerMenuState } from './agentChat/composerControls'
 export { ComposerContextMenu, editingShortcut } from './agentChat/composerControls'
@@ -663,6 +663,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const [sendInFlight, setSendInFlight] = useState(false)
   // Images staged for the next turn (D3/1774), in the order they were added.
   const [attachments, setAttachments] = useState<ConversationImageAttachment[]>([])
+  // A fork made at one of the person's messages hands that message's images
+  // to this composer, beside the text the draft store already gave it.
+  useEffect(() => {
+    const forked = takeForkedAttachments(workspaceId, agentId)
+    if (forked.length) setAttachments((current) => [...forked, ...current].slice(0, MAX_ATTACHMENTS_PER_TURN))
+  }, [workspaceId, agentId])
   // A pasted/dropped/picked image is being read and resampled. Held so the
   // strip can say so instead of looking like nothing happened on a large file.
   const [attachingCount, setAttachingCount] = useState(0)
