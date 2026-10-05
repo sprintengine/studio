@@ -251,6 +251,5 @@ export function snoozeWorkspacePatch(wakeAt: number): WorkspaceFieldsPatch {
   return { snoozedUntil: wakeAt }
 }
 
-export function wakeSnoozedWorkspacePatch(): WorkspaceFieldsPatch {
-  return { snoozedUntil: null }
-}
+// Waking is shared with Settle, which clears a snooze in the same patch.
+export { wakeSnoozedWorkspacePatch } from '../../../shared/workspace-lifecycle'

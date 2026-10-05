@@ -1,5 +1,6 @@
 import type { Workspace } from '../types/workspace'
 import { MONOTONIC_WORKSPACE_CLOCKS, workspaceFieldMayApply } from '../../../shared/workspace-sync'
+import { workspaceLastUserMessageAt, workspaceLastWorkedAt } from '../../../shared/workspace-lifecycle'
 
 // "Last worked on" is the most recent of when the workspace was created and when
 // the user last typed into one of its terminals (lastTerminalActivityAt, fed from
@@ -10,9 +11,10 @@ import { MONOTONIC_WORKSPACE_CLOCKS, workspaceFieldMayApply } from '../../../sha
 // is now only the fallback for. A keystroke is any keystroke: an arrow key, a
 // `y` at a permission prompt, a `git status` in a plain shell. Ordering on it
 // moved rows under the cursor of someone who had not said anything.
-export function workspaceLastWorkedAt(workspace: Workspace): number {
-  return Math.max(workspace.createdAt, workspace.lastTerminalActivityAt ?? 0)
-}
+//
+// Both keys live in `shared/workspace-lifecycle.ts`, so main lists a paired
+// phone's chats in exactly the order this sidebar draws them.
+export { workspaceLastUserMessageAt, workspaceLastWorkedAt }
 
 /**
  * When the chat was last active, by anyone: the latest of the person's last
@@ -34,9 +36,10 @@ export function workspaceLastActiveAt(workspace: Workspace): number {
   return Math.max(workspaceLastWorkedAt(workspace), workspace.lastUserMessageAt ?? 0, workspace.lastTurnEndedAt ?? 0)
 }
 
-/**
- * THE ordering key for every list of chats: when the person last sent a
- * message into this one (`lastUserMessageAt`, the `UserPromptSubmit` hook).
+/*
+ * THE ordering key for every list of chats (`workspaceLastUserMessageAt`):
+ * when the person last sent a message into this one (`lastUserMessageAt`, the
+ * `UserPromptSubmit` hook, or a send from a paired device).
  *
  * Ordering used to read work and — in the flat stream — the agent's turn end,
  * with a 30-minute window collapsing recent rows onto `now` to damp the churn
@@ -56,9 +59,6 @@ export function workspaceLastActiveAt(workspace: Workspace): number {
  * the old key is the best that is knowable, and using it keeps them in the
  * order they have always had rather than sinking them all to creation time.
  */
-export function workspaceLastUserMessageAt(workspace: Workspace): number {
-  return workspace.lastUserMessageAt ?? workspaceLastWorkedAt(workspace)
-}
 
 // Most recently spoken in first. Ties — including every row still on its
 // fallback with the same stamp — are left to the caller's stable sort.

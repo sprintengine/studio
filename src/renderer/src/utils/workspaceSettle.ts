@@ -1,11 +1,11 @@
 import type { Workspace } from '../types/workspace'
 import type { BranchPullRequest } from '../../../shared/git/pull-request'
-import type { WorkspaceFieldsPatch } from '../../../shared/workspace-sync'
 import { deriveWorkspaceRunGlyph } from './workspaceRunGlyph'
 import { isStarred } from './highlight'
-import { isSnoozeUnexpired, wakeSnoozedWorkspacePatch } from './workspaceSnooze'
+import { isSnoozeUnexpired } from './workspaceSnooze'
 import { workspaceLastActiveAt, workspaceLastUserMessageAt } from './workspaceRecency'
 import type { LifecycleState } from '../../../shared/lifecycle-state'
+import { isSettledWorkspace } from '../../../shared/workspace-lifecycle'
 
 // A chat settles — moves from its folder's active list into the folder's
 // Settled shelf — once it has gone this long without activity. One constant,
@@ -41,10 +41,11 @@ export type AutoSettleContext = {
   settleOnMerge?: boolean
 }
 
-/** The one answer to "is this row resting?". */
-export function isSettledWorkspace(workspace: Pick<Workspace, 'settledAt'>): boolean {
-  return typeof workspace.settledAt === 'number'
-}
+// The one answer to "is this row resting?", and the two transitions below,
+// live in `shared/workspace-lifecycle.ts`: a paired device settles a chat
+// through main (`conversation.settle`), which writes the same patch the row
+// menu does.
+export { isSettledWorkspace }
 
 /**
  * The pure idle rule: true when a row that is not otherwise exempt has been
@@ -149,38 +150,11 @@ export function decideWorkspaceSettlement(input: {
   return shouldAutoSettleWorkspace(workspace, now, input.context) ? 'settle' : 'none'
 }
 
-/**
- * The two transitions as registry field patches, so every writer — the
- * sweep, the row menu, the keystroke path — changes the same fields the same
- * way and the store's copies cannot drift.
- *
- * A patch that puts a row to rest also carries the person's last-input clock
- * as the store knows it. Main's copy of that clock is otherwise refreshed on a
- * coarse cadence, and a restart rebuilds the row from main's record: a
- * keystroke that never reached main would then read as NEWER than the rest
- * decision and wake the row the moment its session was listed. Sending the
- * clock with the decision makes main at least as current as the decision.
+/*
+ * The two transitions as registry field patches (`settleWorkspacePatch`,
+ * `wakeWorkspacePatch`), so every writer — the sweep, the row menu, the
+ * keystroke path, a paired device — changes the same fields the same way and
+ * the store's copies cannot drift. A settle patch also clears any snooze and
+ * carries the person's last-input clock with it; the shared module says why.
  */
-export function settleWorkspacePatch(
-  workspace: Pick<Workspace, 'lastTerminalActivityAt'>,
-  now: number,
-  override: 'settled' | null,
-): WorkspaceFieldsPatch {
-  return {
-    // Rest supersedes sleep (snooze, 2026-09-10). A settled row is out of the
-    // list for good reasons of its own, so a snooze underneath it would do
-    // nothing visible and then expire into a Woke mark on a row nobody woke.
-    // Cleared HERE rather than at each call site so the sweep, the row menu and
-    // the hover tick cannot disagree about it.
-    ...wakeSnoozedWorkspacePatch(),
-    settledAt: now,
-    settledOverride: override,
-    ...(typeof workspace.lastTerminalActivityAt === 'number'
-      ? { lastTerminalActivityAt: workspace.lastTerminalActivityAt }
-      : {}),
-  }
-}
-
-export function wakeWorkspacePatch(override: 'active' | null): WorkspaceFieldsPatch {
-  return { settledAt: null, settledOverride: override }
-}
+export { settleWorkspacePatch, wakeWorkspacePatch } from '../../../shared/workspace-lifecycle'
