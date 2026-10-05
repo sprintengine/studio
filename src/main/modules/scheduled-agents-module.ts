@@ -103,6 +103,10 @@ export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'path
                   copyIncludedFiles: true,
                   // The chat is created after its worktree, so the branch names the owner.
                   agentLockOwner: input.branchName,
+                  // Named to the pool too: it serves this machine's own git
+                  // alone, and a run on a WSL machine (its folder may well be a
+                  // Windows drive) must get a fresh worktree from that git.
+                  ...(input.hostId ? { hostId: input.hostId } : {}),
                 }),
               )
               return created.ok
