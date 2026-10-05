@@ -133,6 +133,9 @@ test('the app page without a session goes to pairing', async () => {
   const answer = await ask('/')
   expect(answer.status).toBe(302)
   expect(answer.headers.location).toBe('./pair')
+  // From a nested route, back to the root first, never to an app route of its own.
+  expect((await ask('/a/b')).headers.location).toBe('../pair')
+  expect((await ask('/pair/')).headers.location).toBe('../pair')
 })
 
 test('a rebinding Host is refused before anything is read', async () => {
