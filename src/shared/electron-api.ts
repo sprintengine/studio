@@ -360,6 +360,8 @@ import type {
   AgentWorktreeCleanupReport,
 } from './ipc/git'
 import type {
+  WorktreeInventory,
+  WorktreeInventoryInput,
   WorktreePoolActionInput,
   WorktreePoolActionResult,
   WorktreePoolSettings,
@@ -1321,10 +1323,12 @@ export type ElectronApi = {
   getWorktreePoolSnapshot: (repoRoot: string) => Promise<WorktreePoolSnapshot | null>
   /** Every change to any pool's slots, as that pool's snapshot. */
   onWorktreePoolChanged: (cb: (snapshot: WorktreePoolSnapshot) => void) => () => void
-  /** A person's decision on a held pool worktree, or the removal of an idle one. */
+  /** A person's decision on a held pool worktree, or the removal or clearing of an idle one. */
   worktreePoolAction: (input: WorktreePoolActionInput) => Promise<WorktreePoolActionResult>
   getWorktreePoolSettings: () => Promise<WorktreePoolSettings>
   setWorktreePoolSettings: (patch: Partial<WorktreePoolSettings>) => Promise<WorktreePoolSettings>
+  /** Every worktree of these projects and of every pool, for Settings ▸ Worktrees. */
+  getWorktreeInventory: (input: WorktreeInventoryInput) => Promise<WorktreeInventory>
   /**
    * The branch's commits as steps, oldest first, for the changed-files surface.
    * Read live on every call — a rebase re-identifies commits, so a cached strip

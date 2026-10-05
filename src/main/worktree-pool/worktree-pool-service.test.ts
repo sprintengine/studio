@@ -12,6 +12,7 @@ import { createGitWorktree, restoreGitWorktree } from '../git'
 import { installWorktreePool } from './active-pool'
 import { acquireInstanceLock, createPoolStore, POOL_RECORD_VERSION, poolIdFor, type PoolRecord } from './pool-store'
 import { parseSlotStatus } from './slot-git'
+import { createWorktreeInventory } from './worktree-inventory'
 import { createWorktreePoolService } from './worktree-pool-service'
 import { createWorktreePoolTools } from './worktree-pool-tools'
 
@@ -51,7 +52,25 @@ let caseNumber = 0
 
 const HOUR = 60 * 60_000
 
-function makeService(options: { live?: string[]; now?: () => number; instanceId?: string } = {}) {
+const GB = 1024 ** 3
+
+/** A stand-in for `du`: every tree measures `bytes`, or what `sizes` says for its path. */
+function fakeMeasure(bytes: number, sizes: Map<string, number> = new Map()) {
+  return async (path: string) => ({
+    bytes: sizes.get(path) ?? bytes,
+    measuredAt: Date.now(),
+    parts: [{ name: 'node_modules', bytes: sizes.get(path) ?? bytes }],
+  })
+}
+
+function makeService(
+  options: {
+    live?: string[]
+    now?: () => number
+    instanceId?: string
+    measure?: ReturnType<typeof fakeMeasure>
+  } = {},
+) {
   const live = options.live ?? []
   const clock = { offset: 0 }
   const service = createWorktreePoolService({
@@ -62,6 +81,7 @@ function makeService(options: { live?: string[]; now?: () => number; instanceId?
     fetchFreshMs: 0,
     now: options.now ?? (() => Date.now() + clock.offset),
     instanceId: options.instanceId,
+    measure: options.measure ?? fakeMeasure(GB),
   })
   return { service, live, clock }
 }
@@ -722,4 +742,126 @@ test('a returned slot given to another agent since is refused to its old chat, w
   const gone = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/chat' })
   assert.equal(gone.ok, false)
   assert.equal('definitive' in gone && gone.definitive, true)
+})
+
+test('a pool holds no more worktrees than its limit, and lowering the limit removes idle ones', async () => {
+  const harness = makeService()
+  await harness.service.updateSettings({ maxSlots: 2 })
+  await lease(harness, 'one')
+  await lease(harness, 'two')
+  const third = await harness.service.lease({ repoRoot: repo, name: 'three' })
+  assert.equal(third.ok, false)
+  assert.equal(third.ok ? null : third.reason, 'full', 'the caller makes a plain worktree instead')
+
+  await harness.service.updateSettings({ maxSlots: 12 })
+  await lease(harness, 'three')
+  await returnAll(harness)
+  assert.equal((await snapshot(harness)).slots.length, 3, 'three idle, within keepIdle')
+  await harness.service.updateSettings({ maxSlots: 2 })
+  assert.equal((await snapshot(harness)).slots.length, 2, 'the limit applies at once')
+})
+
+test('past the disk limit the least recently used idle slots go first; one in use never does', async () => {
+  const harness = makeService({ measure: fakeMeasure(GB) })
+  const a = await lease(harness, 'a')
+  const b = await lease(harness, 'b')
+  const c = await lease(harness, 'c')
+  harness.clock.offset += 2 * HOUR
+  await harness.service.returnUnused({ repoRoot: repo, protectedPaths: [b.path, c.path], agentIds: new Set() })
+  harness.clock.offset += 60_000
+  await harness.service.returnUnused({ repoRoot: repo, protectedPaths: [c.path], agentIds: new Set() })
+  // a went back before b, so a is the least recently used. 3 GB measured.
+  await harness.service.measure()
+  assert.equal((await snapshot(harness)).slots.length, 3, 'no limit, nothing removed')
+
+  await harness.service.updateSettings({ diskLimitGb: 2.5 })
+  const slots = (await snapshot(harness)).slots
+  assert.deepEqual(slots.map((slot) => slot.path).sort(), [b.path, c.path].sort())
+  assert.equal(await exists(a.path), false)
+
+  await harness.service.updateSettings({ diskLimitGb: 0.5 })
+  const left = (await snapshot(harness)).slots
+  assert.deepEqual(
+    left.map((slot) => [slot.path, slot.state]),
+    [[c.path, 'leased']],
+    'over the limit still, but a slot in use is never removed',
+  )
+})
+
+test('clearing an idle slot deletes its ignored files and keeps it; a slot remembers its uses and last branch', async () => {
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await mkdir(join(first.path, 'node_modules', 'pkg'), { recursive: true })
+  await writeFile(join(first.path, 'node_modules', 'pkg', 'index.js'), 'x\n')
+  await returnAll(harness)
+  const idle = await slotAt(harness, 'pool-01')
+  assert.equal(idle.uses, 1)
+  assert.equal(idle.lastBranch, 'agent/first')
+  assert.equal(idle.lease, null)
+
+  const leasedSlot = await lease(harness, 'second', { agentId: 'agent-7' })
+  const leasedView = await slotAt(harness, 'pool-01')
+  assert.equal(leasedView.uses, 2)
+  assert.equal(leasedView.lease?.agentId, 'agent-7')
+  const refused = await harness.service.action({ kind: 'clear-ignored', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(refused.ok, false, 'never while it is leased')
+  assert.equal(await exists(join(leasedSlot.path, 'node_modules', 'pkg', 'index.js')), true)
+
+  await harness.service.release(leasedSlot.leaseId)
+  const cleared = await harness.service.action({ kind: 'clear-ignored', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(cleared.ok, true, cleared.message ?? '')
+  assert.equal(await exists(join(first.path, 'node_modules')), false)
+  assert.equal(await exists(join(first.path, 'README.md')), true, 'tracked files stay')
+  const after = await slotAt(harness, 'pool-01')
+  assert.equal(after.state, 'idle')
+  assert.equal(after.size?.bytes, GB, 'measured again')
+})
+
+test('the inventory lists every worktree but the checkout, with pool slots, merge state, changes and sizes', async () => {
+  const harness = makeService()
+  const leased = await lease(harness, 'pooled')
+  // A worktree made by hand whose branch is merged (it adds nothing), and one
+  // with a commit of its own and an uncommitted file.
+  const merged = join(caseDir, 'by-hand-merged')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'feature/merged', merged, 'origin/main')
+  const unmerged = join(caseDir, 'by-hand-unmerged')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'feature/unmerged', unmerged, 'origin/main')
+  await writeFile(join(unmerged, 'new.txt'), 'new\n')
+  await git(unmerged, 'add', 'new.txt')
+  await git(unmerged, 'commit', '-q', '-m', 'new')
+  await writeFile(join(unmerged, 'draft.txt'), 'draft\n')
+
+  const sizes = new Map([[merged, 2 * GB]])
+  const inventory = createWorktreeInventory({ pool: harness.service, measure: fakeMeasure(GB, sizes) })
+  const before = await inventory.read({ repoRoots: [join(leased.path)] })
+  assert.equal(before.measuredAt, null, 'nothing measured until asked')
+
+  const read = await inventory.read({ repoRoots: [repo], measure: true })
+  assert.equal(read.projects.length, 1, 'the slot and the checkout are one project')
+  const project = read.projects[0]
+  assert.equal(project.defaultRef, 'origin/main')
+  assert.equal(project.pool?.slots.length, 1)
+  const byPath = new Map(project.worktrees.map((entry) => [entry.path, entry]))
+  assert.equal(byPath.has(repo), false, 'the main checkout is not listed')
+
+  const slot = byPath.get(leased.path)
+  assert.equal(slot?.slotId, 'pool-01')
+  assert.equal(slot?.size?.bytes, GB, 'the pool measured its slot')
+
+  const mergedEntry = byPath.get(merged)
+  assert.equal(mergedEntry?.slotId, null)
+  assert.equal(mergedEntry?.merged, true)
+  assert.equal(mergedEntry?.changedPaths, 0)
+  assert.equal(mergedEntry?.size?.bytes, 2 * GB)
+
+  const unmergedEntry = byPath.get(unmerged)
+  assert.equal(unmergedEntry?.merged, false)
+  assert.equal(unmergedEntry?.uniqueCommits, 1)
+  assert.equal(unmergedEntry?.changedPaths, 1)
+  assert.deepEqual(unmergedEntry?.changes, [{ code: '??', path: 'draft.txt' }])
+  assert.ok(read.measuredAt !== null)
+
+  // Sizes stay known after, without measuring again.
+  const again = await inventory.read({ repoRoots: [repo] })
+  assert.equal(again.projects[0].worktrees.find((entry) => entry.path === merged)?.size?.bytes, 2 * GB)
 })

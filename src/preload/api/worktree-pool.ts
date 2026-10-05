@@ -2,6 +2,8 @@ import type { IpcRendererEvent } from 'electron'
 import { ipc as ipcRenderer } from '../ipc-router'
 import type {
   ElectronApi,
+  WorktreeInventory,
+  WorktreeInventoryInput,
   WorktreePoolActionInput,
   WorktreePoolActionResult,
   WorktreePoolSettings,
@@ -24,6 +26,8 @@ export const worktreePoolApi = {
   getWorktreePoolSettings: (): Promise<WorktreePoolSettings> => ipcRenderer.invoke('worktree-pool:settings-get'),
   setWorktreePoolSettings: (patch: Partial<WorktreePoolSettings>): Promise<WorktreePoolSettings> =>
     ipcRenderer.invoke('worktree-pool:settings-set', patch),
+  getWorktreeInventory: (input: WorktreeInventoryInput): Promise<WorktreeInventory> =>
+    ipcRenderer.invoke('worktree-pool:inventory', input),
 } satisfies Pick<
   ElectronApi,
   | 'worktreePoolAction'
@@ -31,4 +35,5 @@ export const worktreePoolApi = {
   | 'onWorktreePoolChanged'
   | 'getWorktreePoolSettings'
   | 'setWorktreePoolSettings'
+  | 'getWorktreeInventory'
 >

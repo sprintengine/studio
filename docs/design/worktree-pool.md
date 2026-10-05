@@ -128,10 +128,39 @@ were settled:
   chat's slot is the last to go to someone else; if it has gone, the chat is
   told why.
 - **Pool size.** Up to three idle slots per repository are kept (setting
-  `keepIdle`); a return beyond that removes the least recently used. Leased
-  slots are not capped below 32.
+  `keepIdle`); a return beyond that removes the least recently used. A
+  repository's pool holds at most `maxSlots` (default 12, at most 32), leased
+  ones included; past it a lease falls back to a plain worktree.
 
-Still open: adopting worktrees made outside the pool (question 6), a disk cap
-(question 9), and a settled chat whose slot was given to another agent: today
-it is told so and opens without its folder, where it could take a slot of its
-own on its branch instead.
+## 6. Settings ▸ Worktrees (2026-10-05)
+
+The pool made visible (mockup: `docs/design/mockups/worktree-pool-settings.html`).
+One page lists every worktree of every local project the window knows, plus
+every pool on record: the pool's slots with who holds each (the chat, matched
+by path, or the agent that called `worktree.lease`), and the worktrees the pool
+does not own (made by hand, by an agent before the pool, kept out of it), each
+with whether its work is on the default branch, its uncommitted changes and
+its size. Main reads it (`worktree-pool/worktree-inventory.ts`); the page never
+runs git.
+
+- **Sizes** are measured with `du` (a walk on Windows) only when the page opens
+  or asks again, and, while a disk limit is set, when a slot comes back. Never
+  on a timer. The breakdown names the biggest top-level folders, which is where
+  the space is (`node_modules`, build output).
+- **Disk limit** (question 9): `diskLimitGb`, off by default. Past it, idle
+  slots go least recently used first, across every pool; a leased or held slot
+  is never removed, so the pools can stay over it. Worktrees outside the pool do
+  not count.
+- **Removing.** A ready slot is removed through the pool; anything else through
+  `removeGitWorktree`, which refuses a dirty tree. Neither deletes a branch. A
+  worktree an open chat works in, one with changes, and one locked by another
+  profile cannot be removed from the page, and each says why.
+- **Free up space** offers only what loses nothing: ready slots beyond the most
+  recently used one per project, clean merged worktrees outside the pool, and
+  clearing a kept slot's ignored files (`git clean -dX`, at the price of the
+  next install). Unmerged worktrees are named but never ticked.
+
+Still open: adopting worktrees made outside the pool (question 6), WSL and
+network-share projects on the page, and a settled chat whose slot was given to
+another agent: today it is told so and opens without its folder, where it
+could take a slot of its own on its branch instead.

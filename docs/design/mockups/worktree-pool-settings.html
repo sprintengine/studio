@@ -1,0 +1,869 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockup: Settings / Worktrees</title>
+<!-- A static mockup of a Worktrees tab in Settings: the worktree pool made
+     visible. Drawn with the design system's own tokens so it reads like the
+     app; every number and name in it is made up. Open it straight from disk. -->
+<link rel="stylesheet" href="../../../design-system/foundations/tokens.css" />
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  button, input, select { font: inherit; color: inherit; }
+  .mono { font-family: var(--sem-font-family-mono); font-size: var(--sem-font-size-meta); }
+  .muted { color: var(--sem-color-text-muted); }
+  .subtle { color: var(--sem-color-text-subtle); }
+  .strong { color: var(--sem-color-text-primary); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* Mockup chrome, outside the "app" */
+  .mock-bar {
+    display: flex; align-items: center; gap: var(--sem-space-lg);
+    padding: var(--sem-space-sm) var(--sem-space-xl);
+    border-bottom: 1px dashed var(--sem-color-border-strong);
+    font-size: var(--sem-font-size-meta); color: var(--sem-color-text-subtle);
+  }
+  .mock-bar b { color: var(--sem-color-text-muted); font-weight: var(--sem-font-weight-medium); }
+  .mock-bar .spacer { flex: 1; }
+
+  /* Settings dialog */
+  .stage { padding: var(--sem-space-3xl); display: flex; justify-content: center; }
+  .dialog {
+    width: 1120px; height: 820px; display: flex;
+    background: var(--sem-color-bg-surface);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-shell-lg);
+    overflow: hidden;
+    box-shadow: 0 24px 60px rgba(0,0,0,.35);
+  }
+  .rail {
+    width: 212px; flex-shrink: 0; padding: var(--sem-space-lg) var(--sem-space-sm);
+    border-right: 1px solid var(--sem-color-border-subtle);
+    background: var(--sem-color-bg-app); overflow: auto;
+  }
+  .rail h2 { font-size: var(--sem-font-size-heading); color: var(--sem-color-text-primary); margin: 0 var(--sem-space-sm) var(--sem-space-lg); font-weight: var(--sem-font-weight-emphasis); }
+  .rail .group { font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); margin: var(--sem-space-lg) var(--sem-space-sm) var(--sem-space-2xs); letter-spacing: var(--sem-font-tracking-wide); }
+  .rail a {
+    display: flex; align-items: center; gap: var(--sem-space-sm);
+    height: 28px; padding: 0 var(--sem-space-sm); border-radius: var(--sem-radius-control);
+    color: var(--sem-color-text-muted); text-decoration: none; cursor: default;
+  }
+  .rail a:hover { background: var(--sem-color-bg-hover); }
+  .rail a.on { background: var(--sem-color-bg-selected); color: var(--sem-color-text-primary); box-shadow: inset 2px 0 0 var(--sem-color-accent-primary); }
+  .rail a .badge { margin-left: auto; }
+  .rail svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+  .page { flex: 1; overflow: auto; padding: var(--sem-space-3xl) var(--sem-space-4xl) 80px; position: relative; }
+  .page-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sem-space-lg); margin-bottom: var(--sem-space-2xl); min-height: 32px; }
+  .page-head h3 { margin: 0; font-size: var(--sem-font-size-title); font-weight: var(--sem-font-weight-emphasis); color: var(--sem-color-text-primary); letter-spacing: var(--sem-font-tracking-tight); }
+  .page-head .meta { display: flex; align-items: center; gap: var(--sem-space-xs); }
+
+  .section-title { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sem-space-lg); margin: var(--sem-space-4xl) 0 var(--sem-space-sm); }
+  .section-title h4 { margin: 0; font-size: var(--sem-font-size-heading); font-weight: var(--sem-font-weight-emphasis); color: var(--sem-color-text-primary); }
+  .section-title .count { color: var(--sem-color-text-muted); margin-left: var(--sem-space-sm); font-weight: var(--sem-font-weight-regular); }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: var(--sem-space-xs);
+    height: 28px; padding: 0 var(--sem-space-md);
+    border-radius: var(--sem-radius-control);
+    border: 1px solid var(--sem-color-border-default);
+    background: var(--sem-color-bg-surface-raised);
+    color: var(--sem-color-text-default); cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { background: var(--sem-color-bg-hover); }
+  .btn.sm { height: 24px; padding: 0 var(--sem-space-sm); font-size: var(--sem-font-size-meta); }
+  .btn.primary { background: var(--sem-color-accent-primary); border-color: transparent; color: var(--sem-color-text-on-accent); font-weight: var(--sem-font-weight-medium); }
+  .btn.primary:hover { background: var(--sem-color-accent-hover); }
+  .btn.danger { color: var(--sem-color-status-danger); }
+  .btn.danger-solid { background: var(--sem-color-status-danger); border-color: transparent; color: var(--sem-color-text-on-accent); font-weight: var(--sem-font-weight-medium); }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--sem-color-text-muted); }
+  .btn.ghost:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-default); }
+  .btn.icon { width: 28px; padding: 0; justify-content: center; }
+  .btn.icon.sm { width: 24px; }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  .btn svg { width: 14px; height: 14px; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: var(--sem-focus-ring); outline-offset: 2px; }
+
+  /* Overview */
+  .overview {
+    border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface-raised); padding: var(--sem-space-xl);
+  }
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--sem-space-xl); }
+  .stat .label { font-size: var(--sem-font-size-meta); color: var(--sem-color-text-muted); display: flex; align-items: center; gap: var(--sem-space-xs); }
+  .stat .value { font-size: 20px; font-weight: var(--sem-font-weight-emphasis); color: var(--sem-color-text-primary); margin-top: var(--sem-space-2xs); font-variant-numeric: tabular-nums; }
+  .stat .sub { font-size: var(--sem-font-size-meta); color: var(--sem-color-text-subtle); }
+  .usage { margin-top: var(--sem-space-xl); }
+  .usage-bar { display: flex; height: 8px; border-radius: var(--sem-radius-pill); overflow: hidden; background: var(--sem-color-bg-well); }
+  .usage-bar span { display: block; height: 100%; }
+  .usage-bar span + span { border-left: 2px solid var(--sem-color-bg-surface-raised); }
+  .usage-legend { display: flex; flex-wrap: wrap; gap: var(--sem-space-xl); margin-top: var(--sem-space-sm); font-size: var(--sem-font-size-meta); color: var(--sem-color-text-muted); }
+  .usage-legend .limit { margin-left: auto; color: var(--sem-color-text-subtle); }
+  .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: var(--sem-space-xs); vertical-align: 0; }
+  .c-leased { background: var(--sem-color-accent-primary); }
+  .c-idle { background: var(--sem-color-status-neutral); }
+  .c-held { background: var(--sem-color-status-warn); }
+  .c-other { background: var(--sem-color-status-merged); }
+
+  /* Setting card */
+  .card { border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-shell); background: var(--sem-color-bg-surface-raised); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: var(--sem-space-2xl); padding: var(--sem-space-lg) var(--sem-space-xl); }
+  .row + .row { border-top: 1px solid var(--sem-color-border-subtle); }
+  .row .lbl { color: var(--sem-color-text-primary); font-weight: var(--sem-font-weight-medium); }
+  .row .help { color: var(--sem-color-text-muted); font-size: var(--sem-font-size-meta); margin-top: 2px; max-width: 60ch; }
+  .row.disabled .lbl, .row.disabled .help { opacity: .5; }
+  .switch { width: 30px; height: 18px; border-radius: var(--sem-radius-pill); background: var(--sem-color-bg-active); border: 1px solid var(--sem-color-border-strong); position: relative; cursor: pointer; flex-shrink: 0; padding: 0; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--sem-color-text-muted); transition: transform .15s; }
+  .switch[aria-checked="true"] { background: var(--sem-color-accent-primary); border-color: transparent; }
+  .switch[aria-checked="true"]::after { transform: translateX(12px); background: var(--sem-color-text-on-accent); }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-control); background: var(--sem-color-bg-surface); height: 28px; }
+  .stepper button { width: 26px; height: 100%; border: 0; background: transparent; cursor: pointer; color: var(--sem-color-text-muted); }
+  .stepper button:hover { color: var(--sem-color-text-primary); background: var(--sem-color-bg-hover); }
+  .stepper output { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; color: var(--sem-color-text-primary); }
+  select.sel { height: 28px; border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-control); background: var(--sem-color-bg-surface); padding: 0 var(--sem-space-sm); min-width: 130px; }
+  .pathbox { display: flex; align-items: center; gap: var(--sem-space-xs); }
+  .pathbox code { padding: 4px var(--sem-space-sm); background: var(--sem-color-bg-well); border-radius: var(--sem-radius-chip); }
+
+  /* Toolbar */
+  .toolbar { display: flex; align-items: center; gap: var(--sem-space-sm); margin-bottom: var(--sem-space-lg); }
+  .chips { display: inline-flex; background: var(--sem-color-bg-well); border-radius: var(--sem-radius-control); padding: 2px; }
+  .chips button { border: 0; background: transparent; height: 24px; padding: 0 var(--sem-space-md); border-radius: 5px; color: var(--sem-color-text-muted); cursor: pointer; font-size: var(--sem-font-size-meta); }
+  .chips button .n { color: var(--sem-color-text-subtle); margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .chips button.on { background: var(--sem-color-bg-surface-raised); color: var(--sem-color-text-primary); box-shadow: 0 0 0 1px var(--sem-color-border-default); }
+  .search { flex: 1; max-width: 260px; height: 28px; border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-control); background: var(--sem-color-bg-surface); padding: 0 var(--sem-space-sm); }
+  .search::placeholder { color: var(--sem-color-text-subtle); }
+  .toolbar .spacer { flex: 1; }
+
+  /* Project block */
+  .project { border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-shell); background: var(--sem-color-bg-surface-raised); margin-bottom: var(--sem-space-lg); overflow: hidden; }
+  .project-head { display: flex; align-items: center; gap: var(--sem-space-md); padding: var(--sem-space-md) var(--sem-space-xl); border-bottom: 1px solid var(--sem-color-border-subtle); background: var(--sem-color-bg-surface); }
+  .project-head .name { font-weight: var(--sem-font-weight-emphasis); color: var(--sem-color-text-primary); }
+  .project-head .facts { display: flex; gap: var(--sem-space-lg); font-size: var(--sem-font-size-meta); color: var(--sem-color-text-subtle); flex: 1; min-width: 0; }
+  .project-head .facts span { white-space: nowrap; }
+  .chev { width: 14px; height: 14px; color: var(--sem-color-text-subtle); transition: transform .15s; cursor: pointer; }
+  .project.collapsed .chev { transform: rotate(-90deg); }
+  .project.collapsed .slots, .project.collapsed .banner { display: none; }
+  .project.collapsed .project-head { border-bottom: 0; }
+  .banner { display: flex; align-items: center; gap: var(--sem-space-sm); padding: var(--sem-space-sm) var(--sem-space-xl); font-size: var(--sem-font-size-meta); background: var(--sem-color-status-warn-soft); color: var(--sem-color-text-default); border-bottom: 1px solid var(--sem-color-border-subtle); }
+
+  .slots { width: 100%; border-collapse: collapse; }
+  .slots th { text-align: left; font-weight: var(--sem-font-weight-medium); font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); padding: var(--sem-space-xs) var(--sem-space-sm); border-bottom: 1px solid var(--sem-color-border-subtle); letter-spacing: var(--sem-font-tracking-wide); }
+  .slots td { padding: var(--sem-space-sm); border-bottom: 1px solid var(--sem-color-border-subtle); vertical-align: middle; }
+  .slots tr:last-child td { border-bottom: 0; }
+  .slots th:first-child, .slots td:first-child { padding-left: var(--sem-space-xl); width: 34px; }
+  .slots th:last-child, .slots td:last-child { padding-right: var(--sem-space-xl); text-align: right; }
+  .slots tbody tr.slot { cursor: pointer; }
+  .slots tbody tr.slot:hover td { background: var(--sem-color-bg-hover); }
+  .slots tbody tr.slot.open td { background: var(--sem-color-bg-selected); }
+  .slots tr.subhead td { background: var(--sem-color-bg-surface); font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); padding-top: var(--sem-space-xs); padding-bottom: var(--sem-space-xs); letter-spacing: var(--sem-font-tracking-wide); cursor: default; }
+  .slots tr.subhead td:last-child { text-align: left; }
+  .slots .cb { width: 14px; height: 14px; accent-color: var(--sem-color-accent-primary); cursor: pointer; }
+  .slots .cb[disabled] { visibility: hidden; }
+  .wt-name { color: var(--sem-color-text-primary); font-weight: var(--sem-font-weight-medium); }
+  .wt-state { margin-top: 4px; }
+  .slots { table-layout: fixed; }
+  .slots col.c-cb { width: 34px; } .slots col.c-wt { width: 150px; } .slots col.c-br { width: 210px; } .slots col.c-sz { width: 70px; } .slots col.c-act { width: 150px; }
+  .branch, .branch-sub, .agent .who, .agent .what { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent > div { min-width: 0; }
+  .wt-path { font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); font-family: var(--sem-font-family-mono); }
+  .branch { font-family: var(--sem-font-family-mono); font-size: var(--sem-font-size-meta); color: var(--sem-color-text-default); }
+  .branch-sub { font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); }
+  .size { font-variant-numeric: tabular-nums; color: var(--sem-color-text-muted); white-space: nowrap; }
+  .actions { display: inline-flex; gap: var(--sem-space-2xs); justify-content: flex-end; }
+
+  .pill { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 var(--sem-space-sm); border-radius: var(--sem-radius-pill); font-size: var(--sem-font-size-micro); font-weight: var(--sem-font-weight-medium); white-space: nowrap; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.leased { background: var(--sem-color-accent-soft); color: var(--sem-color-accent-primary); }
+  .pill.idle { background: var(--sem-color-status-neutral-soft); color: var(--sem-color-status-neutral); }
+  .pill.held { background: var(--sem-color-status-warn-soft); color: var(--sem-color-status-warn); }
+  .pill.busy { background: var(--sem-color-status-neutral-soft); color: var(--sem-color-text-muted); }
+  .pill.busy::before { border: 1.5px solid currentColor; border-right-color: transparent; background: transparent; width: 7px; height: 7px; animation: spin .8s linear infinite; }
+  .pill.other { background: color-mix(in srgb, var(--sem-color-status-merged) 18%, transparent); color: var(--sem-color-status-merged); }
+  .pill.merged { background: color-mix(in srgb, var(--sem-color-status-merged) 18%, transparent); color: var(--sem-color-status-merged); }
+  .pill.merged::before, .pill.plain::before { display: none; }
+  .pill.plain { background: var(--sem-color-bg-well); color: var(--sem-color-text-muted); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .agent { display: flex; align-items: center; gap: var(--sem-space-sm); min-width: 0; }
+  .avatar { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-size: 10px; font-weight: 600; flex-shrink: 0; color: var(--sem-color-text-on-accent); }
+  .av-a { background: #d97757; }
+  .av-b { background: #5b8def; }
+  .av-c { background: #9c7cf0; }
+  .av-sched { background: var(--sem-color-bg-active); color: var(--sem-color-text-muted); }
+  .agent .who { color: var(--sem-color-text-primary); }
+  .agent .what { font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); }
+  .live { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--sem-color-status-good); box-shadow: 0 0 0 3px var(--sem-color-status-good-faint); margin-right: 4px; vertical-align: 1px; }
+
+  /* Detail drawer row */
+  tr.detail td { background: var(--sem-color-bg-surface); padding: 0; cursor: default; }
+  tr.detail[hidden] { display: none; }
+  .detail-body { display: grid; grid-template-columns: 1.2fr 1fr; gap: var(--sem-space-3xl); padding: var(--sem-space-xl) var(--sem-space-xl) var(--sem-space-xl) 58px; text-align: left; }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px var(--sem-space-lg); font-size: var(--sem-font-size-meta); }
+  .kv dt { color: var(--sem-color-text-subtle); }
+  .kv dd { margin: 0; color: var(--sem-color-text-default); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail h5 { margin: 0 0 var(--sem-space-sm); font-size: var(--sem-font-size-meta); color: var(--sem-color-text-muted); font-weight: var(--sem-font-weight-medium); }
+  .breakdown { display: grid; grid-template-columns: 1fr auto; gap: 6px var(--sem-space-lg); font-size: var(--sem-font-size-meta); }
+  .breakdown .bar { grid-column: 1 / -1; height: 4px; background: var(--sem-color-bg-well); border-radius: 2px; overflow: hidden; margin: -2px 0 2px; }
+  .breakdown .bar i { display: block; height: 100%; background: var(--sem-color-text-subtle); }
+  .detail .row-actions { display: flex; flex-wrap: wrap; gap: var(--sem-space-xs); margin-top: var(--sem-space-lg); }
+  .changes { font-family: var(--sem-font-family-mono); font-size: var(--sem-font-size-micro); line-height: 1.7; margin: 0; padding: var(--sem-space-sm) var(--sem-space-md); background: var(--sem-color-bg-well); border-radius: var(--sem-radius-chip); }
+  .changes .m { color: var(--sem-color-status-warn); }
+  .changes .a { color: var(--sem-color-status-good); }
+  .changes .u { color: var(--sem-color-text-subtle); }
+
+  /* Bulk bar */
+  .bulk {
+    position: sticky; bottom: 0; margin-top: var(--sem-space-xl);
+    display: flex; align-items: center; gap: var(--sem-space-lg);
+    padding: var(--sem-space-md) var(--sem-space-xl);
+    background: var(--sem-color-bg-surface-raised);
+    border: 1px solid var(--sem-color-border-strong);
+    border-radius: var(--sem-radius-shell);
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  .bulk[hidden] { display: none; }
+  .bulk .spacer { flex: 1; }
+
+  /* Menus */
+  .menu { position: fixed; z-index: 20; min-width: 220px; padding: 4px; background: var(--sem-color-bg-surface-raised); border: 1px solid var(--sem-color-border-strong); border-radius: var(--sem-radius-overlay); box-shadow: 0 12px 32px rgba(0,0,0,.4); }
+  .menu[hidden] { display: none; }
+  .menu button { display: flex; width: 100%; align-items: center; gap: var(--sem-space-sm); height: 28px; padding: 0 var(--sem-space-sm); border: 0; background: transparent; border-radius: 5px; text-align: left; cursor: pointer; }
+  .menu button:hover { background: var(--sem-color-bg-hover); }
+  .menu button .kbd { margin-left: auto; color: var(--sem-color-text-subtle); font-size: var(--sem-font-size-micro); }
+  .menu button.danger { color: var(--sem-color-status-danger); }
+  .menu button[disabled] { color: var(--sem-color-text-disabled); cursor: not-allowed; }
+  .menu hr { border: 0; border-top: 1px solid var(--sem-color-border-subtle); margin: 4px 0; }
+
+  /* Dialogs */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 30; }
+  .scrim[hidden] { display: none; }
+  .modal { width: 520px; background: var(--sem-color-bg-surface-raised); border: 1px solid var(--sem-color-border-strong); border-radius: var(--sem-radius-shell-lg); box-shadow: 0 24px 60px rgba(0,0,0,.5); }
+  .modal header { padding: var(--sem-space-xl) var(--sem-space-2xl) 0; }
+  .modal h3 { margin: 0; font-size: var(--sem-font-size-title); color: var(--sem-color-text-primary); }
+  .modal .lede { color: var(--sem-color-text-muted); margin: var(--sem-space-xs) 0 0; }
+  .modal .body { padding: var(--sem-space-lg) var(--sem-space-2xl); }
+  .modal footer { display: flex; justify-content: flex-end; align-items: center; gap: var(--sem-space-sm); padding: var(--sem-space-lg) var(--sem-space-2xl); border-top: 1px solid var(--sem-color-border-subtle); }
+  .modal footer .total { margin-right: auto; color: var(--sem-color-text-muted); }
+  .opt { display: flex; gap: var(--sem-space-md); padding: var(--sem-space-md) 0; align-items: flex-start; }
+  .opt + .opt { border-top: 1px solid var(--sem-color-border-subtle); }
+  .opt input { margin-top: 3px; accent-color: var(--sem-color-accent-primary); }
+  .opt .t { color: var(--sem-color-text-primary); }
+  .opt .d { color: var(--sem-color-text-muted); font-size: var(--sem-font-size-meta); }
+  .opt .gb { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--sem-color-text-default); white-space: nowrap; }
+  .opt.off { opacity: .5; }
+
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: var(--sem-space-md) var(--sem-space-xl); background: var(--sem-color-bg-surface-raised); border: 1px solid var(--sem-color-border-strong); border-radius: var(--sem-radius-shell); box-shadow: 0 12px 32px rgba(0,0,0,.4); z-index: 40; }
+  .toast[hidden] { display: none; }
+
+  /* Annotation notes: what is new backend work. Toggle from the mock bar. */
+  .note { display: none; margin: var(--sem-space-sm) 0 0; padding: var(--sem-space-sm) var(--sem-space-md); border-left: 2px solid var(--sem-color-status-merged); background: color-mix(in srgb, var(--sem-color-status-merged) 8%, transparent); color: var(--sem-color-text-muted); font-size: var(--sem-font-size-meta); }
+  body.notes .note { display: block; }
+  body.notes .note-inline { display: inline; }
+  .note-inline { display: none; color: var(--sem-color-status-merged); font-size: var(--sem-font-size-micro); margin-left: 4px; }
+</style>
+</head>
+<body class="notes">
+
+<div class="mock-bar">
+  <b>Mockup</b> Settings → Worktrees. Made-up data.
+  <span class="spacer"></span>
+  <label><input type="checkbox" id="toggle-notes" checked /> Show build notes</label>
+  <button class="btn sm" id="toggle-mode">Light / dark</button>
+</div>
+
+<div class="stage">
+<div class="dialog" role="dialog" aria-label="Settings">
+
+  <!-- Rail -->
+  <nav class="rail">
+    <h2>Settings</h2>
+    <div class="group">app</div>
+    <a>General</a><a>Profile</a><a>Appearance</a><a>Shortcuts</a><a>Settled chats</a>
+    <div class="group">agents</div>
+    <a>Agents</a><a>Providers</a><a>Machines</a>
+    <a class="on">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4" cy="3.5" r="1.6"/><circle cx="4" cy="12.5" r="1.6"/><circle cx="12" cy="6" r="1.6"/><path d="M4 5.1v5.8M12 7.6c0 2.4-3 2.6-6.6 3.9"/></svg>
+      Worktrees
+      <span class="pill held badge" title="1 worktree holds work">1</span>
+    </a>
+    <div class="group">workspace</div>
+    <a>Version control</a><a>Ticket trackers</a><a>Knowledge graph</a><a>Design system</a><a>Modules</a>
+    <div class="group">companion</div>
+    <a>Remote</a>
+  </nav>
+
+  <!-- Page -->
+  <main class="page" id="page">
+    <div class="page-head">
+      <h3>Worktrees</h3>
+      <div class="meta">
+        <span class="subtle" style="font-size:var(--sem-font-size-meta);margin-right:4px">Sizes measured 1 min ago</span>
+        <button class="btn icon ghost" title="Measure again" aria-label="Measure again">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13.5 8A5.5 5.5 0 1 1 11.9 4.1"/><path d="M13.5 2.5v3h-3"/></svg>
+        </button>
+        <button class="btn" id="open-free">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg>
+          Free up space…
+        </button>
+      </div>
+    </div>
+
+    <!-- Overview -->
+    <section class="overview" aria-label="Overview">
+      <div class="stats">
+        <div class="stat"><div class="label">Worktrees</div><div class="value">13</div><div class="sub">across 3 projects</div></div>
+        <div class="stat"><div class="label"><span class="sw c-leased"></span>In use</div><div class="value">4</div><div class="sub">by 3 chats, 1 scheduled run</div></div>
+        <div class="stat"><div class="label"><span class="sw c-idle"></span>Ready to reuse</div><div class="value">4</div><div class="sub">on origin/main</div></div>
+        <div class="stat"><div class="label"><span class="sw c-held"></span>Holding work</div><div class="value">1</div><div class="sub">needs you</div></div>
+        <div class="stat"><div class="label">On disk</div><div class="value">21.4 GB</div><div class="sub">pool 15.9 GB of 30 GB limit</div></div>
+      </div>
+      <div class="usage">
+        <div class="usage-bar" title="21.4 GB of 30 GB">
+          <span class="c-leased" style="width:25.3%" title="In use · 7.6 GB"></span>
+          <span class="c-idle" style="width:21.7%" title="Ready to reuse · 6.5 GB"></span>
+          <span class="c-held" style="width:6%" title="Holding work · 1.8 GB"></span>
+          <span class="c-other" style="width:18.3%" title="Not in the pool · 5.5 GB"></span>
+        </div>
+        <div class="usage-legend">
+          <span><span class="sw c-leased"></span>In use 7.6 GB</span>
+          <span><span class="sw c-idle"></span>Ready to reuse 6.5 GB</span>
+          <span><span class="sw c-held"></span>Holding work 1.8 GB</span>
+          <span><span class="sw c-other"></span>Not in the pool 5.5 GB</span>
+          <span class="limit">Pool limit 30 GB · 14.1 GB left</span>
+        </div>
+      </div>
+      <p class="note">New: per-worktree size. The pool records no sizes today. Measure on demand (when the tab opens, and from the refresh button) off the main thread, and cache it in the pool record. Never measure on a timer.</p>
+    </section>
+
+    <!-- Pool settings -->
+    <div class="section-title"><h4>Pool</h4></div>
+    <div class="card">
+      <div class="row">
+        <div>
+          <div class="lbl">Reuse worktrees for new chats</div>
+          <div class="help">A new chat or an agent's worktree comes from the pool instead of a fresh checkout, reset to the default branch as fetched at that moment. Its ignored files (node_modules, build output) are kept, so installs are faster.</div>
+        </div>
+        <button class="switch" role="switch" aria-checked="true" id="sw-enabled" aria-label="Reuse worktrees for new chats"></button>
+      </div>
+      <div class="row pool-dep">
+        <div>
+          <div class="lbl">Ready worktrees to keep</div>
+          <div class="help">Per project. When a chat is done and its worktree comes back, any beyond this are removed, longest unused first.</div>
+        </div>
+        <div class="stepper" data-min="0" data-max="6"><button aria-label="Fewer">−</button><output>3</output><button aria-label="More">+</button></div>
+      </div>
+      <div class="row pool-dep">
+        <div>
+          <div class="lbl">Most worktrees per project <span class="note-inline">new</span></div>
+          <div class="help">Counting the ones in use. Past this a new chat still gets a worktree, but a fresh one that is removed when the chat is done, not kept for reuse.</div>
+        </div>
+        <div class="stepper" data-min="2" data-max="32"><button aria-label="Fewer">−</button><output>12</output><button aria-label="More">+</button></div>
+      </div>
+      <div class="row pool-dep">
+        <div>
+          <div class="lbl">Disk limit <span class="note-inline">new</span></div>
+          <div class="help">For all of the pool's worktrees together. Past it, the longest-unused ready ones are removed. Nothing in use or holding work is ever removed, and worktrees outside the pool don't count.</div>
+        </div>
+        <select class="sel" aria-label="Disk limit">
+          <option>No limit</option><option>10 GB</option><option>20 GB</option><option selected>30 GB</option><option>50 GB</option><option>100 GB</option>
+        </select>
+      </div>
+      <div class="row">
+        <div>
+          <div class="lbl">Location</div>
+          <div class="help">Next to each project, in a folder per project.</div>
+        </div>
+        <div class="pathbox">
+          <code class="mono">&lt;project&gt;/../.sprintengine-worktrees/&lt;project&gt;/</code>
+        </div>
+      </div>
+    </div>
+    <p class="note">The service has `keepIdle` (max 6) and a fixed `POOL_MAX_SLOTS = 32`. "Most per project" makes that cap a setting. A disk limit needs the sizes above and eviction by LRU in `evictOverLimit`. When the switch is off, the rows below it are disabled, but the list stays visible so existing slots can still be cleared.</p>
+
+    <!-- Worktrees -->
+    <div class="section-title"><h4>Worktrees<span class="count num">13</span></h4></div>
+    <div class="toolbar">
+      <div class="chips" role="tablist" id="chips">
+        <button class="on" data-f="all">All<span class="n">13</span></button>
+        <button data-f="leased">In use<span class="n">4</span></button>
+        <button data-f="idle">Ready<span class="n">4</span></button>
+        <button data-f="held">Holding work<span class="n">1</span></button>
+        <button data-f="other">Not in the pool<span class="n">4</span></button>
+      </div>
+      <input class="search" id="search" placeholder="Filter by branch, chat or path" />
+      <span class="spacer"></span>
+      <select class="sel" aria-label="Sort" style="min-width:150px">
+        <option>Sort: State</option><option>Sort: Size</option><option>Sort: Last used</option>
+      </select>
+    </div>
+
+    <!-- Project: multicode -->
+    <section class="project" data-project>
+      <div class="project-head">
+        <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>
+        <span class="name">studio</span>
+        <div class="facts">
+          <span class="mono">~/code/studio</span>
+          <span>Forks from <span class="mono">origin/main</span></span>
+          <span>Fetched 2 min ago</span>
+          <span class="num">9 worktrees · 15.2 GB</span>
+        </div>
+        <button class="btn sm ghost" title="Show in Finder">Show folder</button>
+      </div>
+      <table class="slots"><colgroup><col class="c-cb"><col class="c-wt"><col class="c-br"><col><col class="c-sz"><col class="c-act"></colgroup>
+        <thead><tr><th></th><th>Worktree</th><th>Branch</th><th>Used by</th><th>Size</th><th></th></tr></thead>
+        <tbody>
+          <!-- leased, running -->
+          <tr class="slot" data-state="leased">
+            <td><input type="checkbox" class="cb" disabled aria-label="Select" /></td>
+            <td><div class="wt-name">pool-01</div><div class="wt-state"><span class="pill leased">In use</span></div></td>
+            <td><div class="branch">agent/fix-login-redirect</div><div class="branch-sub">2 commits ahead · from a41c9e2</div></td>
+            <td><div class="agent"><span class="avatar av-a">C</span><div><div class="who"><span class="live" title="Working"></span>Fix the login redirect loop</div><div class="what">Claude · working · leased 14 min ago</div></div></div></td>
+            <td class="size">1.9 GB</td>
+            <td><div class="actions"><button class="btn sm">Open chat</button><button class="btn sm icon ghost more" aria-label="More">⋯</button></div></td>
+          </tr>
+          <tr class="detail" hidden><td colspan="6"><div class="detail-body">
+            <div>
+              <h5>Lease</h5>
+              <dl class="kv">
+                <dt>Path</dt><dd class="mono">~/code/.sprintengine-worktrees/studio/pool-01</dd>
+                <dt>Branch</dt><dd class="mono">agent/fix-login-redirect</dd>
+                <dt>Forked from</dt><dd><span class="mono">origin/main</span> at <span class="mono">a41c9e2</span>, 14 min ago</dd>
+                <dt>Chat</dt><dd>Fix the login redirect loop · Claude</dd>
+                <dt>Leased by</dt><dd>Opening the chat</dd>
+                <dt>Comes back</dt><dd>When the chat is settled or closed</dd>
+                <dt>Times reused</dt><dd class="num">7</dd>
+              </dl>
+              <div class="row-actions">
+                <button class="btn sm">Open chat</button>
+                <button class="btn sm">Show in Finder</button>
+                <button class="btn sm">Open a terminal here</button>
+                <button class="btn sm">Copy path</button>
+              </div>
+            </div>
+            <div>
+              <h5>On disk</h5>
+              <div class="breakdown">
+                <span>node_modules</span><span class="num">1.4 GB</span><div class="bar"><i style="width:74%"></i></div>
+                <span>Build output (out, dist)</span><span class="num">310 MB</span><div class="bar"><i style="width:16%"></i></div>
+                <span>Tracked files</span><span class="num">180 MB</span><div class="bar"><i style="width:9%"></i></div>
+              </div>
+            </div>
+          </div></td></tr>
+
+          <!-- leased by MCP agent -->
+          <tr class="slot" data-state="leased">
+            <td><input type="checkbox" class="cb" disabled aria-label="Select" /></td>
+            <td><div class="wt-name">pool-02</div><div class="wt-state"><span class="pill leased">In use</span></div></td>
+            <td><div class="branch">agent/retry-backoff</div><div class="branch-sub">no commits yet</div></td>
+            <td><div class="agent"><span class="avatar av-b">A</span><div><div class="who">Remote reconnect hardening</div><div class="what">Agent B · waiting on you · leased with worktree.lease</div></div></div></td>
+            <td class="size">1.9 GB</td>
+            <td><div class="actions"><button class="btn sm">Open chat</button><button class="btn sm icon ghost more" aria-label="More">⋯</button></div></td>
+          </tr>
+          <tr class="detail" hidden><td colspan="6"><div class="detail-body">
+            <div>
+              <h5>Lease</h5>
+              <dl class="kv">
+                <dt>Path</dt><dd class="mono">~/code/.sprintengine-worktrees/studio/pool-02</dd>
+                <dt>Leased by</dt><dd>The agent itself, with <span class="mono">worktree.lease</span>. Its chat runs in <span class="mono">~/code/studio</span>.</dd>
+                <dt>Comes back</dt><dd>When the agent calls worktree.release or its chat ends</dd>
+              </dl>
+              <div class="row-actions"><button class="btn sm">Open chat</button><button class="btn sm">Show in Finder</button></div>
+            </div>
+            <div><h5>On disk</h5><div class="breakdown"><span>node_modules</span><span class="num">1.4 GB</span><div class="bar"><i style="width:74%"></i></div><span>Build output</span><span class="num">320 MB</span><div class="bar"><i style="width:17%"></i></div><span>Tracked files</span><span class="num">180 MB</span><div class="bar"><i style="width:9%"></i></div></div></div>
+          </div></td></tr>
+
+          <!-- leased by scheduled run -->
+          <tr class="slot" data-state="leased">
+            <td><input type="checkbox" class="cb" disabled aria-label="Select" /></td>
+            <td><div class="wt-name">pool-03</div><div class="wt-state"><span class="pill leased">In use</span></div></td>
+            <td><div class="branch">agent/nightly-dependency-audit</div><div class="branch-sub">from a41c9e2</div></td>
+            <td><div class="agent"><span class="avatar av-sched">⏱</span><div><div class="who"><span class="live"></span>Nightly dependency audit</div><div class="what">Scheduled run · started 3 min ago</div></div></div></td>
+            <td class="size">1.8 GB</td>
+            <td><div class="actions"><button class="btn sm">Open run</button><button class="btn sm icon ghost more" aria-label="More">⋯</button></div></td>
+          </tr>
+          <tr class="detail" hidden><td colspan="6"><div class="detail-body"><div><h5>Lease</h5><dl class="kv"><dt>Leased by</dt><dd>Schedule “Nightly dependency audit”</dd><dt>Comes back</dt><dd>When the run finishes</dd></dl></div><div></div></div></td></tr>
+
+          <!-- held -->
+          <tr class="slot" data-state="held">
+            <td><input type="checkbox" class="cb" disabled aria-label="Select" /></td>
+            <td><div class="wt-name">pool-04</div><div class="wt-state"><span class="pill held">Holding work</span></div></td>
+            <td><div class="branch">agent/settings-copy-pass</div><div class="branch-sub">3 changed files, not committed</div></td>
+            <td><div class="agent"><span class="avatar av-c">C</span><div><div class="who">Tighten the settings copy</div><div class="what">Settled 2 h ago · came back with changes</div></div></div></td>
+            <td class="size">1.8 GB</td>
+            <td><div class="actions"><button class="btn sm primary" data-commit>Resolve…</button><button class="btn sm icon ghost more" data-menu="held" aria-label="More">⋯</button></div></td>
+          </tr>
+          <tr class="detail" hidden><td colspan="6"><div class="detail-body">
+            <div>
+              <h5>Why it is held</h5>
+              <p style="margin:0 0 var(--sem-space-sm)">The chat was settled with changes that are not committed. Nothing is reused or removed until you decide what happens to them.</p>
+              <pre class="changes"><span class="m">M</span>  src/renderer/src/components/settings/SettingsPanel.tsx
+<span class="m">M</span>  src/renderer/src/components/settings/SettingsAtoms.tsx
+<span class="u">??</span> docs/copy-notes.md</pre>
+              <div class="row-actions">
+                <button class="btn sm primary">Commit to agent/settings-copy-pass…</button>
+                <button class="btn sm">Stash and reuse</button>
+                <button class="btn sm danger" data-discard>Discard changes…</button>
+                <button class="btn sm">Keep it out of the pool</button>
+                <button class="btn sm">Show diff</button>
+              </div>
+            </div>
+            <div>
+              <h5>What each does</h5>
+              <dl class="kv" style="grid-template-columns:90px 1fr">
+                <dt>Commit</dt><dd style="white-space:normal">Commits on the branch, then the worktree goes back to the pool. The branch keeps the work.</dd>
+                <dt>Stash</dt><dd style="white-space:normal">Stashes it (named after the branch), then reuses the worktree.</dd>
+                <dt>Discard</dt><dd style="white-space:normal">Throws the changes away. Cannot be undone.</dd>
+                <dt>Keep</dt><dd style="white-space:normal">Leaves it as it is, outside the pool, as an ordinary worktree.</dd>
+              </dl>
+            </div>
+          </div></td></tr>
+
+          <!-- leasing -->
+          <tr class="slot" data-state="leased">
+            <td><input type="checkbox" class="cb" disabled aria-label="Select" /></td>
+            <td><div class="wt-name">pool-05</div><div class="wt-state"><span class="pill busy">Getting ready</span></div></td>
+            <td><div class="branch">agent/canvas-zoom-steps</div><div class="branch-sub">resetting to origin/main…</div></td>
+            <td><div class="agent"><span class="avatar av-a">C</span><div><div class="who">Canvas zoom steps</div><div class="what">Claude · new chat</div></div></div></td>
+            <td class="size">1.7 GB</td>
+            <td><div class="actions"></div></td>
+          </tr>
+          <tr class="detail" hidden><td colspan="6"><div class="detail-body"><div><h5>Getting ready</h5><p style="margin:0" class="muted">Fetched origin/main, resetting the worktree, then switching to the new branch. Usually under a second.</p></div><div></div></div></td></tr>
+
+          <!-- idle -->
+          <tr class="slot" data-state="idle">
+            <td><input type="checkbox" class="cb" data-gb="1.6" aria-label="Select pool-06" /></td>
+            <td><div class="wt-name">pool-06</div><div class="wt-state"><span class="pill idle">Ready</span></div></td>
+            <td><div class="branch muted">no branch</div><div class="branch-sub">at origin/main a41c9e2</div></td>
+            <td><div class="what subtle">Last used 25 min ago</div></td>
+            <td class="size">1.6 GB</td>
+            <td><div class="actions"><button class="btn sm" data-remove="pool-06" data-gb="1.6">Remove</button><button class="btn sm icon ghost more" data-menu="idle" aria-label="More">⋯</button></div></td>
+          </tr>
+          <tr class="detail" hidden><td colspan="6"><div class="detail-body">
+            <div>
+              <h5>Ready to reuse</h5>
+              <dl class="kv">
+                <dt>Last used by</dt><dd>“Split the gateway tool registry” · Claude</dd>
+                <dt>Returned</dt><dd>25 min ago. Its branch is kept.</dd>
+                <dt>Next lease</dt><dd>Fetches, then resets to the newest origin/main</dd>
+              </dl>
+              <div class="row-actions">
+                <button class="btn sm">Clear ignored files</button>
+                <button class="btn sm danger" data-remove="pool-06" data-gb="1.6">Remove from the pool</button>
+              </div>
+            </div>
+            <div><h5>On disk</h5><div class="breakdown"><span>node_modules</span><span class="num">1.3 GB</span><div class="bar"><i style="width:80%"></i></div><span>Build output</span><span class="num">120 MB</span><div class="bar"><i style="width:8%"></i></div><span>Tracked files</span><span class="num">180 MB</span><div class="bar"><i style="width:11%"></i></div></div></div>
+          </div></td></tr>
+          <tr class="slot" data-state="idle">
+            <td><input type="checkbox" class="cb" data-gb="1.7" aria-label="Select pool-07" /></td>
+            <td><div class="wt-name">pool-07</div><div class="wt-state"><span class="pill idle">Ready</span></div></td>
+            <td><div class="branch muted">no branch</div><div class="branch-sub">at origin/main 7d02e11 · behind</div></td>
+            <td><div class="what subtle">Last used yesterday</div></td>
+            <td class="size">1.7 GB</td>
+            <td><div class="actions"><button class="btn sm" data-remove="pool-07" data-gb="1.7">Remove</button><button class="btn sm icon ghost more" data-menu="idle" aria-label="More">⋯</button></div></td>
+          </tr>
+          <tr class="detail" hidden><td colspan="6"><div class="detail-body"><div><h5>Ready to reuse</h5><dl class="kv"><dt>Last used by</dt><dd>“Prettier config sweep” · Agent B</dd><dt>Returned</dt><dd>Yesterday, 17:42</dd></dl></div><div></div></div></td></tr>
+
+          <!-- not in pool -->
+          <tr class="subhead"><td></td><td colspan="5">NOT IN THE POOL · other worktrees of this project</td></tr>
+          <tr class="slot" data-state="other">
+            <td><input type="checkbox" class="cb" data-gb="2.1" aria-label="Select" /></td>
+            <td><div class="wt-name">studio-worktree-pool</div><div class="wt-state"><span class="pill merged">Merged</span></div></td>
+            <td><div class="branch">feat/worktree-pool</div><div class="branch-sub">merged into main 3 h ago</div></td>
+            <td><div class="what subtle">Made by hand · no chat</div></td>
+            <td class="size">2.1 GB</td>
+            <td><div class="actions"><button class="btn sm" data-remove="studio-worktree-pool" data-gb="2.1">Remove</button><button class="btn sm icon ghost more" data-menu="other" aria-label="More">⋯</button></div></td>
+          </tr>
+          <tr class="detail" hidden><td colspan="6"><div class="detail-body"><div><h5>Not in the pool</h5><p style="margin:0" class="muted">A worktree Studio did not make. Its branch is merged and it has no changes, so removing it loses nothing.</p><div class="row-actions"><button class="btn sm">Show in Finder</button><button class="btn sm" disabled title="Planned">Add to the pool</button></div></div><div></div></div></td></tr>
+          <tr class="slot" data-state="other">
+            <td><input type="checkbox" class="cb" data-gb="1.2" aria-label="Select" /></td>
+            <td><div class="wt-name">export-pdf</div><div class="wt-state"><span class="pill plain">Not merged</span></div></td>
+            <td><div class="branch">agent/export-pdf</div><div class="branch-sub">4 commits not on main · pushed</div></td>
+            <td><div class="agent"><span class="avatar av-a">C</span><div><div class="who">Export the canvas as PDF</div><div class="what">Settled chat · from before the pool</div></div></div></td>
+            <td class="size">1.2 GB</td>
+            <td><div class="actions"><button class="btn sm" data-remove="export-pdf" data-gb="1.2" data-unmerged>Remove</button><button class="btn sm icon ghost more" data-menu="other" aria-label="More">⋯</button></div></td>
+          </tr>
+          <tr class="detail" hidden><td colspan="6"><div class="detail-body"><div><h5>Not in the pool</h5><p style="margin:0" class="muted">Removing the folder keeps the branch: its 4 commits are pushed, and reopening the settled chat checks it out again.</p></div><div></div></div></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Project: site -->
+    <section class="project" data-project>
+      <div class="project-head">
+        <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>
+        <span class="name">marketing-site</span>
+        <div class="facts">
+          <span class="mono">~/code/marketing-site</span>
+          <span>Forks from <span class="mono">origin/main</span></span>
+          <span>Fetched 1 h ago</span>
+          <span class="num">3 worktrees · 4.1 GB</span>
+        </div>
+        <button class="btn sm ghost">Show folder</button>
+      </div>
+      <table class="slots"><colgroup><col class="c-cb"><col class="c-wt"><col class="c-br"><col><col class="c-sz"><col class="c-act"></colgroup>
+        <thead><tr><th></th><th>Worktree</th><th>Branch</th><th>Used by</th><th>Size</th><th></th></tr></thead>
+        <tbody>
+          <tr class="slot" data-state="idle">
+            <td><input type="checkbox" class="cb" data-gb="1.6" aria-label="Select" /></td>
+            <td><div class="wt-name">pool-01</div><div class="wt-state"><span class="pill idle">Ready</span></div></td>
+            <td><div class="branch muted">no branch</div><div class="branch-sub">at origin/main 19be0c4</div></td>
+            <td><div class="what subtle">Last used 3 days ago</div></td>
+            <td class="size">1.6 GB</td>
+            <td><div class="actions"><button class="btn sm" data-remove="pool-01" data-gb="1.6">Remove</button><button class="btn sm icon ghost more" data-menu="idle" aria-label="More">⋯</button></div></td>
+          </tr>
+          <tr class="detail" hidden><td colspan="6"><div class="detail-body"><div><h5>Ready to reuse</h5></div><div></div></div></td></tr>
+          <tr class="slot" data-state="idle">
+            <td><input type="checkbox" class="cb" data-gb="1.6" aria-label="Select" /></td>
+            <td><div class="wt-name">pool-02</div><div class="wt-state"><span class="pill idle">Ready</span></div></td>
+            <td><div class="branch muted">no branch</div><div class="branch-sub">at origin/main 19be0c4</div></td>
+            <td><div class="what subtle">Last used 3 days ago</div></td>
+            <td class="size">1.6 GB</td>
+            <td><div class="actions"><button class="btn sm" data-remove="pool-02" data-gb="1.6">Remove</button><button class="btn sm icon ghost more" data-menu="idle" aria-label="More">⋯</button></div></td>
+          </tr>
+          <tr class="detail" hidden><td colspan="6"><div class="detail-body"><div><h5>Ready to reuse</h5></div><div></div></div></td></tr>
+          <tr class="subhead"><td></td><td colspan="5">NOT IN THE POOL</td></tr>
+          <tr class="slot" data-state="other">
+            <td><input type="checkbox" class="cb" data-gb="0.9" aria-label="Select" /></td>
+            <td><div class="wt-name">hero-copy</div><div class="wt-state"><span class="pill merged">Merged</span></div></td>
+            <td><div class="branch">agent/hero-copy</div><div class="branch-sub">squash-merged 5 days ago</div></td>
+            <td><div class="what subtle">Settled chat “Hero copy”</div></td>
+            <td class="size">0.9 GB</td>
+            <td><div class="actions"><button class="btn sm" data-remove="hero-copy" data-gb="0.9">Remove</button><button class="btn sm icon ghost more" data-menu="other" aria-label="More">⋯</button></div></td>
+          </tr>
+          <tr class="detail" hidden><td colspan="6"><div class="detail-body"><div></div><div></div></div></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Project: held by other instance -->
+    <section class="project collapsed" data-project>
+      <div class="project-head">
+        <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>
+        <span class="name">design-tokens</span>
+        <div class="facts">
+          <span class="mono">~/code/design-tokens</span>
+          <span>Managed by another Studio window</span>
+          <span class="num">1 worktree · 2.1 GB</span>
+        </div>
+        <button class="btn sm ghost">Show folder</button>
+      </div>
+      <div class="banner">Another copy of Studio (profile “work”) is managing this pool. You can see it here; to change it, use that copy.</div>
+      <table class="slots"><colgroup><col class="c-cb"><col class="c-wt"><col class="c-br"><col><col class="c-sz"><col class="c-act"></colgroup><tbody>
+        <tr class="slot" data-state="other"><td><input type="checkbox" class="cb" disabled /></td><td><div class="wt-name">pool-01<div class="wt-state"><span class="pill plain">Other Studio</span></div></td><td></td><td></td><td class="size">2.1 GB</td><td></td></tr>
+      </tbody></table>
+    </section>
+    <p class="note">The service has `heldByOtherInstance` already. A row for each git worktree that is not a pool slot (`git worktree list` minus the slots) needs a list call per project. Merged/not merged comes from the same check `deleteMergedAgentBranches` uses. "Add to the pool" (adopt) is not built. "Clear ignored files" is `git clean -fdX` on an idle slot, which is new.</p>
+
+    <!-- Bulk bar -->
+    <div class="bulk" id="bulk" hidden>
+      <span id="bulk-count" class="strong">0 selected</span>
+      <span class="muted" id="bulk-gb"></span>
+      <span class="spacer"></span>
+      <button class="btn sm ghost" id="bulk-clear">Clear selection</button>
+      <button class="btn sm danger-solid" id="bulk-remove">Remove</button>
+    </div>
+  </main>
+</div>
+</div>
+
+<!-- Overflow menu -->
+<div class="menu" id="menu" hidden>
+  <button>Show in Finder</button>
+  <button>Open a terminal here</button>
+  <button>Copy path</button>
+  <hr />
+  <button data-only="idle other">Clear ignored files…<span class="kbd">keeps the worktree</span></button>
+  <button data-only="held">Keep it out of the pool</button>
+  <button data-only="held" class="danger">Discard changes…</button>
+  <button data-only="other" disabled>Add to the pool</button>
+  <button data-only="idle other" class="danger">Remove…</button>
+</div>
+
+<!-- Free up space dialog -->
+<div class="scrim" id="free" hidden>
+  <div class="modal" role="dialog" aria-labelledby="free-title">
+    <header>
+      <h3 id="free-title">Free up space</h3>
+      <p class="lede">Nothing in use or holding uncommitted work is touched. Branches are kept.</p>
+    </header>
+    <div class="body">
+      <label class="opt"><input type="checkbox" checked data-gb="4.9" />
+        <div><div class="t">Remove ready worktrees beyond 1 per project</div><div class="d">studio pool-07, marketing-site pool-01, pool-02. The newest stays so the next chat starts quickly.</div></div>
+        <span class="gb">4.9 GB</span></label>
+      <label class="opt"><input type="checkbox" checked data-gb="3.0" />
+        <div><div class="t">Remove worktrees whose branch is merged</div><div class="d">studio-worktree-pool, hero-copy</div></div>
+        <span class="gb">3.0 GB</span></label>
+      <label class="opt"><input type="checkbox" data-gb="1.4" />
+        <div><div class="t">Clear ignored files in the ready worktree you keep</div><div class="d">node_modules and build output. The next agent in it runs the install again.</div></div>
+        <span class="gb">1.4 GB</span></label>
+      <label class="opt off"><input type="checkbox" disabled />
+        <div><div class="t">Unmerged worktrees outside the pool</div><div class="d">export-pdf has 4 commits not on main. Remove it from the list if you mean to.</div></div>
+        <span class="gb">1.2 GB</span></label>
+    </div>
+    <footer>
+      <span class="total" id="free-total">Frees about 7.9 GB</span>
+      <button class="btn" data-close>Cancel</button>
+      <button class="btn danger-solid" id="free-go">Free 7.9 GB</button>
+    </footer>
+  </div>
+</div>
+
+<!-- Confirm remove dialog -->
+<div class="scrim" id="confirm" hidden>
+  <div class="modal" role="dialog" aria-labelledby="confirm-title" style="width:440px">
+    <header>
+      <h3 id="confirm-title">Remove pool-06?</h3>
+      <p class="lede" id="confirm-lede">Deletes the folder and frees 1.6 GB. It has no changes. The next chat gets a new worktree, with no dependencies installed.</p>
+    </header>
+    <footer>
+      <button class="btn" data-close>Cancel</button>
+      <button class="btn danger-solid" id="confirm-go">Remove</button>
+    </footer>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+  const $ = (s, r = document) => r.querySelector(s)
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)]
+  const toast = (msg) => { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(t._h); t._h = setTimeout(() => (t.hidden = true), 2600) }
+
+  $('#toggle-mode').onclick = () => {
+    const html = document.documentElement
+    html.dataset.mode = html.dataset.mode === 'dark' ? 'light' : 'dark'
+  }
+  $('#toggle-notes').onchange = (e) => document.body.classList.toggle('notes', e.target.checked)
+
+  // Switch + the rows that depend on it
+  $('#sw-enabled').onclick = (e) => {
+    const on = e.currentTarget.getAttribute('aria-checked') !== 'true'
+    e.currentTarget.setAttribute('aria-checked', String(on))
+    $$('.pool-dep').forEach((r) => r.classList.toggle('disabled', !on))
+  }
+
+  // Steppers
+  $$('.stepper').forEach((s) => {
+    const out = $('output', s), [dec, inc] = $$('button', s)
+    const min = +s.dataset.min, max = +s.dataset.max
+    dec.onclick = () => (out.textContent = Math.max(min, +out.textContent - 1))
+    inc.onclick = () => (out.textContent = Math.min(max, +out.textContent + 1))
+  })
+
+  // Collapse projects
+  $$('.project-head').forEach((h) => (h.querySelector('.chev').onclick = () => h.parentElement.classList.toggle('collapsed')))
+
+  // Row expand
+  $$('tr.slot').forEach((tr) => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('button, input')) return
+      const detail = tr.nextElementSibling
+      if (!detail || !detail.classList.contains('detail')) return
+      const open = detail.hidden
+      detail.hidden = !open
+      tr.classList.toggle('open', open)
+    })
+  })
+
+  // Filters + search
+  let filter = 'all'
+  const apply = () => {
+    const q = $('#search').value.trim().toLowerCase()
+    $$('tr.slot').forEach((tr) => {
+      const show = (filter === 'all' || tr.dataset.state === filter) && (!q || tr.textContent.toLowerCase().includes(q))
+      tr.style.display = show ? '' : 'none'
+      const d = tr.nextElementSibling
+      if (d && d.classList.contains('detail') && !show) { d.hidden = true; tr.classList.remove('open') }
+    })
+    $$('tr.subhead').forEach((s) => (s.style.display = filter === 'all' || filter === 'other' ? '' : 'none'))
+  }
+  $$('#chips button').forEach((b) => (b.onclick = () => {
+    $$('#chips button').forEach((x) => x.classList.toggle('on', x === b))
+    filter = b.dataset.f; apply()
+  }))
+  $('#search').oninput = apply
+
+  // Bulk selection
+  const updateBulk = () => {
+    const sel = $$('.cb:checked')
+    const gb = sel.reduce((n, c) => n + +c.dataset.gb, 0)
+    $('#bulk').hidden = sel.length === 0
+    $('#bulk-count').textContent = `${sel.length} selected`
+    $('#bulk-gb').textContent = `${gb.toFixed(1)} GB`
+    $('#bulk-remove').textContent = `Remove ${sel.length} · free ${gb.toFixed(1)} GB`
+  }
+  $$('.cb').forEach((c) => (c.onchange = updateBulk))
+  $('#bulk-clear').onclick = () => { $$('.cb:checked').forEach((c) => (c.checked = false)); updateBulk() }
+  $('#bulk-remove').onclick = () => {
+    const sel = $$('.cb:checked')
+    const gb = sel.reduce((n, c) => n + +c.dataset.gb, 0)
+    openConfirm(`Remove ${sel.length} worktrees?`, `Deletes their folders and frees ${gb.toFixed(1)} GB. None of them has changes, and their branches are kept.`, () => {
+      sel.forEach((c) => removeRow(c.closest('tr')))
+      updateBulk(); toast(`Removed ${sel.length} worktrees · freed ${gb.toFixed(1)} GB`)
+    })
+  }
+
+  // Confirm dialog
+  let onConfirm = null
+  const openConfirm = (title, lede, fn) => { $('#confirm-title').textContent = title; $('#confirm-lede').textContent = lede; onConfirm = fn; $('#confirm').hidden = false }
+  $('#confirm-go').onclick = () => { $('#confirm').hidden = true; onConfirm?.() }
+  const removeRow = (tr) => { const d = tr.nextElementSibling; if (d?.classList.contains('detail')) d.remove(); tr.remove() }
+
+  document.addEventListener('click', (e) => {
+    const rm = e.target.closest('[data-remove]')
+    if (rm) {
+      const name = rm.dataset.remove, gb = rm.dataset.gb
+      const tr = rm.closest('tr.detail')?.previousElementSibling ?? rm.closest('tr')
+      const lede = rm.hasAttribute('data-unmerged')
+        ? `Deletes the folder and frees ${gb} GB. The branch agent/${name} and its 4 commits are kept, and they are pushed.`
+        : `Deletes the folder and frees ${gb} GB. It has no changes. The next chat gets a new worktree, with no dependencies installed.`
+      openConfirm(`Remove ${name}?`, lede, () => { removeRow(tr); toast(`Removed ${name} · freed ${gb} GB`) })
+    }
+    const resolve = e.target.closest('[data-commit]')
+    if (resolve) {
+      const tr = resolve.closest('tr'); tr.nextElementSibling.hidden = false; tr.classList.add('open')
+    }
+    if (e.target.closest('[data-discard]')) {
+      openConfirm('Discard 3 changes in pool-04?', 'Throws away the uncommitted changes on agent/settings-copy-pass. This cannot be undone. The worktree then goes back to the pool.', () => toast('Discarded · pool-04 is ready to reuse'))
+    }
+    if (e.target.closest('[data-close]')) $$('.scrim').forEach((s) => (s.hidden = true))
+    if (e.target.classList.contains('scrim')) e.target.hidden = true
+
+    // Overflow menu
+    const more = e.target.closest('.more')
+    const menu = $('#menu')
+    if (more) {
+      const kind = more.dataset.menu ?? 'leased'
+      $$('button', menu).forEach((b) => (b.style.display = !b.dataset.only || b.dataset.only.split(' ').includes(kind) ? '' : 'none'))
+      const r = more.getBoundingClientRect()
+      menu.style.top = `${r.bottom + 4}px`; menu.style.left = `${r.right - 220}px`; menu.hidden = false
+      e.stopPropagation(); return
+    }
+    if (!e.target.closest('#menu')) menu.hidden = true
+  })
+
+  // Free up space
+  const freeTotal = () => {
+    const gb = $$('#free input:checked').reduce((n, c) => n + +c.dataset.gb, 0)
+    $('#free-total').textContent = `Frees about ${gb.toFixed(1)} GB`
+    $('#free-go').textContent = `Free ${gb.toFixed(1)} GB`
+    $('#free-go').disabled = gb === 0
+  }
+  $$('#free input').forEach((c) => (c.onchange = freeTotal))
+  $('#open-free').onclick = () => { $('#free').hidden = false; freeTotal() }
+  $('#free-go').onclick = () => { $('#free').hidden = true; toast(`${$('#free-go').textContent.replace('Free', 'Freed')} · 2 ready worktrees kept`) }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $$('.scrim').forEach((s) => (s.hidden = true)); $('#menu').hidden = true } })
+</script>
+</body>
+</html>
