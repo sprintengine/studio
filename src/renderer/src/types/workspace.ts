@@ -433,6 +433,13 @@ export type AppSettings = {
    */
   hasAdoptedAgentConfig: boolean
   /**
+   * Whether this profile has been offered its Claude Code and Codex sessions
+   * to import, on the first-run card. Set by the card's import and by its
+   * "not now", once: Settings → Agents imports at any time after. Defaults
+   * true for a profile that already had chats, which never sees the card.
+   */
+  conversationImportOffered: boolean
+  /**
    * How long an idle agent terminal sits before it is paused (its CLI process is
    * killed to reclaim memory, with the painted view frozen and resumed on click
    * or keystroke). In MINUTES; default 15. Never applies to agents waiting on the

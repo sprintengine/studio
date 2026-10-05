@@ -3,7 +3,14 @@ import { StudioServerBanner } from '../studioServer/StudioServerBanner'
 import { hostIdForFolder, isWslHostId, LOCAL_HOST_ID, type ExecutionHostId } from '../../../../shared/execution-host'
 import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
-import { shouldAutoOpenNewChat, shouldShowFirstRunCliCard } from '../../store/onboardingState'
+import {
+  isFirstRunCliCardPending,
+  shouldAutoOpenNewChat,
+  shouldShowConversationImportCard,
+  shouldShowFirstRunCliCard,
+} from '../../store/onboardingState'
+import { useConversationImportScan } from '../onboarding/useConversationImportScan'
+import { importableCount } from '../onboarding/conversationImport'
 import { planAgentConfigAdoption } from '../onboarding/agentConfigAdoption'
 import { EmptyState as KitEmptyState, PrimaryButton } from '../ui'
 import { Modal } from '../ui/Modal'
@@ -324,6 +331,9 @@ const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOv
 // shares with the lazy Settings panel) mounts on machines with no CLI installed,
 // so the machines that never show it never evaluate it at boot.
 const FirstRunCliCard = React.lazy(() => import('../onboarding/FirstRunCliCard'))
+// First-run only too: the offer of the sessions this person already ran in
+// Claude Code or Codex, on a fresh profile whose scan found some.
+const ConversationImportCard = React.lazy(() => import('../onboarding/ConversationImportCard'))
 
 // Display name for a New Chat project scope: the folder's last path segment.
 function newChatFolderLabel(path: string): string {
@@ -418,6 +428,8 @@ export default function WorkspaceManager() {
   )
   const firstRunCliCardDismissed = useWorkspaceStore((s) => s.appSettings.firstRunCliCardDismissed)
   const dismissFirstRunCliCard = useWorkspaceStore((s) => s.dismissFirstRunCliCard)
+  const conversationImportOffered = useWorkspaceStore((s) => s.appSettings.conversationImportOffered)
+  const markConversationImportOffered = useWorkspaceStore((s) => s.markConversationImportOffered)
   const hasAdoptedAgentConfig = useWorkspaceStore((s) => s.appSettings.hasAdoptedAgentConfig)
   const markAgentConfigAdopted = useWorkspaceStore((s) => s.markAgentConfigAdopted)
   // Silent first-run config adoption: detection and the real adoptAgentConfig
@@ -896,6 +908,35 @@ export default function WorkspaceManager() {
     shouldShowFirstRunCliCard({ cliAvailabilityStatus, cliAvailability, firstRunCliCardDismissed }) &&
     !activeGlobalSurfaceEntry &&
     !newChatPanelOpen
+
+  // The first-run import offer: read only on a fresh profile that has not
+  // answered it, and shown after the CLI question by the same region rule.
+  const conversationImportScan = useConversationImportScan(!conversationImportOffered && railWorkspaces.length === 0)
+  const conversationImportOffer = {
+    workspaceCount: railWorkspaces.length,
+    conversationImportOffered,
+    scan: conversationImportScan.status,
+    importableCount: conversationImportScan.status === 'ready' ? importableCount(conversationImportScan.folders) : 0,
+  }
+  // Held open from the moment it shows until it is answered: the chats an
+  // import makes are the workspaces that would otherwise take it down halfway.
+  const [conversationImportCardHeld, setConversationImportCardHeld] = useState(false)
+  const showConversationImportCard =
+    (conversationImportCardHeld ||
+      shouldShowConversationImportCard({
+        ...conversationImportOffer,
+        firstRunCliCardPending: isFirstRunCliCardPending({
+          cliAvailabilityStatus,
+          cliAvailability,
+          firstRunCliCardDismissed,
+        }),
+      })) &&
+    !conversationImportOffered &&
+    !activeGlobalSurfaceEntry &&
+    !newChatPanelOpen
+  useEffect(() => {
+    if (showConversationImportCard) setConversationImportCardHeld(true)
+  }, [showConversationImportCard])
 
   // The open door's human name, for the bar's fallback title, the rail's
   // accessible name and the error boundary's title. The registered label wins
@@ -1882,6 +1923,7 @@ export default function WorkspaceManager() {
     cliAvailabilityStatus,
     cliAvailability,
     firstRunCliCardDismissed,
+    conversationImport: conversationImportOffer,
   })
   // Read through a ref: the presenter's identity follows the active folder,
   // and the effect must fire on the boolean's transition alone. Present, not
@@ -4823,6 +4865,11 @@ export default function WorkspaceManager() {
                   {showFirstRunCliCard ? (
                     <React.Suspense fallback={null}>
                       <FirstRunCliCard onDismiss={dismissFirstRunCliCard} />
+                    </React.Suspense>
+                  ) : null}
+                  {showConversationImportCard && conversationImportScan.status === 'ready' ? (
+                    <React.Suspense fallback={null}>
+                      <ConversationImportCard scan={conversationImportScan} onDone={markConversationImportOffered} />
                     </React.Suspense>
                   ) : null}
                   {/* Fifth mount kind (doors→modals, 2026-09-01): a modal surface floats
