@@ -52,6 +52,9 @@ export function createStudioRpc(core: StudioCore, gateway: StudioGateway): Studi
     // What the conversations' branches have on GitHub, which every client
     // displays and none decides.
     pullRequests: core.pullRequests,
+    // The servers the conversations' agents started, checked here and drawn
+    // by every client.
+    localServers: core.localServers,
     log: (message) => {
       void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Local app socket', message })
     },

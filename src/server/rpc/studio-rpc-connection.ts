@@ -38,6 +38,7 @@ import { studioErrorId, type StudioRpcAnswer, type StudioRpcRouter } from './stu
 import type { ClientToolConnection, ClientToolRegistry } from '../tools/client-tool-registry'
 import type { StudioFiles } from './studio-files'
 import type { StudioPullRequests } from '../pull-requests/pull-request-domain'
+import type { StudioLocalServers } from '../local-servers/local-server-domain'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -129,6 +130,8 @@ export type StudioRpcConnectionOptions = {
   files?: StudioFiles
   /** The pull requests the conversations opened: the `pullRequests.changed` stream. */
   pullRequests?: StudioPullRequests
+  /** The local servers the conversations started: the `localServers.changed` stream. */
+  localServers?: StudioLocalServers
   /** The welcome's server-wide members: who this Studio is and what it serves. */
   welcome: () => Omit<StudioWelcomeFrame, 't' | 'grant' | 'pairing'>
   /** The delay a client that fell behind is told to wait; it should grow with repeated resyncs. */
@@ -652,6 +655,10 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       subscribePullRequests(id)
       return
     }
+    if (topic === 'localServers.changed') {
+      subscribeLocalServers(id)
+      return
+    }
     const chat = options.chat?.() ?? null
     if (!chat || topic !== 'conversation.commands') {
       subscriptionFailed(id, 'unavailable', `This Studio does not serve ${topic}.`)
@@ -727,6 +734,28 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       const grant = liveGrant()
       if (!grant) return
       if (!studioScopesGrant(grant.scopes, STUDIO_TOPICS['pullRequests.changed'].scope)) {
+        refreshGrant()
+        return
+      }
+      enqueueLive({ t: 'push', sub: id, payload: change }, id)
+    })
+    subscription.handle = { dispose: stop }
+  }
+
+  /** What moved among the linked local servers, as it moves: the client asks for the lists it shows. */
+  function subscribeLocalServers(id: string): void {
+    const localServers = options.localServers
+    if (!localServers) {
+      subscriptionFailed(id, 'unavailable', 'This Studio does not serve localServers.changed.')
+      return
+    }
+    const subscription: Subscription = { id, topic: 'localServers.changed', key: null, replay: null, handle: null }
+    subscriptions.set(id, subscription)
+    const stop = localServers.onChanged((change) => {
+      if (state === 'closed' || subscriptions.get(id) !== subscription) return
+      const grant = liveGrant()
+      if (!grant) return
+      if (!studioScopesGrant(grant.scopes, STUDIO_TOPICS['localServers.changed'].scope)) {
         refreshGrant()
         return
       }

@@ -124,6 +124,7 @@ import { useComposerRecall } from './agentChat/composerRecall'
 import { ComposerContextChips, SkillContextChip, useComposerContextPicker } from './agentChat/composerContextPicker'
 import { ComposerPlusMenu } from '../workspace/agentComposer/ComposerPlusMenu'
 import { usePullRequestsOfConversation } from '../workspace/useConversationPullRequests'
+import { useLocalServersOfConversation } from '../workspace/useLocalServers'
 import { useCreatePullRequestState } from './agentChat/createPullRequest'
 import { conversationContextReading } from './agentChat/contextReading'
 import { ConversationComposerStrip } from './agentChat/conversationStrip'
@@ -2680,6 +2681,15 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const conversationPullRequests = usePullRequestsOfConversation(
     transport.kind === 'remote' ? null : { workspaceId, agentId },
   )
+  // The local servers this conversation's agents started, from the same
+  // Studio record the sidebar's marks read; a paired machine's are its own.
+  const conversationLocalServers = useLocalServersOfConversation(
+    transport.kind === 'remote' ? null : { workspaceId, agentId },
+  )
+  const stripLocalServers = useMemo(
+    () => (conversationLocalServers.length > 0 ? { workspaceId, servers: conversationLocalServers } : null),
+    [conversationLocalServers, workspaceId],
+  )
   // "Create PR" works in this computer's checkout only: a chat on a paired
   // machine, WSL or an SSH machine (the strip names its machine) has no git
   // or `gh` here.
@@ -3294,6 +3304,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               context={contextReading}
               pullRequests={conversationPullRequests}
               createPullRequest={createPullRequest}
+              localServers={stripLocalServers}
             />
           </div>
           {replay ? (

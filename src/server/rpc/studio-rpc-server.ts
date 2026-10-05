@@ -12,6 +12,7 @@ import {
   STUDIO_PULL_REQUESTS_CAPABILITY,
   STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY,
   STUDIO_PULL_REQUEST_LINK_CAPABILITY,
+  STUDIO_LOCAL_SERVERS_CAPABILITY,
   STUDIO_PROTOCOL_MIN_SUPPORTED,
   STUDIO_PROTOCOL_VERSION,
   type StudioWelcomeFrame,
@@ -22,6 +23,7 @@ import { createStudioRpcRouter } from './studio-rpc-router'
 import type { ClientToolRegistry } from '../tools/client-tool-registry'
 import type { StudioFiles } from './studio-files'
 import type { StudioPullRequests } from '../pull-requests/pull-request-domain'
+import type { StudioLocalServers } from '../local-servers/local-server-domain'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -65,6 +67,8 @@ export type StudioRpcServerOptions = {
   files?: StudioFiles
   /** The pull requests the conversations opened, for owners. Advertised as `pull-requests` and `pull-request-tool-calls` only when given. */
   pullRequests?: StudioPullRequests
+  /** The local servers the conversations started, for owners. Advertised as `local-servers` only when given. */
+  localServers?: StudioLocalServers
   resyncRetryAfterMs?: (clientId: string) => number
   socketPath?: string
   helloTimeoutMs?: number
@@ -111,6 +115,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
           capability !== STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY &&
           capability !== STUDIO_PULL_REQUEST_LINK_CAPABILITY) ||
           options.pullRequests !== undefined) &&
+        (capability !== STUDIO_LOCAL_SERVERS_CAPABILITY || options.localServers !== undefined) &&
         (chat() !== null || !(STUDIO_CHAT_CAPABILITIES as readonly string[]).includes(capability)),
     ),
     conversation: {
@@ -127,6 +132,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
     ...(options.tools ? { tools: options.tools } : {}),
     ...(options.files ? { files: options.files } : {}),
     ...(options.pullRequests ? { pullRequests: options.pullRequests } : {}),
+    ...(options.localServers ? { localServers: options.localServers } : {}),
     log: options.log,
   })
   // A revoked app's offers go at once, with its names: a later app that takes
@@ -156,6 +162,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         ...(options.tools ? { tools: options.tools } : {}),
         ...(options.files ? { files: options.files } : {}),
         ...(options.pullRequests ? { pullRequests: options.pullRequests } : {}),
+        ...(options.localServers ? { localServers: options.localServers } : {}),
         resyncRetryAfterMs: options.resyncRetryAfterMs,
         helloTimeoutMs: options.helloTimeoutMs,
         log: options.log,
@@ -191,6 +198,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         ...(options.tools ? { tools: options.tools } : {}),
         ...(options.files ? { files: options.files } : {}),
         ...(options.pullRequests ? { pullRequests: options.pullRequests } : {}),
+        ...(options.localServers ? { localServers: options.localServers } : {}),
         resyncRetryAfterMs: options.resyncRetryAfterMs,
         helloTimeoutMs: options.helloTimeoutMs,
         log: options.log,

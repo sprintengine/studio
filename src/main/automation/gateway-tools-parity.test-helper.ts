@@ -10,6 +10,7 @@ import { createBrowserTools } from './browser-tools'
 import { createCanvasTools } from './canvas-tools'
 import { createConversationTools } from './conversation-tools'
 import { createPullRequestTools } from '../../server/pull-requests/pull-request-tools'
+import { createLocalServerTools } from '../../server/local-servers/local-server-tools'
 import { desktopGatewayTools } from './desktop-gateway-tools'
 import { createEditorTools } from './editor-tools'
 import { createMcpDispatcher, type McpDispatchGate } from './mcp-dispatch'
@@ -44,7 +45,7 @@ export function desktopToolParts(): Parameters<typeof desktopGatewayTools>[0] & 
     tour: createTourTools(stub),
     automation: createAutomationTools(stub),
     tailnet: createTailnetTools({ resolveTailnet: () => null }),
-    core: [...createConversationTools(stub), ...createPullRequestTools(stub)],
+    core: [...createConversationTools(stub), ...createPullRequestTools(stub), ...createLocalServerTools(stub)],
   }
 }
 

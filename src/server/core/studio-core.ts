@@ -2,6 +2,7 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
+import { isMachinePath } from '../../shared/machine-paths'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import { gitHostIdForPath, type ExecutionHostId, type ExecutionHostSettings } from '../../shared/execution-host'
 import { ensureSkillInstalled } from '../../main/builtin-skills'
@@ -37,6 +38,7 @@ import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
 import { createPullRequestDomain } from '../pull-requests/pull-request-domain'
+import { createLocalServerDomain } from '../local-servers/local-server-domain'
 import { localConversationBackend, refuseMachinePaths, type ConversationBackend } from './conversation-backend'
 import {
   createRoutedConversationBackend,
@@ -58,9 +60,10 @@ import { takeDataDir } from './take-data-dir'
 // registry and its sync, git's machine resolver, the conversation runtime and
 // the backend every caller drives chats through (providers, checkpoints, the
 // thread index and transcripts are the runtime's), the model catalog, the
-// launch service that starts a chat for a caller with no window, and the pull
+// launch service that starts a chat for a caller with no window, the pull
 // request record, which reacts to chats and so is the server's (owner ruling
-// 2026-10-03). The MCP
+// 2026-10-03), and the local servers the agents started, which are checked
+// where the agents run (owner ruling 2026-10-04). The MCP
 // gateway is composed beside it (studio-gateway.ts), because the desktop adds
 // tools to it that act on windows and terminals.
 //
@@ -322,6 +325,34 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     },
   })
 
+  // The local servers the conversations' agents started (local-server-domain.ts):
+  // linked through the gateway's `local_server.link`, checked from here, where
+  // the agents run, and read by every client through `localServers.*`. A
+  // command the agent gave without a folder runs where its chat works (the
+  // session's own root, a worktree, when it has one), else in the workspace's
+  // folder; a folder on another machine is not one to run in here.
+  const localFolder = (folder: string | null | undefined) => (folder && !isMachinePath(folder) ? folder : null)
+  const localServers = createLocalServerDomain({
+    dataDir,
+    conversationFolder: (key) => {
+      const listed = conversations.listSessions({ workspaceId: key.workspaceId, agentId: key.agentId })
+      const latest = listed.ok ? [...listed.sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0] : undefined
+      const sessionRoot = latest ? conversations.sessionWorkspaceRoot(latest.sessionId) : null
+      return localFolder(sessionRoot) ?? localFolder(workspaceRegistry.getRecord(key.workspaceId)?.folderPath)
+    },
+    log: (message, error) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        source: 'workspace',
+        title: 'Local servers',
+        message,
+        ...(error === undefined
+          ? {}
+          : { details: error instanceof Error ? (error.stack ?? error.message) : String(error) }),
+      })
+    },
+  })
+
   // What an agent of this app is running on now, for the gateway's launch cap:
   // an agent may start agents only at its own preset or stricter.
   const resolveAgentPermissionPreset: AgentPermissionResolver = createAgentPermissionResolver({
@@ -408,9 +439,13 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     const legs: Array<() => unknown> = [
       () => workspaceSyncService.flush(),
       () => pullRequests.flush(),
+      () => localServers.flush(),
       () => conversationRuntime.flushTranscripts(),
       () => conversationOwner.shutdown(),
       () => pullRequests.dispose(),
+      // The servers the Studio itself started stop with it: nothing would be
+      // left to stop them from.
+      () => localServers.dispose(),
       () => workspaceSyncService.flush(),
       () => hosts.dispose(),
     ]
@@ -445,6 +480,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     resolveAgentPermissionPreset,
     createConversationHost,
     pullRequests,
+    localServers,
     shutdown,
   }
 }
