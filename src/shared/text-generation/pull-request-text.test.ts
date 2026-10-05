@@ -55,5 +55,7 @@ test('a draft is read from structured output or text, and a title is one bounded
   })
   assert.equal(readPullRequestTextOutput({ title: '', body: 'b' }), null)
   assert.equal(readPullRequestTextOutput('no json here'), null)
+  assert.equal(readPullRequestTextOutput({ title: 'マークを表示する', body: '' })?.title, 'マークを表示する')
+  assert.equal(readPullRequestTextOutput({ title: '1234 --- 56', body: '' }), null, 'no letters at all')
   assert.equal(readPullRequestTextOutput({ title: 'x'.repeat(500), body: '' })?.title.length, 120)
 })

@@ -130,6 +130,7 @@ export function sanitizePullRequestText(title: string | null, body: string): Pul
     .trim()
   if (line.length > MAX_PULL_REQUEST_TITLE_LENGTH) line = line.slice(0, MAX_PULL_REQUEST_TITLE_LENGTH).trimEnd()
   line = line.replace(/[.\s]+$/, '')
-  if (line.length < 3 || !/[a-z]/i.test(line)) return null
+  // Any script's letters: a title written in Japanese or Greek is a title.
+  if (line.length < 3 || !/\p{L}/u.test(line)) return null
   return { title: line, body: body.trim().slice(0, MAX_PULL_REQUEST_BODY_LENGTH) }
 }
