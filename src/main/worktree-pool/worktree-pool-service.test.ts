@@ -665,6 +665,14 @@ test('a repository on a WSL machine gets no pool', async () => {
   const harness = makeService()
   const result = await harness.service.lease({ repoRoot: repo, name: 'wsl', hostId: 'wsl:Ubuntu' })
   assert.equal(result.ok ? null : result.reason, 'unsupported')
+  // Declined before any git looks the folder up: under that machine's scope
+  // the lookup would be its git, and its answer remembered for this one's.
+  const unlooked = await harness.service.lease({
+    repoRoot: join(caseDir, 'nowhere'),
+    name: 'wsl',
+    hostId: 'wsl:Ubuntu',
+  })
+  assert.equal(unlooked.ok ? null : unlooked.reason, 'unsupported')
 })
 
 test('the agent worktree cleanup hands pool slots back instead of removing them, and deletes merged agent branches', async () => {

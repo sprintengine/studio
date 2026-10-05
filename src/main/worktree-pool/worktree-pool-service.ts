@@ -787,6 +787,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     if (!slug) {
       return { ok: false, reason: 'invalid-name', message: `"${input.name}" does not reduce to a usable branch name.` }
     }
+    // Declined before any git runs: under a WSL machine's scope even the
+    // repository lookup is that machine's git, and its answer (`/mnt/c/…`)
+    // would be remembered for this computer's own leases of the folder.
+    const declined = unsupportedHost(input.repoRoot, input.hostId)
+    if (declined) return { ok: false, reason: 'unsupported', message: declined }
     const repo = await resolveRepo(input.repoRoot)
     if (!repo) return { ok: false, reason: 'not-a-repo', message: 'Not a git repository with a main checkout.' }
     const unsupported = unsupportedHost(repo.repoRoot, input.hostId)
