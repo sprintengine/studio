@@ -84,7 +84,11 @@ export function createServerModules(deps: {
       installElectronRequireGuard(() => Object.values(thirdParty.moduleRoots))
       applyHostApiGate(thirdParty.ineligible, thirdParty.modules)
       const bundled = activeForChannel(
-        createBundledMainModules(platform),
+        // Read only once a module asks, by which time `byId` exists.
+        createBundledMainModules(
+          platform,
+          (moduleId): readonly string[] | undefined => byId.get(moduleId)?.permissions,
+        ),
         (module) => module.manifest.id,
         includeDevModules,
       )

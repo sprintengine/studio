@@ -153,7 +153,10 @@ applyHostApiGate(thirdPartyMainLoad.ineligible, thirdPartyMainLoad.modules)
 // predicate can close over it; the set is filled in once the manifest list exists.
 const enabledMainModuleIds = new Set<string>()
 const activeMainModules = activeForChannel(
-  createBundledMainModules(studioPlatform()),
+  // Read only once a module asks, by which time `getModulePermissions` exists.
+  createBundledMainModules(studioPlatform(), (moduleId): readonly string[] | undefined =>
+    getModulePermissions(moduleId),
+  ),
   (module) => module.manifest.id,
   includeDevModules,
 )

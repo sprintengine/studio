@@ -8,7 +8,8 @@ import type { ConversationLaunchRequest } from '../conversation-launch-service'
 import type { ScheduledAgent, ScheduledAgentDraft } from '../../shared/scheduled-agents'
 import { isRunChatWorking, runScheduledAgent } from './runner'
 import { createScheduledAgentsScheduler } from './scheduler'
-import { createScheduledAgentsModuleRegistry, createScheduledAgentsService } from './service'
+import { runAsModuleToolCall } from '../module-host/module-tool-caller'
+import { createScheduledAgentsModuleRegistry, createScheduledAgentsService, withinOwnerModuleCeiling } from './service'
 import { createScheduledAgentsStore } from './store'
 
 // Wednesday 30 September 2026, 12:10 UTC.
@@ -377,7 +378,7 @@ test('the service validates every write and an extension reaches only its own', 
 
     const mine = await service.create(draft())
     assert.equal(mine.ok, true)
-    const registry = createScheduledAgentsModuleRegistry(service)
+    const registry = createScheduledAgentsModuleRegistry(service, () => [])
     const theirs = await registry.create('weather-deck', draft({ prompt: 'Refresh the forecast.' }))
     assert.equal(theirs.ok, true)
 
@@ -395,6 +396,67 @@ test('the service validates every write and an extension reaches only its own', 
       ['sa-1'],
     )
     assert.deepEqual(seen, [1, 2, 1])
+  } finally {
+    file.cleanup()
+  }
+})
+
+test("an extension's schedule goes no looser than the extension, or the agent calling it, may", async () => {
+  const file = tempFile()
+  try {
+    let id = 0
+    const store = createScheduledAgentsStore({ filePath: file.path, now: () => NOW, newId: () => `sa-${++id}` })
+    await store.load()
+    const ran: string[] = []
+    const scheduler = createScheduledAgentsScheduler({
+      list: () => store.list(),
+      run: async (entry) => {
+        ran.push(entry.id)
+        return { at: NOW, ok: true, workspaceId: 'w' }
+      },
+      recordRun: (entry, run) => store.recordRun(entry, run),
+      now: () => NOW,
+      setTimer: () => null,
+      clearTimer: () => undefined,
+    })
+    const service = createScheduledAgentsService({ store, scheduler, now: () => NOW })
+    const permissions: Record<string, string[]> = { plain: ['scheduled-agents.manage'], loose: ['conversation:bypass'] }
+    const registry = createScheduledAgentsModuleRegistry(service, (moduleId) => permissions[moduleId])
+
+    const plain = await registry.create('plain', draft({ permissionPreset: 'bypass' }))
+    assert.equal(plain.ok && plain.agent.permissionPreset, 'auto', 'lowered to the module ceiling')
+    const loose = await registry.create('loose', draft({ permissionPreset: 'bypass' }))
+    assert.equal(loose.ok && loose.agent.permissionPreset, 'bypass')
+    const unset = await registry.create('plain', draft())
+    assert.equal(unset.ok && unset.agent.permissionPreset, null, "the person's own default is theirs")
+    const updated = await registry.update('plain', 'sa-3', draft({ permissionPreset: 'bypass' }))
+    assert.equal(updated.ok && updated.agent.permissionPreset, 'auto')
+
+    // During a capped agent's tool call the stored preset is pinned to that
+    // agent's, and a run that could go looser is refused.
+    const pinned = await runAsModuleToolCall({ permissionCeiling: 'manual' }, () =>
+      registry.create('loose', draft({ permissionPreset: 'bypass' })),
+    )
+    assert.equal(pinned.ok && pinned.agent.permissionPreset, 'manual')
+    const refused = await runAsModuleToolCall({ permissionCeiling: 'manual' }, () => registry.runNow('loose', 'sa-2'))
+    assert.equal(refused.ok, false)
+    assert.deepEqual(ran, [])
+    assert.equal((await registry.runNow('loose', 'sa-2')).ok, true)
+
+    // At run time, the module as it is now: a bypass schedule from a module
+    // that no longer declares it runs on the ceiling.
+    const stored = store.get('sa-2')!
+    assert.equal(withinOwnerModuleCeiling(stored, () => []).permissionPreset, 'auto')
+    assert.equal(
+      withinOwnerModuleCeiling(stored, (moduleId) => permissions[moduleId]),
+      stored,
+    )
+    const personal = { ...stored, ownerModuleId: null }
+    assert.equal(
+      withinOwnerModuleCeiling(personal, () => []),
+      personal,
+      "the person's own schedules are theirs",
+    )
   } finally {
     file.cleanup()
   }

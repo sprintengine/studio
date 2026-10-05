@@ -15,6 +15,7 @@ import { createScheduledAgentsScheduler } from '../scheduled-agents/scheduler'
 import {
   createScheduledAgentsModuleRegistry,
   createScheduledAgentsService,
+  withinOwnerModuleCeiling,
   type ScheduledAgentsService,
 } from '../scheduled-agents/service'
 import { createScheduledAgentsStore, scheduledAgentsFilePath } from '../scheduled-agents/store'
@@ -35,8 +36,14 @@ function gitHostFor(hostId: ExecutionHostId | null) {
   return hostId ? hostRegistry().get(hostId) : null
 }
 
-/** `paths` places the schedule file; `clients` hears every change to the list. */
-export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'paths' | 'clients'>): CapabilityModule {
+/**
+ * `paths` places the schedule file; `clients` hears every change to the list;
+ * `getModulePermissions` is what an extension's schedule is held to.
+ */
+export function createScheduledAgentsModule(
+  platform: Pick<StudioPlatform, 'paths' | 'clients'>,
+  getModulePermissions: (moduleId: string) => readonly string[] | undefined,
+): CapabilityModule {
   const broadcastScheduledAgents = (agents: ScheduledAgentView[]): void =>
     platform.clients.publish(SCHEDULED_AGENTS_CHANGED_CHANNEL, agents)
   return {
@@ -85,7 +92,7 @@ export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'path
           }).catch(() => undefined)
         },
         run: (agent) =>
-          runScheduledAgent(agent, {
+          runScheduledAgent(withinOwnerModuleCeiling(agent, getModulePermissions), {
             launchConversation: (request) => conversationLaunchService.launch(request),
             getRepoRoot: (folderPath, hostId) => withGitHost(gitHostFor(hostId), () => getGitRepoRoot(folderPath)),
             createWorktree: async (input) => {
@@ -118,7 +125,9 @@ export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'path
       const scheduledAgents = createScheduledAgentsService({ store, scheduler })
       service = scheduledAgents
       host.provideService(ScheduledAgentsServiceToken, () => scheduledAgents)
-      host.provideService(ScheduledAgentsModuleServiceToken, () => createScheduledAgentsModuleRegistry(scheduledAgents))
+      host.provideService(ScheduledAgentsModuleServiceToken, () =>
+        createScheduledAgentsModuleRegistry(scheduledAgents, getModulePermissions),
+      )
       const unsubscribe = scheduledAgents.onChanged(broadcastScheduledAgents)
       host.onShutdown(unsubscribe)
 
