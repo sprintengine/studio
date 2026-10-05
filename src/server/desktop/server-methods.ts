@@ -22,6 +22,8 @@ export const SERVER_METHODS = {
   conversationPeekEvents: 'conversations.peek-events',
   /** → the folders the chats live in, for diagnostics. */
   conversationRoots: 'conversations.live-roots',
+  /** → the folders chats are working in now, which the shell's worktree cleanup never removes. */
+  conversationWorkspaceRoots: 'conversations.live-workspace-roots',
   /** `{ overrides }` → the module enablement result: the shell wrote the file, the server applies it live. */
   applyModuleEnablement: 'modules.apply-enablement',
   /** `{ clientId }` → `{ connectionId, ticket }`: a chat view's protocol connection, its port already attached. */

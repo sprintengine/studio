@@ -33,6 +33,8 @@ import type {
   GitWorktreeListSnapshot,
   GitWorktreeOperationResult,
   GitWorktreeRemoveInput,
+  GitWorktreeRestoreInput,
+  GitWorktreeRestoreResult,
   GitCheckoutChange,
   AgentWorktreeCleanupInput,
   AgentWorktreeCleanupReport,
@@ -169,6 +171,8 @@ export const gitApi = {
     ipcRenderer.invoke('git:worktree:list', repoRoot),
   createGitWorktree: (input: GitWorktreeCreateInput): Promise<GitWorktreeOperationResult<GitWorktreeEntry>> =>
     ipcRenderer.invoke('git:worktree:create', input),
+  restoreGitWorktree: (input: GitWorktreeRestoreInput): Promise<GitWorktreeRestoreResult> =>
+    ipcRenderer.invoke('git:worktree:restore', input),
   removeGitWorktree: (input: GitWorktreeRemoveInput): Promise<GitWorktreeOperationResult<GitCommandResult>> =>
     ipcRenderer.invoke('git:worktree:remove', input),
   pruneGitWorktrees: (repoRoot: string): Promise<GitWorktreeOperationResult<GitCommandResult>> =>
@@ -266,6 +270,7 @@ export const gitApi = {
   | 'createGitTagFromCommit'
   | 'listGitWorktrees'
   | 'createGitWorktree'
+  | 'restoreGitWorktree'
   | 'removeGitWorktree'
   | 'pruneGitWorktrees'
   | 'unlockAgentGitWorktree'

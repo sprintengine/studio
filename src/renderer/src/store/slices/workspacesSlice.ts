@@ -270,6 +270,11 @@ interface WorkspacesSliceActions {
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
+  /**
+   * Mark a chat's worktree as given back by the agent worktree cleanup (a
+   * stamp), or as on disk again (`null`). See `WorkspaceWorktree.reclaimedAt`.
+   */
+  setWorkspaceWorktreeReclaimed: (id: WorkspaceId, reclaimedAt: number | null) => void
   setWorkspaceAutoSettle: (id: WorkspaceId, enabled: boolean) => void
   /**
    * Put a chat to sleep until `wakeAt`, or wake it now with `null`. The RECORD
@@ -967,6 +972,23 @@ export function createWorkspacesSlice(
         Object.assign(ws, patch)
       })
       // A hand gesture is this window's to report, whichever window routes the row.
+      if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
+    },
+
+    // Not a hand gesture: the primary window's cleanup sweep stamps it when it
+    // gives a settled chat's worktree back, and whichever window brings the
+    // worktree back clears it. Either is the only window that knows, so it
+    // reports whatever window routes the row.
+    setWorkspaceWorktreeReclaimed: (id, reclaimedAt) => {
+      let patch: WorkspaceFieldsPatch | null = null
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws?.worktree || (ws.worktree.reclaimedAt ?? null) === reclaimedAt) return
+        const { reclaimedAt: _previous, ...rest } = ws.worktree
+        const worktree = reclaimedAt === null ? rest : { ...rest, reclaimedAt }
+        ws.worktree = worktree
+        patch = { worktree }
+      })
       if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
     },
 

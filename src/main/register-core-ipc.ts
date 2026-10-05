@@ -196,12 +196,15 @@ export function registerCoreIpc(
     {
       userDataDir: app.getPath('userData'),
       onChangelistsChanged: services.broadcastGitChangelistsChanged,
-      livePaths: () =>
-        listLiveTerminalSessions().flatMap((session) =>
+      // A chat's live provider session works in its folder as a terminal does.
+      livePaths: async () => [
+        ...listLiveTerminalSessions().flatMap((session) =>
           [session.cwd, session.observedCheckout?.cwd, session.observedCheckout?.gitRoot].filter(
             (path): path is string => typeof path === 'string' && path.length > 0,
           ),
         ),
+        ...(await services.conversations.liveConversationWorkspaceRoots().catch(() => [])),
+      ],
     },
   )
   registerGitRepoWatchIpc(machineIpc)

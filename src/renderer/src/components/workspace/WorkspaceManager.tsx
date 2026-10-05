@@ -81,6 +81,7 @@ import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import type { CardLaunchChoice } from './globalSurface/extensions/home/CardGoPicker'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { ensureChatWorktree } from '../../utils/chatWorktreeRestore'
 import { undeliveredPromptEntry, undeliveredPromptNotice } from '../../utils/undeliveredPrompt'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
@@ -791,6 +792,15 @@ export default function WorkspaceManager() {
   const ownsGlobalSupervisors = isPrimaryWorkspaceWindow
   // Reclaims agent worktrees that are clean and merged; one window runs it.
   useAgentWorktreeCleanup(isPrimaryWorkspaceWindow)
+  // Opening a chat whose worktree that cleanup gave back starts bringing it
+  // back at once, not when the first of its panels asks for the folder
+  // (chatWorktreeRestore.ts); every panel then waits on the same restore. A
+  // sweep that started before the chat was opened can mark it while it is
+  // open, which asks again.
+  const activeWorktreeReclaimedAt = activeWorkspace?.worktree?.reclaimedAt
+  useEffect(() => {
+    if (windowActiveWorkspaceId) void ensureChatWorktree(windowActiveWorkspaceId)
+  }, [windowActiveWorkspaceId, activeWorktreeReclaimedAt])
   const renderedWorkspaceIds = visibleWorkspaces
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === windowActiveWorkspaceId || mountedWorkspaceIds.includes(workspaceId))

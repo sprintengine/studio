@@ -293,6 +293,29 @@ export type GitWorktreeCreateInput = {
   hostId?: string
 }
 
+/**
+ * Check a chat's worktree out again at the path it had, on the branch it kept,
+ * after the agent worktree cleanup gave it back.
+ */
+export type GitWorktreeRestoreInput = {
+  repoRoot: string
+  path: string
+  branchName: string
+  copyIncludedFiles?: boolean
+  /** Lock it again as in use, naming this owner, as creation does. */
+  agentLockOwner?: string
+  /** The machine whose git makes it (a WSL machine's); absent resolves from the folder. */
+  hostId?: string
+}
+
+/**
+ * A restore's answer. A refusal marked `definitive` is one no retry changes
+ * (the branch was deleted, the path is not one of the app's worktrees); any
+ * other may succeed next time (the volume is back, the branch was freed).
+ */
+export type GitWorktreeRestoreResult =
+  GitWorktreeOperationResult<GitWorktreeEntry> | { ok: false; message: string; definitive: true }
+
 export type GitWorktreeRemoveInput = {
   repoRoot: string
   path: string

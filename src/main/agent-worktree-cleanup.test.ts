@@ -226,3 +226,23 @@ test('with no default branch to compare against, nothing is removed', async () =
   )
   assert.ok(await exists(path))
 })
+
+test('a chat whose session starts in a worktree while it is being checked keeps it', async () => {
+  // Never committed to, so it would go; the chat's session starts there after
+  // the sweep first looked, and is in the second look, asked of a server.
+  const returning = await addWorktree('returning-chat')
+  let asked = 0
+  const report = await cleanupAgentWorktrees(
+    { repoRoot: repo, protectedPaths: [] },
+    {
+      livePaths: async () => {
+        asked += 1
+        return asked > 1 ? [returning] : []
+      },
+      log: () => {},
+      now: later,
+    },
+  )
+  assert.equal(report.entries.find((entry) => entry.path === returning)?.verdict, 'in-use')
+  assert.ok(await exists(returning))
+})

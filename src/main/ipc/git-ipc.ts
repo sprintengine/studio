@@ -44,6 +44,7 @@ import {
   revertGitCommit,
   createGitTagFromCommit,
   createGitWorktree,
+  restoreGitWorktree,
   fetchGitRemotes,
   getGitBranches,
   getGitCommitGraph,
@@ -89,8 +90,8 @@ export type GitIpcPaths = {
    *  feed uses (`git:changelists-changed`), so the renderer has one subscription
    *  for both kinds of writer. */
   onChangelistsChanged?: (repoRoot: string) => void
-  /** Working directories of the live terminal sessions; the worktree cleanup never removes one of them. */
-  livePaths?: () => string[]
+  /** Working directories of the live terminal sessions and chat sessions; the worktree cleanup never removes one of them. */
+  livePaths?: () => string[] | Promise<string[]>
 }
 
 export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, paths: GitIpcPaths): void {
@@ -385,6 +386,10 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
 
   ipcMain.handle('git:worktree:create', async (_, input) => {
     return withGitHost(scopedHost(input?.hostId), () => createGitWorktree(input))
+  })
+
+  ipcMain.handle('git:worktree:restore', async (_, input) => {
+    return withGitHost(scopedHost(input?.hostId), () => restoreGitWorktree(input))
   })
 
   ipcMain.handle('git:worktree:remove', async (_, input) => {

@@ -351,6 +351,8 @@ import type {
   GitWorktreeListSnapshot,
   GitWorktreeOperationResult,
   GitWorktreeRemoveInput,
+  GitWorktreeRestoreInput,
+  GitWorktreeRestoreResult,
   RevFileResult,
   WorkspaceChangeSummary,
   GitCheckoutChange,
@@ -1348,6 +1350,8 @@ export type ElectronApi = {
   createGitTagFromCommit: (repoRoot: string, tagName: string, commitHash: string) => Promise<GitCommandResult>
   listGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>>
   createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeEntry>>
+  /** Recreate a chat's worktree the cleanup gave back, at its old path, from the branch it kept. */
+  restoreGitWorktree: (input: GitWorktreeRestoreInput) => Promise<GitWorktreeRestoreResult>
   removeGitWorktree: (input: GitWorktreeRemoveInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   pruneGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   /** Lift an in-use lock the app placed on an agent worktree (never a lock a person placed). */

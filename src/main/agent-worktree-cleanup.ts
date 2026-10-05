@@ -85,8 +85,8 @@ export type AgentWorktreeCleanupDeps = {
   listWorktrees?: (repoRoot: string) => Promise<GitWorktreeEntry[] | null>
   resolveRoot?: (repoRoot: string) => Promise<string | null>
   exists?: (path: string) => Promise<boolean>
-  /** Working directories of the live terminal sessions, which are never removed from under. */
-  livePaths?: () => string[]
+  /** Working directories of the live terminal sessions and chat sessions, which are never removed from under. */
+  livePaths?: () => string[] | Promise<string[]>
   /** When git last wrote the worktree's admin directory, in ms since the epoch; null when unknown. */
   lastWrittenAt?: (worktreePath: string) => Promise<number | null>
   now?: () => number
@@ -193,7 +193,7 @@ export async function cleanupAgentWorktrees(
   // before these were read (and is in them if it is used) or is too new to
   // pass the idle rule. Each spelled with and without symlinks resolved.
   const protectedSpellings = await Promise.all(
-    [...input.protectedPaths, ...(deps.livePaths?.() ?? [])].filter(Boolean).map((path) => pathSpellings(path)),
+    [...input.protectedPaths, ...((await deps.livePaths?.()) ?? [])].filter(Boolean).map((path) => pathSpellings(path)),
   )
   const entries: AgentWorktreeCleanupEntry[] = []
   const record = (entry: AgentWorktreeCleanupEntry): void => {
@@ -304,8 +304,11 @@ export async function cleanupAgentWorktrees(
       continue
     }
     // The checks above take a while on a big worktree: a terminal opened in it
-    // meanwhile is asked about once more, the last thing before it goes.
-    const liveNow = await Promise.all((deps.livePaths?.() ?? []).filter(Boolean).map((path) => pathSpellings(path)))
+    // meanwhile, or a chat's session started there, is asked about once more,
+    // the last thing before it goes.
+    const liveNow = await Promise.all(
+      ((await deps.livePaths?.()) ?? []).filter(Boolean).map((path) => pathSpellings(path)),
+    )
     if (liveNow.some((spellings) => insideAny(spellings, worktreeSpellings))) {
       record({ ...base, verdict: 'in-use' })
       continue

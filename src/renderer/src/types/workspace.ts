@@ -722,6 +722,15 @@ export type WorkspaceWorktree = {
    * container convention (`repoRootFromWorktreePath`).
    */
   repoRoot?: string
+  /**
+   * When the agent worktree cleanup gave this chat's worktree back: removed
+   * from disk once the chat had settled and its work was merged and clean,
+   * with its branch kept. Its absent folder is then expected rather than
+   * broken, and opening the chat checks the worktree out again from that
+   * branch at the same path (`utils/chatWorktreeRestore.ts`), which clears
+   * this. Absent on every worktree still on disk.
+   */
+  reclaimedAt?: number
 }
 
 /**

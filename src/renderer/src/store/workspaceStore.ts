@@ -227,6 +227,11 @@ export interface WorkspaceStore
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
+  /**
+   * Mark a chat's worktree as given back by the agent worktree cleanup (a
+   * stamp), or as on disk again (`null`). See `WorkspaceWorktree.reclaimedAt`.
+   */
+  setWorkspaceWorktreeReclaimed: (id: WorkspaceId, reclaimedAt: number | null) => void
   /** Take a chat out of auto-settling (idle and merge alike), or put it back. */
   setWorkspaceAutoSettle: (id: WorkspaceId, enabled: boolean) => void
   /**

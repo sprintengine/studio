@@ -124,6 +124,15 @@ export function createRemoteCore(link: ShellServerLink): StudioCore {
       interrupt: async () => ({ ok: false, message: 'Chats are served by the Studio server.' }),
       onEvent: () => () => undefined,
       listLiveConversationRoots: readConversationRoots,
+      // Asked of the server as the worktree cleanup needs it, not cached: it is
+      // the last look before a worktree is removed.
+      liveConversationWorkspaceRoots: () =>
+        link.isServing()
+          ? rpc.call<unknown>(SERVER_METHODS.conversationWorkspaceRoots).then(
+              (roots) => (Array.isArray(roots) ? roots.filter((root): root is string => typeof root === 'string') : []),
+              () => [],
+            )
+          : Promise.resolve([]),
     },
     conversationOwner: {
       // One idle setting governs terminals and chats; the chats' half is the server's.
