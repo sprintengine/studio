@@ -45,9 +45,10 @@ function applyThemeAttributes(resolved: ResolvedAppTheme): void {
   document.documentElement.setAttribute('data-mode', LIGHT_SURFACE_THEMES.includes(resolved) ? 'light' : 'dark')
 }
 
-function applyTheme(resolved: ResolvedAppTheme): void {
+function applyTheme(resolved: ResolvedAppTheme, mirrorToMain: boolean): void {
   if (typeof document === 'undefined') return
   applyThemeAttributes(resolved)
+  if (!mirrorToMain) return
   // Mirror the resolved light/dark scheme to main so newly-spawned agent CLIs
   // launch matching the app surface (e.g. Claude Code's --settings theme).
   // Best-effort: the API is absent in non-Electron/test contexts.
@@ -82,7 +83,7 @@ function pushWindowMaterial(material: WindowMaterial): void {
   void window.api?.setWindowMaterial?.(effective, effective === 'glass' ? undefined : themeCanvasColor())
 }
 
-function applyWindowMaterial(material: WindowMaterial): void {
+function applyWindowMaterial(material: WindowMaterial, mirrorToMain: boolean): void {
   if (typeof document === 'undefined') return
   // Glass is macOS-only and resolves to tinted elsewhere, so a synced/copied
   // profile can never leave a translucent canvas over a non-vibrant window.
@@ -97,7 +98,7 @@ function applyWindowMaterial(material: WindowMaterial): void {
     // window vibrancy; clear it so the frost shows (body carries the tint).
     document.documentElement.style.backgroundColor = ''
   }
-  pushWindowMaterial(material)
+  if (mirrorToMain) pushWindowMaterial(material)
 }
 
 /**
@@ -130,15 +131,22 @@ export function applyChatAppearance(root: HTMLElement, contrast: number, width: 
 // Mount once near the root of the React tree. The boot-time script in
 // public/boot-theme.js applies the same logic synchronously to avoid a flash of the
 // wrong theme before React mounts.
-export function useAppTheme(): void {
+//
+// `mirrorToMain` is for the window that owns the preference: a workspace
+// window, where it is changed, tells main the colour scheme and the window
+// material (which main saves, and applies to every workspace window). An
+// auxiliary window only follows a copy of the preference, so it says nothing:
+// pushed as it mounts, its copy would be re-saved and re-applied over a change
+// it had not heard of yet.
+export function useAppTheme({ mirrorToMain = true }: { mirrorToMain?: boolean } = {}): void {
   const theme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const windowMaterial = useWorkspaceStore((s) => s.appSettings.appearance.windowMaterial)
   const chatContrast = useWorkspaceStore((s) => s.appSettings.appearance.chatContrast)
   const chatWidth = useWorkspaceStore((s) => s.appSettings.appearance.chatWidth)
 
   useEffect(() => {
-    applyWindowMaterial(windowMaterial)
-  }, [windowMaterial])
+    applyWindowMaterial(windowMaterial, mirrorToMain)
+  }, [mirrorToMain, windowMaterial])
 
   // Before paint, as the boot script (public/boot-theme.js) stamps them before the
   // first one: a chat must not draw a frame at the old width or contrast.
@@ -148,14 +156,14 @@ export function useAppTheme(): void {
   }, [chatContrast, chatWidth])
 
   useEffect(() => {
-    applyTheme(resolveTheme(theme))
+    applyTheme(resolveTheme(theme), mirrorToMain)
 
     if (theme !== 'system') return undefined
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
       return undefined
     }
     const media = window.matchMedia(LIGHT_MEDIA_QUERY)
-    const onChange = (): void => applyTheme(resolveTheme('system'))
+    const onChange = (): void => applyTheme(resolveTheme('system'), mirrorToMain)
     if (typeof media.addEventListener === 'function') {
       media.addEventListener('change', onChange)
       return () => media.removeEventListener('change', onChange)
@@ -163,7 +171,7 @@ export function useAppTheme(): void {
     // Safari < 14 fallback.
     media.addListener(onChange)
     return () => media.removeListener(onChange)
-  }, [theme])
+  }, [mirrorToMain, theme])
 }
 
 // The two hook-free halves of `useResolvedColorScheme`, for readers that are
