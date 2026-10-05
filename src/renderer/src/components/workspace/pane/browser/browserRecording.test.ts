@@ -174,3 +174,23 @@ test('a MediaRecorder that cannot be made stops the capture it would have record
   )
   assert.equal(track.stopped, true)
 })
+
+test('a chunk that cannot be read ends the recording with why; nothing after the hole is handed over', async () => {
+  const { track, recorders } = standIns()
+  const chunks: number[] = []
+  const recording = await startGuestRecording(START_OPTIONS, {
+    onChunk: (bytes) => chunks.push(bytes.length),
+    onPointer: () => () => undefined,
+    theme: THEME,
+  })
+  const recorder = recorders[0]!
+  const chunk = (bytes: number) => ({ size: bytes, arrayBuffer: async () => new ArrayBuffer(bytes) })
+  recorder.ondataavailable!({ data: chunk(3) })
+  recorder.ondataavailable!({ data: { size: 4, arrayBuffer: () => Promise.reject(new Error('NotReadableError')) } })
+  recorder.ondataavailable!({ data: chunk(5) })
+  const outcome = await recording.finished
+  assert.deepEqual(chunks, [3])
+  assert.equal(recorder.stopCalls, 1)
+  assert.match(outcome.error ?? '', /could not be read: NotReadableError/)
+  assert.equal(track.stopped, true)
+})
