@@ -96,6 +96,10 @@ export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'path
                   destinationPath: input.destinationPath,
                   branchName: input.branchName,
                   baseRef: 'HEAD',
+                  // On the default branch, from the worktree pool when this
+                  // process keeps one: a run starts from what is merged, not
+                  // from whatever branch the checkout happens to be on.
+                  fromPool: true,
                   copyIncludedFiles: true,
                   // The chat is created after its worktree, so the branch names the owner.
                   agentLockOwner: input.branchName,

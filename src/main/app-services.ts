@@ -102,7 +102,12 @@ import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
-import { excludeMcpConfigFromWorktree } from './git'
+import { excludeMcpConfigFromWorktree, seedWorktreeIncludedFiles } from './git'
+import { broadcastWorktreePoolChanged } from './ipc/worktree-pool-ipc'
+import { installWorktreePool } from './worktree-pool/active-pool'
+import { createPoolStore } from './worktree-pool/pool-store'
+import { createWorktreePoolService } from './worktree-pool/worktree-pool-service'
+import { createWorktreePoolTools } from './worktree-pool/worktree-pool-tools'
 import { createConversationPeekService } from './conversation-peek/service'
 import { createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
@@ -1316,6 +1321,32 @@ export function createAppServices(
     broadcastPending: (workspaceIds) => broadcastToWorkspaceWindows(EDITOR_REVEAL_PENDING_CHANNEL, { workspaceIds }),
   })
 
+  // The pool of reusable agent worktrees (worktree-pool/). Every agent
+  // worktree made with `fromPool` (git.ts) is leased from it, and the agent
+  // worktree cleanup hands back the slots nothing uses. It does nothing on its
+  // own: reading its records is all that happens here, and a pool recovers
+  // from an interrupted run the first time it is used.
+  const worktreePool = createWorktreePoolService({
+    store: createPoolStore(app.getPath('userData')),
+    livePaths: () =>
+      listLiveTerminalSessions().flatMap((session) =>
+        [session.cwd, session.observedCheckout?.cwd].filter(
+          (path): path is string => typeof path === 'string' && path.length > 0,
+        ),
+      ),
+    onChange: broadcastWorktreePoolChanged,
+    seedIncludedFiles: seedWorktreeIncludedFiles,
+  })
+  installWorktreePool(worktreePool)
+  void worktreePool.load()
+  // `worktree.lease` and `worktree.release`: in process the gateway's own, out
+  // of process the shell's `worktree` toolset.
+  const worktreeTools = createWorktreePoolTools({
+    pool: worktreePool,
+    findWorkspace: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ?? null,
+  })
+
   const canvasSubscribers = createCanvasSubscriberRegistry()
   const canvasService = createCanvasService({
     fs: createNodeCanvasFs(),
@@ -1518,6 +1549,7 @@ export function createAppServices(
           ),
           // Remote-control configuration, local socket only: the listener refuses
           // this whole family regardless of a device's scopes (tailnet-scopes.ts).
+          worktree: worktreeTools,
           tailnet: createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor }),
         }),
       })
@@ -1617,6 +1649,7 @@ export function createAppServices(
             { name: 'canvas', registrations: canvasTools },
             { name: 'editor', registrations: editorTools },
             { name: 'tour', registrations: tourTools },
+            { name: 'worktree', registrations: worktreeTools },
             ...shellTerminalToolsets(
               createServerGatewayBackends({
                 getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
@@ -1929,6 +1962,7 @@ export function createAppServices(
     browserRecorder,
     canvasService,
     canvasSubscribers,
+    worktreePool,
     automationService,
     studioRpcService,
     backgroundModeStore,

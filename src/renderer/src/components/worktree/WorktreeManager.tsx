@@ -11,7 +11,13 @@ import {
   entriesRemovedBy,
   openWorkspaceIds,
 } from '../../utils/agentWorktreeCleanup'
-import type { AgentWorktreeCleanupEntry, AgentWorktreeCleanupReport } from '../../../../shared/electron-api'
+import type {
+  AgentWorktreeCleanupEntry,
+  AgentWorktreeCleanupReport,
+  WorktreePoolHeldAction,
+  WorktreePoolSlotView,
+  WorktreePoolSnapshot,
+} from '../../../../shared/electron-api'
 import {
   Checkbox,
   EmptyState,
@@ -91,10 +97,17 @@ function worktreeGlyph(row: WorktreeRow): { state: LifecycleState; label: string
 // One muted supporting line of facts that aren't already in the name. Built only
 // from signal that earns its place; a clean non-main worktree contributes none,
 // so its row is just the branch name.
-function worktreeMeta(row: WorktreeRow, ownerName: string, cleanup: CleanupFacts | null): string {
+function worktreeMeta(
+  row: WorktreeRow,
+  ownerName: string,
+  cleanup: CleanupFacts | null,
+  poolSlot: WorktreePoolSlotView | null,
+): string {
   const parts: string[] = []
   if (row.isMain) parts.push('default checkout')
-  if (row.missing) parts.push('missing')
+  const poolNote = poolSlotMeta(poolSlot)
+  if (poolNote) parts.push(poolNote)
+  else if (row.missing) parts.push('missing')
   else if (row.prunable) parts.push('prunable')
   else if (row.locked) parts.push('locked')
   if (row.dirtyCount && row.dirtyCount > 0) parts.push(`${row.dirtyCount} uncommitted`)
@@ -105,6 +118,28 @@ function worktreeMeta(row: WorktreeRow, ownerName: string, cleanup: CleanupFacts
 }
 
 type CleanupFacts = { entry: AgentWorktreeCleanupEntry; defaultRef: string | null }
+
+// A worktree pool slot says where it is in the pool rather than "locked": its
+// lock is the pool's own bookkeeping. A held one says why, because only a
+// person moves it on (the row's menu).
+function poolSlotMeta(slot: WorktreePoolSlotView | null): string | null {
+  if (!slot) return null
+  switch (slot.state) {
+    case 'idle':
+      return 'in the worktree pool, ready to reuse'
+    case 'held': {
+      const why =
+        slot.held?.reason === 'dirty'
+          ? `${slot.held.changedPaths ?? 'some'} uncommitted change${slot.held.changedPaths === 1 ? '' : 's'}`
+          : (slot.held?.detail ?? slot.held?.reason ?? 'needs a look')
+      return `held in the worktree pool: ${why}`
+    }
+    case 'leased':
+      return null
+    default:
+      return `worktree pool: ${slot.state}`
+  }
+}
 
 // What the automatic cleanup made of an agent worktree, when it is something
 // the person should know: why it was kept, or that it is due to go. A dirty
@@ -118,6 +153,10 @@ function cleanupMeta(cleanup: CleanupFacts | null): string | null {
       return `kept: ${entry.uniqueCommits ?? 'some'} commit${entry.uniqueCommits === 1 ? '' : 's'} not on ${defaultRef ?? 'the default branch'}`
     case 'removed':
       return 'merged, will be cleaned up'
+    case 'returned':
+      return 'unused, will go back to the worktree pool'
+    case 'held':
+      return `kept in the worktree pool: ${entry.detail ?? 'it holds work'}`
     case 'no-default-branch':
       return 'kept: no default branch to compare with'
     case 'ignored-files':
@@ -162,6 +201,7 @@ export default function WorktreeManager({
   const [open, setOpen] = useState(true)
   const [rows, setRows] = useState<WorktreeRow[]>([])
   const [cleanupReport, setCleanupReport] = useState<AgentWorktreeCleanupReport | null>(null)
+  const [pool, setPool] = useState<WorktreePoolSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<WorktreeMessage | null>(null)
@@ -285,6 +325,10 @@ export default function WorktreeManager({
         ),
       )
 
+      if (typeof window.api.getWorktreePoolSnapshot === 'function') {
+        setPool(await window.api.getWorktreePoolSnapshot(repoRoot).catch(() => null))
+      }
+
       // What the automatic cleanup would do, without doing it: the kept
       // worktrees (unmerged work, uncommitted changes) are shown here, which
       // is the only place anyone will see why they are still on disk.
@@ -292,7 +336,12 @@ export default function WorktreeManager({
         const records = useWorkspaceStore.getState()
         const plan = agentWorktreeCleanupPlan(records.workspaces, openWorkspaceIds(records))
         const report = await window.api
-          .cleanupAgentWorktrees({ repoRoot, protectedPaths: plan.protectedPaths, dryRun: true })
+          .cleanupAgentWorktrees({
+            repoRoot,
+            protectedPaths: plan.protectedPaths,
+            agentIds: plan.agentIds,
+            dryRun: true,
+          })
           .catch(() => null)
         setCleanupReport(report)
       }
@@ -304,6 +353,14 @@ export default function WorktreeManager({
   useEffect(() => {
     void refreshWorktrees()
   }, [refreshWorktrees])
+
+  // A slot leased, returned or held while the manager is open.
+  useEffect(() => {
+    if (typeof window.api.onWorktreePoolChanged !== 'function') return
+    return window.api.onWorktreePoolChanged((snapshot) => {
+      if (samePath(snapshot.repoRoot, repoRoot)) setPool(snapshot)
+    })
+  }, [repoRoot])
 
   const runWorktreeAction = async (label: string, action: () => Promise<void>) => {
     if (busy) return
@@ -453,6 +510,50 @@ export default function WorktreeManager({
     })
   }
 
+  // A held pool worktree moves on only on a person's word: commit or stash keep
+  // its changes, discard drops them, keep takes it out of the pool as it is.
+  // Each but keep returns it to the pool for the next agent.
+  const handlePoolHeldAction = async (row: WorktreeRow, slot: WorktreePoolSlotView, action: WorktreePoolHeldAction) => {
+    if (action === 'discard') {
+      const confirmed = await dialog.confirm({
+        title: 'Discard the changes?',
+        body: (
+          <>
+            The uncommitted changes in <span className="font-mono">{slot.held?.branch ?? branchLabel(row)}</span> are
+            deleted, and the worktree goes back to the pool. Commits on the branch are kept.
+          </>
+        ),
+        confirmLabel: 'Discard changes',
+        tone: 'danger',
+      })
+      if (!confirmed) return
+    }
+    const labels: Record<WorktreePoolHeldAction, string> = {
+      commit: 'Committing the changes',
+      stash: 'Stashing the changes',
+      discard: 'Discarding the changes',
+      keep: 'Keeping the worktree',
+    }
+    await runWorktreeAction(labels[action], async () => {
+      const result = await window.api.worktreePoolAction({ kind: 'held', repoRoot, slotId: slot.id, action })
+      setMessage(
+        result.ok ? { tone: 'success', text: result.message ?? 'Done.' } : { tone: 'error', text: result.message },
+      )
+      await refreshWorktrees()
+    })
+  }
+
+  const handlePoolEvict = async (slot: WorktreePoolSlotView) => {
+    await runWorktreeAction('Removing the pooled worktree', async () => {
+      const result = await window.api.worktreePoolAction({ kind: 'evict', repoRoot, slotId: slot.id })
+      setMessage(
+        result.ok ? { tone: 'success', text: result.message ?? 'Removed.' } : { tone: 'error', text: result.message },
+      )
+      await refreshWorktrees()
+      await onChanged()
+    })
+  }
+
   // Another profile's agent lock is lifted only here, on a person's word: that
   // profile may be running an agent in it right now, or may be long gone.
   const handleUnlockAgentLock = async (row: WorktreeRow) => {
@@ -481,7 +582,12 @@ export default function WorktreeManager({
     await runWorktreeAction('Cleaning up merged agent worktrees', async () => {
       const store = useWorkspaceStore.getState()
       const plan = agentWorktreeCleanupPlan(store.workspaces, openWorkspaceIds(store))
-      const report = await window.api.cleanupAgentWorktrees({ repoRoot, protectedPaths: plan.protectedPaths })
+      const report = await window.api.cleanupAgentWorktrees({
+        repoRoot,
+        protectedPaths: plan.protectedPaths,
+        agentIds: plan.agentIds,
+        keepBranches: plan.keepBranches,
+      })
       const after = useWorkspaceStore.getState()
       for (const [ownerWorkspaceId, entryId] of entriesRemovedBy(after.workspaces, report)) {
         removeWorktreeEntry(ownerWorkspaceId, entryId)
@@ -491,6 +597,8 @@ export default function WorktreeManager({
         after.setWorkspaceWorktreeReclaimed(chatId, reclaimedAt)
       }
       const removed = report.entries.filter((entry) => entry.verdict === 'removed').length
+      const returned = report.entries.filter((entry) => entry.verdict === 'returned').length
+      const branches = report.deletedBranches?.length ?? 0
       const kept = report.entries.filter(
         (entry) =>
           entry.verdict === 'dirty' ||
@@ -502,6 +610,8 @@ export default function WorktreeManager({
         tone: 'neutral',
         text:
           `${removed === 0 ? 'No agent worktree was ready to remove' : `Removed ${removed} merged agent worktree${removed === 1 ? '' : 's'}`}` +
+          (returned > 0 ? `; returned ${returned} to the worktree pool` : '') +
+          (branches > 0 ? `; deleted ${branches} merged agent branch${branches === 1 ? '' : 'es'}` : '') +
           (kept > 0 ? `; kept ${kept} holding work that is not on the default branch.` : '.'),
       })
       await refreshWorktrees()
@@ -655,15 +765,50 @@ export default function WorktreeManager({
                   ? (workspace?.agents[row.ownerAgentId]?.name ?? row.ownerAgentId)
                   : '-'
                 const canUsePath = !row.missing && Boolean(row.listedEntry)
-                const canRemove = !row.isMain && Boolean(row.listedEntry) && !row.locked
-                const glyph = worktreeGlyph(row)
+                // The pool owns its slots: one is removed through the pool, or
+                // git and the pool's record would disagree about it.
+                const poolSlot = pool?.slots.find((slot) => samePath(slot.path, row.path)) ?? null
+                const canRemove = !row.isMain && Boolean(row.listedEntry) && !row.locked && !poolSlot
+                const glyph = poolSlot && poolSlot.state !== 'held' ? null : worktreeGlyph(row)
                 const cleanupEntry = cleanupReport?.entries.find((entry) => samePath(entry.path, row.path)) ?? null
                 const meta = worktreeMeta(
                   row,
                   ownerName,
                   cleanupEntry ? { entry: cleanupEntry, defaultRef: cleanupReport?.defaultRef ?? null } : null,
+                  poolSlot,
                 )
-                const reason = row.lockedReason ?? row.prunableReason ?? undefined
+                const reason = poolSlot
+                  ? (poolSlot.held?.detail ?? undefined)
+                  : (row.lockedReason ?? row.prunableReason ?? undefined)
+                const poolItems =
+                  poolSlot?.state === 'held'
+                    ? [
+                        { kind: 'separator' as const, id: 'pool-sep' },
+                        ...(['commit', 'stash', 'discard', 'keep'] as const).map((action) => ({
+                          id: `pool-${action}`,
+                          label: {
+                            commit: 'Commit changes and return to the pool',
+                            stash: 'Stash changes and return to the pool',
+                            discard: 'Discard changes and return to the pool…',
+                            keep: 'Keep as an ordinary worktree',
+                          }[action],
+                          destructive: action === 'discard',
+                          onSelect: () => void handlePoolHeldAction(row, poolSlot, action),
+                          disabled: formDisabled,
+                        })),
+                      ]
+                    : poolSlot?.state === 'idle'
+                      ? [
+                          { kind: 'separator' as const, id: 'pool-sep' },
+                          {
+                            id: 'pool-evict',
+                            label: 'Remove from the worktree pool',
+                            destructive: true,
+                            onSelect: () => void handlePoolEvict(poolSlot),
+                            disabled: formDisabled,
+                          },
+                        ]
+                      : []
                 return (
                   <li
                     key={`${row.id}:${row.path}`}
@@ -732,6 +877,7 @@ export default function WorktreeManager({
                             onSelect: () => void handleRemove(row),
                             disabled: formDisabled || !canRemove,
                           },
+                          ...poolItems,
                         ]}
                       />
                     </span>

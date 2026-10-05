@@ -52,6 +52,9 @@ export function localOnlyGatewayToolReason(toolName: string): string | null {
   if (toolName.startsWith('local_server.')) {
     return `"${toolName}" records a local server as the calling agent's conversation's, and a paired device is not an agent. Run it from an agent on that machine.`
   }
+  if (toolName.startsWith('worktree.')) {
+    return `"${toolName}" hands the calling agent a worktree on this machine and holds it for that agent, and a paired device is not an agent. Run it from an agent on that machine.`
+  }
   if (toolName.startsWith('terminal.')) {
     return `"${toolName}" reads the terminals on this machine, and terminals are not served over the tailnet. A paired device follows this machine's chats instead; run it from an agent on that machine.`
   }

@@ -18,6 +18,7 @@ import { isStudioGatewayMutation } from './studio-gateway-tools'
 import { localOnlyGatewayToolReason, requiredScopeForTool } from './tailnet/tailnet-scopes'
 import { createTailnetTools } from './tailnet/tailnet-tools'
 import { createTourTools } from './tour-tools'
+import { createWorktreePoolTools } from '../worktree-pool/worktree-pool-tools'
 
 // The tools/list agents see from the desktop, byte for byte: names,
 // descriptions, schemas and order, for an agent Studio launched, a CLI the
@@ -44,6 +45,7 @@ export function desktopToolParts(): Parameters<typeof desktopGatewayTools>[0] & 
     editor: createEditorTools(stub),
     tour: createTourTools(stub),
     automation: createAutomationTools(stub),
+    worktree: createWorktreePoolTools(stub),
     tailnet: createTailnetTools({ resolveTailnet: () => null }),
     core: [...createConversationTools(stub), ...createPullRequestTools(stub), ...createLocalServerTools(stub)],
   }

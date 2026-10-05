@@ -11,9 +11,11 @@ import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
  * family's `agent.launch` and `agent.status` ride an `agent` toolset beside
  * `terminal`, under the names agents already call. `backlog.work` stays the
  * server's: its family is, and no offer may shadow a family the server serves.
- * It starts its terminal through `ShellBridge.terminals`.
+ * It starts its terminal through `ShellBridge.terminals`. The worktree pool's
+ * `worktree` family is the shell's too: main keeps the pool, and a pool driven
+ * from two processes would race over its slots.
  */
-export const SHELL_TOOLSETS = ['browser', 'canvas', 'editor', 'tour', 'terminal', 'agent'] as const
+export const SHELL_TOOLSETS = ['browser', 'canvas', 'editor', 'tour', 'terminal', 'agent', 'worktree'] as const
 export type ShellToolsetName = (typeof SHELL_TOOLSETS)[number]
 
 /** Whether a gateway tool is one the shell offers, out of process, and not the server's. */

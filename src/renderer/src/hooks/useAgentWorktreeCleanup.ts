@@ -69,8 +69,17 @@ export async function sweepAgentWorktrees(): Promise<void> {
       // repositories can take a while, and a worktree created during it must be
       // protected by the records as they are when its repository is listed.
       const records = useWorkspaceStore.getState()
-      const { protectedPaths } = agentWorktreeCleanupPlan(records.workspaces, openWorkspaceIds(records))
-      const report = await window.api.cleanupAgentWorktrees({ repoRoot, protectedPaths, ownedOnly: true })
+      const { protectedPaths, agentIds, keepBranches } = agentWorktreeCleanupPlan(
+        records.workspaces,
+        openWorkspaceIds(records),
+      )
+      const report = await window.api.cleanupAgentWorktrees({
+        repoRoot,
+        protectedPaths,
+        agentIds,
+        keepBranches,
+        ownedOnly: true,
+      })
       // Re-read the store: it may have moved while main was working.
       const store = useWorkspaceStore.getState()
       for (const [workspaceId, entryId] of entriesRemovedBy(store.workspaces, report)) {

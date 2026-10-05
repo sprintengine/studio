@@ -34,6 +34,16 @@ type CleanupWorkspace = Pick<Workspace, 'id' | 'folderPath' | 'worktree' | 'agen
  * orphan from before agents released their worktrees, and is NOT protected:
  * that is exactly the backlog this sweep exists to clear.
  *
+ * Every agent the records hold is named too: a worktree pool slot an agent
+ * leased for itself (MCP `worktree.lease`) is in use while that agent exists,
+ * wherever its terminal sits.
+ *
+ * Every agent the records hold is named, because a worktree pool slot an agent
+ * leased for itself (MCP `worktree.lease`) is in use while that agent exists,
+ * wherever its terminal sits. Every branch a chat or worktree entry records is
+ * named too: main deletes merged `agent/` branches, but never one a chat may
+ * still be restored from (`chatWorktreeRestore.ts`).
+ *
  * Every project root the records mention is swept. Main's own rules decide
  * what in it is an agent worktree at all (`agent/<slug>` in the app's
  * container) and whether it is clean and merged.
@@ -44,9 +54,13 @@ export function agentWorktreeCleanupPlan(
 ): {
   repoRoots: string[]
   protectedPaths: string[]
+  agentIds: string[]
+  keepBranches: string[]
 } {
   const active = new Set(activeWorkspaceIds)
   const protectedPaths = new Set<string>()
+  const agentIds = new Set<string>()
+  const keepBranches = new Set<string>()
   const repoRoots: string[] = []
   const addRoot = (root: string | null): void => {
     if (root && !repoRoots.some((existing) => samePath(existing, root))) repoRoots.push(root)
@@ -58,9 +72,11 @@ export function agentWorktreeCleanupPlan(
       if (!offered || !isPathOrChild(path, offered)) protectedPaths.add(path)
     }
     if (workspace.folderPath) protect(workspace.folderPath)
+    if (workspace.worktree?.branch) keepBranches.add(workspace.worktree.branch)
     addRoot(workspaceProjectRootOf(workspace))
     const entries = workspace.worktreeState?.entries ?? {}
-    for (const agent of Object.values(workspace.agents ?? {})) {
+    for (const [agentId, agent] of Object.entries(workspace.agents ?? {})) {
+      agentIds.add(agentId)
       const execution = agent?.execution
       if (!execution) continue
       if (execution.cwd) protect(execution.cwd)
@@ -68,6 +84,7 @@ export function agentWorktreeCleanupPlan(
       if (entry?.path) protect(entry.path)
     }
     for (const entry of Object.values(entries)) {
+      if (entry.branch) keepBranches.add(entry.branch)
       if (entry.status === 'removing') protectedPaths.add(entry.path)
       if (entry.status === 'assigned' && (!entry.ownerAgentId || workspace.agents?.[entry.ownerAgentId])) {
         protect(entry.path)
@@ -75,7 +92,12 @@ export function agentWorktreeCleanupPlan(
     }
   }
 
-  return { repoRoots, protectedPaths: [...protectedPaths] }
+  return {
+    repoRoots,
+    protectedPaths: [...protectedPaths],
+    agentIds: [...agentIds],
+    keepBranches: [...keepBranches],
+  }
 }
 
 /** Every window's open chat: a settled chat someone is reading keeps its worktree meanwhile. */
@@ -92,8 +114,9 @@ export function offersItsWorktree(workspace: CleanupWorkspace): workspace is Cle
 }
 
 /**
- * The worktree chats whose own folder a report removed: their worktree was
- * given back, and is marked so (`worktree.reclaimedAt`) so the chat brings it
+ * The worktree chats whose own folder a report removed, or handed back to the
+ * worktree pool (whose next lease may give the slot to another agent): their
+ * worktree was given back, and is marked so (`worktree.reclaimedAt`) so the chat brings it
  * back when it is opened rather than reading as a chat with a missing folder.
  * Only a settled chat's folder is ever offered, but the chat is not required
  * to still be settled here: one un-settled while main was sweeping lost its
@@ -104,7 +127,9 @@ export function chatsReclaimedBy(
   report: AgentWorktreeCleanupReport,
 ): string[] {
   if (report.dryRun) return []
-  const removed = report.entries.filter((entry) => entry.verdict === 'removed').map((entry) => entry.path)
+  const removed = report.entries
+    .filter((entry) => entry.verdict === 'removed' || entry.verdict === 'returned')
+    .map((entry) => entry.path)
   if (removed.length === 0) return []
   return workspaces
     .filter(
@@ -116,13 +141,19 @@ export function chatsReclaimedBy(
     .map((workspace) => workspace.id)
 }
 
-/** The store entries a report removed from disk, as `[workspaceId, entryId]` pairs to drop. */
+/**
+ * The store entries a report took away, as `[workspaceId, entryId]` pairs to
+ * drop: worktrees removed from disk, and pool slots given back to the pool,
+ * whose path the next lease hands to someone else.
+ */
 export function entriesRemovedBy(
   workspaces: readonly CleanupWorkspace[],
   report: AgentWorktreeCleanupReport,
 ): Array<[string, string]> {
   if (report.dryRun) return []
-  const removed = report.entries.filter((entry) => entry.verdict === 'removed').map((entry) => entry.path)
+  const removed = report.entries
+    .filter((entry) => entry.verdict === 'removed' || entry.verdict === 'returned')
+    .map((entry) => entry.path)
   if (removed.length === 0) return []
   const pairs: Array<[string, string]> = []
   for (const workspace of workspaces) {

@@ -30,6 +30,7 @@ import { registerGitRepoWatchIpc } from './ipc/git-repo-watch-ipc'
 import { getTerminalSessionById, listLiveTerminalSessions } from './terminal-runtime'
 import { createFolderOpenIpcDependencies, registerFolderOpenIpc } from './ipc/folder-open-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
+import { registerWorktreePoolIpc } from './ipc/worktree-pool-ipc'
 import { registerDesignSystemIpc } from './ipc/design-system-ipc'
 import { registerMcpIpc } from './ipc/mcp-ipc'
 import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
@@ -216,6 +217,7 @@ export function registerCoreIpc(
     },
   )
   registerGitRepoWatchIpc(machineIpc)
+  registerWorktreePoolIpc(ipcMain, services.worktreePool)
   registerVersionControlIpc(machineIpc)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain, { applyLive: options.applyModuleEnablementLive })

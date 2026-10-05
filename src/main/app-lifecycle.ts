@@ -95,6 +95,12 @@ type RegisterAppLifecycleOptions = {
   canvasService?: {
     dispose(): Promise<void>
   }
+  // The worktree pool: a lease or return in flight finishes its write, and
+  // each pool's container lock is given up so another Studio can take the pool
+  // over.
+  worktreePool?: {
+    shutdown(): Promise<void>
+  }
   // Recordings of browser tabs an agent started: each is a file still being
   // written, so quit saves what was captured, with its length, before the
   // windows that encode them close.
@@ -196,6 +202,7 @@ export function registerAppLifecycle({
   removeSessionIntegrations,
   releaseDataDir,
   canvasService,
+  worktreePool,
   browserRecorder,
   desktopShell,
   conversationCommands,
@@ -621,6 +628,7 @@ export function registerAppLifecycle({
       ['chats', () => conversationOwner?.shutdown()],
       ['browser recordings', () => browserRecorder?.stopAll('app_quit')],
       ['canvas', () => canvasService?.dispose()],
+      ['worktree pool', () => worktreePool?.shutdown()],
       ['command lists', () => conversationCommands?.dispose()],
       ['workspace registry (final)', () => workspaceSyncService?.flush()],
       // Not when leaving for an update: the new build starts straight away and
@@ -656,6 +664,7 @@ export function registerAppLifecycle({
       ['browser recordings', () => browserRecorder?.stopAll('app_quit')],
       // The canvas's last board write lands before the server stops serving.
       ['canvas', () => canvasService?.dispose()],
+      ['worktree pool', () => worktreePool?.shutdown()],
       ['desktop tools', () => desktopShell?.stop()],
       [
         'studio server (drain)',

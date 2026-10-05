@@ -132,7 +132,7 @@ test('only clean agent worktrees whose work is on the default branch are removed
   )
 
   const real = await cleanupAgentWorktrees(
-    { repoRoot: repo, protectedPaths: [inUse] },
+    { repoRoot: repo, protectedPaths: [inUse], keepBranches: [] },
     { livePaths: () => [join(live, 'src')], log: () => {}, now: later },
   )
   assert.deepEqual(
@@ -145,7 +145,15 @@ test('only clean agent worktrees whose work is on the default branch are removed
   assert.equal(await exists(merged), false)
   assert.equal(await exists(untouched), false)
   for (const kept of [unmerged, dirty, inUse, live, locked, manual]) assert.ok(await exists(kept), `${kept} is kept`)
-  assert.match(await git(repo, 'branch', '--list', 'agent/merged'), /agent\/merged/, 'the branch itself is kept')
+  // Its work is on the default branch, so its branch goes too (owner ruling
+  // 2026-10-05); unmerged work keeps both.
+  assert.equal(await git(repo, 'branch', '--list', 'agent/merged'), '', 'a merged branch is deleted')
+  assert.ok(real.deletedBranches?.includes('agent/merged'))
+  assert.match(
+    await git(repo, 'branch', '--list', 'agent/unmerged'),
+    /agent\/unmerged/,
+    'unmerged work keeps its branch',
+  )
 })
 
 /** A branch whose two commits reach origin/main as ONE squash commit. */
@@ -178,14 +186,18 @@ test('a squash-merged branch is removable; one carrying more work is kept', asyn
   const squashed = await squashMerged('squashed')
   const moreWork = await squashMerged('more-work', 'late.txt')
 
-  const report = await cleanupAgentWorktrees({ repoRoot: repo, protectedPaths: [] }, { log: () => {}, now: later })
+  const report = await cleanupAgentWorktrees(
+    { repoRoot: repo, protectedPaths: [], keepBranches: [] },
+    { log: () => {}, now: later },
+  )
   const byName = Object.fromEntries(report.entries.map((entry) => [entry.path.split('/').pop(), entry]))
   assert.equal(byName.squashed?.verdict, 'removed', 'its changes are already on origin/main')
   assert.match(byName.squashed?.detail ?? '', /squash-merged/)
   assert.equal(await exists(squashed), false)
   assert.equal(byName['more-work']?.verdict, 'unmerged', 'a commit the squash did not carry keeps it')
   assert.ok(await exists(moreWork))
-  assert.match(await git(repo, 'branch', '--list', 'agent/squashed'), /agent\/squashed/, 'the branch is kept')
+  assert.equal(await git(repo, 'branch', '--list', 'agent/squashed'), '', 'a squash-merged branch is deleted')
+  assert.match(await git(repo, 'branch', '--list', 'agent/more-work'), /agent\/more-work/, 'more work keeps its branch')
 })
 
 test('a git without merge-tree --write-tree falls back to the ancestry rule', async () => {
