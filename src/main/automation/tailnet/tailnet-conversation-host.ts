@@ -171,6 +171,28 @@ export type ConversationGatewayCommandResult = {
   notice?: string
 }
 
+/** A count or a time in milliseconds as the wire carries it: a whole number, never below zero. */
+function wholeNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : null
+}
+
+/**
+ * A listed row's numbers as whole numbers. A transcript's times can come from
+ * a file's modification time (fractional milliseconds) or be missing for one
+ * that could not be read; a client that reads them as integers would refuse
+ * the row, or the whole list.
+ */
+function wholeNumbers(thread: ConversationThread): ConversationThread {
+  const createdAt = wholeNumber(thread.createdAt) ?? wholeNumber(thread.updatedAt) ?? 0
+  return {
+    ...thread,
+    createdAt,
+    updatedAt: wholeNumber(thread.updatedAt) ?? createdAt,
+    turnCount: wholeNumber(thread.turnCount) ?? 0,
+    lastSeq: wholeNumber(thread.lastSeq) ?? 0,
+  }
+}
+
 /** How long a send turned away behind another send to the same chat waits before trying again. */
 const SEND_BUSY_RETRY_MS = 1_000
 
@@ -444,7 +466,7 @@ export function createConversationGatewayHost(
           capabilities: wireCapabilities(summary),
         })
       }
-      const listed = [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt)
+      const listed = [...byId.values()].map(wholeNumbers).sort((a, b) => b.updatedAt - a.updatedAt)
       return withMarks(listed)
     },
     ...(marks.selfMachine ? { machine: () => marks.selfMachine?.() ?? null } : {}),

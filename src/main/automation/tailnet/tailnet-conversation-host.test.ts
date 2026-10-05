@@ -192,6 +192,34 @@ test('upload references are device/session bound, bounded and invalidated by siz
   }
 })
 
+test('a listed row carries whole-number times and counts, whatever its transcript gave', async () => {
+  const f = await fixture()
+  try {
+    vi.spyOn(f.runtime, 'listThreads').mockResolvedValue({
+      ok: true,
+      threads: [
+        {
+          agentId: 'agent',
+          title: 'Unreadable',
+          providerId: 'mock',
+          model: 'default',
+          updatedAt: 1_700_000_000_123.456,
+          createdAt: Number.NaN,
+          turnCount: 2.5,
+          lastSeq: -1,
+        },
+      ],
+    } as never)
+    const [row] = await f.host.list()
+    assert.equal(row.updatedAt, 1_700_000_000_123)
+    assert.equal(row.createdAt, 1_700_000_000_123)
+    assert.equal(row.turnCount, 3)
+    assert.equal(row.lastSeq, 0)
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('a send behind another send to the same chat is busy, with a delay to retry after', async () => {
   const f = await fixture()
   try {
