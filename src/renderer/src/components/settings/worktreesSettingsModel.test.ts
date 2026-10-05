@@ -245,3 +245,27 @@ test('a worktree an agent of an open chat was spawned into is in use, not free t
   expect(rows.get('agent-cwd')?.removal).toBeNull()
   expect(rows.get('orphan')?.removal).toBe('remove')
 })
+
+test('a slot an agent leased itself is credited to that agent’s chat, not to another chat with the same agent id', () => {
+  const leased: WorktreeInventory = {
+    measuredAt: NOW,
+    projects: [
+      {
+        repoRoot: REPO,
+        defaultRef: 'origin/main',
+        pool: {
+          ...inventory.projects[0].pool!,
+          slots: [slot('pool-01', { state: 'leased', lease: lease('agent/x', 'agent-1', 'w-b') })],
+        },
+        worktrees: [],
+        error: null,
+      },
+    ],
+  }
+  const chats: WorktreeChatSource[] = [
+    { id: 'w-b', name: 'The one that leased', folderPath: REPO, agents: { 'agent-1': {} } },
+    { id: 'w-a', name: 'Another with agent-1', folderPath: REPO, agents: { 'agent-1': {} } },
+  ]
+  const [view] = buildWorktreeProjects(leased, chats, NOW)
+  expect(view.poolRows[0].chat?.workspaceId).toBe('w-b')
+})
