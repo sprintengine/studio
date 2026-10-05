@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { isAbsolute, join } from 'path'
 import { workspaceSidecarPath } from '../workspace-sidecar'
@@ -145,9 +146,18 @@ export function createModuleStorageRegistry(options: { userDataDir: () => string
         const path = join(dir.dir, `${input.key}.json`)
         try {
           await mkdir(dir.dir, { recursive: true })
-          const tmp = `${path}.tmp`
-          await writeFile(tmp, serialized, 'utf8')
-          await rename(tmp, path)
+          // A fresh name, created exclusively: a workspace folder is a cloned
+          // repository's to fill, and a `<key>.json.tmp` link it committed
+          // would otherwise have the value written through it to wherever it
+          // points.
+          const tmp = `${path}.${process.pid}-${randomUUID()}.tmp`
+          try {
+            await writeFile(tmp, serialized, { encoding: 'utf8', flag: 'wx' })
+            await rename(tmp, path)
+          } catch (error) {
+            await rm(tmp, { force: true }).catch(() => undefined)
+            throw error
+          }
           return { ok: true as const }
         } catch (error) {
           return failure<object>('io_error', error instanceof Error ? error.message : String(error))
