@@ -122,6 +122,7 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
     placeholder: new Compartment(),
     editable: new Compartment(),
     attributes: new Compartment(),
+    history: new Compartment(),
   })
 
   const handleRef = useRef<ComposerFieldHandle | null>(null)
@@ -174,7 +175,7 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
     const host = hostRef.current
     if (!host) return
     const field = handleRef.current!
-    const { placeholder, editable, attributes } = compartments.current
+    const { placeholder, editable, attributes, history: undoHistory } = compartments.current
     const initial = propsRef.current
     const view = new EditorView({
       parent: host,
@@ -221,7 +222,7 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
               },
             }),
           ),
-          history(),
+          undoHistory.of(history()),
           // Enter is the composer's (send); Shift+Enter is the newline, and it
           // carries a list or quote on to the next line the way a markdown
           // editor does. Backspace at a bare list marker takes the marker.
@@ -262,17 +263,26 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
   // by a pick from the @ or / menu — replaces the document. The caret goes to
   // its end, where a textarea given a new value puts it; a caller that wants it
   // elsewhere sets it after.
+  //
+  // And the undo history starts again, as a textarea's does when it is given a
+  // value: what was typed before belongs to a draft that is gone, and ⌘Z must
+  // not bring back a message that was already sent. The history is taken out
+  // for the replacement and put back fresh after it, so neither the edits
+  // before nor the replacement itself is there to undo.
   const { value } = props
   useLayoutEffect(() => {
     const view = viewRef.current
     if (!view || value === heldRef.current) return
     heldRef.current = value
     if (view.state.doc.toString() === value) return
+    const { history: undoHistory } = compartments.current
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
       selection: EditorSelection.cursor(value.length),
       annotations: fromProps.of(true),
+      effects: undoHistory.reconfigure([]),
     })
+    view.dispatch({ effects: undoHistory.reconfigure(history()) })
   }, [value])
 
   const { placeholder, disabled, contentAttributes } = props
