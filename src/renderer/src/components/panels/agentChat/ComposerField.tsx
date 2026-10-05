@@ -79,7 +79,10 @@ const fromProps = Annotation.define<boolean>()
 // and the native caret and selection. The markdown classes are index.css's.
 // The host's `max-h-`/`min-h-` are the caller's; the editor takes them on
 // itself, so the editor's own scroller is the one that scrolls and the editor
-// keeps drawing only the lines in view.
+// keeps drawing only the lines in view. The floor is carried down to the
+// editable element too: an editor's scroller is only as tall as its lines, so a
+// three-row box with one line typed was the field for its first row alone, and
+// a click below it put no caret anywhere.
 const composerTheme = EditorView.theme({
   '&': {
     color: 'inherit',
@@ -89,8 +92,14 @@ const composerTheme = EditorView.theme({
     minHeight: 'inherit',
   },
   '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { fontFamily: 'inherit', lineHeight: '20px', overflowX: 'hidden', overflowY: 'auto' },
-  '.cm-content': { padding: '0', caretColor: 'currentColor' },
+  '.cm-scroller': {
+    fontFamily: 'inherit',
+    lineHeight: '20px',
+    overflowX: 'hidden',
+    overflowY: 'auto',
+    minHeight: 'inherit',
+  },
+  '.cm-content': { padding: '0', caretColor: 'currentColor', minHeight: 'inherit' },
   '.cm-line': { padding: '0' },
   '.cm-placeholder': { color: 'var(--text-disabled)' },
 })
