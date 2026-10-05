@@ -2604,6 +2604,9 @@ export default function WorkspaceManager() {
     confirm: AgentComposerConfirm,
     environment: NonNullable<NewAgentLaunch['environment']>,
     startupPrompt?: string,
+    // The images staged beside the prompt, files on this computer: the chat
+    // reads them here and sends their bytes, wherever it runs.
+    startupImages?: string[],
   ) => {
     if (confirm.kind !== 'conversation') {
       showToast({
@@ -2615,6 +2618,7 @@ export default function WorkspaceManager() {
     }
     const seed = conversationNewChatSeed(confirm, {
       prompt: startupPrompt,
+      images: startupImages,
       permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
       ...cliPermissionModeLaunch(confirm.cli),
     })
@@ -4710,7 +4714,7 @@ export default function WorkspaceManager() {
                               permissionPreset={agentSpawnPermissionPreset}
                               onLaunch={({ prompt, images, extension, environment, ...confirm }) => {
                                 if (environment) {
-                                  confirmSshNewChat(confirm, environment, prompt)
+                                  confirmSshNewChat(confirm, environment, prompt, images)
                                   return
                                 }
                                 // confirmNewChat closes the panel (and forgets the draft) itself.
