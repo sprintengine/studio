@@ -136,7 +136,10 @@ export function registerThirdPartyModuleIpc(
 
   ipcMain.handle(
     'modules:third-party:install-folder',
-    async (_event, srcDir: unknown): Promise<ThirdPartyModuleInstallResult> => {
+    async (event: IpcMainInvokeEvent, srcDir: unknown): Promise<ThirdPartyModuleInstallResult> => {
+      // Installing and trusting change what runs on this machine, as
+      // uninstalling does: they answer only the app's own window.
+      assertAppSender(event)
       if (typeof srcDir !== 'string' || srcDir.trim().length === 0) {
         return { ok: false, message: 'No folder selected.' }
       }
@@ -149,7 +152,8 @@ export function registerThirdPartyModuleIpc(
 
   ipcMain.handle(
     'modules:third-party:set-trust',
-    async (_event, payload: unknown): Promise<ThirdPartyModuleTrustResult> => {
+    async (event: IpcMainInvokeEvent, payload: unknown): Promise<ThirdPartyModuleTrustResult> => {
+      assertAppSender(event)
       if (
         !payload ||
         typeof payload !== 'object' ||
