@@ -1714,8 +1714,8 @@ test('AgentChatView', async () => {
   // The right-click menu (1793) is DOM-bound (pointer coordinates, the field's
   // selection, the clipboard IPC), so its wiring is pinned at the source.
   assert.ok(
-    chatViewSource.includes('onContextMenu={(event) => void openComposerMenu(event)}'),
-    'the composer textarea opens the menu on right-click',
+    chatViewSource.includes('onContextMenu={(event, field) => void openComposerMenu(event, field)}'),
+    'the composer field opens the menu on right-click',
   )
   assert.match(
     chatViewSource.slice(chatViewSource.indexOf('const openComposerMenu')),
