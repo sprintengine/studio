@@ -154,6 +154,9 @@ function remoteLocation(remoteUrl: string): { host: string; port: string; path: 
       return null
     }
   } else {
+    // A Windows path (`C:/remotes/acme/app.git`) is a folder, as git reads
+    // it, not host `c`: a drive letter is never a host.
+    if (/^[a-z]:[\\/]/i.test(trimmed)) return null
     // scp-style: `git@host:owner/name.git`.
     const scp = /^(?:[^@/\s]+@)?([^:/\s]+):(.+)$/.exec(trimmed)
     if (!scp) return null

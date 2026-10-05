@@ -60,6 +60,8 @@ test('a remote names its forge by host, and the forges the app does not drive op
   assert.equal(forgeOfRemote('git@bitbucket.org:acme/app.git')?.forge, 'bitbucket')
   assert.equal(forgeOfRemote('https://dev.azure.com/acme/platform/_git/app')?.forge, 'azure-devops')
   assert.equal(forgeOfRemote('/Users/dev/remotes/app.git'), null, 'a path is no forge')
+  assert.equal(forgeOfRemote('C:/remotes/acme/app.git'), null, 'nor is a Windows one')
+  assert.equal(forgeOfRemote('D:\\remotes\\acme\\app.git'), null)
   assert.equal(forgeOfRemote(''), null)
 
   const head = 'feature/marks'
