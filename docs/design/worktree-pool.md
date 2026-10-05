@@ -1,10 +1,9 @@
-# Pooled agent worktrees — parked design
+# Pooled agent worktrees
 
-Status: **parked** (owner ruling 2026-09-24). Nothing here is built. A first
-implementation merged as #52 and was reverted by #54; its code stays reachable
-at commit `301b64159` for reference. This file records what was decided, what
-the first implementation got wrong, and what still needs a ruling before the
-work restarts.
+Status: **built** (owner ruling 2026-10-05), in `src/main/worktree-pool/`. A
+first implementation merged as #52 and was reverted by #54; its code stays
+reachable at commit `301b64159`. Section 5 says how this one differs; sections
+2–4 are the history it was built from.
 
 ## 1. The problem
 
@@ -81,3 +80,50 @@ pool per repository and machine so Windows and WSL never share slots.
    from the pool?
 9. **Disk cap and eviction.** Defaults (the first implementation used 20 GB and
    7 days idle) and whether the person sees them in Settings.
+
+## 5. What was built (2026-10-05)
+
+The owner's rulings on restarting the work, and how the open questions above
+were settled:
+
+- **No installs, ever.** The pool never runs a package manager, in the
+  background or after hand-out. A reused slot keeps the last agent's ignored
+  files (`node_modules`, build output, a virtual environment), so the next
+  agent's own install is incremental or unnecessary. This replaces the
+  "install when the lockfile changed" decision in section 3, and with it
+  questions 4 and 5.
+- **Always the default branch.** Every agent worktree forks from
+  `origin/<default>`, fetched at hand-out (at most once a minute per
+  repository, and never waiting more than ten seconds; offline it forks from
+  what the ref already says). That settles question 3. There is no base-branch
+  picker yet; `agent.launch` with an explicit `worktree.baseRef` still forks
+  that ref, outside the pool.
+- **No idle cost.** No timers refresh or warm anything. A slot is reset to the
+  base when it is leased, not when it is returned. The only timer is the
+  instance lock's heartbeat, which touches one file.
+- **One way in.** `createGitWorktree({ fromPool: true })` leases a slot when
+  the process keeps a pool (the desktop's main), and otherwise creates a fresh
+  worktree from the same base (the out-of-process server, a WSL machine, the
+  pool turned off). New chat, the tab strip's worktree spawn, `agent.launch`
+  and scheduled runs all go through it. That settles question 8.
+- **Agents that want a worktree** call `worktree.lease` (and optionally
+  `worktree.release`) instead of `git worktree add` (question 1: the tool, not
+  a shim). The lease is the calling agent's and is kept while that agent
+  exists.
+- **Returns ride the agent worktree cleanup.** The sweep that already knows
+  every path the app's records use hands each unused slot back to the pool
+  instead of removing it; the pool detaches it (branch kept), clears the
+  per-agent files and unlocks it. A lease never seen in use is left alone for
+  an hour. Dirty returns are held, and the Worktree manager offers Commit,
+  Stash, Discard and Keep on them.
+- **Merged agent branches are deleted** by the same sweep once no worktree has
+  them checked out and their work is on the default branch, squash merges
+  included (question 7).
+- **Pool size.** Up to three idle slots per repository are kept (setting
+  `keepIdle`); a return beyond that removes the least recently used. Leased
+  slots are not capped below 32.
+
+Still open: adopting worktrees made outside the pool (question 6), a disk cap
+(question 9), and how a settled chat whose slot was returned comes back to its
+work, which has to take a slot of its own rather than the path it had.
+
