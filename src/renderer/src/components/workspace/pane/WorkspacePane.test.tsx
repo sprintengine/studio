@@ -148,3 +148,33 @@ test('exactly one strip owns the caption corner', async () => {
   assert.equal(paneStripOwnsCaptionCorner({ open: false, maximised: false }), false, 'closed pane: the header')
   assert.equal(paneStripOwnsCaptionCorner({ open: false, maximised: true }), false, 'closed pane: the header')
 })
+
+test('the "+" sits right after the last tab, ahead of the empty run and the pane controls', async () => {
+  const container = await renderPane(
+    {
+      open: true,
+      activeTabId: 't1',
+      tabs: [
+        { id: 't1', kind: 'files' },
+        { id: 't2', kind: 'git' },
+      ],
+    },
+    false,
+  )
+  const tablist = container.querySelector('[role="tablist"]')
+  const scroller = tablist?.closest('.strip-scroll')
+  const add = button(container, 'Open in the pane')
+  const maximise = button(container, 'Maximise pane')
+  assert.ok(scroller && add && maximise, 'the strip renders its tabs, "+" and controls')
+  // The scroller must not grow: a growing scroller is what pushed "+" to the
+  // far edge. It still shrinks, so overflowing tabs scroll and "+" stays put.
+  assert.equal(scroller.classList.contains('flex-1'), false, 'the tab scroller takes only its tabs’ width')
+  assert.ok(scroller.classList.contains('min-w-0'), 'the tab scroller can shrink below its tabs and scroll')
+  const order = (a: Node, b: Node) =>
+    Boolean(a.compareDocumentPosition(b) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING)
+  assert.ok(order(scroller, add), '"+" follows the tabs')
+  assert.ok(order(add, maximise), 'the pane controls stay after "+"')
+  const spacer = container.querySelector('div.flex-1[aria-hidden="true"]')
+  assert.ok(spacer, 'the strip has an empty run that takes the free width')
+  assert.ok(order(add, spacer) && order(spacer, maximise), 'the empty run sits between "+" and the pane controls')
+})

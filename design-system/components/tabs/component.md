@@ -126,6 +126,13 @@ horizontal line and a third of the row's height. The host routes a plain
 vertical wheel to `scrollLeft`, because a horizontal row has no vertical axis
 to spend that gesture on.
 
+**A "new tab" control follows the last tab.** It sits directly after the
+scroller, not at the far end of the band: the scroller takes only its tabs'
+width (it shrinks, it never grows), and the band's free width goes to a spacer
+after the control. Once the tabs overflow, the scroller is squeezed to what is
+left and the control stays in view at its end, never scrolled away with the
+tabs. The band's other actions (maximise, close) stay at the far end.
+
 **The panel is a tab stop.** It is usually a scroll container, so it takes
 `tabindex="0"` — otherwise keyboard users cannot scroll it. Only the active
 panel is rendered; inactive panels are unmounted, not hidden.

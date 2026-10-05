@@ -215,7 +215,13 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
             edge (TabsScroller): a 10px bar under a 36px strip is a second line
             in a band that already has one, and a plain vertical wheel is the
             gesture people make over a row of tabs. */}
-        <TabsScroller className="flex min-w-0 flex-1 items-end self-stretch">
+        {/* The scroller takes only the width its tabs need (it shrinks, it
+            never grows), so the "+" after it sits right of the last tab. Once
+            the tabs outgrow the strip the scroller is squeezed to what is
+            left, the tabs scroll inside it, and the "+" stays in view at its
+            end. The empty run between "+" and the controls is the spacer's,
+            and it is what drags the window. */}
+        <TabsScroller className="flex min-w-0 flex-initial items-end self-stretch">
           {tabs.length > 0 && activeTabId ? (
             <Tabs
               ariaLabel="Pane tabs"
@@ -240,8 +246,11 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
             />
           ) : null}
         </TabsScroller>
-        <div className="app-no-drag flex h-full shrink-0 items-center gap-0.5">
+        <div className="app-no-drag flex h-full shrink-0 items-center pl-0.5">
           <WorkspacePaneAddMenu kinds={kinds} onPick={openKind} />
+        </div>
+        <div className="min-w-0 flex-1 self-stretch" aria-hidden="true" />
+        <div className="app-no-drag flex h-full shrink-0 items-center gap-0.5">
           <Tooltip content={maximised ? 'Restore pane' : 'Maximise pane'} placement="bottom">
             <IconButton
               onClick={() => setMaximised(!maximised)}
