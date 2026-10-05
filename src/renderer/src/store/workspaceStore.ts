@@ -227,6 +227,11 @@ export interface WorkspaceStore
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
+  /**
+   * Mark a chat's worktree as given back by the agent worktree cleanup (a
+   * stamp), or as on disk again (`null`). See `WorkspaceWorktree.reclaimedAt`.
+   */
+  setWorkspaceWorktreeReclaimed: (id: WorkspaceId, reclaimedAt: number | null) => void
   /** Take a chat out of auto-settling (idle and merge alike), or put it back. */
   setWorkspaceAutoSettle: (id: WorkspaceId, enabled: boolean) => void
   /**
@@ -450,8 +455,28 @@ function getPersistedWorkspaceCount(raw: string | null): number {
 const BACKUP_WRITE_DEBOUNCE_MS = 1000
 let backupWriteTimer: ReturnType<typeof setTimeout> | null = null
 
+// A pane pop-out window (`?aux=pane`) writes neither the settings key nor the
+// backup. It mounts the pane's own tab bodies, so any setter they reach runs
+// in it, and its store holds the settings as they were when it opened: a
+// write from it would put that snapshot back over everything the workspace
+// window has changed since (the hazard auxWindows/auxSettingsWrite.ts exists
+// for). Its workspace list moves on every registry broadcast and every pane
+// state its owner pushes, and each of those would otherwise ask for a backup
+// carrying the same stale settings. The settings its bodies do change go to
+// the owner, which writes them (panePopOutRedirect.ts).
+const PERSISTS_NOTHING = readAuxWindowKind() === 'pane'
+
+function readAuxWindowKind(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return new URL(window.location.href).searchParams.get('aux')
+  } catch {
+    return null
+  }
+}
+
 function scheduleBackupWrite(): void {
-  if (typeof window === 'undefined') return
+  if (typeof window === 'undefined' || PERSISTS_NOTHING) return
   const api = window.api
   if (!api || typeof api.workspaceBackupWrite !== 'function') return
 
@@ -983,6 +1008,7 @@ const workspaceStateStorage: PersistStorage<PersistedWorkspaceSlice> = {
   // state on the way back up.
   setItem: (_name: string, value: StorageValue<PersistedWorkspaceSlice>): void => {
     if (typeof window === 'undefined') return
+    if (PERSISTS_NOTHING) return
     const next = value.state
     const previous = lastPersistedSlice
     lastPersistedSlice = next

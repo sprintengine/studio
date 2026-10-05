@@ -598,7 +598,16 @@ export default function NewAgentPanel({
       : initialMode === 'extension'
         ? [EXTENSION_BUILDER_CHIP]
         : draft?.skills,
-    initialWorktreeName: editing ? (editing.worktree?.name ?? null) : null,
+    // A New chat starts in a worktree of its own unless the person turns the
+    // chip off: a chat that edits the checkout everyone else is standing on
+    // is the exception, not the rule. The door only (the one with a parked
+    // draft); a scheduled agent or an extension opens with it off, and the
+    // pane's "+" spawns beside a workspace that already has its folder.
+    initialWorktreeName: editing
+      ? (editing.worktree?.name ?? null)
+      : draftKey && initialMode !== 'scheduled' && initialMode !== 'extension'
+        ? ''
+        : null,
     // The engine a parked draft was made on, when whoever made it stored none —
     // a card's `Go` picker, which must not move this door's remembered engine
     // on its way past (item 2473). The panel opens standing on that row and
@@ -1176,6 +1185,22 @@ export default function NewAgentPanel({
     }
   }, [workspaceRoot])
 
+  // Worktree is offered only inside a git repository on this machine, for an
+  // agent: absent, not disabled. A paired machine's or an SSH machine's chat
+  // has no checkout here to fork, and an extension's folder is new.
+  const worktreeOffered =
+    !extensionMode && selection.kind !== 'terminal' && !remoteTarget && !pickedSsh && workspaceIsGitRepo
+  // The chip starts on at the door, so a launch it is not offered for drops
+  // the worktree rather than carrying one nobody could see: a folder that is
+  // not a git repository would fail to make it and keep the chat from
+  // starting, and another machine's chat would ignore it.
+  const buildLaunchConfirm = (target: AgentComposerSelection): AgentComposerConfirm => {
+    const confirm = composer.buildConfirm(target)
+    if (worktreeOffered || confirm.kind === 'terminal' || !confirm.worktree) return confirm
+    const { worktree: _notOffered, ...rest } = confirm
+    return rest
+  }
+
   // ── What a launch would run, for Start's hover ───────────────────────────
   const [commandLine, setCommandLine] = React.useState<LaunchCommandLineState>({ status: 'idle' })
   const previewInput = React.useMemo(
@@ -1329,7 +1354,7 @@ export default function NewAgentPanel({
       promptRef.current?.focus()
       return
     }
-    const confirm = composer.buildConfirm(selection)
+    const confirm = buildLaunchConfirm(selection)
     if (confirm.kind !== 'conversation' || !confirm.cli) return
     const draftRecord: ScheduledAgentDraft = {
       prompt: body,
@@ -1400,7 +1425,7 @@ export default function NewAgentPanel({
         showToast({ tone: 'warn', title: 'Which folder?', description: sshFolderProblem })
         return
       }
-      const confirm = composer.buildConfirm(selection)
+      const confirm = buildLaunchConfirm(selection)
       if (confirm.kind === 'conversation') {
         const providerId = confirm.cli ? conversationProviderForCli(confirm.cli) : null
         if (!providerId) return
@@ -1429,7 +1454,7 @@ export default function NewAgentPanel({
     }
     if (remoteTarget) {
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
-      const confirm = composer.buildConfirm(selection)
+      const confirm = buildLaunchConfirm(selection)
       if (confirm.kind !== 'conversation') return
       // A chat's skills are this machine's and its images are local files;
       // neither has a way over yet, so their chips refuse rather than vanish.
@@ -1465,7 +1490,7 @@ export default function NewAgentPanel({
         .catch(() => {})
       return
     }
-    const confirm = composer.buildConfirm(selection)
+    const confirm = buildLaunchConfirm(selection)
     // A chat sends the attached images as images with its first message. A
     // terminal agent is typed them as paths after the text, quoted only when
     // the path needs it — the terminal drop idiom.
@@ -1631,10 +1656,6 @@ export default function NewAgentPanel({
   // the Worktree chip that sat on its row (owner ruling 2026-10-04).
   const machinePickerShown =
     (remoteSelectable && remoteMachines.length > 0) || localHosts.length > 1 || sshMachines.length > 0
-  // Worktree is offered only inside a git repository on this machine, for an
-  // agent: absent, not disabled. A paired machine's chat has no checkout here
-  // to fork, and an extension's folder is new.
-  const worktreeOffered = !extensionMode && selection.kind !== 'terminal' && !remoteTarget && workspaceIsGitRepo
   // The branch the launch starts from: the remote project's as its machine
   // read it, else this checkout's. An SSH machine's folder is typed, not read.
   const stripBranch = remoteTarget ? (remoteTarget.checkout?.branch ?? null) : pickedSsh ? null : branch

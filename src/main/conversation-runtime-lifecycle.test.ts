@@ -124,6 +124,40 @@ test('a chat child in the process tree is labelled with the CLI it runs', async 
   )
 })
 
+test("a chat's folder is in use while its provider child lives or a turn runs, and not while it rests", async () => {
+  const live = (sessionId: string, workspaceRoot: string, hasChildProcess: boolean, turnActive: boolean) => ({
+    sessionId,
+    workspaceId: 'workspace',
+    agentId: sessionId,
+    workspaceRoot,
+    providerSessionId: null,
+    hasChildProcess,
+    childPid: hasChildProcess ? 4242 : null,
+    turnActive,
+    pendingApproval: false,
+    lastActivityAt: 5,
+    spawnedAt: 3,
+  })
+  const runtime = new ConversationRuntime({
+    getProviderById: () => undefined,
+    adapters: [
+      {
+        ...echoProvider(),
+        id: 'claude-agent',
+        listLiveSessions: () => [
+          live('child', '/Users/dev/.sprintengine-worktrees/app/child', true, false),
+          live('turn', '/Users/dev/.sprintengine-worktrees/app/turn', false, true),
+          live('resting', '/Users/dev/.sprintengine-worktrees/app/resting', false, false),
+        ],
+      },
+    ],
+  })
+  assert.deepEqual((await runtime.liveConversationWorkspaceRoots()).sort(), [
+    '/Users/dev/.sprintengine-worktrees/app/child',
+    '/Users/dev/.sprintengine-worktrees/app/turn',
+  ])
+})
+
 /**
  * A stateful provider whose child can be disposed, and which reports an agent
  * it spawned in the background through the session's continuation channel.

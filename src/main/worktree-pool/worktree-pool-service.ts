@@ -760,14 +760,15 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     if (!base) return { ok: false, reason: 'no-base', message: 'This repository has no default branch to fork from.' }
     const owner = input.owner?.trim() || branch
 
-    // Idle slots, the most recently used first: its build caches are the
-    // warmest, and the least recently used are the ones a later return evicts.
+    // Idle slots, the least recently used first: the slot a settled chat gave
+    // back most recently is the last to go to someone else, so reopening that
+    // chat finds its worktree still free to reclaim (`reclaim`).
     for (let attempt = 0; attempt <= POOL_MAX_SLOTS; attempt += 1) {
       let created = false
       let slot: SlotRecord | null = await withPool(pool, async () => {
         const picked = pool.record.slots
           .filter((candidate) => candidate.state === 'idle' && !pool.busy.has(candidate.id))
-          .sort((a, b) => (b.lastUsedAt ?? b.createdAt) - (a.lastUsedAt ?? a.createdAt))[0]
+          .sort((a, b) => (a.lastUsedAt ?? a.createdAt) - (b.lastUsedAt ?? b.createdAt))[0]
         if (!picked) return null
         picked.state = 'leasing'
         pool.busy.add(picked.id)
@@ -882,6 +883,125 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       await persist(found.pool)
     })
     return true
+  }
+
+  /**
+   * Give a returned slot back to the chat it was returned from, on the
+   * chat's own branch, at the path the chat records: a settled chat reopened
+   * after the cleanup handed its worktree back (git.ts `restoreGitWorktree`).
+   * The slot is still on disk with everything the chat left in it, ignored
+   * files included, so only the branch is checked out again.
+   *
+   * Only an idle slot can be reclaimed. One leased to another agent since, or
+   * held with someone's changes, is refused with the reason; a branch that no
+   * longer exists is refused for good.
+   */
+  async function reclaim(input: {
+    path: string
+    branch: string
+    owner: string
+  }): Promise<{ ok: true } | { ok: false; message: string; definitive?: true } | null> {
+    await load()
+    const pool = [...pools.values()].find((candidate) =>
+      candidate.record.slots.some((slot) => comparablePath(slot.path) === comparablePath(input.path)),
+    )
+    if (!pool) return null
+    if (!(await ready(pool))) {
+      return { ok: false, message: 'Another SprintEngine Studio is using this repository’s worktree pool.' }
+    }
+    const branch = input.branch
+    const began = await withPool(pool, async () => {
+      const slot = pool.record.slots.find((candidate) => comparablePath(candidate.path) === comparablePath(input.path))
+      if (!slot) return { kind: 'gone' as const }
+      if (slot.state === 'leased' && slot.lease?.branch === branch) return { kind: 'done' as const }
+      if (slot.state !== 'idle' || pool.busy.has(slot.id)) return { kind: 'refused' as const, other: slot }
+      pool.busy.add(slot.id)
+      slot.state = 'leasing'
+      slot.op = { kind: 'lease', startedAt: now(), pid: process.pid }
+      await persist(pool)
+      return { kind: 'began' as const, slot }
+    })
+    if (began.kind === 'gone') return null
+    if (began.kind === 'done') return { ok: true }
+    if (began.kind === 'refused') {
+      const other = began.other
+      return {
+        ok: false,
+        message:
+          other.state === 'held'
+            ? `The worktree this chat used is held in the worktree pool with changes in it. Commit, stash or discard them in the Worktree manager, then open the chat again.`
+            : `The worktree this chat used at ${input.path} has since been given to another agent${other.lease ? ` (${other.lease.branch})` : ''}.`,
+      }
+    }
+    const slot = began.slot
+    const putBack = async (): Promise<void> => {
+      await withPool(pool, async () => {
+        slot.state = 'idle'
+        slot.op = null
+        await persist(pool)
+      })
+    }
+    try {
+      if (!(await branchExists(pool.record.repoRoot, branch))) {
+        await putBack()
+        return {
+          ok: false,
+          definitive: true,
+          message: `Branch "${branch}" no longer exists, so the worktree cannot be recreated.`,
+        }
+      }
+      const gitDir = await readSlotGitDir(git, slot.path)
+      const operation = gitDir ? await operationInProgress(gitDir) : null
+      const status = await readSlotStatus(git, slot.path)
+      if (!gitDir || operation || !status.ok || status.status.changedPaths > 0 || status.status.branch !== null) {
+        await hold(
+          pool,
+          slot,
+          !status.ok || !gitDir
+            ? 'error'
+            : operation
+              ? 'operation'
+              : status.status.branch
+                ? 'unexpected-head'
+                : 'dirty',
+          'found while giving it back to its chat',
+          status.ok ? { changedPaths: status.status.changedPaths, branch: status.status.branch } : {},
+        )
+        return {
+          ok: false,
+          message: 'The worktree this chat used changed while it was in the pool; it is held in the Worktree manager.',
+        }
+      }
+      const locked = await lockAgentWorktree(pool.record.repoRoot, slot.path, input.owner, git)
+      if (!locked.ok) log(`${slot.path}: could not lock (${tail(locked.message, 200)}); reclaiming anyway`)
+      const switched = await git(slot.path, ['switch', '--quiet', branch])
+      if (!switched.ok) {
+        await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
+        await putBack()
+        return { ok: false, message: switched.message ?? `Could not check out ${branch} again.` }
+      }
+      await withPool(pool, async () => {
+        slot.state = 'leased'
+        slot.op = null
+        slot.lease = {
+          leaseId: randomUUID(),
+          branch,
+          owner: input.owner,
+          agentId: null,
+          leasedAt: now(),
+          claimed: false,
+        }
+        slot.lastUsedAt = now()
+        await persist(pool)
+      })
+      log(`${slot.path}: given back to its chat on ${branch}`)
+      return { ok: true }
+    } catch (error) {
+      await hold(pool, slot, 'error', messageOf(error))
+      return { ok: false, message: messageOf(error) }
+    } finally {
+      pool.busy.delete(slot.id)
+    }
   }
 
   function findLease(leaseId: string): { pool: PoolRuntime; slot: SlotRecord } | null {
@@ -1526,6 +1646,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     load,
     lease,
     bind,
+    reclaim,
     release,
     returnUnused,
     leaseAt,

@@ -351,6 +351,8 @@ import type {
   GitWorktreeListSnapshot,
   GitWorktreeOperationResult,
   GitWorktreeRemoveInput,
+  GitWorktreeRestoreInput,
+  GitWorktreeRestoreResult,
   RevFileResult,
   WorkspaceChangeSummary,
   GitCheckoutChange,
@@ -468,6 +470,16 @@ import type {
   WindowState,
 } from './ipc/window'
 import type {
+  PanePopOutAction,
+  PanePopOutActionEvent,
+  PanePopOutClosedEvent,
+  PanePopOutOpenInput,
+  PanePopOutOpenResult,
+  PanePopOutSnapshot,
+  PanePopOutState,
+  PanePopOutStatePush,
+} from './ipc/pane-popout'
+import type {
   ExtensionScaffoldCreateInput,
   ExtensionScaffoldCreateResult,
   ExtensionScaffoldTarget,
@@ -495,6 +507,7 @@ export type * from './ipc/git'
 export type * from './ipc/worktree-pool'
 export type * from './ipc/diagnostics'
 export type * from './ipc/window'
+export type * from './ipc/pane-popout'
 export type * from './ipc/account'
 export type * from './ipc/workspace-backup'
 export type * from './ipc/app'
@@ -557,6 +570,19 @@ export type ElectronApi = {
   onWindowHiddenChanged: (cb: (hidden: boolean) => void) => () => void
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
   onWindowCloseRequested: (cb: () => void) => () => void
+  // The pane, or one tab, in a window of its own (ipc/pane-popout.ts). The
+  // first six are the owner window's half, the last three the pop-out's.
+  panePopOutOpen: (input: PanePopOutOpenInput) => Promise<PanePopOutOpenResult>
+  /** Fire-and-forget: the owner's latest word on what the window shows. */
+  panePopOutPush: (popOutId: string, state: PanePopOutState) => void
+  panePopOutFocus: (popOutId: string) => Promise<void>
+  panePopOutClose: (popOutId: string) => Promise<void>
+  onPanePopOutAction: (cb: (event: PanePopOutActionEvent) => void) => () => void
+  onPanePopOutClosed: (cb: (event: PanePopOutClosedEvent) => void) => () => void
+  panePopOutGetState: (popOutId: string) => Promise<PanePopOutSnapshot | null>
+  onPanePopOutState: (cb: (push: PanePopOutStatePush) => void) => () => void
+  /** Fire-and-forget: what the person did in the pop-out, for the owner to apply. */
+  panePopOutAct: (popOutId: string, action: PanePopOutAction) => void
   // The embedded browser (browser-pane epic, src/shared/browser.ts). The
   // renderer mounts the `<webview>` and registers its WebContents id; main
   // drives it and pushes `onBrowserState` for every registered tab.
@@ -1363,6 +1389,8 @@ export type ElectronApi = {
   createGitTagFromCommit: (repoRoot: string, tagName: string, commitHash: string) => Promise<GitCommandResult>
   listGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>>
   createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeCreated>>
+  /** Recreate a chat's worktree the cleanup gave back, at its old path, from the branch it kept. */
+  restoreGitWorktree: (input: GitWorktreeRestoreInput) => Promise<GitWorktreeRestoreResult>
   removeGitWorktree: (input: GitWorktreeRemoveInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   pruneGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   /** Lift an in-use lock the app placed on an agent worktree (never a lock a person placed). */

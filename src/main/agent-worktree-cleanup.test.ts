@@ -132,7 +132,7 @@ test('only clean agent worktrees whose work is on the default branch are removed
   )
 
   const real = await cleanupAgentWorktrees(
-    { repoRoot: repo, protectedPaths: [inUse] },
+    { repoRoot: repo, protectedPaths: [inUse], keepBranches: [] },
     { livePaths: () => [join(live, 'src')], log: () => {}, now: later },
   )
   assert.deepEqual(
@@ -186,7 +186,10 @@ test('a squash-merged branch is removable; one carrying more work is kept', asyn
   const squashed = await squashMerged('squashed')
   const moreWork = await squashMerged('more-work', 'late.txt')
 
-  const report = await cleanupAgentWorktrees({ repoRoot: repo, protectedPaths: [] }, { log: () => {}, now: later })
+  const report = await cleanupAgentWorktrees(
+    { repoRoot: repo, protectedPaths: [], keepBranches: [] },
+    { log: () => {}, now: later },
+  )
   const byName = Object.fromEntries(report.entries.map((entry) => [entry.path.split('/').pop(), entry]))
   assert.equal(byName.squashed?.verdict, 'removed', 'its changes are already on origin/main')
   assert.match(byName.squashed?.detail ?? '', /squash-merged/)
@@ -234,4 +237,24 @@ test('with no default branch to compare against, nothing is removed', async () =
     ['no-default-branch'],
   )
   assert.ok(await exists(path))
+})
+
+test('a chat whose session starts in a worktree while it is being checked keeps it', async () => {
+  // Never committed to, so it would go; the chat's session starts there after
+  // the sweep first looked, and is in the second look, asked of a server.
+  const returning = await addWorktree('returning-chat')
+  let asked = 0
+  const report = await cleanupAgentWorktrees(
+    { repoRoot: repo, protectedPaths: [] },
+    {
+      livePaths: async () => {
+        asked += 1
+        return asked > 1 ? [returning] : []
+      },
+      log: () => {},
+      now: later,
+    },
+  )
+  assert.equal(report.entries.find((entry) => entry.path === returning)?.verdict, 'in-use')
+  assert.ok(await exists(returning))
 })

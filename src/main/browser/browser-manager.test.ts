@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 
-import { cropRect, descendantPids, fileStamp, parseListeningSockets } from './browser-manager'
+import {
+  TAB_MOVE_GRACE_MS,
+  createAgentTabAssignments,
+  cropRect,
+  descendantPids,
+  fileStamp,
+  parseListeningSockets,
+} from './browser-manager'
 import { applyGuestWebPreferences } from './guest-policy'
 import { BROWSER_PARTITION } from '../../shared/browser'
 import { parsePsTree } from '../terminal-subtree-probe'
@@ -155,5 +162,44 @@ test('browser-manager', async () => {
 
   run('fileStamp is the local clock, not UTC', () => {
     assert.equal(fileStamp(new Date(2026, 8, 4, 8, 18, 2)), '2026-09-04_08-18-02')
+  })
+
+  // A browser tab popped out of its pane, or docked back, unregisters from the
+  // window it left and registers under the same id in the other. The agents
+  // driving it keep driving it; a tab that is really gone lets them go.
+  run('agent assignments: a tab that moves windows keeps its agents, one that closes does not', () => {
+    let clock = 1_000
+    const assignments = createAgentTabAssignments(() => clock)
+    assignments.set('ws-1', 'agent-a', 'tab-1')
+    assignments.set('ws-1', 'agent-b', 'tab-1')
+    assignments.set('ws-1', 'agent-c', 'tab-2')
+
+    assignments.release('tab-1', 'ws-1')
+    assert.equal(assignments.get('ws-1', 'agent-a'), undefined, 'gone, the tab is held by nobody')
+    // While it was away, one agent took another tab: that one is not undone.
+    assignments.set('ws-1', 'agent-b', 'tab-2')
+    clock += 2_000
+    assignments.restore('tab-1', 'ws-1')
+    assert.equal(assignments.get('ws-1', 'agent-a'), 'tab-1', 'registered again, it is held again')
+    assert.equal(assignments.get('ws-1', 'agent-b'), 'tab-2')
+    assert.deepEqual(
+      assignments.holding('ws-1').sort((x, y) => x.agentId.localeCompare(y.agentId)),
+      [
+        { agentId: 'agent-a', tabId: 'tab-1' },
+        { agentId: 'agent-b', tabId: 'tab-2' },
+        { agentId: 'agent-c', tabId: 'tab-2' },
+      ],
+    )
+
+    // Closed for real: a tab with that id much later is a new tab.
+    assignments.release('tab-1', 'ws-1')
+    clock += TAB_MOVE_GRACE_MS + 1
+    assignments.restore('tab-1', 'ws-1')
+    assert.equal(assignments.get('ws-1', 'agent-a'), undefined)
+
+    // Nor does a tab of the same id in another workspace inherit them.
+    assignments.release('tab-2', 'ws-1')
+    assignments.restore('tab-2', 'ws-2')
+    assert.equal(assignments.get('ws-1', 'agent-c'), undefined)
   })
 })

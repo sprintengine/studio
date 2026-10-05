@@ -3176,7 +3176,16 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   // is not finishing anything anyway. The wash is waiting for them when the
   // row wakes, which is when it is news again.
   const unseenDone = !needsAttention && !options?.snoozed && unseenDoneMark
-  const folderMissing = workspace.folderMissing === true
+  // A chat whose worktree the cleanup gave back (`worktree.reclaimedAt`) has
+  // no folder on disk, and that is expected, not broken: opening it checks the
+  // worktree out again (chatWorktreeRestore.ts). So it never wears the
+  // strike-through and the warning triangle of a folder that went missing;
+  // its branch chip, which the parked line already draws, says the rest in
+  // its tooltip. No new mark: the branch is the durable fact, and the row
+  // reads like any other parked worktree chat. A restore that fails drops the
+  // mark, and the row then reads as missing, which it is.
+  const worktreeReclaimed = workspace.worktree?.reclaimedAt !== undefined
+  const folderMissing = workspace.folderMissing === true && !worktreeReclaimed
   const starred = isStarred(workspace.highlight)
   // "Hot": at least one resident (live-PTY) agent — instant to switch into.
   // Said in words for a screen reader, and since 2026-09-09 it is also what
@@ -3836,6 +3845,11 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
               worktree
               cwd={workspace.folderPath ?? null}
               dim={emphasis === 'quiet'}
+              tooltip={
+                worktreeReclaimed
+                  ? 'Worktree given back once its work was merged · checked out again from this branch when you open the chat'
+                  : undefined
+              }
             />
           ) : null}
           {/* After the branch, where a live line puts it, so the two rows

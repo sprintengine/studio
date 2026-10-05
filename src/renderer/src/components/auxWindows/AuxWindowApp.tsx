@@ -13,6 +13,7 @@ import { InlineNotice, Spinner } from '../ui'
 const DiffViewerWindow = lazy(() => import('./DiffViewerWindow'))
 const CheckpointDiffWindow = lazy(() => import('./CheckpointDiffWindow'))
 const ExternalEditorWindow = lazy(() => import('./ExternalEditorWindow'))
+const PanePopOutWindow = lazy(() => import('../workspace/pane/popout/PanePopOutWindow'))
 
 function AuxLoading() {
   return (
@@ -66,7 +67,7 @@ function parseRevealRange(raw: string | undefined): EditorRange | null {
 function readInitialParams(): { kind: AuxWindowKind; params: AuxWindowParams } | null {
   const search = new URLSearchParams(window.location.search)
   const kind = search.get('aux')
-  if (kind !== 'diff' && kind !== 'file') return null
+  if (kind !== 'diff' && kind !== 'file' && kind !== 'pane') return null
   const params: AuxWindowParams = {}
   search.forEach((value, key) => {
     if (key !== 'aux') params[key] = value
@@ -104,6 +105,18 @@ export default function AuxWindowApp() {
 
   if (!descriptor) {
     return <AuxFailure message="Unknown auxiliary window." />
+  }
+
+  // A pane popped out of its workspace window. It names the pop-out and the
+  // workspace and nothing else: what it shows comes from the window that owns
+  // it, over IPC, and changes as that window's pane does.
+  if (descriptor.kind === 'pane') {
+    if (!params.popOutId || !params.workspaceId) return <AuxFailure message="Missing pane for this window." />
+    return (
+      <Suspense fallback={<AuxLoading />}>
+        <PanePopOutWindow popOutId={params.popOutId} workspaceId={params.workspaceId} />
+      </Suspense>
+    )
   }
 
   if (descriptor.kind === 'diff') {

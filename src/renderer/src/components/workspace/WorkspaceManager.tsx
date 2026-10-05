@@ -81,6 +81,7 @@ import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import type { CardLaunchChoice } from './globalSurface/extensions/home/CardGoPicker'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { ensureChatWorktree } from '../../utils/chatWorktreeRestore'
 import { undeliveredPromptEntry, undeliveredPromptNotice } from '../../utils/undeliveredPrompt'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
@@ -519,6 +520,13 @@ export default function WorkspaceManager() {
       null,
     [primaryWorkspaceWindowId, workspaceWindowId, workspaceWindows],
   )
+  // Whether this window's own record is in the registry right now, rather than
+  // stood in for by the primary's. A move between windows can drop it for a
+  // beat; what this window holds is not known until it is back.
+  const ownWorkspaceWindowPresent = useMemo(
+    () => workspaceWindows.some((windowState) => windowState.id === workspaceWindowId),
+    [workspaceWindowId, workspaceWindows],
+  )
   const isPrimaryWorkspaceWindow = workspaceWindowId === (primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID)
   const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
   const setPaneOpen = useWorkspaceStore((s) => s.setPaneOpen)
@@ -561,15 +569,12 @@ export default function WorkspaceManager() {
   // win/linux the floating caption buttons sit over whichever top strip owns
   // that corner, and that strip leaves them room (WindowCaptionReserve): the
   // pane's own strip while it is open, the WorkspaceHeader otherwise.
-  const paneOwnsRightEdge = useWorkspaceStore(
+  // `paneOwnsRightEdge` itself is derived below, once the New chat door's state
+  // is known: the door hides the active workspace's pane.
+  const activeWorkspacePaneOpen = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState?.open ?? false,
   )
-  // The caption corner is narrower than the right edge: a MAXIMISED pane fills
-  // the row below the header, so the header keeps the corner and its own
-  // reserve (paneStripOwnsCaptionCorner). The card's right-edge gap below still
-  // reads `paneOwnsRightEdge`, so maximising reflows nothing under the pane.
   const paneMaximised = useWorkspaceStore((s) => s.workspacePaneMaximised)
-  const paneOwnsCaptionCorner = paneStripOwnsCaptionCorner({ open: paneOwnsRightEdge, maximised: paneMaximised })
   // (Was `activePaneOpen`, derived from `activeWorkspace`. Removed: the card's
   // right-edge gap is its only consumer and it now reads `paneOwnsRightEdge`
   // above, which selects `paneState.open` straight off the live store — one
@@ -593,6 +598,18 @@ export default function WorkspaceManager() {
   } | null>(null)
   const scheduledAgents = useScheduledAgents()
   const newChatPanelOpen = newChatPanelState !== null
+  // The New chat door belongs to no workspace yet: the chat it starts lands in
+  // a workspace of its own. The "active" workspace behind it is only the one
+  // that was showing when the door opened, so its pane — its tabs, its
+  // terminals — stays out of view until the door closes, rather than reading
+  // as part of the chat about to be made. The pane stays mounted (collapsed,
+  // like a closed pane), so cancelling the door brings it back as it was.
+  const paneOwnsRightEdge = activeWorkspacePaneOpen && !newChatPanelOpen
+  // The caption corner is narrower than the right edge: a MAXIMISED pane fills
+  // the row below the header, so the header keeps the corner and its own
+  // reserve (paneStripOwnsCaptionCorner). The card's right-edge gap below still
+  // reads `paneOwnsRightEdge`, so maximising reflows nothing under the pane.
+  const paneOwnsCaptionCorner = paneStripOwnsCaptionCorner({ open: paneOwnsRightEdge, maximised: paneMaximised })
   // At a phone's width (owner decision 5, phase 9 spec 7.2) the sidebar, with
   // the rail, and the content take turns at the full width: the sidebar
   // toggle switches between them, and choosing a chat, New chat or another
@@ -782,6 +799,15 @@ export default function WorkspaceManager() {
   const ownsGlobalSupervisors = isPrimaryWorkspaceWindow
   // Reclaims agent worktrees that are clean and merged; one window runs it.
   useAgentWorktreeCleanup(isPrimaryWorkspaceWindow)
+  // Opening a chat whose worktree that cleanup gave back starts bringing it
+  // back at once, not when the first of its panels asks for the folder
+  // (chatWorktreeRestore.ts); every panel then waits on the same restore. A
+  // sweep that started before the chat was opened can mark it while it is
+  // open, which asks again.
+  const activeWorktreeReclaimedAt = activeWorkspace?.worktree?.reclaimedAt
+  useEffect(() => {
+    if (windowActiveWorkspaceId) void ensureChatWorktree(windowActiveWorkspaceId)
+  }, [windowActiveWorkspaceId, activeWorktreeReclaimedAt])
   const renderedWorkspaceIds = visibleWorkspaces
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === windowActiveWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
@@ -4857,6 +4883,8 @@ export default function WorkspaceManager() {
             <WorkspacePaneColumn
               activeWorkspaceId={windowActiveWorkspaceId}
               renderedWorkspaceIds={renderedWorkspaceIds}
+              suppressed={newChatPanelOpen}
+              windowWorkspaceIds={ownWorkspaceWindowPresent ? visibleWorkspaceIdSet : null}
             />
           </React.Suspense>
         </div>

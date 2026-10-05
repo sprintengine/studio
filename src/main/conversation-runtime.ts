@@ -1835,6 +1835,27 @@ export class ConversationRuntime {
     return roots
   }
 
+  /**
+   * The folders chats are working in right now: a live provider child's
+   * working directory, or a running turn's. The agent worktree cleanup never
+   * removes one from under it, as it never does a live terminal's. A resting
+   * session (no child, no turn) is not here: its next turn waits on the
+   * chat's worktree being on disk before it respawns there. A promise because
+   * the shell asks it of an out-of-process server the same way.
+   */
+  liveConversationWorkspaceRoots(): Promise<string[]> {
+    const roots = new Set<string>()
+    for (const adapter of this.adapters.values()) {
+      for (const live of adapter.listLiveSessions?.() ?? []) {
+        if ((live.hasChildProcess || live.turnActive) && live.workspaceRoot) roots.add(live.workspaceRoot)
+      }
+    }
+    for (const session of this.sessions.values()) {
+      if (session.activeTurnId && session.workspaceRoot) roots.add(session.workspaceRoot)
+    }
+    return Promise.resolve([...roots])
+  }
+
   // App-quit disposal: stop every live session so no headless child outlives
   // the app. Sessions keep their resume cursors in the JSONL transcripts.
   /**

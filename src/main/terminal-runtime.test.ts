@@ -156,6 +156,7 @@ test('terminal-runtime', async () => {
       await assertSelfExitedAgentReleasesRawStreamButKeepsFinalScreen(runtimeModule)
       await assertSessionsBroadcastCarriesOnlyWhatChanged(runtimeModule)
       await assertRevealSendsOnlyWhatThePaneMissed(runtimeModule)
+      await assertOnlyTheRoutedWindowSpeaksForVisibility(runtimeModule)
       await assertSettledAgentKeepsItsHistoryAndIsNotRepaintedOnReveal(runtimeModule)
       await assertRevealCatchUpCountsTowardFlowControl(runtimeModule)
       await assertSubagentStartOvertakenByItsStopIsNotCounted(runtimeModule)
@@ -2333,6 +2334,83 @@ test('terminal-runtime', async () => {
       runtime.ipcHandlers.setTerminalVisible('session-reveal', true, sender)
       assert.equal(channel('terminal:replay:session-reveal').length, 1, 'fell off the head: full repaint')
       assert.equal(channel('terminal:data:session-reveal').length, 0)
+    } finally {
+      await runtime.shutdown()
+    }
+  }
+
+  // A pane terminal popped out into a window of its own, and docked back: the
+  // window it LEFT still reports it hidden — its panel's unmount does, and so
+  // does its hidden-window sweep — and taken at its word that froze the
+  // terminal in the window it had moved to. Only the window the session is
+  // routed to speaks for its visibility.
+  async function assertOnlyTheRoutedWindowSpeaksForVisibility(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-visibility-sender-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const workspaceWindow = mockSender as unknown as WebContents
+    const popOut = createMockWebContents()
+    const popOutWindow = popOut as unknown as WebContents
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    const dataTo = (contents: { sent: SentEvent[] }) =>
+      contents.sent.filter((event) => event.channel === 'terminal:data:session-moving').map((event) => event.payload)
+    const spawn = (sender: WebContents) =>
+      runtime.ipcHandlers.spawnTerminal(sender, {
+        sessionId: 'session-moving',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        kind: 'terminal',
+        shellOnly: true,
+        visible: true,
+      })
+    try {
+      assert.equal((await spawn(workspaceWindow)).ok, true)
+      const pty = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+      assert.ok(pty)
+
+      // A window the session is not routed to says "hidden": nothing changes.
+      runtime.ipcHandlers.setTerminalVisible('session-moving', false, popOutWindow)
+      pty.emitData('still live in the workspace window\r\n')
+      await delay(30)
+      assert.deepEqual(dataTo(mockSender), ['still live in the workspace window\r\n'])
+
+      // Popped out: the pop-out attaches and the session is routed there. The
+      // workspace window's panel unmounts after, and its "hidden" is ignored.
+      assert.equal((await spawn(popOutWindow)).ok, true)
+      mockSender.sent = []
+      popOut.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-moving', false, workspaceWindow)
+      pty.emitData('live in the pop-out\r\n')
+      await delay(30)
+      assert.deepEqual(dataTo(popOut), ['live in the pop-out\r\n'], 'the window it left does not freeze it')
+      assert.deepEqual(dataTo(mockSender), [])
+
+      // The routed window still decides for itself.
+      runtime.ipcHandlers.setTerminalVisible('session-moving', false, popOutWindow)
+      popOut.sent = []
+      pty.emitData('missed while hidden\r\n')
+      await delay(30)
+      assert.deepEqual(dataTo(popOut), [], 'hidden by its own window, it is not fed')
+      runtime.ipcHandlers.setTerminalVisible('session-moving', true, popOutWindow)
+      assert.deepEqual(dataTo(popOut), ['missed while hidden\r\n'])
+
+      // The pop-out closes while the output is still routed to it (its
+      // re-attach landed after the workspace window took the terminal back).
+      // The window that does show it takes the route on its next word, and is
+      // sent the whole screen: nothing says what its pane holds.
+      popOut.isDestroyed = () => true
+      mockSender.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-moving', true, workspaceWindow)
+      const replays = mockSender.sent.filter((event) => event.channel === 'terminal:replay:session-moving')
+      assert.equal(replays.length, 1, 'adopted, the pane is repainted')
+      assert.match(String(replays[0]?.payload), /missed while hidden/)
+      pty.emitData('back in the workspace window\r\n')
+      await delay(30)
+      assert.deepEqual(dataTo(mockSender), ['back in the workspace window\r\n'], 'and fed from then on')
     } finally {
       await runtime.shutdown()
     }

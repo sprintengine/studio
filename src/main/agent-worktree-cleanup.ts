@@ -86,9 +86,11 @@ import {
  * supplies what the app's records use, and reports what the pool did.
  *
  * **Merged agent branches** are deleted afterwards (owner ruling 2026-10-05):
- * an `agent/` branch that no worktree has checked out and whose work is on the
- * default branch by rule 7 holds nothing the default branch lacks. Git itself
- * refuses to delete a branch some worktree has checked out at that moment.
+ * an `agent/` branch that no worktree has checked out, that no record of the
+ * app's names (`keepBranches`: a chat is restored from its branch), and whose
+ * work is on the default branch by rule 7 holds nothing anyone still needs.
+ * Git itself refuses to delete a branch some worktree has checked out at that
+ * moment. A caller that names no records deletes nothing.
  *
  * Every decision is logged, removals and keeps alike.
  */
@@ -98,8 +100,8 @@ export type AgentWorktreeCleanupDeps = {
   listWorktrees?: (repoRoot: string) => Promise<GitWorktreeEntry[] | null>
   resolveRoot?: (repoRoot: string) => Promise<string | null>
   exists?: (path: string) => Promise<boolean>
-  /** Working directories of the live terminal sessions, which are never removed from under. */
-  livePaths?: () => string[]
+  /** Working directories of the live terminal sessions and chat sessions, which are never removed from under. */
+  livePaths?: () => string[] | Promise<string[]>
   /** When git last wrote the worktree's admin directory, in ms since the epoch; null when unknown. */
   lastWrittenAt?: (worktreePath: string) => Promise<number | null>
   /** The worktree pool, which takes back its own slots instead of the sweep removing them. */
@@ -217,7 +219,7 @@ export async function cleanupAgentWorktrees(
   // before these were read (and is in them if it is used) or is too new to
   // pass the idle rule. Each spelled with and without symlinks resolved.
   const protectedSpellings = await Promise.all(
-    [...input.protectedPaths, ...(deps.livePaths?.() ?? [])].filter(Boolean).map((path) => pathSpellings(path)),
+    [...input.protectedPaths, ...((await deps.livePaths?.()) ?? [])].filter(Boolean).map((path) => pathSpellings(path)),
   )
   const entries: AgentWorktreeCleanupEntry[] = []
   const record = (entry: AgentWorktreeCleanupEntry): void => {
@@ -328,8 +330,11 @@ export async function cleanupAgentWorktrees(
       continue
     }
     // The checks above take a while on a big worktree: a terminal opened in it
-    // meanwhile is asked about once more, the last thing before it goes.
-    const liveNow = await Promise.all((deps.livePaths?.() ?? []).filter(Boolean).map((path) => pathSpellings(path)))
+    // meanwhile, or a chat's session started there, is asked about once more,
+    // the last thing before it goes.
+    const liveNow = await Promise.all(
+      ((await deps.livePaths?.()) ?? []).filter(Boolean).map((path) => pathSpellings(path)),
+    )
     if (liveNow.some((spellings) => insideAny(spellings, worktreeSpellings))) {
       record({ ...base, verdict: 'in-use' })
       continue
@@ -352,16 +357,21 @@ export async function cleanupAgentWorktrees(
   }
 
   if (pool) {
+    // Read again now: a chat's session or a terminal that started in a slot
+    // while the worktrees above were checked keeps that slot.
     const swept = await pool.returnUnused({
       repoRoot: root,
-      protectedPaths: input.protectedPaths,
+      protectedPaths: [...input.protectedPaths, ...((await deps.livePaths?.()) ?? [])],
       agentIds: input.agentIds ? new Set(input.agentIds) : null,
       dryRun,
     })
     for (const entry of swept) record(poolEntry(entry))
   }
 
-  const deletedBranches = defaultRef ? await deleteMergedAgentBranches(root, defaultRef, dryRun, runGit, log) : []
+  const deletedBranches =
+    defaultRef && input.keepBranches
+      ? await deleteMergedAgentBranches(root, defaultRef, new Set(input.keepBranches), dryRun, runGit, log)
+      : []
   return { repoRoot: root, defaultRef, entries, deletedBranches, dryRun }
 }
 
@@ -393,6 +403,7 @@ function poolEntry(entry: WorktreePoolSweepEntry): AgentWorktreeCleanupEntry {
 async function deleteMergedAgentBranches(
   root: string,
   defaultRef: string,
+  keep: ReadonlySet<string>,
   dryRun: boolean,
   runGit: NonNullable<AgentWorktreeCleanupDeps['runGit']>,
   log: (line: string) => void,
@@ -406,7 +417,7 @@ async function deleteMergedAgentBranches(
   const deleted: string[] = []
   for (const line of branches.stdout.split(/\r?\n/)) {
     const [branch, worktreePath] = line.split('\0')
-    if (!branch?.startsWith(AGENT_BRANCH_PREFIX) || worktreePath) continue
+    if (!branch?.startsWith(AGENT_BRANCH_PREFIX) || worktreePath || keep.has(branch)) continue
     const unique = await runGit(root, ['rev-list', '--count', `${defaultRef}..refs/heads/${branch}`])
     const uniqueCommits = unique.ok ? Number.parseInt(unique.stdout.trim(), 10) : Number.NaN
     if (!Number.isFinite(uniqueCommits)) continue

@@ -32,11 +32,26 @@ export type OpenFileSurfaceInput = {
   rootPath?: string
 }
 
+// A window with no editor of its own can take file opens elsewhere: a pane
+// popped out of its workspace window hands them to that window, whose editor
+// (or editor window, by the preference below) is where files open. Answers
+// whether it took the open.
+let fileSurfaceRedirect: ((input: OpenFileSurfaceInput) => boolean) | null = null
+
+/** Route this window's file opens through `redirect` until the returned function is called. */
+export function redirectFileSurface(redirect: (input: OpenFileSurfaceInput) => boolean): () => void {
+  fileSurfaceRedirect = redirect
+  return () => {
+    if (fileSurfaceRedirect === redirect) fileSurfaceRedirect = null
+  }
+}
+
 // Single routing point for "open this file" actions. Honors the
 // `openFilesInExternalWindow` preference: when on, the file opens as a tab in the
 // external editor window (pop-up); when off, it opens as a workspace editor tab.
 // Migrate file-open call sites here so the preference applies uniformly.
 export function openFileSurface(input: OpenFileSurfaceInput): void {
+  if (fileSurfaceRedirect?.(input)) return
   if (!input.background && input.takeFocus !== false) rememberFileVisit(input.path)
   const store = useWorkspaceStore.getState()
   if (store.openFilesInExternalWindow) {

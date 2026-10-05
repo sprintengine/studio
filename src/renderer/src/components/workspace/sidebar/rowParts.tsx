@@ -323,16 +323,21 @@ export function BranchChip({
   worktree,
   cwd,
   dim = false,
+  tooltip,
 }: {
   branch: string
   worktree: boolean
   cwd: string | null
   /** The row is background: nothing on its meta line may outshine its title. */
   dim?: boolean
+  /** In place of the path, when the path is not where the checkout is (a worktree given back). */
+  tooltip?: string
 }) {
   return (
     <RowTooltip
-      content={cwd ? (worktree ? `Worktree · ${cwd}` : cwd) : worktree ? 'A worktree of its own' : `On ${branch}`}
+      content={
+        tooltip ?? (cwd ? (worktree ? `Worktree · ${cwd}` : cwd) : worktree ? 'A worktree of its own' : `On ${branch}`)
+      }
       wrapperClassName="flex min-w-[4ch] shrink-[3] items-center"
     >
       <span

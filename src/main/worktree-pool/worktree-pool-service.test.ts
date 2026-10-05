@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, test } from 'vitest'
 
 import { cleanupAgentWorktrees } from '../agent-worktree-cleanup'
 import { setAgentWorktreeLockProfile } from '../agent-worktree-lock'
-import { createGitWorktree } from '../git'
+import { createGitWorktree, restoreGitWorktree } from '../git'
 import { installWorktreePool } from './active-pool'
 import { acquireInstanceLock, createPoolStore, POOL_RECORD_VERSION, poolIdFor, type PoolRecord } from './pool-store'
 import { parseSlotStatus } from './slot-git'
@@ -545,6 +545,7 @@ test('the agent worktree cleanup hands pool slots back instead of removing them,
   await git(repo, 'push', '-q', 'origin', 'main')
   await git(repo, 'fetch', '-q', 'origin')
   await git(repo, 'branch', 'agent/merged', 'origin/main')
+  await git(repo, 'branch', 'agent/merged-chat', 'origin/main')
   await git(repo, 'switch', '-q', '-c', 'agent/unmerged')
   await writeFile(join(repo, 'unmerged.txt'), 'unmerged\n')
   await git(repo, 'add', '.')
@@ -552,7 +553,8 @@ test('the agent worktree cleanup hands pool slots back instead of removing them,
   await git(repo, 'switch', '-q', 'main')
 
   const report = await cleanupAgentWorktrees(
-    { repoRoot: repo, protectedPaths: [], agentIds: [], ownedOnly: true },
+    // A chat still records `agent/squashed-chat`: restored from it, so kept.
+    { repoRoot: repo, protectedPaths: [], agentIds: [], keepBranches: ['agent/merged-chat'], ownedOnly: true },
     { pool: harness.service, now: () => Date.now() + 2 * HOUR, log: () => {} },
   )
   assert.deepEqual(
@@ -562,13 +564,19 @@ test('the agent worktree cleanup hands pool slots back instead of removing them,
   assert.equal(await exists(pooled.path), true, 'the slot stays on disk')
   assert.deepEqual(report.deletedBranches?.sort(), ['agent/merged', 'agent/pooled', 'agent/squashed'])
   assert.ok(await git(repo, 'rev-parse', '--verify', 'agent/unmerged'), 'unmerged work keeps its branch')
+  assert.ok(await git(repo, 'rev-parse', '--verify', 'agent/merged-chat'), 'a branch a chat records is kept')
+
+  // A caller that names no records deletes nothing.
+  await git(repo, 'branch', 'agent/unknown', 'origin/main')
+  const blind = await cleanupAgentWorktrees({ repoRoot: repo, protectedPaths: [] }, { log: () => {} })
+  assert.deepEqual(blind.deletedBranches, [])
 })
 
 test('the cleanup never deletes a branch a worktree has checked out', async () => {
   const harness = makeService()
   await lease(harness, 'live')
   const report = await cleanupAgentWorktrees(
-    { repoRoot: repo, protectedPaths: [], agentIds: [] },
+    { repoRoot: repo, protectedPaths: [], agentIds: [], keepBranches: [] },
     { pool: harness.service, log: () => {} },
   )
   assert.deepEqual(report.deletedBranches, [])
@@ -661,4 +669,57 @@ test('slot status parsing reads branch, commit and every kind of change', () => 
   assert.deepEqual(status.trackedPaths, ['README.md', 'new.txt', 'old.txt'])
   assert.deepEqual(status.untrackedPaths, ['untracked.txt'])
   assert.equal(parseSlotStatus('# branch.oid (initial)\0# branch.head (detached)\0').branch, null)
+})
+
+test('leases reuse the least recently returned slot, keeping a just-settled chat’s worktree free longest', async () => {
+  const harness = makeService()
+  const older = await lease(harness, 'older')
+  const newer = await lease(harness, 'newer')
+  await returnAll(harness, [newer.path])
+  await returnAll(harness)
+  const next = await lease(harness, 'next')
+  assert.equal(next.path, older.path)
+})
+
+test('a settled chat’s returned slot is given back to it on its branch when the chat is restored', async () => {
+  const harness = makeService()
+  installWorktreePool(harness.service)
+  const chat = await lease(harness, 'chat')
+  await mkdir(join(chat.path, 'node_modules', 'dep'), { recursive: true })
+  await writeFile(join(chat.path, 'node_modules', 'dep', 'index.js'), 'module.exports = 1\n')
+  await writeFile(join(chat.path, 'feature.txt'), 'feature\n')
+  await git(chat.path, 'add', 'feature.txt')
+  await git(chat.path, 'commit', '-q', '-m', 'feature')
+  await returnAll(harness)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+
+  const restored = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/chat' })
+  assert.equal(restored.ok, true, restored.ok ? '' : restored.message)
+  assert.equal(await git(chat.path, 'branch', '--show-current'), 'agent/chat')
+  assert.equal(await readFile(join(chat.path, 'feature.txt'), 'utf8'), 'feature\n')
+  assert.equal(await exists(join(chat.path, 'node_modules', 'dep', 'index.js')), true)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'leased')
+  // Asking again (a second window) is answered as done.
+  const again = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/chat' })
+  assert.equal(again.ok, true)
+})
+
+test('a returned slot given to another agent since is refused to its old chat, with the reason', async () => {
+  const harness = makeService()
+  installWorktreePool(harness.service)
+  const chat = await lease(harness, 'chat')
+  await returnAll(harness)
+  const other = await lease(harness, 'other')
+  assert.equal(other.path, chat.path)
+  const restored = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/chat' })
+  assert.equal(restored.ok, false)
+  assert.match(restored.ok ? '' : restored.message, /given to another agent/)
+  assert.equal(await git(chat.path, 'branch', '--show-current'), 'agent/other', 'the other agent is untouched')
+
+  // The branch deleted meanwhile is a refusal for good.
+  await returnAll(harness)
+  await git(repo, 'branch', '-D', 'agent/chat')
+  const gone = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/chat' })
+  assert.equal(gone.ok, false)
+  assert.equal('definitive' in gone && gone.definitive, true)
 })

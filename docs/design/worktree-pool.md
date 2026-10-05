@@ -117,13 +117,21 @@ were settled:
   an hour. Dirty returns are held, and the Worktree manager offers Commit,
   Stash, Discard and Keep on them.
 - **Merged agent branches are deleted** by the same sweep once no worktree has
-  them checked out and their work is on the default branch, squash merges
-  included (question 7).
+  them checked out, no chat or worktree entry records them, and their work is
+  on the default branch, squash merges included (question 7). A branch a chat
+  still records is kept: a settled chat is restored from it.
+- **Settled chats.** A settled chat in a pool slot offers it to the sweep like
+  any settled worktree chat; the slot goes back to the pool and the chat is
+  marked reclaimed. Opening the chat again asks the pool for that same slot
+  (`reclaim`), which checks the chat's branch out in it again, ignored files
+  and all. Leases take the least recently used idle slot, so a just-settled
+  chat's slot is the last to go to someone else; if it has gone, the chat is
+  told why.
 - **Pool size.** Up to three idle slots per repository are kept (setting
   `keepIdle`); a return beyond that removes the least recently used. Leased
   slots are not capped below 32.
 
 Still open: adopting worktrees made outside the pool (question 6), a disk cap
-(question 9), and how a settled chat whose slot was returned comes back to its
-work, which has to take a slot of its own rather than the path it had.
-
+(question 9), and a settled chat whose slot was given to another agent: today
+it is told so and opens without its folder, where it could take a slot of its
+own on its branch instead.

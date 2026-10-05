@@ -40,6 +40,7 @@ import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
 import { renderKeybinding } from '../../commands/keybindings'
 import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { ensureChatWorktree } from '../../utils/chatWorktreeRestore'
 import {
   dataTransferHasDroppableFiles,
   dataTransferHasFiles,
@@ -255,6 +256,10 @@ export function queuedTurnLabel(text: string, attachmentCount: number): string {
 // or growing, and the list itself resizing (a pane dragged, the composer tray
 // growing). One path, not the list's plus an effect per token.
 const END_FOLLOW_TRIGGERS = { dataChange: true, itemLayout: true, layout: true }
+
+// Said on the composer when a settled chat's worktree could not be checked out
+// again; the toast that came with it says why (chatWorktreeRestore.ts).
+const WORKTREE_NOT_BACK = 'This chat’s worktree could not be brought back, so nothing can run in it.'
 
 // Stable empty-catalog reference: returned for any provider whose live catalog
 // has not loaded so effects keyed on the derived list do not re-run each render.
@@ -1183,6 +1188,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   > => {
     if (!conversation || !workspaceRoot || !transport.capabilities.startSession || !transport.startSession) return null
     try {
+      if (!(await ensureChatWorktree(workspaceId))) return { ok: false, message: WORKTREE_NOT_BACK }
       const result = await transport.startSession({
         workspaceRoot,
         workspaceId,
@@ -1204,6 +1210,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     }
   }, [agentId, cliRuntimes, conversation, permissionMode, permissionPreset, workspaceId, workspaceRoot, transport])
   const ensureSession = useCallback(async (): Promise<string | null> => {
+    // A settled chat whose worktree the cleanup gave back has it checked out
+    // again before a turn runs in it (chatWorktreeRestore.ts) — including a
+    // turn on the session this view still holds, which main respawns from
+    // its suspended state in the chat's folder.
+    if (!(await ensureChatWorktree(workspaceId))) {
+      setActionError(WORKTREE_NOT_BACK)
+      return null
+    }
     if (sessionId) return sessionId
     const started = await startSession()
     if (!started) return null
@@ -1212,7 +1226,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       return null
     }
     return started.sessionId
-  }, [sessionId, startSession])
+  }, [sessionId, startSession, workspaceId])
   // The session this view holds is gone where it ran: forget it, so the next
   // send starts the chat's session again. A view that cannot start a session
   // (a paired machine's chat) keeps the one it has.

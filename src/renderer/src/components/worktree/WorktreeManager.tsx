@@ -5,7 +5,12 @@ import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { pathJoin, samePath, trimPath } from '../../utils/paths'
 import { slugifyWorktreeName, worktreeContainerPath, worktreeIdFromPath } from '../../utils/workspaceWorktree'
-import { agentWorktreeCleanupPlan, entriesRemovedBy } from '../../utils/agentWorktreeCleanup'
+import {
+  agentWorktreeCleanupPlan,
+  chatsReclaimedBy,
+  entriesRemovedBy,
+  openWorkspaceIds,
+} from '../../utils/agentWorktreeCleanup'
 import type {
   AgentWorktreeCleanupEntry,
   AgentWorktreeCleanupReport,
@@ -328,7 +333,8 @@ export default function WorktreeManager({
       // worktrees (unmerged work, uncommitted changes) are shown here, which
       // is the only place anyone will see why they are still on disk.
       if (typeof window.api.cleanupAgentWorktrees === 'function') {
-        const plan = agentWorktreeCleanupPlan(useWorkspaceStore.getState().workspaces)
+        const records = useWorkspaceStore.getState()
+        const plan = agentWorktreeCleanupPlan(records.workspaces, openWorkspaceIds(records))
         const report = await window.api
           .cleanupAgentWorktrees({
             repoRoot,
@@ -575,14 +581,20 @@ export default function WorktreeManager({
   const handleCleanup = async () => {
     await runWorktreeAction('Cleaning up merged agent worktrees', async () => {
       const store = useWorkspaceStore.getState()
-      const plan = agentWorktreeCleanupPlan(store.workspaces)
+      const plan = agentWorktreeCleanupPlan(store.workspaces, openWorkspaceIds(store))
       const report = await window.api.cleanupAgentWorktrees({
         repoRoot,
         protectedPaths: plan.protectedPaths,
         agentIds: plan.agentIds,
+        keepBranches: plan.keepBranches,
       })
-      for (const [ownerWorkspaceId, entryId] of entriesRemovedBy(useWorkspaceStore.getState().workspaces, report)) {
+      const after = useWorkspaceStore.getState()
+      for (const [ownerWorkspaceId, entryId] of entriesRemovedBy(after.workspaces, report)) {
         removeWorktreeEntry(ownerWorkspaceId, entryId)
+      }
+      const reclaimedAt = Date.now()
+      for (const chatId of chatsReclaimedBy(after.workspaces, report)) {
+        after.setWorkspaceWorktreeReclaimed(chatId, reclaimedAt)
       }
       const removed = report.entries.filter((entry) => entry.verdict === 'removed').length
       const returned = report.entries.filter((entry) => entry.verdict === 'returned').length

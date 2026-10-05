@@ -1,4 +1,5 @@
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
+import { paneOpensHandedOff } from '../popout/panePopOutRedirect'
 
 // Open a URL in the workspace pane's browser (browser-pane epic): the active
 // browser tab if one is showing, else the first browser tab, else a new one.
@@ -22,7 +23,10 @@ export function openUrlInPane(workspaceId: string, rawUrl: string, options: { fo
     })
     return true
   }
-  return store.openPaneTab(workspaceId, { kind: 'browser', url }) !== null
+  // In a pop-out window the open goes to the owner, which answers with a push
+  // rather than an id: taken all the same, and not one for the system browser
+  // to open a second time.
+  return store.openPaneTab(workspaceId, { kind: 'browser', url }) !== null || paneOpensHandedOff(workspaceId)
 }
 
 // Chromium refuses to navigate to 0.0.0.0 (the wildcard bind a server prints
