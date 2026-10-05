@@ -1918,15 +1918,19 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     if (heartbeat) clearInterval(heartbeat)
     // Nothing new starts now (`ready` refuses); what already runs is waited
     // for, briefly, before the lock that keeps another Studio off it goes.
+    // Until none is left, not just the ones running now: a recovery already
+    // under way when quitting began still schedules its slot moves (`track`).
     if (inFlight.size > 0) {
       let timer: NodeJS.Timeout | null = null
-      await Promise.race([
-        Promise.allSettled([...inFlight]),
-        new Promise<void>((resolveWait) => {
-          timer = setTimeout(resolveWait, SHUTDOWN_WAIT_MS)
-          timer.unref?.()
-        }),
-      ])
+      let timedOut = false
+      const deadline = new Promise<void>((resolveWait) => {
+        timer = setTimeout(() => {
+          timedOut = true
+          resolveWait()
+        }, SHUTDOWN_WAIT_MS)
+        timer.unref?.()
+      })
+      while (inFlight.size > 0 && !timedOut) await Promise.race([Promise.allSettled([...inFlight]), deadline])
       if (timer) clearTimeout(timer)
     }
     for (const pool of pools.values()) {
