@@ -203,3 +203,44 @@ test('sizes read the way a person says them', () => {
   expect(formatBytes(120 * GB)).toBe('120 GB')
   expect(formatBytes(2048)).toBe('2 KB')
 })
+
+test('a worktree an agent of an open chat was spawned into is in use, not free to remove', () => {
+  const spawned: WorktreeInventory = {
+    measuredAt: NOW,
+    projects: [
+      {
+        repoRoot: REPO,
+        defaultRef: 'origin/main',
+        pool: null,
+        worktrees: [
+          entry('/code/.sprintengine-worktrees/app/agent-tab', { branch: 'agent/tab' }),
+          entry('/code/.sprintengine-worktrees/app/agent-cwd', { branch: 'agent/cwd' }),
+          entry('/code/.sprintengine-worktrees/app/orphan', { branch: 'agent/orphan' }),
+        ],
+        error: null,
+      },
+    ],
+  }
+  const chats: WorktreeChatSource[] = [
+    {
+      id: 'w1',
+      name: 'Main chat',
+      folderPath: REPO,
+      agents: {
+        'agent-a': { execution: { cwd: '/code/.sprintengine-worktrees/app/agent-cwd/src', worktreeId: null } },
+      },
+      worktreeState: {
+        entries: {
+          tab: { path: '/code/.sprintengine-worktrees/app/agent-tab', status: 'assigned', ownerAgentId: null },
+          orphan: { path: '/code/.sprintengine-worktrees/app/orphan', status: 'assigned', ownerAgentId: 'gone' },
+        },
+      },
+    },
+  ]
+  const [view] = buildWorktreeProjects(spawned, chats, NOW)
+  const rows = new Map(view.otherRows.map((r) => [r.name, r]))
+  expect(rows.get('agent-tab')?.removal).toBeNull()
+  expect(rows.get('agent-tab')?.keptBecause).toBe('The chat “Main chat” works in it.')
+  expect(rows.get('agent-cwd')?.removal).toBeNull()
+  expect(rows.get('orphan')?.removal).toBe('remove')
+})
