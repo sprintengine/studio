@@ -993,6 +993,13 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     if (began.kind === 'done') return { ok: true }
     if (began.kind === 'refused') {
       const other = began.other
+      // Held with the chat's own branch still checked out (a return that found
+      // its work uncommitted): that is this chat's worktree, as it left it, and
+      // the chat opens on it so the work can be committed or discarded there.
+      if (other.state === 'held' && other.held?.branch === branch && !pool.busy.has(other.id)) {
+        const status = await readSlotStatus(git, other.path)
+        if (status.ok && status.status.branch === branch) return { ok: true }
+      }
       return {
         ok: false,
         message:
