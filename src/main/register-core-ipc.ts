@@ -27,7 +27,7 @@ import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
 import { registerGitRepoWatchIpc } from './ipc/git-repo-watch-ipc'
-import { listLiveTerminalSessions } from './terminal-runtime'
+import { getTerminalSessionById, listLiveTerminalSessions } from './terminal-runtime'
 import { createFolderOpenIpcDependencies, registerFolderOpenIpc } from './ipc/folder-open-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerDesignSystemIpc } from './ipc/design-system-ipc'
@@ -53,6 +53,7 @@ import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVersionControlIpc } from './ipc/version-control-ipc'
 import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
+import { registerPanePopOutIpc } from './ipc/pane-popout-ipc'
 import { registerBrowserIpc } from './ipc/browser-ipc'
 import { registerCanvasIpc } from './ipc/canvas-ipc'
 import { registerEditorRevealIpc } from './ipc/editor-reveal-ipc'
@@ -66,9 +67,11 @@ import {
   isAuxWindow,
   isWorkspaceWindowWebContents,
   openAuxWindow,
+  openPanePopOutWindow,
 } from './window-factory'
 import type { AppServices } from './app-services'
 import type { CliModelDiscoveryInput } from '../shared/ipc/cli-model-discovery'
+import type { TerminalSpawnResult } from '../shared/ipc/terminal'
 import { registerServerDomainIpc } from '../server/desktop/server-ipc'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
 import { createFilesystemReadHandlers } from './filesystem-read'
@@ -117,6 +120,11 @@ export function registerCoreIpc(
     confirmWindowClose: confirmWorkspaceWindowClose,
     openAuxWindow,
     isAuxWindow,
+  })
+  const panePopOuts = registerPanePopOutIpc(ipcMain, {
+    openWindow: openPanePopOutWindow,
+    isWorkspaceWindow: isWorkspaceWindowWebContents,
+    windowOf: (contents) => BrowserWindow.fromWebContents(contents),
   })
   registerBrowserIpc(ipcMain, services.browserManager, services.browserRecorder)
   registerCanvasIpc(ipcMain, services.canvasService, services.canvasSubscribers, {
@@ -251,8 +259,25 @@ export function registerCoreIpc(
 
   // The terminal runtime (agent-runtime) is always on, so its IPC registers
   // with the core surfaces.
+  const terminalHandlers = services.terminalRuntime.ipcHandlers
   registerTerminalIpc(machineIpc, {
-    ...services.terminalRuntime.ipcHandlers,
+    ...terminalHandlers,
+    // A pane terminal moves between windows by re-attaching, and the last
+    // attach takes the pty's output. A pop-out's attach that crossed the
+    // owner's taking the tab back must not be the last word.
+    spawnTerminal: (sender, payload) => {
+      const sessionId = payload?.sessionId
+      const existing = typeof sessionId === 'string' ? getTerminalSessionById(sessionId) : null
+      if (existing && !existing.isDisposed && !panePopOuts.mayAttachTerminal(sender, sessionId)) {
+        return Promise.resolve({
+          ok: false,
+          sessionId,
+          message: 'This terminal is shown in another window.',
+          exitCode: 1,
+        } satisfies TerminalSpawnResult)
+      }
+      return terminalHandlers.spawnTerminal(sender, payload)
+    },
     // One idle-suspend setting governs both agent runtimes: PTY terminals and
     // headless conversation child processes share the threshold.
     setIdleSuspendThresholdMs: (value: unknown): void => {

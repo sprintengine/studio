@@ -10,6 +10,9 @@ import { defaultDiffChangelistId } from '../../../utils/diffChangelistDefault'
 import { paneKindRetainsPanel } from './paneKinds'
 import { FLOATING_PAGE_INSET, FloatingPlayerChrome, useFloatRect } from './FloatingPlayer'
 import { clientSupports } from '../../../clientCapabilities'
+import { EmptyState, OpenInWindowGlyph, OutlineButton, PrimaryButton } from '../../ui'
+import { bringBackPaneTab, showPanePopOut } from './popout/panePopOutHost'
+import { paneTabLabel } from './paneTabItem'
 
 // The pane's content region: one layer per tab that needs to stay mounted
 // (terminal, browser, canvas) plus the active tab. Inactive retained layers are
@@ -64,6 +67,38 @@ function PaneUnavailable() {
       <p className="max-w-xs text-micro leading-5 text-[color:var(--text-muted)]">
         This view isn’t available right now. Its feature may be disabled, or the tab may be out of date.
       </p>
+    </div>
+  )
+}
+
+/**
+ * Where a popped-out tab's body would be. The body is mounted in the tab's own
+ * window, and mounting it here as well would put one terminal, one page, one
+ * live board on screen twice — and for a terminal or a browser, take it back
+ * from the window. So the pane says where the tab is, and offers the two ways
+ * to it: the window, or the tab back here.
+ */
+function PanePoppedOutPlaceholder({ workspaceId, tab }: { workspaceId: string; tab: WorkspacePaneTab }) {
+  const popOutId = tab.poppedOut
+  return (
+    <div role="note" className="h-full bg-[color:var(--bg-surface)]">
+      <EmptyState
+        glyph={<OpenInWindowGlyph className="icon-lg" />}
+        title="Shown in a separate window"
+        body={`${paneTabLabel(tab)} is open in a window of its own. Bring it back to show it here again.`}
+        action={
+          <>
+            {popOutId ? (
+              <OutlineButton size="sm" onClick={() => showPanePopOut(popOutId)}>
+                Show window
+              </OutlineButton>
+            ) : null}
+            <PrimaryButton size="sm" onClick={() => bringBackPaneTab(workspaceId, tab)}>
+              Bring back
+            </PrimaryButton>
+          </>
+        }
+      />
     </div>
   )
 }
@@ -309,8 +344,12 @@ export function WorkspacePaneBody({
         const floating = tab.id === floatingTab?.id && floatRect !== null
         const selected = tab.id === selectedTabId || floating
         const active = floating || (selected && tab.id === activeTabId)
-        if (!selected && !paneKindRetainsPanel(tab.kind)) return null
-        const offscreen = !selected && tab.kind === 'browser'
+        // A tab in a window of its own keeps no layer here, retained kind or
+        // not: its window holds the terminal, the page, the board. Selected,
+        // it is the placeholder.
+        const poppedOut = Boolean(tab.poppedOut)
+        if (!selected && (poppedOut || !paneKindRetainsPanel(tab.kind))) return null
+        const offscreen = !selected && tab.kind === 'browser' && !poppedOut
         return (
           <div
             key={tab.id}
@@ -365,9 +404,18 @@ export function WorkspacePaneBody({
             {...(collapsed && !floating ? { 'data-pane-collapsed': '' } : {})}
           >
             {floating ? <FloatingPlayerChrome workspaceId={workspaceId} tab={tab} rect={floatRect} /> : null}
-            <React.Suspense fallback={<SuspenseFallback label="Loading pane" />}>
-              <PaneTabPanel workspaceId={workspaceId} tab={tab} active={active} onDiffCountChange={onDiffCountChange} />
-            </React.Suspense>
+            {poppedOut ? (
+              <PanePoppedOutPlaceholder workspaceId={workspaceId} tab={tab} />
+            ) : (
+              <React.Suspense fallback={<SuspenseFallback label="Loading pane" />}>
+                <PaneTabPanel
+                  workspaceId={workspaceId}
+                  tab={tab}
+                  active={active}
+                  onDiffCountChange={onDiffCountChange}
+                />
+              </React.Suspense>
+            )}
           </div>
         )
       })}

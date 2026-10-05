@@ -520,6 +520,13 @@ export default function WorkspaceManager() {
       null,
     [primaryWorkspaceWindowId, workspaceWindowId, workspaceWindows],
   )
+  // Whether this window's own record is in the registry right now, rather than
+  // stood in for by the primary's. A move between windows can drop it for a
+  // beat; what this window holds is not known until it is back.
+  const ownWorkspaceWindowPresent = useMemo(
+    () => workspaceWindows.some((windowState) => windowState.id === workspaceWindowId),
+    [workspaceWindowId, workspaceWindows],
+  )
   const isPrimaryWorkspaceWindow = workspaceWindowId === (primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID)
   const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
   const setPaneOpen = useWorkspaceStore((s) => s.setPaneOpen)
@@ -4865,6 +4872,7 @@ export default function WorkspaceManager() {
               activeWorkspaceId={windowActiveWorkspaceId}
               renderedWorkspaceIds={renderedWorkspaceIds}
               suppressed={newChatPanelOpen}
+              windowWorkspaceIds={ownWorkspaceWindowPresent ? visibleWorkspaceIdSet : null}
             />
           </React.Suspense>
         </div>

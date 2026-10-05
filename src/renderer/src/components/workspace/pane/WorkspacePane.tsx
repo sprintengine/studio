@@ -1,22 +1,33 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { browserTabLabel } from '../../../../../shared/browser'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../../modules'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { WorkspacePaneTab, WorkspacePaneTabKind } from '../../../types/workspace'
-import { ContextMenu, IconButton, MenuItem, Tabs, TabsScroller, Tooltip, TourGlyph, type TabItem } from '../../ui'
-import { composePaneKinds, paneKindDefinition, type PaneLaunchKind } from './paneKinds'
+import {
+  ContextMenu,
+  IconButton,
+  MenuDivider,
+  MenuItem,
+  OpenInWindowGlyph,
+  Tabs,
+  TabsScroller,
+  Tooltip,
+  type TabItem,
+} from '../../ui'
+import { composePaneKinds, type PaneLaunchKind } from './paneKinds'
 import { WORKSPACE_PANE_DATA_ATTRIBUTE } from './paneFocus'
+import { paneTabItem } from './paneTabItem'
 import { closePaneTabAndItsTerminal } from './paneTerminals'
+import { bringBackPaneTab, canPopOutPane, popOutPaneTabs, showPanePopOut } from './popout/panePopOutHost'
 import { WorkspacePaneAddMenu } from './WorkspacePaneAddMenu'
 import { WorkspacePaneBody } from './WorkspacePaneBody'
 import { WorkspacePaneLauncher } from './WorkspacePaneLauncher'
 import { WindowCaptionReserve, paneStripOwnsCaptionCorner, windowCaptionReserve } from '../WindowControls'
 
-// One workspace's pane: the 36px strip (tabs · + · maximise · close) over the
-// tab bodies. Mounted once per retained workspace by WorkspacePaneColumn so a
-// terminal (later a browser) survives a workspace switch; `active` says
-// whether this is the one on screen.
+// One workspace's pane: the 36px strip (tabs · + · pop out · maximise · close)
+// over the tab bodies. Mounted once per retained workspace by
+// WorkspacePaneColumn so a terminal (later a browser) survives a workspace
+// switch; `active` says whether this is the one on screen.
 
 function MaximiseGlyph({ className }: { className?: string }) {
   return (
@@ -62,11 +73,6 @@ type TabMenuState = { x: number; y: number; tabId: string }
 type WorkspacePaneProps = {
   workspaceId: string
   active: boolean
-}
-
-function paneTabLabel(tab: WorkspacePaneTab): string {
-  if (tab.kind === 'browser') return browserTabLabel(tab.url, tab.title)
-  return tab.title?.trim() || paneKindDefinition(tab.kind).label
 }
 
 export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProps) {
@@ -162,32 +168,16 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
     [kinds, openModalSurface, openPaneTab, workspaceId],
   )
 
-  const items: TabItem[] = tabs.map((tab) => {
-    const label = paneTabLabel(tab)
-    const { Glyph } = paneKindDefinition(tab.kind)
-    const tourOffered = tab.kind === 'diff' && Boolean(tab.diff?.tourOffer)
-    return {
-      id: tab.id,
-      label,
-      closeLabel: `Close ${label}`,
-      ...(tab.kind === 'diff' && diffCount !== null ? { count: diffCount } : {}),
-      // An agent wrote a tour and docked this tab with it. The strip draws no
-      // corner count on a closable tab (its close glyph owns that corner), so
-      // the tab wears the tour mark in its glyph slot instead, in the accent
-      // ink a live mark may take, and says so in its name. Nothing moves until
-      // the owner looks.
-      ...(tourOffered ? { ariaLabel: `${label}: a tour is ready` } : {}),
-      icon: tab.faviconUrl ? (
-        <img src={tab.faviconUrl} alt="" className="size-icon-xs shrink-0 rounded-[3px]" />
-      ) : tourOffered ? (
-        <TourGlyph className="size-icon-xs shrink-0 text-[color:var(--accent-primary)]" />
-      ) : (
-        <Glyph className="size-icon-xs shrink-0" />
-      ),
-    }
-  })
+  const items: TabItem[] = tabs.map((tab) => paneTabItem(tab, { diffCount }))
 
   const menuTabIndex = tabMenu ? tabs.findIndex((tab) => tab.id === tabMenu.tabId) : -1
+  const menuTab = menuTabIndex === -1 ? null : tabs[menuTabIndex]
+  // A window of its own is a desktop thing: a browser tab has no second OS
+  // window to give the pane, so the web client offers neither entry point.
+  const popOutOffered = canPopOutPane()
+  // What "Pop out pane" takes: every tab still docked. Tabs already out stay
+  // in the windows they are in — one tab, one window.
+  const dockedTabIds = tabs.filter((tab) => !tab.poppedOut).map((tab) => tab.id)
 
   return (
     <section
@@ -251,6 +241,21 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
         </div>
         <div className="min-w-0 flex-1 self-stretch" aria-hidden="true" />
         <div className="app-no-drag flex h-full shrink-0 items-center gap-0.5">
+          {/* Out into a window of its own, which can be resized and taken full
+              screen: the pane's whole strip, with its tab in front kept in
+              front. The tabs stay in this strip, marked, and come back when
+              the window closes. */}
+          {popOutOffered ? (
+            <Tooltip content="Pop out pane" placement="bottom">
+              <IconButton
+                onClick={() => void popOutPaneTabs(workspaceId, dockedTabIds)}
+                aria-label="Pop out pane"
+                disabled={dockedTabIds.length === 0}
+              >
+                <OpenInWindowGlyph className="icon-sm" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
           <Tooltip content={maximised ? 'Restore pane' : 'Maximise pane'} placement="bottom">
             <IconButton
               onClick={() => setMaximised(!maximised)}
@@ -341,6 +346,21 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
           >
             Close to the right
           </MenuItem>
+          {popOutOffered && menuTab ? (
+            <>
+              <MenuDivider />
+              {menuTab.poppedOut ? (
+                <>
+                  <MenuItem onClick={() => showPanePopOut(menuTab.poppedOut!)}>Show window</MenuItem>
+                  <MenuItem onClick={() => bringBackPaneTab(workspaceId, menuTab)}>Bring back</MenuItem>
+                </>
+              ) : (
+                // Just this tab, in a window of its own; the rest of the pane
+                // stays where it is.
+                <MenuItem onClick={() => void popOutPaneTabs(workspaceId, [menuTab.id])}>Pop out</MenuItem>
+              )}
+            </>
+          ) : null}
         </ContextMenu>
       ) : null}
     </section>

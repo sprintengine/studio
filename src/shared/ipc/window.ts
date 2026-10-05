@@ -40,11 +40,14 @@ export type CreateWorkspaceWindowInput = {
 
 export type CreateWorkspaceWindowResult = { ok: true; windowId: string } | { ok: false; message: string }
 
-// Lightweight auxiliary windows (diff viewer, external file editor). Unlike
-// workspace windows they do not mount the workspace shell or join workspace
-// sync — the renderer branches on the `aux` query param into a dedicated root,
-// mirroring the diagnostics window (`?view=diagnostics`).
-export type AuxWindowKind = 'diff' | 'file'
+// Lightweight auxiliary windows (diff viewer, external file editor, a pane
+// popped out of its workspace window). Unlike workspace windows they do not
+// mount the workspace shell or join workspace sync — the renderer branches on
+// the `aux` query param into a dedicated root, mirroring the diagnostics window
+// (`?view=diagnostics`). A `pane` window is not opened through
+// `openAuxWindow`: it has an owner window main has to remember, so it has a
+// channel of its own (`panePopOutOpen`, ipc/pane-popout.ts).
+export type AuxWindowKind = 'diff' | 'file' | 'pane'
 
 export type OpenAuxWindowInput = {
   kind: AuxWindowKind

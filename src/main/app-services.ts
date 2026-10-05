@@ -138,7 +138,7 @@ import { createNodeCanvasFs, watchCanvasDirectory } from './canvas/canvas-node-f
 import { createCanvasSubscriberRegistry } from './canvas/canvas-subscribers'
 import { createCanvasWorkerHost } from './canvas/canvas-worker-host'
 import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canvas-worker-window'
-import { broadcastToWorkspaceWindows, isWorkspaceWindowWebContents, listWorkspaceWindows } from './window-factory'
+import { broadcastToWorkspaceWindows, isBrowserHostWebContents, listWorkspaceWindows } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
@@ -1263,7 +1263,8 @@ export function createAppServices(
   // on those same tabs, exposed as the gateway's browser.* tools below.
   const browserManager = createBrowserManager({
     listTerminalRoots,
-    isHostWindow: isWorkspaceWindowWebContents,
+    // A pane popped out of its window hosts its browser tabs there.
+    isHostWindow: isBrowserHostWebContents,
     broadcast: broadcastToWorkspaceWindows,
     resolveWorkspaceRoot: (workspaceId) =>
       workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)

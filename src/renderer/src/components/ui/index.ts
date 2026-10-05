@@ -78,6 +78,8 @@ export { CreatePatchGlyph, DeleteChangelistGlyph, EditChangelistGlyph, NewChange
 // The diff tour's marks (design-system/components/tour-strip): the tour itself,
 // Play and Pause, and the step list's toggle.
 export { PauseGlyph, PlayGlyph, StepListGlyph, TourGlyph } from './TourGlyphs'
+// "In a window of its own": the Diff tab's separate window, and the pane's pop-out.
+export { OpenInWindowGlyph } from './OpenInWindowGlyph'
 export { ToolKindGlyph } from './ToolKindGlyph'
 // The diff tour's surfaces (design-system/components/tour-strip, tour-callout):
 // the band, the callout a step is said in, the step list and the Start card.

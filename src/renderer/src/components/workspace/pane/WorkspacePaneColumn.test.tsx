@@ -81,7 +81,12 @@ async function renderColumn(suppressed: boolean): Promise<HTMLElement> {
   root = createRoot(host as unknown as Element)
   act(() => {
     root?.render(
-      React.createElement(WorkspacePaneColumn, { activeWorkspaceId: WS, renderedWorkspaceIds: [WS], suppressed }),
+      React.createElement(WorkspacePaneColumn, {
+        activeWorkspaceId: WS,
+        renderedWorkspaceIds: [WS],
+        windowWorkspaceIds: new Set([WS]),
+        suppressed,
+      }),
     )
   })
   return host

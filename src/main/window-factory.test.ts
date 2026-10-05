@@ -13,9 +13,10 @@ class FakeWindow {
   calls: Call[] = []
   minimized = false
   private listeners = new Map<string, Array<() => void>>()
+  webContentsEvents: string[] = []
   webContents = {
     send: (channel: string) => this.calls.push(`send:${channel}`),
-    on: () => undefined,
+    on: (event: string) => this.webContentsEvents.push(event),
     setWindowOpenHandler: () => undefined,
   }
   constructor(public options: Record<string, unknown>) {
@@ -53,7 +54,7 @@ vi.mock('electron', () => ({
 vi.mock('./browser/browser-manager', () => ({ guestPreloadPath: () => '/tmp/guest.js' }))
 vi.mock('./window-material-store', () => ({ getWindowMaterial: () => 'solid', getWindowCanvasColor: () => '#000' }))
 
-const { openAuxWindow } = await import('./window-factory')
+const { isBrowserHostWebContents, openAuxWindow, openPanePopOutWindow } = await import('./window-factory')
 
 beforeEach(() => {
   created.length = 0
@@ -99,4 +100,29 @@ test("the person's own open still brings the window forward", () => {
   win.calls.length = 0
   openAuxWindow({ kind: 'file', singletonKey: 'person', params: { filePath: '/Users/dev/b.ts' } })
   assert.deepEqual(win.calls, ['restore', 'send:aux:retarget', 'focus'])
+})
+
+// A pane popped out of its window mounts the pane's own tabs, a browser tab
+// among them, so it is the one aux window that hosts the embedded browser — and
+// it hosts it under the guest policy a workspace window applies.
+test('a pane pop-out window hosts the embedded browser, under the guest policy', () => {
+  const win = openPanePopOutWindow({ popOutId: 'pop-1', workspaceId: 'ws-1', bounds: null }) as unknown as FakeWindow
+  const preferences = win.options.webPreferences as Record<string, unknown>
+  assert.equal(preferences.webviewTag, true)
+  assert.ok(win.webContentsEvents.includes('will-attach-webview'), 'every guest it attaches is vetted')
+  assert.equal(isBrowserHostWebContents(win.webContents as never), true)
+  assert.equal(
+    openPanePopOutWindow({ popOutId: 'pop-1', workspaceId: 'ws-1', bounds: null }) as unknown,
+    win,
+    'one window per pop-out id',
+  )
+})
+
+test('no other aux window is given the webview tag', () => {
+  openAuxWindow({ kind: 'diff', singletonKey: 'no-webview', params: { repoRoot: '/Users/dev/repo' } })
+  const [win] = created
+  const preferences = win.options.webPreferences as Record<string, unknown>
+  assert.equal(preferences.webviewTag, undefined)
+  assert.equal(win.webContentsEvents.includes('will-attach-webview'), false)
+  assert.equal(isBrowserHostWebContents(win.webContents as never), false)
 })

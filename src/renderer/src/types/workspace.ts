@@ -692,6 +692,12 @@ export type WorkspacePaneTab = {
   // window floating over the workspace is a confusing first frame, and the
   // spec only promises the RECT across restarts.
   floating?: boolean
+  // Shown in a window of its own: the id of the pop-out window holding it. The
+  // pane keeps the tab in its strip and draws a placeholder where the body
+  // would be; the pop-out window mounts the body instead. Session-only —
+  // partialize strips it, because the window does not survive a restart and a
+  // tab left marked would come back as a placeholder pointing at nothing.
+  poppedOut?: string
 }
 
 export type WorkspacePaneState = {
