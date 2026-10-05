@@ -541,6 +541,58 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
+    // 1d. The New chat door (the surface with a parked draft) opens with the
+    //     worktree on: a chat runs in a worktree of its own unless the person
+    //     turns it off. The pane's "+" (no draft) still opens with it off,
+    //     which 1c covers.
+    await check('the New chat door opens with the worktree on, and the launch carries it', async () => {
+      seedStore()
+      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      writeNewChatDraft('win-1', { prompt: 'fix the login redirect', folderPath: '/w/app' })
+      const view = await render({ draftKey: 'win-1' })
+      const chip = view.container.querySelector('[data-worktree-chip]')
+      assert.equal(chip?.getAttribute('data-worktree-chip'), 'on', 'the door starts in a worktree')
+      const start = [...view.container.querySelectorAll('button')].find(
+        (button) => button.getAttribute('aria-label') === 'Start agent',
+      )
+      await act(async () => {
+        start!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      assert.deepEqual(view.launches[0]?.worktree, { name: '' }, 'with a name made up at start')
+      view.unmount()
+      resetNewChatDraftsForTests()
+    })
+
+    // 1e. Outside a git repository the chip is not offered, so the worktree the
+    //     door starts with is dropped from the launch: carried, it would fail
+    //     to be made and keep the chat from starting at all.
+    await check('outside a git repository the door launches with no worktree', async () => {
+      seedStore()
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      const gitRepoRoot = api.getGitRepoRoot
+      api.getGitRepoRoot = async () => null
+      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      writeNewChatDraft('win-1', { prompt: 'tidy the notes', folderPath: '/w/notes' })
+      try {
+        const view = await render({ draftKey: 'win-1' })
+        assert.equal(view.container.querySelector('[data-worktree-chip]'), null, 'no chip outside a repository')
+        const start = [...view.container.querySelectorAll('button')].find(
+          (button) => button.getAttribute('aria-label') === 'Start agent',
+        )
+        await act(async () => {
+          start!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        assert.equal(view.launches.length, 1, 'the chat still starts')
+        assert.equal('worktree' in view.launches[0]!, false, 'with no worktree on it')
+        view.unmount()
+      } finally {
+        api.getGitRepoRoot = gitRepoRoot
+        resetNewChatDraftsForTests()
+      }
+    })
+
     // 2b. Picking a plain Terminal drops every CLI-shaped control: a shell
     //     launches no CLI, so it shows no model, no permission flag and no
     //     command line.
