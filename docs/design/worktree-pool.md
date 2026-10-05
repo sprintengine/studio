@@ -151,7 +151,7 @@ runs git.
   slots go least recently used first, across every pool; a leased or held slot
   is never removed, so the pools can stay over it. Worktrees outside the pool do
   not count.
-- **Removing.** A ready slot is removed through the pool; anything else through
+- **Removing.** A ready slot is removed through the pool, which keeps one whose ignored files may be someone's work (an edited `.env`) as the agent worktree cleanup does, until its ignored files are cleared; anything else through
   `removeGitWorktree`, which refuses a dirty tree. Neither deletes a branch. A
   worktree an open chat works in, one with changes, and one locked by another
   profile cannot be removed from the page, and each says why.

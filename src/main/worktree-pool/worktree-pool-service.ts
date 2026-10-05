@@ -14,7 +14,7 @@ import { hostIdForFolder, isWslHostId, LOCAL_HOST_ID, normalizeExecutionHostId }
 import { pathJoin } from '../../shared/paths'
 import { slugifyWorktreeName, worktreeContainerPath } from '../../shared/worktree-paths'
 import { lockAgentWorktree } from '../agent-worktree-lock'
-import { hiddenEditPaths, insideAny, pathSpellings } from '../agent-worktree-keep-checks'
+import { hiddenEditPaths, ignoredPathsAtRisk, insideAny, pathSpellings } from '../agent-worktree-keep-checks'
 import { pathExists } from '../git-utils'
 import { withWorktreeRegistryLock } from '../worktree-registry-lock'
 import { measureDiskUsage, type MeasureDiskUsage } from './disk-usage'
@@ -1260,7 +1260,19 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
 
   // ── Evicting ─────────────────────────────────────────────────────────────
 
-  async function evictSlot(pool: PoolRuntime, slot: SlotRecord, why: string): Promise<boolean> {
+  /**
+   * Remove an idle slot from disk and from the pool. True when it is gone;
+   * otherwise why not, worded for the person who asked (Settings): the slot is
+   * left idle, or held when it turned out to hold work.
+   */
+  async function evictSlot(pool: PoolRuntime, slot: SlotRecord, why: string): Promise<true | string> {
+    const putBack = async (): Promise<void> => {
+      await withPool(pool, async () => {
+        slot.state = 'idle'
+        slot.op = null
+        await persist(pool)
+      })
+    }
     const began = await withPool(pool, async () => {
       if (pool.busy.has(slot.id) || (slot.state !== 'idle' && slot.state !== 'evicting')) return false
       pool.busy.add(slot.id)
@@ -1269,15 +1281,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       await persist(pool)
       return true
     })
-    if (!began) return false
+    if (!began) return 'Only a worktree that is ready to reuse can be removed.'
     try {
       if (somethingRunsIn(slot.path)) {
-        await withPool(pool, async () => {
-          slot.state = 'idle'
-          slot.op = null
-          await persist(pool)
-        })
-        return false
+        await putBack()
+        return 'A terminal is open in it. Close it first.'
       }
       if (await pathExists(slot.path)) {
         const status = await readSlotStatus(git, slot.path)
@@ -1289,7 +1297,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
             'found while evicting',
             status.ok ? { changedPaths: status.status.changedPaths, branch: status.status.branch } : {},
           )
-          return false
+          return 'It changed since it came back to the pool, and is held there now.'
         }
         // Commits made on the idle slot's detached HEAD (a person in a
         // terminal there) are on no branch, and removing the worktree takes
@@ -1298,7 +1306,23 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         const oid = status.status.oid
         if (oid && oid !== slot.baseSha && !(await commitIsReachable(git, slot.path, oid))) {
           await hold(pool, slot, 'unexpected-head', 'found while evicting: commits no branch has')
-          return false
+          return 'It holds commits no branch has, and is held in the pool now.'
+        }
+        // Removing deletes the ignored files too, and the ones that may be
+        // someone's work are kept as the agent worktree cleanup keeps them:
+        // an edited `.env`, notes in an ignored folder (agent-worktree-keep-
+        // checks.ts). The slot stays idle; clearing its ignored files, which a
+        // person confirms, is the way to let them go.
+        const ignored = await ignoredPathsAtRisk(pool.record.repoRoot, slot.path, git)
+        if (!ignored.ok || ignored.paths.length > 0) {
+          await putBack()
+          if (!ignored.ok) {
+            log(`${slot.path}: kept (could not check its ignored files: ${ignored.message})`)
+            return 'Could not check its ignored files, so it is kept.'
+          }
+          const listedPaths = ignored.paths.slice(0, 3).join(', ')
+          log(`${slot.path}: kept (ignored files that may be work: ${listedPaths})`)
+          return `It has ignored files that may be someone’s work (${listedPaths}). Clear its ignored files first if they can go.`
         }
         // No --force: git checks cleanliness again at the moment of removal.
         // Only a tree with submodules, which plain `remove` always refuses, is
@@ -1313,7 +1337,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         }
         if (!removed.ok) {
           await hold(pool, slot, 'error', `could not remove: ${tail(removed.message, 200)}`)
-          return false
+          return `Git could not remove it: ${tail(removed.message, 200) ?? 'unknown error'}`
         }
       } else {
         await withWorktreeRegistryLock(pool.record.repoRoot, () => git(pool.record.repoRoot, ['worktree', 'prune']))
@@ -1402,7 +1426,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     for (const { pool, slot } of idle) {
       if (total <= limit) break
       const bytes = slot.size?.bytes ?? 0
-      if (await evictSlot(pool, slot, 'over the disk limit')) total -= bytes
+      if ((await evictSlot(pool, slot, 'over the disk limit')) === true) total -= bytes
     }
   }
 
@@ -1757,9 +1781,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     const slot = slotById(pool, input.slotId)
     if (!slot) return { ok: false, message: 'No such worktree in the pool.' }
     if (input.kind === 'evict') {
-      return (await evictSlot(pool, slot, 'by request'))
-        ? { ok: true, message: 'Removed.' }
-        : { ok: false, message: 'Only an idle, clean worktree can be removed.' }
+      const evicted = await evictSlot(pool, slot, 'by request')
+      return evicted === true ? { ok: true, message: 'Removed.' } : { ok: false, message: evicted }
     }
     if (input.kind === 'clear-ignored') return clearIgnored(pool, slot)
     return heldAction(pool, slot, input.action, input.message)

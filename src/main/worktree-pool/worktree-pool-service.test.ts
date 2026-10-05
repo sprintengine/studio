@@ -396,6 +396,29 @@ test('removing an idle slot holding commits no branch has holds it instead', asy
   assert.equal((await slotAt(harness, 'pool-01')).state, 'held')
 })
 
+test('an idle slot with ignored files that may be work is not removed until a person clears them', async () => {
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await mkdir(join(first.path, 'node_modules', 'pkg'), { recursive: true })
+  await writeFile(join(first.path, 'node_modules', 'pkg', 'index.js'), 'x\n')
+  // An `.env` the agent wrote, which no `.worktreeinclude` copy accounts for.
+  await writeFile(join(first.path, '.env'), 'TOKEN=edited\n')
+  await returnAll(harness)
+  const kept = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(kept.ok, false)
+  assert.match(kept.message ?? '', /\.env/)
+  assert.equal(await exists(first.path), true)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+  // The idle limit leaves it too.
+  await harness.service.updateSettings({ keepIdle: 0 })
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+
+  await harness.service.action({ kind: 'clear-ignored', repoRoot: repo, slotId: 'pool-01' })
+  const removed = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(removed.ok, true)
+  assert.equal(await exists(first.path), false)
+})
+
 test('an ignored file where the new base adds a tracked one holds the slot rather than being overwritten', async () => {
   const harness = makeService()
   const first = await lease(harness, 'first')
