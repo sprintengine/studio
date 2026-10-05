@@ -303,6 +303,15 @@ test('an echoing server cannot hand the secret back', async () => {
   assert.equal(byQuery.ok, true)
   const text = JSON.stringify(byQuery)
   assert.equal(text.includes(tricky) || text.includes(encodeURIComponent(tricky)), false)
+
+  // A query placement goes out form-encoded: a space as `+`, `~!'()` escaped.
+  const spaced = "it's a key (v2)~!"
+  await weather.set('spaced', spaced, { allowedOrigins: ['https://api.example.com'] })
+  const bySpaced = await weather.fetchWithSecret('spaced', 'https://api.example.com/', { placement: { query: 'key' } })
+  assert.equal(bySpaced.ok, true)
+  const echoed = JSON.stringify(bySpaced)
+  assert.equal(echoed.includes(new URLSearchParams([['', spaced]]).toString().slice(1)), false)
+  assert.equal(echoed.includes(encodeURIComponent(spaced)), false)
 })
 
 test('a malformed request shape is refused before anything is sent', async () => {

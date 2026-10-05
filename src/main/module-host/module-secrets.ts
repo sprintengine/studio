@@ -321,7 +321,12 @@ export function createModuleSecretsRegistry(deps: ModuleSecretsDeps): ModuleSecr
         )
         if (!outcome.ok) return failure('network_error', outcome.message)
 
-        const scrub = (text: string): string => redactSecret(redactSecret(text, secret), encodeURIComponent(secret))
+        // Every spelling the secret went out in: as itself, percent-encoded,
+        // and form-encoded as `searchParams` writes a query placement (a
+        // space as `+`, `~!'()` escaped), which a server echoing the request
+        // URL in an error body would hand straight back.
+        const spellings = [secret, encodeURIComponent(secret), new URLSearchParams([['', secret]]).toString().slice(1)]
+        const scrub = (text: string): string => spellings.reduce(redactSecret, text)
         const responseHeaders: Record<string, string> = {}
         for (const [key, value] of Object.entries(outcome.response.headers)) {
           // A cookie the service sets is a session credential of its own; the
