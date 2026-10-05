@@ -203,6 +203,25 @@ test('one server lists its state and its actions in the menu, and reads Tailscal
   expect(action('run')).toBe(null)
 })
 
+test("a reopened menu offers nothing tailnet until this opening's read answers", async () => {
+  await openMenu([server()])
+  expect(action('share-tailnet')).not.toBe(null)
+  const toggle = async () =>
+    act(async () => {
+      host!.querySelector<HTMLButtonElement>('[data-test-trigger]')!.click()
+    })
+  await toggle()
+  // Tailscale went down since; its answer is slow to come.
+  let answer: (status: TailnetShareStatus) => void = () => undefined
+  api.tailnetShareStatus.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))
+  await toggle()
+  for (let i = 0; i < 3; i += 1) await act(async () => await Promise.resolve())
+  expect(action('open')).not.toBe(null)
+  expect(action('share-tailnet')).toBe(null)
+  await act(async () => answer(EMPTY_TAILNET_SHARE_STATUS))
+  expect(action('share-tailnet')).toBe(null)
+})
+
 test('Run again runs the server for its conversation', async () => {
   await openMenu([server({ state: 'stopped' })])
   await act(async () => action('run')!.click())
