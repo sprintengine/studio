@@ -4,7 +4,10 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { CliPermissionPreset, TerminalSessionSnapshot } from '../../shared/electron-api'
 import { projectColorKey, projectHue } from '../../shared/project-hue'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
-import { declaredPermissionModes, declaredPermissionPresets } from '../plugin-render'
+import { declaredPermissionModes, declaredPermissionPresets, pluginHostedVia } from '../plugin-render'
+import { mergeCliModelCatalog, type DiscoveredCliModelCatalog } from '../../shared/cli-model-catalog'
+import { cliPickerModels } from '../../shared/cli-model-families'
+import { conversationProviderForCli } from '../../shared/conversation-harness'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import { mobileSnapshotCollections, retiredMobileSnapshotCollections } from '../mobile/control/protocol'
 import type { Workspace } from '../../renderer/src/types/workspace'
@@ -175,6 +178,14 @@ export type AutomationBackends = {
    */
   listPlugins(): LoadedPlugin[]
   /**
+   * What the model picker here reads besides the manifests: the catalogs each
+   * CLI reported about itself (the discovery cache) and the ids the person
+   * added for it in Settings. `cli.runtime.list` merges them as the picker
+   * does to answer with the picker's own rows; absent, it answers without a
+   * `catalog`, as it did before it had one.
+   */
+  readCliModelSources?(): Promise<CliModelSources>
+  /**
    * Make a built-in skill present in the workspace's native harness dirs before
    * a launch reads its invocation (getStatus → install; the
    * `ensureBuiltinSkillInstalled` seam in app-services). Returns whether the
@@ -239,6 +250,13 @@ export type AutomationBackends = {
   }
   now?: () => number
   sleep?: (ms: number) => Promise<void>
+}
+
+export type CliModelSources = {
+  /** The discovered catalogs, keyed by CLI id; an unreadable cache reads as none. */
+  discovered: Record<string, DiscoveredCliModelCatalog>
+  /** The ids the person added for a CLI in Settings. */
+  userModels: (cli: string) => readonly string[] | undefined
 }
 
 type BacklogWriteBackends = {
@@ -949,7 +967,14 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       'a false row is registry-held for install/detect only and every launch door refuses it. A CLI whose ' +
       '`allowCustomModelId` is true accepts model ids outside its listed options (the list is a seed, not a ' +
       'closed set); a level outside `reasoningLevels` is refused by the CLI itself. This reports what the ' +
-      'registry HOLDS, not what is installed on this machine — it never probes for binaries.',
+      'registry HOLDS, not what is installed on this machine — it never probes for binaries. ' +
+      'Each row may carry a `catalog`: what the model picker here offers for that CLI, read the way it reads ' +
+      "it — `models` is the CLI's own reported list (its manifest seed until it has reported) followed by " +
+      "the ids added in Settings, each marked with the `family` row it renders under (a model's context " +
+      'windows are one row; `contextLabel` names the window, `familyDefault` the id the row selects), and ' +
+      '`isNew` where the picker shows New; `providerLabel` is the line under each row, naming the CLI a ' +
+      'hosted runtime rides (`hostedVia`); `conversational` says whether conversation.create can start it as ' +
+      "a chat. The CLI's own default model is not a row of `models`: omit `cliModel` for it.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -972,9 +997,16 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           `No agent CLI "${wanted}" is registered in this app. Call cli.runtime.list with no arguments for the ids it holds.`,
         )
       }
+      // Read once for every row, and never fatal: a cache that cannot be read
+      // leaves the rows as they were before they carried a catalog.
+      const sources = backends.readCliModelSources ? await backends.readCliModelSources().catch(() => null) : null
+      const now = (backends.now ?? Date.now)()
       const clis = plugins
         .filter((plugin) => !wanted || plugin.manifest.id === wanted)
-        .map((plugin) => cliRuntimeProjection(plugin))
+        .map((plugin) => ({
+          ...cliRuntimeProjection(plugin),
+          ...(sources ? { catalog: cliRuntimeCatalog(plugin, sources, now) } : {}),
+        }))
       return success({ clis })
     },
   }
@@ -2227,6 +2259,39 @@ function cliRuntimeProjection(plugin: LoadedPlugin): Record<string, unknown> {
       label: mode.label,
       preset: mode.level,
     })),
+  }
+}
+
+// What the model picker here offers for one CLI, for a client that draws the
+// same picker (the phone's New chat). The rows are the picker's own: the same
+// merge of the CLI's reported list, its manifest seed and the person's ids
+// (`mergeCliModelCatalog`), grouped into the same families
+// (`cliPickerModels`), named the way its provider line names them. Additive
+// beside `models`, which keeps answering the manifest seed for a caller built
+// before this.
+function cliRuntimeCatalog(plugin: LoadedPlugin, sources: CliModelSources, now: number): Record<string, unknown> {
+  const { manifest } = plugin
+  const merged = mergeCliModelCatalog(
+    manifest.modelSelection
+      ? {
+          options: (manifest.modelSelection.options ?? []).map((option) => ({
+            id: option.id,
+            ...(option.label ? { label: option.label } : {}),
+          })),
+          allowCustomId: manifest.modelSelection.allowCustomId === true,
+        }
+      : undefined,
+    [...(sources.userModels(manifest.id) ?? [])],
+    sources.discovered[manifest.id],
+    now,
+  )
+  const hostedVia = pluginHostedVia(manifest) ?? null
+  return {
+    conversational: conversationProviderForCli(manifest.id) !== null,
+    hostedVia,
+    providerLabel: hostedVia === 'claude-code' ? `${manifest.displayName} · via Claude Code` : manifest.displayName,
+    allowCustomModelId: merged?.allowCustomId === true,
+    models: merged ? cliPickerModels(merged.options) : [],
   }
 }
 
