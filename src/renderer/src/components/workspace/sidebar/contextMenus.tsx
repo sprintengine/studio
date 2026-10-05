@@ -203,6 +203,54 @@ export function WorkspaceContextMenu({
   )
 }
 
+export type RemoteConversationMenuAction = 'open' | 'settle'
+
+// A chat on a paired machine that no window here holds. Its rest belongs to
+// that machine, so Settle is offered only where the machine keeps it
+// (`conversation-lifecycle`); everything else on a local row's menu is about a
+// workspace here, which this row does not have until it is opened.
+export function RemoteConversationContextMenu({
+  x,
+  y,
+  title,
+  machineName,
+  canSettle,
+  working,
+  onClose,
+  onSelect,
+}: {
+  x: number
+  y: number
+  title: string
+  machineName: string
+  /** The machine keeps its chats' rest, so it can be asked to settle this one. */
+  canSettle: boolean
+  /** Its agent is working, so Settle waits, as it does on a local row. */
+  working: boolean
+  onClose: () => void
+  onSelect: (action: RemoteConversationMenuAction) => void
+}) {
+  return (
+    <ContextMenu
+      x={x}
+      y={y}
+      ariaLabel={`Chat actions: ${title} on ${machineName}`}
+      onClose={onClose}
+      surfaceClassName="min-w-[240px]"
+    >
+      <MenuItem onClick={() => onSelect('open')}>Open</MenuItem>
+      {canSettle ? (
+        <>
+          <MenuDivider />
+          <MenuItem disabled={working} hint={working ? 'Working' : undefined} onClick={() => onSelect('settle')}>
+            Settle
+          </MenuItem>
+        </>
+      ) : null}
+    </ContextMenu>
+  )
+}
+
 export type FolderMenuAction = 'new-chat' | 'reveal' | 'forget'
 
 export function FolderContextMenu({

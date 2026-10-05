@@ -38,6 +38,11 @@ export type RemoteBrowseEntry = {
    * or a machine that does not serve them, simply has none.
    */
   conversations?: MeshConversation[]
+  /**
+   * The machine advertises `conversation-lifecycle`: it owns its chats' rest
+   * and read state, and a row here may offer Settle. Absent before a list.
+   */
+  lifecycle?: boolean
 }
 
 /**
@@ -63,6 +68,12 @@ export type RemoteSessionRow = {
    * of a list of conversations (owner, 2026-09-11).
    */
   title: string
+  /**
+   * The CHAT's title, the one its own machine's sidebar shows: the list's
+   * `chatTitle`, else the browse's name for its workspace, else the agent's
+   * name when the machine gives neither.
+   */
+  chatTitle: string
   cli: string | null
   /** The remote workspace: its id, name, and folder there, and which repository that is. */
   workspaceId: string
@@ -75,6 +86,17 @@ export type RemoteSessionRow = {
   since: number | null
   /** The workspace here whose pane is attached to this session, when one is. */
   attachedWorkspaceId: string | null
+  /**
+   * Where the row sits: when the person last wrote to the chat, else when
+   * the machine last saw it move (`lastUserMessageAt ?? updatedAt`). The same
+   * rule as a local row's, so a remote row stays put until someone speaks.
+   */
+  recencyAt: number
+  /** When the chat's agent last finished a turn, and a person last had it on screen, on any device. */
+  lastTurnEndedAt: number | null
+  lastVisitedAt: number | null
+  /** The machine keeps this chat's rest and read state, so Settle may be offered for it. */
+  lifecycle: boolean
 }
 
 /** One paired machine's sub-group in the band. */
@@ -124,6 +146,8 @@ export type RemoteConversation = {
   attachedWorkspaceId: string | null
   /** Read from an earlier browse on a machine that is not answering now. */
   stale: boolean
+  /** Its row's place in the list; see `RemoteSessionRow.recencyAt`. */
+  recencyAt: number
 }
 
 /** What opening a row asks the app to do: focus the attached workspace, or follow the chat in a new one. */
@@ -212,21 +236,28 @@ function remoteChatRowOf(
   conversation: MeshConversation,
   browse: MeshBrowse | null,
   workspaces: readonly Workspace[],
+  lifecycle: boolean,
 ): RemoteSessionRow {
   const remoteWorkspace = browse?.workspaces.find((workspace) => workspace.id === conversation.workspaceId) ?? null
   const sessionId = meshConversationSessionId(conversation.workspaceId, conversation.agentId)
   const presence = meshConversationPresence(conversation.phase)
   const attached = attachedWorkspaceFor(workspaces, connection.id, sessionId)
+  const title = conversation.title || 'Conversation'
+  // The chat's own title over there is its workspace's name there; the list
+  // says it fresher than the browse does, and a machine from before the list
+  // carried it leaves the browse's.
+  const workspaceName = conversation.chatTitle?.trim() || remoteWorkspace?.name || null
   return {
     key: `${connection.id}:${sessionId}`,
     connectionId: connection.id,
     machineName: connection.machineName,
     sessionId,
     remoteAgentId: conversation.agentId,
-    title: conversation.title || 'Conversation',
+    title,
+    chatTitle: workspaceName ?? title,
     cli: cliForConversationProvider(conversation.providerId),
     workspaceId: conversation.workspaceId,
-    workspaceName: remoteWorkspace?.name ?? null,
+    workspaceName,
     workspaceRoot: remoteWorkspace?.folderPath ?? null,
     repository: remoteWorkspace?.repository ?? null,
     status:
@@ -240,16 +271,23 @@ function remoteChatRowOf(
     activity: presence === 'running' ? 'working' : presence === 'needs-input' ? 'needs-input' : 'idle',
     since: conversation.updatedAt,
     attachedWorkspaceId: attached?.id ?? null,
+    recencyAt: conversation.lastUserMessageAt ?? conversation.updatedAt,
+    lastTurnEndedAt: conversation.lastTurnEndedAt ?? null,
+    lastVisitedAt: conversation.lastVisitedAt ?? null,
+    lifecycle,
   }
 }
 
-const ACTIVITY_RANK: Record<RemoteRowActivity, number> = { working: 0, 'needs-input': 1, idle: 2 }
-
-/** Activity order, like the local rows: working, then waiting for a person, then idle; then by name. */
-function compareRows(a: RemoteSessionRow, b: RemoteSessionRow): number {
-  const rank = ACTIVITY_RANK[a.activity] - ACTIVITY_RANK[b.activity]
-  if (rank !== 0) return rank
-  return a.title.localeCompare(b.title)
+/**
+ * Most recently written to first, as the local rows are (owner ruling
+ * 2026-09-09: rows stay put, ordered by when I last messaged them). These
+ * used to sort working first, then waiting, then idle, then by name, so a
+ * remote row jumped whenever its agent started or stopped. The marks say what
+ * an agent is doing; the order never does. Ties keep the order the machine
+ * listed them in, which is its own sidebar's.
+ */
+function compareByRecency(a: { recencyAt: number }, b: { recencyAt: number }): number {
+  return b.recencyAt - a.recencyAt
 }
 
 export function openSpecOf(row: RemoteSessionRow): RemoteSessionOpenSpec {
@@ -287,9 +325,19 @@ export function buildRemoteBand(input: {
       const entry = browses.get(connection.id)
       const browse = entry?.browse ?? null
       const phase = meshMachinePhase(connection.id, reachability)
+      // A chat the machine has settled has no row, as it has none in that
+      // machine's own sidebar. A machine that keeps rest leaves them out of
+      // its list; one whose browse says a workspace is resting is believed
+      // too, for a list read before the settle landed.
+      const resting = new Set(
+        (browse?.workspaces ?? [])
+          .filter((workspace) => typeof workspace.settledAt === 'number')
+          .map((workspace) => workspace.id),
+      )
       const rows = (entry?.conversations ?? [])
-        .map((conversation) => remoteChatRowOf(connection, conversation, browse, workspaces))
-        .sort(compareRows)
+        .filter((conversation) => !resting.has(conversation.workspaceId))
+        .map((conversation) => remoteChatRowOf(connection, conversation, browse, workspaces, entry?.lifecycle === true))
+        .sort(compareByRecency)
       const attachedIds = new Set(rows.map((row) => row.attachedWorkspaceId).filter((id): id is string => id !== null))
       const parked = workspaces.filter(
         (workspace) => workspace.remoteOrigin?.connectionId === connection.id && !attachedIds.has(workspace.id),
@@ -344,7 +392,7 @@ export function conversationsOf(group: RemoteMachineGroup): RemoteConversation[]
     key: `${group.machineName}:chat:${row.sessionId}`,
     connectionId: row.connectionId,
     machineName: group.machineName,
-    title: row.title,
+    title: row.chatTitle,
     workspaceId: row.workspaceId,
     workspaceRoot: row.workspaceRoot,
     repository: row.repository,
@@ -353,19 +401,13 @@ export function conversationsOf(group: RemoteMachineGroup): RemoteConversation[]
     since: row.since,
     attachedWorkspaceId: row.attachedWorkspaceId,
     stale: group.stale,
+    recencyAt: row.recencyAt,
   }))
-}
-
-/** Conversations sort the way rows do: by what their loudest agent is doing. */
-function compareConversations(a: RemoteConversation, b: RemoteConversation): number {
-  const rank = ACTIVITY_RANK[a.activity] - ACTIVITY_RANK[b.activity]
-  if (rank !== 0) return rank
-  return a.title.localeCompare(b.title)
 }
 
 /**
  * The remote conversations that need a row of their own: every one across
- * every machine that no window HERE is already showing, in activity order.
+ * every machine that no window HERE is already showing, most recently written to first.
  *
  * A conversation whose session a local workspace is attached to is not in this
  * list, and must not be: that workspace is already a row of its project
@@ -391,7 +433,7 @@ export function unattachedConversations(
       if (!attached) rows.push(conversation)
     }
   }
-  return rows.sort(compareConversations)
+  return rows.sort(compareByRecency)
 }
 
 /** What opening a conversation attaches to: its loudest agent — the one you came for. */

@@ -122,7 +122,15 @@ import {
   inactiveHighlightClass,
   type Activity,
 } from './sidebar/rowStyle'
-import { deriveUnseenCompletions, isHookSettledSession, rowHasOpenTerminals } from './sidebar/rowTerminals'
+import {
+  deriveUnseenCompletions,
+  isHookSettledSession,
+  keepUnvisitedCompletions,
+  rowHasOpenTerminals,
+} from './sidebar/rowTerminals'
+import { useVisitStamp, type VisitTarget } from './sidebar/useVisitStamp'
+import { onWorkspaceSettledElsewhere, takeWorkspacesSettledElsewhere } from '../../utils/settledElsewhere'
+import { useWindowActive } from '../../utils/windowActivity'
 import {
   AttentionPulse,
   BranchChip,
@@ -137,7 +145,12 @@ import {
   type RowMachine,
 } from './sidebar/rowParts'
 import { TerminalLineView } from './sidebar/TerminalLineView'
-import { FolderContextMenu, WorkspaceContextMenu, workspaceTypeRowActions } from './sidebar/contextMenus'
+import {
+  FolderContextMenu,
+  RemoteConversationContextMenu,
+  WorkspaceContextMenu,
+  workspaceTypeRowActions,
+} from './sidebar/contextMenus'
 
 export { TerminalLineView } from './sidebar/TerminalLineView'
 
@@ -506,6 +519,47 @@ function WorkspaceSidebar({
   useEffect(() => {
     onUnseenDoneChange?.(unseenDoneIds)
   }, [unseenDoneIds, onUnseenDoneChange])
+  // …and read somewhere else. A chat read on the phone, or in a desktop
+  // following it, has had its finish seen, and its `lastVisitedAt` moves past
+  // the moment this window put the mark up; the mark comes down here too
+  // (`keepUnvisitedCompletions`). When each mark went up is kept beside the
+  // set, and the store is watched only for the marked chats' visit clocks, so
+  // a visit to any other chat does not re-render the rail.
+  const unseenMarkedAtRef = useRef(new Map<string, number>())
+  useEffect(() => {
+    const marked = unseenMarkedAtRef.current
+    const now = Date.now()
+    for (const id of unseenDoneIds) if (!marked.has(id)) marked.set(id, now)
+    for (const id of [...marked.keys()]) if (!unseenDoneIds.has(id)) marked.delete(id)
+  }, [unseenDoneIds])
+  const unseenVisits = useWorkspaceStore(
+    useCallback(
+      (state: { workspaces: Workspace[] }) => {
+        if (unseenDoneIds.size === 0) return ''
+        let visits = ''
+        for (const workspace of state.workspaces) {
+          if (unseenDoneIds.has(workspace.id) && typeof workspace.lastVisitedAt === 'number')
+            visits += `${workspace.id}=${workspace.lastVisitedAt};`
+        }
+        return visits
+      },
+      [unseenDoneIds],
+    ),
+  )
+  useEffect(() => {
+    if (!unseenVisits) return
+    const visitedAt = new Map(
+      useWorkspaceStore.getState().workspaces.map((workspace) => [workspace.id, workspace.lastVisitedAt]),
+    )
+    setUnseenDoneIds((previous) => {
+      const next = keepUnvisitedCompletions({
+        marks: previous,
+        markedAt: unseenMarkedAtRef.current,
+        visitedAt: (id) => visitedAt.get(id),
+      })
+      return next === previous ? previous : new Set(next)
+    })
+  }, [unseenVisits])
 
   // A door-routed full-page surface owns the card region (global-surfaces epic
   // 1704). While one is active no project row is "current" — the door row carries
@@ -684,6 +738,8 @@ function WorkspaceSidebar({
   const [renamingId, setRenamingId] = useState<WorkspaceId | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
+  // The menu of a chat on a paired machine that no window here holds, by its row's key.
+  const [remoteMenu, setRemoteMenu] = useState<{ key: string; x: number; y: number } | null>(null)
   const [folderMenu, setFolderMenu] = useState<{ folderKey: string; x: number; y: number } | null>(null)
   const [confirmClose, setConfirmClose] = useState<WorkspaceId | null>(null)
   const [pendingTypeAction, setPendingTypeAction] = useState<{
@@ -738,39 +794,70 @@ function WorkspaceSidebar({
     [getTreeRows],
   )
 
-  // Settle by hand: the record first, then the ptys — the row must move even
-  // if a kill fails, and `terminateWorkspaceTerminals` absorbs its failures.
-  //
   // Settling the chat you are in moves you on to the next one. The row you are
   // in is never shelved (`isShelved`), so without the hand-off it sat there,
   // checked off and still open, until you clicked somewhere else.
   //
-  // Never while an agent in it is working (T3 Code's rule too): settling ends
-  // the chat's agent processes, and whatever they were doing with them. The
-  // row's button and menu item say so; this is the guard for every path.
+  // The successor is read off the rail as drawn, so it is chosen BEFORE the
+  // record moves, and the returned step is run after.
+  const handOffFrom = useCallback(
+    (id: WorkspaceId): (() => void) => {
+      if (id !== activeWorkspaceId) return () => {}
+      const successor = successorRowOf(id)
+      return () => {
+        if (successor) onSelectWorkspace(successor)
+        // The last chat still going: there is nothing to move on to, so New
+        // chat opens and the settled row leaves the rail (owner, 2026-10-03).
+        // Before, it stayed open and checked off.
+        else onNewChat()
+      }
+    },
+    [activeWorkspaceId, successorRowOf, onSelectWorkspace, onNewChat],
+  )
+
+  // Settle by hand: the record first, then the ptys — the row must move even
+  // if a kill fails, and `terminateWorkspaceTerminals` absorbs its failures.
+  //
+  // Never while an agent in it is working: settling ends the chat's agent
+  // processes, and whatever they were doing with them. The row's button and
+  // menu item say so; this is the guard for every path.
   const settleWorkspaceById = useCallback(
     (id: WorkspaceId) => {
       if (rowIsWorking(id)) return
-      const settlingActive = id === activeWorkspaceId
-      const successor = settlingActive ? successorRowOf(id) : null
+      const handOff = handOffFrom(id)
       setWorkspaceSettled(id, true)
       quietSettledWorkspace(id)
-      if (successor) onSelectWorkspace(successor)
-      // The last chat still going: there is nothing to move on to, so New chat
-      // opens and the settled row leaves the rail (owner, 2026-10-03). Before,
-      // it stayed open and checked off.
-      else if (settlingActive) onNewChat()
+      handOff()
     },
-    [
-      activeWorkspaceId,
-      rowIsWorking,
-      successorRowOf,
-      setWorkspaceSettled,
-      quietSettledWorkspace,
-      onSelectWorkspace,
-      onNewChat,
-    ],
+    [rowIsWorking, handOffFrom, setWorkspaceSettled, quietSettledWorkspace],
   )
+
+  // A Settle made somewhere else — a paired phone or desktop
+  // (`conversation.settle`), or another window here — reaches this window as
+  // a record that is suddenly resting (`settledElsewhere.ts`). The rest of a
+  // Settle is carried out here as if it had been made here: the chat's
+  // processes end, and a window that has it in front moves on.
+  //
+  // The processes are ended by the window that routes the row, so two
+  // windows do not both ask; the hand-off is every window's that has it in
+  // front. A row whose agent is working is left running, as Settle by hand
+  // leaves it: the rest sweep reads a working row as busy and wakes it on its
+  // next tick, so the chat comes back rather than losing its work.
+  const settledElsewhere = useStableCallback((id: WorkspaceId) => {
+    if (rowIsWorking(id)) return
+    const handOff = handOffFrom(id)
+    if (useWorkspaceStore.getState().speaksForWorkspace(id)) quietSettledWorkspace(id)
+    handOff()
+  })
+  useEffect(() => {
+    // Taken after the store update that noted it has finished, never inside it.
+    const drain = () =>
+      queueMicrotask(() => {
+        for (const id of takeWorkspacesSettledElsewhere()) settledElsewhere(id)
+      })
+    drain()
+    return onWorkspaceSettledElsewhere(drain)
+  }, [settledElsewhere])
 
   // Drilling into a surface hides this rail (item 1993), and hiding a scrollport
   // drops its offset to zero — so Back would return the workspaces rail scrolled
@@ -956,6 +1043,7 @@ function WorkspaceSidebar({
     browses: remoteBrowses,
     listening: remoteListening,
     link: remoteLink,
+    refresh: refreshRemote,
   } = remoteSessions
   const remoteGroups = useMemo(
     () =>
@@ -1040,9 +1128,27 @@ function WorkspaceSidebar({
   // The conversations on paired machines that no window here holds. The ones
   // that DO have a window are already `Workspace`s in `railWorkspaces` and
   // group themselves; listing them here too would be the same chat twice.
-  const unattachedRemote = useMemo(
+  const listedRemote = useMemo(
     () => unattachedConversations(remoteGroups, remoteListening, railWorkspaces),
     [remoteGroups, remoteListening, railWorkspaces],
+  )
+  // Remote chats asked to settle and not yet gone from their machine's list.
+  // Hidden at once, as a local Settle moves its row at once; put back, with
+  // the machine's reason, if it refuses. A key leaves the set when the list
+  // stops naming the chat, so one brought back later is drawn again.
+  const [settlingRemote, setSettlingRemote] = useState<ReadonlySet<string>>(() => new Set())
+  useEffect(() => {
+    if (settlingRemote.size === 0) return
+    const listed = new Set(listedRemote.map((conversation) => conversation.key))
+    const still = [...settlingRemote].filter((key) => listed.has(key))
+    if (still.length !== settlingRemote.size) setSettlingRemote(new Set(still))
+  }, [listedRemote, settlingRemote])
+  const unattachedRemote = useMemo(
+    () =>
+      settlingRemote.size === 0
+        ? listedRemote
+        : listedRemote.filter((conversation) => !settlingRemote.has(conversation.key)),
+    [listedRemote, settlingRemote],
   )
   // …and the complement: the conversation each OPEN remote row IS, so that row
   // can draw a line per agent standing in it instead of the single inert line
@@ -1055,6 +1161,84 @@ function WorkspaceSidebar({
         : attachedConversations(remoteGroups, railWorkspaces),
     [remoteGroups, remoteLink, railWorkspaces],
   )
+  // Settle a chat on a paired machine: its machine owns the chat's rest, so
+  // the row goes now and the machine is asked; a refusal brings it back with
+  // the machine's own words.
+  const settleRemoteConversation = useCallback(
+    (conversation: RemoteConversation) => {
+      const settle = window.api?.meshSettleConversation
+      if (typeof settle !== 'function') return
+      const restore = (message: string) => {
+        setSettlingRemote((current) => {
+          const next = new Set(current)
+          next.delete(conversation.key)
+          return next
+        })
+        showToast({ tone: 'error', title: `${conversation.title} was not settled`, description: message })
+      }
+      setSettlingRemote((current) => new Set(current).add(conversation.key))
+      void settle({ connectionId: conversation.connectionId, workspaceId: conversation.workspaceId })
+        .then((answer) => {
+          if (!answer.ok) restore(answer.message)
+          // Read again, so the list that no longer names it is what clears
+          // the hidden key.
+          else refreshRemote(conversation.connectionId)
+        })
+        .catch((error: unknown) => restore(error instanceof Error ? error.message : String(error)))
+    },
+    [refreshRemote],
+  )
+
+  // The chat in front in this window, stamped as seen while the window is
+  // visible and focused (`useVisitStamp`). A chat here stamps this desktop's
+  // own record; a chat followed from a paired machine stamps that machine's,
+  // which keeps its read state, when it keeps one. A full-page surface
+  // covering the chat means nobody is looking at it.
+  const windowActive = useWindowActive()
+  const recordWorkspaceVisit = useWorkspaceStore((s) => s.recordWorkspaceVisit)
+  const visitTarget = useMemo((): VisitTarget | null => {
+    if (globalSurfaceActive || !activeWorkspaceId) return null
+    const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId)
+    if (!workspace) return null
+    const origin = workspace.remoteOrigin
+    if (origin) {
+      const row = remoteConversationByWorkspace.get(workspace.id)?.agents[0]
+      const visit = window.api?.meshVisitConversation
+      if (!row?.lifecycle || typeof visit !== 'function') return null
+      return {
+        key: `remote:${origin.connectionId}:${origin.workspaceId}`,
+        turnEndedAt: row.lastTurnEndedAt,
+        visitedAt: row.lastVisitedAt,
+        stamp: (at) => {
+          void visit({ connectionId: origin.connectionId, workspaceId: origin.workspaceId, visitedAt: at }).catch(
+            () => undefined,
+          )
+        },
+      }
+    }
+    // The chat's latest finish this window knows of: its agents' terminals
+    // (the registry's clock) and its chat sessions.
+    let turnEndedAt = typeof workspace.lastTurnEndedAt === 'number' ? workspace.lastTurnEndedAt : null
+    for (const session of conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS) {
+      if (typeof session.lastTurnEndedAt === 'number' && session.lastTurnEndedAt > (turnEndedAt ?? -1))
+        turnEndedAt = session.lastTurnEndedAt
+    }
+    return {
+      key: `local:${workspace.id}`,
+      turnEndedAt,
+      visitedAt: typeof workspace.lastVisitedAt === 'number' ? workspace.lastVisitedAt : null,
+      stamp: (at) => recordWorkspaceVisit(workspace.id, at),
+    }
+  }, [
+    globalSurfaceActive,
+    activeWorkspaceId,
+    workspaces,
+    remoteConversationByWorkspace,
+    conversationsByWorkspaceId,
+    recordWorkspaceVisit,
+  ])
+  useVisitStamp(visitTarget, windowActive)
+
   // Which project header a remote conversation files under. The same rule the
   // remote-born WORKSPACES follow (`groupKeyOf` + `resolveGroups`): this disk's
   // clone of the repository when there is one open here, else one header per
@@ -1955,6 +2139,13 @@ function WorkspaceSidebar({
         onFocus={() => setRovingKey(rowKey)}
         onKeyDown={(event) => handleTreeRowKeyDown(event, null, open)}
         onClick={open}
+        // The local rows' menu gesture: a right-click, or the context-menu
+        // key and Shift+F10 on the focused row, which the browser turns into
+        // this same event.
+        onContextMenu={(event) => {
+          event.preventDefault()
+          setRemoteMenu({ key: conversation.key, x: event.clientX, y: event.clientY })
+        }}
         // design-tokens-allow: alignment — the same 26px inset as the workspace rows, so a remote title sits on the content column; the flat stream's rows start at the project line instead
         className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pr-1.5 text-heading ${
           flatProject ? 'pl-1.5' : 'pl-[26px]'
@@ -1985,6 +2176,27 @@ function WorkspaceSidebar({
             />
             <span className="sr-only"> (on {conversation.machineName}, not open here)</span>
             {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
+          </span>
+          {/* The local rows' "More actions" button, revealed the same way:
+              on hover, and when keyboard focus is in the row. */}
+          <span className="pointer-events-none inline-flex shrink-0 items-center opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+            <Tooltip content="More actions">
+              <IconButton
+                onClick={(event) => {
+                  event.stopPropagation()
+                  const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
+                  setRemoteMenu({ key: conversation.key, x: bounds.right, y: bounds.bottom })
+                }}
+                tone="quiet"
+                aria-label="Chat actions"
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
+                  <circle cx="3.5" cy="8" r="1.2" />
+                  <circle cx="8" cy="8" r="1.2" />
+                  <circle cx="12.5" cy="8" r="1.2" />
+                </svg>
+              </IconButton>
+            </Tooltip>
           </span>
         </div>
         {/* One line per agent, the way a local chat draws its terminals.
@@ -2037,11 +2249,10 @@ function WorkspaceSidebar({
     const snoozedRows = sortByWake(visibleWorkspaces.filter((w) => !isShelved(w) && isAsleep(w)))
     const activeRows = visibleWorkspaces.filter((workspace) => !isShelved(workspace) && !isAsleep(workspace))
 
-    // The project's conversations on paired machines, after its local ones.
-    // After, not interleaved: the two have no shared clock — a remote row's
-    // time is its agent's phase, a local row's is when you last messaged it —
-    // and interleaving them by numbers that mean different things would put
-    // rows in an order nobody could read.
+    // The project's conversations on paired machines, after its local ones,
+    // each group in its own last-message order. After, not interleaved: the
+    // two clocks are read on two machines, and one running a few minutes off
+    // would shuffle rows between the groups for no reason a person could see.
     const remoteRows = group.remoteRows.map((conversation) => renderRemoteConversationRow(conversation))
 
     if (snoozedRows.length === 0) {
@@ -2098,8 +2309,8 @@ function WorkspaceSidebar({
   // A chat running on a paired machine is a row of this list like any other
   // (owner, 2026-09-11) — same project line, same title, same shape — with the
   // green machine glyph beside the folder icon saying where it runs. They come
-  // after the local rows for the reason the tree puts them after: the two have
-  // no shared clock to interleave on.
+  // after the local rows for the reason the tree puts them after: their clock
+  // is read on another machine, and interleaving on it would shuffle rows.
   // The Scheduled section, after every chat in either shape of the list: one
   // fold row over a row per scheduled agent, hidden when there are none. The
   // fold is the Snoozed shelves' own, and its state lives beside theirs, but
@@ -2779,6 +2990,30 @@ function WorkspaceSidebar({
           }}
         />
       ) : null}
+
+      {/* Context menu (a chat on a paired machine, not open here) */}
+      {remoteMenu
+        ? (() => {
+            const conversation = unattachedRemote.find((candidate) => candidate.key === remoteMenu.key)
+            if (!conversation) return null
+            return (
+              <RemoteConversationContextMenu
+                x={remoteMenu.x}
+                y={remoteMenu.y}
+                title={conversation.title}
+                machineName={conversation.machineName}
+                canSettle={conversation.agents[0]?.lifecycle === true}
+                working={conversation.activity === 'working'}
+                onClose={() => setRemoteMenu(null)}
+                onSelect={(action) => {
+                  setRemoteMenu(null)
+                  if (action === 'open') onOpenRemoteSession?.(openSpecOfConversation(conversation))
+                  else if (action === 'settle') settleRemoteConversation(conversation)
+                }}
+              />
+            )
+          })()
+        : null}
 
       {/* Folder context menu */}
       {folderMenu ? (
