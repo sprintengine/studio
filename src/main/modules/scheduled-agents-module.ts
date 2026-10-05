@@ -79,6 +79,9 @@ export function createScheduledAgentsModule(
         // schedule's card has nothing to say about it — but it is written down,
         // so "why did it not run at nine" has an answer.
         onSkipped: (agent, reason) => {
+          // The skipped time moved its next run on: say so, or every window
+          // keeps showing the passed time as "now" until something else changes.
+          service?.notifyChanged()
           const workspaceId = agent.lastRun?.ok ? agent.lastRun.workspaceId : undefined
           void writeDiagnosticLog({
             level: 'info',
