@@ -146,7 +146,7 @@
     },
     {
       "name": "conversation.create",
-      "sha256": "3fdc72693f56234a839c0c37442c3f07aced25da87c9362bb1850cb804a89563"
+      "sha256": "4513a89e6c90786a077e672c604c274996bada01e4b88a4cdb702855435fb7d1"
     },
     {
       "name": "pull_request.link",
@@ -440,7 +440,7 @@
     },
     {
       "name": "conversation.create",
-      "sha256": "3fdc72693f56234a839c0c37442c3f07aced25da87c9362bb1850cb804a89563"
+      "sha256": "4513a89e6c90786a077e672c604c274996bada01e4b88a4cdb702855435fb7d1"
     },
     {
       "name": "pull_request.link",

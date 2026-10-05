@@ -1,6 +1,7 @@
 import { samePath } from './paths'
 import {
   agentWorktreePaths,
+  newChatWorktreeName,
   repoRootFromWorktreePath,
   slugifyWorktreeName,
   workspaceProjectRootOf,
@@ -15,6 +16,7 @@ import type { AgentExecutionMode, Workspace } from '../types/workspace'
 // untouched.
 export {
   agentWorktreePaths,
+  newChatWorktreeName,
   repoRootFromWorktreePath,
   slugifyWorktreeName,
   workspaceProjectRootOf,

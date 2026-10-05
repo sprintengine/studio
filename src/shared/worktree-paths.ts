@@ -101,6 +101,17 @@ export function slugifyWorktreeName(value: string): string {
 }
 
 /**
+ * The name a New chat with Worktree on gives its worktree when the person
+ * typed none: `chat-` and a short random tail, so repeat chats never collide
+ * on the branch. A window's New chat and `conversation.create` both name
+ * theirs here, so a chat started from a phone is cut on the same kind of
+ * branch as one started at the desk.
+ */
+export function newChatWorktreeName(suffix: string): string {
+  return `chat-${suffix.toLowerCase()}`
+}
+
+/**
  * Resolve the git worktree location for an agent spawned with "create a
  * worktree", placing it under the same container the Worktree manager and
  * connector chats use. Branch is `agent/<slug>` so agent worktrees group
