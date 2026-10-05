@@ -1047,10 +1047,20 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           message: 'The worktree this chat used changed while it was in the pool; it is held in the Worktree manager.',
         }
       }
+      // Commits made on the idle slot's detached HEAD since the pool left it
+      // are on no branch: switching away would leave them to the reflog, which
+      // the slot's eventual removal takes with it. Held, as eviction holds them.
+      const from = status.status.oid
+      if (from && slot.baseSha && from !== slot.baseSha && !(await commitIsReachable(git, slot.path, from))) {
+        await hold(pool, slot, 'unexpected-head', 'found while giving it back to its chat: commits no branch has')
+        return {
+          ok: false,
+          message: 'The worktree this chat used changed while it was in the pool; it is held in the Worktree manager.',
+        }
+      }
       // Another agent may have used the slot since, and left ignored files
       // (its build output, an `.env`) where the chat's branch tracks a file:
       // `switch` would overwrite them without a word, as a reset would.
-      const from = status.status.oid
       const tip = await revParseCommit(git, pool.record.repoRoot, `refs/heads/${branch}`)
       if (from && tip && from !== tip) {
         const inTheWay = await ignoredFilesInTheWay(git, slot.path, from, tip)

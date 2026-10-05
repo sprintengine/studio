@@ -855,6 +855,22 @@ test('a returned slot given to another agent since is refused to its old chat, w
   assert.equal('definitive' in gone && gone.definitive, true)
 })
 
+test('a slot is not given back to its chat over commits no branch has, made on it while idle', async () => {
+  const harness = makeService()
+  installWorktreePool(harness.service)
+  const chat = await lease(harness, 'chat')
+  await returnAll(harness)
+  // Someone commits on the idle slot's detached HEAD.
+  await writeFile(join(chat.path, 'stray.txt'), 'stray\n')
+  await git(chat.path, 'add', '.')
+  await git(chat.path, 'commit', '-q', '-m', 'stray')
+  const stray = await git(chat.path, 'rev-parse', 'HEAD')
+  const restored = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/chat' })
+  assert.equal(restored.ok, false)
+  assert.equal(await git(chat.path, 'rev-parse', 'HEAD'), stray, 'HEAD still reaches the commit')
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'held')
+})
+
 test('a slot held with its chat’s uncommitted work opens for that chat, and for no other', async () => {
   const harness = makeService()
   installWorktreePool(harness.service)
