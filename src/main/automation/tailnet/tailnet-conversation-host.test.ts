@@ -192,6 +192,30 @@ test('upload references are device/session bound, bounded and invalidated by siz
   }
 })
 
+test('a send behind another send to the same chat is busy, with a delay to retry after', async () => {
+  const f = await fixture()
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    let release: () => void = () => undefined
+    vi.spyOn(f.runtime, 'sendTurn').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true, session: started.session })
+        }),
+    )
+    const first = f.host.command(f.key, 'phone', 'first', { kind: 'send', message: 'one' })
+    const second = await f.host.command(f.key, 'phone', 'second', { kind: 'send', message: 'two' })
+    assert.equal(second.ok, false)
+    assert.equal(second.code, 'busy')
+    assert.ok((second.retryAfterMs ?? 0) > 0)
+    release()
+    assert.equal((await first).ok, true)
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('an upload for a session that ended is sent on the session the send resumes the chat on', async () => {
   const f = await fixture()
   try {

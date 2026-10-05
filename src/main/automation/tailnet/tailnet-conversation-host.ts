@@ -166,8 +166,13 @@ export type ConversationGatewayCommandResult = {
   ok: boolean
   message?: string
   code?: ConversationWireErrorCode | 'command_id_conflict'
+  /** With `busy`: when trying again can succeed. */
+  retryAfterMs?: number
   notice?: string
 }
+
+/** How long a send turned away behind another send to the same chat waits before trying again. */
+const SEND_BUSY_RETRY_MS = 1_000
 
 /**
  * What a listed chat carries beside its conversation: the machine it runs on
@@ -641,10 +646,21 @@ export function createConversationGatewayHost(
       if (pending)
         return pending.commandId === commandId && pending.deviceId === deviceId
           ? pending.promise
-          : Promise.resolve({ ok: false, message: 'A conversation send is already in progress.' })
+          : // Busy, not failed: a phone queues the message and sends it again.
+            Promise.resolve({
+              ok: false,
+              code: 'busy',
+              retryAfterMs: SEND_BUSY_RETRY_MS,
+              message: 'A conversation send is already in progress.',
+            })
       const hasImages = Boolean(command.uploadIds?.length)
       if (hasImages && imageSends >= 2)
-        return Promise.resolve({ ok: false, message: 'Image sends are busy. Please retry shortly.' })
+        return Promise.resolve({
+          ok: false,
+          code: 'busy',
+          retryAfterMs: SEND_BUSY_RETRY_MS,
+          message: 'Image sends are busy. Please retry shortly.',
+        })
       if (hasImages) imageSends++
       const promise = execute().finally(() => {
         if (sending.get(id)?.promise === promise) sending.delete(id)

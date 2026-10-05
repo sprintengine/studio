@@ -625,7 +625,13 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     if (frame.type === 'command') {
       const started = now()
       const key = currentKey
-      const finish = (ok: boolean, code?: ConversationWireErrorCode, message?: string, notice?: string): void => {
+      const finish = (
+        ok: boolean,
+        code?: ConversationWireErrorCode,
+        message?: string,
+        notice?: string,
+        retryAfterMs?: number,
+      ): void => {
         options.audit({
           tool: `conversation.${frame.command.kind}`,
           commandId: frame.commandId,
@@ -641,6 +647,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
           ...(code ? { code } : {}),
           ...(message ? { message } : {}),
           ...(notice ? { notice } : {}),
+          ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
         })
       }
       if (!mayOperate) return finish(false, 'conversation_operate_required')
@@ -655,6 +662,8 @@ export function createTailnetConversationStream(options: TailnetConversationStre
             ? 'unavailable'
             : commandResult.code,
           commandResult.message,
+          undefined,
+          commandResult.code === 'busy' ? commandResult.retryAfterMs : undefined,
         )
     }
   }
