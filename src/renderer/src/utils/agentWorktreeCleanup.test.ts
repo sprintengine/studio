@@ -3,7 +3,7 @@ import { test } from 'vitest'
 
 import type { WorktreeEntry } from '../types/workspace'
 import { releaseWorktreeEntriesOwnedBy } from '../store/slices/worktreesSlice'
-import { agentWorktreeCleanupPlan, entriesRemovedBy } from './agentWorktreeCleanup'
+import { agentWorktreeCleanupPlan, chatsReclaimedBy, entriesRemovedBy } from './agentWorktreeCleanup'
 
 const CONTAINER = '/Users/dev/.sprintengine-worktrees/app'
 
@@ -107,4 +107,70 @@ test('the plan protects everything the records still use, and nothing an absent 
     [],
     'a dry run removes nothing from the store either',
   )
+})
+
+function chat(id: string, patch: Record<string, unknown> = {}) {
+  return {
+    id,
+    folderPath: `${CONTAINER}/${id}`,
+    worktree: { branch: `agent/${id}`, baseRef: 'HEAD', repoRoot: '/Users/dev/app' },
+    agents: {},
+    worktreeState: { containerPath: null, updatedAt: null, entries: {} },
+    ...patch,
+  }
+}
+
+test('a settled chat in a worktree of its own offers that worktree; every other chat keeps its folder', () => {
+  const workspaces = [
+    // Settled, in a worktree of its own: its folder and what its agents use
+    // inside it are offered; an agent's own worktree elsewhere is not.
+    chat('rested', {
+      settledAt: 1,
+      agents: {
+        inside: agent(null, `${CONTAINER}/rested/packages/api`),
+        elsewhere: agent(null, `${CONTAINER}/rested-agent`),
+      },
+    }),
+    // Not settled: kept, as every chat always was.
+    chat('working'),
+    // Settled, but in the project's own checkout: never the sweep's to take.
+    { ...chat('in-place', { settledAt: 1 }), folderPath: '/Users/dev/site', worktree: null },
+    // Settled and in a worktree, but open in a window right now.
+    chat('reading', { settledAt: 1 }),
+  ] as unknown as Parameters<typeof agentWorktreeCleanupPlan>[0]
+
+  const protectedSet = new Set(agentWorktreeCleanupPlan(workspaces, ['reading', null]).protectedPaths)
+  assert.equal(protectedSet.has(`${CONTAINER}/rested`), false, 'the settled chat offers its worktree')
+  assert.equal(protectedSet.has(`${CONTAINER}/rested/packages/api`), false, 'and its agents inside it')
+  assert.ok(protectedSet.has(`${CONTAINER}/rested-agent`), 'an agent worktree outside the chat folder stays protected')
+  assert.ok(protectedSet.has(`${CONTAINER}/working`), 'an unsettled chat keeps its worktree')
+  assert.ok(protectedSet.has('/Users/dev/site'), 'a settled chat on a checkout keeps it')
+  assert.ok(protectedSet.has(`${CONTAINER}/reading`), 'a settled chat someone has open keeps its worktree')
+
+  // Another record that uses the folder still protects it.
+  const shared = [
+    ...workspaces,
+    { ...chat('neighbour'), folderPath: '/Users/dev/app', agents: { a: agent(null, `${CONTAINER}/rested`) } },
+  ] as unknown as Parameters<typeof agentWorktreeCleanupPlan>[0]
+  assert.ok(agentWorktreeCleanupPlan(shared).protectedPaths.includes(`${CONTAINER}/rested`))
+})
+
+test('a chat whose own folder the sweep removed is marked as having given its worktree back', () => {
+  const workspaces = [
+    chat('rested', { settledAt: 1 }),
+    chat('already', { settledAt: 1, worktree: { branch: 'agent/already', reclaimedAt: 5 } }),
+    chat('kept', { settledAt: 1 }),
+  ] as unknown as Parameters<typeof chatsReclaimedBy>[0]
+  const report = {
+    repoRoot: '/Users/dev/app',
+    defaultRef: 'origin/main',
+    dryRun: false,
+    entries: [
+      { path: `${CONTAINER}/rested`, branch: 'agent/rested', verdict: 'removed' as const },
+      { path: `${CONTAINER}/already`, branch: 'agent/already', verdict: 'removed' as const },
+      { path: `${CONTAINER}/kept`, branch: 'agent/kept', verdict: 'unmerged' as const, uniqueCommits: 1 },
+    ],
+  }
+  assert.deepEqual(chatsReclaimedBy(workspaces, report), ['rested'])
+  assert.deepEqual(chatsReclaimedBy(workspaces, { ...report, dryRun: true }), [], 'a dry run gives nothing back')
 })

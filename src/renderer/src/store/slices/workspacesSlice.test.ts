@@ -1340,3 +1340,20 @@ test('workspacesSlice', async () => {
 
   console.log('workspacesSlice.test.ts: ok')
 })
+
+test('a chat worktree given back is marked on its marker, and the mark comes off when it is back', () => {
+  const id = 'worktree-reclaim-chat'
+  const marker = { branch: 'agent/chat-ab12', baseRef: 'HEAD', repoRoot: '/Users/dev/app' }
+  useWorkspaceStore.setState((state) => ({
+    workspaces: [
+      ...state.workspaces,
+      { id, folderPath: '/Users/dev/.sprintengine-worktrees/app/chat-ab12', worktree: marker } as unknown as Workspace,
+    ],
+  }))
+  const markerOf = () => useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === id)?.worktree
+  useWorkspaceStore.getState().setWorkspaceWorktreeReclaimed(id, 42)
+  assert.deepEqual(markerOf(), { ...marker, reclaimedAt: 42 }, 'the branch and project are kept beside the stamp')
+  useWorkspaceStore.getState().setWorkspaceWorktreeReclaimed(id, null)
+  assert.deepEqual(markerOf(), marker, 'cleared, not set to null, so the marker reads as before')
+  useWorkspaceStore.setState((state) => ({ workspaces: state.workspaces.filter((workspace) => workspace.id !== id) }))
+})

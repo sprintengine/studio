@@ -6,6 +6,7 @@ import { WorkspaceAsideColumn } from '../workspaceAsideColumn'
 import WorkspacePane from './WorkspacePane'
 import { openUrlInPane } from './browser/openInPane'
 import { OFFSCREEN_LAYER_STYLE } from './WorkspacePaneBody'
+import { revealPoppedOutTab, usePanePopOutHost } from './popout/panePopOutHost'
 
 // The pane column (browser-pane epic): the full-height column on the shell
 // row's right edge, beside the WorkspaceHeader, that hosts every retained
@@ -19,15 +20,32 @@ type WorkspacePaneColumnProps = {
   // The workspaces whose layers are mounted right now (WorkspaceManager's
   // retention set); a pane mounts for each that has tabs, plus the active one.
   renderedWorkspaceIds: readonly WorkspaceId[]
+  // Every workspace this window holds, retained or not: a pane popped out of
+  // this window lives only as long as its workspace stays here. Null while
+  // this window's own record is missing from the registry, when that is not
+  // known.
+  windowWorkspaceIds: ReadonlySet<WorkspaceId> | null
+  // The New chat door is up: it belongs to no workspace yet, so the column
+  // shows no pane and collapses as if the active one were closed. Every pane
+  // stays mounted, so closing the door shows the active one as it was.
+  suppressed?: boolean
 }
 
-export function WorkspacePaneColumn({ activeWorkspaceId, renderedWorkspaceIds }: WorkspacePaneColumnProps) {
+export function WorkspacePaneColumn({
+  activeWorkspaceId,
+  renderedWorkspaceIds,
+  windowWorkspaceIds,
+  suppressed = false,
+}: WorkspacePaneColumnProps) {
+  // The owner side of every pane, or tab, this window pops out: one per window,
+  // so it rides the column rather than each workspace's pane.
+  usePanePopOutHost(windowWorkspaceIds)
   const width = useWorkspaceStore((s) => s.workspacePaneWidth)
   const setWidth = useWorkspaceStore((s) => s.setWorkspacePaneWidth)
   const maximised = useWorkspaceStore((s) => s.workspacePaneMaximised)
-  const activeOpen = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === activeWorkspaceId)?.paneState?.open ?? false,
-  )
+  const activeOpen =
+    useWorkspaceStore((s) => s.workspaces.find((w) => w.id === activeWorkspaceId)?.paneState?.open ?? false) &&
+    !suppressed
   // A floating player paints outside the column, so a collapsed column must
   // stay interactive for it (WorkspaceAsideColumn.keepInteractive); the pane
   // marks its own clipped chrome inert instead.
@@ -62,6 +80,9 @@ export function WorkspacePaneColumn({ activeWorkspaceId, renderedWorkspaceIds }:
         const floatingTabId = pane?.tabs.find((tab) => tab.floating)?.id ?? null
         if (tabId) {
           if (tabId === floatingTabId) return
+          // Out in a window of its own: that window brings it forward, and the
+          // pane stays as it is rather than opening on a placeholder.
+          if (revealPoppedOutTab(workspaceId, tabId)) return
           // The agent navigated an existing tab: bring it to the front.
           if (pane?.tabs.some((tab) => tab.id === tabId)) store.setActivePaneTab(workspaceId, tabId)
         } else if (url) {

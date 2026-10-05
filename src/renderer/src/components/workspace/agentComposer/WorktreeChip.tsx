@@ -5,10 +5,11 @@ import { ChipButton, Input, Tooltip, WorktreeGlyph } from '../../ui'
 /**
  * Worktree, in the New chat composer's context strip (owner ruling
  * 2026-10-04; it sat beside the agent picker from 2026-09-30). A switch that
- * can also be named: off by default, reading "No worktree"; pressed, it reads
- * "Worktree", runs the chat in a worktree of its own with a name made up at
- * start, and offers a field for a name of the person's own. Pressed again, it
- * is off. Clearing the name while on keeps it on, back to the made-up one.
+ * can also be named. Pressed, it reads "Worktree", runs the chat in a
+ * worktree of its own with a name made up at start, and offers a field for a
+ * name of the person's own; the New chat door opens with it pressed. Pressed
+ * again, it is off, reading "No worktree". Clearing the name while on keeps it
+ * on, back to the made-up one.
  *
  * The kit's quiet chip, as every control in the strip is.
  */

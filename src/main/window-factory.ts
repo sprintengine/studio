@@ -40,6 +40,10 @@ let detachedRestorePending = true
 // Workspace (main-shell) windows only — aux/diagnostics windows never frost.
 // The material IPC re-applies the material live to every member on change.
 const workspaceWindows = new Set<BrowserWindow>()
+// Panes popped out of a workspace window (aux kind `pane`): the other host of
+// the embedded browser, kept apart from the workspace windows because they are
+// not one — they show no workspace and answer no workspace broadcast.
+const panePopOutWindows = new Set<BrowserWindow>()
 
 // The window-level half of a material: vibrancy and a transparent background
 // for glass; no vibrancy and the theme's own opaque canvas colour for tinted
@@ -75,11 +79,8 @@ export function applyWindowMaterialToWorkspaceWindows(material: WindowMaterial, 
   }
 }
 
-// Show a window created with `deferShow`. Safe on a window that is already
-// visible or already gone: the boot reveal races a renderer signal against a
-// timeout, and the loser must be a no-op rather than a throw.
-// Whether a WebContents is one of the workspace windows — the only hosts the
-// embedded browser adopts a guest from (browser-manager.register).
+// Whether a WebContents is one of the workspace windows — the windows that
+// show a workspace, own its pane, and answer its agents' reveal requests.
 export function isWorkspaceWindowWebContents(contents: WebContents): boolean {
   for (const win of workspaceWindows) {
     if (!win.isDestroyed() && win.webContents === contents) return true
@@ -87,6 +88,38 @@ export function isWorkspaceWindowWebContents(contents: WebContents): boolean {
   return false
 }
 
+// Whether a WebContents may host the embedded browser's guests
+// (browser-manager.register): a workspace window, or a pane popped out of one,
+// which mounts the same browser tabs. Nothing else is given `webviewTag`.
+export function isBrowserHostWebContents(contents: WebContents): boolean {
+  if (isWorkspaceWindowWebContents(contents)) return true
+  for (const win of panePopOutWindows) {
+    if (!win.isDestroyed() && win.webContents === contents) return true
+  }
+  return false
+}
+
+// Every guest a browser host attaches is the embedded browser and nothing else
+// (guest-policy.ts has the rules and their tests). The one policy for both
+// kinds of host, so a pane popped out of its window cannot attach a guest the
+// window it came from would have refused.
+function allowOnlyEmbeddedBrowserGuests(win: BrowserWindow): void {
+  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    if (
+      !applyGuestWebPreferences(
+        webPreferences as GuestWebPreferences,
+        params,
+        guestPreloadPath(),
+        isAllowedMachinePartition,
+      )
+    )
+      event.preventDefault()
+  })
+}
+
+// Show a window created with `deferShow`. Safe on a window that is already
+// visible or already gone: the boot reveal races a renderer signal against a
+// timeout, and the loser must be a no-op rather than a throw.
 export function revealMainWindow(win: BrowserWindow): void {
   if (win.isDestroyed()) return
   win.show()
@@ -191,19 +224,7 @@ export function createMainWindow({
     workspaceWindows.delete(win)
   })
 
-  // Every guest this window attaches is the embedded browser and nothing
-  // else (guest-policy.ts has the rules and their tests).
-  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    if (
-      !applyGuestWebPreferences(
-        webPreferences as GuestWebPreferences,
-        params,
-        guestPreloadPath(),
-        isAllowedMachinePartition,
-      )
-    )
-      event.preventDefault()
-  })
+  allowOnlyEmbeddedBrowserGuests(win)
 
   win.on('ready-to-show', () => {
     // Maximize regardless: it applies to a hidden window, so a deferred reveal
@@ -353,15 +374,17 @@ export function createDiagnosticsWindow(): BrowserWindow {
 // the existing window rather than spawning a duplicate.
 const auxWindows = new Map<string, BrowserWindow>()
 
-type AuxWindowKind = 'diff' | 'file'
+type AuxWindowKind = 'diff' | 'file' | 'pane'
 
 // The OS window's name. Set at construction so the window has one from the
 // instant it exists — in the taskbar, in the window switcher, in Mission
 // Control. The diff renderer narrows it to `Commit: <file>` as soon as it knows
-// which file it is showing (the page owns the title once it sets one).
+// which file it is showing (the page owns the title once it sets one); a pane
+// window names itself after its tab, or its workspace.
 const AUX_WINDOW_TITLES: Record<AuxWindowKind, string> = {
   diff: 'Diff',
   file: 'Editor',
+  pane: 'Pane',
 }
 
 // The renderer shell's own `<title>`. One index.html serves every window, so
@@ -406,6 +429,10 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null, focus
     return { retargeted: true }
   }
 
+  // A popped-out pane mounts the pane's own tabs, browser and terminal
+  // included, so it is a browser host the way a workspace window is: the
+  // `<webview>` tag, under the same guest policy. No other aux kind gets it.
+  const hostsPane = kind === 'pane'
   const safeBounds = normalizeWindowBounds(bounds)
   const win = new BrowserWindow({
     title: AUX_WINDOW_TITLES[kind],
@@ -430,11 +457,31 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null, focus
       sandbox: false,
       // A diff or editor window hosts no terminal and no background work, so it
       // has no reason to keep painting while hidden. See the workspace window
-      // above for why throttling is on there too.
+      // above for why throttling is on there too — and for why a pane window,
+      // which can host a terminal, is fine with it: it is told when it is out
+      // of sight (below) and stops feeding its terminals the same way.
       backgroundThrottling: true,
+      ...(hostsPane ? { webviewTag: true } : {}),
     },
   })
   auxWindows.set(registryKey, win)
+  if (hostsPane) {
+    panePopOutWindows.add(win)
+    win.on('closed', () => panePopOutWindows.delete(win))
+    allowOnlyEmbeddedBrowserGuests(win)
+    // The window's chrome follows its state: the traffic-light inset drops
+    // in full screen, and the win/linux caption buttons swap Maximise for
+    // Restore. And a terminal tab stops being fed while the window is out of
+    // sight, which the page cannot tell on its own (sendWindowHidden).
+    win.on('enter-full-screen', () => sendWindowState(win))
+    win.on('leave-full-screen', () => sendWindowState(win))
+    win.on('maximize', () => sendWindowState(win))
+    win.on('unmaximize', () => sendWindowState(win))
+    win.on('minimize', () => sendWindowHidden(win))
+    win.on('restore', () => sendWindowHidden(win))
+    win.on('hide', () => sendWindowHidden(win))
+    win.on('show', () => sendWindowHidden(win))
+  }
 
   win.on('ready-to-show', () => {
     if (!focus) {
@@ -482,6 +529,28 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null, focus
   }
 
   return { retargeted: false }
+}
+
+/**
+ * Open the window a pane (or one of its tabs) pops out into, and hand it back:
+ * the pop-out broker watches it close. One window per pop-out id — the id is
+ * the singleton key, so a repeat ask raises the window instead of opening a
+ * second.
+ */
+export function openPanePopOutWindow(input: {
+  popOutId: string
+  workspaceId: string
+  bounds: { x: number; y: number; width: number; height: number } | null
+}): BrowserWindow {
+  openAuxWindow({
+    kind: 'pane',
+    singletonKey: input.popOutId,
+    params: { popOutId: input.popOutId, workspaceId: input.workspaceId },
+    bounds: input.bounds,
+  })
+  const win = auxWindows.get(`pane:${input.popOutId}`)
+  if (!win) throw new Error('pane_window_not_opened')
+  return win
 }
 
 function createPlacementUpdateScheduler(win: BrowserWindow): () => void {

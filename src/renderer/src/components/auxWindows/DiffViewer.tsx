@@ -31,6 +31,7 @@ import {
   MicroChip,
   NextDifferenceGlyph,
   OpenInEditorGlyph,
+  OpenInWindowGlyph,
   OutlineButton,
   Pager,
   Popover,
@@ -327,22 +328,7 @@ function OpenInWindowButton({ onClick }: { onClick: () => void }) {
   return (
     <Tooltip content="Open in separate window" placement="bottom">
       <ToolbarButton ariaLabel="Open in separate window" onClick={onClick}>
-        <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-          <path
-            d="M6.5 3H3v10h10V9.5"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M9.5 3H13v3.5M13 3 7.5 8.5"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <OpenInWindowGlyph />
       </ToolbarButton>
     </Tooltip>
   )

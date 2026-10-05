@@ -6,6 +6,9 @@ import { safeExternalUrl } from './external-url'
 import { powerActivity } from '../power-activity'
 import type { AuxWindowKind, DockDiffToWorkspaceResult, OpenAuxWindowResult } from '../../shared/electron-api'
 
+// The kinds a renderer may open by name. `pane` is not one: a popped-out pane
+// belongs to the window it came from, and only `pane-popout:open` records that
+// (pane-popout-ipc.ts) — opened here it would be a window nobody could dock.
 const AUX_WINDOW_KINDS: readonly AuxWindowKind[] = ['diff', 'file']
 
 type WindowState = {

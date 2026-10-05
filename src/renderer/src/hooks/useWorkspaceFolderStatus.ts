@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { openWorkspaceIds } from '../utils/agentWorktreeCleanup'
+import { ensureChatWorktree } from '../utils/chatWorktreeRestore'
 
 type FolderCheckState = {
   path: string | null
@@ -30,6 +32,14 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderMissing ?? false,
   )
   const setFolderMissing = useWorkspaceStore((s) => s.setFolderMissing)
+  // The cleanup's mark on a chat whose worktree it gave back. Arriving while
+  // the chat is mounted, it is news about the folder, so the folder is looked
+  // at again. Brought back only for a chat open in some window: a chat merely
+  // kept mounted behind another would otherwise bring its worktree straight
+  // back after every sweep, and does so once it is opened.
+  const reclaimedAt = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.worktree?.reclaimedAt)
+  const openInAWindow = useWorkspaceStore((s) => openWorkspaceIds(s).includes(workspaceId))
+  const restoreHere = reclaimedAt === undefined || openInAWindow
   const [checkState, setCheckState] = useState<FolderCheckState>({
     path: null,
     status: 'idle',
@@ -57,6 +67,7 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
 
     setCheckState({ path: folderPath, status: 'checking' })
     try {
+      await ensureChatWorktree(workspaceId)
       const result = await window.api.checkWorkspaceFolder(folderPath)
       applyCheckResult(folderPath, result)
       return result.ok
@@ -82,8 +93,11 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
     }
 
     setCheckState({ path: folderPath, status: 'checking' })
-    window.api
-      .checkWorkspaceFolder(folderPath)
+    // A chat whose worktree the cleanup gave back gets it back before the
+    // folder is judged: until then the panels wait on 'checking', which is
+    // what keeps a terminal from starting in a folder that is not there yet.
+    ;(restoreHere ? ensureChatWorktree(workspaceId) : Promise.resolve(false))
+      .then(() => window.api.checkWorkspaceFolder(folderPath))
       .then((result) => {
         if (!cancelled) applyCheckResult(folderPath, result)
       })
@@ -102,7 +116,7 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
     return () => {
       cancelled = true
     }
-  }, [applyCheckResult, folderPath, setFolderMissing, workspaceId])
+  }, [applyCheckResult, folderPath, reclaimedAt, restoreHere, setFolderMissing, workspaceId])
 
   return useMemo(() => {
     const checkedCurrentPath = checkState.path === folderPath

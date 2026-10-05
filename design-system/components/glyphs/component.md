@@ -1,7 +1,7 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The seventy-one SVGs in
+line work, sized only by the `--sem-icon-size-*` ramp. The seventy-two SVGs in
 `glyphs/` (close, search, spinner, sprintengine-mark, git-branch, remote-machine,
 schedule, wsl-machine,
 the four `device-*` marks, the six `machine-*` kinds, the composer's six —
@@ -16,7 +16,7 @@ new-changelist, delete-changelist, edit-changelist, create-patch, kebab — and
 the diff tour's four — tour, play, pause, step-list — and the copy
 affordance's pair — copy, and the check it confirms with — and the code
 block's two — wrap-lines, terminal-prompt — the chat's ten tool-step
-marks, `tool-*`, and the quote mark — quote) are
+marks, `tool-*`, the quote mark — quote — and open-in-window) are
 the framework-neutral assets; the shipped vocabulary lives in React —
 `src/renderer/src/components/AppIcons.tsx` and the `ui/` glyph primitives
 beside it. This entry documents that vocabulary so a consumer can pick, size,
@@ -448,6 +448,7 @@ working tree), `FileTypeGlyph` `lock` (the padlock), `glyphs/commit.svg`,
 | `RemoteMachineGlyph` | **The Beam** (redrawn 2026-10-04, owner ruling; it was a stack of two server units): a screen on its stand with two arcs of signal off its corner — a machine reached over the air. The one mark for "another machine" in general, where a surface does not say which: the paired-devices list, the "Other machines" group of the machine picker, the tailnet UI, a remote group header (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Also the Device identity family's fallback (above). A surface that names one machine wears that machine's own mark instead (Machine kinds). Stroke 1.4. `glyphs/remote-machine.svg` |
 | `ScheduleGlyph` | A scheduled agent: a prompt that starts a new chat each time its schedule comes round. The plain clock face — hands at the hour, nothing else — on the New chat panel's Scheduled agent switch, its schedule row, the entry beside New chat, each scheduled agent's row in the sidebar's Scheduled section, and beside the title of every chat a scheduled run started, where it is named "Started by a schedule" (accessible name and tooltip) and says where the chat came from, never that it is working. **Not** `glyphs/history.svg`, whose clock carries a rewind arrow and means *the past* (the Git log); this one means *a time that is coming*. Stroke 1.4. `glyphs/schedule.svg` |
 | `WslMachineGlyph` | A WSL distribution on this computer, which is a machine of its own ("WSL: Ubuntu"): a window with a title bar and a prompt, because the distribution is reached as a shell. The title bar (redrawn 2026-10-04) is what keeps it apart from the plain terminal's frame, `TerminalPromptGlyph`, which the composer's "Start as" choice draws beside it. It is also the `wsl` machine kind (Machine kinds, above). Stroke 1.4. `glyphs/wsl-machine.svg` |
+| `OpenInWindowGlyph` | *In a window of its own*: a box with an arrow leaving it by the top-right corner. One drawing for every way a surface leaves for its own OS window — the Diff tab's "Open in separate window", the workspace pane's "Pop out pane" — and, in a pane tab's glyph slot, for a tab that is showing in a pop-out window right now: the mark the person clicked to send it there is the one that says where it went (the tab's accessible name says it in words). Extracted from the diff band in 2026-10, when the pane's pop-out reached for the same idea. Stroke 1.5. `glyphs/open-in-window.svg` |
 
 ### Code block actions (16-grid — `ui/CodeBlockGlyphs.tsx`)
 

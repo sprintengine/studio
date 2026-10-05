@@ -71,7 +71,7 @@ export function WorkspacePaneAddMenu({ kinds, onPick }: WorkspacePaneAddMenuProp
       onOpenChange={setOpen}
       ariaLabel="Open in the pane"
       popupRole="menu"
-      placement="bottom-end"
+      placement="bottom-start"
       onOpenAutoFocus={(surface) => {
         surface.querySelector<HTMLButtonElement>(MENU_ITEM_SELECTOR)?.focus()
       }}
