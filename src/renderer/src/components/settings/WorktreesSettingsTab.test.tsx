@@ -224,3 +224,31 @@ test('Free up space removes the extra ready slot and the merged worktree, keepin
   expect(calls.actions).toEqual([{ kind: 'evict', repoRoot: REPO, slotId: 'pool-04' }])
   expect(calls.removed).toEqual([{ repoRoot: REPO, path: '/code/by-hand' }])
 })
+
+test('Free up space keeps what the person unticked when the page reads the worktrees again', async () => {
+  let poolChanged: (() => void) | null = null
+  Object.assign((window as unknown as { api: object }).api, {
+    onWorktreePoolChanged: (cb: () => void) => {
+      poolChanged = cb
+      return () => {}
+    },
+  })
+  await render()
+  await click(button(host, 'Free up space…'))
+  const mergedRow = [...document.body.querySelectorAll<HTMLLabelElement>('[role="dialog"] label')].find((label) =>
+    label.textContent?.includes('whose branch is merged'),
+  )
+  await click(mergedRow!.querySelector('input')!)
+  // A slot moves somewhere: the page reads again, a moment later.
+  await act(async () => {
+    poolChanged?.()
+    await new Promise((resolve) => setTimeout(resolve, 450))
+  })
+  const free = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((candidate) =>
+    candidate.textContent?.startsWith('Free 1.0 GB'),
+  )
+  expect(free).toBeTruthy()
+  await click(free!)
+  expect(calls.actions).toEqual([{ kind: 'evict', repoRoot: REPO, slotId: 'pool-04' }])
+  expect(calls.removed).toEqual([])
+})
