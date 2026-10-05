@@ -21,6 +21,7 @@ import {
 import { ConversationApprovalRuleStore } from '../../main/conversation-approval-rules'
 import { ConversationAttachmentStore } from '../../main/conversation-attachment-store'
 import { createConversationLaunchService } from '../../main/conversation-launch-service'
+import { createConversationImportService } from '../../main/conversation-import/conversation-import-service'
 import { createConversationModelCatalog } from '../../main/conversation-model-catalog'
 import { ConversationPlanStore } from '../../main/conversation-plan-store'
 import { ConversationRuntime, type ConversationRuntimeOptions } from '../../main/conversation-runtime'
@@ -303,6 +304,23 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     },
   })
 
+  // The sessions a person ran in an agent CLI's own terminal, brought in as
+  // chats (conversation-import-service.ts). The CLIs' homes it reads are this
+  // machine's, so the chats it writes are this process's own runtime's, never
+  // a router's: a session ran here, in a folder here.
+  const conversationImport = createConversationImportService({
+    listWorkspaces: () => workspaceRegistry.getRecords(),
+    createWorkspace: (request) => {
+      const created = workspaceSyncService.createWorkspace(request, 'system')
+      return created.ok ? { ok: true, workspaceId: created.result.workspace.id } : created
+    },
+    removeWorkspace: (workspaceId) => {
+      workspaceSyncService.removeWorkspace(workspaceId, 'system')
+    },
+    importTranscript: (input) => conversationRuntime.importTranscript(input),
+    getLaunchSettings: () => agentLaunchSettings.get(),
+  })
+
   // The pull requests the conversations opened (pull-request-domain.ts): heard
   // from a chat's create calls, from a client's forwarded terminal tool calls,
   // and from the gateway's `pull_request.link`. Every client reads it through
@@ -477,6 +495,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     approvalRules,
     conversationModelCatalog,
     conversationLaunchService,
+    conversationImport,
     resolveAgentPermissionPreset,
     createConversationHost,
     pullRequests,

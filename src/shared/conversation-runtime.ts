@@ -473,6 +473,22 @@ export type ConversationForkInput = {
   title?: string
 } & ({ side: 'assistant'; turnId: string } | { side: 'user'; turnSeq: number })
 export type ConversationForkResult = { ok: true } | { ok: false; message: string }
+/**
+ * Give a new chat the history of a session an agent CLI saved on its own (one
+ * a person ran in its terminal), ending in that session's id as the chat's
+ * resume cursor, so the chat's next message continues the same session.
+ * `events` are the history in this protocol's vocabulary, oldest first.
+ */
+export type ConversationImportTranscriptInput = {
+  key: ConversationKey
+  providerId: string
+  modelId: string
+  providerSessionId: string
+  title?: string
+  importedFrom: { source: string; sessionId: string }
+  events: Array<{ type: ConversationEvent['type']; createdAt: number; payload: Record<string, unknown> }>
+}
+export type ConversationImportTranscriptResult = { ok: true } | { ok: false; message: string }
 export type ConversationSkillRef = { id: string; sourcePath?: string }
 export type ConversationApprovalRulesResult =
   | { ok: true; rules: import('./conversation/approvalRules').ConversationApprovalRule[] }

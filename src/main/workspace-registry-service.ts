@@ -114,6 +114,13 @@ export type WorkspaceCreateRequest = {
    * nobody's request at that moment.
    */
   background?: boolean
+  /**
+   * A chat made from a session a person ran in an agent CLI, born with that
+   * session's dates: created when it started, and last messaged and answered
+   * when it last moved. The sidebar orders by those, so an import of weeks of
+   * history files in beneath the chats of today rather than above them.
+   */
+  imported?: { startedAt: number; lastActiveAt: number }
 }
 
 export type WorkspaceCreateResult = {
@@ -418,6 +425,13 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       memory: { relativeRoot: null },
       editorState: { openFiles: [], activeFilePath: null },
       createdAt,
+      ...(input.imported
+        ? {
+            createdAt: input.imported.startedAt,
+            lastUserMessageAt: input.imported.lastActiveAt,
+            lastTurnEndedAt: input.imported.lastActiveAt,
+          }
+        : {}),
     }
     return {
       workspace: toWorkspaceRegistryRecord(workspace, file.revision + 1, stampsForCreate(createdAt)),

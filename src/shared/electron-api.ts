@@ -259,6 +259,11 @@ import type {
   AgentConfigDetectResult,
 } from './ipc/agent-config'
 import type {
+  ConversationImportInput,
+  ConversationImportResult,
+  ConversationImportScanResult,
+} from './ipc/conversation-import'
+import type {
   CliDetectResult,
   CliInstallInput,
   CliInstallMethodInfo,
@@ -503,6 +508,7 @@ export type * from './ipc/conversations'
 export type * from './ipc/agent-runtime'
 export type * from './ipc/mcp'
 export type * from './ipc/agent-config'
+export type * from './ipc/conversation-import'
 export type * from './ipc/skills'
 export type * from './ipc/terminal'
 export type * from './ipc/git'
@@ -1441,6 +1447,8 @@ export type ElectronApi = {
   cloneGitHubRepo: (input: GitHubCloneInput) => Promise<GitHubCloneResult>
   detectExistingAgentConfig: (input?: AgentConfigDetectInput) => Promise<AgentConfigDetectResult>
   adoptAgentConfig: (input: AgentConfigAdoptInput) => Promise<AgentConfigAdoptResult>
+  scanImportableConversations: () => Promise<ConversationImportScanResult>
+  importConversations: (input: ConversationImportInput) => Promise<ConversationImportResult>
   mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
   workspaceSkillsList: (input: WorkspaceSkillsListInput) => Promise<WorkspaceSkillsListResult>
   installedSkillsList: (input: InstalledSkillsInput) => Promise<InstalledSkillsResult>

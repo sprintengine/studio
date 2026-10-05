@@ -45,6 +45,8 @@ export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   'backlog:update-triage': {},
   'cli-models:discover': {},
   'conversation-commands:list': { retry: 'once' },
+  'conversation-import:import': {},
+  'conversation-import:scan': { retry: 'once' },
   'conversation:approval-rules:list': { retry: 'once' },
   'conversation:approval-rules:revoke': {},
   'conversation:attachment': { retry: 'once' },
