@@ -29,7 +29,7 @@ import type {
   WorkspaceChangeSummary,
   GitStatusSnapshot,
   GitWorktreeCreateInput,
-  GitWorktreeEntry,
+  GitWorktreeCreated,
   GitWorktreeListSnapshot,
   GitWorktreeOperationResult,
   GitWorktreeRemoveInput,
@@ -167,7 +167,7 @@ export const gitApi = {
     ipcRenderer.invoke('git:tag-from-commit', repoRoot, tagName, commitHash),
   listGitWorktrees: (repoRoot: string): Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>> =>
     ipcRenderer.invoke('git:worktree:list', repoRoot),
-  createGitWorktree: (input: GitWorktreeCreateInput): Promise<GitWorktreeOperationResult<GitWorktreeEntry>> =>
+  createGitWorktree: (input: GitWorktreeCreateInput): Promise<GitWorktreeOperationResult<GitWorktreeCreated>> =>
     ipcRenderer.invoke('git:worktree:create', input),
   removeGitWorktree: (input: GitWorktreeRemoveInput): Promise<GitWorktreeOperationResult<GitCommandResult>> =>
     ipcRenderer.invoke('git:worktree:remove', input),

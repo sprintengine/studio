@@ -14,6 +14,8 @@
   `files:write` scope, and `uploads.begin { purpose: 'file' }`.
 - `hello.client.kind` and `hello.client.instanceId`; the `reserved_name`,
   `name_taken` and `not_offered` codes.
+- `worktree` among `STUDIO_RESERVED_TOOLSET_NAMES`: the worktree pool's
+  `worktree.lease` and `worktree.release`, which a Studio's shell offers.
 
 - **The chat surface** (`chat.ts`): `session.*`, `uploads.*` (with
   `uploads.discard`), the

@@ -86,14 +86,17 @@ export function createServerGatewayBackends(deps: GatewayBackendDeps): Automatio
     createAgentWorktree: async ({ workspaceRoot, name, baseRef }) => {
       const paths = agentWorktreePaths(workspaceRoot, name)
       if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
+      const named = baseRef?.trim()
       const created = await createGitWorktree({
         repoRoot: workspaceRoot,
         containerPath: paths.containerPath,
         destinationPath: paths.destinationPath,
         branchName: paths.branchName,
         // A remote launch names the branch to fork from (its picker lists
-        // this checkout's branches); a local one forks HEAD as it always did.
-        baseRef: baseRef?.trim() || 'HEAD',
+        // this checkout's branches); a launch that names none forks the
+        // default branch, from the worktree pool when this process keeps one.
+        baseRef: named || 'HEAD',
+        fromPool: !named,
         copyIncludedFiles: true,
         // The agent's id is minted after this, by the launch; the branch
         // names the owner until then.

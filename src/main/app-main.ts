@@ -414,6 +414,7 @@ registerAppLifecycle({
   removeSessionIntegrations: services.removeSessionIntegrations,
   releaseDataDir: () => (serverHost ? undefined : services.studioCore.dataDirLock?.release()),
   canvasService: services.canvasService,
+  worktreePool: services.worktreePool,
   browserRecorder: services.browserRecorder,
   desktopShell: serverHost ? services.desktopShell : null,
   conversationCommands: coreIpc.conversationCommands,

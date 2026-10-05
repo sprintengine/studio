@@ -347,7 +347,7 @@ import type {
   GitStashListSnapshot,
   GitStatusSnapshot,
   GitWorktreeCreateInput,
-  GitWorktreeEntry,
+  GitWorktreeCreated,
   GitWorktreeListSnapshot,
   GitWorktreeOperationResult,
   GitWorktreeRemoveInput,
@@ -357,6 +357,12 @@ import type {
   AgentWorktreeCleanupInput,
   AgentWorktreeCleanupReport,
 } from './ipc/git'
+import type {
+  WorktreePoolActionInput,
+  WorktreePoolActionResult,
+  WorktreePoolSettings,
+  WorktreePoolSnapshot,
+} from './ipc/worktree-pool'
 import type { HostedCardFeedReadInput, HostedCardFeedReadResult, HostedSourcesFeedReadResult } from './ipc/hosted-feeds'
 import type {
   GithubExtensionCheckUpdateInput,
@@ -486,6 +492,7 @@ export type * from './ipc/agent-config'
 export type * from './ipc/skills'
 export type * from './ipc/terminal'
 export type * from './ipc/git'
+export type * from './ipc/worktree-pool'
 export type * from './ipc/diagnostics'
 export type * from './ipc/window'
 export type * from './ipc/account'
@@ -1284,6 +1291,14 @@ export type ElectronApi = {
   watchGitCheckout: (checkoutPath: string, cb: (change: GitCheckoutChange) => void) => () => void
   /** Remove agent worktrees that are clean and merged; report (and keep) the rest. */
   cleanupAgentWorktrees: (input: AgentWorktreeCleanupInput) => Promise<AgentWorktreeCleanupReport>
+  /** A repository's worktree pool (main's worktree-pool/), or null when it has none. */
+  getWorktreePoolSnapshot: (repoRoot: string) => Promise<WorktreePoolSnapshot | null>
+  /** Every change to any pool's slots, as that pool's snapshot. */
+  onWorktreePoolChanged: (cb: (snapshot: WorktreePoolSnapshot) => void) => () => void
+  /** A person's decision on a held pool worktree, or the removal of an idle one. */
+  worktreePoolAction: (input: WorktreePoolActionInput) => Promise<WorktreePoolActionResult>
+  getWorktreePoolSettings: () => Promise<WorktreePoolSettings>
+  setWorktreePoolSettings: (patch: Partial<WorktreePoolSettings>) => Promise<WorktreePoolSettings>
   /**
    * The branch's commits as steps, oldest first, for the changed-files surface.
    * Read live on every call — a rebase re-identifies commits, so a cached strip
@@ -1347,7 +1362,7 @@ export type ElectronApi = {
   checkoutGitCommitAsBranch: (repoRoot: string, branchName: string, commitHash: string) => Promise<GitCommandResult>
   createGitTagFromCommit: (repoRoot: string, tagName: string, commitHash: string) => Promise<GitCommandResult>
   listGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>>
-  createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeEntry>>
+  createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeCreated>>
   removeGitWorktree: (input: GitWorktreeRemoveInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   pruneGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   /** Lift an in-use lock the app placed on an agent worktree (never a lock a person placed). */

@@ -2358,6 +2358,8 @@ export default function WorkspaceManager() {
       spawnError('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
       return null
     }
+    // From the worktree pool, on the default branch (main's git.ts): a
+    // reused slot keeps the last agent's installed dependencies.
     const result = await window.api.createGitWorktree({
       repoRoot,
       containerPath: paths.containerPath,
@@ -2366,6 +2368,7 @@ export default function WorkspaceManager() {
       baseRef: 'HEAD',
       copyIncludedFiles: true,
       agentLockOwner: agentId,
+      fromPool: true,
     })
     if (!result.ok) {
       spawnError('Agent worktree failed', result.message)
@@ -2375,7 +2378,7 @@ export default function WorkspaceManager() {
     const store = useWorkspaceStore.getState()
     store.setWorkspaceWorktreeState(workspace.id, { containerPath: paths.containerPath })
     const now = Date.now()
-    const worktreeId = worktreeIdFromPath(result.data.path)
+    const worktreeId = worktreeIdFromPath(result.data.path, result.data.leaseId)
     store.upsertWorktreeEntry(workspace.id, {
       id: worktreeId,
       path: result.data.path,
@@ -2688,6 +2691,10 @@ export default function WorkspaceManager() {
     const name = requestedName.trim() || `chat-${nanoid(4).toLowerCase()}`
     const paths = agentWorktreePaths(repoRoot, name)
     if (!paths) return fail('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
+    // From the worktree pool, on the default branch (main's git.ts): a
+    // reused slot keeps the last agent's installed dependencies. A chat on a
+    // WSL machine is declined by the pool and gets a fresh worktree from that
+    // machine's git, forked from the same default branch.
     const result = await window.api.createGitWorktree({
       repoRoot,
       containerPath: paths.containerPath,
@@ -2697,12 +2704,17 @@ export default function WorkspaceManager() {
       copyIncludedFiles: true,
       // The chat is created after its worktree, so the branch names the owner.
       agentLockOwner: paths.branchName,
+      fromPool: true,
       ...(worktreeHostId ? { hostId: worktreeHostId } : {}),
     })
     if (!result.ok) return fail('Worktree failed', result.message)
     return {
       folderPath: result.data.path,
-      worktree: { branch: result.data.branch ?? paths.branchName, baseRef: 'HEAD', repoRoot: projectFolder },
+      worktree: {
+        branch: result.data.branch ?? paths.branchName,
+        baseRef: result.data.baseRef,
+        repoRoot: projectFolder,
+      },
     }
   }
 

@@ -253,6 +253,14 @@
       "sha256": "7781f2bebf27b02a6ca36e22fc5c213cc994f3c8c875d7462fcf85cf25abd5a7"
     },
     {
+      "name": "worktree.lease",
+      "sha256": "74aaae965b55687db134c913a61d66ce89f1e922cdc222e0385eb473a0f47333"
+    },
+    {
+      "name": "worktree.release",
+      "sha256": "3d2790cf5be92d92ba13ee951db2d9b29817673604684884759a130d4c48915f"
+    },
+    {
       "name": "tailnet.status",
       "sha256": "cc199cfc73135e699938fd9e369ae707fb1ee041fca8b37e42f22289c42af576"
     },
@@ -537,6 +545,14 @@
     {
       "name": "schedule.run",
       "sha256": "7781f2bebf27b02a6ca36e22fc5c213cc994f3c8c875d7462fcf85cf25abd5a7"
+    },
+    {
+      "name": "worktree.lease",
+      "sha256": "74aaae965b55687db134c913a61d66ce89f1e922cdc222e0385eb473a0f47333"
+    },
+    {
+      "name": "worktree.release",
+      "sha256": "3d2790cf5be92d92ba13ee951db2d9b29817673604684884759a130d4c48915f"
     },
     {
       "name": "tailnet.status",

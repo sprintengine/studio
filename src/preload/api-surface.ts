@@ -53,6 +53,7 @@ import { workspaceSyncApi } from './api/workspace-sync'
 import { extensionScaffoldApi } from './api/extension-scaffold'
 import { previewsApi } from './api/previews'
 import { webDevicesApi } from './api/web-devices'
+import { worktreePoolApi } from './api/worktree-pool'
 
 // Every `window.api` member the preload builds from its api modules: all of
 // them but the values it computes from its own process. One list, which
@@ -124,4 +125,5 @@ export const apiModules = {
   ...extensionScaffoldApi,
   ...previewsApi,
   ...webDevicesApi,
+  ...worktreePoolApi,
 } satisfies Omit<ElectronApi, ComputedApiMembers>

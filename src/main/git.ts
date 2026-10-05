@@ -15,6 +15,9 @@ import {
   toPosixPath,
 } from './git-utils'
 import { listGitWorktrees } from './git-worktree-list'
+import { activeWorktreePool } from './worktree-pool/active-pool'
+import { defaultSlotGitRunner, resolveAgentForkBase } from './worktree-pool/slot-git'
+import { withWorktreeRegistryLock } from './worktree-registry-lock'
 import {
   resolveRepoRoot,
   resolveWorktreeDestination,
@@ -202,6 +205,24 @@ export type GitWorktreeCreateInput = {
    * records no longer use the worktree.
    */
   agentLockOwner?: string
+  /**
+   * An agent's worktree, forked from the default branch: leased from the
+   * worktree pool when this process has one (its path is then a pool slot's,
+   * not `destinationPath`), otherwise created fresh at `destinationPath` from
+   * `origin/<default>` as fetched now. `baseRef` is used only when the
+   * repository has no default branch at all. Needs an `agent/` branch.
+   */
+  fromPool?: boolean
+  /** The machine whose git makes it (a WSL machine's); absent resolves from the folder. */
+  hostId?: string
+}
+
+/** A created worktree, and what it was forked from. */
+export type GitWorktreeCreated = GitWorktreeEntry & {
+  /** The ref it was forked from, as the caller should record it (`origin/main`, `HEAD`). */
+  baseRef: string
+  /** Set when the worktree is a pool slot: the lease to give back if the launch fails. */
+  leaseId: string | null
 }
 
 export type GitWorktreeRemoveInput = {
@@ -255,7 +276,7 @@ async function explainBranchConflict(
  * Copy the repository's `.worktreeinclude` set into a worktree this module has
  * just created. `repoRoot` is already git's resolved root.
  */
-async function seedWorktreeIncludedFiles(
+export async function seedWorktreeIncludedFiles(
   repoRoot: string,
   worktreePath: string,
 ): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> {
@@ -353,7 +374,8 @@ async function seedWorktreeIncludedFiles(
  */
 export async function createGitWorktree(
   input: GitWorktreeCreateInput,
-): Promise<GitWorktreeOperationResult<GitWorktreeEntry>> {
+): Promise<GitWorktreeOperationResult<GitWorktreeCreated>> {
+  if (input.fromPool && input.branchName.startsWith('agent/')) return createAgentWorktreeFromPool(input)
   const root = await resolveRepoRoot(input.repoRoot)
   if (!root.ok) return root
 
@@ -374,14 +396,9 @@ export async function createGitWorktree(
   }
 
   await mkdir(toFilesystemPath(destination.data.containerPath), { recursive: true })
-  const addResult = await runGitCommand(root.data, [
-    'worktree',
-    'add',
-    '-b',
-    branch.data,
-    destination.data.destinationPath,
-    baseRef.data,
-  ])
+  const addResult = await withWorktreeRegistryLock(root.data, () =>
+    runGitCommand(root.data, ['worktree', 'add', '-b', branch.data, destination.data.destinationPath, baseRef.data]),
+  )
 
   if (!addResult.ok) {
     return {
@@ -432,11 +449,58 @@ export async function createGitWorktree(
 
   return {
     ok: true,
-    data: createdWorktree,
+    data: { ...createdWorktree, baseRef: baseRef.data, leaseId: null },
     message: null,
     stdout: addResult.stdout,
     stderr: addResult.stderr,
   }
+}
+
+/**
+ * An agent worktree on the default branch: a pool slot when this process keeps
+ * a pool (worktree-pool/), else a fresh worktree forked from the same ref.
+ *
+ * The pool declining is never the caller's problem — another Studio holds it,
+ * the repository is on a WSL machine, the pool is off — and the fresh worktree
+ * is what the caller would have got before there was a pool. A name the branch
+ * cannot take is the caller's, and is reported as the fresh path would.
+ */
+async function createAgentWorktreeFromPool(
+  input: GitWorktreeCreateInput,
+): Promise<GitWorktreeOperationResult<GitWorktreeCreated>> {
+  const pool = activeWorktreePool()
+  if (pool) {
+    const leased = await pool.lease({
+      repoRoot: input.repoRoot,
+      name: input.branchName.slice('agent/'.length),
+      owner: input.agentLockOwner ?? null,
+      hostId: input.hostId ?? null,
+      copyIncludedFiles: input.copyIncludedFiles === true,
+    })
+    if (leased.ok) {
+      const listed = await listGitWorktrees(leased.path)
+      const entry = listed.ok
+        ? listed.data.worktrees.find(
+            (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(leased.path),
+          )
+        : undefined
+      if (entry) {
+        return { ok: true, data: { ...entry, baseRef: leased.baseRef, leaseId: leased.leaseId }, message: null }
+      }
+      // Leased, yet git does not list it: give it straight back rather than
+      // hand out a path nobody can account for.
+      await pool.release(leased.leaseId)
+      console.warn(`[git] pool worktree ${leased.path} is not listed by git; creating a fresh worktree`)
+    } else if (leased.reason === 'branch-exists' || leased.reason === 'invalid-name') {
+      return { ok: false, message: leased.message }
+    } else if (leased.reason !== 'disabled' && leased.reason !== 'unsupported') {
+      console.info(`[git] worktree pool declined (${leased.reason}: ${leased.message}); creating a fresh worktree`)
+    }
+  }
+  const root = await resolveRepoRoot(input.repoRoot)
+  if (!root.ok) return root
+  const forkBase = await resolveAgentForkBase(defaultSlotGitRunner, root.data)
+  return createGitWorktree({ ...input, fromPool: false, baseRef: forkBase ?? input.baseRef })
 }
 
 export async function removeGitWorktree(
@@ -497,12 +561,9 @@ export async function removeGitWorktree(
     if (!unlocked.ok) return toWorktreeResult(unlocked, unlocked)
   }
 
-  const removeResult = await runGitCommand(root.data, [
-    'worktree',
-    'remove',
-    ...(input.force ? ['--force'] : []),
-    worktreePath,
-  ])
+  const removeResult = await withWorktreeRegistryLock(root.data, () =>
+    runGitCommand(root.data, ['worktree', 'remove', ...(input.force ? ['--force'] : []), worktreePath]),
+  )
   if (!removeResult.ok && ownLock) await relockWorktree(root.data, worktreePath, registeredWorktree.lockedReason)
 
   return toWorktreeResult(removeResult, removeResult)
@@ -525,7 +586,7 @@ export async function pruneGitWorktrees(repoRoot: string): Promise<GitWorktreeOp
     }
   }
 
-  const result = await runGitCommand(root.data, ['worktree', 'prune'])
+  const result = await withWorktreeRegistryLock(root.data, () => runGitCommand(root.data, ['worktree', 'prune']))
   return toWorktreeResult(result, result)
 }
 

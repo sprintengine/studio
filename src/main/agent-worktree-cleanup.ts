@@ -9,6 +9,8 @@ import { normalizeComparablePath, pathExists, runGitCommand } from './git-utils'
 import { listGitWorktrees } from './git-worktree-list'
 import { resolveRepoRoot } from './git-worktree-validation'
 import { lockAgentWorktree, relockWorktree } from './agent-worktree-lock'
+import { withWorktreeRegistryLock } from './worktree-registry-lock'
+import type { WorktreePoolReturnInput, WorktreePoolSweepEntry } from './worktree-pool/worktree-pool-service'
 import {
   adminDirWrittenAt,
   hiddenEditPaths,
@@ -75,7 +77,18 @@ import {
  * The removal itself is `git worktree remove` WITHOUT `--force`, so git checks
  * cleanliness again at the moment of removal: anything written between the
  * check above and the removal makes git refuse, and the sweep reports the
- * refusal. The branch itself is kept.
+ * refusal. The branch itself is kept by the removal.
+ *
+ * **Worktree pool slots** (worktree-pool/) are never removed here. The pool
+ * owns them: a slot nobody uses is handed back to it, which detaches it and
+ * keeps its ignored files for the next agent, or holds it when it still has
+ * work in it. The pool's own rules decide (`returnUnused`); this sweep only
+ * supplies what the app's records use, and reports what the pool did.
+ *
+ * **Merged agent branches** are deleted afterwards (owner ruling 2026-10-05):
+ * an `agent/` branch that no worktree has checked out and whose work is on the
+ * default branch by rule 7 holds nothing the default branch lacks. Git itself
+ * refuses to delete a branch some worktree has checked out at that moment.
  *
  * Every decision is logged, removals and keeps alike.
  */
@@ -89,6 +102,13 @@ export type AgentWorktreeCleanupDeps = {
   livePaths?: () => string[]
   /** When git last wrote the worktree's admin directory, in ms since the epoch; null when unknown. */
   lastWrittenAt?: (worktreePath: string) => Promise<number | null>
+  /** The worktree pool, which takes back its own slots instead of the sweep removing them. */
+  pool?: {
+    /** Reads the pool's records; nothing is known to be a slot before it settles. */
+    load(): Promise<void>
+    ownsPath(path: string): boolean
+    returnUnused(input: WorktreePoolReturnInput): Promise<WorktreePoolSweepEntry[]>
+  } | null
   now?: () => number
   log?: (line: string) => void
 }
@@ -177,14 +197,18 @@ export async function cleanupAgentWorktrees(
     : await listGitWorktrees(root, { resolvedRoot: true }).then((result) => (result.ok ? result.data.worktrees : null))
   if (!worktrees) return empty(root)
 
+  const pool = deps.pool ?? null
+  // A slot the pool's records were not yet read for would look like any other
+  // agent worktree here, and be removed from under its lease.
+  await pool?.load()
   const candidates = worktrees.filter(
     (worktree) =>
       !worktree.bare &&
       worktree.branch?.startsWith(AGENT_BRANCH_PREFIX) === true &&
       repoRootFromWorktreePath(worktree.path) !== null &&
-      !isInside(root, worktree.path),
+      !isInside(root, worktree.path) &&
+      !pool?.ownsPath(worktree.path),
   )
-  if (candidates.length === 0) return empty(root)
 
   const defaultRef = await resolveDefaultRef(root, runGit)
   const lastWrittenAt = deps.lastWrittenAt ?? ((path: string) => adminDirWrittenAt(path, runGit))
@@ -318,7 +342,7 @@ export async function cleanupAgentWorktrees(
       }
     }
     // No --force: git re-checks cleanliness itself at the moment of removal.
-    const removed = await runGit(root, ['worktree', 'remove', worktree.path])
+    const removed = await withWorktreeRegistryLock(root, () => runGit(root, ['worktree', 'remove', worktree.path]))
     if (!removed.ok && ownLock) await relockWorktree(root, worktree.path, worktree.lockedReason, runGit)
     record(
       removed.ok
@@ -327,7 +351,79 @@ export async function cleanupAgentWorktrees(
     )
   }
 
-  return { repoRoot: root, defaultRef, entries, dryRun }
+  if (pool) {
+    const swept = await pool.returnUnused({
+      repoRoot: root,
+      protectedPaths: input.protectedPaths,
+      agentIds: input.agentIds ? new Set(input.agentIds) : null,
+      dryRun,
+    })
+    for (const entry of swept) record(poolEntry(entry))
+  }
+
+  const deletedBranches = defaultRef ? await deleteMergedAgentBranches(root, defaultRef, dryRun, runGit, log) : []
+  return { repoRoot: root, defaultRef, entries, deletedBranches, dryRun }
+}
+
+function poolEntry(entry: WorktreePoolSweepEntry): AgentWorktreeCleanupEntry {
+  const base = { path: entry.path, branch: entry.branch }
+  switch (entry.verdict) {
+    case 'returned':
+      return { ...base, verdict: 'returned', detail: 'given back to the worktree pool' }
+    case 'held':
+      return { ...base, verdict: 'held', detail: entry.detail }
+    case 'unclaimed':
+      return { ...base, verdict: 'recent', detail: entry.detail }
+    case 'postponed':
+      return { ...base, verdict: 'in-use', detail: 'something still runs in it' }
+    case 'in-use':
+      return { ...base, verdict: 'in-use', detail: 'worktree pool slot' }
+  }
+}
+
+/**
+ * Delete every `agent/` branch whose work is already on the default branch and
+ * that no worktree has checked out. "On the default branch" is rule 7: no
+ * commit the default branch lacks, or changes the default branch already holds
+ * by content (a squash merge). Only `git branch -D` can delete a squash-merged
+ * branch, so the merge test is ours; git still refuses, by itself, a branch a
+ * worktree has checked out by the time the delete runs (a lease that just made
+ * it), and that refusal is simply logged.
+ */
+async function deleteMergedAgentBranches(
+  root: string,
+  defaultRef: string,
+  dryRun: boolean,
+  runGit: NonNullable<AgentWorktreeCleanupDeps['runGit']>,
+  log: (line: string) => void,
+): Promise<string[]> {
+  const branches = await runGit(root, [
+    'for-each-ref',
+    '--format=%(refname:short)%00%(worktreepath)',
+    'refs/heads/agent/',
+  ])
+  if (!branches.ok) return []
+  const deleted: string[] = []
+  for (const line of branches.stdout.split(/\r?\n/)) {
+    const [branch, worktreePath] = line.split('\0')
+    if (!branch?.startsWith(AGENT_BRANCH_PREFIX) || worktreePath) continue
+    const unique = await runGit(root, ['rev-list', '--count', `${defaultRef}..refs/heads/${branch}`])
+    const uniqueCommits = unique.ok ? Number.parseInt(unique.stdout.trim(), 10) : Number.NaN
+    if (!Number.isFinite(uniqueCommits)) continue
+    if (uniqueCommits > 0 && !(await changesAlreadyIn(root, defaultRef, `refs/heads/${branch}`, runGit))) continue
+    if (dryRun) {
+      deleted.push(branch)
+      continue
+    }
+    const removed = await runGit(root, ['branch', '-D', '--quiet', branch])
+    if (removed.ok) {
+      deleted.push(branch)
+      log(`deleted branch ${branch} — its work is on ${defaultRef}`)
+    } else {
+      log(`kept branch ${branch} — ${removed.message ?? 'git branch -D failed'}`)
+    }
+  }
+  return deleted
 }
 
 /**
