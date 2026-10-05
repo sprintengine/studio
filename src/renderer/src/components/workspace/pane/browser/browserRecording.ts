@@ -299,10 +299,17 @@ export async function startGuestRecording(
     size = { width: settings.width ?? 0, height: settings.height ?? 0 }
   }
 
-  const recorder = new MediaRecorder(new MediaStream([recordedTrack]), {
-    mimeType,
-    videoBitsPerSecond: options.bitsPerSecond,
-  })
+  let recorder: MediaRecorder
+  try {
+    recorder = new MediaRecorder(new MediaStream([recordedTrack]), {
+      mimeType,
+      videoBitsPerSecond: options.bitsPerSecond,
+    })
+  } catch (failure) {
+    // The capture is running; nothing will record it, so it stops here.
+    for (const cleanup of cleanups) cleanup()
+    throw failure
+  }
   // Each chunk is read out in the order it came, so the file is in order.
   let handedOver: Promise<void> = Promise.resolve()
   recorder.ondataavailable = (event: BlobEvent) => {
@@ -328,7 +335,12 @@ export async function startGuestRecording(
     error ??= 'The tab stopped being captured.'
     stop()
   })
-  recorder.start(CHUNK_MS)
+  try {
+    recorder.start(CHUNK_MS)
+  } catch (failure) {
+    for (const cleanup of cleanups) cleanup()
+    throw failure
+  }
 
   const finished = (async () => {
     await stopped

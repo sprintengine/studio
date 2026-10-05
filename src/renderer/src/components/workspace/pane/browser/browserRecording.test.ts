@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { afterEach, test, vi } from 'vitest'
 
 import { AGENT_CURSOR_LINGER_MS } from './agentCursor'
 import {
@@ -8,6 +8,7 @@ import {
   containRect,
   cursorPose,
   recordingClock,
+  startGuestRecording,
   type CursorEvent,
 } from './browserRecording'
 
@@ -103,4 +104,73 @@ test('the clock reads minutes and seconds', () => {
   assert.equal(recordingClock(7_900), '0:07')
   assert.equal(recordingClock(90_000), '1:30')
   assert.equal(recordingClock(-5), '0:00')
+})
+
+// ── Starting and running a recording, with the browser's media classes stood in for ──
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+type FakeRecorder = {
+  state: 'inactive' | 'recording'
+  ondataavailable: ((event: { data: { size: number; arrayBuffer(): Promise<ArrayBuffer> } }) => void) | null
+  onstop: (() => void) | null
+  stopCalls: number
+}
+
+/** A capture whose one track says when it was stopped, and a MediaRecorder that may refuse to be made. */
+function standIns(options: { recorderThrows?: boolean } = {}) {
+  const track = {
+    stopped: false,
+    stop: () => (track.stopped = true),
+    getSettings: () => ({ width: 640, height: 360 }),
+    addEventListener: () => undefined,
+  }
+  const recorders: FakeRecorder[] = []
+  class MediaRecorderStandIn {
+    static isTypeSupported = () => true
+    state: FakeRecorder['state'] = 'inactive'
+    ondataavailable: FakeRecorder['ondataavailable'] = null
+    onstop: FakeRecorder['onstop'] = null
+    onerror: unknown = null
+    stopCalls = 0
+    constructor() {
+      if (options.recorderThrows) throw new Error('NotSupportedError')
+      recorders.push(this)
+    }
+    start() {
+      this.state = 'recording'
+    }
+    stop() {
+      this.stopCalls += 1
+      this.state = 'inactive'
+      queueMicrotask(() => this.onstop?.())
+    }
+  }
+  vi.stubGlobal('MediaRecorder', MediaRecorderStandIn)
+  vi.stubGlobal('MediaStream', class {})
+  vi.stubGlobal('navigator', {
+    mediaDevices: { getDisplayMedia: async () => ({ getVideoTracks: () => [track], getTracks: () => [track] }) },
+  })
+  return { track, recorders }
+}
+
+const START_OPTIONS = {
+  recordingId: 'rec-1',
+  tabId: 't1',
+  frameRate: 30,
+  maxEdge: 1280,
+  bitsPerSecond: 1_500_000,
+  cursor: false,
+}
+const THEME = { fill: 'Highlight', stroke: 'HighlightText', pulse: 'Highlight', backdrop: 'Canvas' }
+
+test('a MediaRecorder that cannot be made stops the capture it would have recorded', async () => {
+  const { track } = standIns({ recorderThrows: true })
+  await assert.rejects(
+    startGuestRecording(START_OPTIONS, { onChunk: () => undefined, onPointer: () => () => undefined, theme: THEME }),
+    /NotSupportedError/,
+  )
+  assert.equal(track.stopped, true)
 })
