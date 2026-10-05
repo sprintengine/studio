@@ -204,3 +204,15 @@ export function parseAnsi(text: string, state?: AnsiState): AnsiLine[] | { lines
 export function createAnsiState(): AnsiState {
   return createState()
 }
+
+/**
+ * Terminal output as the words it leaves on screen: colour, cursor and OSC
+ * escapes gone, and a line a progress bar redrew with `\r` as it ended up.
+ * For output shown as plain text (a CLI's install or update log), where the
+ * escapes would otherwise print as `[32m` and the bar as every frame of it.
+ */
+export function ansiPlainText(text: string): string {
+  return parseAnsi(text)
+    .map((line) => line.map((span) => span.text).join(''))
+    .join('\n')
+}
