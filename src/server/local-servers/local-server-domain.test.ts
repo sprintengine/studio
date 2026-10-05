@@ -330,3 +330,28 @@ test('the domain ending stops the runs the Studio started', async () => {
   await domain.dispose()
   assert.deepEqual(signals, ['terminate'])
 })
+
+test('a server removed while Run again checks its port is not started', async () => {
+  // Every connect is held from here until the test answers them all.
+  const held: Array<(open: boolean) => void> = []
+  let holdProbe = false
+  const started: string[] = []
+  const { domain } = await domainOver({
+    probe: () => (holdProbe ? new Promise<boolean>((resolve) => held.push(resolve)) : Promise.resolve(false)),
+    startRun: ({ command }) => {
+      started.push(command)
+      throw new Error('not started in this test')
+    },
+  })
+  const linked = await domain.linkForAgent(A, { url: 'http://localhost:5173/', command: 'npm run dev' })
+  assert.ok(linked.ok)
+  holdProbe = true
+  const running = domain.run({ conversation: A, id: linked.server.id })
+  await sleep(50)
+  assert.deepEqual(await domain.remove({ conversation: A, id: linked.server.id }), { removed: true })
+  holdProbe = false
+  for (const answer of held.splice(0)) answer(false)
+  const result = await running
+  assert.equal(result.ok ? 'started' : result.code, 'not_found')
+  assert.deepEqual(started, [])
+})

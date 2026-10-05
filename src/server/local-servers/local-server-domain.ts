@@ -424,6 +424,10 @@ export function createLocalServerDomain(options: LocalServerDomainOptions): Loca
       }
     if (disposed || runs.has(server.id))
       return { ok: false, code: 'conflict', message: 'This server is already running.' }
+    // Removed, or taken over by another conversation, while its port and
+    // folder were checked: a run started now would follow no link, with
+    // nothing on screen to stop it.
+    if (!owned(input.conversation, server.id)) return notFound()
     const own: OwnRun = {
       run: startRun({ command: server.command, cwd }),
       startedAt: now(),
