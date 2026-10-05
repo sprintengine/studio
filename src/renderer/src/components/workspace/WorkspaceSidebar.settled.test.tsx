@@ -49,6 +49,8 @@ test('WorkspaceSidebar.settled', async () => {
   // Alpha holds a live agent pty; the settled rows hold nothing, which is what
   // a chat that came to rest looks like after the kill lands.
   const killed: string[] = []
+  // What main says Alpha's pty is doing when it is asked again at kill time.
+  let alphaActivityAtKill: 'idle' | 'working' = 'idle'
   // A chat agent has no pty: main owns its process, and Settle ends it through
   // the conversation runtime. Echo's live chat and a chat already stopped.
   const chatsSuspended: string[] = []
@@ -62,7 +64,7 @@ test('WorkspaceSidebar.settled', async () => {
         processAlive: true,
         kind: 'agent',
         cli: 'claude-code',
-        activity: { kind: 'idle', since: 1 },
+        activity: { kind: alphaActivityAtKill, since: 1 },
       },
     ],
     onTerminalSessionsDelta: () => () => {},
@@ -252,6 +254,18 @@ test('WorkspaceSidebar.settled', async () => {
       // Echo's chat runs as `agent-1` too: every workspace's first agent has
       // that id, so it says nothing about which workspace a chat is in.
       assert.deepEqual(chatsSuspended, [], "and leaves another workspace's chat agents alone")
+
+      // A turn that started after the window last heard (a message from the
+      // phone) is not interrupted by a Settle decided before it: main is asked
+      // again just before the kill, and a chat working by then keeps running.
+      const killedBefore = killed.length
+      alphaActivityAtKill = 'working'
+      act(() => {
+        actionLabel('Settle Alpha')!.click()
+      })
+      await settle()
+      assert.deepEqual(killed.slice(killedBefore), [], 'a chat working by the time of the kill is left running')
+      alphaActivityAtKill = 'idle'
 
       // The row you are in stays put when it settles, so the seat has to say
       // it did: the tick becomes the ringed settled mark, which un-settles,

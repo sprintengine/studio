@@ -17,7 +17,7 @@ import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { groupConversationSessionsByWorkspace } from '../../hooks/conversationSessionsStore'
 import { summariesEqual, useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf } from './terminalLines'
-import { suspendWorkspaceTerminals, terminateWorkspaceTerminals } from './workspaceTerminalTermination'
+import { suspendWorkspaceTerminals, terminateSettledWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
 import { hostPlatform } from '../../clientCapabilities'
 import { openPullRequestCount, ProjectPullRequestMark, PullRequestMark } from './PullRequestMark'
@@ -582,7 +582,7 @@ function WorkspaceSidebar({
     (id: WorkspaceId) => {
       const workspace = openAgentSourcesRef.current.workspaces.find((candidate) => candidate.id === id)
       if (!workspace || !rowHasOpenAgents(workspace)) return
-      void terminateWorkspaceTerminals(workspace)
+      void terminateSettledWorkspaceTerminals(workspace)
     },
     [rowHasOpenAgents],
   )
@@ -740,7 +740,8 @@ function WorkspaceSidebar({
   )
 
   // Settle by hand: the record first, then the ptys — the row must move even
-  // if a kill fails, and `terminateWorkspaceTerminals` absorbs its failures.
+  // if a kill fails, and `terminateSettledWorkspaceTerminals` absorbs its
+  // failures (and spares a chat that started working before the kill landed).
   //
   // Settling the chat you are in moves you on to the next one. The row you are
   // in is never shelved (`isShelved`), so without the hand-off it sat there,
