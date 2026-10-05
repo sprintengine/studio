@@ -85,6 +85,20 @@ This is what lets the version window stay narrow while the wire keeps growing: a
 **purely additive** feature ships as a capability with no version bump at all, so
 no peer is refused over it.
 
+A capability can name an addition to a gateway tool as well as to a route or a
+frame. The phone's New chat calls `conversation.create` and `cli.runtime.list`,
+and three capabilities (2026-10-05) say what those take and answer:
+`new-chat-worktree` (`conversation.create` takes `worktree`), `new-chat-effort`
+(it takes `effort`) and `cli-runtime-catalog` (`cli.runtime.list` answers each
+CLI with a `catalog`, the model picker's own rows). An argument needs its
+capability more than a route does: a handler skips an argument it does not
+know rather than refusing it, so a `worktree` sent to a desktop without the
+capability starts the chat in the checkout and says nothing. These names carry
+no `conversation-` prefix, which is kept for the conversation lane's own
+vocabulary: every `conversation-` capability this machine advertises must be
+one `@sprintengine/conversation-protocol` names
+(`conversation-protocol.test.ts`).
+
 Bump the version instead when the change is not additive: a field that changes
 meaning or type, a field that is removed, a response whose shape a peer is
 already parsing. Nothing a capability flag can describe should bump the version,
