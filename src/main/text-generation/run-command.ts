@@ -14,6 +14,8 @@ export type CommandRunInput = {
   env: Record<string, string>
   stdin: string
   timeoutMs: number
+  /** Aborting it kills the process tree, as the deadline does: the person cancelled. */
+  signal?: AbortSignal
 }
 
 export type CommandRun = {
@@ -21,6 +23,8 @@ export type CommandRun = {
   stdout: string
   stderr: string
   timedOut: boolean
+  /** Killed because `signal` aborted. */
+  cancelled?: boolean
   /** Set when the process never started (ENOENT, EACCES); `code` is then null. */
   spawnError: string | null
 }
@@ -32,12 +36,19 @@ export const runCommand: RunCommand = (input) =>
     let stdout = ''
     let stderr = ''
     let timedOut = false
+    let cancelled = false
     let settled = false
     const settle = (run: CommandRun): void => {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      resolve(run)
+      input.signal?.removeEventListener('abort', cancel)
+      resolve(cancelled ? { ...run, cancelled: true } : run)
+    }
+    const cancel = (): void => {
+      if (cancelled || settled) return
+      cancelled = true
+      killProcessTree(child)
     }
     const child = spawn(input.file, input.args, {
       cwd: input.cwd,
@@ -64,7 +75,7 @@ export const runCommand: RunCommand = (input) =>
     // A killed CLI is done even if a process it started still holds its pipes
     // open, which would otherwise keep `close` from ever arriving.
     child.on('exit', (code) => {
-      if (timedOut) settle({ code, stdout, stderr, timedOut, spawnError: null })
+      if (timedOut || cancelled) settle({ code, stdout, stderr, timedOut, spawnError: null })
     })
     // A closed stdin is what tells `claude -p` and `codex exec -` the prompt
     // is complete; without `end()` both wait forever.
@@ -73,4 +84,6 @@ export const runCommand: RunCommand = (input) =>
       // exit code and stderr carry the story, so the write error is noise.
     })
     child.stdin?.end(input.stdin)
+    if (input.signal?.aborted) cancel()
+    else input.signal?.addEventListener('abort', cancel, { once: true })
   })

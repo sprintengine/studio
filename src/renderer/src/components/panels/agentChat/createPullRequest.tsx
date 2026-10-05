@@ -236,9 +236,17 @@ function CreatePullRequestDialog({
       )
       return
     }
+    // Named, so closing the dialog mid-draft stops the CLI writing it rather
+    // than leaving it to run to its deadline for an answer nobody will read.
+    const draftId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    let pending = true
     void window.api
-      .draftPullRequestText({ cwd, engine, ...(cliRuntimes ? { cliRuntimes } : {}) })
+      .draftPullRequestText({ cwd, engine, draftId, ...(cliRuntimes ? { cliRuntimes } : {}) })
       .then((result) => {
+        pending = false
         if (!alive) return
         if (result.ok) {
           setTitle((current) => current || result.value.title)
@@ -248,6 +256,7 @@ function CreatePullRequestDialog({
         }
       })
       .catch((error: unknown) => {
+        pending = false
         if (alive) setDraftError(`The draft could not be written: ${failed(error).message}`)
       })
       .finally(() => {
@@ -255,6 +264,7 @@ function CreatePullRequestDialog({
       })
     return () => {
       alive = false
+      if (pending) void window.api.cancelPullRequestDraft?.(draftId)?.catch(() => undefined)
     }
     // Drafted once per opening; the runtimes only matter at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
