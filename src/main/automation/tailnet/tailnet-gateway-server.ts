@@ -1113,7 +1113,12 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         }
         if (frame.kind !== 'text') continue
         const text = frame.text
-        pending = pending.then(() => handleStreamMessage(session, text))
+        // One message that throws must not skip every message after it.
+        pending = pending
+          .then(() => handleStreamMessage(session, text))
+          .catch((error: unknown) => {
+            options.log?.(`tailnet stream message failed: ${message(error)}`)
+          })
       }
     }
 
