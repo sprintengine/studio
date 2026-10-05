@@ -15,6 +15,10 @@ type SwitchProps = {
   className?: string
 }
 
+// The 12px thumb, shared by `Switch` and `SwitchGlyph` so the ruled geometry is
+// spelled once.
+const SWITCH_THUMB_CLASS = 'switch-thumb inline-block h-3 w-3 rounded-full'
+
 export function Switch({
   checked,
   onChange,
@@ -89,7 +93,7 @@ export function Switch({
           // --text-strong broke on themes where accent + text were both
           // bright (Conifer gold + pale sage, Lantern amber + warm cream,
           // Graphite white + light grey).
-          'switch-thumb inline-block h-3 w-3 rounded-full',
+          SWITCH_THUMB_CLASS,
           checked ? 'bg-[color:var(--text-on-accent)]' : 'bg-[color:var(--text-strong)]',
         ].join(' ')}
       />
@@ -120,7 +124,7 @@ export function SwitchGlyph({ checked, className }: { checked: boolean; classNam
     >
       <span
         className={[
-          'switch-thumb inline-block h-3 w-3 rounded-full',
+          SWITCH_THUMB_CLASS,
           checked ? 'bg-[color:var(--text-on-accent)]' : 'bg-[color:var(--text-strong)]',
         ].join(' ')}
       />
