@@ -115,30 +115,40 @@ export function useWorkspaceLocalServers(workspaceIds: readonly string[]): Works
 export function useLocalServersOfConversation(
   conversation: StudioLocalServerOwner | null,
 ): readonly StudioLocalServer[] {
-  const [list, setList] = useState<readonly StudioLocalServer[]>(EMPTY)
   const workspaceId = conversation?.workspaceId ?? null
   const agentId = conversation?.agentId ?? null
+  const key = workspaceId && agentId ? `${workspaceId}\0${agentId}` : null
+  // The list is held with the conversation it is for. The chat view is not
+  // remounted when it moves to another conversation, and the last one's
+  // servers must not be drawn (or acted on) under the next while it is asked.
+  const [held, setHeld] = useState<{ key: string | null; list: readonly StudioLocalServer[] }>({
+    key: null,
+    list: EMPTY,
+  })
+  const keyRef = useRef(key)
+  keyRef.current = key
   const ask = useCallback(async (): Promise<void> => {
-    if (!workspaceId || !agentId) {
-      setList((current) => (current === EMPTY ? current : EMPTY))
-      return
-    }
+    if (!workspaceId || !agentId || !key) return
     const client = await localServersClient()
     if (!client) return
     try {
       const page = await client.request('localServers.list', { conversations: [{ workspaceId, agentId }] })
+      // An answer for a conversation this view has since left is not drawn.
+      if (keyRef.current !== key) return
       const found = page.conversations.find((entry) => entry.workspaceId === workspaceId && entry.agentId === agentId)
       const next = found && found.servers.length > 0 ? found.servers : EMPTY
-      setList((current) => (sameLocalServerList(current, next) ? current : next))
+      setHeld((current) =>
+        current.key === key && sameLocalServerList(current.list, next) ? current : { key, list: next },
+      )
     } catch {
       // A read that reached nobody leaves what is on screen alone.
     }
-  }, [workspaceId, agentId])
+  }, [workspaceId, agentId, key])
   useEffect(() => {
     void ask()
   }, [ask])
   useAskWhenLocalServersMove(ask)
-  return list
+  return key !== null && held.key === key ? held.list : EMPTY
 }
 
 /** Start the server's command again, as a process the Studio owns. Never throws. */
