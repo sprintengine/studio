@@ -23,7 +23,7 @@
 // picker (open projects, recent folders, Browse…) is enough to choose it and
 // no dialog of this module's is needed.
 
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 import { app, type IpcMain } from 'electron'
@@ -129,8 +129,15 @@ function isDirectory(path: string): boolean {
  */
 function targetState(parent: string, folder: string, installed: () => boolean): ExtensionScaffoldTargetState {
   if (!isDirectory(parent)) return 'no_parent'
-  if (!existsSync(folder)) return installed() ? 'installed' : 'free'
-  if (!isDirectory(folder)) return 'taken'
+  let entry: Stats
+  try {
+    entry = lstatSync(folder)
+  } catch {
+    return installed() ? 'installed' : 'free'
+  }
+  // A link is never filled, even to an empty folder: a project is a cloned
+  // repository's to fill, and one could point a likely name anywhere.
+  if (entry.isSymbolicLink() || !entry.isDirectory()) return 'taken'
   if (existsSync(join(folder, 'module', 'manifest.json'))) return 'extension'
   try {
     if (readdirSync(folder).length !== 0) return 'taken'

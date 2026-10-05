@@ -5,7 +5,7 @@
 // scaffolder, writing into a temporary folder.
 
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -66,6 +66,10 @@ describe('extensions:scaffold:target', () => {
     assert.equal(h.target({ parentDir: parent, id: 'focus-timer' })?.state, 'extension')
 
     assert.equal(h.target({ parentDir: join(parent, 'gone'), id: 'pr-radar' })?.state, 'no_parent')
+
+    mkdirSync(join(parent, 'elsewhere'))
+    symlinkSync(join(parent, 'elsewhere'), join(parent, 'linked'))
+    assert.equal(h.target({ parentDir: parent, id: 'linked' })?.state, 'taken', 'a link is never filled')
   })
 
   test('a free name an installed extension already holds is said, and not made', async () => {
