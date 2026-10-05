@@ -14,8 +14,8 @@ import type {
   ThirdPartyModuleView,
 } from '../../shared/modules/manifest'
 import { isRecord } from '../../shared/records'
-import { readModuleOverridesSync, writeModuleOverrides } from '../module-host/enablement-store'
-import { deleteModuleSecrets } from '../module-host/module-secrets'
+import { readModuleOverridesSync } from '../module-host/enablement-store'
+import { forgetModules, isModuleIdSegment } from '../modules/forget-modules'
 import { computeHostApiIneligible } from '../modules/host-api-gate'
 import { manifestFingerprint, type ModuleTrustContext } from '../modules/module-signature'
 import {
@@ -218,23 +218,6 @@ async function containedModuleFolder(
   } catch {
     return refused
   }
-}
-
-// Everything the app kept for a module outside its folder. Trust is revoked by
-// whoever removed the folder (the lifecycle, or the folder path above).
-async function forgetModules(userData: string, moduleIds: readonly string[]): Promise<void> {
-  if (moduleIds.length === 0) return
-  const overrides = readModuleOverridesSync(userData)
-  if (moduleIds.some((id) => id in overrides)) {
-    const next = { ...overrides }
-    for (const id of moduleIds) delete next[id]
-    await writeModuleOverrides(userData, next)
-  }
-  for (const id of moduleIds) await deleteModuleSecrets(userData, id).catch(() => undefined)
-}
-
-function isModuleIdSegment(id: string): boolean {
-  return id.length > 0 && id.length <= 200 && !/[\\/\0]/.test(id) && id !== '.' && id !== '..'
 }
 
 export function toThirdPartyModuleView(
