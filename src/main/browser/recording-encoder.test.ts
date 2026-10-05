@@ -204,3 +204,23 @@ test('a window that fails to capture after its start was stopped ends the record
   ipcMain.emit('browser:recording-ended', host, { recordingId: 'rec-1' })
   assert.equal(ended.length, 1)
 })
+
+test('a start stopped while it waits its turn on the window is never sent there', async () => {
+  const { encoder, ipcMain, host, ended } = setup()
+  const first = encoder.start(START('rec-1'))
+  await Promise.resolve()
+  // A second tab's start on the same window waits for the first grant.
+  const second = encoder.start(START('rec-2'))
+  await Promise.resolve()
+  encoder.stop('rec-2')
+  assert.deepEqual(ended, [['rec-2', { error: 'The recording was stopped as it began.' }]])
+  ipcMain.emit('browser:recording-started', host, { recordingId: 'rec-1', ok: false, message: 'NotAllowedError' })
+  await first
+  const result = await second
+  assert.ok(!result.ok && result.code === 'capture_failed')
+  assert.deepEqual(
+    host.sent.map(([channel, payload]) => [channel, (payload as { recordingId: string }).recordingId]),
+    [[BROWSER_RECORDING_START_CHANNEL, 'rec-1']],
+    'the window is asked to start the first only, and to stop nothing',
+  )
+})
