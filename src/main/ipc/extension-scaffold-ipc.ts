@@ -8,6 +8,12 @@
 // and one made on the command line are the same project. The SDK version it
 // depends on is this checkout's, fixed at build time.
 //
+// The SDK itself ships beside the app too, as the tarball `npm run sdk:bundle`
+// packs (`module-sdk` in extraResources). The project gets a copy in vendor/
+// and depends on it by `file:`, so `npm install` needs no registry — the SDK is
+// not on npm yet, and a company registry may never carry it. A build without
+// the tarball (a checkout that never ran sdk:bundle) depends on the npm release.
+//
 // Where it goes: always a NEW folder, `<project>/<id>`, inside a project folder
 // that exists. The id is held to the module-id rule (no separators, no dots),
 // so the folder cannot land anywhere but directly inside the project, and a
@@ -46,29 +52,47 @@ export const EXTENSION_SCAFFOLD_CREATE_CHANNEL = 'extensions:scaffold:create'
 /** The SDK version a scaffolded project depends on: this build's own. */
 export const SCAFFOLD_SDK_VERSION: string = sdkPackage.version
 
+/** npm's name for this version's tarball, as scripts/pack-module-sdk.mjs packs it. */
+export const SCAFFOLD_SDK_TARBALL = `sprintengine-module-sdk-${SCAFFOLD_SDK_VERSION}.tgz`
+
 // An IDEA.md longer than this is not a brief.
 const MAX_IDEA_CHARS = 20_000
 
-/** Where the templates and the skill are: beside the app when packaged, the SDK package in a checkout. */
+export type ScaffoldRoots = {
+  templatesRoot: string
+  skillsRoot: string
+  /** Where the SDK tarball would be; the scaffold uses it only when it is there. */
+  sdkTarball: string
+}
+
+/**
+ * Where the templates, the skill and the SDK tarball are: beside the app when
+ * packaged; the SDK package, and the tarball sdk:bundle packs, in a checkout.
+ */
 export function resolveScaffoldRoots(
   env: { isPackaged: boolean; resourcesPath: string; appPath: string } = {
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     appPath: app.getAppPath(),
   },
-): { templatesRoot: string; skillsRoot: string } {
+): ScaffoldRoots {
   if (env.isPackaged) {
     return {
       templatesRoot: join(env.resourcesPath, 'sdk-templates'),
       skillsRoot: join(env.resourcesPath, 'sdk-skills'),
+      sdkTarball: join(env.resourcesPath, 'module-sdk', SCAFFOLD_SDK_TARBALL),
     }
   }
   const sdk = join(env.appPath, 'packages', 'module-sdk')
-  return { templatesRoot: join(sdk, 'templates'), skillsRoot: join(sdk, 'skills') }
+  return {
+    templatesRoot: join(sdk, 'templates'),
+    skillsRoot: join(sdk, 'skills'),
+    sdkTarball: join(env.appPath, 'resources', 'module-sdk', SCAFFOLD_SDK_TARBALL),
+  }
 }
 
 export type ExtensionScaffoldDeps = {
-  roots: () => { templatesRoot: string; skillsRoot: string }
+  roots: () => ScaffoldRoots
   sdkVersion: string
   scaffold: (options: ScaffoldModuleOptions) => Promise<ScaffoldModuleResult>
 }
@@ -146,7 +170,7 @@ export function createExtensionScaffoldHandlers(overrides: Partial<ExtensionScaf
         }
       }
 
-      const { templatesRoot, skillsRoot } = deps.roots()
+      const { templatesRoot, skillsRoot, sdkTarball } = deps.roots()
       const result = await deps.scaffold({
         dir: folder,
         templateId: EXTENSION_START_TEMPLATE_ID,
@@ -155,6 +179,7 @@ export function createExtensionScaffoldHandlers(overrides: Partial<ExtensionScaf
         sdkVersion: deps.sdkVersion,
         templatesRoot,
         skillsRoot,
+        ...(existsSync(sdkTarball) ? { sdkTarballPath: sdkTarball } : {}),
         ...(ideaMarkdown !== undefined && ideaMarkdown.trim() !== '' ? { ideaMarkdown } : {}),
       })
       if (!result.ok) return result
