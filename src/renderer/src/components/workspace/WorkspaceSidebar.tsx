@@ -575,6 +575,7 @@ function WorkspaceSidebar({
     return workspaceIsWorking(
       sources.activityByWorkspaceId[id] ?? 'idle',
       sources.conversationsByWorkspaceId.get(id) ?? NO_CONVERSATIONS,
+      sources.sessionsByWorkspaceId.get(id) ?? NO_SESSIONS,
     )
   }, [])
   const quietSettledWorkspace = useCallback(
@@ -3277,7 +3278,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     conversation: rowConversationPullRequests,
   })
   // Settle waits while an agent in the chat works (`settleWorkspaceById`).
-  const settleBlocked = workspaceIsWorking(activity, conversationSessions)
+  const settleBlocked = workspaceIsWorking(activity, conversationSessions, liveSessions)
   const tabbedConversations = useMemo(
     () => conversationsWithTabs(conversationSessions, workspace.layoutModel),
     [conversationSessions, workspace.layoutModel],
