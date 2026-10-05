@@ -64,6 +64,10 @@ export function useConversationPullRequests(workspaceIds: readonly string[]): Co
   const idsRef = useRef<readonly string[]>(workspaceIds)
   idsRef.current = workspaceIds
   const aliveRef = useRef(true)
+  // Asks overlap (a push during a set change), and only the latest may
+  // answer: the answer REPLACES what is drawn, so an earlier one for an older
+  // set of ids landing last would drop the marks of every row added since.
+  const latestRef = useRef(0)
 
   useEffect(() => {
     aliveRef.current = true
@@ -73,6 +77,7 @@ export function useConversationPullRequests(workspaceIds: readonly string[]): Co
   }, [])
 
   const ask = useCallback(async (): Promise<void> => {
+    const asked = ++latestRef.current
     const ids = idsRef.current
     if (ids.length === 0) {
       setByWorkspace((current) => (current === NONE ? current : NONE))
@@ -88,7 +93,7 @@ export function useConversationPullRequests(workspaceIds: readonly string[]): Co
         })
         for (const [workspaceId, list] of Object.entries(page.workspaces)) answer[workspaceId] = list.map(fromWire)
       }
-      if (!aliveRef.current) return
+      if (!aliveRef.current || asked !== latestRef.current) return
       // Replace rather than merge. The answer is the whole truth for the ids
       // asked about, and merging would keep a conversation's marks alive after
       // its row left the list — which is how a stale count survives a filter.
@@ -125,7 +130,11 @@ export function usePullRequestsOfConversation(
   const [list, setList] = useState<readonly BranchPullRequest[]>(EMPTY)
   const workspaceId = conversation?.workspaceId ?? null
   const agentId = conversation?.agentId ?? null
+  // Only the latest ask answers: one for the conversation this view showed
+  // before landing last would put that conversation's pull requests here.
+  const latestRef = useRef(0)
   const ask = useCallback(async (): Promise<void> => {
+    const asked = ++latestRef.current
     if (!workspaceId || !agentId) {
       setList((current) => (current === EMPTY ? current : EMPTY))
       return
@@ -136,12 +145,15 @@ export function usePullRequestsOfConversation(
       const page = await client.request('pullRequests.list', { conversations: [{ workspaceId, agentId }] })
       const found = page.conversations.find((entry) => entry.workspaceId === workspaceId && entry.agentId === agentId)
       const next = found ? found.pullRequests.map(fromWire) : EMPTY
+      if (asked !== latestRef.current) return
       setList((current) => (sameList(current, next) ? current : next))
     } catch {
       // A read that reached nobody leaves what is on screen alone.
     }
   }, [workspaceId, agentId])
   useEffect(() => {
+    // Another conversation's list is not this one's while the ask is out.
+    setList((current) => (current === EMPTY ? current : EMPTY))
     void ask()
   }, [ask])
   useAskWhenPullRequestsMove(ask)
