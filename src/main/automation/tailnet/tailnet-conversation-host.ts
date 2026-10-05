@@ -504,6 +504,18 @@ export function createConversationGatewayHost(
       const stamp = fingerprint ? { commandFingerprint: fingerprint } : {}
       const execute = async (): Promise<ConversationGatewayCommandResult> => relay(await run())
       const run = async (): Promise<ConversationGatewayCommandResult | ConversationSessionActionResult> => {
+        // An upload names the session the list showed, which a resume below
+        // may replace (a failed turn's session is listed, but a send resumes
+        // the chat on a new one, and the runtime forgets the old): read before
+        // that, any session of this chat will do.
+        const listedForChat = api.listSessions({ workspaceId: key.workspaceId, agentId: key.agentId })
+        const chatSessions = new Set(
+          listedForChat.ok
+            ? listedForChat.sessions
+                .filter((entry) => entry.workspaceId === key.workspaceId && entry.agentId === key.agentId)
+                .map((entry) => entry.sessionId)
+            : [],
+        )
         let session = sessionFor(key)
         // A send, or a preset switch, reaches a conversation with no live
         // session by resuming it; the switch then applies to that session.
@@ -528,13 +540,14 @@ export function createConversationGatewayHost(
                 attachments: [],
                 ...stamp,
               })
+            chatSessions.add(session.sessionId)
             const attachments: ConversationImageAttachment[] = []
             for (const id of ids) {
               const upload = uploads.get(id)
               if (
                 !upload ||
                 upload.deviceId !== deviceId ||
-                upload.sessionId !== session.sessionId ||
+                !chatSessions.has(upload.sessionId) ||
                 !ATTACHABLE_IMAGE_TYPES.includes(upload.mediaType as (typeof ATTACHABLE_IMAGE_TYPES)[number]) ||
                 upload.bytes > MAX_ATTACHMENT_BYTES ||
                 Date.now() - upload.at > UPLOAD_TTL_MS

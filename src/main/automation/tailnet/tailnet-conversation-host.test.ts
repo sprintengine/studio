@@ -192,6 +192,33 @@ test('upload references are device/session bound, bounded and invalidated by siz
   }
 })
 
+test('an upload for a session that ended is sent on the session the send resumes the chat on', async () => {
+  const f = await fixture()
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    const path = join(f.key.workspaceRoot, 'image.png')
+    await writeFile(path, 'image')
+    const id = f.host.registerUpload!({
+      deviceId: 'phone',
+      sessionId: started.session.sessionId,
+      path,
+      name: 'image.png',
+      mediaType: 'image/png',
+      bytes: 5,
+    })
+    // The session the phone uploaded against ends (a failed turn, a stop) before the send.
+    await f.runtime.stopSession({ sessionId: started.session.sessionId })
+    const send = vi.spyOn(f.runtime, 'sendTurn')
+    const result = await f.host.command(f.key, 'phone', 'after-end', { kind: 'send', message: '', uploadIds: [id] })
+    assert.equal(result.ok, true)
+    assert.notEqual(send.mock.calls[0][0].sessionId, started.session.sessionId)
+    assert.equal(send.mock.calls[0][0].attachments?.length, 1)
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('an accepted send removes its staged images, and a retry of that send does not need them', async () => {
   const f = await fixture()
   try {
