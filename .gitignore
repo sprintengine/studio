@@ -114,3 +114,6 @@ resources/marketplace/trusted-publishers.dev.json
 # this repository's own items. Anchored to the root: `src/shared/backlog/`,
 # the Backlog components and the backlog skill are source.
 /backlog/
+
+# The module SDK tarball the app ships (npm run sdk:bundle).
+resources/module-sdk/

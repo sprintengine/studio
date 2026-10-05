@@ -61,6 +61,9 @@ jobs:
       - name: Vendor the bundled npm runtime
         run: npm run runtimes:fetch -- --platform darwin --arch arm64
 
+      - name: Pack the module SDK the app ships
+        run: npm run sdk:bundle
+
       - name: Build renderer and main process
         run: npm run build
 
