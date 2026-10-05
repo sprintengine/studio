@@ -149,6 +149,14 @@
       "sha256": "3fdc72693f56234a839c0c37442c3f07aced25da87c9362bb1850cb804a89563"
     },
     {
+      "name": "conversation.settle",
+      "sha256": "603c8e54e5f390be64b96a79ea57dbc6517c614c11711223513b4a0b6440c997"
+    },
+    {
+      "name": "conversation.visit",
+      "sha256": "c1be0e1a10bd253c5ac015cdd3859210f589c180a22aa9f6154250f3bb7382da"
+    },
+    {
       "name": "pull_request.link",
       "sha256": "20e4fcd9314ed05c8a6af5d22ef5d58e61e8949bc61ecf229eee512b71fcdee9"
     },
@@ -441,6 +449,14 @@
     {
       "name": "conversation.create",
       "sha256": "3fdc72693f56234a839c0c37442c3f07aced25da87c9362bb1850cb804a89563"
+    },
+    {
+      "name": "conversation.settle",
+      "sha256": "603c8e54e5f390be64b96a79ea57dbc6517c614c11711223513b4a0b6440c997"
+    },
+    {
+      "name": "conversation.visit",
+      "sha256": "c1be0e1a10bd253c5ac015cdd3859210f589c180a22aa9f6154250f3bb7382da"
     },
     {
       "name": "pull_request.link",

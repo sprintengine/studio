@@ -4,6 +4,16 @@
 
 ### Added
 
+- **A listed chat says where it stands in the desktop's own list.**
+  `chatTitle` (the chat's title as the desktop's sidebar shows it),
+  `lastUserMessageAt`, `lastTurnEndedAt` and `lastVisitedAt` are optional
+  members of `ConversationThread`, kept by `parseConversationServerFrame` when
+  readable and left out otherwise. `CONVERSATION_LIFECYCLE_CAPABILITY`
+  (`conversation-lifecycle`) names a desktop that sends them, leaves settled
+  chats out of the list, orders it as its sidebar does, and serves the
+  `conversation.settle` and `conversation.visit` tools. The pinned files are
+  unchanged.
+
 - **`usage_updated` says how full the context window is.** `contextWindow`
   (the model's window, in tokens) and `contextUsed` (the tokens in it now:
   the latest request's size, not a sum) are reported by Claude Code and Codex
