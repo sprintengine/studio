@@ -727,6 +727,10 @@ const TOOL_CALL_OUTPUT_HALF = 8 * 1024
 // Mirrors STUDIO_PULL_REQUESTS_MAX_COMMAND.
 const TOOL_CALL_MAX_COMMAND = 4096
 const MAX_TOOL_NAME_LENGTH = 200
+// A URL running into the end of the kept head was cut there, and what is left
+// of it (`/pull/1` of `/pull/1234`) would read as another pull request. It is
+// dropped: the reader believes no URL it cannot see the end of.
+const CUT_URL_AT_END = /https?:\/\/[^\s"'<>()[\]{}`\\|^]*$/
 
 // The shell command a tool call ran: a string on `command` (Claude, Kimi,
 // Grok), an argv array (Codex), or `cmd` / `script`. The twin of
@@ -768,7 +772,7 @@ function forwardedToolCall(event, toolName, payload) {
   const output =
     text.length <= TOOL_CALL_OUTPUT_HALF * 2
       ? text
-      : `${text.slice(0, TOOL_CALL_OUTPUT_HALF - 1)}\n${text.slice(-(TOOL_CALL_OUTPUT_HALF - 1))}`
+      : `${text.slice(0, TOOL_CALL_OUTPUT_HALF - 1).replace(CUT_URL_AT_END, '')}\n${text.slice(-(TOOL_CALL_OUTPUT_HALF - 1))}`
   return {
     name: toolName,
     ...(command ? { command: command.slice(0, TOOL_CALL_MAX_COMMAND) } : {}),

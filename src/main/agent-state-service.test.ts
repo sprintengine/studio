@@ -355,7 +355,17 @@ test('agent-state-service', async () => {
       const listenLines = async (socketPath: string, sink: string[]): Promise<Server> => {
         const server = createServer((socket) => {
           socket.setEncoding('utf8')
-          socket.on('data', (chunk: string) => sink.push(...chunk.split('\n').filter(Boolean)))
+          // A frame longer than one chunk (a forwarded tool call's output)
+          // arrives in pieces: lines are cut at their newline, not the chunk.
+          let pending = ''
+          socket.on('data', (chunk: string) => {
+            const lines = (pending + chunk).split('\n')
+            pending = lines.pop() ?? ''
+            sink.push(...lines.filter(Boolean))
+          })
+          socket.on('end', () => {
+            if (pending) sink.push(pending)
+          })
         })
         await new Promise<void>((resolve, reject) => {
           server.on('error', reject)
@@ -1410,6 +1420,20 @@ test('agent-state-service', async () => {
         readOpenedPullRequest((await forwarded(parityCases[0]))!)?.url,
         'https://github.com/acme/app/pull/12',
       )
+      // A long output is kept at both ends; a URL the head's cut runs through
+      // is dropped, never forwarded as the shorter URL left of it.
+      const prefix = '{"stdout":"'
+      const cutUrl = 'https://github.com/acme/app/pull/1'
+      const straddling = await forwarded({
+        tool_name: 'Bash',
+        tool_input: { command: 'gh pr create --fill' },
+        tool_response: {
+          stdout: `${' '.repeat(8 * 1024 - 1 - prefix.length - cutUrl.length)}https://github.com/acme/app/pull/1234 ${'z'.repeat(9_000)}`,
+        },
+      })
+      assert.ok(straddling, 'forwarded')
+      assert.doesNotMatch(straddling.output, /\/pull\/1\n/)
+      assert.equal(readOpenedPullRequest(straddling), null)
       // Nothing to forward: a call with no URL in its output, and a tool that
       // is neither a shell nor an MCP tool.
       assert.equal(
