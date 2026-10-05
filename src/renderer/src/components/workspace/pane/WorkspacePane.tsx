@@ -199,7 +199,7 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
           otherwise focus lands in chrome nobody can see. */}
       <div
         className="chrome-bar app-drag flex h-[36px] shrink-0 items-end pl-1.5 pr-1"
-        {...(collapsedWithFloatingPlayer ? ({ inert: '' } as Record<string, string>) : {})}
+        inert={collapsedWithFloatingPlayer}
       >
         {/* Scrolls sideways with no scrollbar and a fade at each overflowing
             edge (TabsScroller): a 10px bar under a 36px strip is a second line

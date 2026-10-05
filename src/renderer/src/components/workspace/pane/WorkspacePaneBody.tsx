@@ -397,7 +397,7 @@ export function WorkspacePaneBody({
             // An offscreen layer is still in the DOM: `inert` keeps its address
             // field and buttons out of the tab order (the invisible ones are
             // unfocusable already).
-            {...(offscreen ? ({ inert: '' } as Record<string, string>) : {})}
+            inert={offscreen}
             // A docked layer in a closed pane is clipped to nothing: its
             // animations hold still. The floating player is on screen and is
             // the one layer left running.

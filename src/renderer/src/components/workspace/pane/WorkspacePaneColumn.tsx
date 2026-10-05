@@ -172,7 +172,7 @@ export function WorkspacePaneColumn({
             className="absolute inset-0"
             style={active ? { pointerEvents: 'auto' } : OFFSCREEN_LAYER_STYLE}
             aria-hidden={!active}
-            {...(active ? {} : ({ inert: '' } as Record<string, string>))}
+            inert={!active}
           >
             <WorkspacePane workspaceId={workspaceId} active={active} />
           </div>

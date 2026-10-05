@@ -4638,7 +4638,7 @@ export default function WorkspaceManager() {
                   <div
                     className="absolute inset-0"
                     aria-hidden={activeGlobalSurfaceEntry !== null || undefined}
-                    {...(activeGlobalSurfaceEntry !== null ? ({ inert: '' } as Record<string, string>) : {})}
+                    inert={activeGlobalSurfaceEntry !== null}
                   >
                     <>
                       {railWorkspaces.length === 0 && !activeWorkspace && (
