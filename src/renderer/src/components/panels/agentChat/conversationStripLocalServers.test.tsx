@@ -98,3 +98,21 @@ test('several servers are counted with how many are up', async () => {
   )
   expect(many.querySelector('[data-strip-local-servers]')?.textContent).toBe('2 servers·1 running')
 })
+
+test("one item takes the line's slack, so the pinned end sits together: Create PR and the ring", async () => {
+  const strip = await render(
+    <ConversationComposerStrip
+      machine={null}
+      branch={null}
+      changes={null}
+      context={{ used: 40_000, total: 200_000 }}
+      createPullRequest={{
+        cwd: '/Users/dev/app',
+        conversation: { workspaceId: 'ws-1', agentId: 'agent-1' },
+        onSettled: () => undefined,
+      }}
+    />,
+  )
+  expect(strip.querySelector('[data-strip-pull-request-slot]')).not.toBeNull()
+  expect(strip.querySelectorAll('.ml-auto').length).toBe(1)
+})

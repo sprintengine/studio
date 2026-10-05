@@ -357,7 +357,7 @@ export function ConversationComposerStrip({
       {percentage !== null && context ? (
         <span
           ref={ringRef}
-          className={`${pullRequest || serversText !== null ? '' : 'ml-auto '}inline-flex shrink-0`}
+          className={`${pullRequestText !== null || serversText !== null ? '' : 'ml-auto '}inline-flex shrink-0`}
           data-strip-context=""
         >
           <ContextRing usedPercentage={percentage} tokens={context} />
