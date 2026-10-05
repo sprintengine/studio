@@ -855,6 +855,28 @@ test('a returned slot given to another agent since is refused to its old chat, w
   assert.equal('definitive' in gone && gone.definitive, true)
 })
 
+test('a slot is not given back to its chat over ignored files a later agent left where the chat’s branch tracks one', async () => {
+  const harness = makeService()
+  installWorktreePool(harness.service)
+  const chat = await lease(harness, 'chat')
+  // The chat's branch tracks a file the default branch ignores.
+  await writeFile(join(chat.path, '.env'), 'CHAT=1\n')
+  await git(chat.path, 'add', '-f', '.env')
+  await git(chat.path, 'commit', '-q', '-m', 'track env')
+  await returnAll(harness)
+  // A later agent in the same slot writes its own, ignored there.
+  const other = await lease(harness, 'other')
+  assert.equal(other.path, chat.path)
+  await writeFile(join(other.path, '.env'), 'OTHER=1\n')
+  await returnAll(harness)
+
+  const restored = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/chat' })
+  assert.equal(restored.ok, false)
+  assert.match(restored.ok ? '' : restored.message, /ignored files its branch would overwrite \(\.env\)/)
+  assert.equal(await readFile(join(chat.path, '.env'), 'utf8'), 'OTHER=1\n', 'the later agent’s file is untouched')
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+})
+
 test('a pool holds no more worktrees than its limit, and lowering the limit removes idle ones', async () => {
   const harness = makeService()
   await harness.service.updateSettings({ maxSlots: 2 })

@@ -1040,6 +1040,24 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           message: 'The worktree this chat used changed while it was in the pool; it is held in the Worktree manager.',
         }
       }
+      // Another agent may have used the slot since, and left ignored files
+      // (its build output, an `.env`) where the chat's branch tracks a file:
+      // `switch` would overwrite them without a word, as a reset would.
+      const from = status.status.oid
+      const tip = await revParseCommit(git, pool.record.repoRoot, `refs/heads/${branch}`)
+      if (from && tip && from !== tip) {
+        const inTheWay = await ignoredFilesInTheWay(git, slot.path, from, tip)
+        if (inTheWay === null || inTheWay.length > 0) {
+          await putBack()
+          return {
+            ok: false,
+            message:
+              inTheWay === null
+                ? 'Could not check the worktree this chat used for ignored files its branch would overwrite.'
+                : `The worktree this chat used has ignored files its branch would overwrite (${inTheWay.slice(0, 3).join(', ')}). Clear its ignored files in Settings ▸ Worktrees, then open the chat again.`,
+          }
+        }
+      }
       const locked = await lockAgentWorktree(pool.record.repoRoot, slot.path, input.owner, git)
       if (!locked.ok) log(`${slot.path}: could not lock (${tail(locked.message, 200)}); reclaiming anyway`)
       const switched = await git(slot.path, ['switch', '--quiet', branch])
