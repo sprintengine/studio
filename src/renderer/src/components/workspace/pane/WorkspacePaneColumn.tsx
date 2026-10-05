@@ -19,15 +19,23 @@ type WorkspacePaneColumnProps = {
   // The workspaces whose layers are mounted right now (WorkspaceManager's
   // retention set); a pane mounts for each that has tabs, plus the active one.
   renderedWorkspaceIds: readonly WorkspaceId[]
+  // The New chat door is up: it belongs to no workspace yet, so the column
+  // shows no pane and collapses as if the active one were closed. Every pane
+  // stays mounted, so closing the door shows the active one as it was.
+  suppressed?: boolean
 }
 
-export function WorkspacePaneColumn({ activeWorkspaceId, renderedWorkspaceIds }: WorkspacePaneColumnProps) {
+export function WorkspacePaneColumn({
+  activeWorkspaceId,
+  renderedWorkspaceIds,
+  suppressed = false,
+}: WorkspacePaneColumnProps) {
   const width = useWorkspaceStore((s) => s.workspacePaneWidth)
   const setWidth = useWorkspaceStore((s) => s.setWorkspacePaneWidth)
   const maximised = useWorkspaceStore((s) => s.workspacePaneMaximised)
-  const activeOpen = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === activeWorkspaceId)?.paneState?.open ?? false,
-  )
+  const activeOpen =
+    useWorkspaceStore((s) => s.workspaces.find((w) => w.id === activeWorkspaceId)?.paneState?.open ?? false) &&
+    !suppressed
   // A floating player paints outside the column, so a collapsed column must
   // stay interactive for it (WorkspaceAsideColumn.keepInteractive); the pane
   // marks its own clipped chrome inert instead.

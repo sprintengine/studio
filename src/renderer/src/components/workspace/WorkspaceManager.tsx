@@ -561,15 +561,12 @@ export default function WorkspaceManager() {
   // win/linux the floating caption buttons sit over whichever top strip owns
   // that corner, and that strip leaves them room (WindowCaptionReserve): the
   // pane's own strip while it is open, the WorkspaceHeader otherwise.
-  const paneOwnsRightEdge = useWorkspaceStore(
+  // `paneOwnsRightEdge` itself is derived below, once the New chat door's state
+  // is known: the door hides the active workspace's pane.
+  const activeWorkspacePaneOpen = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState?.open ?? false,
   )
-  // The caption corner is narrower than the right edge: a MAXIMISED pane fills
-  // the row below the header, so the header keeps the corner and its own
-  // reserve (paneStripOwnsCaptionCorner). The card's right-edge gap below still
-  // reads `paneOwnsRightEdge`, so maximising reflows nothing under the pane.
   const paneMaximised = useWorkspaceStore((s) => s.workspacePaneMaximised)
-  const paneOwnsCaptionCorner = paneStripOwnsCaptionCorner({ open: paneOwnsRightEdge, maximised: paneMaximised })
   // (Was `activePaneOpen`, derived from `activeWorkspace`. Removed: the card's
   // right-edge gap is its only consumer and it now reads `paneOwnsRightEdge`
   // above, which selects `paneState.open` straight off the live store — one
@@ -593,6 +590,18 @@ export default function WorkspaceManager() {
   } | null>(null)
   const scheduledAgents = useScheduledAgents()
   const newChatPanelOpen = newChatPanelState !== null
+  // The New chat door belongs to no workspace yet: the chat it starts lands in
+  // a workspace of its own. The "active" workspace behind it is only the one
+  // that was showing when the door opened, so its pane — its tabs, its
+  // terminals — stays out of view until the door closes, rather than reading
+  // as part of the chat about to be made. The pane stays mounted (collapsed,
+  // like a closed pane), so cancelling the door brings it back as it was.
+  const paneOwnsRightEdge = activeWorkspacePaneOpen && !newChatPanelOpen
+  // The caption corner is narrower than the right edge: a MAXIMISED pane fills
+  // the row below the header, so the header keeps the corner and its own
+  // reserve (paneStripOwnsCaptionCorner). The card's right-edge gap below still
+  // reads `paneOwnsRightEdge`, so maximising reflows nothing under the pane.
+  const paneOwnsCaptionCorner = paneStripOwnsCaptionCorner({ open: paneOwnsRightEdge, maximised: paneMaximised })
   // At a phone's width (owner decision 5, phase 9 spec 7.2) the sidebar, with
   // the rail, and the content take turns at the full width: the sidebar
   // toggle switches between them, and choosing a chat, New chat or another
@@ -4845,6 +4854,7 @@ export default function WorkspaceManager() {
             <WorkspacePaneColumn
               activeWorkspaceId={windowActiveWorkspaceId}
               renderedWorkspaceIds={renderedWorkspaceIds}
+              suppressed={newChatPanelOpen}
             />
           </React.Suspense>
         </div>
