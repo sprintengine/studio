@@ -278,6 +278,30 @@ same socket and the same frames; nothing in the wire is specific to a phone.
   that CLI), and sends the prompt as its first message. It answers once the
   session is up, with the workspace and agent ids a remote pane follows the
   chat by. Like every remote command it is audited.
+- **A new chat as New chat here starts one.** A desktop that advertises
+  `new-chat-worktree` takes `worktree: true` beside `newChat: true` and starts
+  the chat in a worktree of its own, cut exactly as New chat here cuts one with
+  Worktree on: from the worktree pool where this process keeps one, on the
+  project's default branch, as `agent/chat-<id>` under the project's worktree
+  container, and filed under the project it was cut from, so the chat lists here
+  as if it had been started here. A project that is not a git repository, or a
+  folder on an SSH machine, is refused with `worktree_unavailable` rather than
+  started in the checkout. A desktop that advertises `new-chat-effort` takes an
+  `effort`, one of the CLI's `reasoningLevels`, refused as `unsupported_effort`
+  otherwise. It is kept on the chat's agent record as New chat here keeps its
+  effort pick, and every turn, from this machine's chat view or a paired
+  device, runs at it where the chat's provider runs that level: Claude Code's
+  chat runs all five of its levels and Codex's runs low to xhigh, so Codex's
+  `max` and `ultra` run at its default. A CLI that declares no levels (Cursor,
+  OpenCode, Grok) ignores it. A desktop that advertises `cli-runtime-catalog`
+  answers each CLI on `cli.runtime.list` with a `catalog`: whether it can run as
+  a chat (`conversational`), its provider line (`providerLabel`, naming the CLI
+  a hosted runtime rides), and `models`, the rows this machine's model picker
+  offers — the CLI's reported list (its manifest seed until it has reported),
+  then the ids added in Settings — each with the `family` row it renders under,
+  its window (`contextLabel`, `1M` or `Standard`), whether it is the id the row
+  selects (`familyDefault`), and `isNew` where the picker shows New. The model
+  favourites are this machine's window's own and do not travel.
 - **Answering a plan.** A desktop that advertises `conversation-plans` takes
   `resolvePlan` (`approve` or `reject`) for a plan the agent proposed, and
   refuses it for a request that is not a plan, before the provider sees it.

@@ -1528,6 +1528,7 @@ export function createAppServices(
               createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
               getScheduledAgents: () => resolveScheduledAgents(),
               defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+              userCliModels: (cli) => agentLaunchSettings.get().cliRuntimes[cli]?.models,
               // module.*/marketplace.*. The registry snapshot is the
               // renderer's mirror — main's own module list omits every renderer-only
               // module, so reporting from it would be wrong by construction. Trust

@@ -28,6 +28,8 @@ export const CONVERSATION_MUTATION_TOOL_NAMES: readonly string[] = [
   'conversation.visit',
 ]
 
+const EFFORT_ID = /^[a-z0-9_-]{1,40}$/i
+
 export type ConversationToolsDeps = {
   launch: ConversationLaunchService['launch']
   /** The calling agent's own preset, which a chat it starts may not exceed (launch-permission-cap.ts). */
@@ -63,6 +65,16 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
               'Start a new chat of its own in the folder of workspaceId, rather than adding one to that ' +
               "workspace's chat. The new chat's workspaceId is returned; its first message titles it.",
           },
+          worktree: {
+            type: 'boolean',
+            description:
+              'With newChat, start the new chat in a git worktree of its own, cut the way New chat on this ' +
+              "machine cuts one with Worktree on: from this machine's worktree pool, on the project's default " +
+              'branch, as a branch `agent/chat-<id>`; the chat is listed under the project it was cut from. A ' +
+              'project that is not a git repository (or a folder on an SSH machine) is refused with ' +
+              '"worktree_unavailable", never started in the checkout. Omitted or false, the chat works in the ' +
+              "project's own folder.",
+          },
           cli: {
             type: 'string',
             description:
@@ -70,6 +82,15 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
               'provider can start as a chat.',
           },
           cliModel: { type: 'string', description: "The CLI's model id; the CLI's own default when omitted." },
+          effort: {
+            type: 'string',
+            description:
+              "The reasoning effort the chat runs at: one of the CLI's `reasoningLevels` (cli.runtime.list); " +
+              'another is refused with "unsupported_effort". The chat keeps it as New chat here keeps its ' +
+              "effort pick, and every turn runs at it where the CLI's chat runtime takes that level: Claude Code " +
+              "and Codex do (Codex's chat runs low to xhigh; a higher level runs at its default). A CLI that " +
+              "declares no levels (Cursor, OpenCode, Grok) ignores it. Omitted, the CLI's own default.",
+          },
           permissionPreset: {
             type: 'string',
             enum: ['bypass', 'auto', 'manual', 'none'],
@@ -91,13 +112,26 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         if (typeof args.workspaceId !== 'string' || !args.workspaceId.trim()) {
           return toolError('invalid_arguments', '"workspaceId" is required.')
         }
-        for (const key of ['cli', 'cliModel', 'prompt', 'name', 'permissionPreset'] as const) {
+        for (const key of ['cli', 'cliModel', 'prompt', 'name', 'permissionPreset', 'effort'] as const) {
           if (args[key] !== undefined && typeof args[key] !== 'string') {
             return toolError('invalid_arguments', `"${key}" must be a string when provided.`)
           }
         }
-        if (args.newChat !== undefined && typeof args.newChat !== 'boolean') {
-          return toolError('invalid_arguments', '"newChat" must be a boolean when provided.')
+        for (const key of ['newChat', 'worktree'] as const) {
+          if (args[key] !== undefined && typeof args[key] !== 'boolean') {
+            return toolError('invalid_arguments', `"${key}" must be a boolean when provided.`)
+          }
+        }
+        // A worktree is where a new chat is born; a chat joining a workspace
+        // works in that workspace's folder, which already is what it is.
+        if (args.worktree === true && args.newChat !== true) {
+          return toolError('invalid_arguments', '"worktree" starts a new chat in a worktree: set "newChat" with it.')
+        }
+        // The same shape a window's turn may name an effort in
+        // (conversation-ipc-inputs.ts); whether the CLI has the level is the
+        // launch's to say.
+        if (typeof args.effort === 'string' && !EFFORT_ID.test(args.effort.trim())) {
+          return toolError('invalid_arguments', '"effort" must be an effort level id, such as "high".')
         }
         const permissionPreset =
           args.permissionPreset === undefined ? undefined : parseCliPermissionPreset(args.permissionPreset)
@@ -112,6 +146,8 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         const launched = await deps.launch({
           workspaceId: args.workspaceId.trim(),
           ...(args.newChat === true ? { newChat: true } : {}),
+          ...(args.worktree === true ? { newWorktree: true } : {}),
+          ...(typeof args.effort === 'string' ? { reasoningEffort: args.effort.trim() } : {}),
           ...(typeof args.cli === 'string' ? { cli: args.cli } : {}),
           ...(typeof args.cliModel === 'string' ? { cliModel: args.cliModel } : {}),
           ...(typeof args.prompt === 'string' ? { prompt: args.prompt } : {}),

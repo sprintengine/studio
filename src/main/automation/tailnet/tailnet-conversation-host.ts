@@ -251,6 +251,13 @@ export type ConversationRegistryLink = {
   workspaceOf?: (workspaceId: string) => ConversationListWorkspace | null
   /** A person sent one of the workspace's chats a message from a paired device. */
   noteUserMessage?: (workspaceId: string, at: number) => void
+  /**
+   * The effort the chat's agent record keeps (a New chat's pick, or one
+   * changed in the chat since), which a window's chat view sends every turn
+   * with. A turn sent from here runs at it too, or a chat would switch effort
+   * each time the person moved between the phone and the desk.
+   */
+  reasoningEffortOf?: (key: { workspaceId: string; agentId: string }) => string | null | undefined
 }
 
 /**
@@ -619,6 +626,10 @@ export function createConversationGatewayHost(
         if (!session) return { ok: false, message: 'Conversation is unavailable.' }
         switch (command.kind) {
           case 'send': {
+            // Only a level the chat's provider runs, as the chat view checks it.
+            const effort = registry.reasoningEffortOf?.(key) ?? undefined
+            const turnEffort =
+              effort && session.capabilities?.reasoningEfforts?.includes(effort) ? { reasoningEffort: effort } : {}
             const ids = command.uploadIds ?? []
             if (ids.length > MAX_ATTACHMENTS_PER_TURN) return { ok: false, message: 'Too many image attachments.' }
             const retry =
@@ -630,6 +641,7 @@ export function createConversationGatewayHost(
                 commandId,
                 message: command.message,
                 attachments: [],
+                ...turnEffort,
                 ...stamp,
               })
             const attachments: ConversationImageAttachment[] = []
@@ -669,6 +681,7 @@ export function createConversationGatewayHost(
               commandId,
               message: command.message,
               attachments,
+              ...turnEffort,
               ...stamp,
             })
             // Accepted: the images are in the turn now, so their staged files

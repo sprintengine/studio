@@ -60,6 +60,7 @@ import { conversationCliRuntimesForHost } from '../shared/conversation-cli-runti
 import type { McpServerConfig } from '../shared/ipc/mcp'
 import { SOLO_CHAT_TEMPLATE_AGENT_ID, SOLO_CHAT_TEMPLATE_ID } from '../shared/layouts/templates'
 import { deriveWorkspaceTitle, nextNewChatName } from '../shared/workspace-title'
+import { agentWorktreePaths, newChatWorktreeName, workspaceProjectRootOf } from '../shared/worktree-paths'
 import type { WorkspaceWorktree } from '../renderer/src/types/workspace'
 import type { WorkspaceCreateRequest } from './workspace-registry-service'
 import { isMachinePath } from '../shared/machine-paths'
@@ -99,10 +100,28 @@ export type ConversationLaunchRequest = {
    * first message titles it.
    */
   newChat?: boolean
+  /**
+   * Start the new chat in a worktree of its own, cut the way a window's New
+   * chat cuts one with Worktree on: from the worktree pool where this process
+   * keeps one, on the default branch, under the project's worktree container,
+   * with the new workspace marked as a worktree of the project it was cut from.
+   * Read only beside `newChat`. A project that is not a git repository refuses
+   * the launch (`worktree_unavailable`) rather than starting the chat in the
+   * checkout it was asked to keep clean.
+   */
+  newWorktree?: boolean
   /** The agent CLI the chat drives; the last-selected CLI when absent. */
   cli?: string
   /** The CLI's model id; the CLI's own default when absent. */
   cliModel?: string
+  /**
+   * The effort level the chat runs at, one of the levels its CLI declares.
+   * Kept on the agent record, as a window's New chat keeps its effort pick,
+   * and sent with each turn the chat's provider can run at that level. A CLI
+   * that declares no levels ignores it; one outside the declared levels
+   * refuses the launch (`unsupported_effort`).
+   */
+  reasoningEffort?: string
   /** Absent, the preset chosen for that CLI here, else the app default — as the launcher would. */
   permissionPreset?: CliPermissionPreset
   /** The CLI's own mode at `permissionPreset`, read only beside it. */
@@ -198,7 +217,10 @@ export type ConversationLaunchServiceDeps = {
   removeWorkspace: (workspaceId: string) => void
   startSession: (input: ConversationStartSessionInput) => Promise<ConversationStartSessionResult>
   send: (
-    input: Pick<ConversationSendTurnInput, 'sessionId' | 'commandId' | 'message' | 'skills' | 'attachments'>,
+    input: Pick<
+      ConversationSendTurnInput,
+      'sessionId' | 'commandId' | 'message' | 'skills' | 'attachments' | 'reasoningEffort'
+    >,
   ) => Promise<ConversationSessionActionResult>
   /**
    * Make a skill present in the chat's working root, as a terminal launch does
@@ -206,10 +228,32 @@ export type ConversationLaunchServiceDeps = {
    * runtime's own resolver at the first send, and no id is refused up front.
    */
   ensureSkillInstalled?: (workingRoot: string, skillId: string) => Promise<EnsureSkillInstalledResult>
+  /**
+   * The effort levels a CLI declares (its manifest's `reasoningSelection`),
+   * which a requested effort must be one of. Absent, or empty for a CLI, and
+   * an effort is not taken.
+   */
+  reasoningLevels?: (cli: string) => readonly string[]
+  /** The repository root a folder is in, asked of the machine's own git; null when it is not in one. */
+  getRepoRoot?: (folderPath: string, hostId: ExecutionHostId | null) => Promise<string | null>
+  /**
+   * Cut an agent worktree on the machine that runs the chat, as a window's New
+   * chat does (`createGitWorktree` with `fromPool`). Absent, `newWorktree` is
+   * refused as unavailable.
+   */
+  createWorktree?: (input: {
+    repoRoot: string
+    containerPath: string
+    destinationPath: string
+    branchName: string
+    hostId: ExecutionHostId | null
+  }) => Promise<{ ok: true; path: string; branch: string; baseRef: string } | { ok: false; message: string }>
   /** Where a first message the runtime refused is reported; the chat itself shows a failed turn. */
   warn?: (message: string) => void
   /** Agent id suffix. Injected so tests get stable ids. */
   newAgentSuffix?: () => string
+  /** The random tail of a new chat's worktree name. Injected so tests get stable names. */
+  newWorktreeSuffix?: () => string
   newCommandId?: () => string
 }
 
@@ -220,6 +264,60 @@ export type ConversationLaunchService = {
 export function createConversationLaunchService(deps: ConversationLaunchServiceDeps): ConversationLaunchService {
   const newAgentSuffix = deps.newAgentSuffix ?? newAgentIdSuffix
   const newCommandId = deps.newCommandId ?? (() => randomUUID())
+  const newWorktreeSuffix = deps.newWorktreeSuffix ?? (() => newAgentIdSuffix().slice(0, 4))
+
+  // The worktree a window's New chat cuts with Worktree on
+  // (`createNewChatWorktree` in WorkspaceManager.tsx), cut here for a caller
+  // with no window: the same repository, name, container, branch and pool, and
+  // the same marker, which files the chat under the project it was cut from
+  // rather than founding a header named after the slug. Everything works off
+  // the project behind the folder, so a chat started from a worktree chat gets
+  // a sibling worktree, not one nested inside the other's container.
+  async function cutNewChatWorktree(
+    workspace: ConversationLaunchWorkspace,
+    folderPath: string,
+  ): Promise<{ ok: true; folderPath: string; worktree: WorkspaceWorktree } | { ok: false; message: string }> {
+    // A folder on an SSH machine is not this computer's to fork: a window's
+    // New chat does not offer the worktree there either.
+    if (isMachinePath(folderPath)) {
+      return { ok: false, message: 'A chat on an SSH machine starts in its folder there; it cannot have a worktree.' }
+    }
+    if (!deps.getRepoRoot || !deps.createWorktree) {
+      return { ok: false, message: 'This Studio cannot make worktrees for the chats it starts.' }
+    }
+    const projectFolder = workspaceProjectRootOf(workspace) ?? folderPath
+    // The machine the chat runs on makes its worktree too: a worktree made by
+    // another machine's git names a gitdir this one cannot follow.
+    const hostId = workspace.hostId ?? null
+    const repoRoot = await deps.getRepoRoot(projectFolder, hostId).catch(() => null)
+    if (!repoRoot) {
+      return {
+        ok: false,
+        message: `${projectFolder} is not a git repository, so a worktree cannot be created. Start the chat without one.`,
+      }
+    }
+    const name = newChatWorktreeName(newWorktreeSuffix())
+    const paths = agentWorktreePaths(repoRoot, name)
+    if (!paths) return { ok: false, message: `"${name}" does not reduce to a usable worktree name.` }
+    const made = await deps
+      .createWorktree({
+        repoRoot,
+        containerPath: paths.containerPath,
+        destinationPath: paths.destinationPath,
+        branchName: paths.branchName,
+        hostId,
+      })
+      .catch((error: unknown) => ({
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error),
+      }))
+    if (!made.ok) return { ok: false, message: `The chat's worktree could not be made: ${made.message}` }
+    return {
+      ok: true,
+      folderPath: made.path,
+      worktree: { branch: made.branch, baseRef: made.baseRef, repoRoot: projectFolder },
+    }
+  }
 
   async function launch(request: ConversationLaunchRequest): Promise<ConversationLaunchResult> {
     // A chat born in a folder has no workspace to read the folder, machine and
@@ -277,6 +375,25 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       if (!connector.ok) return { ok: false, code: 'connector_unavailable', message: connector.message }
       mcpServers.push(...Object.values(connector.resolved.mcpSettings.servers).map(conversationMcpServer))
     }
+    // The levels the CLI declares are the ones its picker offers. A CLI that
+    // declares none has no effort to set, and the request is not taken.
+    const requestedEffort = request.reasoningEffort?.trim() || undefined
+    const effortLevels = deps.reasoningLevels?.(cli) ?? []
+    if (requestedEffort && effortLevels.length > 0 && !effortLevels.includes(requestedEffort)) {
+      return {
+        ok: false,
+        code: 'unsupported_effort',
+        message: `"${cli}" has no effort level "${requestedEffort}". Its levels are ${effortLevels.join(', ')}.`,
+      }
+    }
+    const reasoningEffort = requestedEffort && effortLevels.length > 0 ? requestedEffort : undefined
+    if (request.newWorktree === true && request.newChat !== true) {
+      return {
+        ok: false,
+        code: 'invalid_arguments',
+        message: 'A worktree is cut only for a new chat: ask for "newChat" with it.',
+      }
+    }
     const modelId = request.cliModel?.trim() || CONVERSATION_DEFAULT_MODEL_ID
     const permission = resolveAgentSpawnPermission(settings, cli, request.permissionPreset)
     const permissionPreset = permission.preset
@@ -285,10 +402,24 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
     const ownMode = request.permissionPreset ? parseCliPermissionModeId(request.permissionMode) : permission.mode
     const permissionMode = ownMode && conversationPermissionModes(cli).includes(ownMode) ? ownMode : undefined
     const allowedTools = [...new Set((request.allowedTools ?? []).map((tool) => tool.trim()).filter(Boolean))]
+    // A new chat's own worktree, last of the checks and before anything is
+    // written: it is the folder the chat is born in, so the skills below are
+    // installed into it. A launch refused after this leaves the worktree
+    // behind, as a window's New chat that fails after cutting one does; a pool
+    // slot comes back with the pool's return sweep, which takes back a lease
+    // no chat has been seen to hold.
+    let chatFolder = workspaceRoot
+    let chatWorktree = workspace.worktree ?? null
+    if (request.newWorktree === true) {
+      const cut = await cutNewChatWorktree(workspace, workspaceRoot)
+      if (!cut.ok) return { ok: false, code: 'worktree_unavailable', message: cut.message }
+      chatFolder = cut.folderPath
+      chatWorktree = cut.worktree
+    }
     // The run worktree when there is one: the session starts there, so the
     // agent's edits, its transcript and the skills below all stay inside it.
     const worktreePath = request.worktreePath?.trim() || undefined
-    const workingRoot = worktreePath ?? workspaceRoot
+    const workingRoot = worktreePath ?? chatFolder
 
     // Skills first, before anything is written: an id nothing answers to is
     // the caller's mistake and refuses the launch, where a copy that could not
@@ -338,6 +469,9 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       conversation: { providerId, modelId },
       cliPermissionPreset: permissionPreset,
       ...(permissionMode ? { cliPermissionMode: permissionMode } : {}),
+      // Where a window's New chat keeps its effort pick, and where every
+      // window's chat view and a paired device's send read it for each turn.
+      ...(reasoningEffort ? { conversationReasoningEffort: reasoningEffort } : {}),
       // Where a window's chat view finds the session: a worktree chat is keyed
       // by the worktree, not the workspace folder (`conversationWorkingRoot`).
       ...(worktreePath ? { execution: { mode: 'worktree' as const, worktreeId: null, cwd: worktreePath } } : {}),
@@ -362,14 +496,14 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
           nextNewChatName(
             deps
               .listWorkspaces()
-              .filter((other) => other.folderPath === workspace.folderPath)
+              .filter((other) => other.folderPath === chatFolder)
               .map((other) => other.name ?? ''),
           ),
         ...(firstTitle ? { titleOpen: true } : {}),
-        folderPath: workspace.folderPath,
+        folderPath: chatFolder,
         templateId: SOLO_CHAT_TEMPLATE_ID,
         ...(workspace.hostId ? { hostId: workspace.hostId } : {}),
-        ...(workspace.worktree ? { worktree: workspace.worktree } : {}),
+        ...(chatWorktree ? { worktree: chatWorktree } : {}),
         ...(request.scheduledAgentId?.trim() ? { scheduledAgentId: request.scheduledAgentId.trim() } : {}),
         ...(request.background ? { background: true } : {}),
         templateAgentIds: { [SOLO_CHAT_TEMPLATE_AGENT_ID]: agentId },
@@ -430,11 +564,19 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         deps.warn?.(message)
         request.onFirstSendFailed?.(message)
       }
+      // At the chat's effort only where its provider runs that level, as a
+      // window's chat view sends each turn: a level the CLI's terminal takes
+      // and its chat does not (Codex's `max`) runs at the provider's default.
+      const turnEffort =
+        reasoningEffort && started.session.capabilities?.reasoningEfforts?.includes(reasoningEffort)
+          ? reasoningEffort
+          : undefined
       void deps
         .send({
           sessionId,
           commandId: newCommandId(),
           message: prompt,
+          ...(turnEffort ? { reasoningEffort: turnEffort } : {}),
           ...(skills.length > 0 ? { skills: skills.map((id) => ({ id })) } : {}),
           ...(request.attachments?.length ? { attachments: request.attachments } : {}),
         })
