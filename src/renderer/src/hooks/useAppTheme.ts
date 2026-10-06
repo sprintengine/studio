@@ -79,8 +79,9 @@ function pushWindowMaterial(material: WindowMaterial): void {
   const effective = windowMaterialHere(material)
   // Mirror to main: persists for pre-boot application on the next launch and
   // re-applies the window-level material to live windows. Best-effort outside
-  // Electron.
-  void window.api?.setWindowMaterial?.(effective, effective === 'glass' ? undefined : themeCanvasColor())
+  // Electron. The theme's canvas goes with glass too: a glass workspace window
+  // ignores it, but the opaque aux and diagnostics windows open on it.
+  void window.api?.setWindowMaterial?.(effective, themeCanvasColor())
 }
 
 function applyWindowMaterial(material: WindowMaterial, mirrorToMain: boolean): void {
