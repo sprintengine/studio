@@ -174,6 +174,9 @@ export function WorkspacePaneColumn({
             className="absolute inset-0"
             style={active ? { pointerEvents: 'auto' } : OFFSCREEN_LAYER_STYLE}
             aria-hidden={!active}
+            // Agents still drive this pane's browser tabs: their input goes to
+            // each guest over CDP, which `inert` does not touch (verified; see
+            // WorkspacePaneBody's browser layers).
             inert={!active}
           >
             <WorkspacePane workspaceId={workspaceId} active={active} />
