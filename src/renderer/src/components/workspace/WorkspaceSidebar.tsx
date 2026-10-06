@@ -583,7 +583,13 @@ function WorkspaceSidebar({
     (id: WorkspaceId) => {
       const workspace = openAgentSourcesRef.current.workspaces.find((candidate) => candidate.id === id)
       if (!workspace || !rowHasOpenAgents(workspace)) return
-      void terminateSettledWorkspaceTerminals(workspace)
+      // The record as it stands when main has answered, not the render's: a
+      // chat un-settled meanwhile keeps its agents. One gone from the record
+      // was closed, and Close kills unconditionally anyway.
+      void terminateSettledWorkspaceTerminals(workspace, () => {
+        const now = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === id)
+        return now === undefined || isSettledWorkspace(now)
+      })
     },
     [rowHasOpenAgents],
   )

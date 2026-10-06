@@ -104,8 +104,14 @@ export async function terminateWorkspaceTerminals(workspace: Workspace): Promise
  * Close keeps the unconditional kill: a chat being removed must not leave a
  * writer behind.
  */
-export async function terminateSettledWorkspaceTerminals(workspace: Workspace): Promise<boolean> {
+export async function terminateSettledWorkspaceTerminals(
+  workspace: Workspace,
+  // Asked again once main has answered: a chat un-settled during that round
+  // trip is the person's again, and is not killed.
+  stillSettled: () => boolean = () => true,
+): Promise<boolean> {
   if (await workspaceWorkingNow(workspace)) return false
+  if (!stillSettled()) return false
   await terminateWorkspaceTerminals(workspace)
   return true
 }
