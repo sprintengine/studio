@@ -11,6 +11,7 @@ import { OverflowMenu } from '../components/ui/OverflowMenu'
 import { copyToClipboardWithToast } from './copyToClipboardWithToast'
 import type { GitLineChange } from './gitDiff'
 import { tableCsv, tableHtml, tableMarkdown, tableTsv } from './markdownTableClipboard'
+import { remarkFencedCodeValue, singleFencedCode } from './markdownFence'
 import { remarkUserText } from './markdownUserText'
 
 /**
@@ -810,14 +811,25 @@ function MarkdownRenderer({
     ? (url, key, node) => (key === 'src' ? url : hrefTransform(url, key, node))
     : hrefTransform
 
+  // A segment that is one fenced block skips the parse of its body, which a
+  // streaming file would otherwise pay again in full on every token
+  // (`markdownFence.ts`). Not where line changes read source positions, nor
+  // for a person's own text, which has a plugin of its own.
+  const fenced = lineChanges || options.userText ? null : singleFencedCode(markdown)
   const content = (
     <StreamingContext.Provider value={options.streaming ?? false}>
       <ReactMarkdown
-        remarkPlugins={options.userText ? USER_TEXT_PLUGINS : MARKDOWN_PLUGINS}
+        remarkPlugins={
+          fenced
+            ? [remarkFencedCodeValue(fenced.value), ...MARKDOWN_PLUGINS]
+            : options.userText
+              ? USER_TEXT_PLUGINS
+              : MARKDOWN_PLUGINS
+        }
         components={components}
         urlTransform={urlTransform}
       >
-        {markdown}
+        {fenced ? fenced.placeholder : markdown}
       </ReactMarkdown>
     </StreamingContext.Provider>
   )
