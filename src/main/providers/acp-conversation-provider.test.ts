@@ -512,6 +512,36 @@ test('ACP handshake timeout disposes the child and cannot publish a late connect
   expect(provider.listLiveSessions?.()).toEqual([])
   provider.disposeAll?.()
 })
+test('ACP finds the refused flag above the usage text a CLI prints after it', async () => {
+  const usage = Array.from({ length: 30 }, (_, index) => `  --option-${index}   what option ${index} does`).join('\\n')
+  const refuses = `process.stderr.write("error: unknown option '--permission-mode'\\n\\nUsage: agent [options]\\n\\nOptions:\\n${usage}\\n");process.exit(1)`
+  const provider = createAcpConversationProvider(
+    {
+      id: 'old-build',
+      displayName: 'Old build',
+      cli: 'test',
+      argv: ['-e', refuses],
+      authHint: 'Run agent login in a terminal.',
+      images: false,
+      planMode: false,
+    },
+    { detect: async () => process.execPath, buildEnv: async () => ({}) },
+  )
+  const pending = provider.startSession({
+    sessionId: 'old-build',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: 'old-build',
+    modelId: 'default',
+    workspaceRoot: tmpdir(),
+  })
+  const message = await Promise.resolve(pending).then(
+    () => '',
+    (error: Error) => error.message,
+  )
+  expect(message).toContain("unknown option '--permission-mode'")
+  expect(looksLikePermissionSettingRefusal(message)).toBe(true)
+})
 test('ACP says what a CLI that exits at start printed, so a refused flag reads as that', async () => {
   const refuses = `process.stderr.write("error: unknown option '--force'\\n");process.exit(1)`
   const provider = createAcpConversationProvider(

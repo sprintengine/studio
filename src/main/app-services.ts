@@ -18,6 +18,7 @@ import { configureWslHelpers } from './hosts/wsl-helper-runtime'
 import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
 import { createDesktopSsh, type DesktopSsh } from './environments/ssh/desktop-ssh'
 import { isMachinePath } from '../shared/machine-paths'
+import { workspaceProjectRootOf } from '../shared/worktree-paths'
 import type { WorkspaceEnvironmentRef } from '../renderer/src/types/workspace'
 import { sessionSshPreview } from './environments/ssh/ssh-preview'
 import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../server/wsl/wsl-tool-relay'
@@ -106,6 +107,7 @@ import { excludeMcpConfigFromWorktree, seedWorktreeIncludedFiles } from './git'
 import { broadcastWorktreePoolChanged } from './ipc/worktree-pool-ipc'
 import { installWorktreePool } from './worktree-pool/active-pool'
 import { createPoolStore } from './worktree-pool/pool-store'
+import { chatIdsOnRecord } from './agent-worktree-keep-checks'
 import { createWorktreePoolService } from './worktree-pool/worktree-pool-service'
 import { createWorktreePoolTools } from './worktree-pool/worktree-pool-tools'
 import { createConversationPeekService } from './conversation-peek/service'
@@ -1290,22 +1292,14 @@ export function createAppServices(
   const browserRecorder = createBrowserRecorder({
     encoder: createHostRecordingEncoder({ ipcMain, tabs: browserManager }),
     outputs: createWorkspaceRecordingOutputs({
-      resolveWorkspaceRoot: (workspaceId) =>
-        workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
-          ?.folderPath ?? null,
-      // The folder the agent's chat works in, its pool worktree for a New
-      // chat. Known here only when the chats are this process's; out of
-      // process the shell has no sessions, and the workspace folder is used.
-      resolveAgentRoot: ({ workspaceId, agentId }) => {
-        const conversations = core.conversations as Partial<typeof core.conversations>
-        if (
-          typeof conversations.listSessions !== 'function' ||
-          typeof conversations.sessionWorkspaceRoot !== 'function'
-        )
-          return null
-        const listed = conversations.listSessions({ workspaceId, agentId })
-        const latest = listed.ok ? [...listed.sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0] : undefined
-        return latest ? conversations.sessionWorkspaceRoot(latest.sessionId) : null
+      // The project's own folder: for a chat in a worktree (every New chat
+      // leases one from the pool), the checkout it was cut from, so the video
+      // outlives the worktree and never holds a pool slot on disk.
+      resolveWorkspaceRoot: (workspaceId) => {
+        const record = workspaceSyncService
+          .getSnapshot()
+          .state.workspaces.find((workspace) => workspace.id === workspaceId)
+        return record ? workspaceProjectRootOf(record) : null
       },
       machineLabel: (id) => ssh?.environments.list().find((machine) => machine.id === id)?.label ?? null,
     }),
@@ -1356,6 +1350,8 @@ export function createAppServices(
       ),
     onChange: broadcastWorktreePoolChanged,
     seedIncludedFiles: seedWorktreeIncludedFiles,
+    // Settled chats included: a slot holding a chat's history is never removed.
+    knownWorkspaceIds: () => chatIdsOnRecord(workspaceSyncService.getSnapshot().state.workspaces),
   })
   installWorktreePool(worktreePool)
   void worktreePool.load()

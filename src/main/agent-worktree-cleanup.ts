@@ -113,6 +113,11 @@ export type AgentWorktreeCleanupDeps = {
   } | null
   now?: () => number
   log?: (line: string) => void
+  /**
+   * The ids of every chat on record, settled ones included, or null when
+   * unknown: a worktree holding one's history is kept (agent-worktree-keep-checks.ts).
+   */
+  knownWorkspaceIds?: () => Iterable<string> | null
 }
 
 const AGENT_BRANCH_PREFIX = 'agent/'
@@ -315,7 +320,9 @@ export async function cleanupAgentWorktrees(
       record({ ...base, verdict: 'hidden-edits', changedPaths: hidden.paths.length, detail: listed(hidden.paths) })
       continue
     }
-    const ignored = await ignoredPathsAtRisk(root, worktree.path, runGit)
+    const ignored = await ignoredPathsAtRisk(root, worktree.path, runGit, {
+      knownWorkspaceIds: deps.knownWorkspaceIds ?? null,
+    })
     if (!ignored.ok) {
       record({ ...base, verdict: 'error', detail: ignored.message })
       continue

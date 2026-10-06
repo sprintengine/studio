@@ -94,6 +94,8 @@ export type SlotRecord = {
   lastBranch: string | null
   /** As last measured (Settings ▸ Worktrees, or a return while a disk limit is set). */
   size: WorktreeDiskUsage | null
+  /** Why the last removal of this idle slot left it on disk; cleared when it is leased or cleared. */
+  kept: string | null
 }
 
 export type PoolRecord = {
@@ -223,6 +225,7 @@ function parseSlot(value: unknown): SlotRecord | null {
     uses: num(value.uses) ?? 0,
     lastBranch: str(value.lastBranch),
     size: parseSize(value.size),
+    kept: str(value.kept),
   }
 }
 

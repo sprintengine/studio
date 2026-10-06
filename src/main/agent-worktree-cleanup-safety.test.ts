@@ -190,6 +190,23 @@ test('ignored files that may be work keep the worktree; rebuildable ones and unc
   assert.equal(await exists(join(notes, 'scratch', 'plan.md')), true)
 })
 
+test('a settled chat’s worktree holding its history is kept while the chat is on record', async () => {
+  await appendFile(join(repo, '.git', 'info', 'exclude'), '.sprintengine/\n')
+  const settled = await addWorktree('settled-chat')
+  const history = join(settled, '.sprintengine', 'conversations', 'chat-1')
+  await mkdir(history, { recursive: true })
+  await writeFile(join(history, 'agent-1.jsonl'), '{}\n')
+  const onRecord = (ids: string[] | null) => ({ ...quiet, knownWorkspaceIds: () => ids })
+  const kept = await verdictOf(settled, onRecord(['chat-1']))
+  assert.equal(kept?.verdict, 'ignored-files')
+  assert.match(kept?.detail ?? '', /\.sprintengine\/conversations\/chat-1\//)
+  // Chats on record unknown: kept all the same.
+  assert.equal((await verdictOf(settled))?.verdict, 'ignored-files')
+  assert.equal((await verdictOf(settled, onRecord(null)))?.verdict, 'ignored-files')
+  // The chat deleted: its leftover history does not hold the worktree.
+  assert.equal((await verdictOf(settled, onRecord(['another-chat'])))?.verdict, 'removed')
+})
+
 test('an ignored file inside a source folder named like build output keeps the worktree', async () => {
   // A tracked build/ (entitlements beside a signing key) and a nested
   // ignored folder under it: neither is build output, whatever the name.

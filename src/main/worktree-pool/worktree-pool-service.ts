@@ -14,7 +14,13 @@ import { hostIdForFolder, isWslHostId, LOCAL_HOST_ID, normalizeExecutionHostId }
 import { pathJoin } from '../../shared/paths'
 import { slugifyWorktreeName, worktreeContainerPath } from '../../shared/worktree-paths'
 import { lockAgentWorktree } from '../agent-worktree-lock'
-import { hiddenEditPaths, ignoredPathsAtRisk, insideAny, pathSpellings } from '../agent-worktree-keep-checks'
+import {
+  hiddenEditPaths,
+  ignoredPathsAtRisk,
+  insideAny,
+  isChatTranscriptPath,
+  pathSpellings,
+} from '../agent-worktree-keep-checks'
 import { pathExists } from '../git-utils'
 import { withWorktreeRegistryLock } from '../worktree-registry-lock'
 import { measureDiskUsage, type MeasureDiskUsage } from './disk-usage'
@@ -167,6 +173,12 @@ export type WorktreePoolServiceDeps = {
   seedIncludedFiles?: (repoRoot: string, slotPath: string) => Promise<unknown>
   /** How much disk a slot takes (disk-usage.ts). */
   measure?: MeasureDiskUsage
+  /**
+   * The ids of every chat on record, settled ones included (the workspace
+   * registry), or null when unknown. A slot holding the history of one of them
+   * is never removed (agent-worktree-keep-checks.ts).
+   */
+  knownWorkspaceIds?: () => Iterable<string> | null
 }
 
 export type WorktreePoolLeaseInput = {
@@ -288,6 +300,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   let settings: WorktreePoolSettings | null = null
   let loaded: Promise<void> | null = null
   let stopped = false
+  /** Aborts a disk measurement in progress when quitting begins. */
+  const stopping = new AbortController()
   let heartbeat: NodeJS.Timeout | null = null
   /** Every public step still running, which quitting waits for (`shutdown`). */
   const inFlight = new Set<Promise<unknown>>()
@@ -497,6 +511,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         uses: slot.uses,
         lastBranch: slot.lastBranch,
         size: slot.size,
+        kept: slot.kept,
       })),
     }
   }
@@ -746,6 +761,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         uses: 0,
         lastBranch: null,
         size: null,
+        kept: null,
       }
       pool.record.slots.push(created)
       pool.busy.add(created.id)
@@ -1264,6 +1280,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         slot.held = null
         slot.op = null
         slot.error = null
+        slot.kept = null
         slot.lastUsedAt = now()
         await persist(pool)
       })
@@ -1313,6 +1330,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     )
     const entries: WorktreePoolSweepEntry[] = []
     for (const slot of [...pool.record.slots]) {
+      // Quitting: the slots not reached yet are the next start's sweep's.
+      if (stopped) break
       if (slot.state === 'returning' && !pool.busy.has(slot.id)) {
         // A return a previous sweep postponed, or the app stopped in.
         const outcome = await returnSlot(pool, slot, true)
@@ -1363,10 +1382,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
    * left idle, or held when it turned out to hold work.
    */
   async function evictSlot(pool: PoolRuntime, slot: SlotRecord, why: string): Promise<true | string> {
-    const putBack = async (): Promise<void> => {
+    const putBack = async (kept: string | null = slot.kept): Promise<void> => {
       await withPool(pool, async () => {
         slot.state = 'idle'
         slot.op = null
+        slot.kept = kept
         await persist(pool)
       })
     }
@@ -1424,16 +1444,34 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         // an edited `.env`, notes in an ignored folder (agent-worktree-keep-
         // checks.ts). The slot stays idle; clearing its ignored files, which a
         // person confirms, is the way to let them go.
-        const ignored = await ignoredPathsAtRisk(pool.record.repoRoot, slot.path, git)
+        // What the app and the agent CLIs wrote there themselves (transcripts,
+        // installed skills, the MCP config) and a linked `node_modules` are
+        // not: Settings ▸ Worktrees shows why a slot stays.
+        // A settled chat's slot is given back while the chat stays, and its
+        // history lives in the slot's sidecar: such a slot waits for the chat
+        // to be reopened (reclaimed) or deleted.
+        const ignored = await ignoredPathsAtRisk(pool.record.repoRoot, slot.path, git, {
+          knownWorkspaceIds: deps.knownWorkspaceIds ?? null,
+        })
         if (!ignored.ok || ignored.paths.length > 0) {
-          await putBack()
           if (!ignored.ok) {
+            await putBack('could not check its ignored files')
             log(`${slot.path}: kept (could not check its ignored files: ${ignored.message})`)
             return 'Could not check its ignored files, so it is kept.'
           }
-          const listedPaths = ignored.paths.slice(0, 3).join(', ')
-          log(`${slot.path}: kept (ignored files that may be work: ${listedPaths})`)
-          return `It has ignored files that may be someone’s work (${listedPaths}). Clear its ignored files first if they can go.`
+          const chats = ignored.paths.filter(isChatTranscriptPath).length
+          const files = ignored.paths.filter((path) => !isChatTranscriptPath(path))
+          const more = files.length > 3 ? ` and ${files.length - 3} more` : ''
+          const listedPaths = `${files.slice(0, 3).join(', ')}${more}`
+          const reasons = [
+            chats > 0 ? `holds the history of ${chats === 1 ? 'a chat' : `${chats} chats`} still on record` : null,
+            files.length > 0 ? `has ignored files that may be someone’s work: ${listedPaths}` : null,
+          ].filter((reason): reason is string => reason !== null)
+          await putBack(reasons.join('; '))
+          log(`${slot.path}: kept (${reasons.join('; ')})`)
+          return files.length > 0
+            ? `It has ignored files that may be someone’s work (${listedPaths}). Clear its ignored files first if they can go.`
+            : 'It holds the history of a chat still on record, which comes back to it when the chat is reopened. Delete the chat to let it go.'
         }
         // No --force: git checks cleanliness again at the moment of removal.
         // Only a tree with submodules, which plain `remove` always refuses, is
@@ -1475,15 +1513,19 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       .sort((a, b) => (b.lastUsedAt ?? b.createdAt) - (a.lastUsedAt ?? a.createdAt))
     const others = pool.record.slots.length - idle.length
     const limit = enabled ? Math.min(keepIdle, Math.max(0, maxSlots - others)) : 0
-    for (const slot of idle.slice(limit)) await evictSlot(pool, slot, 'over the idle limit')
+    for (const slot of idle.slice(limit)) {
+      if (stopped) return
+      await evictSlot(pool, slot, 'over the idle limit')
+    }
   }
 
   // ── Disk ─────────────────────────────────────────────────────────────────
 
   async function measureSlot(pool: PoolRuntime, slot: SlotRecord): Promise<void> {
     if (!(await pathExists(slot.path))) return
-    const size = await measureSize(slot.path).catch(() => null)
-    if (!size) return
+    if (stopped) return
+    const size = await measureSize(slot.path, stopping.signal).catch(() => null)
+    if (!size || stopped) return
     await withPool(pool, async () => {
       if (!pool.record.slots.includes(slot)) return
       slot.size = size
@@ -1508,7 +1550,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       }
     }
     const worker = async (): Promise<void> => {
-      for (let next = queue.shift(); next; next = queue.shift()) await measureSlot(next.pool, next.slot)
+      for (let next = queue.shift(); next && !stopped; next = queue.shift()) await measureSlot(next.pool, next.slot)
     }
     await Promise.all(Array.from({ length: Math.min(MEASURE_CONCURRENCY, queue.length) }, worker))
     await enforceDiskLimit()
@@ -1522,7 +1564,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
    */
   async function enforceDiskLimit(): Promise<void> {
     const { diskLimitGb } = await getSettings()
-    if (diskLimitGb === null) return
+    if (diskLimitGb === null || stopped) return
     const limit = diskLimitGb * 1024 ** 3
     const driven: PoolRuntime[] = []
     // Confirmed, not remembered: a pool whose lock went to another Studio is
@@ -1538,7 +1580,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       .filter(({ pool, slot }) => slot.state === 'idle' && !pool.busy.has(slot.id))
       .sort((a, b) => (a.slot.lastUsedAt ?? a.slot.createdAt) - (b.slot.lastUsedAt ?? b.slot.createdAt))
     for (const { pool, slot } of idle) {
-      if (total <= limit) break
+      if (total <= limit || stopped) break
       const bytes = slot.size?.bytes ?? 0
       if ((await evictSlot(pool, slot, 'over the disk limit')) === true) total -= bytes
     }
@@ -1560,9 +1602,17 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     })
     if (!began) return { ok: false, message: 'Only a worktree that is ready to reuse can be cleared.' }
     try {
-      const cleaned = await git(slot.path, ['clean', '-fdX', '--quiet'])
+      // Never the app's sidecar: it holds the history of chats that ran here,
+      // which a settled chat reopened on this slot reads again. `-e` with a
+      // negation takes the folder out of the ignored set for this run (a
+      // pathspec exclusion does not stop `clean` removing an ignored folder).
+      const cleaned = await git(slot.path, ['clean', '-fdX', '--quiet', '-e', '!/.sprintengine/'])
       if (!cleaned.ok) return { ok: false, message: cleaned.message ?? 'git clean failed.' }
       log(`${slot.path}: ignored files cleared`)
+      await withPool(pool, async () => {
+        slot.kept = null
+        await persist(pool)
+      })
     } finally {
       pool.busy.delete(slot.id)
     }
@@ -1751,6 +1801,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         uses: 0,
         lastBranch: null,
         size: null,
+        kept: null,
       })
       log(`${entry.path}: adopted into the pool (${leased ? 'leased' : 'held'})`)
     }
@@ -1762,8 +1813,10 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     // records settled, not these slots.
     void track(
       (async () => {
-        for (const slot of toReturn) await returnSlot(pool, slot, true)
-        for (const slot of toEvict) await evictSlot(pool, slot, 'resumed')
+        // Quitting stops between slots: the rest stay as recorded, and the
+        // next start's recovery resumes them.
+        for (const slot of toReturn) if (!stopped) await returnSlot(pool, slot, true)
+        for (const slot of toEvict) if (!stopped) await evictSlot(pool, slot, 'resumed')
       })(),
     ).catch((error: unknown) => log(`${record.repoRoot}: resuming after recovery failed: ${messageOf(error)}`))
   }
@@ -1955,8 +2008,13 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     return false
   }
 
-  async function shutdown(): Promise<void> {
+  /**
+   * Stop, wait up to `waitMs` (ten seconds unless the caller is short of time)
+   * for the steps in flight, and give each pool's lock up.
+   */
+  async function shutdown(options: { waitMs?: number } = {}): Promise<void> {
     stopped = true
+    stopping.abort()
     if (heartbeat) clearInterval(heartbeat)
     // Nothing new starts now (`ready` refuses); what already runs is waited
     // for, briefly, before the lock that keeps another Studio off it goes.
@@ -1969,7 +2027,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         timer = setTimeout(() => {
           timedOut = true
           resolveWait()
-        }, SHUTDOWN_WAIT_MS)
+        }, options.waitMs ?? SHUTDOWN_WAIT_MS)
         timer.unref?.()
       })
       while (inFlight.size > 0 && !timedOut) await Promise.race([Promise.allSettled([...inFlight]), deadline])

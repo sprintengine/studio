@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { CliDetectResult, CliInstallMethodInfo, CliInstallResult } from '../../../../shared/electron-api'
-import { ansiPlainText } from '../../../../shared/conversation/ansi'
 import { LOCAL_HOST_ID, type ExecutionHostId } from '../../../../shared/execution-host'
+import { useAnsiPlainText } from '../../hooks/useAnsiPlainText'
 import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, Select, Spinner, type SelectItem } from '../ui'
 
 export type CliInstallControlProps = {
@@ -93,7 +93,7 @@ export function CliInstallControl({
   const [log, setLog] = useState('')
   // What the installer printed, as a terminal would leave it: no escapes, and
   // a progress bar as its last frame.
-  const plainLog = useMemo(() => ansiPlainText(log), [log])
+  const plainLog = useAnsiPlainText(log)
   const [installError, setInstallError] = useState<string | null>(null)
 
   const mountedRef = useRef(true)

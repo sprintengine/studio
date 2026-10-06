@@ -4716,6 +4716,8 @@ export default function WorkspaceManager() {
                   <div
                     className="absolute inset-0"
                     aria-hidden={activeGlobalSurfaceEntry !== null || undefined}
+                    // Browser automation inside still works: it reaches each
+                    // guest over CDP (verified; see WorkspacePaneBody).
                     inert={activeGlobalSurfaceEntry !== null}
                   >
                     <>

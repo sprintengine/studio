@@ -340,10 +340,11 @@ export type ConversationSessionActionResult =
   // but does not apply yet (switching to Bypass while a turn is still
   // streaming). The action succeeded; this is not an error.
   | { ok: true; session: ConversationSessionSummary; notice?: string }
-  // `code` names a refusal a caller acts on by itself. The runtime gives two:
+  // `code` names a refusal a caller acts on by itself. The runtime gives three:
   // `command_id_conflict`, a command id already used for a different command,
-  // and `session_not_found` (CONVERSATION_SESSION_NOT_FOUND).
-  | { ok: false; message: string; event?: ConversationEvent; code?: string }
+  // `session_not_found` (CONVERSATION_SESSION_NOT_FOUND), and `busy`, a send
+  // that arrived while a turn runs, to send again after `retryAfterMs`.
+  | { ok: false; message: string; event?: ConversationEvent; code?: string; retryAfterMs?: number }
 
 /**
  * The refusal of a call about a session the runtime does not hold: the

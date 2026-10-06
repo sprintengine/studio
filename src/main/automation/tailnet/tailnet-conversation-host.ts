@@ -142,14 +142,16 @@ export type ConversationGatewayHost = {
 }
 
 /**
- * A runtime answer as a command's result. The runtime names one refusal by a
- * code, a command id already used for a different command, and that is kept;
- * the commands built here name none, and the runtime's words stay in the message.
+ * A runtime answer as a command's result. Two refusals the runtime names by a
+ * code are kept: a command id already used for a different command, and
+ * `busy` with its delay (a send that arrived while a turn runs, which the
+ * device sends again). The commands built here name none other, and the
+ * runtime's words stay in the message.
  */
 function relay(
   result: ConversationGatewayCommandResult | ConversationSessionActionResult,
 ): ConversationGatewayCommandResult {
-  if (result.ok || result.code === undefined || result.code === 'command_id_conflict')
+  if (result.ok || result.code === undefined || result.code === 'command_id_conflict' || result.code === 'busy')
     return result as ConversationGatewayCommandResult
   const { code: _unnamed, ...rest } = result
   return rest as ConversationGatewayCommandResult

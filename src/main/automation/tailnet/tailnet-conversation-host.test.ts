@@ -256,6 +256,26 @@ test('a send behind another send to the same chat is busy, with a delay to retry
   }
 })
 
+test('a send the runtime turns away behind a running turn reaches the phone as busy, with its delay', async () => {
+  const f = await fixture()
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    vi.spyOn(f.runtime, 'sendTurn').mockResolvedValue({
+      ok: false,
+      code: 'busy',
+      retryAfterMs: 1_000,
+      message: 'Conversation turn is already in progress.',
+    })
+    const sent = await f.host.command(f.key, 'phone', 'during-a-turn', { kind: 'send', message: 'two' })
+    assert.equal(sent.ok, false)
+    assert.equal(sent.code, 'busy')
+    assert.equal(sent.retryAfterMs, 1_000)
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('an upload for a session that ended is sent on the session the send resumes the chat on', async () => {
   const f = await fixture()
   try {
