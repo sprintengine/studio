@@ -25,7 +25,7 @@ import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../shared/launch-se
 import { parseCliPermissionModeId } from '../../../shared/cli-permission-mode'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import { openConfinedExistingFile } from '../../conversation-file-access'
-import { conversationImagePathOf } from './tailnet-conversation-images'
+import { conversationImageFileOf, conversationImagePathOf } from './tailnet-conversation-images'
 import {
   ATTACHABLE_IMAGE_TYPES,
   MAX_ATTACHMENT_BYTES,
@@ -504,8 +504,9 @@ export function createConversationGatewayHost(
         // so its file is not served either.
         if (tool?.status && tool.status !== 'ok') return { ok: false, code: 'unknown_image' }
         settled = tool?.status === 'ok'
-        const path = tool ? conversationImagePathOf(tool) : null
-        if (!path) return { ok: false, code: 'unknown_image' }
+        const recorded = tool ? conversationImagePathOf(tool) : null
+        if (!recorded) return { ok: false, code: 'unknown_image' }
+        const path = conversationImageFileOf(recorded, key.workspaceRoot)
         // A relative path names a file in the chat's folder, as a link to it in
         // the same transcript does: the folder its session works in (a New
         // chat's pool worktree), else the workspace's.

@@ -13,6 +13,7 @@ import { createMockConversationProvider } from '../../providers/mock-conversatio
 import { createConversationGatewayHost } from './tailnet-conversation-host'
 import {
   CONVERSATION_IMAGE_MAX_BYTES,
+  conversationImageFileOf,
   conversationImagePathOf,
   sniffConversationImage,
 } from './tailnet-conversation-images'
@@ -580,4 +581,19 @@ test('the fetch is bounded by the ceiling and re-reads the type off the bytes', 
   } finally {
     await new Promise<void>((resolve) => peer.close(() => resolve()))
   }
+})
+
+test("a WSL chat's picture paths are opened as Windows spells them", () => {
+  // A drive mount is its drive; a path in the distribution its share, spelled as the folder is.
+  assert.equal(
+    conversationImageFileOf('/mnt/c/Users/dev/shot.png', 'C:\\Users\\dev\\repo', 'win32'),
+    'C:\\Users\\dev\\shot.png',
+  )
+  assert.equal(
+    conversationImageFileOf('/home/dev/repo/shot.png', '\\\\wsl$\\Ubuntu\\home\\dev\\repo', 'win32'),
+    '//wsl$/Ubuntu/home/dev/repo/shot.png',
+  )
+  // A distribution the folder does not name cannot be guessed; elsewhere nothing changes.
+  assert.equal(conversationImageFileOf('/home/dev/shot.png', 'C:\\repo', 'win32'), '/home/dev/shot.png')
+  assert.equal(conversationImageFileOf('/Users/dev/shot.png', '/Users/dev/repo', 'darwin'), '/Users/dev/shot.png')
 })
