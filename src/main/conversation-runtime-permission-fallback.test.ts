@@ -40,7 +40,10 @@ function event(input: MockAdapterSessionInput, type: ConversationEventType, payl
   }
 }
 
-type Refuses = { start?: 'flag' | 'always'; turn?: 'flag' | 'always' | 'after-output' | 'refused-here' }
+type Refuses = {
+  start?: 'flag' | 'always' | 'marked' | 'transient'
+  turn?: 'flag' | 'always' | 'after-output' | 'refused-here' | 'transient'
+}
 
 /**
  * A provider that refuses to start (its session, or a turn's child) under any
@@ -53,7 +56,7 @@ function refusingProvider(refuses: Refuses, hooks: { beforeTurnFails?: () => Pro
   const presets: ConversationPermissionPreset[] = []
   const starts: Array<ConversationPermissionPreset | undefined> = []
   const turns: Array<ConversationPermissionPreset | undefined> = []
-  const refused = (mode: Refuses['turn'], under: ConversationPermissionPreset) =>
+  const refused = (mode: Refuses['turn'] | Refuses['start'], under: ConversationPermissionPreset) =>
     mode === 'always' || (mode === 'flag' && under !== 'none')
   const adapter: ConversationProviderAdapter = {
     id: 'refusing',
@@ -64,6 +67,11 @@ function refusingProvider(refuses: Refuses, hooks: { beforeTurnFails?: () => Pro
       starts.push(input.permissionPreset)
       preset = input.permissionPreset ?? 'none'
       if (refused(refuses.start, preset)) throw new Error("error: unknown option '--permission-mode'")
+      // The provider's own refusal of the preset, in words that name no flag.
+      if (refuses.start === 'marked' && preset !== 'none')
+        throw Object.assign(new Error('Cursor cannot be held to Manual.'), { permissionRefused: true })
+      // A failure that is not the setting's, which only happens not to recur.
+      if (refuses.start === 'transient' && starts.length === 1) throw new Error('ACP agent startup timed out.')
       return [event(input, 'session_started'), event(input, 'session_ready')]
     },
     async *sendTurn(input) {
@@ -72,6 +80,14 @@ function refusingProvider(refuses: Refuses, hooks: { beforeTurnFails?: () => Pro
       if (refuses.turn === 'after-output') {
         yield event(input, 'content_delta', { turnId: input.turnId, text: 'half a reply' })
         yield event(input, 'turn_failed', { turnId: input.turnId, reason: 'provider', message: 'lost the network' })
+        return
+      }
+      if (refuses.turn === 'transient' && turns.length === 1) {
+        yield event(input, 'turn_failed', {
+          turnId: input.turnId,
+          reason: 'provider_error',
+          message: 'Codex app-server did not start in time.',
+        })
         return
       }
       if (refuses.turn === 'refused-here' && preset !== 'none') {
@@ -217,6 +233,41 @@ test('a mode picked while the turn was starting is kept when that turn fails', a
   assert.equal(sent.session.permissionPreset, 'manual', 'not put back to Bypass, nor dropped to No flag')
   assert.deepEqual(chat.provider.presets, ['manual'])
   assert.deepEqual(chat.provider.turns, ['bypass'])
+})
+
+test('a turn that fails for a reason that is not the setting keeps its mode and is not sent again', async () => {
+  // Retried under No flag, a cold start that timed out would likely work the
+  // second time, and leave the chat on the CLI's own default for good.
+  const chat = await start({ turn: 'transient' }, 'manual')
+  assert.ok(chat.started.ok)
+  const sent = await chat.runtime.sendTurn({ sessionId: chat.started.session.sessionId, message: 'go' })
+
+  assert.ok(sent.ok)
+  assert.equal(sent.session.permissionPreset, 'manual')
+  assert.deepEqual(chat.provider.turns, ['manual'])
+  assert.deepEqual(chat.provider.presets, [])
+  const failures = chat.events.filter((next) => next.type === 'turn_failed')
+  assert.equal(failures.length, 1)
+  assert.match(String(failures[0]?.payload?.message), /did not start in time/)
+  assert.deepEqual(notices(chat.events), [])
+})
+
+test('a session that fails to start for a reason that is not the setting reports it and keeps its mode', async () => {
+  const chat = await start({ start: 'transient' }, 'auto')
+
+  assert.equal(chat.started.ok, false)
+  assert.match(chat.started.ok ? '' : chat.started.message, /timed out/)
+  assert.deepEqual(chat.provider.starts, ['auto'])
+  assert.deepEqual(notices(chat.events), [])
+})
+
+test('a session the provider says will not take its preset starts with no flag, whatever the words', async () => {
+  const chat = await start({ start: 'marked' }, 'manual')
+
+  assert.ok(chat.started.ok)
+  assert.equal(chat.started.session.permissionPreset, 'none')
+  assert.deepEqual(chat.provider.starts, ['manual', 'none'])
+  assert.equal(notices(chat.events).length, 1)
 })
 
 test('a chat on no flag that fails is not sent again', async () => {

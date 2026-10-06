@@ -81,11 +81,13 @@ import { ConversationAttachmentStore } from './conversation-attachment-store'
 import { ConversationPlanStore } from './conversation-plan-store'
 import { approvalRememberLabels, approvalRuleCandidate } from '../shared/conversation/approvalRules'
 import {
+  looksLikePermissionSettingRefusal,
   permissionFallbackNotice,
   permissionModeAllows,
   permissionModeApprovalLabel,
   type PermissionModeRequest,
 } from '../shared/conversation/permissionModes'
+import { isRecord } from '../shared/records'
 import { getConversationProviderById } from './plugin-registry-instance'
 import { ProviderSecretStore } from './secret-store'
 import { clampSuspendIdleAfterMs, DEFAULT_SUSPEND_IDLE_AFTER_MS } from './terminal-reap-policy'
@@ -692,7 +694,8 @@ export class ConversationRuntime {
       )
     try {
       // A runtime that will not start under the chat's permission mode (a flag
-      // its CLI no longer takes, a mode it refuses) is started again with no
+      // its CLI no longer takes, a mode it refuses — said in so many words,
+      // `isPermissionSettingRefusal`) is started again with no
       // permission setting rather than leaving the person with no chat, and
       // the chat says so. Only when that start works: a runtime that fails
       // either way reports its first failure, and keeps the mode it was given.
@@ -702,7 +705,13 @@ export class ConversationRuntime {
       } catch (error) {
         const preset = session.permissionPreset
         const mode = session.permissionMode
-        if (!preset || preset === 'none' || this.sessions.get(sessionId) !== session) throw error
+        if (
+          !preset ||
+          preset === 'none' ||
+          this.sessions.get(sessionId) !== session ||
+          !isPermissionSettingRefusal(error)
+        )
+          throw error
         validation.adapter.disposeChildProcess?.(sessionId)
         session.permissionPreset = 'none'
         delete session.permissionMode
@@ -969,7 +978,8 @@ export class ConversationRuntime {
 
   /**
    * A turn whose runtime fails before it does anything, under a permission mode
-   * that passes the CLI a setting, is sent again with no permission setting:
+   * that passes the CLI a setting, and says it refused that setting
+   * (`isPermissionSettingRefusal`), is sent again with no permission setting:
    * the child a runtime starts for a turn (Claude Code's first message, a
    * relaunch after a mode change) or the turn itself (Codex's approval policy)
    * is where a setting the CLI no longer takes shows up. The retry's events
@@ -1002,6 +1012,7 @@ export class ConversationRuntime {
         !started &&
         next.value.type === 'turn_failed' &&
         next.value.payload?.refused !== true &&
+        isPermissionSettingRefusal(next.value) &&
         !input.signal?.aborted
       ) {
         failure = next.value
@@ -4056,6 +4067,21 @@ function eventIterator(
 
 async function* fromArray(events: ConversationEvent[]): AsyncIterable<ConversationEvent> {
   yield* events
+}
+
+// Whether a failure is the runtime refusing the permission setting it was
+// started or sent with: the provider says so (`permissionRefused`), or its
+// message does (`looksLikePermissionSettingRefusal`). Only then is a retry
+// with no flag worth it. A timeout or a crash retried under No flag could
+// work by luck and leave the chat on the CLI's own default, which may skip
+// every prompt, while blaming a flag that was never the problem.
+function isPermissionSettingRefusal(failure: unknown): boolean {
+  if (isRecord(failure) && failure.permissionRefused === true) return true
+  if (isRecord(failure) && isRecord(failure.payload)) {
+    if (failure.payload.permissionRefused === true) return true
+    return looksLikePermissionSettingRefusal(readTurnFailure(failure as ConversationEvent))
+  }
+  return looksLikePermissionSettingRefusal(failure instanceof Error ? failure.message : String(failure))
 }
 
 function readTurnFailure(event: ConversationEvent | null): string {

@@ -1083,7 +1083,9 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
     listModels: () => Array.from(modelIds),
     async startSession(input) {
       const refused = input.permissionPreset ? presetRefusal(profile, input.permissionPreset) : null
-      if (refused) throw new Error(refused)
+      // Marked, so the runtime knows this is the preset's refusal (Cursor's
+      // Manual) and may start the chat again with no flag.
+      if (refused) throw Object.assign(new Error(refused), { permissionRefused: true })
       const state: State = {
         input,
         closed: false,
