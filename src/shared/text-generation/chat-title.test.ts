@@ -55,6 +55,8 @@ test('chat-title', async () => {
     assert.equal(sanitizeGeneratedChatTitle('“Curly quotes”'), 'Curly quotes')
     assert.equal(sanitizeGeneratedChatTitle('サイドバーのちらつき'), 'サイドバーのちらつき', 'any script')
     assert.equal(sanitizeGeneratedChatTitle('мерцание боковой панели'), 'Мерцание боковой панели')
+    assert.equal(sanitizeGeneratedChatTitle('修正'), '修正', 'two characters that are words')
+    assert.equal(sanitizeGeneratedChatTitle('ab'), null)
   })
 
   run('caps at the workspace title length on a word boundary', () => {

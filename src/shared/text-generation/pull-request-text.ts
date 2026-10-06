@@ -13,7 +13,7 @@
  * Pure: no I/O. The main process gathers the inputs; tests drive the rest.
  */
 
-import { limitSection } from './chat-title'
+import { limitSection, namesSomething } from './chat-title'
 
 /** How much of each input the model sees. The commits and the summary say what changed; the patch says how. */
 export const MAX_PULL_REQUEST_COMMITS_CHARS = 12_000
@@ -131,6 +131,6 @@ export function sanitizePullRequestText(title: string | null, body: string): Pul
   if (line.length > MAX_PULL_REQUEST_TITLE_LENGTH) line = line.slice(0, MAX_PULL_REQUEST_TITLE_LENGTH).trimEnd()
   line = line.replace(/[.\s]+$/, '')
   // Any script's letters: a title written in Japanese or Greek is a title.
-  if (line.length < 3 || !/\p{L}/u.test(line)) return null
+  if (!namesSomething(line)) return null
   return { title: line, body: body.trim().slice(0, MAX_PULL_REQUEST_BODY_LENGTH) }
 }
