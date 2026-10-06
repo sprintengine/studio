@@ -432,6 +432,22 @@ test('an idle slot with ignored files that may be work is not removed until a pe
   assert.equal(await exists(first.path), false)
 })
 
+test('an idle slot holding only what tools rebuild (a virtualenv, logs, caches) is removed', async () => {
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await writeFile(join(repo, '.git', 'info', 'exclude'), 'venv/\n*.log\n.eslintcache\n__pycache__/\n')
+  await mkdir(join(first.path, 'venv', 'bin'), { recursive: true })
+  await writeFile(join(first.path, 'venv', 'bin', 'python'), 'x\n')
+  await writeFile(join(first.path, 'npm-debug.log'), 'x\n')
+  await writeFile(join(first.path, '.eslintcache'), '{}\n')
+  await mkdir(join(first.path, '__pycache__'), { recursive: true })
+  await writeFile(join(first.path, '__pycache__', 'app.cpython-312.pyc'), 'x')
+  await returnAll(harness)
+  const removed = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(removed.ok, true, removed.message ?? '')
+  assert.equal(await exists(first.path), false)
+})
+
 test('an ignored file where the new base adds a tracked one holds the slot rather than being overwritten', async () => {
   const harness = makeService()
   const first = await lease(harness, 'first')
