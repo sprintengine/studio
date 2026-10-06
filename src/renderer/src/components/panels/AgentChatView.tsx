@@ -244,6 +244,14 @@ export function mergeQueuedTurn(
   }
 }
 
+// A message that did not go out (a queued turn whose send was refused) back in
+// the composer, ahead of whatever the person has typed since. Left only on the
+// error's Retry, it was gone the moment anything cleared that error.
+export function restoreRefusedText(current: string, text: string): string {
+  if (!current || current === text) return text
+  return text ? `${text}\n${current}` : current
+}
+
 // What the queued-turn row reads as. An image-only queued turn has no text to
 // show, so the count is the label rather than an empty row.
 export function queuedTurnLabel(text: string, attachmentCount: number): string {
@@ -1348,7 +1356,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         setSendInFlight(false)
         setPending(null)
         if (!fromDraft) {
-          setDraft((current) => current || text)
+          setDraft((current) => restoreRefusedText(current, text))
           setDraftMetadata((current) => ({
             skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
             mentions: [...metadata.mentions, ...current.mentions],
@@ -1411,7 +1419,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
           if (turnAttachments.length) setAttachments((current) => (current.length ? current : turnAttachments))
           if (!fromDraft) {
-            setDraft((current) => current || text)
+            setDraft((current) => restoreRefusedText(current, text))
             setDraftMetadata((current) => ({
               skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
               mentions: [...metadata.mentions, ...current.mentions],
@@ -1422,7 +1430,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         finishDraftSend(draftSend, false)
         setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
         if (!fromDraft) {
-          setDraft((current) => current || text)
+          setDraft((current) => restoreRefusedText(current, text))
           setDraftMetadata((current) => ({
             skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
             mentions: [...metadata.mentions, ...current.mentions],
