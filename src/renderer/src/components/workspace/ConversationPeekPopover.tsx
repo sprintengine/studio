@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { PointerPopover } from '../ui'
 import type { ConversationPeekIdentity } from './ConversationPeekCard'
 import { useConversationPeek } from './useConversationPeek'
+import { useRelativeNow } from '../../hooks/useRelativeNow'
 
 // The peek card itself behind a `React.lazy` boundary at this call site. It is only ever rendered inside an
 // OPEN popover, so the
@@ -184,6 +185,11 @@ export function ConversationPeekPopover({
   // a scroll that starts inside the card is not the app moving beneath it,
   // and is ignored.
   const open = hover.open
+  // The row hands down its clock, which only moves when a label of the row's
+  // own does. The card says more (how long ago a pull request opened), so it
+  // keeps its own clock while it is open.
+  const clockWhileOpen = useRelativeNow(30_000, open)
+  const cardNow = Math.max(now, clockWhileOpen)
   useEffect(() => {
     if (!open) return
     const dismiss = (event: Event) => {
@@ -213,7 +219,7 @@ export function ConversationPeekPopover({
               across the gap from the row. */}
           <div ref={cardRef} onMouseEnter={keepOpen} onMouseLeave={closeSoon}>
             <React.Suspense fallback={null}>
-              <ConversationPeekCard identity={identity} now={now} />
+              <ConversationPeekCard identity={identity} now={cardNow} />
             </React.Suspense>
           </div>
         </PointerPopover>

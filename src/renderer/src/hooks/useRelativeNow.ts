@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 
 import { onWindowVisibilityChange, windowActivity, type WindowActivity } from '../utils/windowActivity'
 
@@ -21,6 +21,8 @@ type SharedClock = {
 
 export type RelativeNowClocks = {
   subscribe(intervalMs: number, listener: (now: number) => void): () => void
+  /** The interval's latest tick: the same value until the next one. */
+  current(intervalMs: number): number
 }
 
 export function createRelativeNowClocks(activity: WindowActivity, clock: { now(): number } = Date): RelativeNowClocks {
@@ -57,15 +59,27 @@ export function createRelativeNowClocks(activity: WindowActivity, clock: { now()
     }, activity)
   }
 
+  const clockOf = (intervalMs: number): SharedClock => {
+    let shared = clocks.get(intervalMs)
+    if (!shared) {
+      shared = { now: clock.now(), listeners: new Set(), timer: null }
+      clocks.set(intervalMs, shared)
+    }
+    return shared
+  }
+
   return {
+    current(intervalMs) {
+      const shared = clockOf(intervalMs)
+      // A clock nobody listens to has stopped, so its last tick can be hours
+      // old. It is read afresh once it is an interval stale, and not on every
+      // read, so two reads in one render agree.
+      if (shared.listeners.size === 0 && clock.now() - shared.now >= intervalMs) shared.now = clock.now()
+      return shared.now
+    },
     subscribe(intervalMs, listener) {
       bindVisibility()
-      let shared = clocks.get(intervalMs)
-      if (!shared) {
-        shared = { now: clock.now(), listeners: new Set(), timer: null }
-        clocks.set(intervalMs, shared)
-      }
-      const current = shared
+      const current = clockOf(intervalMs)
       current.listeners.add(listener)
       start(intervalMs, current)
       return () => {
@@ -98,5 +112,39 @@ export function useRelativeNow(intervalMs = 30_000, enabled = true): number {
     setNow(Date.now())
     return relativeNowClocks().subscribe(intervalMs, setNow)
   }, [intervalMs, enabled])
+  return now
+}
+
+/**
+ * The shared clock for a component that shows the time only through labels
+ * ("5m", "Idle 2h ago", "wakes in 3m"). A tick re-renders it only when
+ * `labels(now)` reads differently from what it last drew, so a list of rows
+ * idle for hours stops re-rendering whole twice a minute to draw the same
+ * text. Any render reads the latest tick, so `now` is never older than the
+ * interval when something else re-renders the component.
+ *
+ * `labels` has to cover every string the component derives from `now`: a
+ * label it leaves out goes stale until something else re-renders the
+ * component.
+ */
+export function useRelativeNowFor(
+  labels: (now: number) => string,
+  intervalMs = 30_000,
+  clocks: RelativeNowClocks = relativeNowClocks(),
+): number {
+  const drawn = useRef<{ labels: (now: number) => string; now: number } | null>(null)
+  const subscribe = useCallback(
+    (changed: () => void) =>
+      clocks.subscribe(intervalMs, (next) => {
+        const last = drawn.current
+        if (!last || last.labels(last.now) !== last.labels(next)) changed()
+      }),
+    [clocks, intervalMs],
+  )
+  const getSnapshot = useCallback(() => clocks.current(intervalMs), [clocks, intervalMs])
+  const now = useSyncExternalStore(subscribe, getSnapshot)
+  useLayoutEffect(() => {
+    drawn.current = { labels, now }
+  })
   return now
 }

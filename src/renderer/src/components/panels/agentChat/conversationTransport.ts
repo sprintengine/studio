@@ -255,7 +255,7 @@ const windowServices: ChatServices = {
   },
 }
 
-const localConversationTransport: ConversationTransport = {
+export const localConversationTransport: ConversationTransport = {
   kind: 'local',
   capabilities: LOCAL_CAPABILITIES,
   subscribe: (input, cb) => localParts().subscribe(input, cb),

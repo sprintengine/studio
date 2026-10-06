@@ -1338,9 +1338,15 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       turnAttachments: ConversationImageAttachment[] = [],
       requestedMetadata: ComposerDraftMetadata = { skillIds: [], mentions: [] },
       fromDraft = false,
+      // A message the person already let go of (the queued turn, flushed when
+      // the agent went idle) goes back ahead of whatever they typed since.
+      // Anything else refused (the startup prompt, Retry, Compact) lands in
+      // the composer only when it is empty, so a draft never grows a prefix.
+      restoreAhead = false,
     ) => {
       const metadata = supportsSkills ? requestedMetadata : { ...requestedMetadata, skillIds: [] }
       const text = message.trim()
+      const putBack = (current: string) => (restoreAhead ? restoreRefusedText(current, text) : current || text)
       if (
         (!text && turnAttachments.length === 0 && metadata.mentions.length === 0 && metadata.skillIds.length === 0) ||
         pending ||
@@ -1353,35 +1359,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       // A "from the next turn" notice is spent once that turn leaves.
       setPermissionNotice(null)
       setPending('starting')
-      const activeSession = await ensureSession()
-      const thisSend = { text, attachments: turnAttachments, metadata }
-      if (!activeSession) {
-        // The session's own failure is already on the line; it is this send's.
-        setActionError((current) => {
-          const message = composerErrorMessage(current)
-          return message ? { message, retry: thisSend } : current
-        })
-        sendInFlightRef.current = false
-        setSendInFlight(false)
-        setPending(null)
-        if (!fromDraft) {
-          setDraft((current) => restoreRefusedText(current, text))
-          setDraftMetadata((current) => ({
-            skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
-            mentions: [...metadata.mentions, ...current.mentions],
-          }))
-        }
-        // The turn never left, so hand the staged images back rather than make
-        // the user re-attach them — unless they already staged new ones.
-        if (turnAttachments.length > 0) {
-          setAttachments((current) => (current.length === 0 ? turnAttachments : current))
-        }
-        return
-      }
       const localTurnId = `user-${userTurns.length}-${Date.now()}`
       // An optimistic bubble only where the runtime echoes its id back on the
       // `user_message` that replaces it. A remote send has no such id, so its
-      // bubble is the host's own event, a moment later.
+      // bubble is the host's own event, a moment later. It goes up before the
+      // session is made sure of: a chat's first message otherwise waited out
+      // its CLI starting before it showed at all.
       if (transport.capabilities.optimisticTurns) {
         pendingUserScrollIdRef.current = `user:${localTurnId}`
         setUserTurns((current) => [
@@ -1395,6 +1378,34 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
           },
         ])
+      }
+      const activeSession = await ensureSession()
+      const thisSend = { text, attachments: turnAttachments, metadata }
+      if (!activeSession) {
+        // The turn never left: its bubble comes down with the text going back.
+        setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
+        if (pendingUserScrollIdRef.current === `user:${localTurnId}`) pendingUserScrollIdRef.current = null
+        // The session's own failure is already on the line; it is this send's.
+        setActionError((current) => {
+          const message = composerErrorMessage(current)
+          return message ? { message, retry: thisSend } : current
+        })
+        sendInFlightRef.current = false
+        setSendInFlight(false)
+        setPending(null)
+        if (!fromDraft) {
+          setDraft(putBack)
+          setDraftMetadata((current) => ({
+            skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
+            mentions: [...metadata.mentions, ...current.mentions],
+          }))
+        }
+        // The turn never left, so hand the staged images back rather than make
+        // the user re-attach them — unless they already staged new ones.
+        if (turnAttachments.length > 0) {
+          setAttachments((current) => (current.length === 0 ? turnAttachments : current))
+        }
+        return
       }
       const draftSend = fromDraft ? beginDraftSend(message) : null
       setPending('sending')
@@ -1428,7 +1439,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
           if (turnAttachments.length) setAttachments((current) => (current.length ? current : turnAttachments))
           if (!fromDraft) {
-            setDraft((current) => restoreRefusedText(current, text))
+            setDraft(putBack)
             setDraftMetadata((current) => ({
               skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
               mentions: [...metadata.mentions, ...current.mentions],
@@ -1439,7 +1450,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         finishDraftSend(draftSend, false)
         setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
         if (!fromDraft) {
-          setDraft((current) => restoreRefusedText(current, text))
+          setDraft(putBack)
           setDraftMetadata((current) => ({
             skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
             mentions: [...metadata.mentions, ...current.mentions],
@@ -1568,7 +1579,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     if (sendInFlight || sendInFlightRef.current) return
     const { text, attachments: queuedAttachments, metadata } = queuedTurn
     setQueuedTurn(null)
-    void sendTurn(text, queuedAttachments, metadata)
+    void sendTurn(text, queuedAttachments, metadata, false, true)
   }, [
     queuedTurn,
     readiness.kind,
@@ -1984,7 +1995,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     // the typed rest stays; left in, the next Enter sent it a second time.
     const rest = fromDraft ? null : draftAfterRetried(draft, failedSend.text)
     if (rest !== null) setDraft(rest)
-    void sendTurn(failedSend.text, failedSend.attachments, failedSend.metadata, fromDraft)
+    void sendTurn(failedSend.text, failedSend.attachments, failedSend.metadata, fromDraft, rest !== null)
     setAttachments((current) => (current === failedSend.attachments ? [] : current))
   }
   // Only this machine's Claude chat signs in through its CLI; a paired

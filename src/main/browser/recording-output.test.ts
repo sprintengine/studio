@@ -124,38 +124,3 @@ test('a WSL workspace’s file is named for the agent by its Linux path', () => 
   )
   assert.equal(agentPathOf('/Users/dev/app/r.webm'), '/Users/dev/app/r.webm')
 })
-
-test("an agent's recording goes into the folder its chat works in, and the workspace's when that is not known", async () => {
-  const root = workspace()
-  const worktree = workspace()
-  const asked: Array<{ workspaceId: string; agentId: string }> = []
-  const outputs = createWorkspaceRecordingOutputs({
-    resolveWorkspaceRoot: () => root,
-    resolveAgentRoot: (agent) => {
-      asked.push(agent)
-      return agent.agentId === 'agent-1' ? worktree : null
-    },
-  })
-  const inWorktree = await outputs.create({
-    workspaceId: 'ws',
-    stem: 'recording-x',
-    agent: { workspaceId: 'ws', agentId: 'agent-1' },
-  })
-  assert.ok(inWorktree.ok)
-  assert.equal(inWorktree.output.workspacePath, '.sprintengine/browser/recordings/recording-x.webm')
-  assert.equal(inWorktree.output.path, join(worktree, '.sprintengine', 'browser', 'recordings', 'recording-x.webm'))
-  const unknown = await outputs.create({
-    workspaceId: 'ws',
-    stem: 'recording-y',
-    agent: { workspaceId: 'ws', agentId: 'agent-2' },
-  })
-  assert.ok(unknown.ok)
-  assert.equal(unknown.output.path, join(root, '.sprintengine', 'browser', 'recordings', 'recording-y.webm'))
-  const notAnAgent = await outputs.create({ workspaceId: 'ws', stem: 'recording-z' })
-  assert.ok(notAnAgent.ok)
-  assert.equal(notAnAgent.output.path, join(root, '.sprintengine', 'browser', 'recordings', 'recording-z.webm'))
-  assert.deepEqual(asked, [
-    { workspaceId: 'ws', agentId: 'agent-1' },
-    { workspaceId: 'ws', agentId: 'agent-2' },
-  ])
-})

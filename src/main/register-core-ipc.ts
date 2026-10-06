@@ -71,6 +71,7 @@ import {
   openPanePopOutWindow,
 } from './window-factory'
 import type { AppServices } from './app-services'
+import { chatIdsOnRecord } from './agent-worktree-keep-checks'
 import type { CliModelDiscoveryInput } from '../shared/ipc/cli-model-discovery'
 import type { TerminalSpawnResult } from '../shared/ipc/terminal'
 import { registerServerDomainIpc } from '../server/desktop/server-ipc'
@@ -205,6 +206,8 @@ export function registerCoreIpc(
     {
       userDataDir: app.getPath('userData'),
       onChangelistsChanged: services.broadcastGitChangelistsChanged,
+      // Settled chats included: a worktree holding a chat's history is kept.
+      knownWorkspaceIds: () => chatIdsOnRecord(services.workspaceSyncService.getSnapshot().state.workspaces),
       // A chat's live provider session works in its folder as a terminal does.
       livePaths: async () => [
         ...listLiveTerminalSessions().flatMap((session) =>

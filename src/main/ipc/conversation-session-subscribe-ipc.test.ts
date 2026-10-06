@@ -105,3 +105,39 @@ test('a desktop reconnect with its cursor and generation is caught up without a 
     await rm(workspaceRoot, { recursive: true, force: true })
   }
 })
+
+test('a tool result reaches the window once, as its preview, and draws the same', async () => {
+  const { eventForWindow, frameForWindow } = await import('./conversation-ipc')
+  const { projectConversation } = await import('../../../packages/conversation-timeline/src/conversationProjection')
+  const base = { sessionId: 's', workspaceId: 'w', agentId: 'a', providerId: 'p', modelId: 'm', createdAt: 1 }
+  const text = 'line one\nline two'
+  const events = [
+    { ...base, id: '1', seq: 1, type: 'user_message', payload: { turnId: 't', text: 'go' } },
+    {
+      ...base,
+      id: '2',
+      seq: 2,
+      type: 'tool_started',
+      payload: { turnId: 't', toolUseId: 'u', name: 'Bash', input: {} },
+    },
+    {
+      ...base,
+      id: '3',
+      seq: 3,
+      type: 'tool_output',
+      payload: { turnId: 't', toolUseId: 'u', preview: text, output: text, status: 'ok', totalBytes: 17 },
+    },
+    // Output that is not a copy of the preview is the window's to read.
+    { ...base, id: '4', seq: 4, type: 'tool_output', payload: { turnId: 't', toolUseId: 'v', output: 'only' } },
+    { ...base, id: '5', seq: 5, type: 'turn_completed', payload: { turnId: 't' } },
+  ] as Parameters<typeof eventForWindow>[0][]
+  const shown = events.map(eventForWindow)
+  assert.equal(shown[2].payload?.output, undefined)
+  assert.equal(shown[2].payload?.preview, text)
+  assert.equal(shown[3], events[3])
+  assert.equal(events[2].payload?.output, text, 'the stored event is left as it was')
+  assert.deepEqual(projectConversation(shown), projectConversation(events))
+  const frame = frameForWindow({ type: 'snapshot', page: { events, hasMore: false, beforeCursor: null } })
+  assert.ok(frame.type === 'snapshot')
+  assert.deepEqual(frame.page.events, shown)
+})

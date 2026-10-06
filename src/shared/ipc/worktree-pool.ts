@@ -107,6 +107,13 @@ export type WorktreePoolSlotView = {
   lastBranch: string | null
   /** As last measured; null until something asked. */
   size: WorktreeDiskUsage | null
+  /**
+   * Why the pool did not remove this idle slot when it last tried (over the
+   * idle or disk limit, or asked to), as a phrase that follows "kept:":
+   * `has ignored files that may be someone’s work: .env`. Null when nothing
+   * kept it.
+   */
+  kept: string | null
 }
 
 export type WorktreePoolSnapshot = {

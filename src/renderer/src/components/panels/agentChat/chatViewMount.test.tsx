@@ -1096,6 +1096,23 @@ test('Retry sends the failed message as it was, even after the composer was edit
   }
 })
 
+test('a Retry refused again leaves the edited draft as it is, with the message still on Retry', async () => {
+  const sendTurn = vi.fn<SendTurn>().mockResolvedValue({ ok: false, message: 'The provider is restarting.' })
+  const chat = await mountChat({ sendTurn })
+  try {
+    await chat.act(async () => chat.type('Rerun the migration'))
+    await chat.act(async () => chat.enter())
+    await chat.act(async () => chat.type('Something else entirely'))
+    await chat.act(async () => chat.button('Retry')!.click())
+    expect(sendTurn).toHaveBeenCalledTimes(2)
+    // Only a queued message the person let go of goes back ahead of a draft.
+    expect(chat.draft()).toBe('Something else entirely')
+    expect(chat.button('Retry')).toBeDefined()
+  } finally {
+    await chat.unmount()
+  }
+})
+
 test('Retry after an edit takes the failed send’s images with it, so the next send does not upload them again', async () => {
   const sendTurn = vi
     .fn<SendTurn>()

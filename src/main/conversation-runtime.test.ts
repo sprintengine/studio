@@ -946,11 +946,18 @@ test('conversation-runtime', async () => {
       sink(runtimeEvent(base, 'content_delta', { turnId: 'cont_turn_1', text: 'subagent reported' }))
       await waitForStatus(runtime, 'workspace', 'active')
 
-      // The composer flushes a type-ahead message into that window.
-      assert.deepEqual(await runtime.sendTurn({ sessionId, message: 'and this too' }), {
+      // The composer flushes a type-ahead message into that window. It is
+      // busy, to send again, not failed.
+      const busy = {
         ok: false,
+        code: 'busy',
+        retryAfterMs: 1_000,
         message: 'Conversation turn is already in progress.',
-      })
+      }
+      assert.deepEqual(await runtime.sendTurn({ sessionId, message: 'and this too' }), busy)
+      // A phone's send under its command id is answered the same, and its
+      // refusal is not kept as that command's answer.
+      assert.deepEqual(await runtime.sendTurn({ sessionId, message: 'from the phone', commandId: 'phone-1' }), busy)
       assert.equal(
         events.filter((event) => event.type === 'user_message').length,
         1,
@@ -963,6 +970,12 @@ test('conversation-runtime', async () => {
       const flushed = await runtime.sendTurn({ sessionId, message: 'and this too' })
       assert.equal(flushed.ok, true)
       assert.equal(events.filter((event) => event.type === 'user_message').length, 2)
+      // And the phone's retry under the same id runs, rather than replaying
+      // the busy refusal.
+      await waitForStatus(runtime, 'workspace', 'ready')
+      const retried = await runtime.sendTurn({ sessionId, message: 'from the phone', commandId: 'phone-1' })
+      assert.equal(retried.ok, true, retried.ok ? '' : retried.message)
+      assert.equal(events.filter((event) => event.type === 'user_message').length, 3)
     } finally {
       await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })

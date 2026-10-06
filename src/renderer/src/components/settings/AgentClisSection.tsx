@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { DiscoveredCliModelCatalog } from '../../../../shared/cli-model-catalog'
-import { ansiPlainText } from '../../../../shared/conversation/ansi'
+import { useAnsiPlainText } from '../../hooks/useAnsiPlainText'
 import type { AgentCliAvailabilityMap } from '../../../../shared/electron-api'
 import {
   emptyExecutionHostSettings,
@@ -533,12 +533,7 @@ export function AgentClisSection({
                     uses: live while it runs, and kept after a failure. A clean
                     update needs no log; its version line already moved. */}
                   {updateRun && (updateRun.running || updateRun.notice) ? (
-                    <pre
-                      aria-label={`${plugin.displayName} update output`}
-                      className="max-h-48 overflow-auto whitespace-pre-wrap rounded-[var(--radius-sm)] bg-[color:var(--bg-app)] px-2.5 py-1.5 font-mono text-meta leading-[1.5] text-[color:var(--text-muted)]"
-                    >
-                      {ansiPlainText(updateRun.log) || 'Starting…'}
-                    </pre>
+                    <CliUpdateLog label={`${plugin.displayName} update output`} log={updateRun.log} />
                   ) : null}
                   <CliInstallControl
                     cli={plugin.id}
@@ -884,5 +879,19 @@ function PluginModelSettings({
         />
       </div>
     </div>
+  )
+}
+
+// One CLI's update output, read a chunk at a time as it streams in rather than
+// parsed whole again for every chunk (`useAnsiPlainText`).
+function CliUpdateLog({ label, log }: { label: string; log: string }) {
+  const text = useAnsiPlainText(log)
+  return (
+    <pre
+      aria-label={label}
+      className="max-h-48 overflow-auto whitespace-pre-wrap rounded-[var(--radius-sm)] bg-[color:var(--bg-app)] px-2.5 py-1.5 font-mono text-meta leading-[1.5] text-[color:var(--text-muted)]"
+    >
+      {text || 'Starting…'}
+    </pre>
   )
 }

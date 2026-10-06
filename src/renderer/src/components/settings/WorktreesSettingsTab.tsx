@@ -960,6 +960,7 @@ function usedBySub(row: WorktreeRow, now: number): string {
     return `${how} · ${formatRelativeMsAgo(slot.lease.leasedAt, now)}`
   }
   if (row.state === 'held' && slot?.held) return `since ${formatRelativeMsAgo(slot.held.since, now)}`
+  if (row.state === 'ready' && slot?.kept) return `kept: ${slot.kept}`
   if (row.state === 'ready' && slot?.lastBranch) return `last on ${slot.lastBranch}`
   if (row.keptBecause && row.state === 'other') return row.keptBecause
   return ''
@@ -994,6 +995,12 @@ function RowDetail({ row, now, actions, busy }: { row: WorktreeRow; now: number;
       slot?.lastBranch && row.state === 'ready' ? { term: 'Last branch', description: slot.lastBranch } : null,
       slot?.error ? { term: 'Last error', description: slot.error } : null,
       row.keptBecause && !slot ? { term: 'Kept', description: row.keptBecause } : null,
+      slot?.kept && row.state === 'ready'
+        ? {
+            term: 'Kept',
+            description: `${slot.kept.charAt(0).toUpperCase()}${slot.kept.slice(1)}. The idle and disk limits leave it on disk until its ignored files are cleared.`,
+          }
+        : null,
     ] as Array<DefinitionItem | null>
   ).filter((item): item is DefinitionItem => item !== null)
   const parts = (slot?.size ?? entry?.size)?.parts ?? []

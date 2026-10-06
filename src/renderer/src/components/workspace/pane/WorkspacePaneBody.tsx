@@ -413,6 +413,14 @@ export function WorkspacePaneBody({
             // An offscreen layer is still in the DOM: `inert` keeps its address
             // field and buttons out of the tab order (the invisible ones are
             // unfocusable already).
+            //
+            // It does not stop an agent driving the tab. Its clicks and keys go
+            // to the guest's own webContents over CDP (Input.dispatchMouseEvent,
+            // Input.dispatchKeyEvent, Input.insertText in browser-control.ts),
+            // never through this document's hit testing; checked on Electron 44
+            // with a <webview> under an inert, offscreen container, and under
+            // one made inert after the guest loaded: the guest's button took
+            // the click, its input took focus and text, and keydown fired.
             inert={offscreen}
             // A docked layer in a closed pane is clipped to nothing: its
             // animations hold still. The floating player is on screen and is

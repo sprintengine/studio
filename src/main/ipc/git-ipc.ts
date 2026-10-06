@@ -93,6 +93,8 @@ export type GitIpcPaths = {
   onChangelistsChanged?: (repoRoot: string) => void
   /** Working directories of the live terminal sessions and chat sessions; the worktree cleanup never removes one of them. */
   livePaths?: () => string[] | Promise<string[]>
+  /** Every chat id on record, or null when unknown; a worktree holding one's history is kept. */
+  knownWorkspaceIds?: () => Iterable<string> | null
 }
 
 export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, paths: GitIpcPaths): void {
@@ -445,7 +447,7 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
           },
           // The pool takes back its own slots (worktree-pool/); this process's,
           // when it keeps one.
-          { livePaths: paths.livePaths, pool: activeWorktreePool() },
+          { livePaths: paths.livePaths, pool: activeWorktreePool(), knownWorkspaceIds: paths.knownWorkspaceIds },
         ),
     )
   })

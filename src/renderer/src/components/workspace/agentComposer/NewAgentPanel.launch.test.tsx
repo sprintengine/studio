@@ -587,6 +587,67 @@ test('NewAgentPanel launch paths', async () => {
       },
     )
 
+    // The static New chat box the window booted with (public/boot-composer.js):
+    // the panel's field takes over its words, and an Enter pressed in it
+    // before the panel existed starts the chat with exactly those words.
+    const standBootBox = (text: string, enterPending: boolean): HTMLElement => {
+      const doc = dom.window.document
+      const host = doc.createElement('div')
+      host.setAttribute('data-static-composer', '')
+      const input = doc.createElement('textarea')
+      input.setAttribute('data-static-composer-input', '')
+      host.appendChild(input)
+      doc.body.appendChild(host)
+      input.value = text
+      input.setSelectionRange(text.length, text.length)
+      input.focus()
+      ;(dom.window as unknown as Record<string, unknown>).sprintengineBootComposer = {
+        version: 1,
+        storageKey: 'sprintengine-boot-composer',
+        lookSignature: () => '',
+        buildId: () => '',
+        windowId: 'primary',
+        live: { host, input, enterPending },
+        seed: 7,
+      }
+      return host
+    }
+    const { composerText } = await import('../../../../../../tests/composer-field')
+
+    await check('an Enter pressed in the static New chat box starts the chat with its words', async () => {
+      seedStore()
+      const box = standBootBox('Fix the flaky test.', true)
+      const view = await render({ initialSelection: { kind: 'conversation' }, bootComposer: true })
+      await settle()
+      assert.equal(box.isConnected, false, 'the box is gone once the field has its words')
+      assert.equal(view.launches.length, 1, 'the held Enter started one chat')
+      assert.equal(view.launches[0]?.prompt, 'Fix the flaky test.')
+      view.unmount()
+    })
+
+    await check('words typed in the static New chat box wait in the field when no Enter was pressed', async () => {
+      seedStore()
+      const box = standBootBox('Draft the release notes', false)
+      const view = await render({ initialSelection: { kind: 'conversation' }, bootComposer: true })
+      await settle()
+      assert.equal(box.isConnected, false)
+      assert.equal(composerText(composerField(view.container)), 'Draft the release notes')
+      assert.equal(view.launches.length, 0, 'nothing starts without an Enter')
+      view.unmount()
+    })
+
+    await check('a panel that is not the door leaves the static New chat box alone', async () => {
+      seedStore()
+      const box = standBootBox('not for this panel', true)
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      await settle()
+      assert.equal(box.isConnected, true)
+      assert.equal(view.launches.length, 0)
+      view.unmount()
+      box.remove()
+      delete (dom.window as unknown as Record<string, unknown>).sprintengineBootComposer
+    })
+
     if (failures > 0) {
       console.error(`NewAgentPanel.launch.test.tsx: ${failures} failing check(s)`)
       process.exit(1)

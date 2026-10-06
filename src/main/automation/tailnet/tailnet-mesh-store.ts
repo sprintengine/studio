@@ -147,8 +147,21 @@ export function createTailnetMeshStore(options: {
     }
     if (fileState === 'invalid') {
       const aside = `${path}.invalid-${now().getTime()}`
-      renameSync(path, aside)
-      options.log?.(`${TAILNET_MESH_FILENAME} was not valid JSON; it was kept as ${aside}.`)
+      try {
+        renameSync(path, aside)
+        options.log?.(`${TAILNET_MESH_FILENAME} was not valid JSON; it was kept as ${aside}.`)
+      } catch (error) {
+        // Gone since it was read (the person deleted it): nothing is left to
+        // keep, and the write below starts a new one. Any other failure leaves
+        // it where it is, unwritten, for the rest of the run.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          fileState = 'unreadable'
+          options.log?.(
+            `${TAILNET_MESH_FILENAME} was not valid JSON and could not be moved aside (${error instanceof Error ? error.message : String(error)}), so it is not written over; this change lasts until quit.`,
+          )
+          return
+        }
+      }
       fileState = 'readable'
     }
     // A connection whose token cannot be sealed is left out of the file

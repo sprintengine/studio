@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { access, appendFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -13,6 +13,7 @@ import { installWorktreePool } from './active-pool'
 import { acquireInstanceLock, createPoolStore, POOL_RECORD_VERSION, poolIdFor, type PoolRecord } from './pool-store'
 import { agentLeaseKey } from '../../shared/ipc/worktree-pool'
 import { parseSlotStatus } from './slot-git'
+import type { MeasureDiskUsage } from './disk-usage'
 import { createWorktreeInventory } from './worktree-inventory'
 import { createWorktreePoolService } from './worktree-pool-service'
 import { createWorktreePoolTools } from './worktree-pool-tools'
@@ -69,7 +70,8 @@ function makeService(
     live?: string[]
     now?: () => number
     instanceId?: string
-    measure?: ReturnType<typeof fakeMeasure>
+    measure?: MeasureDiskUsage
+    knownWorkspaceIds?: () => Iterable<string> | null
   } = {},
 ) {
   const live = options.live ?? []
@@ -83,6 +85,7 @@ function makeService(
     now: options.now ?? (() => Date.now() + clock.offset),
     instanceId: options.instanceId,
     measure: options.measure ?? fakeMeasure(GB),
+    ...(options.knownWorkspaceIds ? { knownWorkspaceIds: options.knownWorkspaceIds } : {}),
   })
   return { service, live, clock }
 }
@@ -422,11 +425,14 @@ test('an idle slot with ignored files that may be work is not removed until a pe
   assert.match(kept.message ?? '', /\.env/)
   assert.equal(await exists(first.path), true)
   assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
-  // The idle limit leaves it too.
+  // The idle limit leaves it too, and Settings says why.
   await harness.service.updateSettings({ keepIdle: 0 })
-  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+  const idle = await slotAt(harness, 'pool-01')
+  assert.equal(idle.state, 'idle')
+  assert.match(idle.kept ?? '', /^has ignored files .*\.env/)
 
   await harness.service.action({ kind: 'clear-ignored', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal((await slotAt(harness, 'pool-01')).kept, null)
   const removed = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
   assert.equal(removed.ok, true)
   assert.equal(await exists(first.path), false)
@@ -446,6 +452,93 @@ test('an idle slot holding only what tools rebuild (a virtualenv, logs, caches) 
   const removed = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
   assert.equal(removed.ok, true, removed.message ?? '')
   assert.equal(await exists(first.path), false)
+})
+
+test('what the app and the agent CLIs wrote, and a linked node_modules, do not keep an idle slot', async () => {
+  await appendFile(
+    join(repo, '.git', 'info', 'exclude'),
+    '.sprintengine/\n.agents/\n.claude/\n.opencode/\nnode_modules\n',
+  )
+  // The chat that ran here was deleted since: only `chat-now` is on record.
+  const harness = makeService({ knownWorkspaceIds: () => ['chat-now'] })
+  const first = await lease(harness, 'first')
+  // A deleted chat's leftover transcript, the pane's captures, a skill the
+  // app installed, what OpenCode installs for itself, an empty folder a CLI
+  // made, and dependencies linked in.
+  await mkdir(join(first.path, '.sprintengine', 'conversations', 'ws-1'), { recursive: true })
+  await writeFile(join(first.path, '.sprintengine', 'conversations', 'ws-1', 'agent-1.jsonl'), '{}\n')
+  await mkdir(join(first.path, '.sprintengine', 'browser'), { recursive: true })
+  await writeFile(join(first.path, '.sprintengine', 'browser', 'shot.png'), 'png')
+  const skill = join(first.path, '.agents', 'skills', 'design-system')
+  await mkdir(skill, { recursive: true })
+  await writeFile(join(skill, 'SKILL.md'), '# design system\n')
+  await writeFile(join(skill, '.sprintengine-skill.json'), '{}\n')
+  await mkdir(join(first.path, '.opencode', 'node_modules', 'plugin'), { recursive: true })
+  await writeFile(join(first.path, '.opencode', 'package.json'), '{}\n')
+  await mkdir(join(first.path, '.claude'), { recursive: true })
+  const shared = join(caseDir, 'shared-node-modules')
+  await mkdir(join(shared, 'left-pad'), { recursive: true })
+  await symlink(shared, join(first.path, 'node_modules'))
+  await returnAll(harness)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+
+  await harness.service.updateSettings({ keepIdle: 0 })
+  assert.equal(await exists(first.path), false)
+  assert.equal(await exists(join(shared, 'left-pad')), true, 'the linked folder itself is untouched')
+})
+
+test('a slot given back by a settled chat keeps that chat’s history until the chat is gone', async () => {
+  await appendFile(join(repo, '.git', 'info', 'exclude'), '.sprintengine/\nnode_modules/\n')
+  const onRecord = ['settled-chat', 'another-chat']
+  const harness = makeService({ knownWorkspaceIds: () => onRecord })
+  const first = await lease(harness, 'first')
+  const history = join(first.path, '.sprintengine', 'conversations', 'settled-chat')
+  await mkdir(history, { recursive: true })
+  await writeFile(join(history, 'agent-1.jsonl'), '{"type":"user_message"}\n')
+  await mkdir(join(first.path, 'node_modules', 'pkg'), { recursive: true })
+  // The chat settled and its slot went back to the pool; the chat stays.
+  await returnAll(harness)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+
+  await harness.service.updateSettings({ keepIdle: 0 })
+  assert.equal(await exists(join(history, 'agent-1.jsonl')), true, 'the idle limit leaves it')
+  assert.match((await slotAt(harness, 'pool-01')).kept ?? '', /history of a chat still on record/)
+  const asked = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(asked.ok, false)
+  assert.match(asked.message ?? '', /history of a chat/)
+  // Clearing the slot's ignored files frees the space and keeps the history.
+  await harness.service.action({ kind: 'clear-ignored', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(await exists(join(first.path, 'node_modules')), false)
+  assert.equal(await exists(join(history, 'agent-1.jsonl')), true)
+
+  // Deleted, the chat's history is a leftover, and the slot goes.
+  onRecord.splice(0, 1)
+  assert.equal((await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })).ok, true)
+  assert.equal(await exists(first.path), false)
+})
+
+test('with the chats on record unknown, a slot holding any chat’s history is kept', async () => {
+  await appendFile(join(repo, '.git', 'info', 'exclude'), '.sprintengine/\n')
+  const harness = makeService({ knownWorkspaceIds: () => null })
+  const first = await lease(harness, 'first')
+  const history = join(first.path, '.sprintengine', 'conversations', 'some-chat')
+  await mkdir(history, { recursive: true })
+  await writeFile(join(history, 'agent-1.jsonl'), '{}\n')
+  await returnAll(harness)
+  assert.equal((await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })).ok, false)
+  assert.equal(await exists(join(history, 'agent-1.jsonl')), true)
+})
+
+test('a skill folder the app did not install keeps an idle slot', async () => {
+  await appendFile(join(repo, '.git', 'info', 'exclude'), '.claude/\n')
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await mkdir(join(first.path, '.claude', 'skills', 'mine'), { recursive: true })
+  await writeFile(join(first.path, '.claude', 'skills', 'mine', 'SKILL.md'), '# my own skill\n')
+  await returnAll(harness)
+  await harness.service.updateSettings({ keepIdle: 0 })
+  assert.equal(await exists(first.path), true)
+  assert.match((await slotAt(harness, 'pool-01')).kept ?? '', /\.claude\//)
 })
 
 test('an ignored file where the new base adds a tracked one holds the slot rather than being overwritten', async () => {
@@ -548,6 +641,43 @@ test('quitting waits for a lease in flight before giving the pool’s lock up', 
   assert.equal(leased, true, 'the lease finished before the lock went')
   assert.equal(await exists(join(container, '.pool.lock')), false)
   await pending
+})
+
+test('quitting stops a disk measurement part-way, and a short wait is not stretched by a step that hangs', async () => {
+  let started = 0
+  let aborted = false
+  const abortable: MeasureDiskUsage = (_path, signal) => {
+    started += 1
+    return new Promise((resolveMeasure) => {
+      signal?.addEventListener('abort', () => {
+        aborted = true
+        resolveMeasure(null)
+      })
+    })
+  }
+  const harness = makeService({ measure: abortable })
+  await lease(harness, 'first')
+  const measuring = harness.service.measure(repo)
+  while (started === 0) await new Promise((resolveTick) => setTimeout(resolveTick, 5))
+  await harness.service.shutdown()
+  assert.equal(aborted, true)
+  await measuring
+
+  // One that never ends, quitting for an update: the lock goes at the cap.
+  let hanging = 0
+  const stuck = makeService({
+    measure: () => {
+      hanging += 1
+      return new Promise(() => {})
+    },
+  })
+  await lease(stuck, 'second')
+  void stuck.service.measure(repo)
+  while (hanging === 0) await new Promise((resolveTick) => setTimeout(resolveTick, 5))
+  const before = Date.now()
+  await stuck.service.shutdown({ waitMs: 50 })
+  assert.ok(Date.now() - before < 2_000, 'the short wait is kept')
+  assert.equal(await exists(join(container, '.pool.lock')), false)
 })
 
 test('a Studio that lost the pool’s lock no longer returns a slot', async () => {

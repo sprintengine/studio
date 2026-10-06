@@ -29,7 +29,8 @@ import {
   usePullRequestsByConversation,
   type ConversationPullRequests,
 } from './useConversationPullRequests'
-import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
+import { activityAt, peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
+import { cancelOpenIntent, intendToOpenWorkspace } from './sidebarChatPrefetch'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
 import { folderIdentityKey, useFolderRepositoryIdentities } from './useFolderRepositoryIdentities'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
@@ -74,7 +75,7 @@ import {
   type CrossWorkspaceTabSpec,
 } from '../../utils/modelRegistry'
 import { dataTransferHasTabDrag, readTabDragPayload, type TabDragPayload } from '../../utils/tabDragPayload'
-import { useRelativeNow } from '../../hooks/useRelativeNow'
+import { useRelativeNow, useRelativeNowFor } from '../../hooks/useRelativeNow'
 import { useWorkspaceMachineRef } from '../../hooks/useMachineIdentity'
 import { distroOfHostId, isWslHostId } from '../../../../shared/execution-host'
 import { useStableCallback } from '../../hooks/useStableCallback'
@@ -3411,7 +3412,22 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     setRenamingId,
     renameInputRef,
   } = handlers
-  const now = useRelativeNow()
+  // Every time this row draws, read off the clock: a tick that leaves all of
+  // them as they were leaves the row alone, which on a list of rows idle for
+  // hours is nearly every tick. A label added below that reads `now` belongs
+  // here too, or it waits for some other change to advance.
+  const now = useRelativeNowFor((at) => {
+    const stamps = [
+      recency?.lastInputAt,
+      recency?.idleSince,
+      wokeAt,
+      ...rowLines.lines.map((line) => line.idleSince),
+      ...peekSessions.map(activityAt),
+      ...conversationSessions.map(conversationFinishedAt),
+    ]
+    const wake = asleepUntil === null ? '' : `${snoozeWakeLabel(asleepUntil, at)}|${relativeFromNow(asleepUntil, at)}`
+    return `${stamps.map((stamp) => formatRelativeMs(stamp, at)).join('|')}|${wake}`
+  })
   // An agent's editor reveal waiting for this workspace to be shown.
   const revealPending = usePendingEditorReveal(workspace.id)
   const flatProject = options?.flatProject ?? null
@@ -3961,7 +3977,13 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
       // Roving tabindex: exactly one treeitem is in the tab order at a time,
       // and Arrow/Home/End move focus between rows (handleTreeRowKeyDown).
       tabIndex={isRovingTarget ? 0 : -1}
-      onFocus={() => setRovingKey(rowKey)}
+      onFocus={() => {
+        setRovingKey(rowKey)
+        intendToOpenWorkspace(workspace.id)
+      }}
+      // A pointer resting on the row reads its chat ahead of the click.
+      onPointerEnter={() => intendToOpenWorkspace(workspace.id)}
+      onPointerLeave={() => cancelOpenIntent(workspace.id)}
       onKeyDown={(event) => handleTreeRowKeyDown(event, workspace.id)}
       // Drag-to-reorder is the tree's: it rewrites the stored order of a
       // folder's chats, and the flat stream is ordered by the clock, so a

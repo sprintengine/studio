@@ -161,6 +161,7 @@ import {
   rescopeNewChatDraft,
   writeNewChatDraft,
 } from './agentComposer/newChatDraft'
+import { bootComposerLive, dropBootComposerSnapshot, releaseBootComposer } from './agentComposer/bootComposer'
 import { showToast } from '../../store/toastStore'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
@@ -244,6 +245,7 @@ import { cardSurfaceRoute } from './manager/cardSurfaceRoute'
 import { subscribeAppUpdateState } from '../../store/appUpdateStore'
 import { useSettingsUpdateBadges } from '../settings/useSettingsUpdateBadges'
 import { selectWorkspaceManagerWorkspaces } from './manager/workspaceSelector'
+import { preloadableLazy } from '../../utils/preloadableLazy'
 import { hasTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { clearPaneAttachedHidden, paneAttachedHidden } from '../../utils/terminalPaneVisibility'
 import { shouldSendTerminalPaintVisibility } from './manager/terminalPaintVisibility'
@@ -272,7 +274,12 @@ import {
 // agent's terminal; New chat creates a solo workspace in the picked project.
 // The panel that used to serve the second — NewChatPanel — is gone rather than
 // left beside this one, because two launch surfaces drift.
-const NewAgentPanel = React.lazy(() => import('./agentComposer/NewAgentPanel'))
+//
+// Preloadable: a window that opens with no chats opens on this panel, and a
+// plain lazy mount there would show "Loading new chat" and then hold the panel
+// back for React's fallback window, long after its chunk had arrived.
+const newAgentPanelChunk = preloadableLazy(() => import('./agentComposer/NewAgentPanel'))
+const NewAgentPanel = newAgentPanelChunk.Component
 
 // On-demand overlays kept off the eager boot chunk: each mounts only when the
 // user reaches for it (Cmd-K palette, the diagnostics overlay), so its subtree —
@@ -336,6 +343,11 @@ const FirstRunCliCard = React.lazy(() => import('../onboarding/FirstRunCliCard')
 // First-run only too: the offer of the sessions this person already ran in
 // Claude Code or Codex, on a fresh profile whose scan found some.
 const ConversationImportCard = React.lazy(() => import('../onboarding/ConversationImportCard'))
+
+// How long the static New chat box (public/boot-composer.js) waits for New chat
+// to open before it gives way to whatever the window shows instead. The splash
+// gives boot the same budget (BOOT_REVEAL_TIMEOUT_MS in main/boot-reveal.ts).
+const BOOT_COMPOSER_WAIT_MS = 10_000
 
 // Display name for a New Chat project scope: the folder's last path segment.
 function newChatFolderLabel(path: string): string {
@@ -1978,6 +1990,17 @@ export default function WorkspaceManager() {
     if (autoOpenNewChat) presentNewChatPanelRef.current()
   }, [autoOpenNewChat])
 
+  // A window with no chats is about to open on New chat, once the CLI probe
+  // answers; its chunk is fetched now, while that probe is still out, so the
+  // panel mounts the moment it is asked for.
+  const opensOnNewChat = railWorkspaces.length === 0
+  useEffect(() => {
+    if (opensOnNewChat) newAgentPanelChunk.preload()
+    // A window with a chat no longer opens on New chat, so the static box
+    // captured from its New chat panel must not be drawn at its next launch.
+    else dropBootComposerSnapshot()
+  }, [opensOnNewChat])
+
   useEffect(() => {
     let disposed = false
 
@@ -2925,6 +2948,39 @@ export default function WorkspaceManager() {
   useEffect(() => {
     if (editingScheduledAgentId && !editingScheduledAgent) setNewChatPanelState(null)
   }, [editingScheduledAgentId, editingScheduledAgent])
+
+  // The static New chat box this window booted with (public/boot-composer.js)
+  // is taken over by the door's composer as it mounts. Until then it stands
+  // while New chat is still what this window opens on; if that stops being
+  // so — a chat shows, a door opens, the CLI probe settles on something else —
+  // it goes, and whatever was typed into it is parked as the New chat draft,
+  // where the next New chat picks it up. Waiting is bounded: a probe that never
+  // settles holds the auto-open indefinitely, and the box must not stand over
+  // the empty stage, and its own New chat button, for that long.
+  const [bootComposerWaitOver, setBootComposerWaitOver] = useState(false)
+  useEffect(() => {
+    if (!bootComposerLive()) return
+    const timer = window.setTimeout(() => setBootComposerWaitOver(true), BOOT_COMPOSER_WAIT_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
+  const newChatDoorTakesBootComposer =
+    newChatPanelState !== null &&
+    (newChatPanelState.mode ?? 'chat') === 'chat' &&
+    !newChatPanelState.connector &&
+    !newChatPanelState.forcedSelection &&
+    !editingScheduledAgent &&
+    railWorkspaces.length === 0
+  const bootComposerStands =
+    railWorkspaces.length === 0 &&
+    !activeGlobalSurfaceEntry &&
+    (newChatPanelState
+      ? newChatDoorTakesBootComposer
+      : !bootComposerWaitOver && (cliAvailabilityStatus === 'loading' || autoOpenNewChat))
+  useEffect(() => {
+    if (bootComposerStands || !bootComposerLive()) return
+    const typed = releaseBootComposer()
+    if (typed) writeNewChatDraft(workspaceWindowId, { prompt: typed })
+  }, [bootComposerStands, workspaceWindowId])
   // Its recent runs, which the editor lists: the chats in this window's list
   // that carry its id, each with the activity its sidebar row shows.
   const editingScheduledAgentRuns = useMemo(
@@ -4727,6 +4783,8 @@ export default function WorkspaceManager() {
                   <div
                     className="absolute inset-0"
                     aria-hidden={activeGlobalSurfaceEntry !== null || undefined}
+                    // Browser automation inside still works: it reaches each
+                    // guest over CDP (verified; see WorkspacePaneBody).
                     inert={activeGlobalSurfaceEntry !== null}
                   >
                     <>
@@ -4776,7 +4834,10 @@ export default function WorkspaceManager() {
                   close discards. Sits above the layers so it works whether or not
                   a workspace is active. */}
                       {newChatPanelState ? (
-                        <div className="absolute inset-0 z-10 isolate overflow-auto bg-[color:var(--bg-app)]">
+                        <div
+                          data-new-chat-door=""
+                          className="absolute inset-0 z-10 isolate overflow-auto bg-[color:var(--bg-app)]"
+                        >
                           <React.Suspense fallback={<SuspenseFallback label="Loading new chat" />}>
                             {/* New chat opens the SAME launch surface the tab
                         strip's "+" opens. One shell, two destinations — here it
@@ -4846,6 +4907,7 @@ export default function WorkspaceManager() {
                               // The door has no tab to close, so the surface carries the
                               // control itself.
                               showCloseButton
+                              bootComposer={newChatDoorTakesBootComposer}
                             />
                           </React.Suspense>
                         </div>

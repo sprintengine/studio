@@ -83,6 +83,13 @@ import { ProjectScopePicker } from './ProjectScopePicker'
 import { remoteProjectOfWorkspace, remoteProjectsOf, type RemoteProject } from './remoteProjects'
 import { type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
 import { mergeDraftConnectors, readNewChatDraft, writeNewChatDraft, type NewChatDraftImage } from './newChatDraft'
+import {
+  bootComposerRect,
+  bootComposerSeed,
+  captureBootComposerSnapshot,
+  claimBootComposer,
+  dropBootComposerSnapshot,
+} from './bootComposer'
 import { showToast } from '../../../store/toastStore'
 import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
@@ -257,6 +264,13 @@ export type NewAgentPanelProps = {
   scheduledRuns?: readonly ScheduledRunEntry[]
   /** Open one of those runs' chats. */
   onOpenScheduledRun?: (workspaceId: string) => void
+  /**
+   * Door-only, in a window with no chats: the panel the window opens on next
+   * launch. It takes over the static New chat box the window booted with
+   * (public/boot-composer.js), and records itself, while untouched, as the box
+   * the next launch draws.
+   */
+  bootComposer?: boolean
 }
 
 /**
@@ -467,6 +481,7 @@ export default function NewAgentPanel({
   onScheduled,
   scheduledRuns = NO_SCHEDULED_RUNS,
   onOpenScheduledRun,
+  bootComposer = false,
 }: NewAgentPanelProps) {
   // The parked draft, read once at mount: what the door held when the person
   // last stepped off it. An explicit connector attachment leads the draft's
@@ -958,7 +973,9 @@ export default function NewAgentPanel({
   // and the skills picker it opens over the same "+" are `ComposerPlusMenu`.
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
-  const [seed] = React.useState(() => newSuggestionSeed())
+  // Replacing the static box, the panel draws the cards the box was drawn
+  // with: different cards under the same composer would be a visible swap.
+  const [seed] = React.useState(() => (bootComposer ? bootComposerSeed() : null) ?? newSuggestionSeed())
   const promptRef = React.useRef<ComposerFieldHandle>(null)
 
   // ── Images pasted or dropped into the prompt box ──────────────────────────
@@ -1523,6 +1540,42 @@ export default function NewAgentPanel({
     return () => cancelAnimationFrame(id)
   }, [canLaunch, composer.noAgentCliInstalled, localHosts.length])
 
+  // ── The static New chat box ───────────────────────────────────────────────
+  // The field takes over the box as it mounts (`adoptBootInput` below). An
+  // Enter pressed in the box is held here, with the words it was pressed on,
+  // and starts the chat as soon as the panel can and holds those words —
+  // exactly what it would have done had the panel been there to take it.
+  const bootLaunchPendingRef = React.useRef<string | null>(null)
+  const bootLandingRef = React.useRef<DOMRect | null>(null)
+  const adoptBootInput = React.useCallback(() => {
+    bootLandingRef.current = bootComposerRect()
+    const taken = claimBootComposer()
+    if (taken?.enterPending) bootLaunchPendingRef.current = taken.text
+    return taken
+  }, [])
+  React.useEffect(() => {
+    const pending = bootLaunchPendingRef.current
+    if (pending === null || pending !== prompt || !canLaunch || !extensionReady) return
+    bootLaunchPendingRef.current = null
+    launch(prompt)
+  })
+  // The box was drawn from a capture; if the composer it stood in for landed
+  // anywhere else, the capture is out of date (a layout changed since), and
+  // the next launch must not draw it again.
+  React.useLayoutEffect(() => {
+    const landed = bootLandingRef.current
+    bootLandingRef.current = null
+    const composerBox = rootRef.current?.querySelector('[data-new-chat-composer]')
+    if (!landed || !composerBox) return
+    const actual = composerBox.getBoundingClientRect()
+    const off = Math.max(
+      Math.abs(actual.left - landed.left),
+      Math.abs(actual.top - landed.top),
+      Math.abs(actual.width - landed.width),
+    )
+    if (off > 0.5) dropBootComposerSnapshot()
+  }, [])
+
   // Escape cancels from anywhere on the surface — the prompt is where focus
   // starts, but a person who has tabbed to a chip must not be trapped. The
   // `defaultPrevented` guard is the topmost-surface contract: an open popover or
@@ -1546,6 +1599,9 @@ export default function NewAgentPanel({
   }, [onClose])
 
   const onPromptKeyDown = (event: ComposerKeyEvent) => {
+    // A key in the real field is the person carrying on: an Enter held from
+    // the static box no longer speaks for what the field now says.
+    bootLaunchPendingRef.current = null
     // The Enter that commits an input method's composition belongs to the
     // input method: it picks the characters, it does not send them half-typed.
     if (event.nativeEvent.isComposing) return
@@ -1612,6 +1668,52 @@ export default function NewAgentPanel({
   // same install route either way, because installing a CLI is the answer to
   // both.
   const terminalUnavailable = (composer.noAgentCliInstalled && localHosts.length <= 1) || chatUnavailable
+
+  // The capture: this panel, untouched, in a window with no chats, is what
+  // the next launch opens on. Taken after paint and again whenever the region
+  // changes size; anything the person types or picks stops it, and the last
+  // untouched capture stands.
+  const bootCapturable =
+    bootComposer &&
+    mode === 'chat' &&
+    !editing &&
+    prompt === '' &&
+    images.length === 0 &&
+    attachingCount === 0 &&
+    scopeFolder === null &&
+    composer.skills.length === 0 &&
+    composer.mcpServers.length === 0 &&
+    hostId === LOCAL_HOST_ID &&
+    !pickedSsh &&
+    !remoteTarget &&
+    !isTerminalLaunch
+  React.useEffect(() => {
+    const door = rootRef.current?.closest<HTMLElement>('[data-new-chat-door]')
+    if (!bootCapturable || !door) return
+    let frame = 0
+    const capture = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => captureBootComposerSnapshot(door, seed))
+    }
+    capture()
+    // A chip that fills in late (a model label, a machine list) changes what
+    // the panel looks like without a render of this component.
+    const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(capture) : null
+    resized?.observe(door)
+    const changed = typeof MutationObserver === 'function' ? new MutationObserver(capture) : null
+    changed?.observe(door, { subtree: true, childList: true, characterData: true, attributes: true })
+    // A new theme, material or chat width is a new look; the capture carries
+    // the look it was taken under, so it is taken again under the new one.
+    changed?.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'data-mode', 'data-window-material', 'data-chat-width', 'data-chat-contrast'],
+    })
+    return () => {
+      cancelAnimationFrame(frame)
+      resized?.disconnect()
+      changed?.disconnect()
+    }
+  }, [bootCapturable, seed, placeholder, selection])
 
   // ── The "+" menu ──────────────────────────────────────────────────────────
   // How the launch starts. A conversation wherever the workspace can host one;
@@ -1881,6 +1983,7 @@ export default function NewAgentPanel({
               onKeyDown={onPromptKeyDown}
               placeholder={placeholder}
               disabled={isTerminalLaunch}
+              adoptInput={bootComposer ? adoptBootInput : undefined}
               contentAttributes={{ 'aria-label': 'What this agent should do' }}
               className="max-h-[280px] min-h-[66px] w-full font-mono text-body"
             />

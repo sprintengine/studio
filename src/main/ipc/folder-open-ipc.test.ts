@@ -384,7 +384,7 @@ test('folder-open-ipc', async () => {
 
     await deps.showItemInFolder('/repo')
     assert.deepEqual(revealed, ['/repo'])
-    assert.deepEqual(deps.resolveLauncher('finder'), { kind: 'reveal' })
+    assert.deepEqual(await deps.resolveLauncher('finder'), { kind: 'reveal' })
     await assert.rejects(deps.assertPathReachable(join(__dirname, 'definitely-missing-folder')))
   }
 

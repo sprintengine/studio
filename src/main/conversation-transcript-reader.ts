@@ -52,6 +52,10 @@ const HEAD_BYTES = 64 * 1024
 const MAX_RECORD_BYTES = 16 * 1024 * 1024
 const MAX_CONCURRENT_READS = 4
 const MAX_CACHED_OFFSETS = 4096
+// The parsed ends of the transcripts read most recently, kept so reading one
+// again parses only what was appended since. The bytes are the source lines'.
+const PARSED_TAIL_TRANSCRIPTS = 8
+const PARSED_TAIL_BYTES = 24 * 1024 * 1024
 
 type DeltaPart = [string, number, number, number?]
 
@@ -66,6 +70,21 @@ type TranscriptRecord = {
 
 type Records = AsyncIterable<TranscriptRecord>
 
+/**
+ * The newest records of one transcript as parsed, newest first, covering the
+ * file from `start` to `end` without a gap. A transcript is only ever appended
+ * to, so while its file and first line are the same and it has not shrunk,
+ * these are still its records; whatever lies past `end` is newer.
+ */
+type ParsedTail = {
+  ino: number
+  generation: string
+  start: number
+  end: number
+  bytes: number
+  records: TranscriptRecord[]
+}
+
 export type TranscriptSyncResult =
   | { kind: 'events'; events: ConversationEvent[]; head: number; generation: string }
   | { kind: 'snapshot'; page: ConversationPage; head: number; generation: string }
@@ -78,6 +97,8 @@ export class ConversationTranscriptReader {
   private readonly waiting: Array<() => void> = []
   // Where page-start records live, so paging back does not rescan from the end.
   private readonly offsets = new Map<string, { generation: string; bySeq: Map<number, number> }>()
+  // Least recently read first.
+  private readonly tails = new Map<string, ParsedTail>()
 
   constructor(limits: Partial<ConversationTranscriptLimits> = {}) {
     this.limits = { ...DEFAULT_TRANSCRIPT_LIMITS, ...limits }
@@ -85,6 +106,7 @@ export class ConversationTranscriptReader {
 
   forget(path: string): void {
     this.offsets.delete(path)
+    this.tails.delete(path)
   }
 
   /**
@@ -120,7 +142,11 @@ export class ConversationTranscriptReader {
     return this.read(root, path, async (records, generation, file) => {
       const cached = this.offsets.get(path)
       const offset = cached?.generation === generation ? cached.bySeq.get(beforeCursor) : undefined
-      const source = offset !== undefined && file ? backwardRecords(file, offset) : skipFrom(records, beforeCursor)
+      // Within the parsed tail, skipping to the cursor costs no read.
+      const tail = this.tails.get(path)
+      const parsed = tail?.generation === generation && offset !== undefined && offset > tail.start
+      const source =
+        offset !== undefined && file && !parsed ? backwardRecords(file, offset) : skipFrom(records, beforeCursor)
       return (await this.page(path, generation, source, turnLimit)).page
     })
   }
@@ -144,7 +170,7 @@ export class ConversationTranscriptReader {
       for await (const record of records) {
         bytes += record.bytes
         if (bytes > maxBytes && newest.length > 0) break
-        const expanded = limit.compact ? [compact(record)] : expandCoalescedDeltas(record.event)
+        const expanded = limit.compact ? [compact(record)] : expandCoalescedDeltas({ ...record.event })
         newest.push(expanded)
         count += expanded.length
         if (count >= maxEvents) break
@@ -186,7 +212,7 @@ export class ConversationTranscriptReader {
     return this.read(root, path, async (records) => {
       let read = 0
       for await (const record of records) {
-        if (predicate(record.event)) return record.event
+        if (predicate(record.event)) return { ...record.event }
         read += record.bytes
         if (read > maxBytes) break
       }
@@ -316,17 +342,80 @@ export class ConversationTranscriptReader {
     work: (records: Records, generation: string, file?: FileHandle) => Promise<T>,
   ): Promise<T> {
     return this.withFile(root, path, async (file) => {
-      if (!file) return work(emptyRecords(), EMPTY_TRANSCRIPT_GENERATION)
-      const { size } = await file.stat()
+      if (!file) {
+        this.tails.delete(path)
+        return work(emptyRecords(), EMPTY_TRANSCRIPT_GENERATION)
+      }
+      const { size, ino } = await file.stat()
       const generation = await readGeneration(file, size)
       try {
-        return await work(backwardRecords(file, size), generation, file)
+        return await work(await this.tailRecords(path, file, size, ino, generation), generation, file)
       } catch (error) {
         if (!(error instanceof LegacyTranscript)) throw error
+        this.tails.delete(path)
       }
       const raw = await readBoundedConversationFile(file, this.limits.fullReadBytes)
       return work(legacyRecords(raw.toString('utf8')), generation)
     })
+  }
+
+  /**
+   * The transcript's records newest first, as `backwardRecords` reads them,
+   * with the parsed tail standing in for the part of the file it covers: only
+   * what was appended since is read and parsed, and the records a reader goes
+   * on to read from disk are added to the tail, within its budget.
+   */
+  private async tailRecords(
+    path: string,
+    file: FileHandle,
+    size: number,
+    ino: number,
+    generation: string,
+  ): Promise<Records> {
+    let tail = this.tails.get(path)
+    this.tails.delete(path)
+    // A tail with no records has no boundary a newer read could start from.
+    if (tail && (!tail.records.length || tail.ino !== ino || tail.generation !== generation || tail.end > size))
+      tail = undefined
+    if (tail && size > tail.end) {
+      const appended: TranscriptRecord[] = []
+      let bytes = 0
+      for await (const record of backwardRecords(file, size, tail.end)) {
+        appended.push(record)
+        bytes += record.bytes
+        // Further behind than one budget: what is held is not worth joining up.
+        if (bytes > this.tailLimit()) break
+      }
+      if (bytes > this.tailLimit()) tail = undefined
+      else if (appended.length) {
+        const newest = appended[0]
+        tail = {
+          ...tail,
+          end: newest.offset! + newest.bytes,
+          bytes: tail.bytes + bytes,
+          records: [...appended, ...tail.records],
+        }
+        trimTail(tail, this.tailLimit())
+      }
+    }
+    tail ??= { ino, generation, start: size, end: size, bytes: 0, records: [] }
+    this.tails.set(path, tail)
+    this.trimTails()
+    return extendTail(this.tails, path, tail, file, this.tailLimit())
+  }
+
+  private tailLimit(): number {
+    return Math.min(PARSED_TAIL_BYTES, this.limits.pageBytes + this.limits.pageBytes / 4)
+  }
+
+  private trimTails(): void {
+    let bytes = 0
+    for (const tail of this.tails.values()) bytes += tail.bytes
+    for (const [path, tail] of this.tails) {
+      if (this.tails.size <= PARSED_TAIL_TRANSCRIPTS && bytes <= PARSED_TAIL_BYTES) break
+      this.tails.delete(path)
+      bytes -= tail.bytes
+    }
   }
 
   private async withFile<T>(root: string, path: string, work: (file: FileHandle | null) => Promise<T>): Promise<T> {
@@ -388,7 +477,7 @@ async function readGeneration(file: FileHandle, size: number): Promise<string> {
  * ends with one) and is left for the next read; the event in it has not been
  * published.
  */
-async function* backwardRecords(file: FileHandle, end: number): Records {
+async function* backwardRecords(file: FileHandle, end: number, floor = 0): Records {
   let position = end
   let carry: Buffer[] = []
   let carryBytes = 0
@@ -405,8 +494,8 @@ async function* backwardRecords(file: FileHandle, end: number): Records {
     if (skipped || line.length === 0) return null
     return parseRecord(line.toString('utf8'), offset, line.length + 1)
   }
-  while (position > 0) {
-    const length = Math.min(CHUNK_BYTES, position)
+  while (position > floor) {
+    const length = Math.min(CHUNK_BYTES, position - floor)
     const start = position - length
     let read = 0
     while (read < length) {
@@ -425,7 +514,7 @@ async function* backwardRecords(file: FileHandle, end: number): Records {
     prepend(chunk.subarray(0, segmentEnd))
     position = start
   }
-  const first = emit(0)
+  const first = emit(floor)
   if (first) yield first
 
   function prepend(bytes: Buffer): void {
@@ -489,6 +578,45 @@ async function* legacyRecords(raw: string): Records {
 }
 
 async function* emptyRecords(): Records {}
+
+/**
+ * The tail's records, then the file's older ones read from where it starts.
+ * A record read from disk joins the tail while the tail is still the one held
+ * for the path and the record is the very next one back, so the tail never has
+ * a gap; once the read reaches the head of the file the tail is the whole log.
+ */
+async function* extendTail(
+  tails: Map<string, ParsedTail>,
+  path: string,
+  tail: ParsedTail,
+  file: FileHandle,
+  limit: number,
+): Records {
+  let index = 0
+  while (index < tail.records.length) yield tail.records[index++]
+  let from = tail.start
+  if (from === 0) return
+  let joining = true
+  for await (const record of backwardRecords(file, from)) {
+    joining &&= tails.get(path) === tail && tail.start === from && tail.bytes + record.bytes <= limit
+    if (joining) {
+      if (!tail.records.length) tail.end = record.offset! + record.bytes
+      tail.records.push(record)
+      tail.bytes += record.bytes
+      tail.start = from = record.offset!
+    }
+    yield record
+  }
+  if (joining && tails.get(path) === tail && tail.start === from) tail.start = 0
+}
+
+function trimTail(tail: ParsedTail, limit: number): void {
+  while (tail.bytes > limit && tail.records.length) {
+    const oldest = tail.records.pop()!
+    tail.bytes -= oldest.bytes
+    tail.start = tail.records.length ? tail.records.at(-1)!.offset! : tail.end
+  }
+}
 
 async function* skipFrom(records: Records, beforeCursor: number): Records {
   for await (const record of records) if (record.lastSeq < beforeCursor) yield record
