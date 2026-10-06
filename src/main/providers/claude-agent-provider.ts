@@ -1337,6 +1337,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       }
       const query = state.query
       const before = state.childPreset
+      // Until the child answers, which mode it is on is not known: a switch
+      // back made meanwhile sends its own mode rather than take the one this
+      // is replacing as still in force, and the requests reach it in order.
+      state.childPreset = null
+      state.childMode = null
       // Bounded: a child that never answers the control request (a process
       // wedged inside WSL) held the switch — and the chip, and the answer the
       // person had just given — for as long as the process lived.

@@ -3443,6 +3443,24 @@ test('a switch a slow child takes late is not trusted, so switching back still r
   }
 })
 
+test('a switch back made while the child is still answering a switch reaches the child too', async () => {
+  const h = scriptedHarness({ slowModesMs: 30 })
+  try {
+    await h.adapter.startSession({ ...h.turn('turn_1'), permissionPreset: 'auto' })
+    const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    h.emit(init)
+    const toBypass = h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'bypass' })
+    const back = h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'auto' })
+    await Promise.all([toBypass, back])
+    assert.deepEqual(h.modes, ['bypassPermissions', 'auto'], 'the child ends on auto, not on bypass')
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
 test('Stop on a child that never acknowledges it ends the child, so the next message starts a fresh one', async () => {
   const h = scriptedHarness({ wedged: true })
   try {
