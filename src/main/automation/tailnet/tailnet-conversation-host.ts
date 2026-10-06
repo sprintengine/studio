@@ -497,7 +497,8 @@ export function createConversationGatewayHost(
       const found = (async (): Promise<ConversationToolImagePath> => {
         // A chat is one the list would name: a live session, or a thread the
         // workspace's history holds.
-        if (!sessionFor(key) && !(await threadFor(key))) return { ok: false, code: 'unknown_conversation' }
+        const live = sessionFor(key)
+        if (!live && !(await threadFor(key))) return { ok: false, code: 'unknown_conversation' }
         const tool = await runtime.findToolCall({ ...key, toolUseId })
         // A step declined, stopped or failed shows no picture in the chat,
         // so its file is not served either.
@@ -506,8 +507,13 @@ export function createConversationGatewayHost(
         const path = tool ? conversationImagePathOf(tool) : null
         if (!path) return { ok: false, code: 'unknown_image' }
         // A relative path names a file in the chat's folder, as a link to it in
-        // the same transcript does.
-        return { ok: true, path: isAbsolute(path) ? path : resolve(key.workspaceRoot, path) }
+        // the same transcript does: the folder its session works in (a New
+        // chat's pool worktree), else the workspace's.
+        const sessionRoot =
+          live && typeof runtime.sessionWorkspaceRoot === 'function'
+            ? runtime.sessionWorkspaceRoot(live.sessionId)
+            : null
+        return { ok: true, path: isAbsolute(path) ? path : resolve(sessionRoot || key.workspaceRoot, path) }
       })()
       // Shared while it is being found, so a burst of asks is one scan; kept
       // afterwards only when it named a picture of a step that has ended.
