@@ -147,6 +147,7 @@ import { createCanvasWorkerHost } from './canvas/canvas-worker-host'
 import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { broadcastToWorkspaceWindows, isBrowserHostWebContents, listWorkspaceWindows } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
+import { createAgentLaunchNotices } from './agent-launch-notices'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
@@ -1004,7 +1005,9 @@ export function createAppServices(
       },
       sendTurn: async ({ sessionId, message }) => {
         const result = await conversations.sendTurn({ sessionId, message })
-        return result.ok ? { ok: true } : { ok: false, message: result.message }
+        return result.ok
+          ? { ok: true }
+          : { ok: false, message: result.message, ...(result.code ? { code: result.code } : {}) }
       },
       interrupt: async ({ sessionId }) => {
         const result = await conversations.interrupt({ sessionId })
@@ -1012,6 +1015,25 @@ export function createAppServices(
       },
     },
   })
+  // An agent that launched another hears when that one finishes or stops to
+  // ask, through the plane above, instead of polling agent.status. The chat
+  // half reads this process's chats; out of process they are the server's, and
+  // a chat there is not linked (`link` answers false and the caller polls).
+  const agentLaunchNotices = createAgentLaunchNotices({
+    plane: agentControlPlane,
+    readChatReply: (sessionId) => {
+      const listed = conversations.listSessions()
+      return listed.ok
+        ? listed.sessions.find((session) => session.sessionId === sessionId)?.lastAssistantText
+        : undefined
+    },
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Launch notices', message })
+    },
+  })
+  terminalRuntime.registerAgentPhaseListener((event) => agentLaunchNotices.onAgentPhase(event))
+  terminalRuntime.registerAgentSessionExitListener((event) => agentLaunchNotices.onAgentSessionExit(event))
+  conversations.onEvent((event) => agentLaunchNotices.onConversationEvent(event))
   // The saved update channel is main's: the updater is configured here, before
   // any renderer exists to ask.
   const updateChannelStore = createUpdateChannelStore({
@@ -1530,6 +1552,9 @@ export function createAppServices(
         // (`desktopGatewayTools`).
         // This server's shell offers these, and an agent's first list waits for them.
         expectShellToolsets: clientToolsEnabled ? ['browser', 'canvas'] : [],
+        // An agent that starts a chat hears back from it, as one that launches
+        // a terminal agent does.
+        linkLaunchedAgent: (link) => agentLaunchNotices.link(link),
         appTools: desktopGatewayTools({
           browser: clientToolsEnabled ? [] : browserTools,
           canvas: clientToolsEnabled ? [] : canvasTools,
@@ -1540,6 +1565,7 @@ export function createAppServices(
               getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
               listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
               launchAgent: (request) => agentLaunchService.launch(request),
+              linkLaunchedAgent: (link) => agentLaunchNotices.link(link),
               resolveAgentPermissionPreset,
               createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
               getScheduledAgents: () => resolveScheduledAgents(),
@@ -1673,6 +1699,7 @@ export function createAppServices(
                 getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
                 listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
                 launchAgent: (request) => agentLaunchService.launch(request),
+                linkLaunchedAgent: (link) => agentLaunchNotices.link(link),
                 // An agent launches no looser than it runs: its terminal here,
                 // or the preset its record holds (a chat's live preset is the
                 // server's, and its record carries the one last chosen).

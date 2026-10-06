@@ -35,6 +35,7 @@ import { DEFAULT_MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from '.
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import type { AgentLaunchRequest } from '../../shared/agent-launch'
+import type { LaunchedAgentLink } from '../agent-launch-notices'
 import type { LoadedPlugin, PluginManifest } from '../../shared/plugin-manifest'
 import type { MarketplaceRegistryReadInput } from '../../shared/electron-api'
 import type { MarketplaceComponentKind } from '../../shared/marketplace/manifest'
@@ -100,6 +101,7 @@ test('automation', async () => {
     sessions?: TerminalSessionSnapshot[]
     createWorkspace?: AutomationBackends['createWorkspace']
     launchAgent?: AutomationBackends['launchAgent']
+    linkLaunchedAgent?: AutomationBackends['linkLaunchedAgent']
     /** The CLI this machine would spawn under; the harness's stub session reports it. */
     defaultCli?: string
     listBacklogItems?: AutomationBackends['listBacklogItems']
@@ -676,6 +678,7 @@ test('automation', async () => {
       ...backendsOf({ workspaces: [workspace], sessions, ...overrides }),
       getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
       listTerminalSessions: () => sessions,
+      ...(overrides.linkLaunchedAgent ? { linkLaunchedAgent: overrides.linkLaunchedAgent } : {}),
       createAgentWorktree:
         overrides.createAgentWorktree ??
         (async (input) => {
@@ -742,6 +745,51 @@ test('automation', async () => {
         }),
     }
     return { tools: createAutomationTools(backends), requests, worktreeCalls }
+  }
+
+  // An agent of this app that launches another is linked to it, so it hears
+  // back; the result says whether it will. A caller that is not one of this
+  // app's agents, or that asked not to be told, is not linked.
+  async function testAgentLaunchLinksItsCallerForNotices(): Promise<void> {
+    const links: LaunchedAgentLink[] = []
+    const linking = launchHarness({ linkLaunchedAgent: (link) => (links.push(link), true) })
+    const caller = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-lead' } }
+    const launched = await tool(linking.tools, 'agent.launch').handler({ workspaceId: 'ws-1' }, caller)
+    assert.equal(launched.isError, undefined, JSON.stringify(launched.structuredContent))
+    assert.equal((launched.structuredContent as { notifyParent: boolean }).notifyParent, true)
+    assert.deepEqual(links, [
+      {
+        parent: { workspaceId: 'ws-1', agentId: 'agent-lead' },
+        child: {
+          workspaceId: 'ws-1',
+          agentId: 'agent-claude-abc',
+          sessionId: 'sess-1',
+          transport: 'terminal',
+          name: 'Scout',
+        },
+      },
+    ])
+
+    const declined = launchHarness({ linkLaunchedAgent: (link) => (links.push(link), true) })
+    const quiet = await tool(declined.tools, 'agent.launch').handler(
+      { workspaceId: 'ws-1', notifyParent: false },
+      caller,
+    )
+    assert.equal((quiet.structuredContent as { notifyParent: boolean }).notifyParent, false)
+
+    const outsider = launchHarness({ linkLaunchedAgent: (link) => (links.push(link), true) })
+    const external = await tool(outsider.tools, 'agent.launch').handler(
+      { workspaceId: 'ws-1' },
+      { metadata: { kind: 'external-local' } },
+    )
+    assert.equal((external.structuredContent as { notifyParent: boolean }).notifyParent, false)
+    assert.equal(links.length, 1, 'neither the declined launch nor the outsider was linked')
+
+    const badFlag = await tool(launchHarness().tools, 'agent.launch').handler({
+      workspaceId: 'ws-1',
+      notifyParent: 'yes',
+    })
+    assert.equal((badFlag.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
   }
 
   async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
@@ -3495,6 +3543,7 @@ test('automation', async () => {
     testAnOmittedPresetResolvesLikeTheDesktopLauncher,
     testScheduleToolsPassServiceFailuresThrough,
     testAgentLaunchWidensConfigAndIsolation,
+    testAgentLaunchLinksItsCallerForNotices,
     testTerminalCreateSpawnsAndReturnsTheAttachableSession,
     testTerminalCreateTakesThisMachinesLaunchDefaults,
     testWorkspaceCheckoutReportsTheBackendsFacts,

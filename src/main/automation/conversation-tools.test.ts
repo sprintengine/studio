@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
+import type { LaunchedAgentLink } from '../agent-launch-notices'
 import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
 import { CONVERSATION_MUTATION_TOOL_NAMES, createConversationTools } from './conversation-tools'
 import { isStudioGatewayMutation } from './studio-gateway-tools'
@@ -107,4 +108,57 @@ test('conversation.create asks for a chat of its own when newChat is set, and de
     (result.structuredContent as { conversation: { workspaceId: string } }).conversation.workspaceId,
     'ws-new',
   )
+})
+
+test('conversation.create links the calling agent to the chat it started, unless asked not to', async () => {
+  const links: LaunchedAgentLink[] = []
+  const [registration] = createConversationTools({
+    launch: async () => ({
+      ok: true,
+      workspaceId: 'ws-1',
+      agentId: 'agent-codex-1',
+      name: 'Ada',
+      cli: 'codex',
+      providerId: 'codex-agent',
+      modelId: 'default',
+      sessionId: 'conv_1',
+    }),
+    resolveAgentPermissionPreset: () => 'bypass',
+    lifecycle: noLifecycle,
+    linkLaunchedAgent: (link) => (links.push(link), true),
+  })
+  const caller = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-lead' } }
+  const linked = await registration!.handler({ workspaceId: 'ws-1' }, caller)
+  assert.equal((linked.structuredContent as { notifyParent: boolean }).notifyParent, true)
+  assert.deepEqual(links, [
+    {
+      parent: { workspaceId: 'ws-1', agentId: 'agent-lead' },
+      child: {
+        workspaceId: 'ws-1',
+        agentId: 'agent-codex-1',
+        sessionId: 'conv_1',
+        transport: 'conversation',
+        name: 'Ada',
+      },
+    },
+  ])
+
+  const quiet = await registration!.handler({ workspaceId: 'ws-1', notifyParent: false }, caller)
+  assert.equal((quiet.structuredContent as { notifyParent: boolean }).notifyParent, false)
+  const remote = await registration!.handler({ workspaceId: 'ws-1' }, { metadata: { kind: 'remote-tailnet' } })
+  assert.equal((remote.structuredContent as { notifyParent: boolean }).notifyParent, false)
+  assert.equal(links.length, 1)
+
+  // A gateway that cannot type into its callers says so rather than promising.
+  const unlinked = await tool(async () => ({
+    ok: true,
+    workspaceId: 'ws-1',
+    agentId: 'agent-codex-1',
+    name: 'Ada',
+    cli: 'codex',
+    providerId: 'codex-agent',
+    modelId: 'default',
+    sessionId: 'conv_1',
+  })).handler({ workspaceId: 'ws-1' }, caller)
+  assert.equal((unlinked.structuredContent as { notifyParent: boolean }).notifyParent, false)
 })

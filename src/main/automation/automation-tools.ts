@@ -11,6 +11,7 @@ import { mergeCliModelCatalog, type DiscoveredCliModelCatalog } from '../../shar
 import { cliPickerModels } from '../../shared/cli-model-families'
 import { conversationProviderForCli } from '../../shared/conversation-harness'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
+import { launchingAgentOf, type LaunchedAgentLink } from '../agent-launch-notices'
 import { mobileSnapshotCollections, retiredMobileSnapshotCollections } from '../mobile/control/protocol'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import type {
@@ -106,6 +107,13 @@ export type AutomationBackends = {
   listTerminalSessions(): TerminalSessionSnapshot[]
   /** Compose and spawn an agent in main. */
   launchAgent(request: AgentLaunchRequest): Promise<AgentLaunchResult>
+  /**
+   * Remember that the calling agent launched this one, so the caller is told
+   * when it finishes or stops to ask (agent-launch-notices.ts). Answers
+   * whether the caller will be told. Absent, nobody is, and `agent.launch`
+   * says so.
+   */
+  linkLaunchedAgent?(link: LaunchedAgentLink): boolean
   /**
    * The preset an agent of this app is running on now. A connection that
    * declares itself one of them launches no looser than this; see
@@ -340,6 +348,14 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     )
   }
 
+  // Link a launched agent to the agent that asked for it, so the caller hears
+  // back (agent-launch-notices.ts).
+  function linkToCaller(context: McpConnectionContext | undefined, child: LaunchedAgentLink['child']): boolean {
+    const parent = launchingAgentOf(context)
+    if (!parent || !backends.linkLaunchedAgent) return false
+    return backends.linkLaunchedAgent({ parent, child })
+  }
+
   function connectionWorkspace(context: McpConnectionContext | undefined): Workspace | null {
     const workspaceId = context?.metadata.workspaceId
     return workspaceId ? findWorkspace(workspaceId) : null
@@ -431,6 +447,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             processAlive: session.processAlive,
             startedAt: session.startedAt,
             lastOutputAt: session.lastOutputAt,
+            phase: session.agentState?.phase ?? null,
           }
         : null,
     }
@@ -842,7 +859,11 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     description:
       'Add a fully-configured agent to a workspace and start its CLI through the same renderer flow the UI uses. ' +
       'Optionally selects the model, permission preset and connector, and isolates the agent in a ' +
-      'git worktree. Success is confirmed by the agent terminal session registering with the main process.',
+      'git worktree. Success is confirmed by the agent terminal session registering with the main process. ' +
+      'Called by an agent of this app, the caller is told when the launched agent finishes a turn, fails, ' +
+      'stops, or waits for input: a short notice from Studio arrives as a new message once the caller is ' +
+      "idle (never in the middle of its turn), so there is no need to poll agent.status. The result's " +
+      '"notifyParent" says whether the caller will be told.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -904,6 +925,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           description:
             'Isolate the agent in a git worktree on an "agent/<name>" branch instead of the workspace checkout.',
         },
+        notifyParent: {
+          type: 'boolean',
+          description:
+            'Tell the calling agent when the launched agent finishes a turn, fails, stops, or waits for input, ' +
+            'with a short notice that arrives as a new message once the caller is idle. Defaults to true. ' +
+            'Pass false to hear nothing and read agent.status instead.',
+        },
       },
       required: ['workspaceId'],
       additionalProperties: false,
@@ -913,6 +941,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (typeof workspaceId !== 'string') return workspaceId
       const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt', 'cliModel', 'connectorId', 'host'])
       if (invalid) return invalid
+      if (args.notifyParent !== undefined && typeof args.notifyParent !== 'boolean') {
+        return failure('invalid_arguments', '"notifyParent" must be a boolean when provided.')
+      }
 
       const options = resolveLaunchOptions(args, context)
       if ('content' in options) return options
@@ -940,10 +971,20 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         worktreeBaseRef: options.worktreeBaseRef,
       })
       if (!('agentId' in launched)) return launched
+      const notifyParent =
+        args.notifyParent !== false &&
+        linkToCaller(context, {
+          workspaceId: launched.workspace.id,
+          agentId: launched.agentId,
+          sessionId: launched.session.sessionId,
+          transport: 'terminal',
+          ...(launched.session.agentName ? { name: launched.session.agentName } : {}),
+        })
       return success({
         agent: agentProjection(launched.workspace, launched.agentId),
         ...(launched.worktreePath ? { worktreePath: launched.worktreePath } : {}),
         ...(launched.worktreeBranch ? { worktreeBranch: launched.worktreeBranch } : {}),
+        notifyParent,
       })
     },
   }
@@ -1037,7 +1078,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const agentStatus: McpToolRegistration = {
     name: 'agent.status',
     description:
-      "Read one agent's launch state from the main process store plus its terminal session liveness from the terminal runtime.",
+      "Read one agent's launch state from the main process store plus its terminal session from the terminal " +
+      'runtime: whether its process is live, and its phase (starting, thinking, tool_use, idle, awaiting_input, ' +
+      'stalled, exited, failed) when its CLI reports one. An agent launched with agent.launch tells its caller ' +
+      'when it finishes, fails, stops or waits for input, so read this when a notice says to, not in a loop.',
     inputSchema: {
       type: 'object',
       properties: {

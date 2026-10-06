@@ -43,6 +43,11 @@ export type ControlPlaneSession = {
   transport: ControlPlaneTransport
   alive: boolean
   workspaceId?: string
+  /**
+   * The workspace a terminal agent was launched in, when it has since been
+   * moved to another chat: the one its MCP calls go on naming.
+   */
+  launchWorkspaceId?: string
   agentId?: string
   agentName?: string
   cwd?: string
@@ -188,7 +193,8 @@ type ControlPlaneTerminalPort = {
 
 export type ControlPlaneConversationPort = {
   list(): ConversationSessionSummary[]
-  sendTurn(input: { sessionId: string; message: string }): Promise<{ ok: boolean; message?: string }>
+  /** `code: 'busy'` is a turn already running (or awaiting approval): the message was not sent. */
+  sendTurn(input: { sessionId: string; message: string }): Promise<{ ok: boolean; message?: string; code?: string }>
   interrupt(input: { sessionId: string }): Promise<{ ok: boolean; message?: string }>
 }
 
@@ -640,7 +646,9 @@ export class AgentControlPlane {
       return {
         ok: false,
         sessionId: session.sessionId,
-        reason: 'write_failed',
+        // A chat refuses a second turn rather than queueing it: that is "not
+        // now", which a caller retries, not a failed write.
+        reason: result.code === 'busy' ? 'busy' : 'write_failed',
         message: result.message ?? 'Conversation turn was rejected.',
       }
     }
@@ -921,6 +929,7 @@ function toTerminalSession(snapshot: TerminalSessionSnapshot): ControlPlaneSessi
     transport: 'terminal',
     alive: snapshot.processAlive,
     workspaceId: snapshot.workspaceId,
+    ...(snapshot.launchWorkspaceId ? { launchWorkspaceId: snapshot.launchWorkspaceId } : {}),
     agentId: snapshot.agentId,
     agentName: snapshot.agentName,
     cwd: snapshot.cwd,
