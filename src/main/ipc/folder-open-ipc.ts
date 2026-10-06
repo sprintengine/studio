@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { access } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { posix as posixPath, win32 as windowsPath } from 'node:path'
@@ -39,7 +39,7 @@ type LaunchOutcome = { ok: true } | { ok: false; message: string }
 
 export type FolderOpenIpcDependencies = {
   showItemInFolder(targetPath: string): Promise<void>
-  resolveLauncher(target: FolderOpenTargetId): FolderOpenLauncher | null
+  resolveLauncher(target: FolderOpenTargetId): FolderOpenLauncher | null | Promise<FolderOpenLauncher | null>
   runLauncher(command: string, args: string[]): Promise<LaunchOutcome>
   /** Rejects when the folder cannot be reached; same rule show-item-in-folder applies. */
   assertPathReachable(targetPath: string): Promise<void>
@@ -85,33 +85,44 @@ const LAUNCH_SETTLE_MS = 5_000
 /**
  * The editor probe, as a plain call. Shared by the `fs:folder-open-targets`
  * handler and the boot-discovery pass so both answer "which editors are
- * installed" the same way. Synchronous: it walks PATH and the application
- * folders with `existsSync`, and only for an editor none of that finds does it
- * ask Spotlight once (cached, see `locateAppByBundleIdHere`).
+ * installed" the same way. It walks PATH and the application folders with
+ * `existsSync`, and only for an editor none of that finds does it ask
+ * Spotlight once (cached, see `locateAppByBundleIdHere`).
  */
-export function listFolderOpenTargetAvailability(
-  resolveLauncher: (target: FolderOpenTargetId) => FolderOpenLauncher | null,
-): FolderOpenTargetAvailability[] {
-  return FOLDER_OPEN_TARGET_IDS.map((id) => ({ id, available: resolveLauncher(id) !== null }))
+export async function listFolderOpenTargetAvailability(
+  resolveLauncher: FolderOpenIpcDependencies['resolveLauncher'],
+): Promise<FolderOpenTargetAvailability[]> {
+  return Promise.all(
+    FOLDER_OPEN_TARGET_IDS.map(async (id) => ({ id, available: (await resolveLauncher(id)) !== null })),
+  )
 }
 
-/** `resolveFolderOpenLauncher` against the real machine. */
-export function resolveFolderOpenLauncherHere(target: FolderOpenTargetId): FolderOpenLauncher | null {
-  return resolveFolderOpenLauncher(target, {
-    platform: process.platform,
-    env: process.env,
-    exists: existsSync,
-    locateAppByBundleId: locateAppByBundleIdHere,
-  })
+/**
+ * `resolveFolderOpenLauncher` against the real machine. The folder walk is
+ * synchronous and cheap; Spotlight is not, so it is asked first, without
+ * blocking, and its answer handed to the same resolver. The boot-discovery pass
+ * runs this right after the main window is created, and a `mdfind` run
+ * synchronously there held the main thread for tens of milliseconds (up to its
+ * two-second timeout on a slow index) while the window's document was waiting
+ * on that thread to commit.
+ */
+export async function resolveFolderOpenLauncherHere(target: FolderOpenTargetId): Promise<FolderOpenLauncher | null> {
+  const probe: LauncherProbe = { platform: process.platform, env: process.env, exists: existsSync }
+  const found = resolveFolderOpenLauncher(target, probe)
+  if (found || target === 'finder' || probe.platform !== 'darwin') return found
+  const located = await locateAppByBundleIdHere(EDITOR_LAUNCHERS[target].macBundleIds)
+  return resolveFolderOpenLauncher(target, { ...probe, locateAppByBundleId: () => located })
 }
 
 // Spotlight answers are remembered for a minute. The probe runs at boot, again
 // for every workspace bar that mounts, and once more at launch time; `mdfind`
-// costs tens of milliseconds on the main process, and the answer does not
-// change between one workspace switch and the next. A minute is short enough
-// that an editor installed while the app is open shows up on the next probe.
+// takes tens of milliseconds, and the answer does not change between one
+// workspace switch and the next. A minute is short enough that an editor
+// installed while the app is open shows up on the next probe. The entry is the
+// pending answer, so the boot pass and the first workspace bar, which ask in
+// the same moment, share one `mdfind`.
 const SPOTLIGHT_CACHE_MS = 60_000
-const spotlightCache = new Map<string, { at: number; path: string | null }>()
+const spotlightCache = new Map<string, { at: number; path: Promise<string | null> }>()
 
 /**
  * Ask Spotlight where an app with one of these bundle ids lives. The directory
@@ -124,26 +135,20 @@ const spotlightCache = new Map<string, { at: number; path: string | null }>()
  * an install at all. Any failure — Spotlight off, the volume unindexed, a slow
  * index — is "not found", never an error: the menu simply omits the editor.
  */
-function locateAppByBundleIdHere(bundleIds: readonly string[]): string | null {
-  if (process.platform !== 'darwin' || bundleIds.length === 0) return null
+function locateAppByBundleIdHere(bundleIds: readonly string[]): Promise<string | null> {
+  if (process.platform !== 'darwin' || bundleIds.length === 0) return Promise.resolve(null)
   const key = bundleIds.join('|')
   const cached = spotlightCache.get(key)
   if (cached && Date.now() - cached.at < SPOTLIGHT_CACHE_MS) return cached.path
 
-  let found: string | null = null
-  try {
-    const query = bundleIds.map((id) => `kMDItemCFBundleIdentifier == "${id}"`).join(' || ')
-    const output = execFileSync('/usr/bin/mdfind', [query], {
-      encoding: 'utf8',
-      timeout: 2_000,
-      stdio: ['ignore', 'pipe', 'ignore'],
+  const query = bundleIds.map((id) => `kMDItemCFBundleIdentifier == "${id}"`).join(' || ')
+  const path = new Promise<string | null>((resolve) => {
+    execFile('/usr/bin/mdfind', [query], { encoding: 'utf8', timeout: 2_000 }, (error, stdout) => {
+      resolve(error ? null : pickInstalledBundle(stdout.split('\n'), process.env.HOME ?? ''))
     })
-    found = pickInstalledBundle(output.split('\n'), process.env.HOME ?? '')
-  } catch {
-    found = null
-  }
-  spotlightCache.set(key, { at: Date.now(), path: found })
-  return found
+  })
+  spotlightCache.set(key, { at: Date.now(), path })
+  return path
 }
 
 /** The bundle to launch out of Spotlight's list, or null when none is an install. */
@@ -184,7 +189,7 @@ export function registerFolderOpenIpc(ipcMain: IpcMain, deps: FolderOpenIpcDepen
 
     // Resolved again at launch time rather than trusted from the probe: an
     // editor can be uninstalled between the menu opening and the click.
-    const launcher = deps.resolveLauncher(target)
+    const launcher = await deps.resolveLauncher(target)
     if (!launcher) {
       return { ok: false, target, reason: 'target_unavailable', message: `${TARGET_NAMES[target]} is not installed.` }
     }
