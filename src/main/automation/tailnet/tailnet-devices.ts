@@ -340,8 +340,21 @@ export function createTailnetDeviceStore(options: {
     }
     if (onDisk === 'invalid') {
       const aside = `${path}.invalid-${now().getTime()}`
-      renameSync(path, aside)
-      options.log?.(`${TAILNET_DEVICES_FILENAME} was not valid JSON; it was kept as ${aside}.`)
+      try {
+        renameSync(path, aside)
+        options.log?.(`${TAILNET_DEVICES_FILENAME} was not valid JSON; it was kept as ${aside}.`)
+      } catch (error) {
+        // Gone since it was read (the person deleted it): nothing is left to
+        // keep, and the write below starts a new one. Any other failure leaves
+        // it where it is, unwritten, for the rest of the run.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          onDisk = 'unreadable'
+          options.log?.(
+            `${TAILNET_DEVICES_FILENAME} was not valid JSON and could not be moved aside (${error instanceof Error ? error.message : String(error)}), so it is not written over; this change lasts until quit.`,
+          )
+          return
+        }
+      }
       onDisk = 'readable'
     }
     const body = `${JSON.stringify({ version: 1, devices }, null, 2)}\n`

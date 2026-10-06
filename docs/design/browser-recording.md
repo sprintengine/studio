@@ -15,12 +15,15 @@ Two tools in the desktop's `browser` toolset:
   answers where the file is, how long it is, how big it is and why it stopped.
 
 A recording is the tab as the person sees it: the same guest the agent drives,
-not a headless copy. It lands in the folder the calling agent works in (its
-worktree when its chat runs in one; the workspace's folder when Studio cannot
-say, as when chats are served out of process) at
+not a headless copy. It lands in the calling agent's project folder at
 `.sprintengine/browser/recordings/recording-<host>-<stamp>.webm`, in a folder
-that ignores itself in git. The agent reads it
-with its own file tools; nothing large crosses the MCP connection.
+that ignores itself in git. For a chat in a worktree (every New chat leases one
+from the worktree pool) that is the checkout the worktree was cut from, not the
+worktree: a pool slot is reused by the next chat and removed over the pool's
+limits, so a video there would linger under another chat or go with the slot.
+The answer gives the file's absolute `path`, which the agent opens from its
+worktree with its own file tools, and its `workspacePath` relative to the
+project folder; nothing large crosses the MCP connection.
 
 While it runs, the tab's toolbar says **Recording 0:12**, with a Stop button.
 

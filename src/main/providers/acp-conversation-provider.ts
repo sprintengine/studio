@@ -58,6 +58,7 @@ import type {
   MockAdapterSessionInput,
   MockAdapterTurnInput,
 } from './conversation-provider-adapter'
+import { cliStderrSummary } from '../../shared/conversation/permissionModes'
 
 type EnforcedPreset = Exclude<ConversationPermissionPreset, 'none'>
 
@@ -338,11 +339,14 @@ type Pending = { options: RequestPermissionRequest['options']; resolve: (value: 
 // How much of a CLI's stderr is kept for the message of a failure it ends with.
 const STDERR_TAIL_CHARS = 4000
 
-/** A failure's message with the last lines the CLI printed, when it printed any. */
+/**
+ * A failure's message with what the CLI printed, when it printed anything:
+ * the line refusing its permission setting when there is one, however much
+ * usage text came after it, else its last lines (`cliStderrSummary`).
+ */
 function withStderrTail(message: string, stderrTail: string): string {
-  const tail = stderrTail.trim().split('\n').slice(-3).join('\n').trim()
-  if (!tail) return message
-  return `${message} (${tail.length > 300 ? `${tail.slice(0, 299)}…` : tail})`
+  const tail = cliStderrSummary(stderrTail)
+  return tail ? `${message} (${tail})` : message
 }
 
 type State = {

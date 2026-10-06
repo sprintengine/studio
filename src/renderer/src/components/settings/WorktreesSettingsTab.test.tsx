@@ -31,6 +31,7 @@ const baseSlot = {
   held: null,
   uses: 2,
   lastBranch: null,
+  kept: null,
 }
 const inventory: WorktreeInventory = {
   measuredAt: now,

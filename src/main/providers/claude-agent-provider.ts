@@ -52,7 +52,7 @@ import {
 } from '../conversation-commands/claude'
 import { isBackgroundLaunchAck, isSubagentStep } from '../../shared/conversation/subagents'
 export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
-import { LOOKUP_TOOL_KINDS } from '../../shared/conversation/permissionModes'
+import { cliStderrSummary, LOOKUP_TOOL_KINDS } from '../../shared/conversation/permissionModes'
 import { wslShareSafeDirectoryEnv } from '../git-run'
 
 import type {
@@ -2710,12 +2710,8 @@ function extractResultText(content: unknown): string {
 
 function describeSpawnFailure(error: unknown, stderrTail: string): string {
   const base = error instanceof Error && error.message ? error.message : 'Claude Code exited unexpectedly.'
-  const tail = stderrTail.trim().split('\n').slice(-3).join('\n').trim()
-  return tail ? `${base} (${truncate(tail, 300)})` : base
-}
-
-function truncate(value: string, max: number): string {
-  return value.length > max ? `${value.slice(0, max - 1)}…` : value
+  const tail = cliStderrSummary(stderrTail)
+  return tail ? `${base} (${tail})` : base
 }
 
 /**

@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { ansiPlainText, createAnsiState, parseAnsi, type AnsiColor, type AnsiLine } from './ansi'
+import {
+  ansiPlainText,
+  createAnsiPlainTextReader,
+  createAnsiState,
+  parseAnsi,
+  type AnsiColor,
+  type AnsiLine,
+} from './ansi'
 
 const fg = (index: number): AnsiColor => ({ kind: 'palette', index })
 const rgb = (r: number, g: number, b: number): AnsiColor => ({ kind: 'rgb', r, g, b })
@@ -126,4 +133,23 @@ test('a line that clears itself after a carriage return reads as what it was cle
 
 test('an OSC cut short by another escape ends there instead of swallowing the rest', () => {
   assert.equal(ansiPlainText('\x1b]0;title\x1b[31mred text\x1b[0m'), 'red text')
+})
+
+test('a growing log read chunk by chunk reads as the whole of it parsed at once', () => {
+  const log =
+    '\x1b[32madded\x1b[39m 3 packages\n\x1b]8;;https://example.com\x07docs\x1b]8;;\x07\nfetching 10%\rfetching 100%\x1b[K\nbar \x1b[1mdone\x1b[0m'
+  for (const size of [1, 2, 3, 5, 8, 13]) {
+    const read = createAnsiPlainTextReader()
+    let shown = ''
+    for (let end = size; end < log.length + size; end += size) {
+      const sofar = log.slice(0, end)
+      shown = read(sofar)
+      assert.equal(shown, ansiPlainText(sofar), `after ${end} characters, read ${size} at a time`)
+    }
+    assert.equal(shown, ansiPlainText(log))
+  }
+  // A new run is read from its start.
+  const read = createAnsiPlainTextReader()
+  read('first run\n')
+  assert.equal(read('second'), 'second')
 })

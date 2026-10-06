@@ -2,8 +2,13 @@ import { lstat, open, readFile, readdir, readlink, realpath, stat } from 'node:f
 import { basename, dirname, isAbsolute, join } from 'node:path'
 
 import { comparablePath } from '../shared/host-paths'
+import { SKILL_HARNESS_DIR } from '../shared/skill-harnesses'
+import { SIDECAR_DIR_NAME } from '../shared/workspace-sidecar'
+import { conversationStorageSegment } from './conversation-index'
 import type { GitCommandResult } from './git'
 import { toFilesystemPath } from './git-utils'
+import { SKILL_PROVENANCE_FILE } from './skills/install'
+import { PER_AGENT_IGNORED_FILES } from './worktree-pool/slot-git'
 
 /**
  * The on-disk checks the agent worktree cleanup (agent-worktree-cleanup.ts)
@@ -165,8 +170,11 @@ const REBUILDABLE_DIRS = new Set([
 /** Ignored files that are never anyone's work. */
 const DISPOSABLE_FILES = new Set(['.DS_Store', 'Thumbs.db', '.eslintcache', '.stylelintcache'])
 
-/** Ignored file endings a tool writes and rewrites: build info, bytecode, logs. */
-const DISPOSABLE_ENDINGS = ['.tsbuildinfo', '.pyc', '.pyo', '.log']
+/**
+ * Ignored file endings a tool writes and rewrites: build info, bytecode, logs,
+ * and the tarball `npm pack` leaves behind.
+ */
+const DISPOSABLE_ENDINGS = ['.tsbuildinfo', '.pyc', '.pyo', '.log', '.tgz']
 
 function isRebuildable(path: string): boolean {
   const directory = path.endsWith('/')
@@ -179,6 +187,156 @@ function isRebuildable(path: string): boolean {
   // a source folder (a tracked `build/entitlements.plist` beside an ignored
   // `build/dev.p12`), and the folder's name says nothing about the file.
   return REBUILDABLE_DIRS.has(last)
+}
+
+// --- What the app and the agent CLIs write ----------------------------------
+
+/** Where a chat's transcripts sit in the folder it works in (conversation-index.ts). */
+const CONVERSATIONS_DIR = 'conversations'
+
+/** Whether a path `ignoredPathsAtRisk` returned is a chat's history rather than a file. */
+export function isChatTranscriptPath(path: string): boolean {
+  return path.startsWith(`${SIDECAR_DIR_NAME}/${CONVERSATIONS_DIR}/`)
+}
+
+/**
+ * Every chat id a registry holds, or null when it holds none: an empty list is
+ * as likely a registry that could not be read as a machine with no chats, and
+ * read as "no chat owns these" it would delete every history it found.
+ */
+export function chatIdsOnRecord(workspaces: ReadonlyArray<{ id: string }>): string[] | null {
+  return workspaces.length > 0 ? workspaces.map((workspace) => workspace.id) : null
+}
+
+export type IgnoredFilesOptions = {
+  /**
+   * The ids of every chat on record, settled ones included; null when they
+   * cannot be read. A transcript folder no chat on record owns is a leftover
+   * and goes; without the list, every transcript keeps the worktree.
+   */
+  knownWorkspaceIds?: (() => Iterable<string> | null) | null
+}
+
+/**
+ * The transcript folders in a worktree's sidecar that belong to a chat still
+ * on record. A chat's history lives in the folder it works in
+ * (`.sprintengine/conversations/<chat>/`), and a settled chat's worktree is
+ * given back (to the pool, or removed by the cleanup) while the chat stays,
+ * to be checked out again when it is reopened (`chatWorktreeRestore.ts`).
+ * Removing the worktree would take the chat's history with it.
+ */
+async function transcriptsOnRecord(worktreeRoot: string, options: IgnoredFilesOptions): Promise<string[]> {
+  const directory = join(toFilesystemPath(worktreeRoot), SIDECAR_DIR_NAME, CONVERSATIONS_DIR)
+  let entries
+  try {
+    entries = await readdir(directory, { withFileTypes: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    return [`${SIDECAR_DIR_NAME}/${CONVERSATIONS_DIR}/`]
+  }
+  let known: Set<string> | null = null
+  try {
+    const ids = options.knownWorkspaceIds?.() ?? null
+    known = ids ? new Set([...ids].map(conversationStorageSegment)) : null
+  } catch {
+    known = null
+  }
+  const kept: string[] = []
+  for (const entry of entries) {
+    if (!entry.isDirectory() || (known && !known.has(entry.name))) continue
+    const files = await readdir(join(directory, entry.name)).catch(() => null)
+    if (files === null || files.some((name) => name.endsWith('.jsonl'))) {
+      kept.push(`${SIDECAR_DIR_NAME}/${CONVERSATIONS_DIR}/${entry.name}/`)
+    }
+  }
+  return kept
+}
+
+/** The folders the app installs skills into, one per agent CLI (`.claude`, `.codex`, `.agents`, …). */
+const HARNESS_DIRS = new Set(Object.values(SKILL_HARNESS_DIR))
+
+/**
+ * What OpenCode writes into its own `.opencode/` when it starts in a folder:
+ * the package it installs its plugin API from, and a `.gitignore` for that.
+ */
+const OPENCODE_INSTALL = new Set(['node_modules', 'package.json', 'package-lock.json', 'bun.lock', '.gitignore'])
+
+const MAX_WALKED_ENTRIES = 5_000
+
+/**
+ * Whether an ignored path is only what the app itself, or an agent CLI it
+ * launched, wrote into the worktree:
+ *
+ * - the app's sidecar folder (`.sprintengine/`): tool output, captures and
+ *   caches written for the chats that ran here. Its transcripts are the one
+ *   exception, checked on their own ({@link transcriptsOnRecord}).
+ * - the per-agent files every launch writes (`.mcp.json`, the CLIs' local
+ *   approvals), which the pool deletes on every return anyway.
+ * - the skills the app installs into each CLI's folder (`.claude/skills/<id>`
+ *   with its `.sprintengine-skill.json` beside `SKILL.md`), and what OpenCode
+ *   installs into `.opencode/`.
+ *
+ * A harness folder is walked: a skill folder without the app's manifest, or
+ * any other file in there, may be a person's own and keeps the worktree.
+ */
+async function isAppWritten(worktreeRoot: string, path: string): Promise<boolean> {
+  const segments = path.split('/').filter(Boolean)
+  const [top] = segments
+  if (!top) return false
+  if (top === SIDECAR_DIR_NAME) return true
+  const bare = segments.join('/')
+  if ((PER_AGENT_IGNORED_FILES as readonly string[]).includes(bare)) return true
+  if (!HARNESS_DIRS.has(top)) return false
+  const root = toFilesystemPath(worktreeRoot)
+  let budget = MAX_WALKED_ENTRIES
+  const walk = async (rel: string[]): Promise<boolean> => {
+    budget -= 1
+    if (budget < 0) return false
+    const name = rel.at(-1) ?? ''
+    if (rel.length === 2 && rel[0] === '.opencode' && OPENCODE_INSTALL.has(name)) return true
+    if ((PER_AGENT_IGNORED_FILES as readonly string[]).includes(rel.join('/'))) return true
+    if (DISPOSABLE_FILES.has(name)) return true
+    const full = join(root, ...rel)
+    let info
+    try {
+      info = await lstat(full)
+    } catch {
+      return false
+    }
+    // `<harness>/skills/<id>`: the app's copy when its manifest sits in it,
+    // or a link (removing the worktree takes the link, never what it names).
+    if (rel.length === 3 && rel[1] === 'skills') {
+      if (info.isSymbolicLink()) return true
+      return (
+        info.isDirectory() &&
+        (await lstat(join(full, SKILL_PROVENANCE_FILE)).then(
+          (manifest) => manifest.isFile(),
+          () => false,
+        ))
+      )
+    }
+    if (!info.isDirectory() || rel.length > 2) return false
+    for (const child of await readdir(full)) {
+      if (!(await walk([...rel, child]))) return false
+    }
+    return true
+  }
+  return walk(segments).catch(() => false)
+}
+
+/**
+ * A dependency folder linked in rather than installed (`node_modules` ->
+ * the main checkout's). Git lists a link as a file, without the trailing
+ * slash; removing the worktree removes the link, never what it points at.
+ */
+async function isLinkedDependencyFolder(worktreeRoot: string, path: string): Promise<boolean> {
+  if (path.endsWith('/')) return false
+  const segments = path.split('/').filter(Boolean)
+  if (!REBUILDABLE_DIRS.has(segments.at(-1) ?? '')) return false
+  return lstat(join(toFilesystemPath(worktreeRoot), ...segments)).then(
+    (info) => info.isSymbolicLink(),
+    () => false,
+  )
 }
 
 /** The repository's `.worktreeinclude` entries, the way worktree creation reads them. */
@@ -285,15 +443,19 @@ async function sameBytes(a: string, b: string, size: number): Promise<boolean> {
  *
  * `git status --ignored=matching` names each ignored thing once: a folder that
  * is ignored as a whole (`node_modules/`), else the file. One is disposable
- * when it is rebuildable output (`REBUILDABLE_DIRS`, `DISPOSABLE_FILES`), or
- * when `.worktreeinclude` copied it in at creation and it is still exactly the
- * source checkout's copy. Everything else — an edited `.env`, notes in an
- * ignored folder, a `todo.local` — is returned, and keeps the worktree.
+ * when it is rebuildable output (`REBUILDABLE_DIRS`, `DISPOSABLE_FILES`, or a
+ * dependency folder linked in), when the app or an agent CLI it launched wrote
+ * it ({@link isAppWritten}) and it is not the history of a chat still on record
+ * ({@link transcriptsOnRecord}, returned as its folder), or when `.worktreeinclude` copied it in at
+ * creation and it is still exactly the source checkout's copy. Everything else
+ * — an edited `.env`, notes in an ignored folder, a `todo.local` — is
+ * returned, and keeps the worktree.
  */
 export async function ignoredPathsAtRisk(
   repoRoot: string,
   worktreePath: string,
   runGit: RunGit,
+  options: IgnoredFilesOptions = {},
 ): Promise<{ ok: true; paths: string[] } | { ok: false; message: string }> {
   // `--untracked-files=normal` explicitly: a `status.showUntrackedFiles=no` in
   // the person's config makes git refuse `--ignored=matching` outright.
@@ -315,7 +477,14 @@ export async function ignoredPathsAtRisk(
   const includes = await readIncludeEntries(repoRoot)
   const budget = { entries: MAX_COMPARED_ENTRIES, bytes: MAX_COMPARED_BYTES }
   const atRisk: string[] = []
+  // A chat's history in the sidecar is looked for once, whichever way git
+  // names the ignored sidecar (whole, or file by file).
+  if (ignored.some((path) => path.split('/')[0] === SIDECAR_DIR_NAME)) {
+    atRisk.push(...(await transcriptsOnRecord(worktreePath, options)))
+  }
   for (const path of ignored) {
+    if (await isLinkedDependencyFolder(worktreePath, path)) continue
+    if (await isAppWritten(worktreePath, path)) continue
     const copied = includes.some((entry) => overlaps(path, entry))
     if (copied && (await sameAsSource(repoRoot, worktreePath, path, budget).catch(() => false))) continue
     atRisk.push(path)

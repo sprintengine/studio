@@ -1338,9 +1338,15 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       turnAttachments: ConversationImageAttachment[] = [],
       requestedMetadata: ComposerDraftMetadata = { skillIds: [], mentions: [] },
       fromDraft = false,
+      // A message the person already let go of (the queued turn, flushed when
+      // the agent went idle) goes back ahead of whatever they typed since.
+      // Anything else refused (the startup prompt, Retry, Compact) lands in
+      // the composer only when it is empty, so a draft never grows a prefix.
+      restoreAhead = false,
     ) => {
       const metadata = supportsSkills ? requestedMetadata : { ...requestedMetadata, skillIds: [] }
       const text = message.trim()
+      const putBack = (current: string) => (restoreAhead ? restoreRefusedText(current, text) : current || text)
       if (
         (!text && turnAttachments.length === 0 && metadata.mentions.length === 0 && metadata.skillIds.length === 0) ||
         pending ||
@@ -1388,7 +1394,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         setSendInFlight(false)
         setPending(null)
         if (!fromDraft) {
-          setDraft((current) => restoreRefusedText(current, text))
+          setDraft(putBack)
           setDraftMetadata((current) => ({
             skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
             mentions: [...metadata.mentions, ...current.mentions],
@@ -1433,7 +1439,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
           if (turnAttachments.length) setAttachments((current) => (current.length ? current : turnAttachments))
           if (!fromDraft) {
-            setDraft((current) => restoreRefusedText(current, text))
+            setDraft(putBack)
             setDraftMetadata((current) => ({
               skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
               mentions: [...metadata.mentions, ...current.mentions],
@@ -1444,7 +1450,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         finishDraftSend(draftSend, false)
         setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
         if (!fromDraft) {
-          setDraft((current) => restoreRefusedText(current, text))
+          setDraft(putBack)
           setDraftMetadata((current) => ({
             skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
             mentions: [...metadata.mentions, ...current.mentions],
@@ -1573,7 +1579,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     if (sendInFlight || sendInFlightRef.current) return
     const { text, attachments: queuedAttachments, metadata } = queuedTurn
     setQueuedTurn(null)
-    void sendTurn(text, queuedAttachments, metadata)
+    void sendTurn(text, queuedAttachments, metadata, false, true)
   }, [
     queuedTurn,
     readiness.kind,
@@ -1989,7 +1995,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     // the typed rest stays; left in, the next Enter sent it a second time.
     const rest = fromDraft ? null : draftAfterRetried(draft, failedSend.text)
     if (rest !== null) setDraft(rest)
-    void sendTurn(failedSend.text, failedSend.attachments, failedSend.metadata, fromDraft)
+    void sendTurn(failedSend.text, failedSend.attachments, failedSend.metadata, fromDraft, rest !== null)
     setAttachments((current) => (current === failedSend.attachments ? [] : current))
   }
   // Only this machine's Claude chat signs in through its CLI; a paired

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import {
+  cliStderrSummary,
   looksLikePermissionSettingRefusal,
   permissionModeAllows,
   permissionModeApprovalLabel,
@@ -149,6 +150,8 @@ test('a failure reads as a refused permission setting only when it names the set
     'Invalid params: unknown variant `untrusted`, expected one of `on-request`, `never`',
     "error: unexpected argument '--approve-for-me' found",
     "error: unknown option '--force'",
+    'Error loading config.toml: unknown variant `auto_review`, expected `user` or `auto_reviewer`',
+    'invalid value for approval_policy: expected one of untrusted, on_failure, on_request, never',
   ])
     assert.equal(looksLikePermissionSettingRefusal(refusal), true, refusal)
   for (const other of [
@@ -161,4 +164,31 @@ test('a failure reads as a refused permission setting only when it names the set
     '',
   ])
     assert.equal(looksLikePermissionSettingRefusal(other), false, other)
+})
+
+test('the stderr a failure quotes is the line refusing the setting, however much usage text follows it', () => {
+  const usage = [
+    "error: unknown option '--permission-mode'",
+    '',
+    'Usage: agent [options] [command] [prompt...]',
+    '',
+    'Start the agent.',
+    '',
+    'Options:',
+    ...Array.from({ length: 24 }, (_, index) => `  --option-${index} <value>   what option ${index} does`),
+    '  -h, --help                display help for command',
+  ].join('\n')
+  assert.equal(cliStderrSummary(usage), "error: unknown option '--permission-mode'")
+  assert.equal(looksLikePermissionSettingRefusal(`Agent process exited. (${cliStderrSummary(usage)})`), true)
+  // Codex reads its config before it says anything else.
+  const codex = [
+    'Error: error loading config: unknown variant `auto_review`, expected `user` or `auto`',
+    'in `approvals_reviewer`',
+    '',
+    'For more information, try --help.',
+  ].join('\n')
+  assert.match(cliStderrSummary(codex), /unknown variant `auto_review`/)
+  // Nothing refused: the last lines, as before.
+  assert.equal(cliStderrSummary('starting\nloading\nconnection reset\nbye'), 'loading\nconnection reset\nbye')
+  assert.equal(cliStderrSummary(''), '')
 })

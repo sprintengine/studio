@@ -42,10 +42,12 @@ type ThreadFold = {
 // the chats a person works in; one that drops out is read whole once more.
 const MAX_CACHED_FOLDS = 64
 const FOLD_HEAD_BYTES = 512
-const segment = (value: string) => {
+/** The folder (or file) name a chat's or agent's id is stored under in `.sprintengine/conversations/`. */
+export const conversationStorageSegment = (value: string) => {
   const encoded = encodeURIComponent(value.trim().replace(/[\\/]/g, '-'))
   return encoded === '.' || encoded === '..' ? encoded.replace(/\./g, '%2E') : encoded
 }
+const segment = conversationStorageSegment
 const directory = (key: ConversationWorkspaceKey) =>
   workspaceSidecarPath(key.workspaceRoot, 'conversations', segment(key.workspaceId))
 export const conversationIndexTranscriptPath = (key: ConversationKey) =>

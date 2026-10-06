@@ -77,6 +77,7 @@ import type {
   ConversationRenameInput,
 } from '../shared/conversation-index'
 import { presentToolItem } from '../shared/conversation/presentation'
+import { plainLineBreaks } from '../shared/conversation/lineBreaks'
 import { applyPromptCacheEvent } from '../shared/prompt-cache'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 import { ConversationAttachmentStore } from './conversation-attachment-store'
@@ -287,6 +288,8 @@ type EmittedSummary = {
  * the tool's detail file and its final event regardless.
  */
 const DEFAULT_TOOL_PREVIEW_INTERVAL_MS = 5_000
+/** How long a send turned away by a running turn waits before it is sent again. */
+const TURN_BUSY_RETRY_MS = 1_000
 
 const UNSAVED_NOTICE =
   'This conversation could not be saved to disk. It carries on here, but messages from now on may be missing after the app restarts.'
@@ -782,15 +785,20 @@ export class ConversationRuntime {
     if (this.terminalHandoffs.has(session.sessionId))
       return { ok: false, message: 'This conversation is moving to a terminal, so the message was not sent.' }
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
+    // Busy, not failed: a send from another device (a phone, while a turn
+    // started here runs) is held there and sent again once the turn is over.
     if (isSessionBusy(session) && !input.steer) {
       return {
         ok: false,
+        code: 'busy',
+        retryAfterMs: TURN_BUSY_RETRY_MS,
         message: session.pendingRequestId
           ? 'Conversation turn is awaiting approval.'
           : 'Conversation turn is already in progress.',
       }
     }
-    const message = input.message.trim()
+    // One message, whatever separators the text that typed it used.
+    const message = plainLineBreaks(input.message).trim()
     const attachments = input.attachments ?? []
     // A turn needs some payload: either text or at least one image attachment.
     if (!message && attachments.length === 0 && !input.mentions?.length && !input.skills?.length)
@@ -2387,7 +2395,10 @@ export class ConversationRuntime {
       } catch (error) {
         receipt = { ok: false, message: error instanceof Error ? error.message : 'Conversation command failed.' }
       }
-      receipts.set(commandId, stamped(receipt))
+      // A `busy` refusal ran nothing, and is no answer to keep: a retry under
+      // the same id, once the turn in its way is over, runs the command.
+      if (!receipt.ok && receipt.code === 'busy') receipts.delete(commandId)
+      else receipts.set(commandId, stamped(receipt))
       await persist().catch(() => undefined)
       return receipt
     })()

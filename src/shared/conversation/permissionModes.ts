@@ -109,12 +109,31 @@ const PERMISSION_MODE_NAMES: Record<ConversationPermissionPreset, string> = {
 // for the CLI's own default, which may be to ask about nothing.
 const REFUSAL_WORDS =
   /\b(?:unknown|unrecogni[sz]ed|unexpected|invalid|unsupported|not (?:a )?(?:valid|supported|allowed)|no such|(?:must be|expected) one of|possible values)\b/iu
+// Config keys and values are spelled with underscores as often as with
+// dashes (`auto_review`, `approval_policy`, `danger_full_access`), so either
+// separator counts.
 const SETTING_WORDS =
-  /permission|approval|approve|sandbox|bypass|dangerously|yolo|accept-?edits|auto-review|--force\b|\bmode\b|untrusted|on-request|on-failure|read-only|workspace-write|full-access/iu
+  /permission|approval|approve|sandbox|bypass|dangerously|yolo|accept[-_]?edits|auto[-_]review|--force\b|\bmode\b|untrusted|on[-_]request|on[-_]failure|read[-_]only|workspace[-_]write|full[-_]access/iu
 
 /** Whether a runtime's failure message says it would not take its permission setting. */
 export function looksLikePermissionSettingRefusal(message: string): boolean {
   return message.split('\n').some((line) => REFUSAL_WORDS.test(line) && SETTING_WORDS.test(line))
+}
+
+/** How many of a CLI's last stderr lines are searched for a refusal of its setting. */
+const STDERR_SCANNED_LINES = 40
+
+/**
+ * What a failure's message quotes of the CLI's stderr: the line refusing its
+ * permission setting when one is among its last lines (a CLI's usage text
+ * usually follows that line, so it is rarely last), otherwise its last three
+ * lines. Empty when it printed nothing.
+ */
+export function cliStderrSummary(stderrTail: string): string {
+  const lines = stderrTail.trim().split('\n').slice(-STDERR_SCANNED_LINES)
+  const refusal = lines.find((line) => looksLikePermissionSettingRefusal(line))
+  const summary = (refusal ?? lines.slice(-3).join('\n')).trim()
+  return summary.length > 300 ? `${summary.slice(0, 299)}…` : summary
 }
 
 /**
