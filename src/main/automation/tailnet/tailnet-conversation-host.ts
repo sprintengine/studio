@@ -491,11 +491,18 @@ export function createConversationGatewayHost(
       const now = Date.now()
       const kept = imagePaths.get(id)
       if (kept && now - kept.at < IMAGE_PATH_TTL_MS) return kept.found
+      // Kept only once the step has ended well: one still waiting on its
+      // approval may yet be declined, and is asked about again.
+      let settled = false
       const found = (async (): Promise<ConversationToolImagePath> => {
         // A chat is one the list would name: a live session, or a thread the
         // workspace's history holds.
         if (!sessionFor(key) && !(await threadFor(key))) return { ok: false, code: 'unknown_conversation' }
         const tool = await runtime.findToolCall({ ...key, toolUseId })
+        // A step declined, stopped or failed shows no picture in the chat,
+        // so its file is not served either.
+        if (tool?.status && tool.status !== 'ok') return { ok: false, code: 'unknown_image' }
+        settled = tool?.status === 'ok'
         const path = tool ? conversationImagePathOf(tool) : null
         if (!path) return { ok: false, code: 'unknown_image' }
         // A relative path names a file in the chat's folder, as a link to it in
@@ -503,13 +510,13 @@ export function createConversationGatewayHost(
         return { ok: true, path: isAbsolute(path) ? path : resolve(key.workspaceRoot, path) }
       })()
       // Shared while it is being found, so a burst of asks is one scan; kept
-      // afterwards only when it named a picture.
+      // afterwards only when it named a picture of a step that has ended.
       imagePaths.delete(id)
       imagePaths.set(id, { at: now, found })
       while (imagePaths.size > MAX_IMAGE_PATHS) imagePaths.delete(imagePaths.keys().next().value!)
       void found.then(
         (answer) => {
-          if (!answer.ok && imagePaths.get(id)?.found === found) imagePaths.delete(id)
+          if ((!answer.ok || !settled) && imagePaths.get(id)?.found === found) imagePaths.delete(id)
         },
         () => {
           if (imagePaths.get(id)?.found === found) imagePaths.delete(id)

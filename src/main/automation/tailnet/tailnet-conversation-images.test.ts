@@ -43,7 +43,7 @@ const GIF = Buffer.from('GIF89a\u0001\u0000\u0001\u0000', 'latin1')
 const workspaceId = 'workspace'
 const agentId = 'agent'
 
-type Step = { id: string; name: string; kind?: string; input: Record<string, unknown> }
+type Step = { id: string; name: string; kind?: string; input: Record<string, unknown>; status?: string }
 
 /** A provider whose turn announces the steps its message lists, as JSON. */
 function stepProvider(): ConversationProviderAdapter {
@@ -73,7 +73,12 @@ function stepProvider(): ConversationProviderAdapter {
             ...(step.kind ? { kind: step.kind } : {}),
             input: step.input,
           }),
-          event('tool_output', { turnId: input.turnId, toolUseId: step.id, output: 'done', status: 'ok' }),
+          event('tool_output', {
+            turnId: input.turnId,
+            toolUseId: step.id,
+            output: 'done',
+            status: step.status ?? 'ok',
+          }),
         ]),
         event('turn_completed', { turnId: input.turnId }),
       ]
@@ -145,6 +150,22 @@ beforeAll(async () => {
     { id: 'read-folder', name: 'Read', kind: 'file_read', input: { file_path: join(files, 'folder.png') } },
     { id: 'edit-image', name: 'Write', kind: 'file_write', input: { file_path: join(files, 'generated.png') } },
     { id: 'generate-unsaved', name: 'GenerateImage', kind: 'other', input: { prompt: 'nothing saved' } },
+    // Announced before the person answered, then declined: the chat shows
+    // no picture, and neither does the route.
+    {
+      id: 'read-declined',
+      name: 'Read',
+      kind: 'file_read',
+      input: { file_path: join(files, 'screenshot.png') },
+      status: 'declined',
+    },
+    {
+      id: 'read-failed',
+      name: 'Read',
+      kind: 'file_read',
+      input: { file_path: join(files, 'screenshot.png') },
+      status: 'error',
+    },
   ]
   const sent = await runtime.sendTurn({ sessionId: started.session.sessionId, message: JSON.stringify(steps) })
   assert.ok(sent.ok)
@@ -302,7 +323,14 @@ test('a chat this machine does not have is an unknown conversation', async () =>
 })
 
 test('a step that is not there, shows no picture, or saved none is an unknown image', async () => {
-  for (const toolUseId of ['no-such-step', 'read-text', 'edit-image', 'generate-unsaved']) {
+  for (const toolUseId of [
+    'no-such-step',
+    'read-text',
+    'edit-image',
+    'generate-unsaved',
+    'read-declined',
+    'read-failed',
+  ]) {
     const answer = await get(imagePath(toolUseId), { token: reader })
     assert.equal(answer.status, 404, toolUseId)
     assert.equal(errorOf(answer).code, 'unknown_image', toolUseId)

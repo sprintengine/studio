@@ -37,6 +37,7 @@ import type {
   ConversationToolDetailResult,
   ConversationToolDetail,
   ConversationJsonValue,
+  ConversationToolStatus,
   ConversationTurnDiffInput,
   ConversationTurnDiffResult,
   ConversationRevertInput,
@@ -2602,9 +2603,13 @@ export class ConversationRuntime {
    * generated picture's path arrives with its completion), and the last word
    * is the one that stands. Null when the transcript has no such call.
    */
-  async findToolCall(
-    input: ConversationToolDetailInput,
-  ): Promise<{ name: string; kind: unknown; input: ConversationJsonValue | undefined } | null> {
+  async findToolCall(input: ConversationToolDetailInput): Promise<{
+    name: string
+    kind: unknown
+    input: ConversationJsonValue | undefined
+    /** How the step ended, as its newest `tool_output` says; absent while it has not. */
+    status?: ConversationToolStatus
+  } | null> {
     if (
       !input.workspaceRoot?.trim() ||
       !input.workspaceId?.trim() ||
@@ -2626,10 +2631,20 @@ export class ConversationRuntime {
       )
       if (!event?.payload) return null
       const name = event.payload.name ?? event.payload.tool
+      // A step announces itself before it is approved, so its end is read as
+      // well: a declined read showed nothing, and must not serve its file.
+      const output = await this.transcripts.findLast(
+        input.workspaceRoot,
+        path,
+        (candidate) => candidate.type === 'tool_output' && candidate.payload?.toolUseId === input.toolUseId,
+        TOOL_CALL_SCAN_BYTES,
+      )
+      const status = output?.payload?.status
       return {
         name: typeof name === 'string' ? name : '',
         kind: event.payload.kind,
         input: event.payload.input as ConversationJsonValue | undefined,
+        ...(status === 'ok' || status === 'error' || status === 'declined' || status === 'stopped' ? { status } : {}),
       }
     } catch {
       return null
