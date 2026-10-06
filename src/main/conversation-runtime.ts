@@ -75,6 +75,7 @@ import type {
   ConversationRenameInput,
 } from '../shared/conversation-index'
 import { presentToolItem } from '../shared/conversation/presentation'
+import { plainLineBreaks } from '../shared/conversation/lineBreaks'
 import { applyPromptCacheEvent } from '../shared/prompt-cache'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 import { ConversationAttachmentStore } from './conversation-attachment-store'
@@ -788,7 +789,8 @@ export class ConversationRuntime {
           : 'Conversation turn is already in progress.',
       }
     }
-    const message = input.message.trim()
+    // One message, whatever separators the text that typed it used.
+    const message = plainLineBreaks(input.message).trim()
     const attachments = input.attachments ?? []
     // A turn needs some payload: either text or at least one image attachment.
     if (!message && attachments.length === 0 && !input.mentions?.length && !input.skills?.length)
