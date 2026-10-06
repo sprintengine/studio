@@ -469,6 +469,14 @@ test('a refusal from below is answered in stable words, never the runtime’s ow
   assert.ok(otherId && otherId !== errorId, 'each refusal has an id of its own')
 })
 
+test('a send turned away behind another is answered busy with its delay, so the client retries it', async () => {
+  const { path, auth } = await serve()
+  const c = await open(path, pairFakeClient(auth, 'app', ['conversation:operate']))
+  const sent = await request(c, 's1', 'conversation.send', { key, commandId: 'later', message: 'behind another' })
+  assert.equal(!sent.ok && sent.error.code, 'busy')
+  assert.equal(!sent.ok && sent.error.retryAfterMs, 400)
+})
+
 test('a command id reused for a different command is refused; the same command again is answered from its receipt', async () => {
   const { path, auth, backend } = await serve()
   const c = await open(path, pairFakeClient(auth, 'app', ['conversation:operate']))

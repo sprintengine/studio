@@ -46,7 +46,14 @@ import type { FileSearchResult, FileSystemStat } from '../../shared/ipc/filesyst
 // conversations it serves, and who may connect.
 
 /** How a command ended, as the conversation host words it. */
-export type StudioCommandOutcome = { ok: boolean; code?: string; message?: string; notice?: string }
+export type StudioCommandOutcome = {
+  ok: boolean
+  code?: string
+  message?: string
+  /** With `busy`: when trying again can succeed. */
+  retryAfterMs?: number
+  notice?: string
+}
 
 /**
  * The conversations the RPC serves. Main implements it over the same
