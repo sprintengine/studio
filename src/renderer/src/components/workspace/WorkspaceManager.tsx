@@ -78,6 +78,7 @@ import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { setBacklogHandoffHost, type BacklogHandoffRequest } from '../backlog/backlogHandoffHost'
 import type { CardRunResult, WorkspaceSkill } from '../../../../shared/electron-api'
 import type { HostedCard } from '../../../../shared/hosted-card-feed'
+import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import type { CardLaunchChoice } from './globalSurface/extensions/home/CardGoPicker'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
@@ -349,6 +350,20 @@ const MENU_ACCELERATOR_COMMAND_IDS = [
   'panel.git.toggle',
   'panel.knowledge-graph.toggle',
 ] as const
+
+// A chat in the middle of a turn, or stopped on a card, holds its layout as a
+// live pty does: its view holds what was queued behind the turn, and sends it
+// when the turn ends. Unloaded mid-turn, the queued message went with the view
+// and nothing ever sent it. A chat has no pty, so the terminal checks miss it.
+function addWorkingChatWorkspaces(
+  busyWorkspaceIds: Set<string>,
+  sessions: readonly Pick<ConversationSessionSummary, 'workspaceId' | 'status' | 'turnStartedAt'>[],
+): void {
+  for (const session of sessions) {
+    if (session.turnStartedAt !== undefined || session.status === 'active' || session.status === 'awaiting_approval')
+      busyWorkspaceIds.add(session.workspaceId)
+  }
+}
 
 export default function WorkspaceManager() {
   useAppTheme()
@@ -1784,6 +1799,7 @@ export default function WorkspaceManager() {
         busyWorkspaceIds.add(session.workspaceId)
       }
     }
+    addWorkingChatWorkspaces(busyWorkspaceIds, conversationSessions)
 
     const retention = computeRetainedWorkspaceLayoutIds({
       visibleWorkspaceIds,
@@ -1835,7 +1851,14 @@ export default function WorkspaceManager() {
         ? current
         : next
     })
-  }, [mountedWorkspaceIds, terminalSessions, visibleWorkspaces, windowActiveWorkspaceId, workspaceLayoutRetentionTick])
+  }, [
+    conversationSessions,
+    mountedWorkspaceIds,
+    terminalSessions,
+    visibleWorkspaces,
+    windowActiveWorkspaceId,
+    workspaceLayoutRetentionTick,
+  ])
 
   useEffect(() => {
     const now = Date.now()
@@ -1851,6 +1874,7 @@ export default function WorkspaceManager() {
         busyWorkspaceIds.add(session.workspaceId)
       }
     }
+    addWorkingChatWorkspaces(busyWorkspaceIds, conversationSessions)
 
     let nextDeadline = Number.POSITIVE_INFINITY
     for (const workspaceId of mountedWorkspaceIds) {
@@ -1868,7 +1892,14 @@ export default function WorkspaceManager() {
       Math.max(1_000, nextDeadline - now + 50),
     )
     return () => window.clearTimeout(timeout)
-  }, [mountedWorkspaceIds, terminalSessions, visibleWorkspaces, windowActiveWorkspaceId, workspaceLayoutRetentionTick])
+  }, [
+    conversationSessions,
+    mountedWorkspaceIds,
+    terminalSessions,
+    visibleWorkspaces,
+    windowActiveWorkspaceId,
+    workspaceLayoutRetentionTick,
+  ])
 
   // Auto-open New chat when there are no workspaces — unless the first-run CLI
   // question still owns that window. Precedence lives HERE, at the
