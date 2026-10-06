@@ -127,14 +127,19 @@ export function useLocalServersOfConversation(
   })
   const keyRef = useRef(key)
   keyRef.current = key
+  // Only the latest ask is drawn: two that overlap (a push while the first
+  // read is out) can answer out of order, and the older list must not land
+  // last over the newer.
+  const askedRef = useRef(0)
   const ask = useCallback(async (): Promise<void> => {
     if (!workspaceId || !agentId || !key) return
+    const asked = ++askedRef.current
     const client = await localServersClient()
     if (!client) return
     try {
       const page = await client.request('localServers.list', { conversations: [{ workspaceId, agentId }] })
       // An answer for a conversation this view has since left is not drawn.
-      if (keyRef.current !== key) return
+      if (keyRef.current !== key || asked !== askedRef.current) return
       const found = page.conversations.find((entry) => entry.workspaceId === workspaceId && entry.agentId === agentId)
       const next = found && found.servers.length > 0 ? found.servers : EMPTY
       setHeld((current) =>

@@ -194,6 +194,34 @@ test("a conversation's servers are not drawn under the next one while it is aske
   expect(seen.at(-1)).toEqual([])
 })
 
+test('of two asks that overlap, the older answer landing last is not drawn', async () => {
+  // The first read is held back until after the push's read has answered.
+  let releaseFirst: () => void = () => undefined
+  const firstHeld = new Promise<void>((resolve) => (releaseFirst = resolve))
+  let reads = 0
+  studio.answer = async (_method, params) => {
+    const [owner] = (params as { conversations: Array<{ workspaceId: string; agentId: string }> }).conversations
+    const read = ++reads
+    if (read === 1) await firstHeld
+    return {
+      workspaces: {},
+      conversations: [{ ...owner, servers: [server({ state: read === 1 ? 'running' : 'stopped' })] }],
+    }
+  }
+  const seen: Array<readonly StudioLocalServer[]> = []
+  await render(<ConversationProbe conversation={CONVERSATION} seen={seen} />)
+  await settle()
+  vi.useFakeTimers()
+  push()
+  await act(async () => vi.advanceTimersByTime(300))
+  vi.useRealTimers()
+  await settle()
+  expect(seen.at(-1)?.[0]?.state).toBe('stopped')
+  releaseFirst()
+  await settle()
+  expect(seen.at(-1)?.[0]?.state).toBe('stopped')
+})
+
 test('a push asks again, once for a burst, and the new state is drawn', async () => {
   let state: StudioLocalServer['state'] = 'running'
   answerConversation(() => [server({ state })])
