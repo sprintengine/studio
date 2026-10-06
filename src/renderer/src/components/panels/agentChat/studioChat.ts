@@ -223,12 +223,28 @@ export function createStudioChatServices(client: ClientSource): ChatServices {
       onChanged: (listener) => {
         let stop: (() => void) | null = null
         let stopped = false
+        let timer: ReturnType<typeof setTimeout> | null = null
+        const later = (run: () => void): void => {
+          if (stopped) return
+          timer = setTimeout(() => {
+            timer = null
+            run()
+          }, COMMANDS_FOLLOW_RETRY_MS)
+        }
         // The window's client reconnects by itself and subscribes again; one
         // that closed for good is replaced, and followed on its replacement.
+        // One parked (a refused ticket) is waited out without asking for it,
+        // which would wake it only to be refused again; a topic the Studio
+        // refuses for good is not asked for again.
         const follow = (): void =>
           void client().then(
             (connected) => {
               if (stopped) return
+              const waitOut = (): void => {
+                if (connected.state === 'parked') later(waitOut)
+                else if (connected.state === 'closed' || connected.state === 'open') follow()
+                else later(waitOut)
+              }
               stop = connected.subscribe(
                 'conversation.commands',
                 {},
@@ -236,18 +252,22 @@ export function createStudioChatServices(client: ClientSource): ChatServices {
                   onPayload: (payload) => listener(payload as ConversationCommandCatalog),
                   onEnd: () => {
                     stop = null
-                    if (!stopped) setTimeout(follow, COMMANDS_FOLLOW_RETRY_MS)
+                    // Read once the client has said why: a park or a close
+                    // ends its streams first and sets its state after.
+                    queueMicrotask(() => {
+                      if (connected.state === 'closed') later(follow)
+                      else if (connected.state !== 'open') later(waitOut)
+                    })
                   },
                 },
               )
             },
-            () => {
-              if (!stopped) setTimeout(follow, COMMANDS_FOLLOW_RETRY_MS)
-            },
+            () => later(follow),
           )
         follow()
         return () => {
           stopped = true
+          if (timer) clearTimeout(timer)
           stop?.()
         }
       },
