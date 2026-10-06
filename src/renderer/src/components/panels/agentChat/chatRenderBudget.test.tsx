@@ -17,7 +17,8 @@ import { installRenderCounter, type RenderCounter } from '../../../../../../test
 // report printed; a development build spends most of a token in its own
 // element bookkeeping:
 //   NODE_ENV=production CHAT_BENCH_PROD=1 npx vitest run <this file>
-// CHAT_BENCH_REPORT prints the counts without timing.
+// CHAT_BENCH_REPORT prints the counts without timing. CHAT_BENCH_TURNS sets
+// how much history the streaming chat holds (10, one page, by default).
 const PROD = vi.hoisted(() => {
   const prod = !!process.env.CHAT_BENCH_PROD
   if (prod) process.env.NODE_ENV = 'production'
@@ -143,6 +144,7 @@ function history(turns: number): ConversationEvent[] {
 }
 
 async function mountChat(events: ConversationEvent[]) {
+  const mountStarted = performance.now()
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
   const frameQueue = new Map<number, FrameRequestCallback>()
@@ -275,6 +277,10 @@ async function mountChat(events: ConversationEvent[]) {
     frames.at(-1)?.({ type: 'synchronized', seq: events.at(-1)?.seq ?? 0 })
   })
   await settle()
+  if (PROD || process.env.CHAT_BENCH_REPORT)
+    process.stderr.write(
+      `\nMOUNT events=${events.length} ms=${(performance.now() - mountStarted).toFixed(0)} nodes=${host.getElementsByTagName('*').length}\n`,
+    )
   const runFrames = () => {
     const due = [...frameQueue.values()]
     frameQueue.clear()
@@ -319,7 +325,7 @@ async function mountChat(events: ConversationEvent[]) {
 }
 
 test('streaming 1000 tokens of prose and code stays within its render and parse budget', async () => {
-  const chat = await mountChat(history(10))
+  const chat = await mountChat(history(Number(process.env.CHAT_BENCH_TURNS ?? 10)))
   try {
     await chat.act(async () => {
       chat.emit({ type: 'event', event: event('user_message', { turnId: 'live', text: 'And the other cache?' }) })
