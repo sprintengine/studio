@@ -119,6 +119,19 @@ test('module-storage', async () => {
       assert.equal(await readFile(outside, 'utf8'), 'untouched')
       assert.equal(await readFile(join(planted, 'notes.json'), 'utf8'), '"mine"')
 
+      // Nor is a module's folder that is a link, nor a stored file that is one.
+      const elsewhere = join(temp, 'elsewhere')
+      await mkdir(elsewhere)
+      await writeFile(join(elsewhere, 'secret.json'), '"theirs"')
+      await symlink(elsewhere, join(workspaceRoot, '.sprintengine', 'modules', 'planner'))
+      const linkedSet = await storage.set('planner', { key: 'notes', value: 'mine', workspaceRoot })
+      assert.equal(linkedSet.ok === false && linkedSet.code, 'io_error')
+      assert.equal(existsSync(join(elsewhere, 'notes.json')), false)
+      assert.equal((await storage.get('planner', { key: 'secret', workspaceRoot })).ok, false)
+      assert.equal((await storage.list('planner', { workspaceRoot })).ok, false)
+      await symlink(join(elsewhere, 'secret.json'), join(planted, 'secret.json'))
+      assert.equal((await storage.get('calendar', { key: 'secret', workspaceRoot })).ok, false)
+
       // Concurrent sets serialize — last write wins, file stays valid JSON.
       await Promise.all(Array.from({ length: 8 }, (_, index) => storage.set('calendar', { key: 'race', value: index })))
       const settled = await storage.get('calendar', { key: 'race' })
