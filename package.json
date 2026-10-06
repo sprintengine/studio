@@ -71,6 +71,7 @@
     "lint:guard-probes": "node scripts/testing/design-system-guard-probes.mjs",
     "catalogue:cli-entries": "esbuild resources/marketplace/generate-cli-entries.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/sprintengine/marketplace-cli-entries-generate.cjs && node node_modules/.cache/sprintengine/marketplace-cli-entries-generate.cjs",
     "measure:startup": "node scripts/measure-startup.mjs",
+    "measure:typeable": "node scripts/measure-time-to-typeable.mjs",
     "smoke:server-mode": "node scripts/smoke-server-mode.mjs",
     "report:source-size": "node scripts/report-source-size.mjs",
     "postinstall": "node scripts/fix-node-pty-permissions.js && node node_modules/electron/install.js"
