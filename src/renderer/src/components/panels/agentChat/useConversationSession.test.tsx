@@ -623,3 +623,115 @@ test('the session keeps a settled turn’s tokens as one event, and appends live
     }
   }
 })
+
+test('a chat opened again draws what it held at once and asks only for what was written since', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  const subscriptions: {
+    input: ConversationSubscribeInput
+    receive: (frame: ConversationSessionFrame) => void
+    dispose: ReturnType<typeof vi.fn>
+  }[] = []
+  Object.assign(dom.window, {
+    api: {
+      onConversationSession: (
+        input: ConversationSubscribeInput,
+        receive: (frame: ConversationSessionFrame) => void,
+      ) => {
+        const dispose = vi.fn()
+        subscriptions.push({ input, receive, dispose })
+        return dispose
+      },
+    },
+  })
+  const event = (
+    agentId: string,
+    seq: number,
+    type: ConversationEvent['type'] = 'user_message',
+  ): ConversationEvent => ({
+    seq,
+    id: `${agentId}-${seq}`,
+    workspaceId: 'workspace',
+    agentId,
+    sessionId: 'session',
+    providerId: 'mock',
+    modelId: 'mock',
+    createdAt: seq,
+    type,
+    payload: { turnId: `turn-${seq}`, text: `message ${seq}` },
+  })
+  const { act, createElement } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { useConversationSession, RETAINED_SESSION_LIMIT } = await import('./useConversationSession')
+  let hook!: ReturnType<typeof useConversationSession>
+  function Harness({ agentId }: { agentId: string }) {
+    hook = useConversationSession('/Users/dev/retained', 'workspace', agentId)
+    return null
+  }
+  const root = createRoot(document.createElement('div'))
+  const subscriptionOf = (agentId: string) => subscriptions.filter((entry) => entry.input.key.agentId === agentId)
+  const open = async (agentId: string) => act(async () => root.render(createElement(Harness, { agentId })))
+  const join = async (agentId: string, events: ConversationEvent[], head: number) => {
+    const { receive } = subscriptionOf(agentId).at(-1)!
+    await act(async () => {
+      receive({ type: 'snapshot', page: { events, hasMore: false, beforeCursor: null }, generation: `log-${agentId}` })
+      receive({ type: 'synchronized', seq: head, generation: `log-${agentId}` })
+    })
+  }
+  try {
+    await open('first')
+    await join('first', [event('first', 1), event('first', 2, 'turn_completed')], 2)
+    expect(hook.events.map((entry) => entry.seq)).toEqual([1, 2])
+    // Away to another chat: the first one's subscription closes, like any other.
+    await open('second')
+    expect(subscriptionOf('first')[0].dispose).toHaveBeenCalledOnce()
+    await join('second', [event('second', 1)], 1)
+
+    // Back: what it held is drawn before anything arrives, and the runtime is
+    // asked only for what follows it.
+    await open('first')
+    expect(hook.hydrated).toBe(true)
+    expect(hook.events.map((entry) => entry.seq)).toEqual([1, 2])
+    expect(subscriptionOf('first')).toHaveLength(2)
+    expect(subscriptionOf('first')[1].input).toMatchObject({ afterSeq: 2, generation: 'log-first' })
+    const { receive } = subscriptionOf('first')[1]
+    await act(async () => {
+      receive({ type: 'event', event: event('first', 3) })
+      receive({ type: 'event', event: event('first', 4, 'turn_completed') })
+    })
+    // The catch-up is drawn whole at its fence, and is history, as a cold read's would be.
+    expect(hook.events.map((entry) => entry.seq)).toEqual([1, 2])
+    await act(async () => receive({ type: 'synchronized', seq: 4, generation: 'log-first' }))
+    expect(hook.events.map((entry) => entry.seq)).toEqual([1, 2, 3, 4])
+    expect(hook.replayThroughSeq).toBe(4)
+    expect(hook.announcement).toBe('')
+
+    // Only the newest few are kept: the oldest is read cold again.
+    for (let index = 0; index <= RETAINED_SESSION_LIMIT; index++) {
+      await open(`other-${index}`)
+      await join(`other-${index}`, [event(`other-${index}`, 1)], 1)
+    }
+    await open('first')
+    expect(subscriptionOf('first').at(-1)!.input).not.toHaveProperty('afterSeq')
+    expect(hook.hydrated).toBe(false)
+    // A chat left before it was read is not kept either.
+    await open('unread')
+    await open('first')
+    await open('unread')
+    expect(subscriptionOf('unread')).toHaveLength(2)
+    expect(subscriptionOf('unread')[1].input).not.toHaveProperty('afterSeq')
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})

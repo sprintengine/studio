@@ -41,6 +41,9 @@ type Session = {
   retries: number
   retryTimer: ReturnType<typeof setTimeout> | null
   unsubscribe: () => void
+  // Subscribe again from the cursor: a retry, or a chat opened again while it
+  // was still held.
+  resume: () => void
 }
 const emptyState = (): SessionState => ({
   events: [],
@@ -172,7 +175,45 @@ type SharedSession = {
   listeners: Set<(urgency: FrameUrgency) => void>
   readers: number
 }
-const sharedSessions = new WeakMap<ConversationTransport, Map<string, SharedSession>>()
+
+/**
+ * A chat nobody reads any more is kept, closed, for a while: the events it
+ * holds and the cursor they reach. Opening it again draws them at once and
+ * asks only for what was written since, where opening it cold reads, sends
+ * and parses its last turns whole (megabytes for a chat that ran many tools).
+ * The newest few are kept, within a budget of what their events weigh as
+ * JSON; the oldest goes first.
+ */
+export const RETAINED_SESSION_LIMIT = 6
+export const RETAINED_SESSION_BYTES = 40 * 1024 * 1024
+
+// What an event weighs as JSON, near enough, remembered per event: a session
+// closed again weighs only what it took in since.
+const eventWeights = new WeakMap<ConversationEvent, number>()
+function weightOf(value: unknown, depth = 0): number {
+  if (typeof value === 'string') return value.length + 2
+  if (value === null || typeof value !== 'object' || depth > 8) return 8
+  let weight = 2
+  if (Array.isArray(value)) for (const item of value) weight += weightOf(item, depth + 1) + 1
+  else for (const key in value) weight += key.length + 4 + weightOf((value as Record<string, unknown>)[key], depth + 1)
+  return weight
+}
+function eventsWeight(events: ConversationEvent[]): number {
+  let total = 0
+  for (const event of events) {
+    let weight = eventWeights.get(event)
+    if (weight === undefined) eventWeights.set(event, (weight = weightOf(event)))
+    total += weight
+  }
+  return total
+}
+
+type TransportSessions = {
+  open: Map<string, SharedSession>
+  // Oldest first, with what each weighs.
+  retained: Map<string, { shared: SharedSession; bytes: number }>
+}
+const sharedSessions = new WeakMap<ConversationTransport, TransportSessions>()
 const sessionKeyOf = (key: ConversationKey) => JSON.stringify([key.workspaceRoot, key.workspaceId, key.agentId])
 
 function publish(shared: SharedSession, urgency: FrameUrgency = 'turn'): void {
@@ -189,14 +230,34 @@ function readSnapshot(shared: SharedSession): SessionState {
   return shared.snapshot
 }
 
+function sessionsOf(transport: ConversationTransport): TransportSessions {
+  let sessions = sharedSessions.get(transport)
+  if (!sessions) sharedSessions.set(transport, (sessions = { open: new Map(), retained: new Map() }))
+  return sessions
+}
+
 function openSharedSession(transport: ConversationTransport, key: ConversationKey): SharedSession {
-  let byKey = sharedSessions.get(transport)
-  if (!byKey) sharedSessions.set(transport, (byKey = new Map()))
+  const sessions = sessionsOf(transport)
+  const byKey = sessions.open
   const id = sessionKeyOf(key)
   const existing = byKey.get(id)
   if (existing) {
     existing.readers += 1
     return existing
+  }
+  const retained = sessions.retained.get(id)?.shared
+  if (retained) {
+    sessions.retained.delete(id)
+    byKey.set(id, retained)
+    retained.readers = 1
+    const { session } = retained
+    // Opened again: what it holds is history now, as it would be read cold,
+    // and whatever was written meanwhile arrives as a catch-up behind the
+    // fence of this join.
+    session.state = { ...session.state, replayThroughSeq: session.cursor?.seq ?? 0, announcement: '' }
+    retained.snapshot = null
+    session.resume()
+    return retained
   }
   const session: Session = {
     key,
@@ -211,10 +272,13 @@ function openSharedSession(transport: ConversationTransport, key: ConversationKe
     retries: 0,
     retryTimer: null,
     unsubscribe: () => {},
+    resume: () => subscribe(true),
   }
   const shared: SharedSession = { session, snapshot: null, listeners: new Set(), readers: 1 }
   byKey.set(id, shared)
-  const subscribe = () => {
+  // `reopened`: a held session read again, whose catch-up is history to its
+  // new reader as much as what it already holds.
+  const subscribe = (reopened = false) => {
     session.joining = true
     // Resume from the cursor when the log can vouch for it: the runtime then
     // sends only the events after it. Without a generation it sends a reset
@@ -227,7 +291,7 @@ function openSharedSession(transport: ConversationTransport, key: ConversationKe
     // however many joins came before: the fence of this join becomes the
     // replay boundary, not the one from the first join (which may even be from
     // another log generation).
-    let replaced = false
+    let replaced = reopened
     const unsubscribe = transport.subscribe({ key: session.key, turnLimit: TURN_LIMIT, ...cursor }, (frame) => {
       if (session.disposed || !current) return
       switch (frame.type) {
@@ -294,16 +358,46 @@ function openSharedSession(transport: ConversationTransport, key: ConversationKe
   return shared
 }
 
+function disposeSession(session: Session): void {
+  session.disposed = true
+  if (session.retryTimer) clearTimeout(session.retryTimer)
+  session.retryTimer = null
+  session.unsubscribe()
+}
+
+// Only a session that holds a whole, current transcript and a cursor its log
+// can vouch for is worth keeping: anything else is read cold next time anyway.
+function retainable(session: Session): boolean {
+  return (
+    session.state.hydrated &&
+    !session.state.error &&
+    !session.joining &&
+    session.retryTimer === null &&
+    session.cursor?.generation !== undefined
+  )
+}
+
 function closeSharedSession(transport: ConversationTransport, shared: SharedSession): void {
   shared.readers -= 1
   if (shared.readers > 0) return
   const { session } = shared
-  session.disposed = true
-  if (session.retryTimer) clearTimeout(session.retryTimer)
-  session.unsubscribe()
-  const byKey = sharedSessions.get(transport)
+  const sessions = sessionsOf(transport)
   const id = sessionKeyOf(session.key)
-  if (byKey?.get(id) === shared) byKey.delete(id)
+  if (sessions.open.get(id) === shared) sessions.open.delete(id)
+  if (!retainable(session)) return disposeSession(session)
+  // Closed like any other: nothing streams to a chat nobody reads.
+  session.unsubscribe()
+  session.unsubscribe = () => {}
+  shared.snapshot = null
+  sessions.retained.set(id, { shared, bytes: eventsWeight(session.state.events) })
+  let held = 0
+  for (const kept of sessions.retained.values()) held += kept.bytes
+  for (const [oldest, kept] of sessions.retained) {
+    if (sessions.retained.size <= RETAINED_SESSION_LIMIT && held <= RETAINED_SESSION_BYTES) break
+    sessions.retained.delete(oldest)
+    held -= kept.bytes
+    disposeSession(kept.shared.session)
+  }
 }
 
 function loadEarlierTurns(transport: ConversationTransport, shared: SharedSession): Promise<void> {
