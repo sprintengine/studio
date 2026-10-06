@@ -107,6 +107,7 @@ import { excludeMcpConfigFromWorktree, seedWorktreeIncludedFiles } from './git'
 import { broadcastWorktreePoolChanged } from './ipc/worktree-pool-ipc'
 import { installWorktreePool } from './worktree-pool/active-pool'
 import { createPoolStore } from './worktree-pool/pool-store'
+import { chatIdsOnRecord } from './agent-worktree-keep-checks'
 import { createWorktreePoolService } from './worktree-pool/worktree-pool-service'
 import { createWorktreePoolTools } from './worktree-pool/worktree-pool-tools'
 import { createConversationPeekService } from './conversation-peek/service'
@@ -1349,6 +1350,8 @@ export function createAppServices(
       ),
     onChange: broadcastWorktreePoolChanged,
     seedIncludedFiles: seedWorktreeIncludedFiles,
+    // Settled chats included: a slot holding a chat's history is never removed.
+    knownWorkspaceIds: () => chatIdsOnRecord(workspaceSyncService.getSnapshot().state.workspaces),
   })
   installWorktreePool(worktreePool)
   void worktreePool.load()

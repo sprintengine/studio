@@ -14,7 +14,13 @@ import { hostIdForFolder, isWslHostId, LOCAL_HOST_ID, normalizeExecutionHostId }
 import { pathJoin } from '../../shared/paths'
 import { slugifyWorktreeName, worktreeContainerPath } from '../../shared/worktree-paths'
 import { lockAgentWorktree } from '../agent-worktree-lock'
-import { hiddenEditPaths, ignoredPathsAtRisk, insideAny, pathSpellings } from '../agent-worktree-keep-checks'
+import {
+  hiddenEditPaths,
+  ignoredPathsAtRisk,
+  insideAny,
+  isChatTranscriptPath,
+  pathSpellings,
+} from '../agent-worktree-keep-checks'
 import { pathExists } from '../git-utils'
 import { withWorktreeRegistryLock } from '../worktree-registry-lock'
 import { measureDiskUsage, type MeasureDiskUsage } from './disk-usage'
@@ -167,6 +173,12 @@ export type WorktreePoolServiceDeps = {
   seedIncludedFiles?: (repoRoot: string, slotPath: string) => Promise<unknown>
   /** How much disk a slot takes (disk-usage.ts). */
   measure?: MeasureDiskUsage
+  /**
+   * The ids of every chat on record, settled ones included (the workspace
+   * registry), or null when unknown. A slot holding the history of one of them
+   * is never removed (agent-worktree-keep-checks.ts).
+   */
+  knownWorkspaceIds?: () => Iterable<string> | null
 }
 
 export type WorktreePoolLeaseInput = {
@@ -1435,18 +1447,31 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         // What the app and the agent CLIs wrote there themselves (transcripts,
         // installed skills, the MCP config) and a linked `node_modules` are
         // not: Settings ▸ Worktrees shows why a slot stays.
-        const ignored = await ignoredPathsAtRisk(pool.record.repoRoot, slot.path, git)
+        // A settled chat's slot is given back while the chat stays, and its
+        // history lives in the slot's sidecar: such a slot waits for the chat
+        // to be reopened (reclaimed) or deleted.
+        const ignored = await ignoredPathsAtRisk(pool.record.repoRoot, slot.path, git, {
+          knownWorkspaceIds: deps.knownWorkspaceIds ?? null,
+        })
         if (!ignored.ok || ignored.paths.length > 0) {
           if (!ignored.ok) {
             await putBack('could not check its ignored files')
             log(`${slot.path}: kept (could not check its ignored files: ${ignored.message})`)
             return 'Could not check its ignored files, so it is kept.'
           }
-          const more = ignored.paths.length > 3 ? ` and ${ignored.paths.length - 3} more` : ''
-          const listedPaths = `${ignored.paths.slice(0, 3).join(', ')}${more}`
-          await putBack(`has ignored files that may be someone’s work: ${listedPaths}`)
-          log(`${slot.path}: kept (ignored files that may be work: ${listedPaths})`)
-          return `It has ignored files that may be someone’s work (${listedPaths}). Clear its ignored files first if they can go.`
+          const chats = ignored.paths.filter(isChatTranscriptPath).length
+          const files = ignored.paths.filter((path) => !isChatTranscriptPath(path))
+          const more = files.length > 3 ? ` and ${files.length - 3} more` : ''
+          const listedPaths = `${files.slice(0, 3).join(', ')}${more}`
+          const reasons = [
+            chats > 0 ? `holds the history of ${chats === 1 ? 'a chat' : `${chats} chats`} still on record` : null,
+            files.length > 0 ? `has ignored files that may be someone’s work: ${listedPaths}` : null,
+          ].filter((reason): reason is string => reason !== null)
+          await putBack(reasons.join('; '))
+          log(`${slot.path}: kept (${reasons.join('; ')})`)
+          return files.length > 0
+            ? `It has ignored files that may be someone’s work (${listedPaths}). Clear its ignored files first if they can go.`
+            : 'It holds the history of a chat still on record, which comes back to it when the chat is reopened. Delete the chat to let it go.'
         }
         // No --force: git checks cleanliness again at the moment of removal.
         // Only a tree with submodules, which plain `remove` always refuses, is
@@ -1577,7 +1602,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     })
     if (!began) return { ok: false, message: 'Only a worktree that is ready to reuse can be cleared.' }
     try {
-      const cleaned = await git(slot.path, ['clean', '-fdX', '--quiet'])
+      // Never the app's sidecar: it holds the history of chats that ran here,
+      // which a settled chat reopened on this slot reads again. `-e` with a
+      // negation takes the folder out of the ignored set for this run (a
+      // pathspec exclusion does not stop `clean` removing an ignored folder).
+      const cleaned = await git(slot.path, ['clean', '-fdX', '--quiet', '-e', '!/.sprintengine/'])
       if (!cleaned.ok) return { ok: false, message: cleaned.message ?? 'git clean failed.' }
       log(`${slot.path}: ignored files cleared`)
       await withPool(pool, async () => {

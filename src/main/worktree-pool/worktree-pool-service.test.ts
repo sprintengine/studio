@@ -71,6 +71,7 @@ function makeService(
     now?: () => number
     instanceId?: string
     measure?: MeasureDiskUsage
+    knownWorkspaceIds?: () => Iterable<string> | null
   } = {},
 ) {
   const live = options.live ?? []
@@ -84,6 +85,7 @@ function makeService(
     now: options.now ?? (() => Date.now() + clock.offset),
     instanceId: options.instanceId,
     measure: options.measure ?? fakeMeasure(GB),
+    ...(options.knownWorkspaceIds ? { knownWorkspaceIds: options.knownWorkspaceIds } : {}),
   })
   return { service, live, clock }
 }
@@ -457,12 +459,16 @@ test('what the app and the agent CLIs wrote, and a linked node_modules, do not k
     join(repo, '.git', 'info', 'exclude'),
     '.sprintengine/\n.agents/\n.claude/\n.opencode/\nnode_modules\n',
   )
-  const harness = makeService()
+  // The chat that ran here was deleted since: only `chat-now` is on record.
+  const harness = makeService({ knownWorkspaceIds: () => ['chat-now'] })
   const first = await lease(harness, 'first')
-  // A chat's transcript, a skill the app installed, what OpenCode installs
-  // for itself, an empty folder a CLI made, and dependencies linked in.
+  // A deleted chat's leftover transcript, the pane's captures, a skill the
+  // app installed, what OpenCode installs for itself, an empty folder a CLI
+  // made, and dependencies linked in.
   await mkdir(join(first.path, '.sprintengine', 'conversations', 'ws-1'), { recursive: true })
   await writeFile(join(first.path, '.sprintengine', 'conversations', 'ws-1', 'agent-1.jsonl'), '{}\n')
+  await mkdir(join(first.path, '.sprintengine', 'browser'), { recursive: true })
+  await writeFile(join(first.path, '.sprintengine', 'browser', 'shot.png'), 'png')
   const skill = join(first.path, '.agents', 'skills', 'design-system')
   await mkdir(skill, { recursive: true })
   await writeFile(join(skill, 'SKILL.md'), '# design system\n')
@@ -479,6 +485,48 @@ test('what the app and the agent CLIs wrote, and a linked node_modules, do not k
   await harness.service.updateSettings({ keepIdle: 0 })
   assert.equal(await exists(first.path), false)
   assert.equal(await exists(join(shared, 'left-pad')), true, 'the linked folder itself is untouched')
+})
+
+test('a slot given back by a settled chat keeps that chat’s history until the chat is gone', async () => {
+  await appendFile(join(repo, '.git', 'info', 'exclude'), '.sprintengine/\nnode_modules/\n')
+  const onRecord = ['settled-chat', 'another-chat']
+  const harness = makeService({ knownWorkspaceIds: () => onRecord })
+  const first = await lease(harness, 'first')
+  const history = join(first.path, '.sprintengine', 'conversations', 'settled-chat')
+  await mkdir(history, { recursive: true })
+  await writeFile(join(history, 'agent-1.jsonl'), '{"type":"user_message"}\n')
+  await mkdir(join(first.path, 'node_modules', 'pkg'), { recursive: true })
+  // The chat settled and its slot went back to the pool; the chat stays.
+  await returnAll(harness)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+
+  await harness.service.updateSettings({ keepIdle: 0 })
+  assert.equal(await exists(join(history, 'agent-1.jsonl')), true, 'the idle limit leaves it')
+  assert.match((await slotAt(harness, 'pool-01')).kept ?? '', /history of a chat still on record/)
+  const asked = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(asked.ok, false)
+  assert.match(asked.message ?? '', /history of a chat/)
+  // Clearing the slot's ignored files frees the space and keeps the history.
+  await harness.service.action({ kind: 'clear-ignored', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(await exists(join(first.path, 'node_modules')), false)
+  assert.equal(await exists(join(history, 'agent-1.jsonl')), true)
+
+  // Deleted, the chat's history is a leftover, and the slot goes.
+  onRecord.splice(0, 1)
+  assert.equal((await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })).ok, true)
+  assert.equal(await exists(first.path), false)
+})
+
+test('with the chats on record unknown, a slot holding any chat’s history is kept', async () => {
+  await appendFile(join(repo, '.git', 'info', 'exclude'), '.sprintengine/\n')
+  const harness = makeService({ knownWorkspaceIds: () => null })
+  const first = await lease(harness, 'first')
+  const history = join(first.path, '.sprintengine', 'conversations', 'some-chat')
+  await mkdir(history, { recursive: true })
+  await writeFile(join(history, 'agent-1.jsonl'), '{}\n')
+  await returnAll(harness)
+  assert.equal((await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })).ok, false)
+  assert.equal(await exists(join(history, 'agent-1.jsonl')), true)
 })
 
 test('a skill folder the app did not install keeps an idle slot', async () => {
