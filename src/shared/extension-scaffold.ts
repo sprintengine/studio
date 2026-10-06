@@ -19,10 +19,12 @@ export const EXTENSION_START_TEMPLATE_ID = 'blank'
  * What is at `<parentDir>/<id>` right now, asked while the name is typed:
  * `free` (nothing there, or an empty folder), `extension` (a project with a
  * module manifest, which the chat opens and carries on), `taken` (anything
- * else, which is never written over), or `no_parent` (the project folder is
- * gone or not a folder).
+ * else, which is never written over), `installed` (the folder is free, but an
+ * extension with that id is already installed on this computer, and the new
+ * project's dev install would replace it), or `no_parent` (the project folder
+ * is gone or not a folder).
  */
-export type ExtensionScaffoldTargetState = 'free' | 'extension' | 'taken' | 'no_parent'
+export type ExtensionScaffoldTargetState = 'free' | 'extension' | 'taken' | 'installed' | 'no_parent'
 
 export type ExtensionScaffoldTargetInput = {
   /** The project the door is on; the extension's own folder is made inside it. */
@@ -43,7 +45,8 @@ export type ExtensionScaffoldCreateResult =
   | { ok: true; folder: string; existing: boolean }
   | {
       ok: false
-      code: 'invalid_input' | 'invalid_id' | 'no_parent' | 'dir_not_empty' | 'unknown_template' | 'io_error'
+      code:
+        'invalid_input' | 'invalid_id' | 'no_parent' | 'dir_not_empty' | 'installed' | 'unknown_template' | 'io_error'
       message: string
     }
 

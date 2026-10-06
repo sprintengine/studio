@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
@@ -199,5 +199,32 @@ test('a sealed record this launch cannot open is kept for a later one', () => {
     const later = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher(available) })
     assert.equal(later.find(kept.id)?.deviceToken, 'mctn_fresh-secret', 'the sealed pairing survived that launch')
     assert.equal(later.list().length, 1)
+  })
+})
+
+test('a file that cannot be read is not written over by the next pairing', () => {
+  if (process.platform === 'win32') return
+  withDir((dir) => {
+    const path = join(dir, TAILNET_MESH_FILENAME)
+    const original = JSON.stringify({ version: 1, connections: [stored] })
+    writeFileSync(path, original, { mode: 0o000 })
+    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher() })
+    store.add(input)
+    assert.equal(store.list().length, 1, 'the new pairing works for the session')
+    chmodSync(path, 0o600)
+    assert.equal(readFileSync(path, 'utf8'), original, 'every stored pairing is still on disk')
+  })
+})
+
+test('a file that is not valid JSON is kept aside before the next pairing is written', () => {
+  withDir((dir) => {
+    const path = join(dir, TAILNET_MESH_FILENAME)
+    writeFileSync(path, '{"version":1,"connections":[', { mode: 0o600 })
+    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher() })
+    store.add(input)
+    const aside = readdirSync(dir).filter((name) => name.startsWith(`${TAILNET_MESH_FILENAME}.invalid-`))
+    assert.equal(aside.length, 1)
+    assert.equal(readFileSync(join(dir, aside[0]!), 'utf8'), '{"version":1,"connections":[')
+    assert.equal(readFile(dir).parsed.connections.length, 1)
   })
 })

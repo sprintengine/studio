@@ -47,10 +47,13 @@ test('usePullRequestsOfConversation', async () => {
   // Conversation → what the record answers for it.
   const answers: Record<string, StudioPullRequest[]> = { 'ws-1\0agent-1': [mark(4)], 'ws-1\0agent-2': [mark(5)] }
   const asked: unknown[] = []
+  // An answer for agent-1 waits on this while a test holds it.
+  let held: Promise<void> = Promise.resolve()
   const listeners = new Set<(change: PullRequestsChanged) => void>()
   const pullRequests: StudioPullRequests = {
     list: async (target) => {
       asked.push(target)
+      if (target.conversations?.[0]?.agentId === 'agent-1') await held
       return {
         workspaces: {},
         conversations: (target.conversations ?? [])
@@ -100,6 +103,27 @@ test('usePullRequestsOfConversation', async () => {
       ),
     )
     await until(() => seen[0]?.state === 'merged', 'the merge')
+
+    // The view moves to another conversation while an ask for the first is
+    // still out: the late answer is not drawn on the second.
+    let release = () => {}
+    held = new Promise<void>((resolve) => (release = resolve))
+    await act(async () =>
+      listeners.forEach((listener) =>
+        listener({ workspaceIds: ['ws-1'], conversations: [{ workspaceId: 'ws-1', agentId: 'agent-1' }] }),
+      ),
+    )
+    const before = asked.length
+    await until(() => asked.length > before, 'the held ask')
+    await act(async () =>
+      root.render(React.createElement(Probe, { conversation: { workspaceId: 'ws-1', agentId: 'agent-2' } })),
+    )
+    await until(() => seen[0]?.number === 5, 'the second conversation’s list')
+    await act(async () => {
+      release()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    assert.equal(seen[0]?.number, 5, 'the first conversation’s late answer is dropped')
 
     // No conversation to ask about (a chat on a paired machine): nothing.
     await act(async () => root.render(React.createElement(Probe, { conversation: null })))

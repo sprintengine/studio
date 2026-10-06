@@ -3,7 +3,10 @@ import { test } from 'vitest'
 
 import type { AgentLaunchRequest, AgentLaunchResult } from '../shared/agent-launch'
 import type { ConversationTerminalHandoffTarget } from './conversation-runtime'
+import { defaultAgent } from '../shared/agent-state'
+import type { ConversationSessionSummary, ConversationStartSessionInput } from '../shared/conversation-runtime'
 import {
+  chatHandoffStart,
   createConversationTerminalHandoff,
   handoffNotice,
   terminalLaunchRequest,
@@ -157,4 +160,170 @@ test("the terminal runs on the chat's machine, and takes its mode only where the
     resumeCliSessionId: '5d1c2a3e-provider',
     host: 'wsl:Ubuntu',
   })
+})
+
+const summary = (sessionId: string, status: ConversationSessionSummary['status'], updatedAt: number) =>
+  ({
+    sessionId,
+    workspaceId: 'ws-1',
+    agentId: 'chat-1',
+    providerId: 'claude-agent',
+    modelId: 'claude-opus-5-5',
+    status,
+    createdAt: 0,
+    updatedAt,
+  }) satisfies ConversationSessionSummary
+
+test('a chat named by its identity is handed over through the session it is running', async () => {
+  const asked: string[] = []
+  const deps = {
+    runtime: {
+      terminalHandoffTarget: async (input: { sessionId: string }) => {
+        asked.push(input.sessionId)
+        return { ok: true as const, target: TARGET }
+      },
+      stopForTerminalHandoff: async () => ({ ok: true as const, stopped: { turn: false, agents: 0 } }),
+      endTerminalHandoff: () => undefined,
+      noteTerminalHandoff: async () => undefined,
+      listSessions: () => ({
+        ok: true as const,
+        sessions: [summary('old', 'stopped', 9), summary('current', 'ready', 5), summary('older', 'ready', 1)],
+      }),
+      startSession: async () => {
+        throw new Error('a chat with a session running is not started again')
+      },
+    },
+    launch: async (request: AgentLaunchRequest) => ({
+      ok: true as const,
+      workspaceId: request.workspaceId,
+      agentId: 'agent-claude-code-abc123',
+      sessionId: 'terminal-1',
+      cli: request.cli ?? '',
+      executionId: 'terminal-1',
+    }),
+    cliResumesSessions: () => true,
+  } satisfies ConversationTerminalHandoffDeps
+  assert.equal(
+    (await createConversationTerminalHandoff(deps).handoff({ workspaceId: 'ws-1', agentId: 'chat-1' })).ok,
+    true,
+  )
+  assert.deepEqual(asked, ['current'])
+})
+
+test('a chat with no session since the app started is started from its record, then handed over', async () => {
+  const started: ConversationStartSessionInput[] = []
+  const asked: string[] = []
+  const start: ConversationStartSessionInput = {
+    workspaceRoot: '/repo',
+    workspaceId: 'ws-1',
+    agentId: 'chat-1',
+    providerId: 'claude-agent',
+    modelId: 'claude-opus-5-5',
+  }
+  const deps: ConversationTerminalHandoffDeps = {
+    runtime: {
+      terminalHandoffTarget: async (input) => {
+        asked.push(input.sessionId)
+        return { ok: true, target: TARGET }
+      },
+      stopForTerminalHandoff: async () => ({ ok: true, stopped: { turn: false, agents: 0 } }),
+      endTerminalHandoff: () => undefined,
+      noteTerminalHandoff: async () => undefined,
+      listSessions: () => ({ ok: true, sessions: [summary('old', 'stopped', 9)] }),
+      startSession: async (input) => {
+        started.push(input)
+        return { ok: true, session: summary('fresh', 'ready', 10) }
+      },
+    },
+    launch: async (request) => ({
+      ok: true,
+      workspaceId: request.workspaceId,
+      agentId: 'agent-claude-code-abc123',
+      sessionId: 'terminal-1',
+      cli: request.cli ?? '',
+      executionId: 'terminal-1',
+    }),
+    cliResumesSessions: () => true,
+    chatStart: () => start,
+  }
+  const { handoff } = createConversationTerminalHandoff(deps)
+  assert.equal((await handoff({ workspaceId: 'ws-1', agentId: 'chat-1' })).ok, true)
+  assert.deepEqual(started, [start])
+  assert.deepEqual(asked, ['fresh'])
+
+  // No record to start it from: said in words, nothing started.
+  const none = createConversationTerminalHandoff({ ...deps, chatStart: () => null })
+  assert.deepEqual(await none.handoff({ workspaceId: 'ws-1', agentId: 'gone' }), {
+    ok: false,
+    message: 'This chat has no CLI session yet. Send it a message first.',
+  })
+})
+
+test('a session started for a handoff that is then refused is put back to rest; a CLI that cannot resume starts nothing', async () => {
+  const started: string[] = []
+  const suspended: string[] = []
+  const start: ConversationStartSessionInput = {
+    workspaceRoot: '/repo',
+    workspaceId: 'ws-1',
+    agentId: 'chat-1',
+    providerId: 'claude-agent',
+    modelId: 'claude-opus-5-5',
+  }
+  const deps: ConversationTerminalHandoffDeps = {
+    runtime: {
+      // A chat rewound with Edit from here has no CLI session to resume.
+      terminalHandoffTarget: async () => ({ ok: false, message: 'This chat was rewound.' }),
+      stopForTerminalHandoff: async () => ({ ok: true, stopped: { turn: false, agents: 0 } }),
+      endTerminalHandoff: () => undefined,
+      noteTerminalHandoff: async () => undefined,
+      listSessions: () => ({ ok: true, sessions: [] }),
+      startSession: async (input) => {
+        started.push(input.agentId)
+        return { ok: true, session: summary('fresh', 'ready', 10) }
+      },
+      suspendSession: async (input) => {
+        suspended.push(input.sessionId)
+      },
+    },
+    launch: async () => {
+      throw new Error('nothing is launched for a refused handoff')
+    },
+    cliResumesSessions: () => true,
+    chatStart: () => start,
+  }
+  assert.deepEqual(await createConversationTerminalHandoff(deps).handoff({ workspaceId: 'ws-1', agentId: 'chat-1' }), {
+    ok: false,
+    message: 'This chat was rewound.',
+  })
+  assert.deepEqual(suspended, ['fresh'], 'the session started for it is suspended again')
+
+  started.length = 0
+  const noResume = createConversationTerminalHandoff({ ...deps, cliResumesSessions: () => false })
+  assert.equal((await noResume.handoff({ workspaceId: 'ws-1', agentId: 'chat-1' })).ok, false)
+  assert.deepEqual(started, [], 'nothing was started for a CLI a terminal cannot resume')
+})
+
+test("a chat's start for a handoff is its record's: worktree, engine, preset and the WSL machine's CLI", () => {
+  const agent = {
+    ...defaultAgent('chat-1', 'Atlas'),
+    runtimeKind: 'conversation' as const,
+    conversation: { providerId: 'claude-agent', modelId: 'opus' },
+    cliPermissionPreset: 'auto' as const,
+    cliPermissionMode: 'acceptEdits',
+    execution: { mode: 'worktree' as const, worktreeId: null, cwd: '/home/dev/app-worktree' },
+  }
+  const workspace = { id: 'ws-1', folderPath: '/home/dev/app', hostId: 'wsl:Ubuntu', agents: { 'chat-1': agent } }
+  const start = chatHandoffStart(workspace, 'chat-1', { cliRuntimes: {}, hosts: {} })
+  assert.equal(start?.workspaceRoot, '/home/dev/app-worktree')
+  assert.equal(start?.providerId, 'claude-agent')
+  assert.equal(start?.modelId, 'opus')
+  assert.equal(start?.permissionPreset, 'auto')
+  assert.equal(start?.permissionMode, 'acceptEdits')
+  assert.equal(start?.cliRuntimes?.['claude-code']?.hostId, 'wsl:Ubuntu')
+  // A terminal agent, or a chat the record no longer has, is no chat to start.
+  assert.equal(chatHandoffStart(workspace, 'missing', {}), null)
+  assert.equal(
+    chatHandoffStart({ ...workspace, agents: { 'chat-1': { ...agent, runtimeKind: 'terminal' } } }, 'chat-1', {}),
+    null,
+  )
 })

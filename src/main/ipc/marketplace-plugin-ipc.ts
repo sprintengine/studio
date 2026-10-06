@@ -41,6 +41,7 @@ import {
 } from '../marketplace/plugin-download'
 import { createMarketplacePluginVerifier } from '../marketplace/plugin-verify'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
+import { forgetModules } from '../modules/forget-modules'
 import { notifyRendererModulesChanged } from '../modules/notify-renderer-modules-changed'
 import { readModuleTrustContextSync } from '../modules/trust-context'
 import { setModuleTrust } from '../modules/trust-store'
@@ -237,7 +238,18 @@ export function registerMarketplacePluginIpc(
         const envelope = installEnvelope(input, knownWorkspaceRoots())
         if (!envelope.ok) return { ok: false, message: envelope.message }
         const uninstall: MarketplacePluginUninstallInput = { ...envelope.value, pluginId: input.pluginId }
-        return await lifecycle.uninstall(uninstall)
+        const result = await lifecycle.uninstall(uninstall)
+        // A module this took out leaves nothing under its id, as one removed
+        // from Settings → Modules does.
+        const removedModules = (result.removed ?? []).filter((component) => component.kind === 'module')
+        if (removedModules.length > 0) {
+          notifyRendererModulesChanged()
+          await forgetModules(
+            app.getPath('userData'),
+            removedModules.map((component) => component.id),
+          )
+        }
+        return result
       } catch (error) {
         return { ok: false, message: formatError(error) }
       }

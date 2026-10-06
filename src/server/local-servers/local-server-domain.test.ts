@@ -257,6 +257,45 @@ test.skipIf(!posix)('a run that fails keeps its exit code and the end of what it
   assert.match(server.lastExit?.output ?? '', /port in use/)
 })
 
+test('how a run ended is shown only beside the state read after it ended', async () => {
+  let ended: (exit: { code: number | null }) => void = () => undefined
+  let holdProbe = false
+  let releaseProbe: () => void = () => undefined
+  const { domain } = await domainOver({
+    probe: () =>
+      holdProbe ? new Promise<boolean>((resolve) => (releaseProbe = () => resolve(false))) : Promise.resolve(false),
+    startRun: () => ({
+      output: () => 'port in use',
+      exited: new Promise((resolve) => (ended = resolve)),
+      alive: () => true,
+      terminate: () => undefined,
+      kill: () => undefined,
+    }),
+    timing: { activeMs: 60_000, idleMs: 60_000, startingMs: 60_000 },
+  })
+  const linked = await domain.linkForAgent(A, { url: 'http://localhost:4000/', command: 'npm run dev' })
+  const id = linked.ok ? linked.server.id : ''
+  assert.deepEqual(await domain.run({ conversation: A, id }), { ok: true })
+  await until(
+    () => serversOf(domain),
+    (servers) => servers[0]?.state === 'starting',
+    'the run to read as starting',
+  )
+  holdProbe = true
+  ended({ code: 3 })
+  await sleep(20)
+  // The port is still being read: no exit is shown beside "starting".
+  assert.equal((await serversOf(domain))[0]?.lastExit, undefined)
+  releaseProbe()
+  const after = await until(
+    () => serversOf(domain),
+    (servers) => servers[0]?.lastExit !== undefined,
+    'the exit to be kept',
+  )
+  assert.equal(after[0]?.state, 'stopped')
+  assert.equal(after[0]?.lastExit?.code, 3)
+})
+
 test('run, stop and remove refuse what they cannot do', async () => {
   let open = false
   const started: string[] = []
@@ -329,4 +368,29 @@ test('the domain ending stops the runs the Studio started', async () => {
   assert.deepEqual(await domain.run({ conversation: A, id: linked.ok ? linked.server.id : '' }), { ok: true })
   await domain.dispose()
   assert.deepEqual(signals, ['terminate'])
+})
+
+test('a server removed while Run again checks its port is not started', async () => {
+  // Every connect is held from here until the test answers them all.
+  const held: Array<(open: boolean) => void> = []
+  let holdProbe = false
+  const started: string[] = []
+  const { domain } = await domainOver({
+    probe: () => (holdProbe ? new Promise<boolean>((resolve) => held.push(resolve)) : Promise.resolve(false)),
+    startRun: ({ command }) => {
+      started.push(command)
+      throw new Error('not started in this test')
+    },
+  })
+  const linked = await domain.linkForAgent(A, { url: 'http://localhost:5173/', command: 'npm run dev' })
+  assert.ok(linked.ok)
+  holdProbe = true
+  const running = domain.run({ conversation: A, id: linked.server.id })
+  await sleep(50)
+  assert.deepEqual(await domain.remove({ conversation: A, id: linked.server.id }), { removed: true })
+  holdProbe = false
+  for (const answer of held.splice(0)) answer(false)
+  const result = await running
+  assert.equal(result.ok ? 'started' : result.code, 'not_found')
+  assert.deepEqual(started, [])
 })

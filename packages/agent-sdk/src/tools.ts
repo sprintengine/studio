@@ -284,6 +284,10 @@ export function createClientTools(deps: {
       memory.set(id, remembered)
       prune()
     }
+    // A call Studio cancelled is no longer waited on there, and after a
+    // reconnect a reply to it reads as a frame for a call it never made, which
+    // ends the connection for good. Its handler ran on; its answer stays here.
+    if (remembered?.controller.signal.aborted) return
     if (deps.isOpen()) deps.send(frame)
   }
 

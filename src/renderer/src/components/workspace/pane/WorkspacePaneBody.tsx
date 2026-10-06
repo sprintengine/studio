@@ -6,6 +6,7 @@ import type { WorkspacePaneTab } from '../../../types/workspace'
 import { SuspenseFallback } from '../../ui/SuspenseFallback'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import { useChangelists } from '../../../hooks/useChangelists'
+import { useWorkspaceTerminalSessions } from '../../../hooks/useTerminalSessions'
 import { defaultDiffChangelistId } from '../../../utils/diffChangelistDefault'
 import { paneKindRetainsPanel } from './paneKinds'
 import { FLOATING_PAGE_INSET, FloatingPlayerChrome, useFloatRect } from './FloatingPlayer'
@@ -143,8 +144,23 @@ function PaneDiffTab({
   // makes no changelist call at all, which is what keeps every diff opened from
   // a Git row exactly the diff it was before.
   const { changelists } = useChangelists(wantsDefault ? repoRoot : null)
+  // The agent's own terminal names the chat its process was launched in, which
+  // for one dragged here from another chat is where its list is filed. Found by
+  // the session id its record holds, which is unique where the agent id is not.
+  const agentSessionId = useWorkspaceStore((s) =>
+    lastActiveAgentId
+      ? (s.workspaces.find((w) => w.id === workspaceId)?.agents[lastActiveAgentId]?.cliSessionId ?? null)
+      : null,
+  )
+  const workspaceSessions = useWorkspaceTerminalSessions(workspaceId)
+  const launchWorkspaceId = agentSessionId
+    ? (workspaceSessions.find((session) => session.sessionId === agentSessionId)?.launchWorkspaceId ?? null)
+    : null
   const changelistId =
-    asked ?? (wantsDefault ? defaultDiffChangelistId({ id: workspaceId, lastActiveAgentId }, changelists) : null)
+    asked ??
+    (wantsDefault
+      ? defaultDiffChangelistId({ id: workspaceId, lastActiveAgentId }, changelists, launchWorkspaceId)
+      : null)
   // Diff tours. The tab keeps what the viewer has open (so a tab switch does
   // not lose a playing tour) and a tour an agent has offered; the viewer tells
   // it when either changes.
@@ -397,7 +413,7 @@ export function WorkspacePaneBody({
             // An offscreen layer is still in the DOM: `inert` keeps its address
             // field and buttons out of the tab order (the invisible ones are
             // unfocusable already).
-            {...(offscreen ? ({ inert: '' } as Record<string, string>) : {})}
+            inert={offscreen}
             // A docked layer in a closed pane is clipped to nothing: its
             // animations hold still. The floating player is on screen and is
             // the one layer left running.

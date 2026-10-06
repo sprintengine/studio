@@ -9,6 +9,7 @@ test('diffChangelistDefault', async () => {
 
   testPicksTheLastActiveAgentsList()
   testAnotherChatsAgentIsNotThisOnes()
+  testAMovedAgentsListIsFiledUnderItsLaunchChat()
   testMissingListMeansAllChanges()
   testNoAgentMeansAllChanges()
   testEmptyListsMeanAllChanges()
@@ -37,6 +38,18 @@ test('diffChangelistDefault', async () => {
       list('agent:agent-1', 'Ivo'),
     ]
     assert.equal(defaultDiffChangelistId({ id: 'ws-b', lastActiveAgentId: 'agent-1' }, lists), null)
+  }
+
+  function testAMovedAgentsListIsFiledUnderItsLaunchChat(): void {
+    // Dragged from chat A into chat B, the agent's process still names A, and
+    // its list is A's. Once it is resumed in B, B's list is the one it writes.
+    const underA = changelistOwnerId({ workspaceId: 'ws-a', agentId: 'agent-1' })
+    const underB = changelistOwnerId({ workspaceId: 'ws-b', agentId: 'agent-1' })
+    const moved = { id: 'ws-b', lastActiveAgentId: 'agent-1' }
+    assert.equal(defaultDiffChangelistId(moved, [list('default', 'Changes'), list(underA, 'Nadia')], 'ws-a'), underA)
+    assert.equal(defaultDiffChangelistId(moved, [list('default', 'Changes'), list(underB, 'Nadia')], 'ws-a'), underB)
+    // Without the session's word, another chat's list is never guessed at.
+    assert.equal(defaultDiffChangelistId(moved, [list('default', 'Changes'), list(underA, 'Nadia')]), null)
   }
 
   function testMissingListMeansAllChanges(): void {

@@ -690,16 +690,27 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     const subscription: Subscription = { id, topic: 'files.watch', key: null, replay: null, handle: null }
     subscriptions.set(id, subscription)
     void files
-      .watch(params.root, params.path, (names) => {
-        if (state === 'closed' || subscriptions.get(id) !== subscription) return
-        const grant = liveGrant()
-        if (!grant) return
-        if (!studioScopesGrant(grant.scopes, STUDIO_TOPICS['files.watch'].scope)) {
-          refreshGrant()
-          return
-        }
-        enqueueLive({ t: 'push', sub: id, payload: { names } }, id)
-      })
+      .watch(
+        params.root,
+        params.path,
+        (names) => {
+          if (state === 'closed' || subscriptions.get(id) !== subscription) return
+          const grant = liveGrant()
+          if (!grant) return
+          if (!studioScopesGrant(grant.scopes, STUDIO_TOPICS['files.watch'].scope)) {
+            refreshGrant()
+            return
+          }
+          enqueueLive({ t: 'push', sub: id, payload: { names } }, id)
+        },
+        () => {
+          // The folder stopped reporting (removed, or the watcher failed): the
+          // client is told, and may follow it again.
+          if (state === 'closed' || subscriptions.get(id) !== subscription) return
+          subscriptions.delete(id)
+          subscriptionFailed(id, 'unavailable', 'Studio stopped watching that folder.', SUBSCRIBE_RETRY_MS)
+        },
+      )
       .then(
         (watched) => {
           if (!watched.ok) {
@@ -1067,7 +1078,9 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
   socket.on('error', () => shutdown())
 
   helloTimer = setTimeout(() => {
-    if (state === 'hello') bye('hello_required', 'No hello arrived in time.')
+    // With a delay: a hello that came too late is a slow machine, not a
+    // client that will never say one, and a client may connect again.
+    if (state === 'hello') bye('hello_required', 'No hello arrived in time.', 1_000)
   }, options.helloTimeoutMs ?? STUDIO_HELLO_TIMEOUT_MS)
   helloTimer.unref?.()
 

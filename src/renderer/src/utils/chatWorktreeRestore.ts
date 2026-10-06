@@ -22,7 +22,8 @@ import { isSettledWorkspace } from './workspaceSettle'
  * still removed it; the sweep takes no other branch, so no other worktree is
  * recreated this way). Anything else answers at once. A marked chat always
  * asks main, which knows a worktree from whatever else may sit at the path;
- * an unmarked one is satisfied by its folder being there. One restore per
+ * an unmarked one is satisfied by its folder being there, unless that folder
+ * is a worktree pool slot, which outlives any one chat and is asked about too. One restore per
  * chat at a time; every caller waits on the same one.
  *
  * When it cannot be done, the person is told why and the chat shows its folder
@@ -41,6 +42,21 @@ const reasonShown = new Map<WorkspaceId, string>()
 // (agent-worktree-cleanup.ts): a `sprintengine/<slug>` worktree opened as a
 // workspace, or one named by hand, never went that way.
 const AGENT_BRANCH_PREFIX = 'agent/'
+
+// A worktree pool slot's folder (`<container>/pool-NN`, worktree-pool/). Its
+// path outlives any one chat: once the cleanup gave it back it may be idle in
+// the pool or another chat's now, so finding it on disk says nothing about
+// whether it is this chat's worktree.
+const POOL_SLOT_NAME = /^pool-\d{2,}$/u
+
+function isPoolSlotPath(path: string): boolean {
+  const name =
+    path
+      .replace(/[\\/]+$/u, '')
+      .split(/[\\/]/u)
+      .pop() ?? ''
+  return POOL_SLOT_NAME.test(name) && repoRootFromWorktreePath(path) !== null
+}
 
 type RestoreCandidate = Workspace & { folderPath: string; worktree: { branch: string } }
 
@@ -69,9 +85,12 @@ export function ensureChatWorktree(workspaceId: WorkspaceId): Promise<boolean> {
 async function restore(workspace: RestoreCandidate): Promise<boolean> {
   const { id, folderPath, worktree } = workspace
   if (worktree.reclaimedAt === undefined) {
-    // Never gone, or already back. Only for an unmarked chat: for a marked one
-    // something at the path is not proof the worktree is.
-    if (await window.api.pathExists(folderPath).catch(() => false)) return true
+    // Never gone, or already back. Only for an unmarked chat, and not in a
+    // pool slot: for those something at the path is not proof the worktree
+    // is, and main says (a slot still idle in the pool is taken back for the
+    // chat; one another chat holds is refused with the reason).
+    const there = await window.api.pathExists(folderPath).catch(() => false)
+    if (there && !isPoolSlotPath(folderPath)) return true
     if (refused.has(id)) return false
   }
   const repoRoot = worktree.repoRoot?.trim() || repoRootFromWorktreePath(folderPath)

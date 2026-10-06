@@ -54,6 +54,8 @@ import {
   ResolvedDecisions,
   resolvedDecisionGroupLabel,
   resolvePermissionPreset,
+  restoreRefusedText,
+  draftAfterRetried,
   scaledImageDimensions,
   splitImageDataUrl,
   stopDisabledForPending,
@@ -1391,6 +1393,16 @@ test('AgentChatView', async () => {
   )
   assert.equal(overflowed.attachments.length, MAX_ATTACHMENTS_PER_TURN, 'the queued turn never exceeds the cap')
   assert.equal(overflowed.dropped, 2, 'the trim is counted so the composer can report it')
+
+  // A queued turn whose send was refused comes back to the composer even when
+  // the person has typed more since, ahead of it, not only onto an empty box.
+  assert.equal(restoreRefusedText('', 'queued'), 'queued')
+  assert.equal(restoreRefusedText('typed since', 'queued'), 'queued\ntyped since')
+  assert.equal(restoreRefusedText('queued', 'queued'), 'queued', 'already back, it is not doubled')
+  assert.equal(restoreRefusedText('queued\ntyped since', 'queued'), 'queued\ntyped since', 'nor stacked again')
+  // Its Retry takes it back out, so the next Enter sends only what was typed.
+  assert.equal(draftAfterRetried('queued\ntyped since', 'queued'), 'typed since')
+  assert.equal(draftAfterRetried('typed since', 'queued'), null)
 
   // Mid-drag the payload is unreadable — only the item kinds are — so the drop
   // target and the preventDefault gate key off those.

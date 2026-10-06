@@ -206,6 +206,7 @@ type LocalDate = { year: number; month: number; day: number }
 type LocalDateTime = LocalDate & { hour: number; minute: number }
 
 const MINUTE_MS = 60_000
+const DAY_MS = 24 * 60 * MINUTE_MS
 // Far enough to find the next Feb 29 of a leap-day schedule; a schedule that
 // matches no day at all (Feb 30) runs out here rather than looping forever.
 const SEARCH_DAYS = 366 * 8 + 2
@@ -303,19 +304,23 @@ function offsetAt(instant: number, timeZone: string): number {
 }
 
 /**
- * The instant a wall-clock time names in a zone. Two offset probes cover every
- * ordinary minute and both sides of a DST change; a repeated time answers with
- * the earlier instant, and a skipped one with the first instant after the gap.
+ * The instant a wall-clock time names in a zone. The zone's offsets a day
+ * either side of it reach past any DST change near it, so both instants of a
+ * repeated time are candidates whichever side of UTC the zone is on; a
+ * repeated time answers with the earlier instant, and a skipped one with the
+ * first instant after the gap.
  */
 function instantForLocal(target: LocalDateTime, timeZone: string): number | null {
   const wall = asUtc(target)
-  const first = wall - offsetAt(wall, timeZone)
-  const second = wall - offsetAt(first, timeZone)
-  const matches = [first, second].filter((instant) => asUtc(localDateTimeAt(instant, timeZone)) === wall)
+  // Probing only near `wall` read as UTC lands after the change in a zone
+  // east of UTC, so its earlier instant (Berlin's first 02:30) was never tried.
+  const offsets = new Set([DAY_MS, 0, -DAY_MS].map((shift) => offsetAt(wall + shift, timeZone)))
+  const candidates = [...offsets].map((offset) => wall - offset)
+  const matches = candidates.filter((instant) => asUtc(localDateTimeAt(instant, timeZone)) === wall)
   if (matches.length > 0) return Math.min(...matches)
   // A gap: the wall-clock time never happens. Walk to the first minute whose
   // wall-clock is past it — the gap is an hour or less, so this is short.
-  let instant = Math.min(first, second)
+  let instant = Math.min(...candidates)
   for (let step = 0; step < 24 * 60; step += 1) {
     if (asUtc(localDateTimeAt(instant, timeZone)) > wall) return instant
     instant += MINUTE_MS

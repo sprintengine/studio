@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
+import { showPaneTab } from '../popout/panePopOutHost'
 
 // Which agent the Agents tab should open on, when something asked for one: a
 // chat's agent lane, the "agents working" line. A request, not state: the tab
@@ -37,7 +38,10 @@ function publish(request: AgentFocusRequest): void {
  */
 export function openAgentsPane(workspaceId: string, agentId: string, laneId: string | null): void {
   publish({ workspaceId, agentId, laneId, serial: ++serial })
-  useWorkspaceStore.getState().openPaneTab(workspaceId, { kind: 'agents' })
+  // An Agents tab out in a window of its own comes forward there; the person
+  // clicked for it, so the window is raised.
+  const opened = useWorkspaceStore.getState().openPaneTab(workspaceId, { kind: 'agents', activate: false })
+  if (opened !== null) showPaneTab(workspaceId, opened, { focus: true })
 }
 
 /**

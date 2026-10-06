@@ -60,6 +60,8 @@ type Running = {
   recordingId: string
   host: WebContents
   answerStart: ((answer: RecordingEncoderStarted | RecordingFailure) => void) | null
+  /** The window has been asked to start: before that, it is waiting its turn and the window knows nothing of it. */
+  sent: boolean
   ended: boolean
 }
 
@@ -191,7 +193,13 @@ export function createHostRecordingEncoder(deps: {
       }
       installHandler(host.session)
       watchHost(host)
-      const recording: Running = { recordingId: input.recordingId, host, answerStart: null, ended: false }
+      const recording: Running = {
+        recordingId: input.recordingId,
+        host,
+        answerStart: null,
+        sent: false,
+        ended: false,
+      }
       running.set(recording.recordingId, recording)
       // One armed grant per window at a time: wait for the one before to be taken.
       const previous = turns.get(host.id) ?? Promise.resolve()
@@ -208,6 +216,7 @@ export function createHostRecordingEncoder(deps: {
         armed.set(host.id, { recordingId: recording.recordingId, guest, expiresAt: now() + ARM_TTL_MS })
         return await new Promise<RecordingEncoderStarted | RecordingFailure>((resolve) => {
           recording.answerStart = resolve
+          recording.sent = true
           host.send(BROWSER_RECORDING_START_CHANNEL, input)
         })
       } finally {
@@ -220,6 +229,13 @@ export function createHostRecordingEncoder(deps: {
       if (!recording) return
       if (recording.host.isDestroyed()) {
         end(recording, { error: 'The window hosting the tab closed.' })
+        return
+      }
+      // Still waiting for its turn on the window: the window was never asked,
+      // so a stop sent there would find nothing, and the start would go out
+      // after it and capture a recording nobody is waiting for. It ends here.
+      if (!recording.sent) {
+        end(recording, { error: 'The recording was stopped as it began.' })
         return
       }
       // A start still waiting is answered now; the window stops whatever began.

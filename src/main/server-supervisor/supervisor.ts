@@ -199,10 +199,17 @@ export function createServerSupervisor(deps: SupervisorDeps): ServerSupervisor {
   }
 
   function clearTimers(): void {
-    for (const timer of [bootTimer, backoffTimer, resetTimer, resumeTimer, stopTimer]) if (timer) clearTimeout(timer)
+    for (const timer of [bootTimer, backoffTimer, resetTimer, stopTimer]) if (timer) clearTimeout(timer)
     if (pingTimer) clearInterval(pingTimer)
-    bootTimer = backoffTimer = resetTimer = resumeTimer = stopTimer = null
+    bootTimer = backoffTimer = resetTimer = stopTimer = null
     pingTimer = null
+    // The wake's grace is the machine's, not this child's: cut short with the
+    // child's timers, it would leave the watchdog paused for every later one.
+    if (resumeTimer) {
+      clearTimeout(resumeTimer)
+      resumeTimer = null
+      watchdogPaused = false
+    }
   }
 
   function fork(): void {

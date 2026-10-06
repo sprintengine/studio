@@ -54,11 +54,17 @@ export type StudioFiles = {
     path: string,
     ifMatch: string | null,
   ): Promise<{ ok: true; removed: boolean } | StudioFileConflict | StudioFileFailure>
-  /** Hear the names that change in one directory, debounced. Returns the unsubscriber. */
+  /**
+   * Hear the names that change in one directory, debounced. Returns the
+   * unsubscriber. `onEnded` hears a watch that stopped by itself (its folder
+   * went, the watcher failed), so the client can be told rather than left
+   * following a folder that no longer reports.
+   */
   watch(
     root: StudioFileRoot,
     path: string,
     listener: (names: string[]) => void,
+    onEnded?: () => void,
   ): Promise<{ ok: true; dispose(): void } | StudioFileFailure>
 }
 
@@ -322,7 +328,7 @@ export function createStudioFiles(options: StudioFilesOptions): StudioFiles {
       })
     },
 
-    async watch(root, path, listener) {
+    async watch(root, path, listener, onEnded) {
       const located = await locate(root, path)
       if (!located.ok) return located
       const debounceMs = options.watchDebounceMs ?? WATCH_DEBOUNCE_MS
@@ -355,8 +361,18 @@ export function createStudioFiles(options: StudioFilesOptions): StudioFiles {
         if (missing(error)) return notFound('There is no such folder here.')
         throw error
       }
-      // A folder removed under it goes quiet rather than taking the process down.
-      watcher.on('error', () => watcher.close())
+      // A folder removed under it ends the watch rather than taking the process down.
+      watcher.on('error', () => {
+        watcher.close()
+        if (closed) return
+        closed = true
+        if (timer) clearTimeout(timer)
+        try {
+          onEnded?.()
+        } catch {
+          // A listener's failure is its own.
+        }
+      })
       return {
         ok: true,
         dispose() {

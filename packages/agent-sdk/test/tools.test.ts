@@ -406,3 +406,55 @@ test('a call still running is never forgotten, however many finish after it', as
   await until(() => sent.some((reply) => reply.id === 'slow'), 'the slow reply')
   assert.equal(waits, 1)
 })
+
+test('a call Studio cancelled is not answered when its handler finishes later', async () => {
+  const sent: Array<Record<string, unknown>> = []
+  const tools = createClientTools({
+    request: async () => ({ wireNames: ['game.wait'] }),
+    send: (frame) => {
+      sent.push(frame)
+      return true
+    },
+    supports: () => true,
+    isOpen: () => true,
+  })
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let finished = false
+  await tools.api.offer({
+    name: 'game',
+    tools: [
+      {
+        name: 'wait',
+        description: 'Waits, and ignores its signal.',
+        inputSchema: { type: 'object' },
+        handler: async () => {
+          await gate
+          finished = true
+          return 'late'
+        },
+      },
+    ],
+  })
+  tools.handleCall({
+    t: 'call',
+    id: 'gone',
+    toolset: 'game',
+    tool: 'wait',
+    input: {},
+    context: { connection: { kind: 'studio-agent' } },
+    timeoutMs: 60_000,
+  })
+  tools.handleCancel({ t: 'cancel', id: 'gone', reason: 'toolset withdrawn' } as never)
+  release()
+  await until(() => finished, 'the handler to finish')
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  // After a reconnect Studio would read a reply to it as a frame for a call it
+  // never made, and end the connection for good.
+  assert.equal(
+    sent.some((frame) => frame.t === 'reply' && frame.id === 'gone'),
+    false,
+  )
+})

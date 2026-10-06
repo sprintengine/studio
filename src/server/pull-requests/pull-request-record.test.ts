@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -310,6 +310,26 @@ test('the branch-lookup files migrate: what a conversation opened stays, what a 
   assert.equal(record.forConversation(CHAT)[0].openedByAgentId, 'agent-1')
   record.dispose()
 })
+
+// A file mode locks nothing on Windows, or for root.
+test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+  'a record that is there but cannot be read is not written over',
+  async () => {
+    const dir = await freshUserDataDir()
+    await mkdir(join(dir, 'pull-requests'), { recursive: true })
+    const stored = '{"version": 2, "pullRequests": []}'
+    await writeFile(pullRequestStorePath(dir), stored)
+    await chmod(pullRequestStorePath(dir), 0o000)
+    const { record } = recordOver(dir, { [PR_12]: opened() })
+    await record.whenLoaded()
+    await record.noteOpened(CHAT, { url: PR_12 })
+    await record.flush()
+    await chmod(pullRequestStorePath(dir), 0o600)
+    assert.equal(await readFile(pullRequestStorePath(dir), 'utf8'), stored)
+    assert.equal(record.forConversation(CHAT).length, 1)
+    record.dispose()
+  },
+)
 
 test('an unreadable record is kept aside, not overwritten', async () => {
   const dir = await freshUserDataDir()

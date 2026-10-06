@@ -198,6 +198,10 @@ export function createLocalServerRecord(options: LocalServerRecordOptions): Loca
   let writes: Promise<void> = Promise.resolve()
   let dirty = false
   let disposed = false
+  // The file is there but could not be read (locked by a scanner, a
+  // permission): nothing is written over it this run, or the next change
+  // would replace every stored link with what this run knows.
+  let unreadable = false
 
   function newestFirst(list: LinkedLocalServer[]): LinkedLocalServer[] {
     return list.reverse()
@@ -240,7 +244,10 @@ export function createLocalServerRecord(options: LocalServerRecordOptions): Loca
       try {
         raw = await readFile(path, 'utf-8')
       } catch (error) {
-        if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') log('could not read the local server record', error)
+        if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+          unreadable = true
+          log('could not read the local server record; keeping what is linked this run in memory only', error)
+        }
       }
       if (raw === null || disposed) return
       const stored = parseStoreFile(raw)
@@ -273,7 +280,7 @@ export function createLocalServerRecord(options: LocalServerRecordOptions): Loca
     dirty = true
     writes = writes.then(
       async () => {
-        if (!dirty || disposed) return
+        if (!dirty || disposed || unreadable) return
         dirty = false
         const snapshot = { version: STORE_VERSION, servers: [...entries.values()] }
         try {

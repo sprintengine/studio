@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { installStudioLoopback, type StudioLoopback } from '../../../../tests/studio-chat-loopback'
-import { windowStudioClient } from './windowStudioClient'
+import { markStudioOnAnotherMachine, windowStudioClient } from './windowStudioClient'
 
 // A window's client: one per window, kept while it is connected or
 // reconnecting, and forgotten once it has closed for good, so the next use
@@ -72,4 +72,30 @@ test('a first connection that fails is forgotten, so the next use tries again', 
   const client = await windowStudioClient(api)
   expect(client.state).toBe('open')
   client.close()
+})
+
+test("an offline device keeps reaching a desktop window's own Studio, and a web tab's waits for the network", async () => {
+  vi.stubGlobal('navigator', { onLine: false })
+  try {
+    const desktop: { api: Record<string, unknown> } = { api: {} }
+    const desktopLoopback = installStudioLoopback(desktop) as StudioLoopback
+    const own = await windowStudioClient(desktop.api as never)
+    desktopLoopback.drop()
+    for (let tries = 0; (own.state !== 'open' || desktopLoopback.connections() < 2) && tries < 100; tries++)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(own.state).toBe('open')
+    own.close()
+
+    const tab: { api: Record<string, unknown> } = { api: {} }
+    const tabLoopback = installStudioLoopback(tab) as StudioLoopback
+    markStudioOnAnotherMachine(tab.api.studioConnect as Connect)
+    const remote = await windowStudioClient(tab.api as never)
+    tabLoopback.drop()
+    for (let tries = 0; remote.state !== 'parked' && tries < 100; tries++)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(remote.state).toBe('parked')
+    remote.close()
+  } finally {
+    vi.unstubAllGlobals()
+  }
 })

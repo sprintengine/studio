@@ -153,7 +153,10 @@ applyHostApiGate(thirdPartyMainLoad.ineligible, thirdPartyMainLoad.modules)
 // predicate can close over it; the set is filled in once the manifest list exists.
 const enabledMainModuleIds = new Set<string>()
 const activeMainModules = activeForChannel(
-  createBundledMainModules(studioPlatform()),
+  // Read only once a module asks, by which time `getModulePermissions` exists.
+  createBundledMainModules(studioPlatform(), (moduleId): readonly string[] | undefined =>
+    getModulePermissions(moduleId),
+  ),
   (module) => module.manifest.id,
   includeDevModules,
 )
@@ -211,15 +214,17 @@ applyModuleEnablementLive = async (overrides) => {
     return serverHost.supervisor.call(SERVER_METHODS.applyModuleEnablement, { overrides })
   }
   const report = await moduleLoad.applyEnablement(overrides, { liveModuleIds: LIVE_ENABLED_MODULE_IDS })
-  const scheduledAgentsError = report.errors.find((error) => error.id === 'scheduled-agents')
-  if (scheduledAgentsError) return { ok: false, message: scheduledAgentsError.message }
   // A module with no live-loadable main half takes its toggle through the
   // enablement gate rather than module load/unload — refresh the resolved set.
+  // The rest of the change was applied even when one module's half failed,
+  // so the gate follows it either way.
   recomputeMainEnablement(overrides)
   // Module-contributed gateway tools follow enablement live: the
   // gateway re-reads the registry and enablement per request, so only the
   // connected MCP clients need a nudge to refresh their tool lists.
   services.automationService?.notifyToolsListChanged()
+  const scheduledAgentsError = report.errors.find((error) => error.id === 'scheduled-agents')
+  if (scheduledAgentsError) return { ok: false, message: scheduledAgentsError.message }
   return { ok: true }
 }
 // Automation server ← Scheduled agents module: resolved per tool call so a live

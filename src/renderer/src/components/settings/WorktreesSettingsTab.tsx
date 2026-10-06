@@ -12,6 +12,7 @@ import {
   type WorktreePoolSettings,
 } from '../../../../shared/ipc/worktree-pool'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { samePath } from '../../utils/paths'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import {
   ActionResultMessage,
@@ -332,8 +333,49 @@ export function WorktreesSettingsTab({
     await poolAction(row, { kind: 'held', repoRoot: row.repoRoot, slotId: row.slot.id, action, message }, done[action])
   }
 
+  // `git worktree prune` forgets every missing worktree of the project, and
+  // keeps one locked by another profile or by hand without a word: what it did
+  // is read back from git's listing, not assumed.
   const prune = (row: WorktreeRow) =>
-    run([row.key], () => window.api.pruneGitWorktrees(row.repoRoot), 'Git forgot the missing worktree.')
+    run(
+      [row.key],
+      async () => {
+        const pruned = await window.api.pruneGitWorktrees(row.repoRoot)
+        if (!pruned.ok) return pruned
+        const listed = await window.api.listGitWorktrees(row.repoRoot)
+        // Without the listing there is nothing to say what git did, only that it ran.
+        if (!listed.ok)
+          return {
+            ok: true,
+            message: `Git pruned the project's missing worktrees; whether it forgot ${row.name} could not be read back.`,
+          }
+        const still = listed.data.worktrees.find((worktree) => samePath(worktree.path, row.path))
+        if (still) {
+          return {
+            ok: false,
+            message: still.locked
+              ? `Git kept ${row.name}: it is locked${still.lockedReason ? ` (${still.lockedReason})` : ''}. Unlock it from the Worktree manager first.`
+              : `Git still lists ${row.name}.`,
+          }
+        }
+        const others = projects
+          .find((project) => samePath(project.repoRoot, row.repoRoot))
+          ?.otherRows.filter(
+            (other) =>
+              other.state === 'missing' &&
+              other.key !== row.key &&
+              // Forgotten, not kept: a locked one is still in git's listing.
+              !listed.data.worktrees.some((worktree) => samePath(worktree.path, other.path)),
+          ).length
+        return {
+          ok: true,
+          message: others
+            ? `Git forgot ${row.name}, and the project's ${others} other missing worktree${others === 1 ? '' : 's'}.`
+            : `Git forgot ${row.name}.`,
+        }
+      },
+      'Git forgot the missing worktree.',
+    )
 
   const toggle = (set: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>, key: string) =>
     set((current) => {

@@ -588,7 +588,12 @@ test('automation', async () => {
     const list = await tool(tools, 'workspace.list').handler({})
     assert.equal(list.isError, undefined)
     const listed = list.structuredContent as {
-      workspaces: Array<{ id: string; detail: string; repository: { canonicalKey: string } | null }>
+      workspaces: Array<{
+        id: string
+        detail: string
+        repository: { canonicalKey: string } | null
+        projectHue: number | null
+      }>
     }
     assert.equal(listed.workspaces.length, 2)
     assert.deepEqual(
@@ -603,6 +608,11 @@ test('automation', async () => {
       'github.com/acme/old',
     )
     assert.equal(listed.workspaces.find((entry) => entry.id === 'ws-1')?.repository, null)
+    // Each project's hue rides it too, the degree the sidebar paints; none for no folder.
+    assert.equal(
+      listed.workspaces.find((entry) => entry.id === 'ws-old')?.projectHue,
+      projectHue('repo:github.com/acme/old'),
+    )
 
     // A gateway tool operates on the restart survivor with no live agent
     // terminal — the case that used to fail `workspace_without_folder`.

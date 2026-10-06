@@ -424,6 +424,38 @@ test('a server killed under a running distribution is a crash; under a stopped o
   assert.match(shutDown.status('Ubuntu').reason ?? '', /WSL was shut down/u)
 })
 
+test('a server started again while a crash is being looked into is not then said to have stopped', async () => {
+  const home = fakeHome('crash-restart')
+  const statuses: WslServerStatus[] = []
+  const listed = () => ({
+    distros: [{ name: 'Ubuntu', isDefault: true, state: 'Running', version: 2 }],
+    at: Date.now(),
+  })
+  // The listing a crash asks for is held, as `wsl.exe --list` is slow to answer.
+  let held: ((value: ReturnType<typeof listed>) => void) | null = null
+  let holdNext = false
+  const { manager: wsl } = manager({
+    homes: { Ubuntu: home },
+    listing: (() => {
+      if (!holdNext) return listed()
+      holdNext = false
+      return new Promise((resolve) => (held = resolve))
+    }) as never,
+    statuses,
+  })
+  await wsl.connect('Ubuntu')
+  holdNext = true
+  process.kill(readServerPid(home), 'SIGKILL')
+  await waitFor(() => held !== null)
+  // A message meanwhile starts the server again.
+  await wsl.connect('Ubuntu')
+  assert.equal(wsl.status('Ubuntu').state, 'ready')
+  held!(listed())
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.equal(wsl.status('Ubuntu').state, 'ready')
+  assert.equal(statuses.at(-1)?.state, 'ready')
+})
+
 test('WSL shut down on a PC in another language is told apart by the state changing, whatever its word', async () => {
   // `wsl --list --verbose` on a French PC: neither state is "Stopped".
   let state = "En cours d'exécution"

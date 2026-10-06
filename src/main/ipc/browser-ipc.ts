@@ -62,6 +62,13 @@ export function registerBrowserIpc(
       // be this window's — `activeTab` also checks the workspace it belongs to.
       const host = tabId ? manager.hostOf(tabId) : null
       if (host && host !== event.sender) return
+      // "None" is only this window's to say over a tab it hosts: a page out in
+      // a pop-out window stays the one named while the pane shows a terminal.
+      if (!tabId) {
+        const noted = manager.notedActive(input.workspaceId)
+        const notedHost = noted ? manager.hostOf(noted) : null
+        if (notedHost && notedHost !== event.sender) return
+      }
       manager.noteActive(input.workspaceId, tabId)
     },
   )

@@ -227,6 +227,10 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   let writes: Promise<unknown> = Promise.resolve()
   let dirty = false
   let disposed = false
+  // The file is there but could not be read (locked by a scanner, a
+  // permission): nothing is written over it this run, or the next change
+  // would replace every stored pull request with what this run knows.
+  let unreadable = false
 
   // Every `gh` read passes through here. See MAX_CONCURRENT_GITHUB_READS.
   let activeReads = 0
@@ -334,11 +338,15 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
       try {
         raw = await readFile(path, 'utf-8')
       } catch (error) {
-        if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') warn('could not read the pull request record', error)
+        if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+          unreadable = true
+          warn('could not read the pull request record; keeping what is recorded this run in memory only', error)
+        }
       }
       let stored: BranchPullRequest[] | null
       let migrated: string[] = []
-      if (raw === null) {
+      if (unreadable) stored = []
+      else if (raw === null) {
         const legacy = await readLegacyStores(options.userDataDir, warn)
         stored = legacy.entries
         migrated = legacy.files
@@ -374,7 +382,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     dirty = true
     writes = writes.then(
       async () => {
-        if (!dirty || disposed) return
+        if (!dirty || disposed || unreadable) return
         dirty = false
         const snapshot = { version: STORE_VERSION, pullRequests: [...entries.values()] }
         await writeJsonFile(options.userDataDir, pullRequestStorePath(options.userDataDir), snapshot).catch((error) => {

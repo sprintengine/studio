@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -159,6 +159,31 @@ test('a record that cannot be read is kept aside and the record starts empty', a
   assert.equal(logs.length, 1)
   assert.equal((await stat(`${path}.corrupt`)).isFile(), true)
 })
+
+// A file mode locks nothing on Windows, or for root.
+test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+  'a record that is there but cannot be read is not written over',
+  async () => {
+    const dir = await dataDir()
+    const path = localServerStorePath(dir)
+    await mkdir(dirname(path), { recursive: true })
+    const stored = JSON.stringify({
+      version: 1,
+      servers: [{ id: 'k1', ...A, url: 'http://localhost:5173/', title: '', linkedAt: 5 }],
+    })
+    await writeFile(path, stored, 'utf8')
+    // Locked for this run, as a scanner or a permission can hold it.
+    await chmod(path, 0o000)
+    cleanups.push(() => chmod(path, 0o600).catch(() => undefined))
+    const { record, logs } = recordIn(dir)
+    await record.whenLoaded()
+    record.link(B, { url: 'http://localhost:3000/' })
+    await record.flush()
+    assert.equal(logs.length, 1)
+    await chmod(path, 0o600)
+    assert.equal(await readFile(path, 'utf8'), stored)
+  },
+)
 
 test('a missing record is an empty one, and entries it cannot read are skipped', async () => {
   const empty = recordIn(await dataDir())

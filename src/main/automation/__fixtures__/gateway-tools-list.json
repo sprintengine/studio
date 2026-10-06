@@ -74,11 +74,11 @@
     },
     {
       "name": "browser.record_start",
-      "sha256": "19d6c33ac4d53134a8c41a94a5920195f5b146fe57a6727ff37d675b41c51b21"
+      "sha256": "cf83c308f8631537a8acb89d12bbae23eb524aec2fc5998b00d3d73163c7a038"
     },
     {
       "name": "browser.record_stop",
-      "sha256": "d2df6d688eefad9e656548d483312fb0ef31dcf8590ec0435be65944119883f1"
+      "sha256": "d12027a21668d1989cfcbd055283e5dc6ff87470e759e871f6dc0341d4a7d4d8"
     },
     {
       "name": "canvas.list",
@@ -368,11 +368,11 @@
     },
     {
       "name": "browser.record_start",
-      "sha256": "19d6c33ac4d53134a8c41a94a5920195f5b146fe57a6727ff37d675b41c51b21"
+      "sha256": "cf83c308f8631537a8acb89d12bbae23eb524aec2fc5998b00d3d73163c7a038"
     },
     {
       "name": "browser.record_stop",
-      "sha256": "d2df6d688eefad9e656548d483312fb0ef31dcf8590ec0435be65944119883f1"
+      "sha256": "d12027a21668d1989cfcbd055283e5dc6ff87470e759e871f6dc0341d4a7d4d8"
     },
     {
       "name": "canvas.list",

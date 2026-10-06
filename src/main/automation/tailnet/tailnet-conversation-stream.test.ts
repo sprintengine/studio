@@ -1113,6 +1113,39 @@ test('a subscription that cannot start says so under its key, and whether a retr
   stream.close(1000, '')
 })
 
+test('a command after a subscription that could not start does not land on the conversation followed before', async () => {
+  const socket = new Socket()
+  const gateway = host()
+  const commanded: string[] = []
+  gateway.command = async (key) => {
+    commanded.push(key.agentId)
+    return { ok: true }
+  }
+  const stream = createTailnetConversationStream({
+    socket,
+    deviceId: 'device',
+    deviceName: 'phone',
+    scopes: ['conversation:operate'],
+    host: gateway,
+    onClosed: () => {},
+    audit: () => {},
+  })
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
+  await tick()
+  socket.receive({ type: 'command', commandId: 'on-a', command: { kind: 'interrupt' } })
+  await tick()
+  // The phone moves to a chat that is not here, then sends at once.
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'missing' } })
+  socket.receive({ type: 'command', commandId: 'meant-for-missing', command: { kind: 'interrupt' } })
+  await tick()
+  assert.deepEqual(commanded, ['a'])
+  const result = (socket.output() as Array<Frame & { commandId?: string }>).find(
+    (frame) => frame.commandId === 'meant-for-missing',
+  )
+  assert.equal(result?.code, 'not_found')
+  stream.close(1000, '')
+})
+
 test('a large escaped tool detail is paced and reassembles without a resync close', async () => {
   const socket = new Socket()
   socket.delayMs = 1

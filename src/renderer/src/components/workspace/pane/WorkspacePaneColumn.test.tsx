@@ -16,7 +16,8 @@ import { afterEach, beforeAll, test, vi } from 'vitest'
 import type { Workspace } from '../../../types/workspace'
 
 vi.mock('./WorkspacePane', () => ({
-  default: ({ workspaceId }: { workspaceId: string }) => React.createElement('div', { 'data-pane-stub': workspaceId }),
+  default: ({ workspaceId, active }: { workspaceId: string; active: boolean }) =>
+    React.createElement('div', { 'data-pane-stub': workspaceId, 'data-active': String(active) }),
 }))
 
 const WS = 'ws-pane-column'
@@ -61,7 +62,7 @@ afterEach(() => {
   host = null
 })
 
-async function renderColumn(suppressed: boolean): Promise<HTMLElement> {
+async function renderColumn(suppressed: boolean, options: { floating?: boolean } = {}): Promise<HTMLElement> {
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')
   useWorkspaceStore.setState({
     workspaces: [
@@ -70,7 +71,14 @@ async function renderColumn(suppressed: boolean): Promise<HTMLElement> {
         name: 'Previous chat',
         folderPath: '/Users/dev/app',
         agents: {},
-        paneState: { open: true, activeTabId: 't1', tabs: [{ id: 't1', kind: 'canvas' }] },
+        paneState: {
+          open: true,
+          activeTabId: 't1',
+          tabs: [
+            { id: 't1', kind: 'canvas' },
+            ...(options.floating ? [{ id: 't2', kind: 'browser', url: 'http://localhost:3000/', floating: true }] : []),
+          ],
+        },
       } as unknown as Workspace,
     ],
     workspacePaneMaximised: false,
@@ -106,5 +114,26 @@ test('an open pane shows beside its workspace', async () => {
 test('the New chat door collapses the pane of the workspace behind it, and keeps it mounted', async () => {
   const container = await renderColumn(true)
   assert.equal(column(container).getAttribute('aria-hidden'), 'true', 'the column collapses behind the door')
+  assert.equal(column(container).hasAttribute('inert'), true, 'and leaves the tab order')
   assert.ok(container.querySelector(`[data-pane-stub="${WS}"]`), 'the pane stays mounted for when the door closes')
+})
+
+test('behind the door the pane is parked like any hidden one, floating player and all', async () => {
+  const container = await renderColumn(true, { floating: true })
+  // A floating player paints outside the column; left as the active layer it
+  // would stay over the door. Parked offscreen with its pane, it does not.
+  assert.equal(column(container).getAttribute('aria-hidden'), 'true', 'the column does not stay interactive for it')
+  const stub = container.querySelector<HTMLElement>(`[data-pane-stub="${WS}"]`)
+  assert.ok(stub, 'the pane stays mounted')
+  assert.equal(stub.getAttribute('data-active'), 'false', 'its panels are told they are out of sight')
+  assert.match(stub.parentElement?.style.transform ?? '', /translateX/, 'and parked offscreen')
+  assert.equal(stub.parentElement?.hasAttribute('inert'), true, 'out of the tab order')
+})
+
+test('with the door closed, the pane with a floating player is the active layer', async () => {
+  const container = await renderColumn(false, { floating: true })
+  const stub = container.querySelector<HTMLElement>(`[data-pane-stub="${WS}"]`)
+  assert.equal(stub?.getAttribute('data-active'), 'true')
+  assert.equal(stub?.parentElement?.style.transform, '')
+  assert.equal(stub?.parentElement?.hasAttribute('inert'), false)
 })

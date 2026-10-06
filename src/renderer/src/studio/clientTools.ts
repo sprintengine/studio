@@ -7,7 +7,7 @@ import {
 } from '../../../../packages/studio-protocol/src/public'
 import { mcpCallOf } from '../../../shared/conversation/approvalRules'
 import { STUDIO_MCP_SERVER_ID } from '../../../shared/product-identity'
-import { windowStudioClient } from './windowStudioClient'
+import { watchWindowStudio, windowStudioClient, windowStudioState } from './windowStudioClient'
 
 // The toolsets apps give this Studio's agents, as this window sees them: the
 // `tools.catalog` stream over the window's own Studio connection. A chat
@@ -54,11 +54,30 @@ function start(): void {
   void windowStudioClient(api)
     .then((client) => {
       if (!client.supports(STUDIO_CLIENT_TOOLS_CAPABILITY)) return
-      client.subscribe('tools.catalog', {}, { onPayload: apply })
-      void client
-        .request('tools.catalog', {})
-        .then(apply)
-        .catch(() => undefined)
+      const read = () =>
+        void client
+          .request('tools.catalog', {})
+          .then(apply)
+          .catch(() => undefined)
+      // A push topic replays nothing after a reconnect, and apps offer again
+      // before the window subscribes again: the catalog is read once more,
+      // after the subscription has gone out.
+      const stopWatching = watchWindowStudio(api, () => {
+        if (windowStudioState(api) === 'open') queueMicrotask(read)
+      })
+      client.subscribe(
+        'tools.catalog',
+        {},
+        {
+          onPayload: apply,
+          // The client closed for good: the next tool shown follows the one that replaces it.
+          onEnd: () => {
+            stopWatching()
+            started = false
+          },
+        },
+      )
+      read()
     })
     .catch(() => {
       // Tried again the next time a tool needs it.

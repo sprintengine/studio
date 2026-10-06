@@ -14,8 +14,8 @@ import type {
   ThirdPartyModuleView,
 } from '../../shared/modules/manifest'
 import { isRecord } from '../../shared/records'
-import { readModuleOverridesSync, writeModuleOverrides } from '../module-host/enablement-store'
-import { deleteModuleSecrets } from '../module-host/module-secrets'
+import { readModuleOverridesSync } from '../module-host/enablement-store'
+import { forgetModules, isModuleIdSegment } from '../modules/forget-modules'
 import { computeHostApiIneligible } from '../modules/host-api-gate'
 import { manifestFingerprint, type ModuleTrustContext } from '../modules/module-signature'
 import {
@@ -136,7 +136,10 @@ export function registerThirdPartyModuleIpc(
 
   ipcMain.handle(
     'modules:third-party:install-folder',
-    async (_event, srcDir: unknown): Promise<ThirdPartyModuleInstallResult> => {
+    async (event: IpcMainInvokeEvent, srcDir: unknown): Promise<ThirdPartyModuleInstallResult> => {
+      // Installing and trusting change what runs on this machine, as
+      // uninstalling does: they answer only the app's own window.
+      assertAppSender(event)
       if (typeof srcDir !== 'string' || srcDir.trim().length === 0) {
         return { ok: false, message: 'No folder selected.' }
       }
@@ -149,7 +152,8 @@ export function registerThirdPartyModuleIpc(
 
   ipcMain.handle(
     'modules:third-party:set-trust',
-    async (_event, payload: unknown): Promise<ThirdPartyModuleTrustResult> => {
+    async (event: IpcMainInvokeEvent, payload: unknown): Promise<ThirdPartyModuleTrustResult> => {
+      assertAppSender(event)
       if (
         !payload ||
         typeof payload !== 'object' ||
@@ -218,23 +222,6 @@ async function containedModuleFolder(
   } catch {
     return refused
   }
-}
-
-// Everything the app kept for a module outside its folder. Trust is revoked by
-// whoever removed the folder (the lifecycle, or the folder path above).
-async function forgetModules(userData: string, moduleIds: readonly string[]): Promise<void> {
-  if (moduleIds.length === 0) return
-  const overrides = readModuleOverridesSync(userData)
-  if (moduleIds.some((id) => id in overrides)) {
-    const next = { ...overrides }
-    for (const id of moduleIds) delete next[id]
-    await writeModuleOverrides(userData, next)
-  }
-  for (const id of moduleIds) await deleteModuleSecrets(userData, id).catch(() => undefined)
-}
-
-function isModuleIdSegment(id: string): boolean {
-  return id.length > 0 && id.length <= 200 && !/[\\/\0]/.test(id) && id !== '.' && id !== '..'
 }
 
 export function toThirdPartyModuleView(

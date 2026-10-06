@@ -1,4 +1,5 @@
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
+import { showPaneTab } from '../popout/panePopOutHost'
 import { paneOpensHandedOff } from '../popout/panePopOutRedirect'
 
 // Open a URL in the workspace pane's browser (browser-pane epic): the active
@@ -15,7 +16,9 @@ export function openUrlInPane(workspaceId: string, rawUrl: string, options: { fo
     ? undefined
     : (browserTabs.find((tab) => tab.id === pane?.activeTabId) ?? browserTabs[0])
   if (target) {
-    store.setActivePaneTab(workspaceId, target.id)
+    // A tab out in a window of its own navigates there, and that window comes
+    // forward: the person clicked to see the page.
+    showPaneTab(workspaceId, target.id, { focus: true })
     // A tab whose guest has not registered yet refuses the navigation; the
     // URL then goes to a fresh tab rather than being dropped.
     void window.api.browserNavigate(target.id, url).then((ok) => {

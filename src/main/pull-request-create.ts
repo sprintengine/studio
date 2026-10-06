@@ -216,21 +216,55 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
     }
   }
 
-  /** Push the branch when its remote does not have all of it: `-u origin <branch>` the first time. */
+  /**
+   * The remote the branch is pushed to: the one git's own settings name for
+   * pushing it (`branch.<b>.pushRemote`, then `remote.pushDefault`), as a
+   * plain `git push` would choose, when that remote exists; origin otherwise.
+   * A fork workflow pushes to the fork and opens the pull request on origin.
+   */
+  async function pushRemoteOf(gitRoot: string, branch: string): Promise<string> {
+    for (const key of [`branch.${branch}.pushRemote`, 'remote.pushDefault']) {
+      const named = await out(gitRoot, ['config', '--get', key])
+      if (named && named !== 'origin' && (await out(gitRoot, ['remote', 'get-url', '--push', named]))) return named
+    }
+    return 'origin'
+  }
+
+  /**
+   * Push the branch to its own name on its push remote when that does not have
+   * all of it. Always to `refs/heads/<branch>`, never a bare `git push`, which
+   * follows the upstream: a branch cut from `origin/main` tracks main.
+   */
   async function push(cwd: string): Promise<PushForPullRequestOutcome> {
     const { facts, gitRoot } = await readFacts(cwd)
     const ready = createPullRequestReadiness(facts)
     if (!gitRoot || !facts.branch) return { ok: false, message: 'This folder is not a checkout on a branch.' }
     if (!ready.ready) return { ok: false, message: readinessMessage(ready) }
-    const upstream = await out(gitRoot, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
-    if (upstream) {
-      const ahead = Number.parseInt((await out(gitRoot, ['rev-list', '--count', '@{u}..HEAD'])) ?? '0', 10)
+    const remote = await pushRemoteOf(gitRoot, facts.branch)
+    const refspec = `HEAD:refs/heads/${facts.branch}`
+    // Only the branch's own namesake on the push remote is "already pushed".
+    const pushedRef = `refs/remotes/${remote}/${facts.branch}`
+    if (await out(gitRoot, ['rev-parse', '--verify', '--quiet', pushedRef])) {
+      const ahead = Number.parseInt((await out(gitRoot, ['rev-list', '--count', `${pushedRef}..HEAD`])) ?? '0', 10)
       if (!(ahead > 0)) return { ok: true, pushed: false }
-      const pushed = await git(gitRoot, ['push'])
+      const pushed = await git(gitRoot, ['push', remote, refspec])
       return pushed.ok ? { ok: true, pushed: true } : { ok: false, message: gitFailure('push', pushed) }
     }
-    const pushed = await git(gitRoot, ['push', '-u', 'origin', facts.branch])
+    // The first push to origin makes origin/<branch> the upstream. One to a
+    // push remote the person set up leaves the upstream as they had it: in
+    // that workflow a branch tracks origin and pushes elsewhere.
+    const pushed = await git(gitRoot, ['push', ...(remote === 'origin' ? ['-u'] : []), remote, refspec])
     return pushed.ok ? { ok: true, pushed: true } : { ok: false, message: gitFailure('push', pushed) }
+  }
+
+  /** `owner:branch` for a branch pushed to a fork, as `gh pr create --head` names it; the branch alone on origin. */
+  async function headOf(gitRoot: string, branch: string): Promise<string> {
+    const remote = await pushRemoteOf(gitRoot, branch)
+    if (remote === 'origin') return branch
+    // The remote's own address names the fork's owner (a push URL may be a mirror).
+    const url = await out(gitRoot, ['remote', 'get-url', remote])
+    const owner = url ? forgeOfRemote(url)?.webUrl.split('/').at(-2) : undefined
+    return owner ? `${owner}:${branch}` : branch
   }
 
   /** Open the pull request: `gh pr create` on GitHub, the forge's own page elsewhere. */
@@ -259,7 +293,7 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
           '--base',
           facts.defaultBranch,
           '--head',
-          facts.branch,
+          await headOf(gitRoot, facts.branch),
           '--title',
           title,
           '--body-file',

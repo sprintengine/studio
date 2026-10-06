@@ -224,3 +224,10 @@ test('every forge’s pull request URL is read off its path, on any host', () =>
     assert.equal(classifyPullRequestUrl(raw), null, raw)
   }
 })
+
+test('a GitHub pull request has one canonical URL however its owner and repository are cased', () => {
+  const mixed = classifyPullRequestUrl('https://github.com/Acme/App/pull/1')
+  const lower = classifyPullRequestUrl('https://github.com/acme/app/pull/1')
+  assert.equal(mixed?.url, 'https://github.com/acme/app/pull/1')
+  assert.equal(mixed?.url, lower?.url)
+})

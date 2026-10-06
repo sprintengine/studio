@@ -42,6 +42,11 @@ export type ScheduledAgentsStore = {
   update(id: string, draft: ScheduledAgentDraft): Promise<ScheduledAgent | null>
   remove(id: string): Promise<boolean>
   recordRun(id: string, run: ScheduledAgentLastRun): Promise<void>
+  /**
+   * The run recorded as started in `workspaceId` failed after all: its last
+   * run becomes that failure. False when the last run is another one (or none).
+   */
+  failRun(id: string, workspaceId: string, message: string): Promise<boolean>
   markFailureSeen(id: string): Promise<void>
 }
 
@@ -118,6 +123,14 @@ export function createScheduledAgentsStore(options: ScheduledAgentsStoreOptions)
       if (!current) return
       replace(id, { ...current, lastRun: run })
       await persist()
+    },
+    async failRun(id, workspaceId, message) {
+      const current = agents.find((agent) => agent.id === id)
+      const run = current?.lastRun
+      if (!current || !run?.ok || run.workspaceId !== workspaceId) return false
+      replace(id, { ...current, lastRun: { at: run.at, ok: false, message } })
+      await persist()
+      return true
     },
     async markFailureSeen(id) {
       const current = agents.find((agent) => agent.id === id)

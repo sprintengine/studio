@@ -101,10 +101,16 @@ export function livePreviewDecorations(
   const lineOf = (pos: number) => doc.lineAt(pos).number
   const isRevealed = (pos: number) => revealed.has(lineOf(pos))
   // A mark is hidden on a rendered line and dimmed on a revealed one, so the
-  // syntax being edited still steps back from the words it wraps.
+  // syntax being edited still steps back from the words it wraps. Markup that
+  // runs over a line break (a link's `](` and its target on the next line) is
+  // taken a line at a time: a view plugin may not hide a line break, and the
+  // editor throws on one that tries.
   const markup = (from: number, to: number) => {
-    if (from >= to) return
-    decorations.push((isRevealed(from) ? SYNTAX : HIDDEN).range(from, to))
+    for (let line = doc.lineAt(from); from < to; line = doc.line(line.number + 1), from = line.from) {
+      const end = Math.min(to, line.to)
+      if (from < end) decorations.push((revealed.has(line.number) ? SYNTAX : HIDDEN).range(from, end))
+      if (line.number === doc.lines) break
+    }
   }
 
   const visit = (node: SyntaxNodeRef): boolean | void => {

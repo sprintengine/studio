@@ -8,7 +8,8 @@ import type { ConversationLaunchRequest } from '../conversation-launch-service'
 import type { ScheduledAgent, ScheduledAgentDraft } from '../../shared/scheduled-agents'
 import { isRunChatWorking, runScheduledAgent } from './runner'
 import { createScheduledAgentsScheduler } from './scheduler'
-import { createScheduledAgentsModuleRegistry, createScheduledAgentsService } from './service'
+import { runAsModuleToolCall } from '../module-host/module-tool-caller'
+import { createScheduledAgentsModuleRegistry, createScheduledAgentsService, withinOwnerModuleCeiling } from './service'
 import { createScheduledAgentsStore } from './store'
 
 // Wednesday 30 September 2026, 12:10 UTC.
@@ -285,21 +286,25 @@ test('a run is a new chat in the project, on its machine, with what it was made 
     },
   )
   assert.deepEqual(result, { at: NOW, ok: true, workspaceId: 'w-1' })
-  assert.deepEqual(requests, [
-    {
-      newChatIn: { folderPath: '/Users/dev/acme', hostId: 'wsl:Ubuntu', worktree: null },
-      cli: 'claude-code',
-      cliModel: 'sonnet',
-      permissionPreset: 'none',
-      prompt: 'Triage the issues opened since the last run.',
-      skills: ['triage'],
-      connectorIds: ['github'],
-      // The chat says which schedule started it.
-      scheduledAgentId: 'sa-1',
-      // And it opens without taking the window from whatever is on screen.
-      background: true,
-    },
-  ])
+  assert.equal(typeof requests[0]?.onFirstSendFailed, 'function', 'the run hears if its first message is refused')
+  assert.deepEqual(
+    requests.map(({ onFirstSendFailed: _heard, ...request }) => request),
+    [
+      {
+        newChatIn: { folderPath: '/Users/dev/acme', hostId: 'wsl:Ubuntu', worktree: null },
+        cli: 'claude-code',
+        cliModel: 'sonnet',
+        permissionPreset: 'none',
+        prompt: 'Triage the issues opened since the last run.',
+        skills: ['triage'],
+        connectorIds: ['github'],
+        // The chat says which schedule started it.
+        scheduledAgentId: 'sa-1',
+        // And it opens without taking the window from whatever is on screen.
+        background: true,
+      },
+    ],
+  )
 })
 
 test('a worktree run starts in a fresh worktree named for the run, on the machine’s own git', async () => {
@@ -326,9 +331,80 @@ test('a worktree run starts in a fresh worktree named for the run, on the machin
     },
     now: () => new Date(2026, 8, 30, 21, 0).getTime(),
   })
-  assert.deepEqual(worktrees, [{ branchName: 'agent/triage-20260930-2100', hostId: 'wsl:Ubuntu' }])
-  assert.equal(requests[0]?.newChatIn?.worktree?.branch, 'agent/triage-20260930-2100')
+  assert.deepEqual(worktrees, [{ branchName: 'agent/triage-20260930-210000', hostId: 'wsl:Ubuntu' }])
+  assert.equal(requests[0]?.newChatIn?.worktree?.branch, 'agent/triage-20260930-210000')
   assert.equal(requests[0]?.newChatIn?.worktree?.repoRoot, '/Users/dev/acme')
+})
+
+test('a run whose chat does not start gives back the worktree it made for it', async () => {
+  const discarded: Array<{ repoRoot: string; path: string; leaseId: string | null }> = []
+  const result = await runScheduledAgent(agent({ worktree: { name: 'triage' } }), {
+    launchConversation: async () => ({ ok: false, code: 'conversation_start_failed', message: 'No CLI.' }),
+    getRepoRoot: async () => '/Users/dev/acme',
+    createWorktree: async () => ({ ok: true, path: '/Users/dev/acme-run', branch: 'agent/triage-run', leaseId: 'l-1' }),
+    discardWorktree: async ({ repoRoot, path, leaseId }) => {
+      discarded.push({ repoRoot, path, leaseId })
+    },
+    now: () => NOW,
+  })
+  assert.deepEqual(result, { at: NOW, ok: false, message: 'No CLI.' })
+  assert.deepEqual(discarded, [{ repoRoot: '/Users/dev/acme', path: '/Users/dev/acme-run', leaseId: 'l-1' }])
+})
+
+test('a run whose first message is refused is a failed run, whenever the refusal comes', async () => {
+  const launched = {
+    ok: true as const,
+    workspaceId: 'w-1',
+    agentId: 'a',
+    name: 'n',
+    cli: 'c',
+    providerId: 'p',
+    modelId: 'm',
+    sessionId: 's',
+  }
+  // Refused before the launch has answered: the run fails outright.
+  const early = await runScheduledAgent(agent(), {
+    launchConversation: async (request) => {
+      request.onFirstSendFailed?.('The first message was refused: not signed in')
+      return launched
+    },
+    getRepoRoot: async () => null,
+    createWorktree: async () => ({ ok: false, message: 'unused' }),
+    now: () => NOW,
+  })
+  assert.deepEqual(early, { at: NOW, ok: false, message: 'The first message was refused: not signed in' })
+
+  // Refused after: the run is recorded as started, and told of the failure by its chat.
+  let refuse: ((message: string) => void) | undefined
+  const late: Array<[string, string]> = []
+  const started = await runScheduledAgent(agent(), {
+    launchConversation: async (request) => {
+      refuse = request.onFirstSendFailed
+      return launched
+    },
+    getRepoRoot: async () => null,
+    createWorktree: async () => ({ ok: false, message: 'unused' }),
+    onFirstSendFailed: (workspaceId, message) => late.push([workspaceId, message]),
+    now: () => NOW,
+  })
+  assert.deepEqual(started, { at: NOW, ok: true, workspaceId: 'w-1' })
+  refuse?.('refused')
+  assert.deepEqual(late, [['w-1', 'refused']])
+})
+
+test('a started run that failed after all is recorded as failed, only while it is the last run', async () => {
+  const file = tempFile()
+  try {
+    const store = createScheduledAgentsStore({ filePath: file.path, now: () => NOW, newId: () => 'sa-1' })
+    await store.load()
+    await store.create(draft())
+    await store.recordRun('sa-1', { at: NOW, ok: true, workspaceId: 'run-1' })
+    assert.equal(await store.failRun('sa-1', 'run-0', 'late'), false, 'an earlier run is not the last one')
+    assert.equal(await store.failRun('sa-1', 'run-1', 'refused'), true)
+    assert.deepEqual(store.get('sa-1')?.lastRun, { at: NOW, ok: false, message: 'refused' })
+  } finally {
+    file.cleanup()
+  }
 })
 
 test('a run that cannot start says why, and nothing starts', async () => {
@@ -377,7 +453,7 @@ test('the service validates every write and an extension reaches only its own', 
 
     const mine = await service.create(draft())
     assert.equal(mine.ok, true)
-    const registry = createScheduledAgentsModuleRegistry(service)
+    const registry = createScheduledAgentsModuleRegistry(service, () => [])
     const theirs = await registry.create('weather-deck', draft({ prompt: 'Refresh the forecast.' }))
     assert.equal(theirs.ok, true)
 
@@ -395,6 +471,67 @@ test('the service validates every write and an extension reaches only its own', 
       ['sa-1'],
     )
     assert.deepEqual(seen, [1, 2, 1])
+  } finally {
+    file.cleanup()
+  }
+})
+
+test("an extension's schedule goes no looser than the extension, or the agent calling it, may", async () => {
+  const file = tempFile()
+  try {
+    let id = 0
+    const store = createScheduledAgentsStore({ filePath: file.path, now: () => NOW, newId: () => `sa-${++id}` })
+    await store.load()
+    const ran: string[] = []
+    const scheduler = createScheduledAgentsScheduler({
+      list: () => store.list(),
+      run: async (entry) => {
+        ran.push(entry.id)
+        return { at: NOW, ok: true, workspaceId: 'w' }
+      },
+      recordRun: (entry, run) => store.recordRun(entry, run),
+      now: () => NOW,
+      setTimer: () => null,
+      clearTimer: () => undefined,
+    })
+    const service = createScheduledAgentsService({ store, scheduler, now: () => NOW })
+    const permissions: Record<string, string[]> = { plain: ['scheduled-agents.manage'], loose: ['conversation:bypass'] }
+    const registry = createScheduledAgentsModuleRegistry(service, (moduleId) => permissions[moduleId])
+
+    const plain = await registry.create('plain', draft({ permissionPreset: 'bypass' }))
+    assert.equal(plain.ok && plain.agent.permissionPreset, 'auto', 'lowered to the module ceiling')
+    const loose = await registry.create('loose', draft({ permissionPreset: 'bypass' }))
+    assert.equal(loose.ok && loose.agent.permissionPreset, 'bypass')
+    const unset = await registry.create('plain', draft())
+    assert.equal(unset.ok && unset.agent.permissionPreset, null, "the person's own default is theirs")
+    const updated = await registry.update('plain', 'sa-3', draft({ permissionPreset: 'bypass' }))
+    assert.equal(updated.ok && updated.agent.permissionPreset, 'auto')
+
+    // During a capped agent's tool call the stored preset is pinned to that
+    // agent's, and a run that could go looser is refused.
+    const pinned = await runAsModuleToolCall({ permissionCeiling: 'manual' }, () =>
+      registry.create('loose', draft({ permissionPreset: 'bypass' })),
+    )
+    assert.equal(pinned.ok && pinned.agent.permissionPreset, 'manual')
+    const refused = await runAsModuleToolCall({ permissionCeiling: 'manual' }, () => registry.runNow('loose', 'sa-2'))
+    assert.equal(refused.ok, false)
+    assert.deepEqual(ran, [])
+    assert.equal((await registry.runNow('loose', 'sa-2')).ok, true)
+
+    // At run time, the module as it is now: a bypass schedule from a module
+    // that no longer declares it runs on the ceiling.
+    const stored = store.get('sa-2')!
+    assert.equal(withinOwnerModuleCeiling(stored, () => []).permissionPreset, 'auto')
+    assert.equal(
+      withinOwnerModuleCeiling(stored, (moduleId) => permissions[moduleId]),
+      stored,
+    )
+    const personal = { ...stored, ownerModuleId: null }
+    assert.equal(
+      withinOwnerModuleCeiling(personal, () => []),
+      personal,
+      "the person's own schedules are theirs",
+    )
   } finally {
     file.cleanup()
   }

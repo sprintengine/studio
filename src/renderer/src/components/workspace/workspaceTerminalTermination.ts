@@ -1,6 +1,7 @@
 import { paneTerminalSessionId } from './pane/paneTerminals'
 import type { Workspace } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { workspaceIsWorking } from './sidebar/conversationLines'
 
 type LayoutSessionNode = {
   component?: string
@@ -85,6 +86,53 @@ export async function terminateWorkspaceTerminals(workspace: Workspace): Promise
     ...workspaceTerminalSessionIds(workspace).map((sessionId) => window.api.terminalKill(sessionId).catch(() => {})),
     suspendWorkspaceConversations(workspace),
   ])
+}
+
+/**
+ * Settle's half of the kill: the same as `terminateWorkspaceTerminals`, unless
+ * something in the workspace is working by the time main is asked. Resolves to
+ * whether the kill went ahead.
+ *
+ * Settle refuses a working chat, but it decides on the sessions the window last
+ * heard about, and the kill lands a round trip later: a turn started in that
+ * gap — a message from the phone, a scheduled prompt — would be interrupted by
+ * a gesture made before it existed. So main's own list is read once more first,
+ * and a chat working by then is left running. Its record still says settled;
+ * the rest sweep wakes a settled chat whose agent is working on its next pass,
+ * which here is the moment that activity reaches the window.
+ *
+ * Close keeps the unconditional kill: a chat being removed must not leave a
+ * writer behind.
+ */
+export async function terminateSettledWorkspaceTerminals(
+  workspace: Workspace,
+  // Asked again once main has answered: a chat un-settled during that round
+  // trip is the person's again, and is not killed.
+  stillSettled: () => boolean = () => true,
+): Promise<boolean> {
+  if (await workspaceWorkingNow(workspace)) return false
+  if (!stillSettled()) return false
+  await terminateWorkspaceTerminals(workspace)
+  return true
+}
+
+async function workspaceWorkingNow(workspace: Workspace): Promise<boolean> {
+  try {
+    const sessionIds = new Set(workspaceTerminalSessionIds(workspace))
+    const [terminals, conversations] = await Promise.all([
+      window.api.terminalList(),
+      window.api.conversationSessionsList(),
+    ])
+    return workspaceIsWorking(
+      'idle',
+      conversations.ok ? conversations.sessions.filter((session) => session.workspaceId === workspace.id) : [],
+      terminals.filter((session) => sessionIds.has(session.sessionId) || session.workspaceId === workspace.id),
+    )
+  } catch {
+    // Main unreachable: nothing would answer the kill either, and the gesture
+    // goes on as it did.
+    return false
+  }
 }
 
 /**

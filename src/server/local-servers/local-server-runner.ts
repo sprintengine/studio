@@ -118,14 +118,23 @@ export function createLocalServerRunner(options: LocalServerRunnerOptions = {}):
               // of its own: one that starts with a quoted path keeps its quotes.
               [process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${command}"`]]
             : [shell(), ['-lc', command]]
-        const started = spawn(file, args, {
-          cwd,
-          env: environment,
-          detached: platform !== 'win32',
-          stdio: ['ignore', 'pipe', 'pipe'],
-          windowsHide: true,
-          ...(platform === 'win32' ? { windowsVerbatimArguments: true } : {}),
-        })
+        let started: ReturnType<typeof spawn>
+        try {
+          started = spawn(file, args, {
+            cwd,
+            env: environment,
+            detached: platform !== 'win32',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+            ...(platform === 'win32' ? { windowsVerbatimArguments: true } : {}),
+          })
+        } catch (error) {
+          // Refused before any process exists (a NUL in the command): it ended
+          // now, or the run would read as running for good.
+          append(`${error instanceof Error ? error.message : String(error)}\n`)
+          finish({ code: null })
+          return
+        }
         child = started
         started.stdout?.on('data', append)
         started.stderr?.on('data', append)

@@ -49,6 +49,12 @@ export type SlotLease = {
   owner: string
   /** The agent that asked through MCP (`worktree.lease`), which keeps the slot while it exists. */
   agentId: string | null
+  /**
+   * The chat `agentId` is in. An agent id is unique only within its chat, so
+   * the agent is matched by both; null for a chat's own worktree, and for a
+   * lease recorded before this was, which falls back to the id alone.
+   */
+  workspaceId: string | null
   leasedAt: number
   /**
    * Whether a cleanup sweep has seen the slot in use since the lease. One never
@@ -186,6 +192,7 @@ function parseSlot(value: unknown): SlotRecord | null {
             branch: str(lease.branch)!,
             owner: str(lease.owner) ?? str(lease.branch)!,
             agentId: str(lease.agentId),
+            workspaceId: str(lease.workspaceId),
             leasedAt: num(lease.leasedAt) ?? Date.now(),
             claimed: lease.claimed === true,
           }

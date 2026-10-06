@@ -765,15 +765,16 @@ export default function NewAgentPanel({
   React.useEffect(() => {
     if (remoteChosenAway) setRemoteTarget(null)
   }, [remoteChosenAway])
-  // A scheduled agent runs on this computer, so the machine list drops the SSH
-  // machines while scheduling; one picked before must go with them, or the
-  // strip would keep asking for a folder on that machine while the agent is
-  // saved for the project here.
-  const sshPickedWhileScheduled = scheduled && pickedSshId !== null
+  // A scheduled agent runs on this computer, and an extension is scaffolded on
+  // its disk, so the machine list drops the SSH machines for both; one picked
+  // before must go with them, or the strip would keep asking for a folder on
+  // that machine — and the press would start a plain chat there, with no
+  // agent saved or extension made in the project here.
+  const sshPickedWhileChatOnly = chatOnly && pickedSshId !== null
   React.useEffect(() => {
-    if (sshPickedWhileScheduled) pickSsh(null)
+    if (sshPickedWhileChatOnly) pickSsh(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sshPickedWhileScheduled])
+  }, [sshPickedWhileChatOnly])
   // The project in hand, as an identity the next machine can be searched for:
   // the local folder's repository, or the remote project's as its machine
   // served it. Null when nothing is chosen or the folder has no remote.
@@ -1287,9 +1288,11 @@ export default function NewAgentPanel({
     ? extensionNameProblem
     : extensionTargetState === 'taken'
       ? `${projectLabel ?? 'The project'} already has a ${extensionName} folder. Choose another name.`
-      : extensionTargetState === 'no_parent'
-        ? 'That project folder is not there any more. Choose another project.'
-        : null
+      : extensionTargetState === 'installed'
+        ? `An extension named ${extensionName} is already installed on this computer. Choose another name.`
+        : extensionTargetState === 'no_parent'
+          ? 'That project folder is not there any more. Choose another project.'
+          : null
   // Everything the extension needs before ⏎: a project to make it in, a name
   // that is free (or an extension to carry on), and something to build.
   const extensionReady =
@@ -1435,19 +1438,16 @@ export default function NewAgentPanel({
           modelLabel: engineNames.modelLabel ?? engineNames.cliLabel,
         }
       }
-      if (images.length > 0) {
-        showToast({
-          tone: 'warn',
-          title: 'That chat cannot travel yet',
-          description: `Remove the attached images to start on ${pickedSsh.label}; they are files on this computer.`,
-        })
-        return
-      }
       const folder = sshFolder.trim().replace(/(.)\/+$/u, '$1')
       lastSshFolders.set(pickedSsh.id, folder)
+      // The images go with the first message: they are files on this
+      // computer, which the chat reads here and sends as bytes, as it does
+      // for an image pasted into an SSH chat.
+      const sshImages = images.map((image) => image.path)
       onLaunch({
         ...confirm,
         prompt: text.trim(),
+        ...(sshImages.length > 0 ? { images: sshImages } : {}),
         environment: { kind: 'ssh', id: pickedSsh.id, label: pickedSsh.label, folder },
       })
       return
@@ -2080,7 +2080,7 @@ export default function NewAgentPanel({
                   pickSsh(null)
                   pickRemoteMachine(connection)
                 }}
-                sshMachines={scheduled ? [] : sshMachines}
+                sshMachines={chatOnly ? [] : sshMachines}
                 selectedSshId={pickedSsh?.id ?? null}
                 onSelectSsh={(id) => {
                   pickRemoteMachine(null)

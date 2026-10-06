@@ -164,7 +164,7 @@ import { CompactGlyph } from './agentChat/toolRows/ToolKindGlyph'
 import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
 import { TimelineRow, type TimelineChrome } from './agentChat/timelineRows'
 import type { EditFromHereDraft } from './agentChat/editFromHere'
-import { forkChat, type ForkFromHereTarget } from './agentChat/forkFromHere'
+import { forkChat, takeForkedAttachments, type ForkFromHereTarget } from './agentChat/forkFromHere'
 import { EmptyChatState, ReadinessState, readinessLabel, type ChatReadiness } from './agentChat/chatStates'
 import { ComposerActionButton, ComposerContextMenu, type ComposerMenuState } from './agentChat/composerControls'
 export { ComposerContextMenu, editingShortcut } from './agentChat/composerControls'
@@ -242,6 +242,23 @@ export function mergeQueuedTurn(
     attachments: combined.slice(0, MAX_ATTACHMENTS_PER_TURN),
     dropped: Math.max(0, combined.length - MAX_ATTACHMENTS_PER_TURN),
   }
+}
+
+// A message that did not go out (a queued turn whose send was refused) back in
+// the composer, ahead of whatever the person has typed since. Left only on the
+// error's Retry, it was gone the moment anything cleared that error.
+export function restoreRefusedText(current: string, text: string): string {
+  if (!current || current === text) return text
+  // Already back from an earlier refusal of the same message (a Retry that was
+  // refused again): not stacked a second time.
+  if (!text || current.startsWith(`${text}\n`)) return current
+  return `${text}\n${current}`
+}
+
+// The composer once a Retry takes the refused message back out of it: what
+// the person typed after it, or null when the message is not at its head.
+export function draftAfterRetried(current: string, text: string): string | null {
+  return text && current.startsWith(`${text}\n`) ? current.slice(text.length + 1) : null
 }
 
 // What the queued-turn row reads as. An image-only queued turn has no text to
@@ -663,6 +680,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const [sendInFlight, setSendInFlight] = useState(false)
   // Images staged for the next turn (D3/1774), in the order they were added.
   const [attachments, setAttachments] = useState<ConversationImageAttachment[]>([])
+  // A fork made at one of the person's messages hands that message's images
+  // to this composer, beside the text the draft store already gave it.
+  useEffect(() => {
+    const forked = takeForkedAttachments(workspaceId, agentId)
+    if (forked.length) setAttachments((current) => [...forked, ...current].slice(0, MAX_ATTACHMENTS_PER_TURN))
+  }, [workspaceId, agentId])
   // A pasted/dropped/picked image is being read and resampled. Held so the
   // strip can say so instead of looking like nothing happened on a large file.
   const [attachingCount, setAttachingCount] = useState(0)
@@ -1342,7 +1365,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         setSendInFlight(false)
         setPending(null)
         if (!fromDraft) {
-          setDraft((current) => current || text)
+          setDraft((current) => restoreRefusedText(current, text))
           setDraftMetadata((current) => ({
             skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
             mentions: [...metadata.mentions, ...current.mentions],
@@ -1405,7 +1428,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
           if (turnAttachments.length) setAttachments((current) => (current.length ? current : turnAttachments))
           if (!fromDraft) {
-            setDraft((current) => current || text)
+            setDraft((current) => restoreRefusedText(current, text))
             setDraftMetadata((current) => ({
               skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
               mentions: [...metadata.mentions, ...current.mentions],
@@ -1416,7 +1439,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         finishDraftSend(draftSend, false)
         setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
         if (!fromDraft) {
-          setDraft((current) => current || text)
+          setDraft((current) => restoreRefusedText(current, text))
           setDraftMetadata((current) => ({
             skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
             mentions: [...metadata.mentions, ...current.mentions],
@@ -1957,6 +1980,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const retryFailedSend = () => {
     if (!failedSend) return
     const fromDraft = draft.trim() === failedSend.text
+    // Put back ahead of what was typed since, it goes out from here once, and
+    // the typed rest stays; left in, the next Enter sent it a second time.
+    const rest = fromDraft ? null : draftAfterRetried(draft, failedSend.text)
+    if (rest !== null) setDraft(rest)
     void sendTurn(failedSend.text, failedSend.attachments, failedSend.metadata, fromDraft)
     setAttachments((current) => (current === failedSend.attachments ? [] : current))
   }
@@ -2111,10 +2138,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       setActionError('A terminal cannot resume this kind of chat yet.')
       return
     }
-    void resumeChatInTerminal({ workspaceId, agentId }).then(
-      (result) => setActionError(result.ok ? null : result.message),
-      (error: unknown) =>
-        setActionError(error instanceof Error ? error.message : 'The chat could not be continued in a terminal.'),
+    void (async () => {
+      // After an app restart the chat holds no session until it is sent
+      // something, and main reads the CLI session to hand over through one.
+      // Claude and Codex start one without spawning their CLI, and the handoff
+      // suspends it again either way. One that could not start has said why,
+      // unless there was no folder to start in.
+      if (!sessionId && !(await ensureSession()) && workspaceRoot) return
+      const result = await resumeChatInTerminal({ workspaceId, agentId })
+      setActionError(result.ok ? null : result.message)
+    })().catch((error: unknown) =>
+      setActionError(error instanceof Error ? error.message : 'The chat could not be continued in a terminal.'),
     )
   }
   const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
@@ -2717,16 +2751,22 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       createPullRequestAsk,
     ].join('|'),
   )
+  // Held while the control shows its dialog, a step or a failure: the pull
+  // request it just opened makes the checkout stop reading as ready, and that
+  // must not take a failure to record it off the screen unread.
+  const [createPullRequestHeld, setCreatePullRequestHeld] = useState(false)
   const createPullRequest = useMemo(
     () =>
-      createPullRequestCwd && createPullRequestState?.readiness.ready
+      createPullRequestCwd && (createPullRequestState?.readiness.ready || createPullRequestHeld)
         ? {
             cwd: createPullRequestCwd,
             conversation: { workspaceId, agentId },
             onSettled: () => setCreatePullRequestAsk((count) => count + 1),
+            onHoldChange: setCreatePullRequestHeld,
+            ready: createPullRequestState?.readiness.ready === true,
           }
         : null,
-    [createPullRequestCwd, createPullRequestState, workspaceId, agentId],
+    [createPullRequestCwd, createPullRequestState, createPullRequestHeld, workspaceId, agentId],
   )
   return (
     <ConversationLinkProvider
@@ -3073,6 +3113,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                   ref={composerRef}
                   contentAttributes={{ 'aria-label': `Message ${label}`, ...contextPicker.comboboxProps }}
                   value={draft}
+                  historyScope={`${workspaceId}\0${agentId}`}
                   onBlur={flushDraft}
                   leavesDrop={dataTransferHasDroppableFiles}
                   onPaste={(event, field) => {

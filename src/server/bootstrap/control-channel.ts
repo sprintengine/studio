@@ -91,6 +91,10 @@ export function readEnvelope(
 ): Promise<ServerBootstrap> {
   return new Promise((resolve, reject) => {
     let done = false
+    // Assigned once each listener is in: a channel already closed calls its
+    // close listener while it is being added, before `stopClose` exists.
+    let stopMessages: () => void = () => undefined
+    let stopClose: () => void = () => undefined
     const finish = (outcome: () => void) => {
       if (done) return
       done = true
@@ -103,16 +107,20 @@ export function readEnvelope(
       () => finish(() => reject(new ServerBootstrapError('No bootstrap envelope arrived.'))),
       options.timeoutMs ?? ENVELOPE_WAIT_MS,
     )
-    const stopMessages = channel.onMessage((message) => {
+    stopMessages = channel.onMessage((message) => {
       const candidate = options.unwrap ? unwrapEnvelope(message) : message
       const parsed = parseServerBootstrapEnvelope(candidate)
       finish(() =>
         parsed.ok ? resolve({ envelope: parsed.envelope, channel }) : reject(new ServerBootstrapError(parsed.message)),
       )
     })
-    const stopClose = channel.onClose(() =>
+    stopClose = channel.onClose(() =>
       finish(() => reject(new ServerBootstrapError('The control channel closed before the envelope arrived.'))),
     )
+    if (done) {
+      stopMessages()
+      stopClose()
+    }
   })
 }
 

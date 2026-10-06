@@ -9,7 +9,9 @@ import {
   conversationLineText,
   conversationsWithTabs,
   replyPreviewText,
+  workspaceIsWorking,
 } from './conversationLines'
+import type { TerminalSessionSnapshot } from '../../../../../shared/ipc/terminal'
 
 const session = (
   status: ConversationSessionSummary['status'],
@@ -159,4 +161,15 @@ test('a row draws one chat line per chat tab', () => {
     ['current', 'second'],
   )
   assert.deepEqual(conversationsWithTabs([tabbed], null), [])
+})
+
+test('a terminal agent mid-turn holds Settle while another waits at a prompt', () => {
+  const terminal = (kind: 'working' | 'idle', processAlive = true) =>
+    ({ sessionId: `pty-${kind}`, kind: 'agent', processAlive, activity: { kind, since: 1 } }) as TerminalSessionSnapshot
+  // The row reads `needs-input` (the prompt outranks working), and the working
+  // agent beside it still counts.
+  assert.equal(workspaceIsWorking('needs-input', [], [terminal('idle'), terminal('working')]), true)
+  assert.equal(workspaceIsWorking('needs-input', [], [terminal('idle')]), false)
+  // A paused process runs no turn, whatever it last said.
+  assert.equal(workspaceIsWorking('idle', [], [terminal('working', false)]), false)
 })

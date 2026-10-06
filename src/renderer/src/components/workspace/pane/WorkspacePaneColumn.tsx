@@ -6,7 +6,7 @@ import { WorkspaceAsideColumn } from '../workspaceAsideColumn'
 import WorkspacePane from './WorkspacePane'
 import { openUrlInPane } from './browser/openInPane'
 import { OFFSCREEN_LAYER_STYLE } from './WorkspacePaneBody'
-import { revealPoppedOutTab, usePanePopOutHost } from './popout/panePopOutHost'
+import { revealPoppedOutTab, showPaneTab, usePanePopOutHost } from './popout/panePopOutHost'
 
 // The pane column (browser-pane epic): the full-height column on the shell
 // row's right edge, beside the WorkspaceHeader, that hosts every retained
@@ -113,8 +113,10 @@ export function WorkspacePaneColumn({
         const store = useWorkspaceStore.getState()
         // A pane already at its tab cap takes nothing, and opening the column
         // on nothing new would be a window change with no answer in it.
-        if (store.openPaneTab(workspaceId, { kind: 'canvas', canvas: { path } }) === null) return
-        store.setPaneOpen(workspaceId, true)
+        const opened = store.openPaneTab(workspaceId, { kind: 'canvas', canvas: { path }, activate: false })
+        if (opened === null) return
+        // A board already out in a window of its own comes forward there.
+        showPaneTab(workspaceId, opened)
       }),
     [activeWorkspaceId],
   )
@@ -149,11 +151,18 @@ export function WorkspacePaneColumn({
       width={width}
       onWidthChange={setWidth}
       collapsed={!activeOpen}
-      keepInteractive={activeFloating}
+      // Behind the door a floating player is parked offscreen with the rest of
+      // its pane (below), so nothing outside the column is left to reach.
+      keepInteractive={activeFloating && !suppressed}
       fill={activeOpen && maximised}
     >
       {ids.map((workspaceId) => {
-        const active = workspaceId === activeWorkspaceId
+        // The door hides the active pane the way a workspace switch hides any
+        // other: parked offscreen, its panels told they are out of sight. A
+        // closed column alone clips the docked tabs, but a floating player
+        // paints outside the column and would stay over the door, and the
+        // tab bodies would go on believing they are on screen.
+        const active = workspaceId === activeWorkspaceId && !suppressed
         return (
           <div
             key={workspaceId}
@@ -165,7 +174,7 @@ export function WorkspacePaneColumn({
             className="absolute inset-0"
             style={active ? { pointerEvents: 'auto' } : OFFSCREEN_LAYER_STYLE}
             aria-hidden={!active}
-            {...(active ? {} : ({ inert: '' } as Record<string, string>))}
+            inert={!active}
           >
             <WorkspacePane workspaceId={workspaceId} active={active} />
           </div>
