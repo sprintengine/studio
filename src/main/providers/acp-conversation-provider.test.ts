@@ -535,7 +535,14 @@ test('ACP says what a CLI that exits at start printed, so a refused flag reads a
     workspaceRoot: tmpdir(),
   })
   await expect(pending).rejects.toThrow("unknown option '--force'")
-  expect(looksLikePermissionSettingRefusal(String(await pending.catch((error: Error) => error.message)))).toBe(true)
+  expect(
+    looksLikePermissionSettingRefusal(
+      await Promise.resolve(pending).then(
+        () => '',
+        (error: Error) => error.message,
+      ),
+    ),
+  ).toBe(true)
   provider.disposeAll?.()
 })
 test('ACP refuses permission presets that the selected CLI cannot enforce', async () => {
