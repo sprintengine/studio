@@ -2,6 +2,7 @@ import { mkdtemp, writeFile, readFile, rm, symlink, mkdir, realpath } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
+import { looksLikePermissionSettingRefusal } from '../../shared/conversation/permissionModes'
 import {
   ACP_PROFILES,
   acpLaunchArgv,
@@ -509,6 +510,32 @@ test('ACP handshake timeout disposes the child and cannot publish a late connect
     }),
   ).rejects.toThrow('timed out')
   expect(provider.listLiveSessions?.()).toEqual([])
+  provider.disposeAll?.()
+})
+test('ACP says what a CLI that exits at start printed, so a refused flag reads as that', async () => {
+  const refuses = `process.stderr.write("error: unknown option '--force'\\n");process.exit(1)`
+  const provider = createAcpConversationProvider(
+    {
+      id: 'old-build',
+      displayName: 'Old build',
+      cli: 'test',
+      argv: ['-e', refuses],
+      authHint: 'Run agent login in a terminal.',
+      images: false,
+      planMode: false,
+    },
+    { detect: async () => process.execPath, buildEnv: async () => ({}) },
+  )
+  const pending = provider.startSession({
+    sessionId: 'old-build',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: 'old-build',
+    modelId: 'default',
+    workspaceRoot: tmpdir(),
+  })
+  await expect(pending).rejects.toThrow("unknown option '--force'")
+  expect(looksLikePermissionSettingRefusal(String(await pending.catch((error: Error) => error.message)))).toBe(true)
   provider.disposeAll?.()
 })
 test('ACP refuses permission presets that the selected CLI cannot enforce', async () => {

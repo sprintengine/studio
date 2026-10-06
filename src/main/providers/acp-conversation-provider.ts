@@ -335,6 +335,16 @@ class Queue implements AsyncIterable<ConversationEvent> {
   }
 }
 type Pending = { options: RequestPermissionRequest['options']; resolve: (value: RequestPermissionResponse) => void }
+// How much of a CLI's stderr is kept for the message of a failure it ends with.
+const STDERR_TAIL_CHARS = 4000
+
+/** A failure's message with the last lines the CLI printed, when it printed any. */
+function withStderrTail(message: string, stderrTail: string): string {
+  const tail = stderrTail.trim().split('\n').slice(-3).join('\n').trim()
+  if (!tail) return message
+  return `${message} (${tail.length > 300 ? `${tail.slice(0, 299)}…` : tail})`
+}
+
 type State = {
   input: MockAdapterSessionInput
   // What the agent said it can connect to, from its handshake.
@@ -794,7 +804,15 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       )
       state.child = child
       state.spawnedAt = Date.now()
-      child.stderr.on('data', () => undefined)
+      // The end of what the CLI printed, kept for the message of a start or a
+      // turn it ends: a build that refuses a permission flag says so here and
+      // only here, and that sentence is what lets the runtime start the chat
+      // again with no flag (`looksLikePermissionSettingRefusal`).
+      let stderrTail = ''
+      child.stderr.on('data', (data: Buffer | string) => {
+        stderrTail = `${stderrTail}${data.toString()}`.slice(-STDERR_TAIL_CHARS)
+      })
+      const childClosed = new Promise<void>((resolve) => child.once('close', () => resolve()))
       // A CLI that cannot be started is reported as that, not as a protocol
       // failure followed by a sign-in hint that would send the person the
       // wrong way. Later errors close the stream, which rejects what is pending.
@@ -814,7 +832,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         state.connection = undefined
         cancelPermissions(state)
         if (state.queue) {
-          emit(state, 'turn_failed', { message: `${profile.displayName} process exited.` })
+          emit(state, 'turn_failed', { message: withStderrTail(`${profile.displayName} process exited.`, stderrTail) })
           state.queue.end()
         }
       })
@@ -1064,7 +1082,10 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         }
         // Not a sign-in problem, so without the sign-in hint.
         if (error instanceof AcpMcpServerUnsupportedError) throw error
-        throw new Error(`${error instanceof Error ? error.message : String(error)} ${profile.authHint}`)
+        // What it printed as it went is all read once it has closed.
+        await Promise.race([childClosed, new Promise((resolve) => setTimeout(resolve, 250))])
+        const message = withStderrTail(error instanceof Error ? error.message : String(error), stderrTail)
+        throw new Error(`${message} ${profile.authHint}`)
       } finally {
         if (timer) clearTimeout(timer)
       }
