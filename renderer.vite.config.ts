@@ -74,6 +74,31 @@ export function buildStampPlugin(isDevBuild: boolean): Plugin {
   }
 }
 
+// The build's identity in the window's own HTML, for the classic boot scripts
+// that run before any module can import the stamp above. The static New chat
+// box (public/boot-composer.js) is a capture of markup this build drew, and a
+// capture from any other build may name classes this stylesheet lacks, so it is
+// only shown under the stamp it was captured under. Production only: the dev
+// server injects its stylesheet from script, so no capture could be drawn
+// styled before the bundle there anyway.
+function buildIdMetaPlugin(): Plugin {
+  return {
+    name: 'sprintengine-build-id-meta',
+    apply: 'build',
+    transformIndexHtml(_html, context) {
+      if (!context.filename.endsWith('index.html')) return undefined
+      const stamp = (productionBuildStamp ??= mintBuildStamp(false))
+      return [
+        {
+          tag: 'meta',
+          attrs: { name: 'sprintengine-build', content: `${stamp.commit ?? 'nogit'}:${stamp.builtAt}` },
+          injectTo: 'head-prepend',
+        },
+      ]
+    },
+  }
+}
+
 // The canvas editor's scene fonts. `@excalidraw/excalidraw` does not import
 // these files — it builds `<window.EXCALIDRAW_ASSET_PATH>fonts/<Family>/<file>`
 // at runtime and hands it to the FontFace API, appending a public CDN as the
@@ -261,6 +286,7 @@ export function rendererViteConfig(options: { client: StudioClient; devBuild: bo
       react(),
       tailwindcss(),
       buildStampPlugin(options.devBuild),
+      ...(options.client === 'desktop' ? [buildIdMetaPlugin()] : []),
       canvasSceneFontsPlugin({ cjk: options.client === 'web' }),
     ],
   }
