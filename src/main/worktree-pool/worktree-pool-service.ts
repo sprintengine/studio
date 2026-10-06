@@ -1001,9 +1001,46 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       // Held with the chat's own branch still checked out (a return that found
       // its work uncommitted): that is this chat's worktree, as it left it, and
       // the chat opens on it so the work can be committed or discarded there.
-      if (other.state === 'held' && other.held?.branch === branch && !pool.busy.has(other.id)) {
-        const status = await readSlotStatus(git, other.path)
-        if (status.ok && status.status.branch === branch) return { ok: true }
+      // It is leased to the chat again, so the Worktree manager no longer offers
+      // to discard or return a folder the open chat works in, and the chat's
+      // own return later holds it again if the work is still uncommitted.
+      if (other.state === 'held' && other.held?.branch === branch) {
+        const taken = await withPool(pool, async () => {
+          if (other.state !== 'held' || other.held?.branch !== branch || pool.busy.has(other.id)) return false
+          pool.busy.add(other.id)
+          return true
+        })
+        if (taken) {
+          try {
+            const status = await readSlotStatus(git, other.path)
+            if (status.ok && status.status.branch === branch) {
+              await git(pool.record.repoRoot, ['worktree', 'unlock', other.path])
+              const locked = await lockAgentWorktree(pool.record.repoRoot, other.path, input.owner, git)
+              if (!locked.ok) log(`${other.path}: could not lock (${tail(locked.message, 200)}); reclaiming anyway`)
+              await withPool(pool, async () => {
+                other.state = 'leased'
+                other.op = null
+                other.held = null
+                other.error = null
+                other.lease = {
+                  leaseId: randomUUID(),
+                  branch,
+                  owner: input.owner,
+                  agentId: null,
+                  workspaceId: null,
+                  leasedAt: now(),
+                  claimed: false,
+                }
+                other.lastUsedAt = now()
+                await persist(pool)
+              })
+              log(`${other.path}: held work given back to its chat on ${branch}`)
+              return { ok: true }
+            }
+          } finally {
+            pool.busy.delete(other.id)
+          }
+        }
       }
       return {
         ok: false,

@@ -919,11 +919,19 @@ test('a slot held with its chat’s uncommitted work opens for that chat, and fo
   const restored = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/chat' })
   assert.equal(restored.ok, true, restored.ok ? '' : restored.message)
   assert.equal(await readFile(join(chat.path, 'wip.txt'), 'utf8'), 'unsaved\n', 'the work is where it was left')
-  assert.equal((await slotAt(harness, 'pool-01')).state, 'held', 'still held in the pool')
+  // Leased to the chat again: the Worktree manager offers no Discard on a
+  // folder the open chat works in, and nothing else can be given it.
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'leased')
+  assert.equal((await slotAt(harness, 'pool-01')).lease?.branch, 'agent/chat')
 
   const stranger = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/stranger' })
   assert.equal(stranger.ok, false)
-  assert.match(stranger.ok ? '' : stranger.message, /held in the worktree pool/)
+  assert.match(stranger.ok ? '' : stranger.message, /given to another agent/)
+
+  // Returned again with the work still uncommitted, it is held again.
+  await returnAll(harness)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'held')
+  assert.equal(await readFile(join(chat.path, 'wip.txt'), 'utf8'), 'unsaved\n')
 })
 
 test('a slot is not given back to its chat over ignored files a later agent left where the chat’s branch tracks one', async () => {
