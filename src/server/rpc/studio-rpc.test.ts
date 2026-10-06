@@ -99,11 +99,15 @@ test('no credential, a wrong one, or a late or missing hello never reaches a req
 
   const skipped = await client(path)
   for (const frame of mutations) skipped.send(frame)
-  assert.equal(((await skipped.next(isT('bye'))) as { code: string }).code, 'hello_required')
+  const notHello = (await skipped.next(isT('bye'))) as { code: string; retryAfterMs?: number }
+  assert.equal(notHello.code, 'hello_required')
+  assert.equal(notHello.retryAfterMs, undefined, 'a client that says something else is not asked back')
   await skipped.closed
 
   const silent = await client(path)
-  assert.equal(((await silent.next(isT('bye'))) as { code: string }).code, 'hello_required')
+  const late = (await silent.next(isT('bye'))) as { code: string; retryAfterMs?: number }
+  assert.equal(late.code, 'hello_required')
+  assert.ok((late.retryAfterMs ?? 0) > 0, 'a hello that is only late may be tried again')
   await silent.closed
   // A hello after the deadline, with mutations behind it, reaches nothing either.
   for (const frame of [hello({ token: OWNER_TOKEN }), ...mutations]) silent.send(frame)

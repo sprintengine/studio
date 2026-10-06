@@ -38,6 +38,8 @@
   settles only on `close()` or a refusal waking cannot help.
 - A stream's `cursor` is what its consumer has read, never what is still
   waiting to be read.
+- A `hello_required` that carries `retryAfterMs` (a hello that arrived too
+  late) is reconnected after, not taken as the end of the client.
 
 ## 0.1.0
 

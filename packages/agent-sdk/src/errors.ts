@@ -30,3 +30,13 @@ export const TERMINAL_CODES: ReadonlySet<string> = new Set([
   // The connection reached a different Studio from the one this client follows.
   'environment_changed',
 ])
+
+/**
+ * Whether a refusal ends the client for good. A `hello_required` that names a
+ * delay is a hello that arrived too late (a busy machine, a sleep between
+ * connecting and saying it), which connecting again can fix.
+ */
+export function isTerminalStudioCode(code: string, retryAfterMs?: number): boolean {
+  if (code === 'hello_required' && retryAfterMs !== undefined) return false
+  return TERMINAL_CODES.has(code)
+}

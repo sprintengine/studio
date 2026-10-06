@@ -22,6 +22,7 @@ import {
   type StudioClient,
   type StudioClientState,
 } from '../src/index'
+import { isTerminalStudioCode } from '../src/errors'
 import { connectToStudio, discoverStudio, socketTransport, studioDataDir } from '../src/node'
 
 const ref = { workspaceId: 'ws-1', agentId: 'agent-1' }
@@ -501,4 +502,11 @@ test('the same handles work in process over a module’s conversation service', 
   assert.deepEqual(stream.cursor, { afterSeq: 8, generation: 'g' })
   followed[0]({ type: 'error', message: 'No longer readable by this module.' })
   await assert.rejects(stream.next(), (error: StudioError) => error.code === 'unavailable')
+})
+
+test('a hello refused as late may be tried again; any other hello refusal ends the client', () => {
+  assert.equal(isTerminalStudioCode('hello_required', 1_000), false)
+  assert.equal(isTerminalStudioCode('hello_required'), true)
+  assert.equal(isTerminalStudioCode('unauthorized', 1_000), true)
+  assert.equal(isTerminalStudioCode('shutting_down', 1_000), false)
 })

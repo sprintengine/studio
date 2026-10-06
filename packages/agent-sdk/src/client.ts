@@ -9,7 +9,7 @@ import {
   type ConversationService,
   type EventStreamOptions,
 } from './conversations.js'
-import { StudioError, TERMINAL_CODES } from './errors.js'
+import { StudioError, isTerminalStudioCode } from './errors.js'
 import {
   STUDIO_METHODS,
   STUDIO_PROTOCOL_MIN_SUPPORTED,
@@ -563,7 +563,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
           ? error
           : new StudioError('disconnected', error instanceof Error ? error.message : String(error))
       if (PARKING_CODES.has(failure.code)) park(failure)
-      else if (TERMINAL_CODES.has(failure.code)) fail(failure)
+      else if (isTerminalStudioCode(failure.code, failure.retryAfterMs)) fail(failure)
       else schedule(failure.retryAfterMs)
     })
   }
@@ -850,7 +850,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       park(new StudioError(bye.code, bye.message))
       return
     }
-    if (bye && TERMINAL_CODES.has(bye.code)) {
+    if (bye && isTerminalStudioCode(bye.code, bye.retryAfterMs)) {
       fail(new StudioError(bye.code, bye.message))
       return
     }
