@@ -36,7 +36,7 @@ export type ConversationPeekRowActivity = 'needs-input' | 'working' | 'failed' |
  * terminal lines rank on, folded to one number: a session that has never
  * spoken still sorts by when it started, so the ordering is total.
  */
-function activityAt(session: TerminalSessionSnapshot): number {
+export function activityAt(session: TerminalSessionSnapshot): number {
   return Math.max(session.lastInputAt ?? 0, session.lastOutputAt ?? 0, session.startedAt)
 }
 
