@@ -74,6 +74,10 @@ const messageOf = (error: unknown): string =>
       ? error.message
       : String(error)
 
+// How long the commands stream waits before following a client that replaced
+// one that closed, or retrying one that could not connect.
+const COMMANDS_FOLLOW_RETRY_MS = 2_000
+
 // Pictures go up a few at a time: each is several requests, and a send that
 // carries many must not crowd out the reads the rest of the window makes.
 const UPLOADS_AT_ONCE = 3
@@ -219,17 +223,29 @@ export function createStudioChatServices(client: ClientSource): ChatServices {
       onChanged: (listener) => {
         let stop: (() => void) | null = null
         let stopped = false
-        void client().then(
-          (connected) => {
-            if (stopped) return
-            stop = connected.subscribe(
-              'conversation.commands',
-              {},
-              { onPayload: (payload) => listener(payload as ConversationCommandCatalog) },
-            )
-          },
-          () => undefined,
-        )
+        // The window's client reconnects by itself and subscribes again; one
+        // that closed for good is replaced, and followed on its replacement.
+        const follow = (): void =>
+          void client().then(
+            (connected) => {
+              if (stopped) return
+              stop = connected.subscribe(
+                'conversation.commands',
+                {},
+                {
+                  onPayload: (payload) => listener(payload as ConversationCommandCatalog),
+                  onEnd: () => {
+                    stop = null
+                    if (!stopped) setTimeout(follow, COMMANDS_FOLLOW_RETRY_MS)
+                  },
+                },
+              )
+            },
+            () => {
+              if (!stopped) setTimeout(follow, COMMANDS_FOLLOW_RETRY_MS)
+            },
+          )
+        follow()
         return () => {
           stopped = true
           stop?.()
