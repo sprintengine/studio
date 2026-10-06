@@ -85,7 +85,8 @@ export function isRunChatWorking(
 }
 
 // Each run gets a worktree of its own, named after the one picked and stamped
-// with the run's minute, so two runs never ask for the same branch.
+// with the run's second, so two runs never ask for the same branch — a Run now
+// pressed again in the minute a failed run was made in included.
 async function makeRunWorktree(
   agent: ScheduledAgent,
   at: number,
@@ -114,5 +115,5 @@ async function makeRunWorktree(
 function runStamp(at: number): string {
   const date = new Date(at)
   const pad = (value: number) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
 }

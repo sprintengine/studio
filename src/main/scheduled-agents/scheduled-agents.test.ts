@@ -327,8 +327,8 @@ test('a worktree run starts in a fresh worktree named for the run, on the machin
     },
     now: () => new Date(2026, 8, 30, 21, 0).getTime(),
   })
-  assert.deepEqual(worktrees, [{ branchName: 'agent/triage-20260930-2100', hostId: 'wsl:Ubuntu' }])
-  assert.equal(requests[0]?.newChatIn?.worktree?.branch, 'agent/triage-20260930-2100')
+  assert.deepEqual(worktrees, [{ branchName: 'agent/triage-20260930-210000', hostId: 'wsl:Ubuntu' }])
+  assert.equal(requests[0]?.newChatIn?.worktree?.branch, 'agent/triage-20260930-210000')
   assert.equal(requests[0]?.newChatIn?.worktree?.repoRoot, '/Users/dev/acme')
 })
 
