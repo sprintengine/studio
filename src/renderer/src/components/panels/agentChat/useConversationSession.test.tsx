@@ -735,3 +735,95 @@ test('a chat opened again draws what it held at once and asks only for what was 
     }
   }
 })
+
+test('a chat read ahead of its open is drawn at once by the open, over one read', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  const subscriptions: {
+    input: ConversationSubscribeInput
+    receive: (frame: ConversationSessionFrame) => void
+    dispose: ReturnType<typeof vi.fn>
+  }[] = []
+  Object.assign(dom.window, {
+    api: {
+      onConversationSession: (
+        input: ConversationSubscribeInput,
+        receive: (frame: ConversationSessionFrame) => void,
+      ) => {
+        const dispose = vi.fn()
+        subscriptions.push({ input, receive, dispose })
+        return dispose
+      },
+    },
+  })
+  const event = (agentId: string, seq: number): ConversationEvent => ({
+    seq,
+    id: `${agentId}-${seq}`,
+    workspaceId: 'workspace',
+    agentId,
+    sessionId: 'session',
+    providerId: 'mock',
+    modelId: 'mock',
+    createdAt: seq,
+    type: 'user_message',
+    payload: { turnId: `turn-${seq}`, text: `message ${seq}` },
+  })
+  const { act, createElement } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { useConversationSession, prefetchConversationSession } = await import('./useConversationSession')
+  const { localConversationTransport } = await import('./conversationTransport')
+  let hook!: ReturnType<typeof useConversationSession>
+  function Harness({ agentId }: { agentId: string }) {
+    hook = useConversationSession('/Users/dev/ahead', 'workspace', agentId)
+    return null
+  }
+  const key = (agentId: string) => ({ workspaceRoot: '/Users/dev/ahead', workspaceId: 'workspace', agentId })
+  const synchronize = (index: number, agentId: string) =>
+    act(async () => {
+      subscriptions[index].receive({
+        type: 'snapshot',
+        page: { events: [event(agentId, 1)], hasMore: false, beforeCursor: null },
+        generation: 'log',
+      })
+      subscriptions[index].receive({ type: 'synchronized', seq: 1, generation: 'log' })
+    })
+  const root = createRoot(document.createElement('div'))
+  try {
+    // Read ahead and answered before the open: the read is let go and kept.
+    prefetchConversationSession(localConversationTransport, key('rested'))
+    expect(subscriptions).toHaveLength(1)
+    await synchronize(0, 'rested')
+    expect(subscriptions[0].dispose).toHaveBeenCalledOnce()
+    await act(async () => root.render(createElement(Harness, { agentId: 'rested' })))
+    expect(hook.hydrated).toBe(true)
+    expect(hook.events.map((entry) => entry.seq)).toEqual([1])
+    expect(subscriptions[1].input).toMatchObject({ afterSeq: 1, generation: 'log' })
+
+    // Opened while the read ahead is still out: the open joins it.
+    prefetchConversationSession(localConversationTransport, key('clicked'))
+    await act(async () => root.render(createElement(Harness, { agentId: 'clicked' })))
+    expect(subscriptions).toHaveLength(3)
+    await synchronize(2, 'clicked')
+    expect(subscriptions).toHaveLength(3)
+    expect(subscriptions[2].dispose).not.toHaveBeenCalled()
+    expect(hook.events.map((entry) => entry.seq)).toEqual([1])
+
+    // Reading ahead a chat that is open costs nothing.
+    prefetchConversationSession(localConversationTransport, key('clicked'))
+    expect(subscriptions).toHaveLength(3)
+    expect(subscriptions[2].dispose).not.toHaveBeenCalled()
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})

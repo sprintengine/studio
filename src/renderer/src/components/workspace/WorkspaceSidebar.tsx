@@ -30,6 +30,7 @@ import {
   type ConversationPullRequests,
 } from './useConversationPullRequests'
 import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
+import { cancelOpenIntent, intendToOpenWorkspace } from './sidebarChatPrefetch'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
 import { folderIdentityKey, useFolderRepositoryIdentities } from './useFolderRepositoryIdentities'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
@@ -3961,7 +3962,13 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
       // Roving tabindex: exactly one treeitem is in the tab order at a time,
       // and Arrow/Home/End move focus between rows (handleTreeRowKeyDown).
       tabIndex={isRovingTarget ? 0 : -1}
-      onFocus={() => setRovingKey(rowKey)}
+      onFocus={() => {
+        setRovingKey(rowKey)
+        intendToOpenWorkspace(workspace.id)
+      }}
+      // A pointer resting on the row reads its chat ahead of the click.
+      onPointerEnter={() => intendToOpenWorkspace(workspace.id)}
+      onPointerLeave={() => cancelOpenIntent(workspace.id)}
       onKeyDown={(event) => handleTreeRowKeyDown(event, workspace.id)}
       // Drag-to-reorder is the tree's: it rewrites the stored order of a
       // folder's chats, and the flat stream is ordered by the clock, so a

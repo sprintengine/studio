@@ -400,6 +400,35 @@ function closeSharedSession(transport: ConversationTransport, shared: SharedSess
   }
 }
 
+// How long a read started ahead of an open waits for its answer before it
+// gives up its hold on the session.
+const PREFETCH_HOLD_MS = 15_000
+
+/**
+ * Read a chat ahead of its being opened (its row in the sidebar is pointed
+ * at): the session is opened as a reader would open it, held until it has
+ * synchronized, and then let go, so it is kept like any chat just closed and
+ * the open that follows draws it at once. A chat already open, or already
+ * held and current, costs a catch-up of what is new at most.
+ */
+export function prefetchConversationSession(transport: ConversationTransport, key: ConversationKey): void {
+  const shared = openSharedSession(transport, key)
+  let held = true
+  const release = () => {
+    if (!held) return
+    held = false
+    clearTimeout(timer)
+    shared.listeners.delete(listener)
+    closeSharedSession(transport, shared)
+  }
+  const listener = () => {
+    if (!shared.session.joining || shared.session.state.error) release()
+  }
+  const timer = setTimeout(release, PREFETCH_HOLD_MS)
+  shared.listeners.add(listener)
+  listener()
+}
+
 function loadEarlierTurns(transport: ConversationTransport, shared: SharedSession): Promise<void> {
   const { session } = shared
   if (session.disposed) return Promise.resolve()
