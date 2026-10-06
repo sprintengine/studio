@@ -314,11 +314,11 @@ test('a popped-out tab wears the pop-out mark, and its menu brings it back inste
   assert.equal(popOutRequests.length, 0, 'bringing a tab back opens no window')
 })
 
-test('a pane does not say "no browser tab" over one that is out in a window of its own', async () => {
+test('a pane never names a browser tab that is out in a window of its own', async () => {
   await renderPane(
     {
       open: true,
-      activeTabId: 'files',
+      activeTabId: 'web',
       tabs: [
         { id: 'files', kind: 'files' },
         { id: 'web', kind: 'browser', url: 'http://localhost:3000/', poppedOut: 'pop-1' },
@@ -326,9 +326,6 @@ test('a pane does not say "no browser tab" over one that is out in a window of i
     },
     false,
   )
-  assert.deepEqual(activeNotes, [], 'the window holding the page names it')
-  root?.unmount()
-  root = null
-  await renderPane({ open: true, activeTabId: 'files', tabs: [{ id: 'files', kind: 'files' }] }, false)
-  assert.deepEqual(activeNotes, [null], 'with no page out, the pane says it shows none')
+  // Main keeps this "none" from clearing the pop-out's word (browser-ipc).
+  assert.deepEqual(activeNotes, [null], 'the window holding the page names it, not the pane')
 })

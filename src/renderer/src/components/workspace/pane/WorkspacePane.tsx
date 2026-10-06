@@ -91,15 +91,13 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
   const collapsedWithFloatingPlayer = !(paneState?.open ?? false) && tabs.some((tab) => tab.floating)
   // What the agent tools act on when they name no tab: the browser tab the
   // person is looking at, or none when the active tab is not a browser. A
-  // browser tab out in a window of its own is that window's to name, and while
-  // one is out this pane does not say "none" over it.
+  // browser tab out in a window of its own is that window's to name; main
+  // keeps this pane's "none" from clearing it (browser:note-active).
   const activeBrowserTabId =
     tabs.find((tab) => tab.id === activeTabId && tab.kind === 'browser' && !tab.poppedOut)?.id ?? null
-  const browserTabPoppedOut = tabs.some((tab) => tab.kind === 'browser' && Boolean(tab.poppedOut))
   useEffect(() => {
-    if (activeBrowserTabId === null && browserTabPoppedOut) return
     void window.api.browserNoteActive(workspaceId, activeBrowserTabId)
-  }, [activeBrowserTabId, browserTabPoppedOut, workspaceId])
+  }, [activeBrowserTabId, workspaceId])
   const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
   // The Diff tab's canonical count — the files its viewer lists — reported by
   // the viewer while it is mounted; null until it has answered.
