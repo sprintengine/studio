@@ -16,12 +16,15 @@ bottom:
      language nobody has mapped is shown as the fence wrote it.
    - _Right:_ the actions, all glyphs at `icon-xs` inside `xs` icon buttons, in
      this order: a surface's own actions, Paste into terminal (shell blocks
-     only, see Variants), Wrap lines, Copy code.
+     only, see Variants), Show source (drawn blocks only), Wrap lines, Copy
+     code.
 2. **Source** — a real `<pre><code>`, mono at `font.size.body`, leading
    `font.line.code` (1.6), padded `space.md` × `space.lg`.
 3. **Fold control** (long blocks only) — a ghost button with the chevron,
    "Show all N lines" / "Show less".
-4. **Note** (past 2000 lines only) — "Highlighting stopped at 2000 lines".
+4. **Note** — a quiet line under the block: "Highlighting stopped at 2000
+   lines" past 2000 lines, or the surface's own word on the block, such as why
+   a diagram shows as its source.
 
 A filename comes from the fence info: `title="src/app.ts"`, `file=` /
 `filename=` / `path=`, or a bare path after the language (` ```ts src/app.ts `).
@@ -50,6 +53,14 @@ there is nothing else to exclude.
   the command, and the rest is output. A `console` block is a session, so it is
   offered only when its prompts mark the commands. `fish` and PowerShell are
   not offered — their syntax is not the login shell's.
+- **Drawn** (a reply's ` ```mermaid ` block): a surface hands the block a
+  drawing made from its source, and the drawing takes the source's place,
+  centred at its own size and shrunk to the column, padded like the source.
+  Show source (`ViewSourceGlyph`, an `aria-pressed` toggle) switches to the
+  source and back; Wrap lines is offered only while the source shows, and the
+  fold never applies to a drawing. The source stays in the DOM, hidden, so Copy
+  code and a selection across the block both take the source. A drawing is
+  never shown while the block streams.
 - **Unknown language**: the same card with plain source.
 
 ## States
@@ -69,6 +80,9 @@ there is nothing else to exclude.
   ([button → The copy glyph](../button/component.md#the-copy-glyph)).
 - **Failed grammar**: plain source. **Over 2000 lines**: highlighting stops and
   the note says so.
+- **Not drawn**: a drawn block whose source does not parse keeps its source,
+  and the note says why ("Shown as source: Parse error on line 2"). Until a
+  drawing is ready the source shows, so a block never renders empty.
 
 Light and dark come from the same semantic tokens.
 

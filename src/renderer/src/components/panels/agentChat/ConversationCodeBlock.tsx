@@ -4,6 +4,7 @@ import { focusOrAddTerminalTab, getModel } from '../../../utils/modelRegistry'
 import { useConversationLinkContext, type ConversationLinkContext } from './conversationLinks'
 import { useConversationTransport } from './conversationTransport'
 import { clientSupports } from '../../../clientCapabilities'
+import { useDiagramDrawing } from './conversationDiagram'
 
 // How long a new terminal's shell gets to show it takes a bracketed paste:
 // long enough for rc files that load a prompt framework, short enough that a
@@ -135,21 +136,26 @@ async function pasteInTerminal(context: ConversationLinkContext, command: string
   }
 }
 
-// A reply's code block. A shell block written for this machine's workspace also
-// offers to put it at a terminal's prompt — the block decides whether it is one
-// and hands over the command with its prompts stripped; one from a conversation
-// on another machine does not — its folder is over there.
-export function ConversationCodeBlock(props: CodeBlockProps) {
+// What every code block in a conversation offers. A shell block written for
+// this machine's workspace can be put at a terminal's prompt — the block decides
+// whether it is one and hands over the command with its prompts stripped; one
+// from a conversation on another machine cannot — its folder is over there.
+function usePasteInTerminal(): CodeBlockProps['onPasteInTerminal'] {
   const context = useConversationLinkContext()
   const localFiles = useConversationTransport().capabilities.localFiles
-  return (
-    <CodeBlock
-      {...props}
-      onPasteInTerminal={
-        context && localFiles && clientSupports('terminals')
-          ? (command) => void pasteInTerminal(context, command)
-          : undefined
-      }
-    />
-  )
+  return context && localFiles && clientSupports('terminals')
+    ? (command) => void pasteInTerminal(context, command)
+    : undefined
+}
+
+// A code block in text a person wrote: shown as it was typed.
+export function ConversationCodeBlock(props: CodeBlockProps) {
+  return <CodeBlock {...props} onPasteInTerminal={usePasteInTerminal()} />
+}
+
+// A code block in an agent's reply, which also draws a ```mermaid block as
+// its diagram once the block is complete (`conversationDiagram.tsx`).
+export function ConversationReplyCodeBlock(props: CodeBlockProps) {
+  const diagram = useDiagramDrawing(props.code, props.language, props.streaming)
+  return <CodeBlock {...props} {...diagram} onPasteInTerminal={usePasteInTerminal()} />
 }

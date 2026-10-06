@@ -1,7 +1,7 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The seventy-two SVGs in
+line work, sized only by the `--sem-icon-size-*` ramp. The seventy-three SVGs in
 `glyphs/` (close, search, spinner, sprintengine-mark, git-branch, remote-machine,
 schedule, wsl-machine,
 the four `device-*` marks, the six `machine-*` kinds, the composer's six —
@@ -15,7 +15,7 @@ show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message,
 new-changelist, delete-changelist, edit-changelist, create-patch, kebab — and
 the diff tour's four — tour, play, pause, step-list — and the copy
 affordance's pair — copy, and the check it confirms with — and the code
-block's two — wrap-lines, terminal-prompt — the chat's ten tool-step
+block's three — wrap-lines, terminal-prompt, view-source — the chat's ten tool-step
 marks, `tool-*`, the quote mark — quote — and open-in-window) are
 the framework-neutral assets; the shipped vocabulary lives in React —
 `src/renderer/src/components/AppIcons.tsx` and the `ui/` glyph primitives
@@ -452,7 +452,7 @@ working tree), `FileTypeGlyph` `lock` (the padlock), `glyphs/commit.svg`,
 
 ### Code block actions (16-grid — `ui/CodeBlockGlyphs.tsx`)
 
-The two header actions a code block has beside its copy glyph
+The three header actions a code block has beside its copy glyph
 ([code-block](../code-block/component.md)). Stroke 1.4, `currentColor`, drawn
 at `icon-xs` inside an `xs` icon button.
 
@@ -460,6 +460,7 @@ at `icon-xs` inside an `xs` icon button.
 |---|---|---|
 | `WrapLinesGlyph` | `glyphs/wrap-lines.svg` | A full line, a line that runs to the edge and turns back under itself with an arrowhead, and the short line it continues on. The turn is the meaning; without it the mark is a paragraph icon. A toggle, so it takes the pressed fill when on |
 | `TerminalPromptGlyph` | `glyphs/terminal-prompt.svg` | A terminal frame with a `>` prompt and the cursor after it: "put this at a terminal's prompt". Deliberately not the play triangle — nothing runs until the person presses Enter, and a play mark would promise that it does. The same drawing as the terminal pane kind's private glyph (`workspace/pane/paneKinds.tsx`); see Known drift |
+| `ViewSourceGlyph` | `glyphs/view-source.svg` | A pair of angle brackets: "the code behind this". On a block that draws its source (a diagram), it switches to the text the drawing was made from. A toggle, so it takes the pressed fill while the source shows |
 
 ### Tool step (16-grid — `ui/ToolKindGlyph.tsx`)
 

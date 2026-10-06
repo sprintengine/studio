@@ -1,7 +1,8 @@
 import React, { type JSX } from 'react'
 import type { Element } from 'hast'
-import ReactMarkdown, { type Components, type ExtraProps, type UrlTransform } from 'react-markdown'
+import ReactMarkdown, { type Components, type ExtraProps, type Options, type UrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import { Checkbox } from '../components/ui/Checkbox'
 import { filenameFromFenceMeta } from '../components/ui/codeBlockModel'
 import { CopyGlyphButton } from '../components/ui/CopyGlyphButton'
@@ -12,6 +13,7 @@ import { copyToClipboardWithToast } from './copyToClipboardWithToast'
 import type { GitLineChange } from './gitDiff'
 import { tableCsv, tableHtml, tableMarkdown, tableTsv } from './markdownTableClipboard'
 import { remarkFencedCodeValue, singleFencedCode } from './markdownFence'
+import { DisplayMath, InlineMath, isMathLanguage, remarkMathDelimiters } from './markdownMath'
 import { remarkUserText } from './markdownUserText'
 
 /**
@@ -55,7 +57,14 @@ type MarkdownRenderOptions = {
   density?: MarkdownDensity
   tone?: MarkdownTone
   links?: MarkdownLinkResolver
-  codeBlock?: React.ComponentType<{ code: string; language?: string; filename?: string; streaming?: boolean }>
+  codeBlock?: React.ComponentType<{
+    code: string
+    language?: string
+    filename?: string
+    streaming?: boolean
+    /** A line under the block saying why it shows as source (a formula that did not parse). */
+    note?: string
+  }>
   streaming?: boolean
   bare?: boolean
   renderText?: (text: string, source: 'text' | 'inlineCode') => React.ReactNode
@@ -72,6 +81,12 @@ type MarkdownRenderOptions = {
    * line break and HTML shows as the text it is (`remarkUserText`).
    */
   userText?: boolean
+  /**
+   * Typeset math (`markdownMath.tsx`): `$$…$$` and `\(…\)` inline, `$$` and
+   * `\[` blocks, and ```math fences. Off for a document, where a dollar sign is
+   * as likely to be a price as anything, and for a person's own text.
+   */
+  math?: boolean
 }
 
 type MarkdownNode = Element | undefined
@@ -113,6 +128,8 @@ type MarkdownScale = {
   hr: string
   /** The block around a table: its scroller and its copy footer. */
   tableBlock: string
+  /** A display formula: the block's own rhythm, scrolling sideways when it is wider than the column. */
+  math: string
   table: string
   th: string
   td: string
@@ -132,6 +149,11 @@ const TABLE_CELL_CLASS = 'border-b border-[color:var(--border-subtle)] text-left
 // of their ink with one declaration instead of each element knowing its context.
 const CHAT_INK = 'text-[color:var(--markdown-ink)]'
 const CHAT_INK_STRONG = 'text-[color:var(--markdown-ink-strong)]'
+
+// KaTeX gives a display formula its own vertical margin; the block's rhythm
+// already spaces it, so that margin goes. A formula wider than the column
+// scrolls inside its block instead of pushing the pane wider.
+const MATH_BLOCK_CLASS = 'overflow-x-auto overflow-y-hidden [&_.katex-display]:m-0'
 
 /**
  * The conversation ladder. Everything is on the type ramp, and the step from
@@ -185,6 +207,7 @@ function chatScale(steps: {
     alert: `${block} ${steps.text}`,
     hr: `my-4 border-0 border-t border-[color:var(--border-subtle)] first:mt-0 last:mb-0`,
     tableBlock: `${steps.gap} last:mb-0`,
+    math: `${block} ${MATH_BLOCK_CLASS} ${CHAT_INK}`,
     // Sized to its content, not squeezed to the pane: a squeezed column breaks
     // `acme-large-2026-09` at every hyphen and a number across two lines. A
     // cell wraps only past a cap — a readable line, and never most of the pane,
@@ -218,6 +241,7 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     alert: 'my-4 text-heading',
     hr: 'my-6 border-0 border-t border-[color:var(--border-default)]',
     tableBlock: 'my-4',
+    math: `my-4 ${MATH_BLOCK_CLASS}`,
     table: 'w-full border-collapse text-left text-body tabular-nums text-[color:var(--text-default)]',
     th: `${TABLE_HEAD_CLASS} px-3 py-2 text-[color:var(--text-strong)]`,
     td: `${TABLE_CELL_CLASS} px-3 py-2`,
@@ -244,6 +268,7 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     alert: 'my-3 text-meta',
     hr: 'my-[22px] border-0 border-t border-[color:var(--border-subtle)]',
     tableBlock: 'my-3',
+    math: `my-3 ${MATH_BLOCK_CLASS}`,
     table: 'w-full border-collapse text-left text-micro tabular-nums text-[color:var(--text-default)]',
     th: `${TABLE_HEAD_CLASS} px-2 py-1.5 text-[color:var(--text-strong)]`,
     td: `${TABLE_CELL_CLASS} px-2 py-1`,
@@ -370,6 +395,13 @@ function markAlert(quote: MarkdownSyntaxNode): void {
 
 const MARKDOWN_PLUGINS = [remarkGfm, remarkGithubAlerts]
 const USER_TEXT_PLUGINS = [...MARKDOWN_PLUGINS, remarkUserText]
+// A single dollar never opens math: in a reply it is a price or a shell
+// variable far more often than a formula (see markdownMath.tsx).
+const MATH_PLUGINS: NonNullable<Options['remarkPlugins']> = [
+  ...MARKDOWN_PLUGINS,
+  [remarkMath, { singleDollarTextMath: false }],
+  remarkMathDelimiters,
+]
 
 // GitHub's five, each on a tone the app already speaks: a note is information
 // (accent), a tip a good outcome, a warning a degraded one, a caution a
@@ -528,8 +560,13 @@ function StreamingCode({
   code: string
   language?: string
   filename?: string
+  note?: string
 }): React.ReactNode {
   return <Code {...props} streaming={React.useContext(StreamingContext)} />
+}
+
+function StreamingMath(props: Omit<React.ComponentProps<typeof DisplayMath>, 'streaming'>): React.ReactNode {
+  return <DisplayMath {...props} streaming={React.useContext(StreamingContext)} />
 }
 
 function markdownComponents(options: MarkdownRenderOptions): Components {
@@ -661,31 +698,55 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
     em: ({ children, className }: MarkdownComponentProps<'em'>) => (
       <em className={joinClasses(className, scale.em)}>{prose(children)}</em>
     ),
-    code: ({ children, className }: MarkdownComponentProps<'code'>) => (
-      <code className={joinClasses(className, scale.code, chat && isShortToken(children) && 'whitespace-nowrap')}>
-        <InlineCode>{children}</InlineCode>
-      </code>
-    ),
+    code: ({ children, className }: MarkdownComponentProps<'code'>) =>
+      options.math && typeof children === 'string' && className?.split(' ').includes('math-inline') ? (
+        <InlineMath tex={children} codeClassName={scale.code} />
+      ) : (
+        <code className={joinClasses(className, scale.code, chat && isShortToken(children) && 'whitespace-nowrap')}>
+          <InlineCode>{children}</InlineCode>
+        </code>
+      ),
     pre: ({ node, children, className }: MarkdownComponentProps<'pre'>) => {
       const Code = options.codeBlock
       const codeNode = node?.children.find((child) => child.type === 'element' && child.tagName === 'code')
-      if (Code && codeNode?.type === 'element') {
-        const text = codeNode.children.map((child) => (child.type === 'text' ? child.value : '')).join('')
-        const classes = codeNode.properties.className
-        const languageClass = Array.isArray(classes)
-          ? classes.find((value) => String(value).startsWith('language-'))
-          : undefined
-        const meta = (codeNode.data as { meta?: string } | undefined)?.meta
-        return (
+      const plain = (
+        <pre className={joinClasses(className, scale.pre, changedBlockClass(node, lineChanges))}>{children}</pre>
+      )
+      if (codeNode?.type !== 'element' || (!Code && !options.math)) return plain
+      const text = codeNode.children.map((child) => (child.type === 'text' ? child.value : '')).join('')
+      const classes = codeNode.properties.className
+      const languageClass = Array.isArray(classes)
+        ? classes.find((value) => String(value).startsWith('language-'))
+        : undefined
+      const language = languageClass ? String(languageClass).slice(9) : undefined
+      const meta = (codeNode.data as { meta?: string } | undefined)?.meta
+      const code = text.replace(/\n$/, '')
+      const block = (note?: string) =>
+        Code ? (
           <StreamingCode
             component={Code}
-            code={text.replace(/\n$/, '')}
-            language={languageClass ? String(languageClass).slice(9) : undefined}
+            code={code}
+            language={language}
             filename={filenameFromFenceMeta(meta)}
+            note={note}
+          />
+        ) : (
+          plain
+        )
+      if (options.math && isMathLanguage(language)) {
+        // A `$$` block or a ```math fence asked for math, so a formula that
+        // does not parse says why; a ```latex fence is as often a whole
+        // document as a formula, and one that is not math is simply code.
+        return (
+          <StreamingMath
+            tex={code}
+            explain={language === 'math'}
+            className={joinClasses(scale.math, changedBlockClass(node, lineChanges))}
+            fallback={block}
           />
         )
       }
-      return <pre className={joinClasses(className, scale.pre, changedBlockClass(node, lineChanges))}>{children}</pre>
+      return Code ? block() : plain
     },
     blockquote: ({ node, children, className }: MarkdownComponentProps<'blockquote'>) => {
       const kind = alertKind(node)
@@ -788,13 +849,13 @@ function MarkdownRenderer({
   markdown: string
   options: MarkdownRenderOptions
 }): React.ReactNode {
-  const { lineChanges, links, density, renderText, renderLink, renderImage, codeBlock } = options
+  const { lineChanges, links, density, renderText, renderLink, renderImage, codeBlock, math } = options
   // Component types must outlive a streamed source update: recreating them
   // remounts code blocks, discards their wrap state, and destroys text selection.
   // Streaming state travels through context without changing those types.
   const components = React.useMemo(
-    () => markdownComponents({ lineChanges, links, density, renderText, renderLink, renderImage, codeBlock }),
-    [lineChanges, links, density, renderText, renderLink, renderImage, codeBlock],
+    () => markdownComponents({ lineChanges, links, density, renderText, renderLink, renderImage, codeBlock, math }),
+    [lineChanges, links, density, renderText, renderLink, renderImage, codeBlock, math],
   )
 
   // A resolver's own hrefs survive the protocol guard so the `a` component can
@@ -824,7 +885,9 @@ function MarkdownRenderer({
             ? [remarkFencedCodeValue(fenced.value), ...MARKDOWN_PLUGINS]
             : options.userText
               ? USER_TEXT_PLUGINS
-              : MARKDOWN_PLUGINS
+              : options.math
+                ? MATH_PLUGINS
+                : MARKDOWN_PLUGINS
         }
         components={components}
         urlTransform={urlTransform}
