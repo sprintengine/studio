@@ -74,12 +74,17 @@ function stepProvider(): ConversationProviderAdapter {
             ...(step.kind ? { kind: step.kind } : {}),
             input: step.input,
           }),
-          event('tool_output', {
-            turnId: input.turnId,
-            toolUseId: step.id,
-            output: 'done',
-            status: step.status ?? 'ok',
-          }),
+          // `pending` stands for a step still waiting on its approval: announced, never ended.
+          ...(step.status === 'pending'
+            ? []
+            : [
+                event('tool_output', {
+                  turnId: input.turnId,
+                  toolUseId: step.id,
+                  output: 'done',
+                  status: step.status ?? 'ok',
+                }),
+              ]),
         ]),
         event('turn_completed', { turnId: input.turnId }),
       ]
@@ -159,6 +164,13 @@ beforeAll(async () => {
       kind: 'file_read',
       input: { file_path: join(files, 'screenshot.png') },
       status: 'declined',
+    },
+    {
+      id: 'read-unanswered',
+      name: 'Read',
+      kind: 'file_read',
+      input: { file_path: join(files, 'screenshot.png') },
+      status: 'pending',
     },
     {
       id: 'read-failed',
@@ -330,6 +342,7 @@ test('a step that is not there, shows no picture, or saved none is an unknown im
     'edit-image',
     'generate-unsaved',
     'read-declined',
+    'read-unanswered',
     'read-failed',
   ]) {
     const answer = await get(imagePath(toolUseId), { token: reader })

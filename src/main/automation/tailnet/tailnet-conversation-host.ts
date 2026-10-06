@@ -520,7 +520,11 @@ export function createConversationGatewayHost(
         // A step declined, stopped or failed shows no picture in the chat,
         // so its file is not served either.
         if (tool?.status && tool.status !== 'ok') return { ok: false, code: 'unknown_image' }
-        settled = tool?.status === 'ok'
+        // Nor one not yet ended: a read still waiting on its approval may be
+        // declined, and the chat's device draws a picture only once it is done.
+        // (A backend from before `ended` says nothing, and is read as before.)
+        if (tool?.ended === false) return { ok: false, code: 'unknown_image' }
+        settled = tool?.status === 'ok' || tool?.ended === true
         const recorded = tool ? conversationImagePathOf(tool) : null
         if (!recorded) return { ok: false, code: 'unknown_image' }
         const path = conversationImageFileOf(recorded, key.workspaceRoot)

@@ -2654,6 +2654,11 @@ export class ConversationRuntime {
     input: ConversationJsonValue | undefined
     /** How the step ended, as its newest `tool_output` says; absent while it has not. */
     status?: ConversationToolStatus
+    /**
+     * Whether the step has ended at all (any `tool_output`, with a status or
+     * from before steps carried one). Absent from a backend older than this.
+     */
+    ended?: boolean
   } | null> {
     if (
       !input.workspaceRoot?.trim() ||
@@ -2690,6 +2695,7 @@ export class ConversationRuntime {
         kind: event.payload.kind,
         input: event.payload.input as ConversationJsonValue | undefined,
         ...(status === 'ok' || status === 'error' || status === 'declined' || status === 'stopped' ? { status } : {}),
+        ended: output !== null && output !== undefined,
       }
     } catch {
       return null
