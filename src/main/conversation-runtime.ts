@@ -1397,6 +1397,17 @@ export class ConversationRuntime {
     else delete session.permissionMode
     session.updatedAt = this.now()
     this.answerWaitingApprovalsByMode(session)
+    // Said on the stream, as a model switch is: a change made from a paired
+    // device or an extension reaches every view of the chat, whose chip
+    // follows the live session's own report and would otherwise keep the old
+    // mode (and offer no way to pick it again).
+    await this.emit(
+      session,
+      this.eventForSession(session, 'session_updated', {
+        permissionPreset: input.permissionPreset,
+        ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+      }),
+    )
     return { ok: true, session: this.toSummary(session), ...(applied.notice ? { notice: applied.notice } : {}) }
   }
 
