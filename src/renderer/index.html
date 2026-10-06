@@ -10,6 +10,9 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- The static New chat box, typeable before the bundle runs (public/boot-composer.js).
+         Classic and blocking, after the stylesheet and before the module script. -->
+    <script src="./boot-composer.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

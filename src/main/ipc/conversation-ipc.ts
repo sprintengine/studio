@@ -156,6 +156,39 @@ const BROADCAST_EVENT_TYPES: ReadonlySet<ConversationEventType> = new Set<Conver
   'subagent_message',
 ])
 
+/**
+ * An event as this app's own window reads it. A stored tool result carries
+ * its text twice, as `preview` and as `output`, for readers that know only
+ * one of the names; the window reads `preview` first, so the copy is left
+ * out of what crosses to it, which is a fifth to a third of a snapshot of a
+ * chat that ran many tools. Other wires carry the event as stored.
+ */
+export function eventForWindow(event: ConversationEvent): ConversationEvent {
+  const payload = event.payload
+  if (event.type !== 'tool_output' || typeof payload?.preview !== 'string' || payload.output !== payload.preview)
+    return event
+  const { output: _copy, ...rest } = payload
+  return { ...event, payload: rest }
+}
+
+export function frameForWindow(frame: ConversationSessionFrame): ConversationSessionFrame {
+  if (frame.type === 'event') return { ...frame, event: eventForWindow(frame.event) }
+  if (frame.type === 'snapshot')
+    return { ...frame, page: { ...frame.page, events: frame.page.events.map(eventForWindow) } }
+  return frame
+}
+
+/**
+ * What the all-chats broadcast carries of an event: whose it is, what kind,
+ * and when. Its reader (the sessions list) only learns from it that a chat
+ * moved and asks for the list again; the payload, a tool's input or result
+ * among them, went to every window for every step of every chat unread.
+ */
+function broadcastEnvelope(event: ConversationEvent): ConversationEvent {
+  const { payload: _payload, parts: _parts, ...envelope } = event as ConversationEvent & { parts?: unknown }
+  return envelope
+}
+
 export function isConversationBroadcastEvent(event: ConversationEvent): boolean {
   if (!BROADCAST_EVENT_TYPES.has(event.type)) return false
   // A running tool's output streams; its final output says the tool is done.
@@ -523,7 +556,8 @@ export function registerConversationIpc(
         turnLimit: input.turnLimit as number | undefined,
       },
       (frame) => {
-        if (!event.sender.isDestroyed()) event.sender.send('conversation:session-event', { subscriptionId, frame })
+        if (!event.sender.isDestroyed())
+          event.sender.send('conversation:session-event', { subscriptionId, frame: frameForWindow(frame) })
       },
     )
     const dispose = () => {
@@ -548,13 +582,13 @@ export function registerConversationIpc(
     if (!parsed.ok) return parsed
     if (input.turnLimit !== undefined && (!Number.isSafeInteger(input.turnLimit) || Number(input.turnLimit) < 1))
       return { ok: false, message: 'turnLimit must be a positive integer.' }
-    return (
-      handlers.loadEarlier?.({
-        key: parsed.input,
-        beforeCursor: Number(input.beforeCursor),
-        turnLimit: input.turnLimit as number | undefined,
-      }) ?? { ok: false, message: 'Conversation history is unavailable.' }
-    )
+    const result = await handlers.loadEarlier?.({
+      key: parsed.input,
+      beforeCursor: Number(input.beforeCursor),
+      turnLimit: input.turnLimit as number | undefined,
+    })
+    if (!result) return { ok: false, message: 'Conversation history is unavailable.' }
+    return result.ok ? { ...result, page: { ...result.page, events: result.page.events.map(eventForWindow) } } : result
   })
 
   ipcMain.handle('conversation:providers:list', async (_, input: unknown): Promise<ConversationProviderListResult> => {
@@ -829,7 +863,8 @@ export function registerConversationIpc(
         cleanup()
         return
       }
-      if (isConversationBroadcastEvent(conversationEvent)) sender.send('conversation:event', conversationEvent)
+      if (isConversationBroadcastEvent(conversationEvent))
+        sender.send('conversation:event', broadcastEnvelope(conversationEvent))
     })
     eventSubscriptions.set(subscriptionId, { senderId: sender.id, dispose: cleanup })
     sender.once('destroyed', cleanup)

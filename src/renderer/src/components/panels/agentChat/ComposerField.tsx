@@ -70,6 +70,20 @@ type Props = {
   className?: string
   /** Whose draft the field holds (a conversation). A change starts the undo history again. */
   historyScope?: string
+  /**
+   * Read once, as the editor is made: words typed somewhere that stood in for
+   * this field before it existed, with their caret and focus, which the editor
+   * starts from instead of `value` and reports back through `onChange`.
+   */
+  adoptInput?: () => AdoptedComposerInput | null
+}
+
+/** What a stand-in field held when this one took its place. */
+export type AdoptedComposerInput = {
+  text: string
+  selectionStart: number
+  selectionEnd: number
+  focused: boolean
 }
 
 // An edit that came in through `value` rather than from typing; the update
@@ -120,6 +134,10 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
   // The value the editor last held, so a render that passes the same draft
   // back does not read the document out to compare.
   const heldRef = useRef(props.value)
+  // The `value` an adopted text replaced, until the host has re-rendered with
+  // the adopted text: in the mount's own commit the prop still says the old
+  // draft, and syncing to it would wipe the words and drop the caret.
+  const supersededRef = useRef<string | null>(null)
   const compartments = useRef({
     placeholder: new Compartment(),
     editable: new Compartment(),
@@ -179,11 +197,17 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
     const field = handleRef.current!
     const { placeholder, editable, attributes, history: undoHistory } = compartments.current
     const initial = propsRef.current
+    // Taken in this same commit, so the stand-in goes as the editor arrives.
+    const adopted = initial.adoptInput?.() ?? null
+    const doc = adopted ? adopted.text : initial.value
+    const clamp = (pos: number) => Math.max(0, Math.min(doc.length, pos))
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
-        doc: initial.value,
-        selection: EditorSelection.cursor(initial.value.length),
+        doc,
+        selection: adopted
+          ? EditorSelection.single(clamp(adopted.selectionStart), clamp(adopted.selectionEnd))
+          : EditorSelection.cursor(doc.length),
         extensions: [
           Prec.highest(
             EditorView.domEventHandlers({
@@ -254,7 +278,14 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
       }),
     })
     viewRef.current = view
-    heldRef.current = initial.value
+    heldRef.current = doc
+    if (adopted) {
+      if (adopted.focused) view.focus()
+      if (doc !== initial.value) {
+        supersededRef.current = initial.value
+        initial.onChange(doc, view.state.selection.main.head)
+      }
+    }
     return () => {
       view.destroy()
       viewRef.current = null
@@ -274,7 +305,9 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
   const { value, historyScope } = props
   useLayoutEffect(() => {
     const view = viewRef.current
-    if (!view || value === heldRef.current) return
+    const superseded = supersededRef.current
+    supersededRef.current = null
+    if (!view || value === heldRef.current || value === superseded) return
     heldRef.current = value
     if (view.state.doc.toString() === value) return
     const cleared = value === ''

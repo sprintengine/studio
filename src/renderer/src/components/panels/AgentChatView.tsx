@@ -1359,9 +1359,32 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       // A "from the next turn" notice is spent once that turn leaves.
       setPermissionNotice(null)
       setPending('starting')
+      const localTurnId = `user-${userTurns.length}-${Date.now()}`
+      // An optimistic bubble only where the runtime echoes its id back on the
+      // `user_message` that replaces it. A remote send has no such id, so its
+      // bubble is the host's own event, a moment later. It goes up before the
+      // session is made sure of: a chat's first message otherwise waited out
+      // its CLI starting before it showed at all.
+      if (transport.capabilities.optimisticTurns) {
+        pendingUserScrollIdRef.current = `user:${localTurnId}`
+        setUserTurns((current) => [
+          ...current,
+          {
+            id: localTurnId,
+            text,
+            createdAt: Date.now(),
+            mentions: metadata.mentions,
+            skills: metadata.skillIds,
+            ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
+          },
+        ])
+      }
       const activeSession = await ensureSession()
       const thisSend = { text, attachments: turnAttachments, metadata }
       if (!activeSession) {
+        // The turn never left: its bubble comes down with the text going back.
+        setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
+        if (pendingUserScrollIdRef.current === `user:${localTurnId}`) pendingUserScrollIdRef.current = null
         // The session's own failure is already on the line; it is this send's.
         setActionError((current) => {
           const message = composerErrorMessage(current)
@@ -1383,24 +1406,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           setAttachments((current) => (current.length === 0 ? turnAttachments : current))
         }
         return
-      }
-      const localTurnId = `user-${userTurns.length}-${Date.now()}`
-      // An optimistic bubble only where the runtime echoes its id back on the
-      // `user_message` that replaces it. A remote send has no such id, so its
-      // bubble is the host's own event, a moment later.
-      if (transport.capabilities.optimisticTurns) {
-        pendingUserScrollIdRef.current = `user:${localTurnId}`
-        setUserTurns((current) => [
-          ...current,
-          {
-            id: localTurnId,
-            text,
-            createdAt: Date.now(),
-            mentions: metadata.mentions,
-            skills: metadata.skillIds,
-            ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
-          },
-        ])
       }
       const draftSend = fromDraft ? beginDraftSend(message) : null
       setPending('sending')

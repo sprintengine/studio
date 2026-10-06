@@ -5,6 +5,8 @@ import { claimAppInstance, configureDevUserData } from './app-instance'
 import { createElectronPlatform } from './platform/electron-platform'
 import { attachStartupTimeline } from './startup-timeline'
 import { REMOVE_INTEGRATIONS_FLAG } from '../shared/integration-removal'
+import { buildStamp } from 'virtual:sprintengine-build-stamp'
+import { COMPILE_CACHE_PRUNE_DELAY_MS, compileCacheBuildKey, enableMainCompileCache } from './compile-cache'
 
 // The entry, kept deliberately small. Everything it imports is evaluated before
 // its first line runs, so the only things here are what must happen before the
@@ -57,6 +59,18 @@ if (!claimAppInstance(app)) {
       privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true },
     },
   ])
+  // Before the app is imported, so its chunks are compiled from the cache this
+  // build left on disk (compile-cache.ts). The cache is written out a minute
+  // in, when boot has compiled what it needs, and again on the way out, which
+  // covers whatever was first loaded after that.
+  const compileCache = enableMainCompileCache(app.getPath('userData'), compileCacheBuildKey(buildStamp.builtAt))
+  if (compileCache) {
+    setTimeout(() => {
+      compileCache.flush()
+      void compileCache.prunePreviousBuilds()
+    }, COMPILE_CACHE_PRUNE_DELAY_MS).unref()
+    app.once('will-quit', () => compileCache.flush())
+  }
   // A dynamic import, so the bundler emits the app as its own chunk and a
   // second launch never evaluates it. It still runs before `ready`: the chunk
   // is required in the microtask that follows this script, ahead of any event.
