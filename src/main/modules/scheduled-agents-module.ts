@@ -1,4 +1,5 @@
-import { createGitWorktree, getGitRepoRoot } from '../git'
+import { createGitWorktree, getGitRepoRoot, removeGitWorktree } from '../git'
+import { activeWorktreePool } from '../worktree-pool/active-pool'
 import { withGitHost } from '../git-run'
 import { hostRegistry } from '../hosts/host-registry'
 import { powerActivity } from '../power-activity'
@@ -120,8 +121,22 @@ export function createScheduledAgentsModule(
                 }),
               )
               return created.ok
-                ? { ok: true, path: created.data.path, branch: created.data.branch ?? input.branchName }
+                ? {
+                    ok: true,
+                    path: created.data.path,
+                    branch: created.data.branch ?? input.branchName,
+                    leaseId: created.data.leaseId,
+                  }
                 : { ok: false, message: created.message }
+            },
+            // A pool slot goes back to the pool; a fresh worktree is removed.
+            discardWorktree: async ({ repoRoot, path, leaseId, hostId }) => {
+              const pool = leaseId ? activeWorktreePool() : null
+              if (pool && leaseId) {
+                await pool.release(leaseId)
+                return
+              }
+              await withGitHost(gitHostFor(hostId), () => removeGitWorktree({ repoRoot, path, force: true }))
             },
           }),
       })

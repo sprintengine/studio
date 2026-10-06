@@ -286,21 +286,24 @@ test('a run is a new chat in the project, on its machine, with what it was made 
     },
   )
   assert.deepEqual(result, { at: NOW, ok: true, workspaceId: 'w-1' })
-  assert.deepEqual(requests, [
-    {
-      newChatIn: { folderPath: '/Users/dev/acme', hostId: 'wsl:Ubuntu', worktree: null },
-      cli: 'claude-code',
-      cliModel: 'sonnet',
-      permissionPreset: 'none',
-      prompt: 'Triage the issues opened since the last run.',
-      skills: ['triage'],
-      connectorIds: ['github'],
-      // The chat says which schedule started it.
-      scheduledAgentId: 'sa-1',
-      // And it opens without taking the window from whatever is on screen.
-      background: true,
-    },
-  ])
+  assert.deepEqual(
+    requests.map(({ onFirstSendFailed: _heard, ...request }) => request),
+    [
+      {
+        newChatIn: { folderPath: '/Users/dev/acme', hostId: 'wsl:Ubuntu', worktree: null },
+        cli: 'claude-code',
+        cliModel: 'sonnet',
+        permissionPreset: 'none',
+        prompt: 'Triage the issues opened since the last run.',
+        skills: ['triage'],
+        connectorIds: ['github'],
+        // The chat says which schedule started it.
+        scheduledAgentId: 'sa-1',
+        // And it opens without taking the window from whatever is on screen.
+        background: true,
+      },
+    ],
+  )
 })
 
 test('a worktree run starts in a fresh worktree named for the run, on the machine’s own git', async () => {
@@ -330,6 +333,21 @@ test('a worktree run starts in a fresh worktree named for the run, on the machin
   assert.deepEqual(worktrees, [{ branchName: 'agent/triage-20260930-210000', hostId: 'wsl:Ubuntu' }])
   assert.equal(requests[0]?.newChatIn?.worktree?.branch, 'agent/triage-20260930-210000')
   assert.equal(requests[0]?.newChatIn?.worktree?.repoRoot, '/Users/dev/acme')
+})
+
+test('a run whose chat does not start gives back the worktree it made for it', async () => {
+  const discarded: Array<{ repoRoot: string; path: string; leaseId: string | null }> = []
+  const result = await runScheduledAgent(agent({ worktree: { name: 'triage' } }), {
+    launchConversation: async () => ({ ok: false, code: 'conversation_start_failed', message: 'No CLI.' }),
+    getRepoRoot: async () => '/Users/dev/acme',
+    createWorktree: async () => ({ ok: true, path: '/Users/dev/acme-run', branch: 'agent/triage-run', leaseId: 'l-1' }),
+    discardWorktree: async ({ repoRoot, path, leaseId }) => {
+      discarded.push({ repoRoot, path, leaseId })
+    },
+    now: () => NOW,
+  })
+  assert.deepEqual(result, { at: NOW, ok: false, message: 'No CLI.' })
+  assert.deepEqual(discarded, [{ repoRoot: '/Users/dev/acme', path: '/Users/dev/acme-run', leaseId: 'l-1' }])
 })
 
 test('a run that cannot start says why, and nothing starts', async () => {

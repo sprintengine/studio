@@ -25,7 +25,17 @@ export type ScheduledAgentRunnerDeps = {
     destinationPath: string
     branchName: string
     hostId: ExecutionHostId | null
-  }) => Promise<{ ok: true; path: string; branch: string } | { ok: false; message: string }>
+  }) => Promise<{ ok: true; path: string; branch: string; leaseId?: string | null } | { ok: false; message: string }>
+  /**
+   * Gives back a worktree made for a run whose chat then did not start, so a
+   * schedule that keeps failing does not leave one behind each time.
+   */
+  discardWorktree?: (input: {
+    repoRoot: string
+    path: string
+    leaseId: string | null
+    hostId: ExecutionHostId | null
+  }) => Promise<void>
   now?: () => number
 }
 
@@ -37,11 +47,13 @@ export async function runScheduledAgent(
   const at = now()
   let folderPath = agent.folderPath
   let worktree: WorkspaceWorktree | null = null
+  let made: { repoRoot: string; path: string; leaseId: string | null } | null = null
   if (agent.worktree) {
-    const made = await makeRunWorktree(agent, at, deps)
-    if (!made.ok) return { at, ok: false, message: made.message }
-    folderPath = made.path
-    worktree = { branch: made.branch, baseRef: 'HEAD', repoRoot: agent.folderPath }
+    const created = await makeRunWorktree(agent, at, deps)
+    if (!created.ok) return { at, ok: false, message: created.message }
+    made = { repoRoot: created.repoRoot, path: created.path, leaseId: created.leaseId ?? null }
+    folderPath = created.path
+    worktree = { branch: created.branch, baseRef: 'HEAD', repoRoot: agent.folderPath }
   }
   const launched = await deps
     .launchConversation({
@@ -64,7 +76,10 @@ export async function runScheduledAgent(
       code: 'launch_threw',
       message: error instanceof Error ? error.message : String(error),
     }))
-  if (!launched.ok) return { at, ok: false, message: launched.message }
+  if (!launched.ok) {
+    if (made) await deps.discardWorktree?.({ ...made, hostId: agent.hostId }).catch(() => undefined)
+    return { at, ok: false, message: launched.message }
+  }
   return { at, ok: true, workspaceId: launched.workspaceId }
 }
 
@@ -91,7 +106,9 @@ async function makeRunWorktree(
   agent: ScheduledAgent,
   at: number,
   deps: ScheduledAgentRunnerDeps,
-): Promise<{ ok: true; path: string; branch: string } | { ok: false; message: string }> {
+): Promise<
+  { ok: true; repoRoot: string; path: string; branch: string; leaseId?: string | null } | { ok: false; message: string }
+> {
   const repoRoot = await deps.getRepoRoot(agent.folderPath, agent.hostId).catch(() => null)
   if (!repoRoot) {
     return {
@@ -109,7 +126,9 @@ async function makeRunWorktree(
     branchName: paths.branchName,
     hostId: agent.hostId,
   })
-  return created.ok ? created : { ok: false, message: `The run's worktree could not be made: ${created.message}` }
+  return created.ok
+    ? { ...created, repoRoot }
+    : { ok: false, message: `The run's worktree could not be made: ${created.message}` }
 }
 
 function runStamp(at: number): string {
