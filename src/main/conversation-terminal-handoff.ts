@@ -57,6 +57,9 @@ export type ConversationTerminalHandoffDeps = {
     // one started for it, which is where its CLI session is read.
     listSessions?: (input: ConversationListSessionsInput) => ConversationListSessionsResult
     startSession?: (input: ConversationStartSessionInput) => Promise<ConversationStartSessionResult>
+    // A session started only for a handoff that then could not happen is put
+    // back to rest, as Settle leaves a chat.
+    suspendSession?: (input: { sessionId: string }) => Promise<unknown>
   }
   launch: (request: AgentLaunchRequest) => Promise<AgentLaunchResult>
   /** Whether the CLI's manifest declares a verified resume (`capabilities.resumeSession`). */
@@ -69,6 +72,8 @@ export type ConversationTerminalHandoffDeps = {
   chatStart?: (workspaceId: string, agentId: string) => ConversationStartSessionInput | null
 }
 
+const CANNOT_RESUME = 'A terminal cannot resume this kind of chat yet.'
+
 export function createConversationTerminalHandoff(deps: ConversationTerminalHandoffDeps) {
   // The session a chat asked for by its identity is handed over through. After
   // an app restart a chat holds none until it is sent something, though its
@@ -77,30 +82,40 @@ export function createConversationTerminalHandoff(deps: ConversationTerminalHand
   async function sessionOfChat(input: {
     workspaceId: string
     agentId: string
-  }): Promise<{ ok: true; sessionId: string } | { ok: false; message: string }> {
+  }): Promise<{ ok: true; sessionId: string; started: boolean } | { ok: false; message: string }> {
     const listed = deps.runtime.listSessions?.({ workspaceId: input.workspaceId, agentId: input.agentId })
     const live = listed?.ok
       ? listed.sessions.filter((session) => session.status !== 'stopped').sort((a, b) => b.updatedAt - a.updatedAt)[0]
       : undefined
-    if (live) return { ok: true, sessionId: live.sessionId }
+    if (live) return { ok: true, sessionId: live.sessionId, started: false }
     const start = deps.chatStart?.(input.workspaceId, input.agentId)
     if (!start || !deps.runtime.startSession)
       return { ok: false, message: 'This chat has no CLI session yet. Send it a message first.' }
+    // Refused before anything starts: for an ACP agent a start spawns it.
+    const cli = cliForConversationProvider(start.providerId)
+    if (!cli || !deps.cliResumesSessions(cli)) return { ok: false, message: CANNOT_RESUME }
     const started = await deps.runtime.startSession(start)
-    return started.ok ? { ok: true, sessionId: started.session.sessionId } : started
+    return started.ok ? { ok: true, sessionId: started.session.sessionId, started: true } : started
   }
 
   async function handoff(request: ConversationTerminalHandoffInput): Promise<ConversationTerminalHandoffResult> {
     const session =
-      'sessionId' in request ? { ok: true as const, sessionId: request.sessionId } : await sessionOfChat(request)
+      'sessionId' in request
+        ? { ok: true as const, sessionId: request.sessionId, started: false }
+        : await sessionOfChat(request)
     if (!session.ok) return { ok: false, message: session.message }
     const input = { sessionId: session.sessionId }
+    // A session started here for nothing (the chat cannot be handed over
+    // after all) is not left running.
+    const refuse = async (message: string): Promise<ConversationTerminalHandoffResult> => {
+      if (session.started) await deps.runtime.suspendSession?.(input).catch(() => undefined)
+      return { ok: false, message }
+    }
     const found = await deps.runtime.terminalHandoffTarget(input)
-    if (!found.ok) return found
+    if (!found.ok) return refuse(found.message)
     const { target } = found
     const cli = cliForConversationProvider(target.providerId)
-    if (!cli || !deps.cliResumesSessions(cli))
-      return { ok: false, message: 'A terminal cannot resume this kind of chat yet.' }
+    if (!cli || !deps.cliResumesSessions(cli)) return refuse(CANNOT_RESUME)
 
     try {
       const stopped = await deps.runtime.stopForTerminalHandoff({ sessionId: input.sessionId })

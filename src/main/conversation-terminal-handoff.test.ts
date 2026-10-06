@@ -259,6 +259,50 @@ test('a chat with no session since the app started is started from its record, t
   })
 })
 
+test('a session started for a handoff that is then refused is put back to rest; a CLI that cannot resume starts nothing', async () => {
+  const started: string[] = []
+  const suspended: string[] = []
+  const start: ConversationStartSessionInput = {
+    workspaceRoot: '/repo',
+    workspaceId: 'ws-1',
+    agentId: 'chat-1',
+    providerId: 'claude-agent',
+    modelId: 'claude-opus-5-5',
+  }
+  const deps: ConversationTerminalHandoffDeps = {
+    runtime: {
+      // A chat rewound with Edit from here has no CLI session to resume.
+      terminalHandoffTarget: async () => ({ ok: false, message: 'This chat was rewound.' }),
+      stopForTerminalHandoff: async () => ({ ok: true, stopped: { turn: false, agents: 0 } }),
+      endTerminalHandoff: () => undefined,
+      noteTerminalHandoff: async () => undefined,
+      listSessions: () => ({ ok: true, sessions: [] }),
+      startSession: async (input) => {
+        started.push(input.agentId)
+        return { ok: true, session: summary('fresh', 'ready', 10) }
+      },
+      suspendSession: async (input) => {
+        suspended.push(input.sessionId)
+      },
+    },
+    launch: async () => {
+      throw new Error('nothing is launched for a refused handoff')
+    },
+    cliResumesSessions: () => true,
+    chatStart: () => start,
+  }
+  assert.deepEqual(await createConversationTerminalHandoff(deps).handoff({ workspaceId: 'ws-1', agentId: 'chat-1' }), {
+    ok: false,
+    message: 'This chat was rewound.',
+  })
+  assert.deepEqual(suspended, ['fresh'], 'the session started for it is suspended again')
+
+  started.length = 0
+  const noResume = createConversationTerminalHandoff({ ...deps, cliResumesSessions: () => false })
+  assert.equal((await noResume.handoff({ workspaceId: 'ws-1', agentId: 'chat-1' })).ok, false)
+  assert.deepEqual(started, [], 'nothing was started for a CLI a terminal cannot resume')
+})
+
 test("a chat's start for a handoff is its record's: worktree, engine, preset and the WSL machine's CLI", () => {
   const agent = {
     ...defaultAgent('chat-1', 'Atlas'),
