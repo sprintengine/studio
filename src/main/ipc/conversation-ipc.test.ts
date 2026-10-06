@@ -692,7 +692,11 @@ test('the all-conversations channel carries lifecycle events and never the token
       ['conversation:event', 'session_updated'],
     ],
   )
-  assert.equal((ipc.sent[3]?.payload as ConversationEvent).payload?.output, 'done')
+  // Which chat moved and how, without the step itself: its reader asks for
+  // the sessions list again, and a tool's result is no business of every window's.
+  const ended = ipc.sent[3]?.payload as ConversationEvent
+  assert.equal(ended.workspaceId, 'workspace')
+  assert.equal(ended.payload, undefined)
 })
 
 test('a reload ends the subscriptions the page it replaced held', async () => {

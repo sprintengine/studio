@@ -1182,6 +1182,7 @@ export type ElectronApi = {
     input: ConversationSubscribeInput,
     cb: (frame: ConversationSessionFrame) => void,
   ) => () => void
+  /** Every chat's lifecycle and step events, without their payloads: a sign that a chat moved. */
   onConversationEvent: (cb: (event: ConversationEvent) => void) => () => void
   logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
   openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>

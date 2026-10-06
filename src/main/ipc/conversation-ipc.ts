@@ -178,6 +178,17 @@ export function frameForWindow(frame: ConversationSessionFrame): ConversationSes
   return frame
 }
 
+/**
+ * What the all-chats broadcast carries of an event: whose it is, what kind,
+ * and when. Its reader (the sessions list) only learns from it that a chat
+ * moved and asks for the list again; the payload, a tool's input or result
+ * among them, went to every window for every step of every chat unread.
+ */
+function broadcastEnvelope(event: ConversationEvent): ConversationEvent {
+  const { payload: _payload, parts: _parts, ...envelope } = event as ConversationEvent & { parts?: unknown }
+  return envelope
+}
+
 export function isConversationBroadcastEvent(event: ConversationEvent): boolean {
   if (!BROADCAST_EVENT_TYPES.has(event.type)) return false
   // A running tool's output streams; its final output says the tool is done.
@@ -852,7 +863,8 @@ export function registerConversationIpc(
         cleanup()
         return
       }
-      if (isConversationBroadcastEvent(conversationEvent)) sender.send('conversation:event', conversationEvent)
+      if (isConversationBroadcastEvent(conversationEvent))
+        sender.send('conversation:event', broadcastEnvelope(conversationEvent))
     })
     eventSubscriptions.set(subscriptionId, { senderId: sender.id, dispose: cleanup })
     sender.once('destroyed', cleanup)
