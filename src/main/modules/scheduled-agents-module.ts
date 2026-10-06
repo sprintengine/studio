@@ -68,9 +68,28 @@ export function createScheduledAgentsModule(
       // Late-bound: the scheduler reports a finished run to the service, which
       // is built around the scheduler.
       let service: ScheduledAgentsService | null = null
+      // A run's first message refused before its start was recorded, by the
+      // chat it started in: the start is recorded as that failure instead.
+      const refusedBeforeRecorded = new Map<string, string>()
+      const firstSendFailed = (agentId: string, workspaceId: string, message: string): void => {
+        void store.failRun(agentId, workspaceId, message).then((failed) => {
+          if (failed) {
+            service?.notifyChanged()
+            return
+          }
+          refusedBeforeRecorded.set(workspaceId, message)
+          while (refusedBeforeRecorded.size > 32)
+            refusedBeforeRecorded.delete(refusedBeforeRecorded.keys().next().value!)
+        })
+      }
       const scheduler = createScheduledAgentsScheduler({
         list: () => store.list(),
-        recordRun: (id, run) => store.recordRun(id, run),
+        recordRun: (id, run) => {
+          const refused = run.ok ? refusedBeforeRecorded.get(run.workspaceId) : undefined
+          if (refused === undefined || !run.ok) return store.recordRun(id, run)
+          refusedBeforeRecorded.delete(run.workspaceId)
+          return store.recordRun(id, { at: run.at, ok: false, message: refused })
+        },
         onRan: () => service?.notifyChanged(),
         isRunWorking: (workspaceId) => {
           const listed = conversations.listSessions({ workspaceId })
@@ -138,6 +157,7 @@ export function createScheduledAgentsModule(
               }
               await withGitHost(gitHostFor(hostId), () => removeGitWorktree({ repoRoot, path, force: true }))
             },
+            onFirstSendFailed: (workspaceId, message) => firstSendFailed(agent.id, workspaceId, message),
           }),
       })
       const scheduledAgents = createScheduledAgentsService({ store, scheduler })

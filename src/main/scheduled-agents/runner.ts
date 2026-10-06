@@ -36,6 +36,12 @@ export type ScheduledAgentRunnerDeps = {
     leaseId: string | null
     hostId: ExecutionHostId | null
   }) => Promise<void>
+  /**
+   * The run's chat started, but its first message was refused afterwards (the
+   * launch sends it without waiting). The run did not do its job, so the
+   * schedule's card should say so rather than show it as started.
+   */
+  onFirstSendFailed?: (workspaceId: string, message: string) => void
   now?: () => number
 }
 
@@ -55,6 +61,14 @@ export async function runScheduledAgent(
     folderPath = created.path
     worktree = { branch: created.branch, baseRef: 'HEAD', repoRoot: agent.folderPath }
   }
+  // The first message goes out after the launch has answered; a refusal that
+  // beats the answer here fails the run outright, a later one is reported.
+  let launchedWorkspaceId: string | null = null
+  let refusedBeforeLaunch: string | null = null
+  const firstSendFailed = (message: string): void => {
+    if (launchedWorkspaceId) deps.onFirstSendFailed?.(launchedWorkspaceId, message)
+    else refusedBeforeLaunch = message
+  }
   const launched = await deps
     .launchConversation({
       newChatIn: { folderPath, hostId: agent.hostId, worktree },
@@ -70,6 +84,7 @@ export async function runScheduledAgent(
       // must not take the window from whatever the person is doing; it waits
       // in the list with the schedule's clock on it.
       background: true,
+      onFirstSendFailed: firstSendFailed,
     })
     .catch((error: unknown): ConversationLaunchResult => ({
       ok: false,
@@ -80,6 +95,8 @@ export async function runScheduledAgent(
     if (made) await deps.discardWorktree?.({ ...made, hostId: agent.hostId }).catch(() => undefined)
     return { at, ok: false, message: launched.message }
   }
+  if (refusedBeforeLaunch !== null) return { at, ok: false, message: refusedBeforeLaunch }
+  launchedWorkspaceId = launched.workspaceId
   return { at, ok: true, workspaceId: launched.workspaceId }
 }
 

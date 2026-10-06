@@ -286,6 +286,7 @@ test('a run is a new chat in the project, on its machine, with what it was made 
     },
   )
   assert.deepEqual(result, { at: NOW, ok: true, workspaceId: 'w-1' })
+  assert.equal(typeof requests[0]?.onFirstSendFailed, 'function', 'the run hears if its first message is refused')
   assert.deepEqual(
     requests.map(({ onFirstSendFailed: _heard, ...request }) => request),
     [
@@ -348,6 +349,62 @@ test('a run whose chat does not start gives back the worktree it made for it', a
   })
   assert.deepEqual(result, { at: NOW, ok: false, message: 'No CLI.' })
   assert.deepEqual(discarded, [{ repoRoot: '/Users/dev/acme', path: '/Users/dev/acme-run', leaseId: 'l-1' }])
+})
+
+test('a run whose first message is refused is a failed run, whenever the refusal comes', async () => {
+  const launched = {
+    ok: true as const,
+    workspaceId: 'w-1',
+    agentId: 'a',
+    name: 'n',
+    cli: 'c',
+    providerId: 'p',
+    modelId: 'm',
+    sessionId: 's',
+  }
+  // Refused before the launch has answered: the run fails outright.
+  const early = await runScheduledAgent(agent(), {
+    launchConversation: async (request) => {
+      request.onFirstSendFailed?.('The first message was refused: not signed in')
+      return launched
+    },
+    getRepoRoot: async () => null,
+    createWorktree: async () => ({ ok: false, message: 'unused' }),
+    now: () => NOW,
+  })
+  assert.deepEqual(early, { at: NOW, ok: false, message: 'The first message was refused: not signed in' })
+
+  // Refused after: the run is recorded as started, and told of the failure by its chat.
+  let refuse: ((message: string) => void) | undefined
+  const late: Array<[string, string]> = []
+  const started = await runScheduledAgent(agent(), {
+    launchConversation: async (request) => {
+      refuse = request.onFirstSendFailed
+      return launched
+    },
+    getRepoRoot: async () => null,
+    createWorktree: async () => ({ ok: false, message: 'unused' }),
+    onFirstSendFailed: (workspaceId, message) => late.push([workspaceId, message]),
+    now: () => NOW,
+  })
+  assert.deepEqual(started, { at: NOW, ok: true, workspaceId: 'w-1' })
+  refuse?.('refused')
+  assert.deepEqual(late, [['w-1', 'refused']])
+})
+
+test('a started run that failed after all is recorded as failed, only while it is the last run', async () => {
+  const file = tempFile()
+  try {
+    const store = createScheduledAgentsStore({ filePath: file.path, now: () => NOW, newId: () => 'sa-1' })
+    await store.load()
+    await store.create(draft())
+    await store.recordRun('sa-1', { at: NOW, ok: true, workspaceId: 'run-1' })
+    assert.equal(await store.failRun('sa-1', 'run-0', 'late'), false, 'an earlier run is not the last one')
+    assert.equal(await store.failRun('sa-1', 'run-1', 'refused'), true)
+    assert.deepEqual(store.get('sa-1')?.lastRun, { at: NOW, ok: false, message: 'refused' })
+  } finally {
+    file.cleanup()
+  }
 })
 
 test('a run that cannot start says why, and nothing starts', async () => {
