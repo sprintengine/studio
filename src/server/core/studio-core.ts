@@ -422,6 +422,12 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       // paired device offers the same models and can switch to no other.
       conversationModelCatalog,
       listMarks,
+      // A phone's switch moves the chat's record as the chat view's own does,
+      // through the same bus, so it outlives the session it was applied to.
+      (key, patch) => {
+        if (!workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]) return
+        workspaceSyncService.updateWorkspaceAgent(key.workspaceId, key.agentId, patch, 'system')
+      },
     )
 
   /**

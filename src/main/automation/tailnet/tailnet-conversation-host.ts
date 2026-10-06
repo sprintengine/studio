@@ -221,6 +221,14 @@ export type ConversationListMarks = {
  * second desktop lists the conversation as; the thread's own title (its first
  * message, or a rename) answers only for a conversation with no named agent.
  */
+/** What a paired device's switch changes on a chat's agent record. */
+export type AgentChoicePatch = {
+  cliPermissionPreset?: ConversationPermissionPreset
+  /** Written with the preset, or cleared with it: a mode left from an earlier preset is not this one's. */
+  cliPermissionMode?: string | undefined
+  conversation?: { providerId: string; modelId: string }
+}
+
 export function createConversationGatewayHost(
   runtime: ConversationBackend,
   resolveWorkspaceRoot: (workspaceId: string) => string | null,
@@ -230,6 +238,14 @@ export function createConversationGatewayHost(
   agentName: (key: { workspaceId: string; agentId: string }) => string | null | undefined = () => null,
   modelCatalog: (providerId: string) => Promise<ConversationModelCatalog | null> = async () => null,
   marks: ConversationListMarks = {},
+  /**
+   * Writes a choice a paired device made for a chat to its agent record, as the
+   * chat view writes the person's own: the record is what the chat starts on
+   * after this desktop's tab remounts or the app restarts, and what its chip
+   * shows with no live session. Without it a phone's switch lasted only as long
+   * as the session it was applied to, and the next start put the old one back.
+   */
+  writeAgentChoice: (key: { workspaceId: string; agentId: string }, patch: AgentChoicePatch) => void = () => {},
 ): ConversationGatewayHost {
   // A slot placeholder ("Agent 2", the record id) is not a name; the thread's
   // title says more than it does.
@@ -376,6 +392,7 @@ export function createConversationGatewayHost(
       ...(fingerprint ? { commandFingerprint: fingerprint } : {}),
     })
     if (!switched.ok) return { ok: false, message: switched.message }
+    writeAgentChoice(key, { conversation: { providerId: session.providerId, modelId } })
     return { ok: true, ...(switched.notice ? { notice: switched.notice } : {}) }
   }
   // The machine once per workspace, and the pull requests in one read of the
@@ -664,13 +681,19 @@ export function createConversationGatewayHost(
             // A mode that is no mode id of a CLI's own is dropped, and the
             // preset's own mode runs, as a client from before modes gets.
             const permissionMode = parseCliPermissionModeId(command.permissionMode)
-            return api.setPermissionPreset({
+            const applied = await api.setPermissionPreset({
               sessionId: session.sessionId,
               commandId,
               permissionPreset: command.preset,
               ...(permissionMode ? { permissionMode } : {}),
               ...stamp,
             })
+            if (applied.ok)
+              writeAgentChoice(key, {
+                cliPermissionPreset: command.preset,
+                cliPermissionMode: permissionMode ?? undefined,
+              })
+            return applied
           }
         }
       }

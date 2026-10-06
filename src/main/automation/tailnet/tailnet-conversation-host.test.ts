@@ -8,7 +8,11 @@ import { ConversationRuntime } from '../../conversation-runtime'
 import { createMockConversationProvider } from '../../providers/mock-conversation-provider'
 import type { ConversationProviderAdapter } from '../../providers/conversation-provider-adapter'
 import type { ConversationPermissionPreset } from '../../../shared/conversation-runtime'
-import { createConversationGatewayHost, readBoundedConversationUpload } from './tailnet-conversation-host'
+import {
+  createConversationGatewayHost,
+  readBoundedConversationUpload,
+  type AgentChoicePatch,
+} from './tailnet-conversation-host'
 import { MAX_ATTACHMENTS_PER_TURN, MAX_ATTACHMENT_BYTES } from '../../../shared/conversation-attachments'
 import { CONVERSATION_MAX_IMAGES } from '../../../../packages/conversation-protocol/src'
 import type { ConversationModelCatalog } from '../../conversation-model-catalog'
@@ -35,6 +39,7 @@ async function fixture(
   }
   const runtime = new ConversationRuntime({ adapters: [adapter], getProviderById: () => undefined })
   const defaults: Array<{ workspaceId: string; agentId: string }> = []
+  const written: AgentChoicePatch[] = []
   const host = createConversationGatewayHost(
     runtime,
     (id) => (id === key.workspaceId ? workspaceRoot : null),
@@ -44,7 +49,11 @@ async function fixture(
       return options.defaultPreset ?? 'bypass'
     },
     (asked) => (asked.agentId === key.agentId ? options.agentName : null),
-    ...(options.modelCatalog ? [options.modelCatalog] : []),
+    options.modelCatalog,
+    undefined,
+    (asked, patch) => {
+      if (asked.workspaceId === key.workspaceId && asked.agentId === key.agentId) written.push(patch)
+    },
   )
   const start = (permissionPreset: Preset = options.preset ?? 'bypass') =>
     runtime.startSession({
@@ -59,6 +68,7 @@ async function fixture(
     runtime,
     start,
     defaults,
+    written,
     cleanup: async (keepFolder = false) => {
       await runtime.shutdown()
       if (!keepFolder) await rm(workspaceRoot, { recursive: true, force: true })
@@ -406,6 +416,12 @@ test('a remote switch carries the CLI’s own mode, the list names it, and a pre
     })
     assert.equal(setPermission.mock.calls.at(-1)?.[0].permissionMode, undefined)
     assert.equal((await f.host.list())[0].permissionMode, undefined)
+    // Each switch is written to the chat's record too, so it outlives the
+    // session: a remount or a restart starts on it, not on the old one.
+    assert.deepEqual(f.written, [
+      { cliPermissionPreset: 'auto', cliPermissionMode: 'acceptEdits' },
+      { cliPermissionPreset: 'manual', cliPermissionMode: undefined },
+    ])
   } finally {
     await f.cleanup()
   }
@@ -541,6 +557,7 @@ test('a remote model switch runs through the runtime, and the list and transcrip
     const listed = (await f.host.list())[0]
     assert.equal(listed.modelId, 'mock-large')
     assert.equal(listed.providerId, 'mock-provider', 'the CLI never changes')
+    assert.deepEqual(f.written, [{ conversation: { providerId: 'mock-provider', modelId: 'mock-large' } }])
     const transcript = await f.runtime.readTranscript(f.key)
     assert.ok(transcript.ok)
     assert.equal(transcript.events.at(-1)?.type, 'session_updated')
