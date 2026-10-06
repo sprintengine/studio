@@ -3830,7 +3830,9 @@ function isSessionBusy(session: RuntimeSession): boolean {
 function steerRefusal(session: RuntimeSession, adapter: ConversationProviderAdapter): string | null {
   if (session.capabilities?.steer !== true || !adapter.steer)
     return 'This agent cannot take a message while it is working.'
-  if (!session.activeTurnId) return 'Conversation turn is already in progress.'
+  // No turn running: the one the message was aimed at ended on its way here
+  // (a handover that waited behind the turn's last events, or Stop).
+  if (!session.activeTurnId) return 'The agent has just finished; the message goes as the next turn.'
   if (session.pendingApprovalRequestIds.size > 0) return 'Conversation turn is awaiting approval.'
   const running = session.providerTurn
   if (!running || running.turnId !== session.activeTurnId)
