@@ -184,8 +184,14 @@ test('remoteSessionsModel', async () => {
     error: null,
     at: 1,
     conversations: [
-      chat('bea', { title: 'Bea', phase: 'completed', updatedAt: 2_000 }),
-      chat('ada', { title: 'Ada', phase: 'running', updatedAt: 1_000 }),
+      chat('bea', { title: 'Bea', chatTitle: 'Ship the docs', phase: 'completed', updatedAt: 2_000 }),
+      chat('ada', {
+        title: 'Ada',
+        chatTitle: 'Fix the relay',
+        phase: 'running',
+        updatedAt: 1_000,
+        lastUserMessageAt: 3_000,
+      }),
     ],
   }
   const band = buildRemoteBand({
@@ -203,7 +209,7 @@ test('remoteSessionsModel', async () => {
   assert.deepEqual(
     airGroup.rows.map((row) => row.sessionId),
     [adaSession, beaSession],
-    'chats, working before idle',
+    'chats, the one last written to first',
   )
   const ada = airGroup.rows[0]!
   assert.equal(ada.title, 'Ada')
@@ -212,7 +218,8 @@ test('remoteSessionsModel', async () => {
   assert.equal(ada.activity, 'working')
   assert.equal(ada.since, 1_000, 'how long it has been working rides the row')
   assert.equal(airGroup.rows[1]!.activity, 'idle')
-  assert.equal(ada.workspaceName, 'relay')
+  assert.equal(ada.chatTitle, 'Fix the relay', "the chat's own title, as its machine's sidebar shows it")
+  assert.equal(ada.workspaceName, 'Fix the relay', "which is its workspace's name over there")
   assert.equal(ada.workspaceRoot, '/Users/air/relay', "the folder comes from the browse's workspace list")
   assert.equal(ada.repository?.name, 'relay')
   assert.equal(ada.attachedWorkspaceId, 'w1', 'the stamped workspace is this row')
@@ -307,8 +314,8 @@ test('remoteSessionsModel', async () => {
   const chats = conversationsOf(airGroup)
   assert.deepEqual(
     chats.map((entry) => entry.title),
-    ['Ada', 'Bea'],
-    'one row per chat, in activity order',
+    ['Fix the relay', 'Ship the docs'],
+    'one row per chat, titled with the chat, the one last written to first',
   )
   const relay = chats[0]!
   assert.deepEqual(
@@ -328,12 +335,12 @@ test('remoteSessionsModel', async () => {
   // is already a row of its project, and listing both is the same chat twice.
   assert.deepEqual(
     unattachedConversations(band, true, [local, stamped]).map((entry) => entry.title),
-    ['Bea'],
+    ['Ship the docs'],
     'Ada is attached to w1, so it gets no second row',
   )
   assert.deepEqual(
     unattachedConversations(band, true, [local]).map((entry) => entry.title),
-    ['Ada', 'Bea'],
+    ['Fix the relay', 'Ship the docs'],
     'with no window holding it, the conversation is a row',
   )
   assert.deepEqual(

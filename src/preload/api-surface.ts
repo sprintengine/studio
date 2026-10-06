@@ -1,5 +1,6 @@
 import type { ElectronApi } from '../shared/electron-api'
 import { agentConfigImportApi } from './api/agent-config-import'
+import { conversationImportApi } from './api/conversation-import'
 import { appMenuApi } from './api/app-menu'
 import { appearanceApi } from './api/appearance'
 import { authApi } from './api/auth'
@@ -72,6 +73,7 @@ export type ComputedApiMembers =
 
 export const apiModules = {
   ...agentConfigImportApi,
+  ...conversationImportApi,
   ...windowApi,
   ...browserApi,
   ...canvasApi,

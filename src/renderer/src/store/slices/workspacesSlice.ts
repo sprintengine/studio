@@ -293,6 +293,8 @@ interface WorkspacesSliceActions {
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   recordWorkspaceUserMessage: (id: WorkspaceId, at: number) => void
   recordWorkspaceTurnEnd: (id: WorkspaceId, at: number) => void
+  recordWorkspaceVisit: (id: WorkspaceId, at: number) => void
+  speaksForWorkspace: (id: WorkspaceId) => boolean
   forgetFolder: (folderPath: string) => void
   addWorkspace: (
     template: LayoutTemplate,
@@ -1183,6 +1185,25 @@ export function createWorkspacesSlice(
       })
       if (report) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, { lastTurnEndedAt: at })
     },
+
+    // A person has this chat on screen in this window (`lastVisitedAt`):
+    // monotonic like the clocks above, and reported from the window showing
+    // it, whichever window routes the row, as a hand gesture is. The phone and
+    // a paired desktop read their "finished, unseen" mark from it, so reading
+    // a chat here clears the mark there.
+    recordWorkspaceVisit: (id, at) => {
+      let report = false
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        if (typeof ws.lastVisitedAt === 'number' && ws.lastVisitedAt >= at) return
+        ws.lastVisitedAt = at
+        report = true
+      })
+      if (report) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, { lastVisitedAt: at })
+    },
+
+    speaksForWorkspace: (id) => thisWindowSpeaksFor(getState(), id),
 
     forgetFolder: (folderPath) =>
       set((state) => {

@@ -51,8 +51,10 @@ async function fixture(
     (asked) => (asked.agentId === key.agentId ? options.agentName : null),
     options.modelCatalog,
     undefined,
-    (asked, patch) => {
-      if (asked.workspaceId === key.workspaceId && asked.agentId === key.agentId) written.push(patch)
+    {
+      writeAgentChoice: (asked, patch) => {
+        if (asked.workspaceId === key.workspaceId && asked.agentId === key.agentId) written.push(patch)
+      },
     },
   )
   const start = (permissionPreset: Preset = options.preset ?? 'bypass') =>

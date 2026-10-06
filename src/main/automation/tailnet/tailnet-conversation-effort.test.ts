@@ -34,8 +34,10 @@ async function fixture(effort: string | null, reasoningEfforts: string[] | null)
     () => null,
     async () => null,
     {},
-    () => {},
-    (asked) => (asked.workspaceId === key.workspaceId && asked.agentId === key.agentId ? effort : null),
+    {
+      reasoningEffortOf: (asked) =>
+        asked.workspaceId === key.workspaceId && asked.agentId === key.agentId ? effort : null,
+    },
   )
   const started = await runtime.startSession({
     ...key,

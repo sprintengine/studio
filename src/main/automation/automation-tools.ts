@@ -1,4 +1,5 @@
 import { isAbsolute } from 'path'
+import { isSettledWorkspace } from '../../shared/workspace-lifecycle'
 import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { CliPermissionPreset, TerminalSessionSnapshot } from '../../shared/electron-api'
@@ -406,6 +407,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       windowId: workspaceWindowId(workspace.id),
       detail: 'full',
       agentIds: Object.keys(workspace.agents),
+      // When the chat was settled, or null while it is in the list: a paired
+      // desktop browsing this machine leaves the resting ones out, as this
+      // machine's own sidebar does.
+      settledAt: isSettledWorkspace(workspace) ? workspace.settledAt : null,
     }
   }
 

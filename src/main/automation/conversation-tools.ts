@@ -1,4 +1,11 @@
-import { toolError, toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import {
+  toolError,
+  toolSuccess,
+  type McpConnectionContext,
+  type McpToolRegistration,
+} from '../../shared/modules/mcp-tools'
+import type { WorkspaceRegistryActor } from '../../shared/workspace-registry'
+import type { ConversationLifecycle } from './conversation-lifecycle'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import type { ConversationLaunchService } from '../conversation-launch-service'
 import {
@@ -11,9 +18,15 @@ import {
  * Starting a chat is a mutation: audited, and on the tailnet it needs
  * `conversation:operate` — the grant that already lets a paired device send
  * into, stop and approve this machine's chats (tailnet-scopes.ts maps the
- * `conversation.` family by this classification).
+ * `conversation.` family by this classification). Settling one and saying it
+ * was looked at write the desktop's own record of the chat, so they need the
+ * same grant.
  */
-export const CONVERSATION_MUTATION_TOOL_NAMES: readonly string[] = ['conversation.create']
+export const CONVERSATION_MUTATION_TOOL_NAMES: readonly string[] = [
+  'conversation.create',
+  'conversation.settle',
+  'conversation.visit',
+]
 
 const EFFORT_ID = /^[a-z0-9_-]{1,40}$/i
 
@@ -21,6 +34,16 @@ export type ConversationToolsDeps = {
   launch: ConversationLaunchService['launch']
   /** The calling agent's own preset, which a chat it starts may not exceed (launch-permission-cap.ts). */
   resolveAgentPermissionPreset: AgentPermissionResolver
+  /** A chat's rest and visit clock, written to the desktop's own record (conversation-lifecycle.ts). */
+  lifecycle: Pick<ConversationLifecycle, 'settle' | 'visit'>
+}
+
+/**
+ * Who a lifecycle write came through, for the registry's record of it: a
+ * paired device over the tailnet, or the local socket's own callers.
+ */
+function lifecycleActor(context: McpConnectionContext | undefined): WorkspaceRegistryActor {
+  return context?.metadata.kind === 'remote-tailnet' ? 'mobile' : 'gateway'
 }
 
 export function createConversationTools(deps: ConversationToolsDeps): McpToolRegistration[] {
@@ -143,6 +166,73 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
             sessionId: launched.sessionId,
           },
         })
+      },
+    },
+    {
+      name: 'conversation.settle',
+      description:
+        "Settle a chat on this machine, as its row menu's Settle does: it leaves the chat list, its agents' " +
+        'processes end, and the next message to it resumes it. With settled: false it is brought back, and ' +
+        'held out of the automatic settle until it sees new activity. Refused with "working" while an agent ' +
+        'in the chat is working. Settling a chat already settled, or bringing back one that is not, changes ' +
+        'nothing.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          workspaceId: { type: 'string', description: "The chat's workspaceId, from the conversation list." },
+          settled: { type: 'boolean', description: 'false brings a settled chat back. Defaults to true.' },
+        },
+        required: ['workspaceId'],
+        additionalProperties: false,
+      },
+      handler: async (args, context) => {
+        if (typeof args.workspaceId !== 'string' || !args.workspaceId.trim()) {
+          return toolError('invalid_arguments', '"workspaceId" is required.')
+        }
+        if (args.settled !== undefined && typeof args.settled !== 'boolean') {
+          return toolError('invalid_arguments', '"settled" must be a boolean when provided.')
+        }
+        const settled = deps.lifecycle.settle(args.workspaceId.trim(), args.settled !== false, lifecycleActor(context))
+        if (!settled.ok) return toolError(settled.code, settled.message)
+        return toolSuccess(settled)
+      },
+    },
+    {
+      name: 'conversation.visit',
+      description:
+        'Say that a person has a chat on this machine on screen, so its "finished, unseen" mark clears on ' +
+        "every device. Moves the chat's lastVisitedAt forward to visitedAt (now when omitted, and never past " +
+        'now); an earlier time changes nothing. It is not activity: the chat keeps its place in the list and ' +
+        'a settled chat stays settled.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          workspaceId: { type: 'string', description: "The chat's workspaceId, from the conversation list." },
+          visitedAt: {
+            type: 'number',
+            description: 'When the person had it on screen, in epoch milliseconds. Defaults to now.',
+          },
+        },
+        required: ['workspaceId'],
+        additionalProperties: false,
+      },
+      handler: async (args, context) => {
+        if (typeof args.workspaceId !== 'string' || !args.workspaceId.trim()) {
+          return toolError('invalid_arguments', '"workspaceId" is required.')
+        }
+        if (
+          args.visitedAt !== undefined &&
+          !(typeof args.visitedAt === 'number' && Number.isFinite(args.visitedAt) && args.visitedAt >= 0)
+        ) {
+          return toolError('invalid_arguments', '"visitedAt" must be a time in epoch milliseconds when provided.')
+        }
+        const visited = deps.lifecycle.visit(
+          args.workspaceId.trim(),
+          args.visitedAt as number | undefined,
+          lifecycleActor(context),
+        )
+        if (!visited.ok) return toolError(visited.code, visited.message)
+        return toolSuccess(visited)
       },
     },
   ]

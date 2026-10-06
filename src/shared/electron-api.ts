@@ -136,6 +136,8 @@ import type {
   MeshBrowse,
   MeshConnection,
   MeshCreateConversationResult,
+  MeshSettleConversationResult,
+  MeshVisitConversationResult,
   MeshWorkspaceCheckoutResult,
   MeshEvent,
   MeshLiveState,
@@ -258,6 +260,11 @@ import type {
   AgentConfigDetectInput,
   AgentConfigDetectResult,
 } from './ipc/agent-config'
+import type {
+  ConversationImportInput,
+  ConversationImportResult,
+  ConversationImportScanResult,
+} from './ipc/conversation-import'
 import type {
   CliDetectResult,
   CliInstallInput,
@@ -503,6 +510,7 @@ export type * from './ipc/conversations'
 export type * from './ipc/agent-runtime'
 export type * from './ipc/mcp'
 export type * from './ipc/agent-config'
+export type * from './ipc/conversation-import'
 export type * from './ipc/skills'
 export type * from './ipc/terminal'
 export type * from './ipc/git'
@@ -902,6 +910,21 @@ export type ElectronApi = {
     cliModel?: string
     permissionPreset?: string
   }) => Promise<MeshCreateConversationResult>
+  /**
+   * Settle a chat on a paired machine, or bring it back with `settled: false`
+   * (`conversation.settle` there, which needs `conversation-lifecycle`).
+   */
+  meshSettleConversation: (input: {
+    connectionId: string
+    workspaceId: string
+    settled?: boolean
+  }) => Promise<MeshSettleConversationResult>
+  /** Say a chat on a paired machine is on screen here (`conversation.visit` there). */
+  meshVisitConversation: (input: {
+    connectionId: string
+    workspaceId: string
+    visitedAt?: number
+  }) => Promise<MeshVisitConversationResult>
   /** A remote workspace's checkout facts — branch, trunk, branches, worktrees — for the launch panel's checkout · branch segments. */
   meshWorkspaceCheckout: (connectionId: string, workspaceId: string) => Promise<MeshWorkspaceCheckoutResult>
   /**
@@ -1441,6 +1464,8 @@ export type ElectronApi = {
   cloneGitHubRepo: (input: GitHubCloneInput) => Promise<GitHubCloneResult>
   detectExistingAgentConfig: (input?: AgentConfigDetectInput) => Promise<AgentConfigDetectResult>
   adoptAgentConfig: (input: AgentConfigAdoptInput) => Promise<AgentConfigAdoptResult>
+  scanImportableConversations: () => Promise<ConversationImportScanResult>
+  importConversations: (input: ConversationImportInput) => Promise<ConversationImportResult>
   mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
   workspaceSkillsList: (input: WorkspaceSkillsListInput) => Promise<WorkspaceSkillsListResult>
   installedSkillsList: (input: InstalledSkillsInput) => Promise<InstalledSkillsResult>

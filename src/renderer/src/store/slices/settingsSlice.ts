@@ -736,6 +736,7 @@ export const defaultAppSettings = (): AppSettings => ({
   modulesChosen: false,
   firstRunCliCardDismissed: false,
   hasAdoptedAgentConfig: false,
+  conversationImportOffered: false,
   terminalIdleSuspendMinutes: DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES,
   terminalKeepRecentAlive: DEFAULT_TERMINAL_KEEP_RECENT_ALIVE,
   settleOnPullRequestMerge: true,
@@ -819,6 +820,12 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     // card, so it is not re-offered; a fresh profile adopts on its first
     // workspace creation.
     hasAdoptedAgentConfig: settings?.hasAdoptedAgentConfig ?? workspaces.length > 0,
+    // The card is a first-run offer; a profile with chats already imports
+    // from Settings instead.
+    conversationImportOffered:
+      typeof settings?.conversationImportOffered === 'boolean'
+        ? settings.conversationImportOffered
+        : workspaces.length > 0,
     terminalIdleSuspendMinutes: normalizeTerminalIdleSuspendMinutes(settings?.terminalIdleSuspendMinutes),
     terminalKeepRecentAlive: normalizeTerminalKeepRecentAlive(settings?.terminalKeepRecentAlive),
     settleOnPullRequestMerge:
@@ -1101,6 +1108,8 @@ export interface SettingsSliceActions {
   dismissFirstRunCliCard: () => void
   /** Mark this profile's one-time agent-config adoption as done. */
   markAgentConfigAdopted: () => void
+  /** Record that the first-run import card was answered, by an import or by "not now". */
+  markConversationImportOffered: () => void
   /** Set (or clear with `null`) the live outcome of the first-run adoption,
    *  read out as one line in Settings → Agents. */
   setAgentConfigAdoptionResult: (result: AgentConfigAdoptionResult | null) => void
@@ -1720,6 +1729,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     markAgentConfigAdopted: () =>
       set((state) => {
         state.appSettings.hasAdoptedAgentConfig = true
+      }),
+
+    markConversationImportOffered: () =>
+      set((state) => {
+        state.appSettings.conversationImportOffered = true
       }),
 
     setAgentConfigAdoptionResult: (result) =>

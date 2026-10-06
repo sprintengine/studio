@@ -209,7 +209,17 @@ send them (`docs/conversations.md`, "Machines and pull requests in the list").
 The context a chat has spent (`contextWindow` and `contextUsed` on a
 `usage_updated` event) is the same kind of member: a phone that does not read
 them shows no context ring, and one that does draws none for a desktop that
-does not send them. Breaking frame changes require a new
+does not send them. A chat's rest and read state are the
+`conversation-lifecycle` capability: a desktop that advertises it leaves the
+chats it has settled out of the list, sends it in its sidebar's order, names
+each chat's `chatTitle`, `lastUserMessageAt`, `lastTurnEndedAt` and
+`lastVisitedAt`, and serves the `conversation.settle` and `conversation.visit`
+gateway tools; `workspace.list` items carry `settledAt` beside it, with no
+capability of their own. The members are optional and the tools new, so no
+peer is refused over any of it: a client offers no Settle for a desktop that
+does not advertise it, and an older one answers either tool "Unknown tool"
+(`docs/conversations.md`, "Rest, order and read state in the list"). The Studio
+RPC does not advertise it, having no method for either tool. Breaking frame changes require a new
 negotiated capability or the tailnet version-window process above, not merely
 a package version change. Presentation-only fixes use a package patch.
 Both ESM and CommonJS tarball consumers and Node16 declarations are checked by

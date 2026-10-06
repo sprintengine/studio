@@ -4,6 +4,8 @@ import { ipc as ipcRenderer } from '../ipc-router'
 import {
   MESH_BROWSE_CHANNEL,
   MESH_CREATE_CONVERSATION_CHANNEL,
+  MESH_SETTLE_CONVERSATION_CHANNEL,
+  MESH_VISIT_CONVERSATION_CHANNEL,
   MESH_WORKSPACE_CHECKOUT_CHANNEL,
   MESH_FORGET_CHANNEL,
   MESH_GET_LIVE_STATE_CHANNEL,
@@ -16,6 +18,8 @@ import {
   type MeshBrowse,
   type MeshConnection,
   type MeshCreateConversationResult,
+  type MeshSettleConversationResult,
+  type MeshVisitConversationResult,
   type MeshWorkspaceCheckoutResult,
   type MeshEvent,
   type MeshLiveState,
@@ -85,6 +89,18 @@ export const meshApi = {
     permissionPreset?: string
   }): Promise<MeshCreateConversationResult> =>
     ipcRenderer.invoke(MESH_CREATE_CONVERSATION_CHANNEL, input) as Promise<MeshCreateConversationResult>,
+  meshSettleConversation: (input: {
+    connectionId: string
+    workspaceId: string
+    settled?: boolean
+  }): Promise<MeshSettleConversationResult> =>
+    ipcRenderer.invoke(MESH_SETTLE_CONVERSATION_CHANNEL, input) as Promise<MeshSettleConversationResult>,
+  meshVisitConversation: (input: {
+    connectionId: string
+    workspaceId: string
+    visitedAt?: number
+  }): Promise<MeshVisitConversationResult> =>
+    ipcRenderer.invoke(MESH_VISIT_CONVERSATION_CHANNEL, input) as Promise<MeshVisitConversationResult>,
   meshWorkspaceCheckout: (connectionId: string, workspaceId: string): Promise<MeshWorkspaceCheckoutResult> =>
     ipcRenderer.invoke(MESH_WORKSPACE_CHECKOUT_CHANNEL, {
       connectionId,
@@ -181,6 +197,8 @@ export const meshApi = {
   | 'meshForget'
   | 'meshBrowse'
   | 'meshCreateConversation'
+  | 'meshSettleConversation'
+  | 'meshVisitConversation'
   | 'meshWorkspaceCheckout'
   | 'meshGetLiveState'
   | 'onMeshEvent'

@@ -45,6 +45,8 @@ export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   'backlog:update-triage': {},
   'cli-models:discover': {},
   'conversation-commands:list': { retry: 'once' },
+  'conversation-import:import': {},
+  'conversation-import:scan': { retry: 'once' },
   'conversation:approval-rules:list': { retry: 'once' },
   'conversation:approval-rules:revoke': {},
   'conversation:attachment': { retry: 'once' },
@@ -115,6 +117,8 @@ export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   'mesh:list-connections': { retry: 'once' },
   'mesh:pair': {},
   'mesh:request-pairing': {},
+  'mesh:settle-conversation': {},
+  'mesh:visit-conversation': {},
   'mesh:workspace-checkout': {},
   // The module kernel's own channel and the bundled modules' (scheduled agents).
   'modules:bridge:invoke': {},

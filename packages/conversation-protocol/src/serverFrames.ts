@@ -52,6 +52,37 @@ export type ConversationThread = Omit<ConversationWireThread, 'capabilities'> & 
    * empty when the chat has none.
    */
   pullRequests?: ConversationWirePullRequest[]
+  /**
+   * The chat's title as the desktop's own sidebar shows it: the name of the
+   * desktop's chat it belongs to, which a rename there changes. `title` stays
+   * the agent's name, for clients that read only that. Absent from a desktop
+   * built before it was listed, and when the chat has no name there.
+   */
+  chatTitle?: string
+  /**
+   * When a person last sent the chat a message, from any device: the key
+   * the desktop's sidebar orders its chats by, most recent first, and the
+   * order the list arrives in. Absent from a desktop built before it was
+   * listed, and for a chat nobody has written to since the desktop kept it;
+   * a client orders such a row by `updatedAt`.
+   */
+  lastUserMessageAt?: number
+  /**
+   * When the chat's agent last finished a turn, or failed one: read from the
+   * chat's transcript, so it does not move on a rename, a model switch or a
+   * session starting. Absent from a desktop built before it was listed, and
+   * for a chat whose agent has not finished one.
+   */
+  lastTurnEndedAt?: number
+  /**
+   * When a person last had the chat on screen, on any device: the desktop
+   * itself, a phone, another desktop (each device says so with
+   * `conversation.visit`). A chat whose `lastTurnEndedAt` is later has a
+   * finish nobody has seen yet. Absent from a desktop built before it was
+   * listed, and for a chat no visit has been recorded for since; nothing
+   * recorded visits before this, so a client reads that absence as seen.
+   */
+  lastVisitedAt?: number
 }
 
 /**
@@ -170,6 +201,10 @@ function integer(value: unknown): value is number {
 function text(value: unknown, max = 20_000): value is string {
   return typeof value === 'string' && value.length <= max
 }
+/** An epoch-milliseconds time. */
+function clock(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
 function optional<T>(value: unknown, check: (value: unknown) => value is T): boolean {
   return value === undefined || check(value)
 }
@@ -262,6 +297,7 @@ function thread(value: unknown): ConversationThread | null {
   const models = value.models === undefined ? null : parseConversationWireModels(value.models)
   const host = value.host === undefined ? null : parseConversationWireHost(value.host)
   const pullRequests = value.pullRequests === undefined ? null : parseConversationWirePullRequests(value.pullRequests)
+  const chatTitle = text(value.chatTitle, 2_000) && value.chatTitle.trim() ? value.chatTitle : null
   return {
     ...listed,
     title: value.title,
@@ -285,6 +321,12 @@ function thread(value: unknown): ConversationThread | null {
     // row shows no mark rather than a wrong one.
     ...(host ? { host } : {}),
     ...(pullRequests ? { pullRequests } : {}),
+    // The lifecycle members: a title or a clock in the wrong shape is left
+    // out, and the row reads as from a desktop that does not send it.
+    ...(chatTitle ? { chatTitle } : {}),
+    ...(clock(value.lastUserMessageAt) ? { lastUserMessageAt: value.lastUserMessageAt } : {}),
+    ...(clock(value.lastTurnEndedAt) ? { lastTurnEndedAt: value.lastTurnEndedAt } : {}),
+    ...(clock(value.lastVisitedAt) ? { lastVisitedAt: value.lastVisitedAt } : {}),
     ...(flags
       ? {
           capabilities: {

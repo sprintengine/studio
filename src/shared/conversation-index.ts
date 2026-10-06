@@ -13,6 +13,10 @@ export type ConversationThread = {
   lastSeq: number
   firstUserText: string
   totalCostUsd?: number
+  // When the agent last finished a turn, or failed one, read off the
+  // transcript's own events. Absent for a chat whose agent has not finished
+  // one. Not `updatedAt`, which every event moves.
+  lastTurnEndedAt?: number
 }
 export type ConversationSearchInput = ConversationWorkspaceKey & { query: string; requestId?: string }
 export type ConversationSearchHit = { agentId: string; seq: number; turnId?: string; snippet: string }
