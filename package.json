@@ -320,8 +320,10 @@
     "prettier": "3.9.9",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "remark-parse": "^11.0.0",
     "tailwindcss": "^4.0.6",
     "typescript": "^7.0.2",
+    "unified": "^11.0.5",
     "vite": "^8.3.1",
     "vitest": "5.0.3"
   },
