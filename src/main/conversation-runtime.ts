@@ -2246,7 +2246,10 @@ export class ConversationRuntime {
     // When the last turn ended, read off the event rather than the clock so
     // the transcript replay on resume restores the true time, not the resume.
     if (event.type === 'turn_completed' || event.type === 'turn_failed') session.lastTurnEndedAt = event.createdAt
-    if (event.type === 'turn_completed') session.phase = 'completed'
+    // A turn the person stopped ended where they asked it to: the chat reads as
+    // done, as its own transcript does, not as failed and needing a look.
+    if (event.type === 'turn_completed' || (event.type === 'turn_failed' && isInterruptedTurn(event)))
+      session.phase = 'completed'
     else if (event.type === 'turn_failed') session.phase = 'failed'
     else if (event.type === 'approval_resolved' && session.pendingApprovalRequestIds.size > 0) {
       // Another card is still up: the turn is still waiting on a person.
@@ -3815,6 +3818,12 @@ function isWordedUserMessage(event: ConversationEvent): boolean {
   return (
     event.type === 'user_message' && typeof event.payload?.text === 'string' && event.payload.text.trim().length > 0
   )
+}
+
+// How each runtime says a turn was stopped: the reason, or (an ACP agent
+// cancelled mid-prompt) the bare word as its message.
+function isInterruptedTurn(event: ConversationEvent): boolean {
+  return event.payload?.reason === 'interrupted' || event.payload?.message === 'interrupted'
 }
 
 function isSessionBusy(session: RuntimeSession): boolean {
