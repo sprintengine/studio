@@ -244,6 +244,7 @@ import { cardSurfaceRoute } from './manager/cardSurfaceRoute'
 import { subscribeAppUpdateState } from '../../store/appUpdateStore'
 import { useSettingsUpdateBadges } from '../settings/useSettingsUpdateBadges'
 import { selectWorkspaceManagerWorkspaces } from './manager/workspaceSelector'
+import { preloadableLazy } from '../../utils/preloadableLazy'
 import { hasTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { clearPaneAttachedHidden, paneAttachedHidden } from '../../utils/terminalPaneVisibility'
 import { shouldSendTerminalPaintVisibility } from './manager/terminalPaintVisibility'
@@ -272,7 +273,12 @@ import {
 // agent's terminal; New chat creates a solo workspace in the picked project.
 // The panel that used to serve the second — NewChatPanel — is gone rather than
 // left beside this one, because two launch surfaces drift.
-const NewAgentPanel = React.lazy(() => import('./agentComposer/NewAgentPanel'))
+//
+// Preloadable: a window that opens with no chats opens on this panel, and a
+// plain lazy mount there would show "Loading new chat" and then hold the panel
+// back for React's fallback window, long after its chunk had arrived.
+const newAgentPanelChunk = preloadableLazy(() => import('./agentComposer/NewAgentPanel'))
+const NewAgentPanel = newAgentPanelChunk.Component
 
 // On-demand overlays kept off the eager boot chunk: each mounts only when the
 // user reaches for it (Cmd-K palette, the diagnostics overlay), so its subtree —
@@ -1966,6 +1972,14 @@ export default function WorkspaceManager() {
     // No explicit folder: a parked draft's project resumes, else no project.
     if (autoOpenNewChat) presentNewChatPanelRef.current()
   }, [autoOpenNewChat])
+
+  // A window with no chats is about to open on New chat, once the CLI probe
+  // answers; its chunk is fetched now, while that probe is still out, so the
+  // panel mounts the moment it is asked for.
+  const opensOnNewChat = railWorkspaces.length === 0
+  useEffect(() => {
+    if (opensOnNewChat) newAgentPanelChunk.preload()
+  }, [opensOnNewChat])
 
   useEffect(() => {
     let disposed = false
