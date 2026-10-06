@@ -249,7 +249,16 @@ export function mergeQueuedTurn(
 // error's Retry, it was gone the moment anything cleared that error.
 export function restoreRefusedText(current: string, text: string): string {
   if (!current || current === text) return text
-  return text ? `${text}\n${current}` : current
+  // Already back from an earlier refusal of the same message (a Retry that was
+  // refused again): not stacked a second time.
+  if (!text || current.startsWith(`${text}\n`)) return current
+  return `${text}\n${current}`
+}
+
+// The composer once a Retry takes the refused message back out of it: what
+// the person typed after it, or null when the message is not at its head.
+export function draftAfterRetried(current: string, text: string): string | null {
+  return text && current.startsWith(`${text}\n`) ? current.slice(text.length + 1) : null
 }
 
 // What the queued-turn row reads as. An image-only queued turn has no text to
@@ -1971,6 +1980,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const retryFailedSend = () => {
     if (!failedSend) return
     const fromDraft = draft.trim() === failedSend.text
+    // Put back ahead of what was typed since, it goes out from here once, and
+    // the typed rest stays; left in, the next Enter sent it a second time.
+    const rest = fromDraft ? null : draftAfterRetried(draft, failedSend.text)
+    if (rest !== null) setDraft(rest)
     void sendTurn(failedSend.text, failedSend.attachments, failedSend.metadata, fromDraft)
     setAttachments((current) => (current === failedSend.attachments ? [] : current))
   }

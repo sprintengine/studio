@@ -55,6 +55,7 @@ import {
   resolvedDecisionGroupLabel,
   resolvePermissionPreset,
   restoreRefusedText,
+  draftAfterRetried,
   scaledImageDimensions,
   splitImageDataUrl,
   stopDisabledForPending,
@@ -1398,6 +1399,10 @@ test('AgentChatView', async () => {
   assert.equal(restoreRefusedText('', 'queued'), 'queued')
   assert.equal(restoreRefusedText('typed since', 'queued'), 'queued\ntyped since')
   assert.equal(restoreRefusedText('queued', 'queued'), 'queued', 'already back, it is not doubled')
+  assert.equal(restoreRefusedText('queued\ntyped since', 'queued'), 'queued\ntyped since', 'nor stacked again')
+  // Its Retry takes it back out, so the next Enter sends only what was typed.
+  assert.equal(draftAfterRetried('queued\ntyped since', 'queued'), 'typed since')
+  assert.equal(draftAfterRetried('typed since', 'queued'), null)
 
   // Mid-drag the payload is unreadable — only the item kinds are — so the drop
   // target and the preventDefault gate key off those.
