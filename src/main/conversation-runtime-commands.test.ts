@@ -106,7 +106,7 @@ async function chat(options: { reverted?: boolean } = {}) {
     expect(result.ok).toBe(true)
     return sent.at(-1)
   }
-  return { send, sentSkills, recorded }
+  return { send, sent, sentSkills, recorded }
 }
 
 test('a message that opens with a slash command reaches the CLI with the command first and no skill text', async () => {
@@ -147,4 +147,12 @@ test('skills attached to a command wait for the next message that is not one, an
 test('a message about a top-level folder is prose while no command list is known', async () => {
   const { send } = await chat()
   expect(await send('/tmp is full', ['tidy'])).toMatch(/^Attached skill: tidy/)
+})
+
+test('a message with line or paragraph separators reaches the CLI as one message with plain line breaks', async () => {
+  const { send, sent } = await chat()
+  expect(await send('Test this one.\u2029And see how it comes through.\r\nThen stop.\u2028')).toBe(
+    'Test this one.\nAnd see how it comes through.\nThen stop.',
+  )
+  expect(sent).toHaveLength(1)
 })
