@@ -48,7 +48,7 @@ type Refuses = { start?: 'flag' | 'always'; turn?: 'flag' | 'always' | 'after-ou
  * after it has replied ('after-output'), or turns the message away itself,
  * before any CLI is asked, under any mode but `none` ('refused-here').
  */
-function refusingProvider(refuses: Refuses) {
+function refusingProvider(refuses: Refuses, hooks: { beforeTurnFails?: () => Promise<void> } = {}) {
   let preset: ConversationPermissionPreset = 'none'
   const presets: ConversationPermissionPreset[] = []
   const starts: Array<ConversationPermissionPreset | undefined> = []
@@ -83,6 +83,7 @@ function refusingProvider(refuses: Refuses) {
         return
       }
       if (refused(refuses.turn, preset)) {
+        await hooks.beforeTurnFails?.()
         yield event(input, 'turn_failed', {
           turnId: input.turnId,
           reason: 'provider',
@@ -105,10 +106,14 @@ function refusingProvider(refuses: Refuses) {
   return { adapter, presets, starts, turns }
 }
 
-async function start(refuses: Refuses, permissionPreset: ConversationPermissionPreset) {
+async function start(
+  refuses: Refuses,
+  permissionPreset: ConversationPermissionPreset,
+  hooks?: Parameters<typeof refusingProvider>[1],
+) {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-permission-fallback-'))
   roots.add(workspaceRoot)
-  const provider = refusingProvider(refuses)
+  const provider = refusingProvider(refuses, hooks)
   const runtime = new ConversationRuntime({
     adapters: [provider.adapter],
     getProviderById: () => undefined,
@@ -192,6 +197,26 @@ test('a message the runtime turned away itself is not sent again with no flag', 
   assert.equal(failures.length, 1)
   assert.match(String(failures[0]?.payload?.message), /would change/)
   assert.deepEqual(notices(chat.events), [])
+})
+
+test('a mode picked while the turn was starting is kept when that turn fails', async () => {
+  let chat: Awaited<ReturnType<typeof start>> | null = null
+  let picked: Promise<unknown> | null = null
+  chat = await start({ turn: 'always' }, 'bypass', {
+    // The person switches to Manual during a slow first start, before it fails.
+    beforeTurnFails: async () => {
+      if (!chat?.started.ok || picked) return
+      picked = chat.runtime.setPermission({ sessionId: chat.started.session.sessionId, permissionPreset: 'manual' })
+      await picked
+    },
+  })
+  assert.ok(chat.started.ok)
+  const sent = await chat.runtime.sendTurn({ sessionId: chat.started.session.sessionId, message: 'go' })
+
+  assert.ok(sent.ok)
+  assert.equal(sent.session.permissionPreset, 'manual', 'not put back to Bypass, nor dropped to No flag')
+  assert.deepEqual(chat.provider.presets, ['manual'])
+  assert.deepEqual(chat.provider.turns, ['bypass'])
 })
 
 test('a chat on no flag that fails is not sent again', async () => {

@@ -1012,6 +1012,13 @@ export class ConversationRuntime {
     }
     if (!failure) return
     await first.return?.()
+    // A mode the person picked while the turn was starting is theirs: the
+    // failure was under the old one, and neither No flag nor the old mode put
+    // back after a failed retry may replace it.
+    if (session.permissionPreset !== preset || session.permissionMode !== mode) {
+      yield failure
+      return
+    }
     const noFlag = await adapter
       .setPermissionPreset({ ...session, permissionPreset: 'none', permissionMode: undefined })
       .catch((): { ok: false } => ({ ok: false }))
@@ -1021,6 +1028,8 @@ export class ConversationRuntime {
     }
     session.permissionPreset = 'none'
     delete session.permissionMode
+    // Still on the No flag set here, or moved on by the person since.
+    const untouched = () => session.permissionPreset === 'none' && session.permissionMode === undefined
     const notice = () =>
       this.eventForSession(session, 'session_updated', {
         permissionPreset: 'none',
@@ -1032,11 +1041,13 @@ export class ConversationRuntime {
       const event = next.value
       if (!retried && event.type === 'turn_failed') {
         await retry.return?.()
-        await adapter
-          .setPermissionPreset({ ...session, permissionPreset: preset, permissionMode: mode })
-          .catch(() => undefined)
-        session.permissionPreset = preset
-        if (mode) session.permissionMode = mode
+        if (untouched()) {
+          await adapter
+            .setPermissionPreset({ ...session, permissionPreset: preset, permissionMode: mode })
+            .catch(() => undefined)
+          session.permissionPreset = preset
+          if (mode) session.permissionMode = mode
+        }
         yield failure
         return
       }
@@ -1044,11 +1055,11 @@ export class ConversationRuntime {
       if (event.type === 'turn_started') continue
       if (!retried && !TURN_OPENING_EVENTS.has(event.type)) {
         retried = true
-        yield notice()
+        if (untouched()) yield notice()
       }
       yield event
     }
-    if (!retried) yield notice()
+    if (!retried && untouched()) yield notice()
   }
 
   /**
