@@ -994,7 +994,16 @@ export class ConversationRuntime {
     let failure: ConversationEvent | null = null
     let started = false
     for (let next = await first.next(); !next.done; next = await first.next()) {
-      if (!started && next.value.type === 'turn_failed' && !input.signal?.aborted) {
+      // A message the runtime turned away itself (`refused`) never reached a
+      // CLI, so it says nothing about the flag — and a guard that depends on
+      // the mode, like refusing a typed command that loosens it, must not be
+      // retried under No flag, where it lets the command through.
+      if (
+        !started &&
+        next.value.type === 'turn_failed' &&
+        next.value.payload?.refused !== true &&
+        !input.signal?.aborted
+      ) {
         failure = next.value
         break
       }

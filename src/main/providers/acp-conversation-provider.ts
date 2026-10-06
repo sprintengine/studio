@@ -1137,8 +1137,14 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       input.signal?.addEventListener('abort', abort, { once: true })
       void (async () => {
         try {
+          // Turned away here, before any child is asked: marked `refused`, so
+          // the runtime does not read it as the CLI refusing its permission
+          // flag and send the command again with no flag, where it is allowed.
           const refusal = permissionCommandRefusal(profile, state.input.permissionPreset, input.message)
-          if (refusal) throw new Error(refusal)
+          if (refusal) {
+            emit(state, 'turn_failed', { message: refusal, refused: true })
+            return
+          }
           const previousId = state.nativeId
           await ensure(state)
           // A reconnect can land in a different session; record it as the

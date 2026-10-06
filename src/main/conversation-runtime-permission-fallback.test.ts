@@ -40,19 +40,20 @@ function event(input: MockAdapterSessionInput, type: ConversationEventType, payl
   }
 }
 
-type Refuses = { start?: 'flag' | 'always'; turn?: 'flag' | 'always' | 'after-output' }
+type Refuses = { start?: 'flag' | 'always'; turn?: 'flag' | 'always' | 'after-output' | 'refused-here' }
 
 /**
  * A provider that refuses to start (its session, or a turn's child) under any
- * mode but `none` ('flag'), under every mode ('always'), or fails a turn only
- * after it has replied ('after-output').
+ * mode but `none` ('flag'), under every mode ('always'), fails a turn only
+ * after it has replied ('after-output'), or turns the message away itself,
+ * before any CLI is asked, under any mode but `none` ('refused-here').
  */
 function refusingProvider(refuses: Refuses) {
   let preset: ConversationPermissionPreset = 'none'
   const presets: ConversationPermissionPreset[] = []
   const starts: Array<ConversationPermissionPreset | undefined> = []
   const turns: Array<ConversationPermissionPreset | undefined> = []
-  const refused = (mode: 'flag' | 'always' | 'after-output' | undefined, under: ConversationPermissionPreset) =>
+  const refused = (mode: Refuses['turn'], under: ConversationPermissionPreset) =>
     mode === 'always' || (mode === 'flag' && under !== 'none')
   const adapter: ConversationProviderAdapter = {
     id: 'refusing',
@@ -71,6 +72,14 @@ function refusingProvider(refuses: Refuses) {
       if (refuses.turn === 'after-output') {
         yield event(input, 'content_delta', { turnId: input.turnId, text: 'half a reply' })
         yield event(input, 'turn_failed', { turnId: input.turnId, reason: 'provider', message: 'lost the network' })
+        return
+      }
+      if (refuses.turn === 'refused-here' && preset !== 'none') {
+        yield event(input, 'turn_failed', {
+          turnId: input.turnId,
+          message: "/always-approve would change Refusing CLI's permissions from inside the conversation.",
+          refused: true,
+        })
         return
       }
       if (refused(refuses.turn, preset)) {
@@ -166,6 +175,23 @@ test('a turn that fails after it has started is not sent again', async () => {
   assert.deepEqual(chat.provider.turns, ['bypass'])
   assert.deepEqual(chat.provider.presets, [])
   assert.equal(chat.events.filter((next) => next.type === 'turn_failed').length, 1)
+})
+
+test('a message the runtime turned away itself is not sent again with no flag', async () => {
+  // Sent again under No flag, a command refused for loosening the mode would
+  // go through: the guard depends on the mode the retry drops.
+  const chat = await start({ turn: 'refused-here' }, 'manual')
+  assert.ok(chat.started.ok)
+  const sent = await chat.runtime.sendTurn({ sessionId: chat.started.session.sessionId, message: '/always-approve' })
+
+  assert.ok(sent.ok)
+  assert.equal(sent.session.permissionPreset, 'manual')
+  assert.deepEqual(chat.provider.turns, ['manual'])
+  assert.deepEqual(chat.provider.presets, [])
+  const failures = chat.events.filter((next) => next.type === 'turn_failed')
+  assert.equal(failures.length, 1)
+  assert.match(String(failures[0]?.payload?.message), /would change/)
+  assert.deepEqual(notices(chat.events), [])
 })
 
 test('a chat on no flag that fails is not sent again', async () => {
