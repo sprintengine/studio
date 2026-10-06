@@ -224,7 +224,7 @@ test('conversationSeam', async () => {
       const raced = await conversationApi.conversationSessionSendTurn({ sessionId, message: 'and this too' })
       assert.deepEqual(
         raced,
-        { ok: false, message: 'Conversation turn is already in progress.' },
+        { ok: false, code: 'busy', retryAfterMs: 1_000, message: 'Conversation turn is already in progress.' },
         'the runtime refuses the racing send rather than taking the continuation turn over',
       )
 
