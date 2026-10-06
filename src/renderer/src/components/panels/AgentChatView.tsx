@@ -2750,6 +2750,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             conversation: { workspaceId, agentId },
             onSettled: () => setCreatePullRequestAsk((count) => count + 1),
             onHoldChange: setCreatePullRequestHeld,
+            ready: createPullRequestState?.readiness.ready === true,
           }
         : null,
     [createPullRequestCwd, createPullRequestState, createPullRequestHeld, workspaceId, agentId],

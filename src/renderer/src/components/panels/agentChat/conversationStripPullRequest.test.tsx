@@ -240,6 +240,53 @@ test('Create PR takes the slot, drafts, pushes, creates, and says on the strip w
   expect(holds.at(-1)).toBe(false)
 })
 
+test('a held Create PR failure on a checkout no longer ready is dismissed, not retried', async () => {
+  const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+  Object.assign(api, {
+    draftPullRequestText: async () => ({ ok: true, value: { title: 'feat: marks', body: 'Body' }, ms: 1 }),
+    pushForPullRequest: async () => ({ ok: false, message: 'The push was refused.' }),
+  })
+  const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+  useWorkspaceStore.setState((state) => ({
+    ...state,
+    appSettings: { ...state.appSettings, textGeneration: { enabled: true, engine: { cli: 'claude-code', model: '' } } },
+    pluginCatalogEntries: [{ id: 'claude-code' }] as never,
+  }))
+  const { CreatePullRequestControl } = await import('./createPullRequest')
+  const holds: boolean[] = []
+  const props = {
+    cwd: '/Users/dev/app',
+    conversation: { workspaceId: 'ws-1', agentId: 'agent-1' },
+    onSettled: () => {},
+    onHoldChange: (held: boolean) => holds.push(held),
+  }
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const container = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(container)
+  const root = createRoot(container)
+  await act(async () => root.render(<CreatePullRequestControl {...props} ready />))
+  const buttonNamed = (text: string) =>
+    [...container.querySelectorAll('button')].find((node) => node.textContent?.includes(text))
+  await act(async () => buttonNamed('Create PR')?.click())
+  const title = await waitFor(() => dom.window.document.querySelector<HTMLInputElement>('input[maxlength="300"]'))
+  await waitFor(() => (title.value === 'feat: marks' ? title : null))
+  const create = [...dom.window.document.querySelectorAll('button')].find((node) => node.textContent === 'Create')
+  await act(async () => create?.click())
+  await waitFor(() => container.querySelector('[data-create-pull-request-error]'))
+  // Still ready: the failure stays beside Create PR, which tries again.
+  expect(buttonNamed('Create PR')).toBeTruthy()
+  // No longer ready: Create PR could only fail, so the failure is dismissed.
+  await act(async () => root.render(<CreatePullRequestControl {...props} ready={false} />))
+  expect(buttonNamed('Create PR')).toBe(undefined)
+  await act(async () => buttonNamed('Dismiss')?.click())
+  expect(container.querySelector('[data-create-pull-request-error]')).toBe(null)
+  // The slot goes back to what the checkout says.
+  expect(holds.at(-1)).toBe(false)
+  await act(async () => root.unmount())
+  container.remove()
+})
+
 async function waitFor<T>(read: () => T | null | undefined): Promise<T> {
   const start = Date.now()
   for (;;) {

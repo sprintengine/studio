@@ -105,6 +105,8 @@ export function ConversationComposerStrip({
     onSettled: () => void
     /** Keeps the control in the slot while it shows its dialog, a step or a failure. */
     onHoldChange?: (held: boolean) => void
+    /** Whether the checkout reads as ready now; a held failure is dismissed rather than retried when not. */
+    ready?: boolean
   } | null
   /**
    * The local servers this conversation's agents linked, and the workspace
@@ -370,6 +372,7 @@ export function ConversationComposerStrip({
               conversation={createPullRequest.conversation}
               onSettled={createPullRequest.onSettled}
               onHoldChange={createPullRequest.onHoldChange}
+              ready={createPullRequest.ready}
             />
           ) : (
             <PullRequestStripButton pullRequests={pullRequests} now={now} />

@@ -102,9 +102,16 @@ export function CreatePullRequestControl({
   conversation,
   onSettled,
   onHoldChange,
+  ready = true,
 }: {
   cwd: string
   conversation: { workspaceId: string; agentId: string }
+  /**
+   * Whether the checkout reads as ready for a pull request now. Held on a
+   * failure once it is not (the pull request it opened exists), the control
+   * offers to dismiss the failure rather than a Create PR that could only fail.
+   */
+  ready?: boolean
   /** The flow ended (created, opened a forge page, or failed): ask again whether the button may show. */
   onSettled: () => void
   /**
@@ -173,7 +180,18 @@ export function CreatePullRequestControl({
           {STEP_WORDS[progress.step]}
         </span>
       ) : null}
-      {busy ? null : (
+      {busy ? null : progress?.step === 'failed' && !ready ? (
+        <GhostButton
+          size="xs"
+          tone="subtle"
+          // Read: the slot goes back to what the checkout says.
+          onClick={() => setProgress(null)}
+          aria-label="Dismiss this Create PR failure"
+          className="shrink-0 whitespace-nowrap"
+        >
+          Dismiss
+        </GhostButton>
+      ) : (
         <GhostButton
           size="xs"
           tone="subtle"
