@@ -136,6 +136,8 @@ import type {
   MeshBrowse,
   MeshConnection,
   MeshCreateConversationResult,
+  MeshSettleConversationResult,
+  MeshVisitConversationResult,
   MeshWorkspaceCheckoutResult,
   MeshEvent,
   MeshLiveState,
@@ -908,6 +910,21 @@ export type ElectronApi = {
     cliModel?: string
     permissionPreset?: string
   }) => Promise<MeshCreateConversationResult>
+  /**
+   * Settle a chat on a paired machine, or bring it back with `settled: false`
+   * (`conversation.settle` there, which needs `conversation-lifecycle`).
+   */
+  meshSettleConversation: (input: {
+    connectionId: string
+    workspaceId: string
+    settled?: boolean
+  }) => Promise<MeshSettleConversationResult>
+  /** Say a chat on a paired machine is on screen here (`conversation.visit` there). */
+  meshVisitConversation: (input: {
+    connectionId: string
+    workspaceId: string
+    visitedAt?: number
+  }) => Promise<MeshVisitConversationResult>
   /** A remote workspace's checkout facts — branch, trunk, branches, worktrees — for the launch panel's checkout · branch segments. */
   meshWorkspaceCheckout: (connectionId: string, workspaceId: string) => Promise<MeshWorkspaceCheckoutResult>
   /**

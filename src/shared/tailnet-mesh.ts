@@ -1,4 +1,5 @@
-import type { ConversationWireCommand, ConversationWireThread } from '../../packages/conversation-protocol/src'
+import type { ConversationWireCommand } from '../../packages/conversation-protocol/src'
+import type { ConversationThread } from '../../packages/conversation-protocol/src/public'
 import type { ConversationSessionFrame } from './conversation-runtime'
 import type { RepositoryIdentity } from './repository-identity'
 import type { TailnetRemoteStatus, TailnetScope } from './tailnet'
@@ -60,6 +61,12 @@ export type MeshWorkspace = {
    * three different facts with one consequence: no grouping across machines.
    */
   repository: RepositoryIdentity | null
+  /**
+   * When the workspace was settled there, or null while it is in that
+   * machine's list. Null too from a machine built before it said; a resting
+   * workspace is one this machine draws no row for.
+   */
+  settledAt?: number | null
 }
 
 /**
@@ -134,6 +141,19 @@ export type MeshPairResult = { ok: true; connection: MeshConnection } | { ok: fa
 export type MeshCreateConversationResult =
   | { ok: true; workspaceId: string; agentId: string; title: string; providerId: string; modelId: string }
   | { ok: false; code: string; message: string }
+
+/**
+ * A chat settled, or brought back, on a paired machine (`conversation.settle`).
+ * `settledAt` is the machine's answer: when it was settled, or null when it is
+ * in the list. `lifecycle_unsupported` is a machine that does not advertise
+ * `conversation-lifecycle`.
+ */
+export type MeshSettleConversationResult =
+  { ok: true; workspaceId: string; settledAt: number | null } | { ok: false; code: string; message: string }
+
+/** A visit recorded on a paired machine (`conversation.visit`): the chat's visit clock there now. */
+export type MeshVisitConversationResult =
+  { ok: true; workspaceId: string; lastVisitedAt: number } | { ok: false; code: string; message: string }
 
 /**
  * A pairing we have ASKED for and are waiting on, as a window sees
@@ -277,6 +297,10 @@ export const TAILNET_FORGET_MACHINE_CHANNEL = 'tailnet:forget-machine'
 export const MESH_BROWSE_CHANNEL = 'mesh:browse'
 /** Start a chat agent on a paired machine, over its `conversation.create`. */
 export const MESH_CREATE_CONVERSATION_CHANNEL = 'mesh:create-conversation'
+/** Settle a chat on a paired machine, or bring it back, over its `conversation.settle`. */
+export const MESH_SETTLE_CONVERSATION_CHANNEL = 'mesh:settle-conversation'
+/** Say a chat on a paired machine is on screen here, over its `conversation.visit`. */
+export const MESH_VISIT_CONVERSATION_CHANNEL = 'mesh:visit-conversation'
 /** One remote workspace's checkout facts (branch, branches, worktrees) over `workspace.checkout`. */
 export const MESH_WORKSPACE_CHECKOUT_CHANNEL = 'mesh:workspace-checkout'
 
@@ -313,8 +337,8 @@ export type MeshConversationAccess = 'read' | 'operate'
 /** One conversation on one paired machine. The ids are that machine's own. */
 export type MeshConversationKey = { connectionId: string; workspaceId: string; agentId: string }
 
-/** A conversation as that machine lists it. */
-export type MeshConversation = ConversationWireThread
+/** A conversation as that machine lists it, with the members its protocol version keeps. */
+export type MeshConversation = ConversationThread
 
 export type MeshConversationLink = {
   type: 'link'
@@ -336,6 +360,11 @@ export type MeshConversationFrame = ConversationSessionFrame | MeshConversationL
  * `permissionModes`: the machine advertises `conversation-permission-modes` —
  * its chats run on `manual` and `auto` too. False for a machine that reads
  * those as `none`, where only `none` and `bypass` are offered.
+ *
+ * `lifecycle`: the machine advertises `conversation-lifecycle` — its list
+ * leaves out settled chats and names their titles and clocks, and it takes
+ * `conversation.settle` and `conversation.visit`. False for a machine that
+ * does not, whose chats offer no Settle here.
  */
 export type MeshConversationListResult =
   | {
@@ -344,6 +373,7 @@ export type MeshConversationListResult =
       access: MeshConversationAccess
       modelSwitch: boolean
       permissionModes?: boolean
+      lifecycle?: boolean
     }
   | { ok: false; code: string; message: string }
 

@@ -8,6 +8,7 @@ import {
   type ConversationWireModels,
 } from '../../../../packages/conversation-protocol/src/public'
 import { isPlaceholderAgentName } from '../../../shared/agent-names'
+import { isSettledWorkspace, workspaceLastUserMessageAt } from '../../../shared/workspace-lifecycle'
 import type {
   ConversationKey,
   ConversationImageAttachment,
@@ -212,6 +213,88 @@ export type ConversationListMarks = {
   selfMachine?: () => { kind: string; color: string }
 }
 
+const restingRecord = (record: ConversationListWorkspace | null): boolean =>
+  record !== null && isSettledWorkspace(record)
+
+const epoch = (value: number | null | undefined): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0
+
+/**
+ * When a chat's agent last finished a turn: the later of what its transcript
+ * says (the thread index, which keeps it across a restart and for turns that
+ * ended before it was kept) and what any session this run held for it read
+ * off the same events. Never `updatedAt`, which a rename, a session starting
+ * or stopping, or a usage report moves too.
+ */
+function turnEndOf(
+  key: { workspaceId: string; agentId: string },
+  sessions: readonly ConversationSessionSummary[],
+  indexed: number | undefined,
+): number | undefined {
+  let latest = epoch(indexed) ? indexed : undefined
+  for (const session of sessions) {
+    if (session.workspaceId !== key.workspaceId || session.agentId !== key.agentId) continue
+    if (epoch(session.lastTurnEndedAt) && session.lastTurnEndedAt > (latest ?? -1)) latest = session.lastTurnEndedAt
+  }
+  return latest
+}
+
+/** A listed chat's lifecycle members, each left out when there is nothing true to say. */
+function lifecycleOf(
+  record: ConversationListWorkspace | null,
+  lastTurnEndedAt: number | undefined,
+): Pick<ConversationThread, 'chatTitle' | 'lastUserMessageAt' | 'lastTurnEndedAt' | 'lastVisitedAt'> {
+  const chatTitle = record?.name.trim()
+  return {
+    ...(chatTitle ? { chatTitle } : {}),
+    ...(epoch(record?.lastUserMessageAt) ? { lastUserMessageAt: record.lastUserMessageAt } : {}),
+    ...(lastTurnEndedAt !== undefined ? { lastTurnEndedAt } : {}),
+    ...(epoch(record?.lastVisitedAt) ? { lastVisitedAt: record.lastVisitedAt } : {}),
+  }
+}
+
+/**
+ * What this desktop's own record of a chat says about it, as a listed chat
+ * carries it: the name its sidebar shows, whether it is resting, and the
+ * clocks the sidebar orders it and reads "finished, unseen" by.
+ */
+export type ConversationListWorkspace = {
+  name: string
+  createdAt: number
+  settledAt?: number | null
+  lastUserMessageAt?: number | null
+  lastTerminalActivityAt?: number | null
+  lastVisitedAt?: number | null
+}
+
+/**
+ * The desktop's chat records, which the conversation lane reads and writes
+ * through rather than keeping its own copy: the desktop is the one owner of a
+ * chat's rest and of when it was last written to and looked at, so a phone, a
+ * second desktop and the desktop's own sidebar can never disagree about them.
+ */
+export type ConversationRegistryLink = {
+  /** The record a workspace's chats belong to; null when the desktop has none for it. */
+  workspaceOf?: (workspaceId: string) => ConversationListWorkspace | null
+  /** A person sent one of the workspace's chats a message from a paired device. */
+  noteUserMessage?: (workspaceId: string, at: number) => void
+  /**
+   * The effort the chat's agent record keeps (a New chat's pick, or one
+   * changed in the chat since), which a window's chat view sends every turn
+   * with. A turn sent from here runs at it too, or a chat would switch effort
+   * each time the person moved between the phone and the desk.
+   */
+  reasoningEffortOf?: (key: { workspaceId: string; agentId: string }) => string | null | undefined
+  /**
+   * Writes a choice a paired device made for a chat to its agent record, as the
+   * chat view writes the person's own: the record is what the chat starts on
+   * after this desktop's tab remounts or the app restarts, and what its chip
+   * shows with no live session. Without it a phone's switch lasted only as long
+   * as the session it was applied to, and the next start put the old one back.
+   */
+  writeAgentChoice?: (key: { workspaceId: string; agentId: string }, patch: AgentChoicePatch) => void
+}
+
 /**
  * Both IPC and the network wrap this one session API; only root resolution
  * differs. `defaultPermissionPreset` answers for a conversation this app has
@@ -238,19 +321,7 @@ export function createConversationGatewayHost(
   agentName: (key: { workspaceId: string; agentId: string }) => string | null | undefined = () => null,
   modelCatalog: (providerId: string) => Promise<ConversationModelCatalog | null> = async () => null,
   marks: ConversationListMarks = {},
-  /**
-   * Writes a choice a paired device made for a chat to its agent record, as the
-   * chat view writes the person's own: the record is what the chat starts on
-   * after this desktop's tab remounts or the app restarts, and what its chip
-   * shows with no live session. Without it a phone's switch lasted only as long
-   * as the session it was applied to, and the next start put the old one back.
-   */
-  writeAgentChoice: (key: { workspaceId: string; agentId: string }, patch: AgentChoicePatch) => void = () => {},
-  // The effort the chat's agent record keeps (a New chat's pick, or one
-  // changed in the chat since), which a window's chat view sends every turn
-  // with. A turn sent from here runs at it too, or a chat would switch effort
-  // each time the person moved between the phone and the desk.
-  reasoningEffortOf: (key: { workspaceId: string; agentId: string }) => string | null | undefined = () => null,
+  registry: ConversationRegistryLink = {},
 ): ConversationGatewayHost {
   // A slot placeholder ("Agent 2", the record id) is not a name; the thread's
   // title says more than it does.
@@ -397,7 +468,7 @@ export function createConversationGatewayHost(
       ...(fingerprint ? { commandFingerprint: fingerprint } : {}),
     })
     if (!switched.ok) return { ok: false, message: switched.message }
-    writeAgentChoice(key, { conversation: { providerId: session.providerId, modelId } })
+    registry.writeAgentChoice?.(key, { conversation: { providerId: session.providerId, modelId } })
     return { ok: true, ...(switched.notice ? { notice: switched.notice } : {}) }
   }
   // The machine once per workspace, and the pull requests in one read of the
@@ -434,6 +505,25 @@ export function createConversationGatewayHost(
       }
     })
   }
+  // The record a chat belongs to, once per workspace per list. A failed read
+  // lists the chat as a desktop from before the record was read would: no
+  // lifecycle members, and nothing left out.
+  const recordsFor = () => {
+    const records = new Map<string, ConversationListWorkspace | null>()
+    return (workspaceId: string): ConversationListWorkspace | null => {
+      if (!registry.workspaceOf) return null
+      if (!records.has(workspaceId)) {
+        let found: ConversationListWorkspace | null = null
+        try {
+          found = registry.workspaceOf(workspaceId)
+        } catch {
+          found = null
+        }
+        records.set(workspaceId, found)
+      }
+      return records.get(workspaceId) ?? null
+    }
+  }
   return {
     async list() {
       const result = api.listSessions()
@@ -442,7 +532,11 @@ export function createConversationGatewayHost(
       // One catalog read per provider for the whole list.
       const catalogs = new Map<string, Promise<ConversationModelCatalog | null>>()
       const byId = new Map<string, ConversationThread>()
+      const recordOf = recordsFor()
       for (const workspace of listWorkspaces()) {
+        // A settled chat is not drawn in the desktop's own sidebar, so no list
+        // a paired device reads draws it either.
+        if (restingRecord(recordOf(workspace.workspaceId))) continue
         const indexed = await runtime.listThreads(workspace)
         if (!indexed.ok) continue
         for (const thread of indexed.threads) {
@@ -464,12 +558,17 @@ export function createConversationGatewayHost(
             ...permissionFor({ workspaceId: workspace.workspaceId, agentId: thread.agentId }, all),
             ...(models ? { models } : {}),
             ...(summary ? { sessionId: summary.sessionId, capabilities: wireCapabilities(summary) } : {}),
+            ...lifecycleOf(
+              recordOf(workspace.workspaceId),
+              turnEndOf({ workspaceId: workspace.workspaceId, agentId: thread.agentId }, all, thread.lastTurnEndedAt),
+            ),
           })
         }
       }
       for (const summary of live) {
         const id = `${summary.workspaceId}:${summary.agentId}`
         if (byId.has(id)) continue
+        if (restingRecord(recordOf(summary.workspaceId))) continue
         const models = await modelsFor(summary.providerId, summary, catalogs)
         byId.set(id, {
           workspaceId: summary.workspaceId,
@@ -486,9 +585,18 @@ export function createConversationGatewayHost(
           ...(models ? { models } : {}),
           sessionId: summary.sessionId,
           capabilities: wireCapabilities(summary),
+          ...lifecycleOf(recordOf(summary.workspaceId), turnEndOf(summary, all, undefined)),
         })
       }
-      const listed = [...byId.values()].map(wholeNumbers).sort((a, b) => b.updatedAt - a.updatedAt)
+      // In the order the desktop's sidebar draws them: by when the person last
+      // wrote to each, most recent first, never by what an agent is doing.
+      const orderOf = (thread: ConversationThread): number => {
+        const record = recordOf(thread.workspaceId)
+        return record ? workspaceLastUserMessageAt(record) : thread.updatedAt
+      }
+      const listed = [...byId.values()]
+        .map(wholeNumbers)
+        .sort((a, b) => orderOf(b) - orderOf(a) || b.updatedAt - a.updatedAt)
       return withMarks(listed)
     },
     ...(marks.selfMachine ? { machine: () => marks.selfMachine?.() ?? null } : {}),
@@ -595,7 +703,7 @@ export function createConversationGatewayHost(
         switch (command.kind) {
           case 'send': {
             // Only a level the chat's provider runs, as the chat view checks it.
-            const effort = reasoningEffortOf(key) ?? undefined
+            const effort = registry.reasoningEffortOf?.(key) ?? undefined
             const turnEffort =
               effort && session.capabilities?.reasoningEfforts?.includes(effort) ? { reasoningEffort: effort } : {}
             const ids = command.uploadIds ?? []
@@ -640,6 +748,11 @@ export function createConversationGatewayHost(
                 byteLength: bytes.length,
               })
             }
+            // A message from a paired device is the person speaking, as one
+            // typed here is: the chat moves up the desktop's own list, and every
+            // list ordered by that clock, at once. Stamped as it goes out, not
+            // when the send is answered, which is when its turn ends.
+            registry.noteUserMessage?.(key.workspaceId, Date.now())
             const sent = await api.send({
               sessionId: session.sessionId,
               commandId,
@@ -704,7 +817,7 @@ export function createConversationGatewayHost(
               ...stamp,
             })
             if (applied.ok)
-              writeAgentChoice(key, {
+              registry.writeAgentChoice?.(key, {
                 cliPermissionPreset: command.preset,
                 cliPermissionMode: permissionMode ?? undefined,
               })

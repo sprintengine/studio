@@ -33,6 +33,14 @@ export const CONVERSATION_PLANS_CAPABILITY = 'conversation-plans' as const
  * `permissionMode`.
  */
 export const CONVERSATION_CLI_PERMISSION_MODES_CAPABILITY = 'conversation-cli-permission-modes' as const
+/**
+ * The desktop owns each chat's rest and read state, and every client agrees
+ * with it: the list leaves out the chats it has settled, arrives in the order
+ * its sidebar draws them, and names each chat's `chatTitle`,
+ * `lastUserMessageAt`, `lastTurnEndedAt` and `lastVisitedAt`; and the gateway
+ * serves `conversation.settle` and `conversation.visit`.
+ */
+export const CONVERSATION_LIFECYCLE_CAPABILITY = 'conversation-lifecycle' as const
 
 /**
  * Every conversation capability this version of the package knows, in the
@@ -47,6 +55,7 @@ export const CONVERSATION_CAPABILITIES = [
   CONVERSATION_HELLO_CAPABILITY,
   CONVERSATION_PLANS_CAPABILITY,
   CONVERSATION_CLI_PERMISSION_MODES_CAPABILITY,
+  CONVERSATION_LIFECYCLE_CAPABILITY,
 ] as const
 
 export type ConversationCapability = (typeof CONVERSATION_CAPABILITIES)[number]

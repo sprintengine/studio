@@ -128,6 +128,16 @@ export const TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION = 1
  *   chat runs at its preset and the modes its provider runs, and
  *   `setPermissionPreset` takes a `permissionMode`. A machine without it drops
  *   the member and runs the preset's own mode.
+ *
+ * `conversation-lifecycle` (owner report 2026-10-05): this desktop is the one
+ * owner of whether a chat is settled and of whether its finish has been seen.
+ * The list leaves out settled chats, arrives in the order the sidebar draws
+ * them (by when the person last wrote to each), and names each chat's
+ * `chatTitle`, `lastUserMessageAt`, `lastTurnEndedAt` and `lastVisitedAt`;
+ * `conversation.settle` and `conversation.visit` settle a chat and say it was
+ * looked at. A client offers no Settle for a machine without it, and reads
+ * "finished, unseen" there by its own lights. The string is the protocol
+ * package's `CONVERSATION_LIFECYCLE_CAPABILITY`.
  */
 export const TAILNET_CAPABILITIES = [
   'events',
@@ -139,6 +149,7 @@ export const TAILNET_CAPABILITIES = [
   'conversation-hello',
   'conversation-plans',
   'conversation-cli-permission-modes',
+  'conversation-lifecycle',
   // A phone's New chat as this machine's own (2026-10-05). They name gateway
   // tools' arguments and answers, not the conversation lane, so they carry no
   // `conversation-` prefix and are not the protocol package's to list:

@@ -862,6 +862,14 @@ export type Workspace = {
   // parked chat with no live session, so it says when the agent finished
   // rather than when the person last typed — or nothing.
   lastTurnEndedAt?: number | null
+  // When a person last had this chat on screen, on any device: a window here
+  // that is focused and showing it, a phone, or another desktop following it
+  // (those two through the `conversation.visit` tool). Monotonic like the clocks
+  // above. A chat whose agent finished after this has a finish nobody has
+  // seen yet, and every device reads its "finished, unseen" mark from that one
+  // comparison, so reading a chat anywhere clears the mark everywhere. Absent
+  // until the first visit after this was kept.
+  lastVisitedAt?: number | null
   // When set, the chat has come to rest: it renders as a compact row in its
   // folder's Settled shelf rather than in the active list. Set by the
   // sidebar's reconcile sweep after three idle days, or by hand from the row

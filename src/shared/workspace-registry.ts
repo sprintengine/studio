@@ -395,6 +395,42 @@ export function parseWorkspaceRegistryRecord(raw: unknown): RecordParse {
   return { record }
 }
 
+/**
+ * Count every record with no visit clock as seen at `at`, and say how many
+ * that was.
+ *
+ * `lastVisitedAt` is what a paired phone and a second desktop read "finished,
+ * unseen" from, and nothing recorded visits before it existed. A record that
+ * predates it would otherwise read as never visited, and every chat whose
+ * agent ever finished a turn would come back from the upgrade marked unread,
+ * including the ones the person read on this desktop the day before. So the
+ * first load under this build counts everything before it as seen, once, and
+ * persists that. Records created since carry their own clock from birth
+ * (`stampWorkspaceVisitClockAtBirth`), so a later load finds nothing to seed
+ * and can never mark a chat seen that nobody has opened.
+ */
+export function seedWorkspaceVisitClocks(records: WorkspaceRegistryRecord[], at: number): number {
+  let seeded = 0
+  for (const record of records) {
+    if (typeof record.lastVisitedAt === 'number') continue
+    record.lastVisitedAt = at
+    seeded += 1
+  }
+  return seeded
+}
+
+/**
+ * A new chat's visit clock: its own creation. Nothing in it could have been
+ * seen before it existed, and a turn that ends after it is one nobody has
+ * looked at until someone opens it. Without a clock at birth the next load's
+ * seed would count the chat as read.
+ */
+export function stampWorkspaceVisitClockAtBirth(record: WorkspaceRegistryRecord, at: number): void {
+  if (typeof record.lastVisitedAt === 'number') return
+  record.lastVisitedAt =
+    typeof record.createdAt === 'number' && Number.isFinite(record.createdAt) ? record.createdAt : at
+}
+
 function normalizeFieldStamps(raw: unknown): WorkspaceRegistryFieldStamps {
   const stamps = emptyWorkspaceRegistryFieldStamps()
   if (!isRecord(raw)) return stamps

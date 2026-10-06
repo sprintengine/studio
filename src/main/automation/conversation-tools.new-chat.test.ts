@@ -4,6 +4,12 @@ import { test } from 'vitest'
 import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
 import { createConversationTools } from './conversation-tools'
 
+// conversation.create never touches a chat's rest or visit clock.
+const noLifecycle = {
+  settle: () => assert.fail('conversation.create does not settle'),
+  visit: () => assert.fail('conversation.create does not visit'),
+}
+
 // A phone's New chat: `worktree` and `effort` on conversation.create, checked
 // here and handed to the launch, which cuts the worktree and judges the level.
 
@@ -26,6 +32,7 @@ function create() {
       return LAUNCHED
     },
     resolveAgentPermissionPreset: () => 'bypass',
+    lifecycle: noLifecycle,
   })
   return { registration: registration!, requests }
 }
@@ -96,6 +103,7 @@ async function refusedWith(code: string) {
   const [registration] = createConversationTools({
     launch: async () => ({ ok: false, code, message: 'refused' }),
     resolveAgentPermissionPreset: () => 'bypass',
+    lifecycle: noLifecycle,
   })
   return registration!.handler({ workspaceId: 'ws-1', newChat: true, worktree: true, effort: 'max' })
 }

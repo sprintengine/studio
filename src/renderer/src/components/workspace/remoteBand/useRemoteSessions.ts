@@ -117,7 +117,13 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
                   ? []
                   : entry.conversations
               : entry.conversations
-            if (!result) return { ...entry, at: Date.now(), ...(conversations ? { conversations } : {}) }
+            // Whether the machine keeps its chats' rest, as its newest list said.
+            const lifecycle = listed?.ok ? listed.lifecycle === true : entry.lifecycle
+            const listedParts = {
+              ...(conversations ? { conversations } : {}),
+              ...(lifecycle !== undefined ? { lifecycle } : {}),
+            }
+            if (!result) return { ...entry, at: Date.now(), ...listedParts }
             return {
               // A machine that did not answer keeps its last rows; only an
               // answer replaces them.
@@ -125,7 +131,7 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
               loading: false,
               error: result.reachable ? null : (result.unreachableReason ?? 'Not answering.'),
               at: Date.now(),
-              ...(conversations ? { conversations } : {}),
+              ...listedParts,
             }
           }),
         )
