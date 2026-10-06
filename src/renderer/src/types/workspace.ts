@@ -448,6 +448,13 @@ export type AppSettings = {
    */
   terminalKeepRecentAlive: number
   /**
+   * Settle a chat once its pull requests have landed (Settings ▸ Settled
+   * chats), for chats with Auto-settle switched on (`autoSettleEnabled`). On
+   * by default: a merged pull request is the clearest sign a chat's work is
+   * done. See `pullRequestsLanded`.
+   */
+  settleOnPullRequestMerge: boolean
+  /**
    * Keep the app running when its last window closes, on every platform.
    * Off by default, which is byte-for-byte the rule before background mode existed:
    * quit on Windows/Linux, survive on macOS. On, the process stays up with a
@@ -641,7 +648,7 @@ export type WorkspacePaneTab = {
     repoRoot?: string
     focusPath: string | null
     focusKind: 'staged' | 'unstaged' | null
-    /** Filter the viewer to one changelist (`agent:<agentId>`); absent = all. */
+    /** Filter the viewer to one changelist (an agent's is `changelistOwnerId`); absent = all. */
     changelistId?: string
     /**
      * An agent's reveal (editor.open_diff), session-only — the normalizer
@@ -686,6 +693,12 @@ export type WorkspacePaneTab = {
   // window floating over the workspace is a confusing first frame, and the
   // spec only promises the RECT across restarts.
   floating?: boolean
+  // Shown in a window of its own: the id of the pop-out window holding it. The
+  // pane keeps the tab in its strip and draws a placeholder where the body
+  // would be; the pop-out window mounts the body instead. Session-only —
+  // partialize strips it, because the window does not survive a restart and a
+  // tab left marked would come back as a placeholder pointing at nothing.
+  poppedOut?: string
 }
 
 export type WorkspacePaneState = {
@@ -716,6 +729,15 @@ export type WorkspaceWorktree = {
    * container convention (`repoRootFromWorktreePath`).
    */
   repoRoot?: string
+  /**
+   * When the agent worktree cleanup gave this chat's worktree back: removed
+   * from disk once the chat had settled and its work was merged and clean,
+   * with its branch kept. Its absent folder is then expected rather than
+   * broken, and opening the chat checks the worktree out again from that
+   * branch at the same path (`utils/chatWorktreeRestore.ts`), which clears
+   * this. Absent on every worktree still on disk.
+   */
+  reclaimedAt?: number
 }
 
 /**
@@ -850,6 +872,11 @@ export type Workspace = {
   // the sweep would settle it straight back on its next tick. The sweep never
   // touches a row carrying either value.
   settledOverride?: 'settled' | 'active' | null
+  // The person switched Auto-settle on for this chat from its menu: three
+  // quiet days, or its pull requests landing, settles it without a hand
+  // Settle. Absent or null is the default, auto-settle OFF — a chat only ever
+  // leaves the list because someone asked it to.
+  autoSettleEnabled?: boolean | null
   // When set, the chat is asleep until this instant: it renders in its folder's
   // Snoozed shelf rather than in the active list, wearing the countdown to its
   // wake. Set from the row menu's Snooze presets; cleared by opening the chat,

@@ -32,6 +32,7 @@ import { BrowserViewMenu } from './BrowserViewMenu'
 import { BrowserRecordingIndicator } from './BrowserRecordingIndicator'
 import { useTabRecording } from './useTabRecording'
 import { buildBrowserElementBlock, normalizePickedElement, readPickTheme, sendTextToFocusedAgent } from './browserPick'
+import { usePaneHost } from '../paneHost'
 
 // The browser tab (browser-pane epic): a `<webview>` guest the renderer mounts
 // and main drives. The element is created once per tab and never re-keyed —
@@ -156,6 +157,7 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
   const registeredRef = useRef(false)
   const updatePaneTab = useWorkspaceStore((s) => s.updatePaneTab)
   const setPaneTabFloating = useWorkspaceStore((s) => s.setPaneTabFloating)
+  const paneHost = usePaneHost()
   const notePaneRecentUrl = useWorkspaceStore((s) => s.notePaneRecentUrl)
   const workspaceRoot = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
   const onMachine = useWorkspaceStore((s) => Boolean(s.workspaces.find((w) => w.id === workspaceId)?.environment))
@@ -567,13 +569,19 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
                 setViewport(viewport.mode === 'fill' ? presetViewport(DEFAULT_BROWSER_DEVICE_PRESET_ID) : FILL)
               }
               floating={tab.floating === true}
-              onToggleFloating={() => {
-                // The device frame is off while floating: a 360px player cannot
-                // honour a 390x844 viewport, and showing a cropped one would be
-                // a lie about what is being previewed.
-                if (tab.floating !== true && viewport.mode !== 'fill') setViewport(FILL)
-                setPaneTabFloating(workspaceId, tab.id, tab.floating !== true)
-              }}
+              // A pop-out window has no workspace beside it to float over; the
+              // window itself is already what floating was for.
+              onToggleFloating={
+                paneHost === 'pop-out'
+                  ? undefined
+                  : () => {
+                      // The device frame is off while floating: a 360px player
+                      // cannot honour a 390x844 viewport, and showing a cropped
+                      // one would be a lie about what is being previewed.
+                      if (tab.floating !== true && viewport.mode !== 'fill') setViewport(FILL)
+                      setPaneTabFloating(workspaceId, tab.id, tab.floating !== true)
+                    }
+              }
               onColorScheme={(scheme) => void window.api.browserSetColorScheme(tab.id, scheme)}
               onZoom={(direction) => void window.api.browserZoomStep(tab.id, direction)}
               onClearCookies={() => {

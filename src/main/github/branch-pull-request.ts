@@ -72,6 +72,8 @@ export type PullRequestStateRead =
       title?: string | null
       openedAt?: number | null
       number?: number | null
+      /** When it merged or closed; absent while open, or when GitHub did not say. */
+      endedAt?: number
     }
   | { settled: false; reason: PullRequestReadFailure }
 
@@ -168,6 +170,7 @@ export async function readPullRequestState(
     title,
     openedAt: parseTimestamp(json.createdAt),
     number: typeof json.number === 'number' && Number.isInteger(json.number) && json.number > 0 ? json.number : null,
+    ...optionalEndedAt(readEndedAt(json, state)),
   }
 }
 
@@ -305,12 +308,23 @@ function toBranchPullRequest(row: unknown, now: number): BranchPullRequest | nul
     isDraft: row.isDraft === true && state === 'open',
     openedAt: parseTimestamp(row.createdAt) ?? 0,
     stateAt: now,
+    ...optionalEndedAt(readEndedAt(row, state)),
     // The commit the head was at: what a merged pull request carried, so the
     // chat's "Create PR" can tell new work from work already landed.
     ...(typeof row.headRefOid === 'string' && /^[0-9a-f]{7,64}$/i.test(row.headRefOid)
       ? { headRefOid: row.headRefOid }
       : {}),
   }
+}
+
+/** When a pull request that is no longer open ended: its merge, else its close. */
+function readEndedAt(row: Record<string, unknown>, state: PullRequestState): number | null {
+  if (state === 'open') return null
+  return (state === 'merged' ? parseTimestamp(row.mergedAt) : null) ?? parseTimestamp(row.closedAt)
+}
+
+function optionalEndedAt(endedAt: number | null): { endedAt?: number } {
+  return endedAt === null ? {} : { endedAt }
 }
 
 function readState(row: Record<string, unknown>): PullRequestState | null {

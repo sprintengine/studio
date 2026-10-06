@@ -4,7 +4,7 @@ import type { WorkspaceId } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { EmptyState, GhostButton, OutlineButton } from '../ui'
-import { SettingCard, SettingsPageHeader } from './SettingsAtoms'
+import { SettingCard, SettingToggle, SettingsPageHeader } from './SettingsAtoms'
 import { createSettledChatsSelector, type SettledChatEntry } from './settledChatsModel'
 import { useStableCallback } from '../../hooks/useStableCallback'
 
@@ -29,6 +29,8 @@ export function SettledChatsSettingsTab({
 }): React.JSX.Element {
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   const setWorkspaceSettled = useWorkspaceStore((s) => s.setWorkspaceSettled)
+  const settleOnMerge = useWorkspaceStore((s) => s.appSettings.settleOnPullRequestMerge)
+  const setSettleOnMerge = useWorkspaceStore((s) => s.setSettleOnPullRequestMerge)
   // One clock for the visit: "settled 3d ago" does not need to tick while the
   // page is open, and a timer here would re-render the list for nothing.
   const [now] = useState(() => Date.now())
@@ -47,11 +49,19 @@ export function SettledChatsSettingsTab({
   return (
     <div role="tabpanel" id="settings-panel-settled-chats" aria-labelledby="settings-tab-settled-chats">
       <SettingsPageHeader title="Settled chats" meta={chats.length > 0 ? `${chats.length}` : undefined} />
+      <SettingCard className="mb-5">
+        <SettingToggle
+          label="Settle when its pull requests merge"
+          description="For chats with Auto-settle switched on from their menu: once every pull request is merged or closed, and at least one merged, the chat settles. Not if you wrote to it after the merge, and never while an agent in it is working. A settled chat's worktree is removed once its work is merged and clean, and checked out again from its branch when you come back."
+          enabled={settleOnMerge}
+          onChange={setSettleOnMerge}
+        />
+      </SettingCard>
       {chats.length === 0 ? (
         <EmptyState
           density="list"
           title="No settled chats."
-          body="A chat settles after three days without activity, or when you settle it from its menu."
+          body="A chat settles when you settle it from its menu. Switch on Auto-settle there and it also settles after three days without activity, or when its pull requests merge."
         />
       ) : (
         <SettingCard as="ul" ariaLabel="Settled chats">

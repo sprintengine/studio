@@ -289,9 +289,47 @@ export type GitWorktreeCreateInput = {
    * this profile releases its own lock once its records no longer use it.
    */
   agentLockOwner?: string
+  /**
+   * An agent's worktree, forked from the default branch: leased from the
+   * worktree pool (its path is then a pool slot's, not `destinationPath`), or
+   * created fresh from `origin/<default>` when there is no pool to lease from.
+   * `baseRef` is used only when the repository has no default branch at all.
+   */
+  fromPool?: boolean
   /** The machine whose git makes it (a WSL machine's); absent resolves from the folder. */
   hostId?: string
 }
+
+/** A created worktree, and what it was forked from. */
+export type GitWorktreeCreated = GitWorktreeEntry & {
+  /** The ref it was forked from, as the caller should record it (`origin/main`, `HEAD`). */
+  baseRef: string
+  /** Set when the worktree is a pool slot. */
+  leaseId: string | null
+}
+
+/**
+ * Check a chat's worktree out again at the path it had, on the branch it kept,
+ * after the agent worktree cleanup gave it back.
+ */
+export type GitWorktreeRestoreInput = {
+  repoRoot: string
+  path: string
+  branchName: string
+  copyIncludedFiles?: boolean
+  /** Lock it again as in use, naming this owner, as creation does. */
+  agentLockOwner?: string
+  /** The machine whose git makes it (a WSL machine's); absent resolves from the folder. */
+  hostId?: string
+}
+
+/**
+ * A restore's answer. A refusal marked `definitive` is one no retry changes
+ * (the branch was deleted, the path is not one of the app's worktrees); any
+ * other may succeed next time (the volume is back, the branch was freed).
+ */
+export type GitWorktreeRestoreResult =
+  GitWorktreeOperationResult<GitWorktreeEntry> | { ok: false; message: string; definitive: true }
 
 export type GitWorktreeRemoveInput = {
   repoRoot: string
@@ -322,6 +360,10 @@ export type GitCheckoutChange = {
  */
 export type AgentWorktreeCleanupVerdict =
   | 'removed'
+  /** A worktree pool slot nobody uses any more, detached and given back to the pool (its branch kept). */
+  | 'returned'
+  /** A worktree pool slot nobody uses that still holds work; held in the pool for a person to decide. */
+  | 'held'
   | 'dirty'
   | 'unmerged'
   | 'in-use'
@@ -357,6 +399,25 @@ export type AgentWorktreeCleanupInput = {
    * whose report they read, does not.
    */
   ownedOnly?: boolean
+  /**
+   * Every agent the app's records hold. A pool slot an agent leased for itself
+   * (MCP `worktree.lease`) is in use while its agent exists, wherever the
+   * agent's terminal sits. Left out: unknown, and every such slot is kept.
+   */
+  agentIds?: string[]
+  /**
+   * The same agents, each with its chat (`agentLeaseKey`): what a lease that
+   * records its agent's chat is matched against, since an agent id is unique
+   * only within its chat. Left out: unknown, and every such slot is kept.
+   */
+  agentKeys?: string[]
+  /**
+   * Branches the app's records still name (a chat's `worktree.branch`, a
+   * worktree entry's): never deleted, merged or not, because a chat whose
+   * worktree was given back is restored from its branch. Left out: unknown,
+   * and no branch is deleted.
+   */
+  keepBranches?: string[]
 }
 
 export type AgentWorktreeCleanupReport = {
@@ -364,6 +425,11 @@ export type AgentWorktreeCleanupReport = {
   /** The ref "merged" was measured against, e.g. `origin/main`. Null when none could be found. */
   defaultRef: string | null
   entries: AgentWorktreeCleanupEntry[]
+  /**
+   * `agent/` branches no worktree has checked out whose work is on the default
+   * branch: deleted (or, on a dry run, the ones that would be).
+   */
+  deletedBranches?: string[]
   dryRun: boolean
 }
 

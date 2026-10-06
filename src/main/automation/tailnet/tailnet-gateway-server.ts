@@ -1113,7 +1113,12 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         }
         if (frame.kind !== 'text') continue
         const text = frame.text
-        pending = pending.then(() => handleStreamMessage(session, text))
+        // One message that throws must not skip every message after it.
+        pending = pending
+          .then(() => handleStreamMessage(session, text))
+          .catch((error: unknown) => {
+            options.log?.(`tailnet stream message failed: ${message(error)}`)
+          })
       }
     }
 
@@ -1162,8 +1167,19 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       sendStream(session, jsonRpcErrorResponse(null, JSONRPC_PARSE_ERROR, 'Request is not valid JSON.'))
       return
     }
-    const answer = await handleMessage(parsed, session.context, device, null)
-    if (answer) sendStream(session, answer)
+    try {
+      const answer = await handleMessage(parsed, session.context, device, null)
+      if (answer) sendStream(session, answer)
+    } catch (error) {
+      // A request that failed past its handler (a result JSON cannot encode)
+      // is still answered, so the device is not left waiting on its id; a
+      // notification has no id to answer.
+      const id = (parsed as { id?: unknown } | null)?.id
+      if (typeof id === 'string' || typeof id === 'number') {
+        sendStream(session, jsonRpcErrorResponse(id, JSONRPC_INTERNAL_ERROR, 'The request failed.'))
+      }
+      throw error
+    }
   }
 
   function redeemTicket(ticket: string | null): TailnetDevice | null {
@@ -1261,7 +1277,11 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
           writeJson(response, 413, {
             error: { code: 'body_too_large', message: `Request body exceeds the ${maxBytes}-byte limit.` },
           })
-          await new Promise<void>((resolve) => response.once('finish', resolve))
+          // A client that hangs up first never lets the answer finish.
+          await new Promise<void>((resolve) => {
+            response.once('finish', resolve)
+            response.once('close', resolve)
+          })
           break
         }
         chunks.push(buffer)

@@ -368,6 +368,12 @@ export function createPreviewProxy(options: PreviewProxyOptions): PreviewProxy {
     lastUsed = now()
     void dial().then(
       (upstream) => {
+        // The page left while the dev server was being reached: nothing is
+        // there to pipe to, and the dev server's socket would be held open.
+        if (socket.destroyed) {
+          upstream.destroy()
+          return
+        }
         upgraded.add(socket)
         upgraded.add(upstream)
         const headers = forwardedHeaders(request.headers, true)

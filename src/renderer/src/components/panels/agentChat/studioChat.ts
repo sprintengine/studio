@@ -74,6 +74,10 @@ const messageOf = (error: unknown): string =>
       ? error.message
       : String(error)
 
+// How long the commands stream waits before following a client that replaced
+// one that closed, or retrying one that could not connect.
+const COMMANDS_FOLLOW_RETRY_MS = 2_000
+
 // Pictures go up a few at a time: each is several requests, and a send that
 // carries many must not crowd out the reads the rest of the window makes.
 const UPLOADS_AT_ONCE = 3
@@ -219,19 +223,51 @@ export function createStudioChatServices(client: ClientSource): ChatServices {
       onChanged: (listener) => {
         let stop: (() => void) | null = null
         let stopped = false
-        void client().then(
-          (connected) => {
-            if (stopped) return
-            stop = connected.subscribe(
-              'conversation.commands',
-              {},
-              { onPayload: (payload) => listener(payload as ConversationCommandCatalog) },
-            )
-          },
-          () => undefined,
-        )
+        let timer: ReturnType<typeof setTimeout> | null = null
+        const later = (run: () => void): void => {
+          if (stopped) return
+          timer = setTimeout(() => {
+            timer = null
+            run()
+          }, COMMANDS_FOLLOW_RETRY_MS)
+        }
+        // The window's client reconnects by itself and subscribes again; one
+        // that closed for good is replaced, and followed on its replacement.
+        // One parked (a refused ticket) is waited out without asking for it,
+        // which would wake it only to be refused again; a topic the Studio
+        // refuses for good is not asked for again.
+        const follow = (): void =>
+          void client().then(
+            (connected) => {
+              if (stopped) return
+              const waitOut = (): void => {
+                if (connected.state === 'parked') later(waitOut)
+                else if (connected.state === 'closed' || connected.state === 'open') follow()
+                else later(waitOut)
+              }
+              stop = connected.subscribe(
+                'conversation.commands',
+                {},
+                {
+                  onPayload: (payload) => listener(payload as ConversationCommandCatalog),
+                  onEnd: () => {
+                    stop = null
+                    // Read once the client has said why: a park or a close
+                    // ends its streams first and sets its state after.
+                    queueMicrotask(() => {
+                      if (connected.state === 'closed') later(follow)
+                      else if (connected.state !== 'open') later(waitOut)
+                    })
+                  },
+                },
+              )
+            },
+            () => later(follow),
+          )
+        follow()
         return () => {
           stopped = true
+          if (timer) clearTimeout(timer)
           stop?.()
         }
       },

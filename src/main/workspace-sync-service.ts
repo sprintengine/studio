@@ -610,6 +610,7 @@ const EDITABLE_FIELDS = [
   'memory',
   'settledAt',
   'settledOverride',
+  'autoSettleEnabled',
   'snoozedUntil',
   'highlight',
   'worktree',
@@ -625,6 +626,7 @@ const EDITABLE_FIELDS = [
 const FIELD_VALUE_CHECKS: Partial<Record<(typeof EDITABLE_FIELDS)[number], (value: unknown) => boolean>> = {
   settledAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
   settledOverride: (value) => value === null || value === 'settled' || value === 'active',
+  autoSettleEnabled: (value) => value === null || typeof value === 'boolean',
   snoozedUntil: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
   lastTerminalActivityAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
   lastUserMessageAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),

@@ -57,12 +57,16 @@ export const EMPTY_CHAT_TEMPLATE: LayoutTemplate = {
 }
 
 /**
- * The template a New chat is minted from, and the id of its one agent tab. A
- * chat main creates from it is the agent of that id, as one a window creates
- * is, so the tab and the agent record agree from the first event.
+ * The template a New chat is minted from, and the template's own name for its
+ * one agent. That name is a placeholder, never a chat's agent id: making a
+ * workspace from a template gives each of its agents a fresh id
+ * (`instantiateTemplateAgentIds`), so the agent ids in these layouts recur in
+ * no workspace. A caller that mints its agent first (main's new chat) names it
+ * for this placeholder, so the tab and the agent record agree from the first
+ * event.
  */
 export const SOLO_CHAT_TEMPLATE_ID = 'solo'
-export const SOLO_CHAT_AGENT_ID = 'agent-1'
+export const SOLO_CHAT_TEMPLATE_AGENT_ID = 'agent-1'
 
 export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
   {
@@ -75,7 +79,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
       borders: [],
       layout: {
         type: 'row',
-        children: [{ type: 'tabset', weight: 100, children: [agentTab(SOLO_CHAT_AGENT_ID, 'Agent')] }],
+        children: [{ type: 'tabset', weight: 100, children: [agentTab(SOLO_CHAT_TEMPLATE_AGENT_ID, 'Agent')] }],
       },
     },
   },

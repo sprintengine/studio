@@ -126,6 +126,7 @@ async function mountChat({
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+    MutationObserver: dom.window.MutationObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
   }
   Object.assign(globalThis, globals)
@@ -179,6 +180,7 @@ async function mountChat({
   const { createRoot } = await import('react-dom/client')
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')
   const { default: AgentChatView } = await import('../AgentChatView')
+  const { EditorView } = await import('@codemirror/view')
   const { composerDraftStore } = await import('./draftStore')
   composerDraftStore().getState().remove('workspace', 'agent')
   if (plugins)
@@ -213,7 +215,10 @@ async function mountChat({
     frames.at(-1)?.({ type: 'snapshot', page: { events, hasMore: false, beforeCursor: null } })
     frames.at(-1)?.({ type: 'synchronized', seq: events.at(-1)?.seq ?? 0 })
   })
-  const composer = () => host.querySelector('textarea')!
+  // The composer is an editor: its editable element takes the keys and the
+  // events, and the draft is the editor's document.
+  const field = () => host.querySelector<HTMLElement>('.cm-content')!
+  const editor = () => EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!
   return {
     dom,
     host,
@@ -222,14 +227,19 @@ async function mountChat({
     emit: (frame: ConversationSessionFrame) => frames.at(-1)?.(frame),
     button: (label: string) =>
       Array.from(host.querySelectorAll('button')).find((item) => item.textContent?.includes(label)),
+    field,
+    draft: () => editor().state.doc.toString(),
+    caret: () => editor().state.selection.main.head,
     type: (value: string) => {
-      Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(composer(), value)
-      composer().dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      const view = editor()
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: value },
+        selection: { anchor: value.length },
+        userEvent: 'input.type',
+      })
     },
     enter: () =>
-      composer().dispatchEvent(
-        new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-      ),
+      field().dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })),
     async unmount() {
       await act(async () => root.unmount())
       dom.window.close()
@@ -275,6 +285,25 @@ test('a turn goes out in the default mode: the chat has no plan toggle', async (
   }
 })
 
+test('a markdown draft is drawn formatted in the composer, and goes out as the markdown it was typed as', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn })
+  const draft = '# Handoff\n- Every worktree is **synced** with `main`'
+  try {
+    await chat.act(async () => chat.type(draft))
+    const lines = Array.from(chat.field().querySelectorAll('.cm-line'))
+    expect(lines[0].classList.contains('cm-md-heading'), 'the heading line is drawn as a heading').toBe(true)
+    expect(lines[0].textContent, 'its hashes are off the line while the caret is elsewhere').toBe('Handoff')
+    expect(lines[1].textContent).toBe('• Every worktree is synced with main')
+    expect(chat.field().querySelector('.cm-md-strong')?.textContent).toBe('synced')
+    expect(chat.field().querySelector('.cm-md-code')?.textContent).toBe('main')
+    await chat.act(async () => chat.enter())
+    expect(sendTurn.mock.calls[0][0]).toMatchObject({ message: draft })
+  } finally {
+    await chat.unmount()
+  }
+})
+
 test('the launcher’s prompt is sent as the first message the moment the chat is ready', async () => {
   const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
   const chat = await mountChat({ agent: { chatStartupPrompt: 'hi' }, sendTurn })
@@ -283,7 +312,7 @@ test('the launcher’s prompt is sent as the first message the moment the chat i
     expect(sendTurn).toHaveBeenCalledOnce()
     expect(sendTurn.mock.calls[0][0]).toMatchObject({ message: 'hi' })
     expect(chat.agent().chatStartupPrompt, 'one-shot: a remount never sends it twice').toBeUndefined()
-    expect(chat.host.querySelector('textarea')!.value, 'nothing is left in the composer for a second Enter').toBe('')
+    expect(chat.draft(), 'nothing is left in the composer for a second Enter').toBe('')
   } finally {
     await chat.unmount()
   }
@@ -350,7 +379,7 @@ test('a launcher image that is gone leaves the text as the draft, with the reaso
   try {
     await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
     expect(sendTurn).not.toHaveBeenCalled()
-    expect(chat.host.querySelector('textarea')!.value).toBe('It looks wrong')
+    expect(chat.draft()).toBe('It looks wrong')
     expect(chat.host.textContent).toContain('Could not attach Screenshot 2026-10-04 at 12.15.13.png')
   } finally {
     await chat.unmount()
@@ -660,7 +689,7 @@ test('⌘↵ mid-turn sends the draft now; a provider without steering stops the
     await chat.act(async () => chat.type('Stop, wrong branch'))
     expect(chat.host.textContent).not.toContain('Stop and send')
     await chat.act(async () => {
-      chat.host.querySelector('textarea')!.dispatchEvent(
+      chat.field().dispatchEvent(
         new chat.dom.window.KeyboardEvent('keydown', {
           key: 'Enter',
           metaKey: true,
@@ -672,7 +701,7 @@ test('⌘↵ mid-turn sends the draft now; a provider without steering stops the
     expect(interrupt).toHaveBeenCalledOnce()
     expect(turn.sendTurn, 'the draft waits in the queue for the stopped turn').toHaveBeenCalledOnce()
     expect(chat.button('Stop and send')).toBeDefined()
-    expect(chat.host.querySelector('textarea')!.value).toBe('')
+    expect(chat.draft()).toBe('')
   } finally {
     turn.release()
     await chat.unmount()
@@ -831,7 +860,7 @@ test('the drop overlay leaves with the drag, however many rows it crossed or los
   }
   const overlay = () => chat.host.textContent?.includes('Drop to attach')
   try {
-    const composer = chat.host.querySelector('textarea')!
+    const composer = chat.field()
     const inside = chat.host.querySelector('button')!
     // Two enters, as crossing a row and then the composer reports them, and
     // only one leave: the row was removed before it could report its own.
@@ -910,9 +939,7 @@ test('any file dropped from the OS is typed as its path, whether or not the prov
       event = dropOn(chat, transcript, drop)
     })
     expect(event!.defaultPrevented, 'the drop is claimed, not handed to the window').toBe(true)
-    expect(chat.host.querySelector('textarea')!.value).toBe(
-      "Summarise '/Users/dev/Desktop/Q3 budget.xlsx' /Users/dev/Desktop/shot.png ",
-    )
+    expect(chat.draft()).toBe("Summarise '/Users/dev/Desktop/Q3 budget.xlsx' /Users/dev/Desktop/shot.png ")
     expect(chat.host.textContent).not.toContain('can be attached')
   } finally {
     await chat.unmount()
@@ -922,7 +949,7 @@ test('any file dropped from the OS is typed as its path, whether or not the prov
 test('files dragged out of the Files pane are typed as their paths', async () => {
   const chat = await mountChat({ capabilities: { images: true } })
   try {
-    const composer = chat.host.querySelector('textarea')!
+    const composer = chat.field()
     const drop = dropTransfer(chat.dom.window as unknown as Window, {
       studioPaths: ['/Users/dev/project/src/app.ts', '/Users/dev/project/docs/logo.png'],
     })
@@ -937,7 +964,7 @@ test('files dragged out of the Files pane are typed as their paths', async () =>
       event = dropOn(chat, composer, drop)
     })
     expect(event!.defaultPrevented, "the field's own text drop does not type the paths twice").toBe(true)
-    expect(composer.value).toBe('/Users/dev/project/src/app.ts /Users/dev/project/docs/logo.png ')
+    expect(chat.draft()).toBe('/Users/dev/project/src/app.ts /Users/dev/project/docs/logo.png ')
   } finally {
     await chat.unmount()
   }
@@ -953,9 +980,9 @@ test('a pasted path to an image in the workspace is typed, not attached', async 
       value: { items: [], files: [], types: ['text/plain'], getData: () => '/Users/dev/project/public/logo.png' },
     })
     await chat.act(async () => {
-      chat.host.querySelector('textarea')!.dispatchEvent(paste)
+      chat.field().dispatchEvent(paste)
     })
-    expect(paste.defaultPrevented, 'the agent can open it itself').toBe(false)
+    expect(chat.draft(), 'the agent can open it itself').toBe('/Users/dev/project/public/logo.png')
     expect(readImageDataUrl).not.toHaveBeenCalled()
   } finally {
     await chat.unmount()
@@ -975,13 +1002,13 @@ test('a pasted image path that can no longer be read goes in as text, with the r
       value: { items: [], files: [], types: ['text/plain'], getData: () => pasted },
     })
     await chat.act(async () => {
-      chat.host.querySelector('textarea')!.dispatchEvent(paste)
+      chat.field().dispatchEvent(paste)
     })
     expect(paste.defaultPrevented, 'the path is read rather than typed').toBe(true)
     expect(readImageDataUrl).toHaveBeenCalledWith(
       '/var/folders/x1/T/TemporaryItems/Screenshot 2026-09-27 at 22.41.31.png',
     )
-    expect(chat.host.querySelector('textarea')!.value).toBe(pasted)
+    expect(chat.draft()).toBe(pasted)
     expect(chat.host.textContent).toContain(
       'Could not attach Screenshot 2026-09-27 at 22.41.31.png: the file no longer exists.',
     )
@@ -1000,11 +1027,11 @@ test('a send that fails offers Retry, which sends that message again and empties
     await chat.act(async () => chat.type('Rerun the migration'))
     await chat.act(async () => chat.enter())
     expect(chat.host.textContent).toContain('The provider is restarting.')
-    expect(chat.host.querySelector('textarea')!.value, 'the message is handed back').toBe('Rerun the migration')
+    expect(chat.draft(), 'the message is handed back').toBe('Rerun the migration')
     await chat.act(async () => chat.button('Retry')!.click())
     expect(sendTurn).toHaveBeenCalledTimes(2)
     expect(sendTurn.mock.calls[1][0]).toMatchObject({ message: 'Rerun the migration' })
-    expect(chat.host.querySelector('textarea')!.value).toBe('')
+    expect(chat.draft()).toBe('')
     expect(chat.button('Retry')).toBeUndefined()
   } finally {
     await chat.unmount()
@@ -1063,7 +1090,7 @@ test('Retry sends the failed message as it was, even after the composer was edit
     await chat.act(async () => chat.type('Something else entirely'))
     await chat.act(async () => chat.button('Retry')!.click())
     expect(sendTurn.mock.calls[1][0]).toMatchObject({ message: 'Rerun the migration' })
-    expect(chat.host.querySelector('textarea')!.value).toBe('Something else entirely')
+    expect(chat.draft()).toBe('Something else entirely')
   } finally {
     await chat.unmount()
   }
@@ -1084,7 +1111,7 @@ test('Retry after an edit takes the failed send’s images with it, so the next 
       value: { items: [], files: [], types: ['text/plain'], getData: () => '/Users/dev/Desktop/shot.png' },
     })
     await chat.act(async () => {
-      chat.host.querySelector('textarea')!.dispatchEvent(paste)
+      chat.field().dispatchEvent(paste)
     })
     expect(attached(), 'the pasted image is on the composer').not.toBeNull()
     await chat.act(async () => chat.type('What is wrong in this screenshot?'))
@@ -1093,7 +1120,7 @@ test('Retry after an edit takes the failed send’s images with it, so the next 
     await chat.act(async () => chat.type('Something else entirely'))
     await chat.act(async () => chat.button('Retry')!.click())
     expect(sendTurn.mock.calls[1][0]).toMatchObject({ message: 'What is wrong in this screenshot?' })
-    expect(chat.host.querySelector('textarea')!.value).toBe('Something else entirely')
+    expect(chat.draft()).toBe('Something else entirely')
     expect(attached(), 'the retry took the image').toBeNull()
   } finally {
     await chat.unmount()
@@ -1116,7 +1143,7 @@ test('an error that is not a failed send has no Retry', async () => {
       value: { items: [], files: [], types: ['text/plain'], getData: () => '/tmp/gone/Screenshot.png' },
     })
     await chat.act(async () => {
-      chat.host.querySelector('textarea')!.dispatchEvent(paste)
+      chat.field().dispatchEvent(paste)
     })
     expect(chat.host.textContent).toContain('Could not attach Screenshot.png')
     expect(chat.button('Retry'), 'nothing to send again').toBeUndefined()
@@ -1132,8 +1159,8 @@ test('Esc in the composer stops a running turn, and does nothing while the chat 
   const chat = await mountChat({ sendTurn: turn.sendTurn })
   ;(chat.dom.window as unknown as { api: Record<string, unknown> }).api.conversationSessionInterrupt = interrupt
   const escape = () =>
-    chat.host
-      .querySelector('textarea')!
+    chat
+      .field()
       .dispatchEvent(new chat.dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
   try {
     await chat.act(async () => escape())
@@ -1173,8 +1200,8 @@ test('Esc in the composer leaves a turn that is waiting on a request alone', asy
       })
     })
     await chat.act(async () =>
-      chat.host
-        .querySelector('textarea')!
+      chat
+        .field()
         .dispatchEvent(
           new chat.dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
         ),
@@ -1242,7 +1269,7 @@ async function mountCommandChat(sendTurn: SendTurn = async () => ({ ok: true }))
       ],
     }),
   })
-  const field = () => chat.host.querySelector('textarea')!
+  const { field } = chat
   const key = (name: string) =>
     chat.act(async () => {
       field().dispatchEvent(
@@ -1260,8 +1287,8 @@ test('picking a command from the / menu inserts it as text with the caret after 
     expect(chat.field().getAttribute('aria-expanded')).toBe('true')
     expect(chat.options().map((row) => row.textContent)).toEqual([expect.stringContaining('/review')])
     await chat.key('Enter')
-    expect(chat.field().value).toBe('/review ')
-    expect(chat.field().selectionStart).toBe('/review '.length)
+    expect(chat.draft()).toBe('/review ')
+    expect(chat.caret()).toBe('/review '.length)
     expect(chat.field().getAttribute('aria-expanded')).toBe('false')
     expect(chat.host.textContent).toContain('/review [pr-number]')
     await chat.act(async () => chat.type('/review 12'))
@@ -1278,7 +1305,7 @@ test('/model from the menu opens the model picker and leaves nothing to send', a
     await chat.act(async () => chat.type('/mod'))
     expect(chat.options()[0]?.textContent).toContain('/model')
     await chat.key('Enter')
-    expect(chat.field().value).toBe('')
+    expect(chat.draft()).toBe('')
     expect(chat.dom.window.document.querySelector('[role="listbox"][aria-label="Agent runtime"]')).not.toBeNull()
     expect(sendTurn).not.toHaveBeenCalled()
   } finally {
@@ -1291,7 +1318,7 @@ test('/effort from the menu steps the chat to its next effort', async () => {
   try {
     await chat.act(async () => chat.type('/eff'))
     await chat.key('Tab')
-    expect(chat.field().value).toBe('')
+    expect(chat.draft()).toBe('')
     expect(chat.agent().conversationReasoningEffort).toBe('low')
   } finally {
     await chat.unmount()
@@ -1329,7 +1356,7 @@ test('a sent picture’s bytes leave the view once the transcript has stored it,
       value: { items: [], files: [], types: ['text/plain'], getData: () => '/Users/dev/Desktop/shot.png' },
     })
     await chat.act(async () => {
-      chat.host.querySelector('textarea')!.dispatchEvent(paste)
+      chat.field().dispatchEvent(paste)
     })
     await chat.act(async () => chat.type('What is wrong here?'))
     await chat.act(async () => chat.enter())
@@ -1375,9 +1402,10 @@ test('a turn’s steps rest folded, the latest one included; its agents are card
       event('turn_completed', { turnId: 'fold-first' }),
     ],
   })
-  const openPaneTab = vi.fn()
+  const openPaneTab = vi.fn(() => 'agents-tab')
+  const setActivePaneTab = vi.fn()
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')
-  useWorkspaceStore.setState({ openPaneTab } as never)
+  useWorkspaceStore.setState({ openPaneTab, setActivePaneTab } as never)
   const fold = () => chat.button('Worked for')
   try {
     expect(fold()?.textContent, 'the agent is not one of the steps').toContain('1 step')
@@ -1390,7 +1418,8 @@ test('a turn’s steps rest folded, the latest one included; its agents are card
     expect(card?.textContent).toContain('Explore agent')
     expect(card?.textContent).toContain('Map the test suites')
     await chat.act(async () => card!.click())
-    expect(openPaneTab).toHaveBeenCalledWith('workspace', { kind: 'agents' })
+    expect(openPaneTab).toHaveBeenCalledWith('workspace', { kind: 'agents', activate: false })
+    expect(setActivePaneTab, 'a docked Agents tab is shown in the pane').toHaveBeenCalledWith('workspace', 'agents-tab')
     await chat.act(async () => fold()!.click())
     expect(chat.host.textContent, 'opened, the fold shows the steps').toContain('a.ts')
   } finally {
@@ -1421,7 +1450,7 @@ test('a replay plays the conversation back a reply at a time, stopping on each m
     })
   try {
     // Started from the palette while the person is in the composer.
-    const composer = chat.host.querySelector('textarea')!
+    const composer = chat.field()
     composer.focus()
     await chat.act(async () => {
       chat.dom.window.dispatchEvent(
@@ -1434,7 +1463,7 @@ test('a replay plays the conversation back a reply at a time, stopping on each m
     expect(shown()).toContain('1/2')
     expect(replay()!.contains(chat.dom.window.document.activeElement)).toBe(true)
     // The live chat stays mounted underneath, out of reach.
-    expect(chat.host.querySelector('textarea')!.closest('[inert]')).not.toBeNull()
+    expect(chat.field().closest('[inert]')).not.toBeNull()
 
     // Space plays the reply and stops on the next message.
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })

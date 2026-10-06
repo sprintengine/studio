@@ -111,10 +111,24 @@ export function createWebSocketFrameDecoder(
   // Payload bytes of a skipped message still to arrive and be discarded.
   let skipping = 0
   const hardLimit = Math.max(maxMessageBytes, skipOversizedTextUpTo)
+  // A frame still arriving is gathered in its chunks and joined once it is
+  // whole: joined on every chunk, a message of megabytes in network-sized
+  // pieces is copied hundreds of times over, holding the event loop.
+  let waiting: Buffer[] = []
+  let waitingBytes = 0
+  let needed = 0
 
   return {
     push(chunk: Buffer): WebSocketDecodeResult {
-      buffer = buffer.length === 0 ? chunk : Buffer.concat([buffer, chunk])
+      if (needed > 0 && buffer.length + waitingBytes + chunk.length < needed) {
+        waiting.push(chunk)
+        waitingBytes += chunk.length
+        return { kind: 'frames', frames: [] }
+      }
+      buffer = buffer.length === 0 && waiting.length === 0 ? chunk : Buffer.concat([buffer, ...waiting, chunk])
+      waiting = []
+      waitingBytes = 0
+      needed = 0
       const frames: WebSocketFrame[] = []
       for (;;) {
         if (skipping > 0) {
@@ -193,7 +207,10 @@ export function createWebSocketFrameDecoder(
           skipping = length
           continue
         }
-        if (buffer.length < offset + maskLength + length) return { kind: 'frames', frames }
+        if (buffer.length < offset + maskLength + length) {
+          needed = offset + maskLength + length
+          return { kind: 'frames', frames }
+        }
 
         const mask = masked ? buffer.subarray(offset, offset + 4) : null
         offset += maskLength

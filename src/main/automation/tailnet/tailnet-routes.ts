@@ -139,6 +139,19 @@ export const TAILNET_CAPABILITIES = [
   'conversation-hello',
   'conversation-plans',
   'conversation-cli-permission-modes',
+  // A phone's New chat as this machine's own (2026-10-05). They name gateway
+  // tools' arguments and answers, not the conversation lane, so they carry no
+  // `conversation-` prefix and are not the protocol package's to list:
+  // `conversation.create` takes `worktree` (a new chat in a worktree of its
+  // own, cut as New chat here cuts one) and `effort` (a level of the CLI's,
+  // kept on the chat); `cli.runtime.list` answers each CLI with a `catalog`,
+  // the model picker's own rows. A client that does not see one leaves the
+  // matching control off: an older desktop's handler skips an argument it
+  // does not know, so a `worktree` sent there would start the chat in the
+  // checkout the person asked to keep clean, with nothing said about it.
+  'new-chat-worktree',
+  'new-chat-effort',
+  'cli-runtime-catalog',
 ] as const
 
 export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]

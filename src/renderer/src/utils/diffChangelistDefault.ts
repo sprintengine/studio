@@ -19,22 +19,37 @@
 
 import { changelistOwnerId, type Changelist } from '../../../shared/git/changelists'
 
-/** The one field of a workspace this decision rests on. Structural rather than
- *  `Workspace`, so the test can state its input in a line. */
-export type LastActiveAgentSource = { lastActiveAgentId?: string | null }
+/** The two fields of a workspace this decision rests on. Structural rather than
+ *  `Workspace`, so the test can state its input in a line. The id is needed as
+ *  much as the agent: `agent-1` is the first agent of nearly every chat, and the
+ *  list is this chat's `agent-1`'s, not the one another chat left behind. */
+export type LastActiveAgentSource = { id: string; lastActiveAgentId?: string | null }
 
 /**
- * `agent:<lastActiveAgentId>` when the repository really has that list, else
+ * The last-active agent's list when the repository really has it, else
  * null. Null is not a failure — it is "all changes", which is the right answer
  * for a workspace with no agent, an agent that has committed everything, and a
  * repository whose lists have not been read yet.
+ *
+ * `launchWorkspaceId` is the workspace that agent's process was launched in,
+ * when its session says so. An agent dragged in from another chat keeps its
+ * process, and its list is filed under the chat that process names
+ * (`agent-changelist-feed.ts`), so that list is looked for first; this chat's
+ * is the answer once the agent is resumed here and starts a list of its own.
  */
 export function defaultDiffChangelistId(
   workspace: LastActiveAgentSource | null | undefined,
   changelists: Changelist[] | null | undefined,
+  launchWorkspaceId?: string | null,
 ): string | null {
-  const agentId = workspace?.lastActiveAgentId
+  if (!workspace) return null
+  const agentId = workspace.lastActiveAgentId
   if (typeof agentId !== 'string' || agentId.trim().length === 0) return null
-  const id = changelistOwnerId(agentId)
-  return (changelists ?? []).some((list) => list.id === id) ? id : null
+  const lists = changelists ?? []
+  for (const workspaceId of [launchWorkspaceId?.trim() || null, workspace.id]) {
+    if (!workspaceId) continue
+    const id = changelistOwnerId({ workspaceId, agentId })
+    if (lists.some((list) => list.id === id)) return id
+  }
+  return null
 }

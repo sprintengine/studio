@@ -15,6 +15,10 @@ import {
   toPosixPath,
 } from './git-utils'
 import { listGitWorktrees } from './git-worktree-list'
+import { activeWorktreePool } from './worktree-pool/active-pool'
+import { defaultSlotGitRunner, resolveAgentForkBase } from './worktree-pool/slot-git'
+import { withWorktreeRegistryLock } from './worktree-registry-lock'
+import { repoRootFromWorktreePath, WORKTREE_CONTAINER_DIR, worktreeContainerPath } from '../shared/worktree-paths'
 import {
   resolveRepoRoot,
   resolveWorktreeDestination,
@@ -202,7 +206,46 @@ export type GitWorktreeCreateInput = {
    * records no longer use the worktree.
    */
   agentLockOwner?: string
+  /**
+   * An agent's worktree, forked from the default branch: leased from the
+   * worktree pool when this process has one (its path is then a pool slot's,
+   * not `destinationPath`), otherwise created fresh at `destinationPath` from
+   * `origin/<default>` as fetched now. `baseRef` is used only when the
+   * repository has no default branch at all. Needs an `agent/` branch.
+   */
+  fromPool?: boolean
+  /** The machine whose git makes it (a WSL machine's); absent resolves from the folder. */
+  hostId?: string
 }
+
+/** A created worktree, and what it was forked from. */
+export type GitWorktreeCreated = GitWorktreeEntry & {
+  /** The ref it was forked from, as the caller should record it (`origin/main`, `HEAD`). */
+  baseRef: string
+  /** Set when the worktree is a pool slot: the lease to give back if the launch fails. */
+  leaseId: string | null
+}
+
+/**
+ * Check a worktree out again, at the path it had, on the branch it kept: the
+ * way back to a chat whose worktree the agent worktree cleanup gave back.
+ */
+export type GitWorktreeRestoreInput = {
+  repoRoot: string
+  path: string
+  branchName: string
+  copyIncludedFiles?: boolean
+  /** As on {@link GitWorktreeCreateInput}: the restored worktree is locked again, for this owner. */
+  agentLockOwner?: string
+}
+
+/**
+ * A restore's answer. A refusal marked `definitive` is one no retry changes
+ * (the branch was deleted, the path is not one of the app's worktrees); any
+ * other may succeed next time (the volume is back, the branch was freed).
+ */
+export type GitWorktreeRestoreResult =
+  GitWorktreeOperationResult<GitWorktreeEntry> | { ok: false; message: string; definitive: true }
 
 export type GitWorktreeRemoveInput = {
   repoRoot: string
@@ -255,7 +298,7 @@ async function explainBranchConflict(
  * Copy the repository's `.worktreeinclude` set into a worktree this module has
  * just created. `repoRoot` is already git's resolved root.
  */
-async function seedWorktreeIncludedFiles(
+export async function seedWorktreeIncludedFiles(
   repoRoot: string,
   worktreePath: string,
 ): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> {
@@ -353,7 +396,8 @@ async function seedWorktreeIncludedFiles(
  */
 export async function createGitWorktree(
   input: GitWorktreeCreateInput,
-): Promise<GitWorktreeOperationResult<GitWorktreeEntry>> {
+): Promise<GitWorktreeOperationResult<GitWorktreeCreated>> {
+  if (input.fromPool && input.branchName.startsWith('agent/')) return createAgentWorktreeFromPool(input)
   const root = await resolveRepoRoot(input.repoRoot)
   if (!root.ok) return root
 
@@ -374,14 +418,9 @@ export async function createGitWorktree(
   }
 
   await mkdir(toFilesystemPath(destination.data.containerPath), { recursive: true })
-  const addResult = await runGitCommand(root.data, [
-    'worktree',
-    'add',
-    '-b',
-    branch.data,
-    destination.data.destinationPath,
-    baseRef.data,
-  ])
+  const addResult = await withWorktreeRegistryLock(root.data, () =>
+    runGitCommand(root.data, ['worktree', 'add', '-b', branch.data, destination.data.destinationPath, baseRef.data]),
+  )
 
   if (!addResult.ok) {
     return {
@@ -395,36 +434,49 @@ export async function createGitWorktree(
     }
   }
 
+  const finished = await finishAddedWorktree(root.data, destination.data.destinationPath, input, addResult)
+  return finished.ok ? { ...finished, data: { ...finished.data, baseRef: baseRef.data, leaseId: null } } : finished
+}
+
+/**
+ * What follows a successful `worktree add`, for a new worktree and a restored
+ * one alike: the in-use lock, the `.worktreeinclude` seeding, and the entry as
+ * git lists it.
+ */
+async function finishAddedWorktree(
+  repoRoot: string,
+  worktreePath: string,
+  input: { agentLockOwner?: string; copyIncludedFiles?: boolean },
+  addResult: GitCommandResult,
+): Promise<GitWorktreeOperationResult<GitWorktreeEntry>> {
   if (input.agentLockOwner) {
     // Straight after the add, before the seeding copies anything in: from here
     // on no other Studio profile's cleanup will remove it. A lock that fails is
     // logged, not fatal; the cleanup's age guard still covers a new worktree.
-    const locked = await lockAgentWorktree(root.data, destination.data.destinationPath, input.agentLockOwner)
+    const locked = await lockAgentWorktree(repoRoot, worktreePath, input.agentLockOwner)
     if (!locked.ok) {
-      console.warn(
-        `[git] could not lock agent worktree ${destination.data.destinationPath}: ${locked.message ?? locked.stderr}`,
-      )
+      console.warn(`[git] could not lock agent worktree ${worktreePath}: ${locked.message ?? locked.stderr}`)
     }
   }
 
   if (input.copyIncludedFiles) {
-    // Just created by the add above, so it is registered and on disk: the
-    // seeding skips the checks it runs for a worktree someone else named.
-    const copyResult = await seedWorktreeIncludedFiles(root.data, destination.data.destinationPath)
+    // Just created by the add, so it is registered and on disk: the seeding
+    // skips the checks it runs for a worktree someone else named.
+    const copyResult = await seedWorktreeIncludedFiles(repoRoot, worktreePath)
     if (!copyResult.ok) return copyResult
   }
 
-  const nextWorktrees = await listGitWorktrees(root.data, { resolvedRoot: true })
+  const nextWorktrees = await listGitWorktrees(repoRoot, { resolvedRoot: true })
   if (!nextWorktrees.ok) return nextWorktrees
 
   const createdWorktree = nextWorktrees.data.worktrees.find(
-    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(destination.data.destinationPath),
+    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath),
   )
 
   if (!createdWorktree) {
     return {
       ok: false,
-      message: `Git created the worktree, but it was not reported by "git worktree list": ${destination.data.destinationPath}`,
+      message: `Git created the worktree, but it was not reported by "git worktree list": ${worktreePath}`,
       stdout: addResult.stdout,
       stderr: addResult.stderr,
     }
@@ -437,6 +489,253 @@ export async function createGitWorktree(
     stdout: addResult.stdout,
     stderr: addResult.stderr,
   }
+}
+
+/**
+ * An agent worktree on the default branch: a pool slot when this process keeps
+ * a pool (worktree-pool/), else a fresh worktree forked from the same ref.
+ *
+ * The pool declining is never the caller's problem — another Studio holds it,
+ * the repository is on a WSL machine, the pool is off — and the fresh worktree
+ * is what the caller would have got before there was a pool. A name the branch
+ * cannot take is the caller's, and is reported as the fresh path would.
+ */
+async function createAgentWorktreeFromPool(
+  input: GitWorktreeCreateInput,
+): Promise<GitWorktreeOperationResult<GitWorktreeCreated>> {
+  const pool = activeWorktreePool()
+  if (pool) {
+    const leased = await pool.lease({
+      repoRoot: input.repoRoot,
+      name: input.branchName.slice('agent/'.length),
+      owner: input.agentLockOwner ?? null,
+      hostId: input.hostId ?? null,
+      copyIncludedFiles: input.copyIncludedFiles === true,
+    })
+    if (leased.ok) {
+      const listed = await listGitWorktrees(leased.path)
+      const entry = listed.ok
+        ? listed.data.worktrees.find(
+            (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(leased.path),
+          )
+        : undefined
+      if (entry) {
+        return { ok: true, data: { ...entry, baseRef: leased.baseRef, leaseId: leased.leaseId }, message: null }
+      }
+      // Leased, yet git does not list it: give it straight back rather than
+      // hand out a path nobody can account for.
+      await pool.release(leased.leaseId)
+      console.warn(`[git] pool worktree ${leased.path} is not listed by git; creating a fresh worktree`)
+    } else if (leased.reason === 'branch-exists' || leased.reason === 'invalid-name') {
+      return { ok: false, message: leased.message }
+    } else if (leased.reason !== 'disabled' && leased.reason !== 'unsupported') {
+      console.info(`[git] worktree pool declined (${leased.reason}: ${leased.message}); creating a fresh worktree`)
+    }
+  }
+  const root = await resolveRepoRoot(input.repoRoot)
+  if (!root.ok) return root
+  const forkBase = await resolveAgentForkBase(defaultSlotGitRunner, root.data)
+  return createGitWorktree({ ...input, fromPool: false, baseRef: forkBase ?? input.baseRef })
+}
+
+// One restore per worktree path at a time; see restoreGitWorktree.
+const restoresInFlight = new Map<string, Promise<GitWorktreeRestoreResult>>()
+
+/**
+ * Bring a chat's worktree back: `git worktree add <path> <branch>`, at the path
+ * the chat records, on the branch it was cut onto — no `-b`, the branch is the
+ * one thing the cleanup keeps (agent-worktree-cleanup.ts). Locked and seeded
+ * from `.worktreeinclude` exactly as when it was first made, so the chat comes
+ * back to the checkout it left, its untracked setup files included.
+ *
+ * Every refusal is worded for the person, because it is shown to them as the
+ * reason their chat opened without its folder: the branch is gone, something
+ * else now sits at the path, or the branch is checked out somewhere else.
+ *
+ * A worktree already back at that path on that branch (another window restored
+ * it first) is answered as success, so a second caller never reads its own
+ * race as a failure. Two windows asking at once share one restore, and an add
+ * that loses a race git saw first is answered from the listing after it.
+ */
+export function restoreGitWorktree(input: GitWorktreeRestoreInput): Promise<GitWorktreeRestoreResult> {
+  const key = typeof input?.path === 'string' ? normalizeComparablePath(input.path) : ''
+  const pending = restoresInFlight.get(key)
+  if (pending) return pending
+  const run = restoreGitWorktreeOnce(input).finally(() => restoresInFlight.delete(key))
+  restoresInFlight.set(key, run)
+  return run
+}
+
+async function restoreGitWorktreeOnce(input: GitWorktreeRestoreInput): Promise<GitWorktreeRestoreResult> {
+  // Only ever a worktree in the app's own container: the cleanup reclaims
+  // nothing else, so nothing else has a reason to come back this way. Named
+  // whole, with no `.` or `..` to climb out of it.
+  const notOurs = {
+    ok: false as const,
+    definitive: true as const,
+    message: `${input.path} is not one of the app's worktrees, so it is not recreated.`,
+  }
+  const derivedRoot = typeof input.path === 'string' ? containedWorktreeRepoRoot(input.path) : null
+  if (!derivedRoot) return notOurs
+
+  const root = await resolveRepoRoot(input.repoRoot)
+  if (!root.ok) {
+    return {
+      ok: false,
+      message: `The project this worktree was cut from is no longer a git repository: ${input.repoRoot}`,
+    }
+  }
+
+  // And in THIS project's container, as creation puts it: the container next
+  // to the repository git names, however the chat spelled that repository.
+  if (!(await isRepoTopLevel(derivedRoot, root.data))) return notOurs
+  const destination = resolveWorktreeDestination(worktreeContainerPath(derivedRoot), input.path)
+  if (!destination.ok) return notOurs
+  const worktreePath = destination.data.destinationPath
+
+  const branch = await validateBranchName(root.data, input.branchName)
+  if (!branch.ok) return branch
+
+  // A worktree pool slot the cleanup handed back is still on disk: the pool
+  // checks the chat's branch out in it again, or says why it cannot.
+  const pool = activeWorktreePool()
+  if (pool) {
+    await pool.load()
+    if (pool.ownsPath(worktreePath)) {
+      const reclaimed = await pool.reclaim({
+        path: worktreePath,
+        branch: branch.data,
+        owner: input.agentLockOwner ?? branch.data,
+      })
+      if (reclaimed && !reclaimed.ok) {
+        return reclaimed.definitive
+          ? { ok: false, definitive: true, message: reclaimed.message }
+          : { ok: false, message: reclaimed.message }
+      }
+      if (reclaimed?.ok) {
+        const back = await listGitWorktrees(root.data, { resolvedRoot: true })
+        if (!back.ok) return back
+        const entry = back.data.worktrees.find(
+          (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath),
+        )
+        if (entry) return { ok: true, data: entry, message: null }
+      }
+    }
+  }
+
+  let listed = await listGitWorktrees(root.data, { resolvedRoot: true })
+  if (!listed.ok) return listed
+  const listedAt = (worktrees: GitWorktreeEntry[]): GitWorktreeEntry | undefined =>
+    worktrees.find((worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath))
+  let atPath = listedAt(listed.data.worktrees)
+  if (atPath && (await pathExists(worktreePath))) {
+    if (atPath.branch === branch.data) return { ok: true, data: atPath, message: null }
+    return {
+      ok: false,
+      message: `Another worktree is at ${worktreePath} now, on ${atPath.branch ?? 'a detached HEAD'}, so this one cannot be recreated there.`,
+    }
+  }
+  if (atPath) {
+    // Git still lists the worktree, but its folder is gone: the sweep removed
+    // it without git hearing, or a person deleted the folder. This profile's
+    // own entry is cleared, alone (`worktree remove` of a missing folder,
+    // not a prune of every missing one); another profile's lock, or one put
+    // on by hand, is not the app's to lift.
+    const ownEntry = !atPath.locked || atPath.agentLock === 'this-profile'
+    const cleared =
+      ownEntry &&
+      (!atPath.locked || (await unlockWorktree(root.data, atPath.path)).ok) &&
+      (await runGitCommand(root.data, ['worktree', 'remove', atPath.path])).ok
+    if (cleared) {
+      listed = await listGitWorktrees(root.data, { resolvedRoot: true })
+      if (!listed.ok) return listed
+      atPath = listedAt(listed.data.worktrees)
+    }
+    if (atPath) {
+      return {
+        ok: false,
+        message: `Git still lists a worktree at ${worktreePath} whose folder is gone. Prune worktrees from the Worktree manager, then open the chat again.`,
+      }
+    }
+  }
+  if (await pathExists(worktreePath)) {
+    return {
+      ok: false,
+      message: `Something else is at ${worktreePath} now, so the worktree cannot be recreated there.`,
+    }
+  }
+
+  // Listed rather than verified: `rev-parse --verify` fails the same way for a
+  // missing branch and a git that did not answer, and only the first is final.
+  const heads = await runGitCommand(root.data, ['for-each-ref', '--format=%(refname)', `refs/heads/${branch.data}`])
+  if (!heads.ok) {
+    return { ok: false, message: heads.message ?? `Could not look up branch "${branch.data}".` }
+  }
+  if (!heads.stdout.split(/\r?\n/).some((line) => line.trim() === `refs/heads/${branch.data}`)) {
+    return {
+      ok: false,
+      definitive: true,
+      message: `Branch "${branch.data}" no longer exists, so the worktree cannot be recreated.`,
+    }
+  }
+  const holder = listed.data.worktrees.find((worktree) => worktree.branch === branch.data)
+  if (holder) {
+    return {
+      ok: false,
+      message: `Branch "${branch.data}" is checked out at ${holder.path}, so it cannot be checked out here as well.`,
+    }
+  }
+
+  await mkdir(toFilesystemPath(dirname(worktreePath)), { recursive: true })
+  const addResult = await runGitCommand(root.data, ['worktree', 'add', worktreePath, branch.data])
+  if (!addResult.ok) {
+    // Another process (a second app instance, a person at a shell) may have
+    // put it back in the meantime, or the add made it and only a hook failed:
+    // what git lists now is the answer. Not seeded again over whatever is
+    // there, but locked if nothing locked it.
+    const after = await listGitWorktrees(root.data, { resolvedRoot: true })
+    const back = after.ok ? listedAt(after.data.worktrees) : undefined
+    if (back?.branch === branch.data && (await pathExists(worktreePath))) {
+      if (back.locked || !input.agentLockOwner) return { ok: true, data: back, message: null }
+      return finishAddedWorktree(root.data, worktreePath, { agentLockOwner: input.agentLockOwner }, addResult)
+    }
+    return {
+      ok: false,
+      message: addResult.message ?? 'Unable to recreate the Git worktree.',
+      stdout: addResult.stdout,
+      stderr: addResult.stderr,
+    }
+  }
+
+  return finishAddedWorktree(root.data, worktreePath, input, addResult)
+}
+
+/**
+ * The repository a worktree path belongs to by the container convention
+ * (`<parent>/.sprintengine-worktrees/<repo>/<slug…>`), for an absolute path
+ * every segment of whose slug is a real name; null for anything else.
+ */
+function containedWorktreeRepoRoot(pathValue: string): string | null {
+  if (!isAbsolute(pathValue)) return null
+  const segments = pathValue.replace(/[\\/]+$/, '').split(/[\\/]/)
+  if (segments.some((segment) => segment === '.' || segment === '..')) return null
+  const marker = segments.lastIndexOf(WORKTREE_CONTAINER_DIR)
+  if (marker < 0 || segments.slice(marker + 1).some((segment) => segment.length === 0)) return null
+  return repoRootFromWorktreePath(pathValue)
+}
+
+/**
+ * Whether `folder` is the top of the repository git resolved as `repoRoot`. The
+ * chat spells paths its own way and git its way (a symlinked parent resolved),
+ * so a spelling that differs asks git from there: the same top level, and no
+ * prefix, which a folder inside the repository would have.
+ */
+async function isRepoTopLevel(folder: string, repoRoot: string): Promise<boolean> {
+  if (normalizeComparablePath(folder) === normalizeComparablePath(repoRoot)) return true
+  const asked = await runGitCommand(folder, ['rev-parse', '--show-toplevel', '--show-prefix'])
+  if (!asked.ok) return false
+  const [topLevel = '', prefix = ''] = asked.stdout.split(/\r?\n/)
+  return prefix.trim() === '' && normalizeComparablePath(topLevel.trim()) === normalizeComparablePath(repoRoot)
 }
 
 export async function removeGitWorktree(
@@ -497,12 +796,9 @@ export async function removeGitWorktree(
     if (!unlocked.ok) return toWorktreeResult(unlocked, unlocked)
   }
 
-  const removeResult = await runGitCommand(root.data, [
-    'worktree',
-    'remove',
-    ...(input.force ? ['--force'] : []),
-    worktreePath,
-  ])
+  const removeResult = await withWorktreeRegistryLock(root.data, () =>
+    runGitCommand(root.data, ['worktree', 'remove', ...(input.force ? ['--force'] : []), worktreePath]),
+  )
   if (!removeResult.ok && ownLock) await relockWorktree(root.data, worktreePath, registeredWorktree.lockedReason)
 
   return toWorktreeResult(removeResult, removeResult)
@@ -525,7 +821,7 @@ export async function pruneGitWorktrees(repoRoot: string): Promise<GitWorktreeOp
     }
   }
 
-  const result = await runGitCommand(root.data, ['worktree', 'prune'])
+  const result = await withWorktreeRegistryLock(root.data, () => runGitCommand(root.data, ['worktree', 'prune']))
   return toWorktreeResult(result, result)
 }
 

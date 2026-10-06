@@ -24,6 +24,28 @@ export type AppTourServiceOptions = {
   isAppFocused(): boolean
 }
 
+/** The checkout a live agent is working in, or null when it has no live terminal. */
+export function agentCheckoutOf(
+  sessions: readonly TerminalSessionSnapshot[],
+  workspaceId: string,
+  agentId: string,
+): string | null {
+  // An agent id is only unique within its workspace: another chat's `agent-1`
+  // is a different agent, in a different checkout. The tour names the workspace
+  // its author was launched in, which an agent moved to another chat still is.
+  const session = sessions.find(
+    (candidate) =>
+      candidate.kind === 'agent' &&
+      (candidate.workspaceId === workspaceId || candidate.launchWorkspaceId === workspaceId) &&
+      candidate.agentId === agentId &&
+      candidate.processAlive,
+  )
+  if (!session) return null
+  // Where the agent's hooks last saw it wins over where it was launched: an
+  // agent that moved into a worktree wrote its changes there.
+  return session.observedCheckout?.gitRoot || session.worktreePath || session.cwd || null
+}
+
 export function createAppTourService(options: AppTourServiceOptions): {
   service: TourService
   setAttention(notify: (key: string) => void): void
@@ -35,19 +57,11 @@ export function createAppTourService(options: AppTourServiceOptions): {
     now: () => Date.now(),
     newId: () => randomUUID(),
     resolveWorkspaceRoot: options.resolveWorkspaceRoot,
-    resolveAgentCheckout: (agentId) => {
-      const session = options
-        .listTerminals()
-        .find((candidate) => candidate.kind === 'agent' && candidate.agentId === agentId && candidate.processAlive)
-      if (!session) return null
-      // Where the agent's hooks last saw it wins over where it was launched: an
-      // agent that moved into a worktree wrote its changes there.
-      return session.observedCheckout?.gitRoot || session.worktreePath || session.cwd || null
-    },
-    readChangelistPaths: async (repoRoot, agentId) => {
+    resolveAgentCheckout: (workspaceId, agentId) => agentCheckoutOf(options.listTerminals(), workspaceId, agentId),
+    readChangelistPaths: async (repoRoot, owner) => {
       try {
         const lists = await getGitChangelists(options.userDataDir, repoRoot)
-        const own = lists.find((list) => list.id === changelistOwnerId(agentId))
+        const own = lists.find((list) => list.id === changelistOwnerId(owner))
         return own ? pathsOfChangelist(own) : null
       } catch {
         return null

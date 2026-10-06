@@ -17,9 +17,11 @@ test('clipboardPasteBridge', async () => {
   class TestElement extends EventTarget {
     className = ''
     isConnected = true
+    isContentEditable = false
     parent: TestElement | null = null
 
     closest(selector: string): TestElement | null {
+      if (selector === '.cm-content' && this.className.split(/\s+/u).includes('cm-content')) return this
       if (selector.includes('.xterm') && this.className.split(/\s+/u).includes('xterm')) return this
       if (selector.includes('.monaco-editor') && this.className.split(/\s+/u).includes('monaco-editor')) return this
       return this.parent?.closest(selector) ?? null
@@ -94,14 +96,85 @@ test('clipboardPasteBridge', async () => {
     await Promise.resolve()
   }
 
-  function pasteEvent(text = ''): ClipboardEvent {
+  function pasteEvent(text = '', types: string[] = []): ClipboardEvent {
     const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent
     Object.defineProperty(event, 'clipboardData', {
       value: {
+        types,
         getData: (type: string) => (type === 'text/plain' ? text : ''),
       },
     })
     return event
+  }
+
+  // The composer's editor takes text as a paste: the bridge hands the paste to
+  // it again, carrying the text, so the field's own paste handling runs.
+  class TestDataTransfer {
+    data = new Map<string, string>()
+    setData(type: string, value: string): void {
+      this.data.set(type, value)
+    }
+    getData(type: string): string {
+      return this.data.get(type) ?? ''
+    }
+  }
+  class TestClipboardEvent extends Event {
+    clipboardData: TestDataTransfer | null
+    constructor(type: string, options: EventInit & { clipboardData?: TestDataTransfer } = {}) {
+      super(type, options)
+      this.clipboardData = options.clipboardData ?? null
+    }
+  }
+  Object.defineProperty(globalThis, 'DataTransfer', { configurable: true, value: TestDataTransfer })
+  Object.defineProperty(globalThis, 'ClipboardEvent', { configurable: true, value: TestClipboardEvent })
+
+  async function testHandsThePasteToTheComposerWithItsText(): Promise<void> {
+    const editable = new TestElement()
+    editable.className = 'cm-content cm-lineWrapping'
+    editable.isContentEditable = true
+    testDocument.body.appendChild(editable)
+    const pasted: string[] = []
+    editable.addEventListener('paste', (event) => {
+      const data = (event as unknown as TestClipboardEvent).clipboardData
+      if (data && !event.defaultPrevented) pasted.push(data.getData('text/plain'))
+    })
+    let reads = 0
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        clipboardReadText: async () => {
+          reads += 1
+          return 'from the clipboard'
+        },
+      },
+    })
+
+    const dispose = bindElectronClipboardPasteBridge(editable as unknown as Document)
+    const empty = pasteEvent()
+    editable.dispatchEvent(empty)
+    assert.equal(empty.defaultPrevented, true)
+    await flushPromises()
+    // The empty paste is stopped before the field sees it; the one handed back
+    // carries the text.
+    assert.deepEqual(pasted.slice(-1), ['from the clipboard'])
+    assert.equal(reads, 1)
+
+    // A screenshot is files and no text: the composer attaches it itself.
+    const screenshot = pasteEvent('', ['Files'])
+    editable.dispatchEvent(screenshot)
+    await flushPromises()
+    assert.equal(screenshot.defaultPrevented, false)
+    assert.equal(reads, 1)
+
+    // Read-only, it takes nothing.
+    editable.isContentEditable = false
+    const readOnly = pasteEvent()
+    editable.dispatchEvent(readOnly)
+    await flushPromises()
+    assert.equal(readOnly.defaultPrevented, false)
+    assert.equal(reads, 1)
+    dispose()
+    editable.remove()
   }
 
   async function testPastesIntoInputFromElectronClipboard(): Promise<void> {
@@ -220,6 +293,7 @@ test('clipboardPasteBridge', async () => {
     .then(testLeavesNormalPasteEventsAlone)
     .then(testSkipsTerminalOwnedTextarea)
     .then(testSkipsCodeEditorOwnedTextarea)
+    .then(testHandsThePasteToTheComposerWithItsText)
 
   await suiteRun
 })

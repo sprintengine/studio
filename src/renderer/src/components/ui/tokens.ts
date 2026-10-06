@@ -133,6 +133,14 @@ export const FOCUS_RING_WITHIN_INPUT_CLASS = 'has-[input:focus]:focus-ring'
 export const FOCUS_RING_WITHIN_TEXTAREA_CLASS = 'has-[textarea:focus]:focus-ring'
 
 /**
+ * The same wrapper case for the chat composer, whose field is an editor
+ * (agentChat/ComposerField) rather than a `<textarea>`: its editable element is
+ * `.cm-content`. Keyed to that element's focus for the reason above — the
+ * footer's controls are descendants of the same box.
+ */
+export const FOCUS_RING_WITHIN_EDITOR_CLASS = 'has-[.cm-content:focus]:focus-ring'
+
+/**
  * The terminal variant, and the only member of this family that is a hand-written
  * rule rather than the shared utility: `.terminal-focus-ring` in
  * assets/index.css. It exists here — beside the four above, not privately in the

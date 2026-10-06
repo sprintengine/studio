@@ -28,11 +28,12 @@
     "build:conversation-protocol": "node packages/conversation-protocol/build.mjs",
     "build:studio-protocol": "node packages/studio-protocol/build.mjs",
     "build:agent-sdk": "node packages/agent-sdk/build.mjs",
-    "dist": "npm run runtimes:fetch && npm run build && npm run build:server:wsl && electron-builder",
-    "dist:win": "npm run runtimes:fetch -- --platform win32 && npm run build && npm run build:server:wsl && electron-builder --win",
-    "dist:mac": "npm run runtimes:fetch -- --platform darwin && npm run build && npm run build:server:wsl && electron-builder --mac",
-    "dist:linux": "npm run runtimes:fetch -- --platform linux && npm run build && npm run build:server:wsl && electron-builder --linux",
+    "dist": "npm run runtimes:fetch && npm run sdk:bundle && npm run build && npm run build:server:wsl && electron-builder",
+    "dist:win": "npm run runtimes:fetch -- --platform win32 && npm run sdk:bundle && npm run build && npm run build:server:wsl && electron-builder --win",
+    "dist:mac": "npm run runtimes:fetch -- --platform darwin && npm run sdk:bundle && npm run build && npm run build:server:wsl && electron-builder --mac",
+    "dist:linux": "npm run runtimes:fetch -- --platform linux && npm run sdk:bundle && npm run build && npm run build:server:wsl && electron-builder --linux",
     "runtimes:fetch": "node scripts/fetch-runtimes.mjs",
+    "sdk:bundle": "node scripts/pack-module-sdk.mjs",
     "icons": "node scripts/generate-icons.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -132,6 +133,13 @@
         "to": "sdk-skills",
         "filter": [
           "**/*"
+        ]
+      },
+      {
+        "from": "resources/module-sdk",
+        "to": "module-sdk",
+        "filter": [
+          "*.tgz"
         ]
       },
       {
@@ -254,9 +262,15 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "1.5.1",
     "@anthropic-ai/claude-agent-sdk": "0.3.285",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
     "@excalidraw/excalidraw": "0.18.1",
     "@excalidraw/mermaid-to-excalidraw": "2.2.2",
     "@legendapp/list": "3.6.0",
+    "@lezer/common": "^1.5.3",
     "@monaco-editor/react": "^4.7.0",
     "@vscode/ripgrep": "^1.18.0",
     "@xterm/addon-clipboard": "0.3.0-beta.302",

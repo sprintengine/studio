@@ -84,7 +84,11 @@ export function createServerModules(deps: {
       installElectronRequireGuard(() => Object.values(thirdParty.moduleRoots))
       applyHostApiGate(thirdParty.ineligible, thirdParty.modules)
       const bundled = activeForChannel(
-        createBundledMainModules(platform),
+        // Read only once a module asks, by which time `byId` exists.
+        createBundledMainModules(
+          platform,
+          (moduleId): readonly string[] | undefined => byId.get(moduleId)?.permissions,
+        ),
         (module) => module.manifest.id,
         includeDevModules,
       )
@@ -135,12 +139,14 @@ export function createServerModules(deps: {
     async applyEnablement(overrides) {
       if (!load) return { ok: true }
       const report = await load.applyEnablement(overrides, { liveModuleIds: LIVE_ENABLED_MODULE_IDS })
-      const scheduledAgentsError = report.errors.find((error) => error.id === 'scheduled-agents')
-      if (scheduledAgentsError) return { ok: false, message: scheduledAgentsError.message }
+      // The rest of the change was applied even when one module's half
+      // failed, so the gate follows it either way.
       recompute(overrides)
       // The gateway reads the registry and enablement per request; connected
       // clients only need telling that their lists changed.
       gateway?.notifyToolsListChanged()
+      const scheduledAgentsError = report.errors.find((error) => error.id === 'scheduled-agents')
+      if (scheduledAgentsError) return { ok: false, message: scheduledAgentsError.message }
       return { ok: true }
     },
     startup() {

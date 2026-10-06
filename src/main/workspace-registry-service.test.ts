@@ -8,6 +8,7 @@ import { createWorkspaceRegistryService } from './workspace-registry-service'
 import { createWorkspaceSyncService } from './workspace-sync-service'
 import { parseWorkspaceRegistryFile } from '../shared/workspace-registry'
 import type { WorkspaceRegistryDiagnostic } from './workspace-registry-service'
+import type { AgentState } from '../shared/agent-state'
 
 type Harness = ReturnType<typeof harness>
 
@@ -43,6 +44,11 @@ function harness(options: { persistDebounceMs?: number } = {}) {
   }
 }
 
+/** Every agent id a layout's tabs name, in layout order. */
+function layoutAgentIds(layout: unknown): string[] {
+  return [...JSON.stringify(layout).matchAll(/"agentId":"([^"]+)"/g)].map((match) => match[1]!)
+}
+
 function create(h: Harness, input: Parameters<Harness['sync']['createWorkspace']>[0]) {
   const outcome = h.sync.createWorkspace(input, 'gateway')
   assert.ok(outcome.ok, `create should succeed: ${outcome.ok ? '' : outcome.message}`)
@@ -67,6 +73,39 @@ test('a headless create is readable from the registry in the same tick', () => {
     assert.equal(result.workspace.mode, 'standard')
     assert.equal(result.windowId, 'primary', 'membership is main’s, not a window’s to claim later')
     assert.equal(h.sync.getSnapshot().state.workspaceWindows[0]?.workspaceIds.includes(result.workspace.id), true)
+  } finally {
+    h.cleanup()
+  }
+})
+
+test('a headless create gives each template agent an id of its own, and its tab follows', () => {
+  const h = harness()
+  try {
+    // Two workspaces from one template: the template's `agent-1` … `agent-9`
+    // are placeholders, so neither workspace's tabs name an id the other's do.
+    const first = create(h, { templateId: 'command-center' }).workspace
+    const second = create(h, { templateId: 'command-center' }).workspace
+    const firstIds = layoutAgentIds(first.layoutModel)
+    const secondIds = layoutAgentIds(second.layoutModel)
+    assert.equal(firstIds.length, 9)
+    assert.equal(new Set([...firstIds, ...secondIds]).size, 18)
+    for (const id of [...firstIds, ...secondIds]) assert.match(id, /^agent-[0-9a-z]{16}$/)
+
+    // A record handed in under the template's id moves with its agent to the
+    // tab's new id; one under an id the caller assigned is that agent already.
+    const agent = { id: 'agent-1', name: 'Ada' } as AgentState
+    const rekeyed = create(h, { templateId: 'solo', agents: { 'agent-1': agent } }).workspace
+    const [soloId] = layoutAgentIds(rekeyed.layoutModel)
+    assert.deepEqual(Object.keys(rekeyed.agents), [soloId])
+    assert.equal(rekeyed.agents[soloId!]?.id, soloId)
+    assert.equal(rekeyed.agents[soloId!]?.name, 'Ada')
+    const assigned = create(h, {
+      templateId: 'solo',
+      templateAgentIds: { 'agent-1': 'agent-claude-code-minted' },
+      agents: { 'agent-claude-code-minted': { ...agent, id: 'agent-claude-code-minted' } },
+    }).workspace
+    assert.deepEqual(layoutAgentIds(assigned.layoutModel), ['agent-claude-code-minted'])
+    assert.deepEqual(Object.keys(assigned.agents), ['agent-claude-code-minted'])
   } finally {
     h.cleanup()
   }

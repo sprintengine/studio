@@ -10,6 +10,7 @@ import { createBrowserTools } from './browser-tools'
 import { createCanvasTools } from './canvas-tools'
 import { createConversationTools } from './conversation-tools'
 import { createPullRequestTools } from '../../server/pull-requests/pull-request-tools'
+import { createLocalServerTools } from '../../server/local-servers/local-server-tools'
 import { desktopGatewayTools } from './desktop-gateway-tools'
 import { createEditorTools } from './editor-tools'
 import { createMcpDispatcher, type McpDispatchGate } from './mcp-dispatch'
@@ -17,6 +18,7 @@ import { isStudioGatewayMutation } from './studio-gateway-tools'
 import { localOnlyGatewayToolReason, requiredScopeForTool } from './tailnet/tailnet-scopes'
 import { createTailnetTools } from './tailnet/tailnet-tools'
 import { createTourTools } from './tour-tools'
+import { createWorktreePoolTools } from '../worktree-pool/worktree-pool-tools'
 
 // The tools/list agents see from the desktop, byte for byte: names,
 // descriptions, schemas and order, for an agent Studio launched, a CLI the
@@ -43,8 +45,9 @@ export function desktopToolParts(): Parameters<typeof desktopGatewayTools>[0] & 
     editor: createEditorTools(stub),
     tour: createTourTools(stub),
     automation: createAutomationTools(stub),
+    worktree: createWorktreePoolTools(stub),
     tailnet: createTailnetTools({ resolveTailnet: () => null }),
-    core: [...createConversationTools(stub), ...createPullRequestTools(stub)],
+    core: [...createConversationTools(stub), ...createPullRequestTools(stub), ...createLocalServerTools(stub)],
   }
 }
 

@@ -102,9 +102,14 @@ import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
-import { excludeMcpConfigFromWorktree } from './git'
+import { excludeMcpConfigFromWorktree, seedWorktreeIncludedFiles } from './git'
+import { broadcastWorktreePoolChanged } from './ipc/worktree-pool-ipc'
+import { installWorktreePool } from './worktree-pool/active-pool'
+import { createPoolStore } from './worktree-pool/pool-store'
+import { createWorktreePoolService } from './worktree-pool/worktree-pool-service'
+import { createWorktreePoolTools } from './worktree-pool/worktree-pool-tools'
 import { createConversationPeekService } from './conversation-peek/service'
-import { createConversationTerminalHandoff } from './conversation-terminal-handoff'
+import { chatHandoffStart, createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
 import {
   createTerminalRuntime,
@@ -138,7 +143,7 @@ import { createNodeCanvasFs, watchCanvasDirectory } from './canvas/canvas-node-f
 import { createCanvasSubscriberRegistry } from './canvas/canvas-subscribers'
 import { createCanvasWorkerHost } from './canvas/canvas-worker-host'
 import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canvas-worker-window'
-import { broadcastToWorkspaceWindows, isWorkspaceWindowWebContents, listWorkspaceWindows } from './window-factory'
+import { broadcastToWorkspaceWindows, isBrowserHostWebContents, listWorkspaceWindows } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
@@ -863,7 +868,10 @@ export function createAppServices(
     // swallows its own failures, so none of them can cost a session anything.
     onAgentLaunched: (session) => agentChangelistFeed.onAgentLaunched(session),
     onAgentFileEdit: (input) => {
-      agentWrittenFiles.note(input.session.agentId, input.path)
+      // Under the workspace the process reports itself in, which is where the
+      // editor tools look: an agent moved to another chat still names that one.
+      const { launchWorkspaceId, workspaceId, agentId } = input.session
+      agentWrittenFiles.note(launchWorkspaceId ?? workspaceId, agentId, input.path)
       agentChangelistFeed.onAgentFileEdit(input)
     },
     onAgentSessionExit: (session) => agentChangelistFeed.onAgentSessionExit(session),
@@ -1178,6 +1186,12 @@ export function createAppServices(
         chatName: (workspaceId, agentId) =>
           workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
             ?.agents?.[agentId]?.name,
+        chatStart: (workspaceId, agentId) =>
+          chatHandoffStart(
+            workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId),
+            agentId,
+            agentLaunchSettings.get(),
+          ),
       })
 
   // Built after workspace sync because adopting the retired skill packs needs to
@@ -1260,7 +1274,8 @@ export function createAppServices(
   // on those same tabs, exposed as the gateway's browser.* tools below.
   const browserManager = createBrowserManager({
     listTerminalRoots,
-    isHostWindow: isWorkspaceWindowWebContents,
+    // A pane popped out of its window hosts its browser tabs there.
+    isHostWindow: isBrowserHostWebContents,
     broadcast: broadcastToWorkspaceWindows,
     resolveWorkspaceRoot: (workspaceId) =>
       workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
@@ -1278,6 +1293,20 @@ export function createAppServices(
       resolveWorkspaceRoot: (workspaceId) =>
         workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
           ?.folderPath ?? null,
+      // The folder the agent's chat works in, its pool worktree for a New
+      // chat. Known here only when the chats are this process's; out of
+      // process the shell has no sessions, and the workspace folder is used.
+      resolveAgentRoot: ({ workspaceId, agentId }) => {
+        const conversations = core.conversations as Partial<typeof core.conversations>
+        if (
+          typeof conversations.listSessions !== 'function' ||
+          typeof conversations.sessionWorkspaceRoot !== 'function'
+        )
+          return null
+        const listed = conversations.listSessions({ workspaceId, agentId })
+        const latest = listed.ok ? [...listed.sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0] : undefined
+        return latest ? conversations.sessionWorkspaceRoot(latest.sessionId) : null
+      },
       machineLabel: (id) => ssh?.environments.list().find((machine) => machine.id === id)?.label ?? null,
     }),
     publish: (tabId, recording) => browserManager.setRecording(tabId, recording),
@@ -1310,6 +1339,32 @@ export function createAppServices(
         send: (channel: string, payload: unknown) => window.webContents.send(channel, payload),
       })),
     broadcastPending: (workspaceIds) => broadcastToWorkspaceWindows(EDITOR_REVEAL_PENDING_CHANNEL, { workspaceIds }),
+  })
+
+  // The pool of reusable agent worktrees (worktree-pool/). Every agent
+  // worktree made with `fromPool` (git.ts) is leased from it, and the agent
+  // worktree cleanup hands back the slots nothing uses. It does nothing on its
+  // own: reading its records is all that happens here, and a pool recovers
+  // from an interrupted run the first time it is used.
+  const worktreePool = createWorktreePoolService({
+    store: createPoolStore(app.getPath('userData')),
+    livePaths: () =>
+      listLiveTerminalSessions().flatMap((session) =>
+        [session.cwd, session.observedCheckout?.cwd].filter(
+          (path): path is string => typeof path === 'string' && path.length > 0,
+        ),
+      ),
+    onChange: broadcastWorktreePoolChanged,
+    seedIncludedFiles: seedWorktreeIncludedFiles,
+  })
+  installWorktreePool(worktreePool)
+  void worktreePool.load()
+  // `worktree.lease` and `worktree.release`: in process the gateway's own, out
+  // of process the shell's `worktree` toolset.
+  const worktreeTools = createWorktreePoolTools({
+    pool: worktreePool,
+    findWorkspace: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ?? null,
   })
 
   const canvasSubscribers = createCanvasSubscriberRegistry()
@@ -1493,6 +1548,7 @@ export function createAppServices(
               createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
               getScheduledAgents: () => resolveScheduledAgents(),
               defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+              userCliModels: (cli) => agentLaunchSettings.get().cliRuntimes[cli]?.models,
               // module.*/marketplace.*. The registry snapshot is the
               // renderer's mirror — main's own module list omits every renderer-only
               // module, so reporting from it would be wrong by construction. Trust
@@ -1514,6 +1570,7 @@ export function createAppServices(
           ),
           // Remote-control configuration, local socket only: the listener refuses
           // this whole family regardless of a device's scopes (tailnet-scopes.ts).
+          worktree: worktreeTools,
           tailnet: createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor }),
         }),
       })
@@ -1613,6 +1670,7 @@ export function createAppServices(
             { name: 'canvas', registrations: canvasTools },
             { name: 'editor', registrations: editorTools },
             { name: 'tour', registrations: tourTools },
+            { name: 'worktree', registrations: worktreeTools },
             ...shellTerminalToolsets(
               createServerGatewayBackends({
                 getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
@@ -1925,6 +1983,7 @@ export function createAppServices(
     browserRecorder,
     canvasService,
     canvasSubscribers,
+    worktreePool,
     automationService,
     studioRpcService,
     backgroundModeStore,
@@ -1978,6 +2037,11 @@ export function createAppServices(
         if (!server) core.pullRequests.dispose()
       },
     },
+    // In process, the core's local servers settle at quit and the runs the
+    // Studio started stop; out of process the server does that itself.
+    localServers: server
+      ? null
+      : { flush: () => core.localServers.flush(), dispose: () => core.localServers.dispose() },
     broadcastGitChangelistsChanged,
     updateService,
     withIpcDiagnostics,

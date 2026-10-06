@@ -15,6 +15,10 @@ type SwitchProps = {
   className?: string
 }
 
+// The 12px thumb, shared by `Switch` and `SwitchGlyph` so the ruled geometry is
+// spelled once.
+const SWITCH_THUMB_CLASS = 'switch-thumb inline-block h-3 w-3 rounded-full'
+
 export function Switch({
   checked,
   onChange,
@@ -89,10 +93,41 @@ export function Switch({
           // --text-strong broke on themes where accent + text were both
           // bright (Conifer gold + pale sage, Lantern amber + warm cream,
           // Graphite white + light grey).
-          'switch-thumb inline-block h-3 w-3 rounded-full',
+          SWITCH_THUMB_CLASS,
           checked ? 'bg-[color:var(--text-on-accent)]' : 'bg-[color:var(--text-strong)]',
         ].join(' ')}
       />
     </button>
+  )
+}
+
+/**
+ * The switch's picture with no control behind it, for a row that IS the
+ * control — a `menuitemcheckbox` that toggles a standing setting. A button
+ * cannot sit inside the row's button, so the row carries the role and
+ * `aria-checked` and this only draws the state. Same track, thumb and inks as
+ * `Switch` above; `data-checked` stands in for `aria-checked` as the hook the
+ * thumb's travel keys off in assets/index.css.
+ */
+export function SwitchGlyph({ checked, className }: { checked: boolean; className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-checked={checked}
+      className={[
+        'switch-track relative inline-flex h-[18px] w-8 shrink-0 items-center rounded-full',
+        checked
+          ? 'bg-[color:var(--accent-primary)] shadow-[inset_0_0_0_1px_transparent]'
+          : 'bg-[color:var(--bg-active)] shadow-[inset_0_0_0_1px_var(--border-default)]',
+        className ?? '',
+      ].join(' ')}
+    >
+      <span
+        className={[
+          SWITCH_THUMB_CLASS,
+          checked ? 'bg-[color:var(--text-on-accent)]' : 'bg-[color:var(--text-strong)]',
+        ].join(' ')}
+      />
+    </span>
   )
 }

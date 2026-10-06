@@ -185,7 +185,9 @@ test('conversation-ipc', async () => {
         return actionResult
       },
       terminalHandoff: async (input) => {
-        calls.push(`terminal-handoff:${input.sessionId}`)
+        calls.push(
+          `terminal-handoff:${'sessionId' in input ? input.sessionId : `${input.workspaceId}/${input.agentId}`}`,
+        )
         return { ok: true, workspaceId: 'workspace', agentId: 'agent-claude-code-abc123' }
       },
       listSessions: () => ({ ok: true, sessions: [startResult.session] }),
@@ -230,6 +232,16 @@ test('conversation-ipc', async () => {
         workspaceId: 'workspace',
         agentId: 'agent-claude-code-abc123',
       },
+    )
+    // A tab's menu names the chat, not a session.
+    assert.equal(
+      (
+        (await ipcMain.handlers.get('conversation:sessions:terminal-handoff')?.(null, {
+          workspaceId: 'workspace',
+          agentId: 'agent',
+        })) as { ok: boolean }
+      ).ok,
+      true,
     )
     assert.deepEqual(await ipcMain.handlers.get('conversation:sessions:terminal-handoff')?.(null, {}), {
       ok: false,
@@ -288,6 +300,7 @@ test('conversation-ipc', async () => {
       'stop:conv_1',
       'suspend:conv_1',
       'terminal-handoff:conv_1',
+      'terminal-handoff:workspace/agent',
     ])
   }
 

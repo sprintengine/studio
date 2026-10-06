@@ -106,7 +106,13 @@ export function AgentsTab({ workspaceId, active }: { workspaceId: string; active
   useEffect(() => {
     if (request) setTarget({ agentId: request.agentId, laneId: request.laneId, serial: request.serial })
   }, [request])
+  // Only a change of focus lets go of the request: on the first mount both
+  // effects run, and the request that opened this tab, from a chat that was
+  // not the focused one, was dropped before it was ever shown.
+  const previousFocusedAgentIdRef = useRef(focusedAgentId)
   useEffect(() => {
+    if (previousFocusedAgentIdRef.current === focusedAgentId) return
+    previousFocusedAgentIdRef.current = focusedAgentId
     setTarget((previous) => (previous && focusedAgentId && previous.agentId !== focusedAgentId ? null : previous))
   }, [focusedAgentId])
   const agentId = target?.agentId ?? focusedAgentId

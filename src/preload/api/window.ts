@@ -12,6 +12,14 @@ import type {
   OpenAuxWindowInput,
   OpenAuxWindowResult,
   OpenExternalResult,
+  PanePopOutAction,
+  PanePopOutActionEvent,
+  PanePopOutClosedEvent,
+  PanePopOutOpenInput,
+  PanePopOutOpenResult,
+  PanePopOutSnapshot,
+  PanePopOutState,
+  PanePopOutStatePush,
   WindowPlacement,
   WindowState,
 } from '../../shared/electron-api'
@@ -79,6 +87,38 @@ export const windowApi = {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
+  panePopOutOpen: (input: PanePopOutOpenInput): Promise<PanePopOutOpenResult> =>
+    ipcRenderer.invoke('pane-popout:open', input),
+  // Sends rather than invokes: the owner pushes on every change to the tabs it
+  // has out, and nothing waits on main having relayed one.
+  panePopOutPush: (popOutId: string, state: PanePopOutState): void => {
+    ipcRenderer.send('pane-popout:push', { popOutId, state })
+  },
+  panePopOutFocus: (popOutId: string): Promise<void> => ipcRenderer.invoke('pane-popout:focus', { popOutId }),
+  panePopOutClose: (popOutId: string): Promise<void> => ipcRenderer.invoke('pane-popout:close', { popOutId }),
+  onPanePopOutAction: (cb: (event: PanePopOutActionEvent) => void): (() => void) => {
+    const ch = 'pane-popout:action'
+    const handler = (_: IpcRendererEvent, event: PanePopOutActionEvent) => cb(event)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
+  onPanePopOutClosed: (cb: (event: PanePopOutClosedEvent) => void): (() => void) => {
+    const ch = 'pane-popout:closed'
+    const handler = (_: IpcRendererEvent, event: PanePopOutClosedEvent) => cb(event)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
+  panePopOutGetState: (popOutId: string): Promise<PanePopOutSnapshot | null> =>
+    ipcRenderer.invoke('pane-popout:get-state', { popOutId }),
+  onPanePopOutState: (cb: (push: PanePopOutStatePush) => void): (() => void) => {
+    const ch = 'pane-popout:state'
+    const handler = (_: IpcRendererEvent, push: PanePopOutStatePush) => cb(push)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
+  panePopOutAct: (popOutId: string, action: PanePopOutAction): void => {
+    ipcRenderer.send('pane-popout:act', { popOutId, action })
+  },
 } satisfies Pick<
   ElectronApi,
   | 'windowMinimize'
@@ -100,4 +140,13 @@ export const windowApi = {
   | 'onWindowHiddenChanged'
   | 'onWindowPlacementChanged'
   | 'onWindowCloseRequested'
+  | 'panePopOutOpen'
+  | 'panePopOutPush'
+  | 'panePopOutFocus'
+  | 'panePopOutClose'
+  | 'onPanePopOutAction'
+  | 'onPanePopOutClosed'
+  | 'panePopOutGetState'
+  | 'onPanePopOutState'
+  | 'panePopOutAct'
 >

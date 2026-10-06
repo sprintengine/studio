@@ -872,8 +872,35 @@ function parseFrameWakeup(raw: unknown): AgentStateFrameWakeup | null {
 // agent that equals the session's agentId; we also match the execution and PTY
 // session ids so resolution is robust to launch paths that key identity
 // differently. When more than one live session matches the same id (e.g. a
-// relaunch reusing it), prefer the one in the reported workspace, then the most
-// recently started.
+// relaunch reusing it), the most recently started wins.
+//
+// An agent id is only unique WITHIN a chat: nearly every chat's first agent is
+// `agent-1`. So the frame's workspace (SPRINTENGINE_WORKSPACE_ID, which every
+// launch with a workspace exports beside the agent id) is a hard boundary, not a
+// preference: a frame from one chat never moves another chat's terminal. A frame
+// whose workspace has no live match is a late hook from a closed chat, and is
+// dropped rather than handed to the newest `agent-1` somewhere else.
+//
+// A frame with no workspace (a session launched without one, or a reporter that
+// predates the variable) is placed only when that cannot be a guess: every
+// matching LIVE session lives in the same workspace. Two chats' live `agent-1`s
+// are ambiguous, and an ambiguous frame is dropped — a missed phase is corrected
+// by the next frame, a wrong one paints another chat working. Sessions with no
+// process are left out of that count: after a restart every old chat holds a
+// parked `agent-1`, and counting them dropped every such frame even with one
+// `agent-1` running. They are still the answer when nothing matching is live,
+// for the caller to drop as a late frame.
+//
+// The execution and PTY session ids are unique on their own, so a frame naming
+// one of them is placed whatever the workspace says.
+//
+// A session's workspace can change under a live process: an agent moved to
+// another chat reattaches its pane from there, while the process env (and so
+// every frame) still names the chat it was launched in. So the frame's
+// workspace is matched against the one each session was launched with first.
+// Only a session with no launch workspace on record is matched by the one it
+// is in now: one that moved in from another chat names that chat in its
+// frames, so a frame naming this one was never its.
 // =============================================================================
 
 export type AgentStateCandidate<T> = {
@@ -882,24 +909,40 @@ export type AgentStateCandidate<T> = {
   executionId?: string
   sessionId?: string
   workspaceId?: string
+  launchWorkspaceId?: string
+  // False for a session with no process behind it (exited, or parked after a
+  // restart). Absent reads as live.
+  alive?: boolean
   startedAt: number
 }
 
-function candidateMatchesAgent<T>(candidate: AgentStateCandidate<T>, agentId: string): boolean {
-  return candidate.agentId === agentId || candidate.executionId === agentId || candidate.sessionId === agentId
+function newestCandidate<T>(pool: ReadonlyArray<AgentStateCandidate<T>>): AgentStateCandidate<T> {
+  return pool.reduce((latest, candidate) => (candidate.startedAt > latest.startedAt ? candidate : latest))
 }
 
 export function selectAgentStateTarget<T>(
   candidates: ReadonlyArray<AgentStateCandidate<T>>,
   frame: { agentId: string; workspaceId: string | null },
 ): T | undefined {
-  const matches = candidates.filter((candidate) => candidateMatchesAgent(candidate, frame.agentId))
-  if (matches.length <= 1) return matches[0]?.value
-  const scoped = frame.workspaceId
-    ? matches.filter((candidate) => candidate.workspaceId === frame.workspaceId)
-    : matches
-  const pool = scoped.length > 0 ? scoped : matches
-  return pool.reduce((latest, candidate) => (candidate.startedAt > latest.startedAt ? candidate : latest)).value
+  const byUniqueId = candidates.filter(
+    (candidate) => candidate.executionId === frame.agentId || candidate.sessionId === frame.agentId,
+  )
+  if (byUniqueId.length > 0) return newestCandidate(byUniqueId).value
+
+  const matches = candidates.filter((candidate) => candidate.agentId === frame.agentId)
+  if (matches.length === 0) return undefined
+  if (frame.workspaceId) {
+    const launched = matches.filter((candidate) => candidate.launchWorkspaceId === frame.workspaceId)
+    const scoped =
+      launched.length > 0
+        ? launched
+        : matches.filter((candidate) => !candidate.launchWorkspaceId && candidate.workspaceId === frame.workspaceId)
+    return scoped.length > 0 ? newestCandidate(scoped).value : undefined
+  }
+  const live = matches.filter((candidate) => candidate.alive !== false)
+  const pool = live.length > 0 ? live : matches
+  const workspaces = new Set(pool.map((candidate) => candidate.workspaceId))
+  return workspaces.size === 1 ? newestCandidate(pool).value : undefined
 }
 
 // =============================================================================

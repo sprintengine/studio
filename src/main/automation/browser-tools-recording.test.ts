@@ -79,26 +79,28 @@ function harness(options: { refuseOutput?: boolean } = {}) {
     },
     listen: (next) => void (listener = next),
   }
+  const created: Array<Parameters<RecordingOutputs['create']>[0]> = []
   const outputs: RecordingOutputs = {
-    create: async ({ stem }) =>
-      options.refuseOutput
-        ? {
-            ok: false,
-            code: 'recording_unavailable',
-            message:
-              'Recordings are saved into the workspace, and Studio cannot write files into a workspace on build-box yet.',
-          }
-        : {
-            ok: true,
-            output: {
-              workspacePath: `.sprintengine/browser/recordings/${stem}.webm`,
-              path: `/Users/dev/app/.sprintengine/browser/recordings/${stem}.webm`,
-              append: async () => undefined,
-              finish: async () => ({ bytes: 40 }),
-              discard: async () => undefined,
-            },
-          },
+    create: async (input) => (created.push(input), outputFor(input.stem)),
   }
+  const outputFor = (stem: string): Awaited<ReturnType<RecordingOutputs['create']>> =>
+    options.refuseOutput
+      ? {
+          ok: false,
+          code: 'recording_unavailable',
+          message:
+            'Recordings are saved into the workspace, and Studio cannot write files into a workspace on build-box yet.',
+        }
+      : {
+          ok: true,
+          output: {
+            workspacePath: `.sprintengine/browser/recordings/${stem}.webm`,
+            path: `/Users/dev/app/.sprintengine/browser/recordings/${stem}.webm`,
+            append: async () => undefined,
+            finish: async () => ({ bytes: 40 }),
+            discard: async () => undefined,
+          },
+        }
   const published: Array<[string, unknown]> = []
   let ids = 0
   const recorder = createBrowserRecorder({
@@ -124,6 +126,7 @@ function harness(options: { refuseOutput?: boolean } = {}) {
     registrations,
     recorder,
     starts,
+    created,
     openRequests,
     published,
     chunk: (id: string) => listener?.chunk(id, new Uint8Array(10)),
@@ -176,6 +179,8 @@ for (const through of ['direct', 'the shell'] as const) {
     assert.deepEqual(h.starts[0]?.cursor, true)
     // The pane is brought forward on the recorded tab.
     assert.deepEqual(h.openRequests, [{ workspaceId: 'ws-1', tabId: 't1' }])
+    // The file goes where the calling agent works.
+    assert.deepEqual(h.created[0]?.agent, { workspaceId: 'ws-1', agentId: 'agent-a' })
 
     const status = await call('browser.status', {}, agentA)
     const tab = structured(status).tabs.find((entry: { tabId: string }) => entry.tabId === 't1')

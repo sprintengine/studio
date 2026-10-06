@@ -7,6 +7,8 @@ import type { OverflowMenuItem } from '../../ui/OverflowMenu'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { ComposerStrip } from '../../workspace/agentComposer/ComposerStrip'
 import type { BranchPullRequest } from '../../../../../shared/git/pull-request'
+import type { StudioLocalServer } from '../../../../../../packages/studio-protocol/src/public'
+import { LocalServersStripButton, localServersStripCopy } from '../../workspace/LocalServerMarks'
 import { PullRequestStripButton, stripPullRequestCopy } from '../../workspace/PullRequestMark'
 import { CreatePullRequestControl, pullRequestSlotChoice } from './createPullRequest'
 import { fitComposerStrip, fullComposerStripFit, sameComposerStripFit, type ComposerStripFit } from './composerStripFit'
@@ -18,7 +20,9 @@ import { fitComposerStrip, fullComposerStripFit, sameComposerStripFit, type Comp
 //   the machine's glyph (only when the chat is not on this computer) ·
 //   the branch (a worktree glyph before it only when the agent works in one;
 //   opens the file explorer) · the diff counts (open the changes) ·
-//   [⋮ what did not fit] · the pull request slot: the conversation's pull
+//   [⋮ what did not fit] · the local servers the conversation's agents
+//   started ("localhost:5173 · Running", "3 servers · 2 running";
+//   LocalServerMarks.tsx) · the pull request slot: the conversation's pull
 //   request ("Open PR #123"), or "Create PR" when the branch is ready to
 //   propose (createPullRequest.tsx), never both · the context ring, pinned to
 //   the right corner.
@@ -29,6 +33,10 @@ import { fitComposerStrip, fullComposerStripFit, sameComposerStripFit, type Comp
 // act on: it sits at the bottom of the chat, beside the ring, because that is
 // where a person finishing with a conversation looks (owner ruling 2026-10-04),
 // and like the ring it never leaves for the menu — the line gives way around it.
+// The local servers keep the same seat for the same reason: they are the other
+// thing on the line to act on (open the app the agent started, run it again),
+// and their own menu cannot fold into the "⋮" menu's flat list of facts
+// without becoming a menu inside a menu.
 //
 // One line, always: as the pane narrows, items leave for the "⋮" menu in the
 // order `composerStripFit` gives, measured rather than at fixed breakpoints,
@@ -63,11 +71,14 @@ const OVERFLOW_FALLBACK_WIDTH = 24
 
 const NO_PULL_REQUESTS: readonly BranchPullRequest[] = []
 
-/** The width of the line's pinned end: the pull request and the ring, either or both; null when neither is drawn. */
-function pinnedWidth(ring: number | null, pullRequest: number | null, gap: number): number | null {
-  if (ring === null) return pullRequest
-  if (pullRequest === null) return ring
-  return ring + gap + pullRequest
+/**
+ * The width of the line's pinned end: the local servers, the pull request and
+ * the ring, any of them; null when none is drawn.
+ */
+function pinnedWidth(widths: ReadonlyArray<number | null>, gap: number): number | null {
+  const drawn = widths.filter((width): width is number => width !== null)
+  if (drawn.length === 0) return null
+  return drawn.reduce((sum, width) => sum + width, 0) + gap * (drawn.length - 1)
 }
 
 export function ConversationComposerStrip({
@@ -77,6 +88,7 @@ export function ConversationComposerStrip({
   context,
   pullRequests = NO_PULL_REQUESTS,
   createPullRequest = null,
+  localServers = null,
   now = Date.now(),
 }: {
   machine: ConversationStripMachine | null
@@ -91,6 +103,18 @@ export function ConversationComposerStrip({
     cwd: string
     conversation: { workspaceId: string; agentId: string }
     onSettled: () => void
+    /** Keeps the control in the slot while it shows its dialog, a step or a failure. */
+    onHoldChange?: (held: boolean) => void
+    /** Whether the checkout reads as ready now; a held failure is dismissed rather than retried when not. */
+    ready?: boolean
+  } | null
+  /**
+   * The local servers this conversation's agents linked, and the workspace
+   * whose browser pane opens them. Null, or no servers, draws nothing.
+   */
+  localServers?: {
+    workspaceId: string
+    servers: readonly StudioLocalServer[]
   } | null
   /** The clock the pull request's age is read against; a test pins it. */
   now?: number
@@ -104,6 +128,7 @@ export function ConversationComposerStrip({
   const changesRef = useRef<HTMLSpanElement | null>(null)
   const overflowRef = useRef<HTMLSpanElement | null>(null)
   const pullRequestRef = useRef<HTMLSpanElement | null>(null)
+  const serversRef = useRef<HTMLSpanElement | null>(null)
   const ringRef = useRef<HTMLSpanElement | null>(null)
   // The last width each part was drawn at. A part in the menu is not drawn,
   // and its width is still what decides whether it comes back.
@@ -114,6 +139,7 @@ export function ConversationComposerStrip({
     changes?: number
     overflow?: number
     pullRequest?: number
+    servers?: number
     ring?: number
   }>({})
   const [available, setAvailable] = useState(0)
@@ -123,6 +149,7 @@ export function ConversationComposerStrip({
   const percentage = context && context.total > 0 ? (context.used / context.total) * 100 : null
   const slot = pullRequestSlotChoice(pullRequests, createPullRequest !== null)
   const pullRequest = slot === 'open' || slot === 'merged' ? stripPullRequestCopy(pullRequests, now) : null
+  const serversCopy = localServers ? localServersStripCopy(localServers.servers) : null
 
   // The strip's own width: what the line has to hold.
   useLayoutEffect(() => {
@@ -149,6 +176,25 @@ export function ConversationComposerStrip({
   const ringShown = percentage !== null
   // What the slot draws, as a key its width is measured under.
   const pullRequestText = slot === 'create' ? 'create' : (pullRequest?.text ?? null)
+  const serversText = serversCopy ? `${serversCopy.label} · ${serversCopy.state}` : null
+  // "Create PR" changes width without changing its key: the button gives way
+  // to a step ("Pushing the branch…") or a failure. The slot is watched, and
+  // a new width measures the line again.
+  const [slotResized, setSlotResized] = useState(0)
+  const slotDrawn = pullRequestText !== null
+  useLayoutEffect(() => {
+    const node = pullRequestRef.current
+    if (!slotDrawn || !node || typeof ResizeObserver !== 'function') return
+    let last = node.getBoundingClientRect().width
+    const observer = new ResizeObserver(() => {
+      const width = node.getBoundingClientRect().width
+      if (width === last) return
+      last = width
+      setSlotResized((count) => count + 1)
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [slotDrawn, stripEl])
   useLayoutEffect(() => {
     const strip = stripEl
     const known = widths.current
@@ -161,6 +207,7 @@ export function ConversationComposerStrip({
     known.overflow = widthOf(overflowRef.current) ?? known.overflow
     known.ring = widthOf(ringRef.current) ?? known.ring
     known.pullRequest = widthOf(pullRequestRef.current) ?? known.pullRequest
+    known.servers = widthOf(serversRef.current) ?? known.servers
     const branchWidth = widthOf(branchRef.current)
     const textWidth = widthOf(branchTextRef.current)
     const drawnText = branchTextRef.current?.textContent ?? ''
@@ -174,7 +221,8 @@ export function ConversationComposerStrip({
       (machineId !== null && known.machine === undefined) ||
       (changesKey !== null && known.changes === undefined) ||
       (branchName !== null && known.charWidth === undefined) ||
-      (pullRequestText !== null && known.pullRequest === undefined)
+      (pullRequestText !== null && known.pullRequest === undefined) ||
+      (serversText !== null && known.servers === undefined)
     const gap = strip ? parseFloat(getComputedStyle(strip).columnGap) || 0 : 0
     const next =
       available <= 0 || unmeasured
@@ -182,11 +230,14 @@ export function ConversationComposerStrip({
         : fitComposerStrip({
             available,
             gap,
-            // The pull request and the ring are the line's pinned end: neither
-            // leaves, so the fit gives way around the two of them.
+            // The local servers, the pull request and the ring are the line's
+            // pinned end: none of them leaves, so the fit gives way around them.
             ring: pinnedWidth(
-              ringShown ? (known.ring ?? 0) : null,
-              pullRequestText ? (known.pullRequest ?? 0) : null,
+              [
+                serversText ? (known.servers ?? 0) : null,
+                pullRequestText ? (known.pullRequest ?? 0) : null,
+                ringShown ? (known.ring ?? 0) : null,
+              ],
               gap,
             ),
             overflow: known.overflow ?? OVERFLOW_FALLBACK_WIDTH,
@@ -201,9 +252,22 @@ export function ConversationComposerStrip({
     // `fit` is a dependency on purpose: a fit that moved an item measures the
     // line it drew, and settles once the fit stops changing. A worktree mark
     // changes the branch's width, and the counts change the pill's.
-  }, [stripEl, available, machineId, branchName, branchWorktree, changesKey, ringShown, pullRequestText, fit])
+  }, [
+    stripEl,
+    available,
+    machineId,
+    branchName,
+    branchWorktree,
+    changesKey,
+    ringShown,
+    pullRequestText,
+    slotResized,
+    serversText,
+    fit,
+  ])
 
-  if (!machine && !branch && !hasChanges && percentage === null && pullRequestText === null) return null
+  if (!machine && !branch && !hasChanges && percentage === null && pullRequestText === null && serversText === null)
+    return null
 
   const showMachine = machine !== null && fit.machine
   const showBranch = branch !== null && fit.branchText !== null
@@ -291,13 +355,24 @@ export function ConversationComposerStrip({
           <OverflowMenu ariaLabel="More about where this agent works" triggerTooltip="More" items={hidden} />
         </span>
       ) : null}
+      {serversText !== null && localServers ? (
+        <span ref={serversRef} className="ml-auto inline-flex shrink-0" data-strip-local-servers-slot="">
+          <LocalServersStripButton workspaceId={localServers.workspaceId} servers={localServers.servers} />
+        </span>
+      ) : null}
       {pullRequestText !== null ? (
-        <span ref={pullRequestRef} className="ml-auto inline-flex shrink-0" data-strip-pull-request-slot="">
+        <span
+          ref={pullRequestRef}
+          className={`${serversText !== null ? '' : 'ml-auto '}inline-flex shrink-0`}
+          data-strip-pull-request-slot=""
+        >
           {slot === 'create' && createPullRequest ? (
             <CreatePullRequestControl
               cwd={createPullRequest.cwd}
               conversation={createPullRequest.conversation}
               onSettled={createPullRequest.onSettled}
+              onHoldChange={createPullRequest.onHoldChange}
+              ready={createPullRequest.ready}
             />
           ) : (
             <PullRequestStripButton pullRequests={pullRequests} now={now} />
@@ -305,7 +380,11 @@ export function ConversationComposerStrip({
         </span>
       ) : null}
       {percentage !== null && context ? (
-        <span ref={ringRef} className={`${pullRequest ? '' : 'ml-auto '}inline-flex shrink-0`} data-strip-context="">
+        <span
+          ref={ringRef}
+          className={`${pullRequestText !== null || serversText !== null ? '' : 'ml-auto '}inline-flex shrink-0`}
+          data-strip-context=""
+        >
           <ContextRing usedPercentage={percentage} tokens={context} />
         </span>
       ) : null}

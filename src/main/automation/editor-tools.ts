@@ -60,15 +60,19 @@ export type EditorDiffSource = {
   resolveCommit(repoRoot: string, revision: string): Promise<string | null>
   /** The full hashes of the commits the branch holds over its base — the steps the diff pane walks. */
   branchCommits(repoRoot: string): Promise<string[]>
-  /** The agent's changelist, or null when it has none in this repository. */
-  agentChangelistPaths(repoRoot: string, agentId: string): Promise<string[] | null>
+  /** The agent's changelist, or null when it has none in this repository. The
+   *  workspace is half of the agent's identity: `agent-1` recurs in every chat. */
+  agentChangelistPaths(repoRoot: string, owner: { workspaceId: string; agentId: string }): Promise<string[] | null>
 }
 
 export type EditorToolsDeps = {
   findWorkspace(workspaceId: string): { folderPath: string | null } | null
   findAgentSession(workspaceId: string, agentId: string): EditorAgentSession | null
-  /** Every file this agent reported writing since the app started, any repository. */
-  agentWrittenPaths(agentId: string): Iterable<string>
+  /**
+   * Every file this agent reported writing since the app started, any
+   * repository. Agent ids are only unique within a workspace, so both name it.
+   */
+  agentWrittenPaths(workspaceId: string, agentId: string): Iterable<string>
   resolveRepoRoot(directory: string): Promise<string | null>
   listWorktreePaths(repoRoot: string): Promise<string[]>
   fs: PathPolicyFs
@@ -271,7 +275,7 @@ export function createEditorTools(deps: EditorToolsDeps): McpToolRegistration[] 
       const resolved = resolveAgentPath(raw, scope.pathContext)
       if (resolved.ok) written.add(comparablePath(resolved.value.path))
     }
-    for (const path of deps.agentWrittenPaths(scope.agentId)) add(path)
+    for (const path of deps.agentWrittenPaths(scope.workspaceId, scope.agentId)) add(path)
     for (const path of scope.session?.fileChanges ?? []) add(path)
     return written
   }
@@ -539,10 +543,11 @@ export function createEditorTools(deps: EditorToolsDeps): McpToolRegistration[] 
 
     let changelistId: string | null = null
     if (workingTreeView && wantsMine && scope.agentId) {
-      const mine = await deps.diff.agentChangelistPaths(repoRoot, scope.agentId).catch(() => null)
+      const owner = { workspaceId: scope.workspaceId, agentId: scope.agentId }
+      const mine = await deps.diff.agentChangelistPaths(repoRoot, owner).catch(() => null)
       const owned = new Set((mine ?? []).map(normalizeChangelistPath))
       changed = changed.filter((path) => owned.has(path))
-      changelistId = changelistOwnerId(scope.agentId)
+      changelistId = changelistOwnerId(owner)
       if (changed.length === 0) {
         return failure(
           'nothing_to_show',

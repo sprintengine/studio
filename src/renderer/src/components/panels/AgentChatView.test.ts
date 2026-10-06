@@ -54,6 +54,8 @@ import {
   ResolvedDecisions,
   resolvedDecisionGroupLabel,
   resolvePermissionPreset,
+  restoreRefusedText,
+  draftAfterRetried,
   scaledImageDimensions,
   splitImageDataUrl,
   stopDisabledForPending,
@@ -1392,6 +1394,16 @@ test('AgentChatView', async () => {
   assert.equal(overflowed.attachments.length, MAX_ATTACHMENTS_PER_TURN, 'the queued turn never exceeds the cap')
   assert.equal(overflowed.dropped, 2, 'the trim is counted so the composer can report it')
 
+  // A queued turn whose send was refused comes back to the composer even when
+  // the person has typed more since, ahead of it, not only onto an empty box.
+  assert.equal(restoreRefusedText('', 'queued'), 'queued')
+  assert.equal(restoreRefusedText('typed since', 'queued'), 'queued\ntyped since')
+  assert.equal(restoreRefusedText('queued', 'queued'), 'queued', 'already back, it is not doubled')
+  assert.equal(restoreRefusedText('queued\ntyped since', 'queued'), 'queued\ntyped since', 'nor stacked again')
+  // Its Retry takes it back out, so the next Enter sends only what was typed.
+  assert.equal(draftAfterRetried('queued\ntyped since', 'queued'), 'typed since')
+  assert.equal(draftAfterRetried('typed since', 'queued'), null)
+
   // Mid-drag the payload is unreadable — only the item kinds are — so the drop
   // target and the preventDefault gate key off those.
   const transfer = (value: { types?: string[]; items?: { kind: string }[] }): DataTransfer =>
@@ -1604,6 +1616,14 @@ test('AgentChatView', async () => {
     /^[\s\S]{0,600}?permissionPreset: resolveCliPermissionPreset\(confirm\.cli, agentSpawnPermissionPreset\),/,
     'the chat spawn stamps the preset the picker showed for its CLI, like every CLI spawn',
   )
+  // Every open chat's layer stays mounted and nearly every chat has an
+  // `agent-1`, so a DOM id built from the agent id names several elements and a
+  // label points at whichever came first — another chat's composer.
+  assert.doesNotMatch(
+    chatViewSource,
+    /(?:\bid|htmlFor|aria-[a-z]+)=\{`[^`]*\$\{agentId\}/,
+    'no DOM id in the chat view is built from the agent id alone',
+  )
   // A refused change must never leave the pill claiming a preset the session is
   // not on: both failure branches of changePermissionPreset (refused, threw)
   // write the old value back. A window whose bridge is missing is answered
@@ -1706,8 +1726,8 @@ test('AgentChatView', async () => {
   // The right-click menu (1793) is DOM-bound (pointer coordinates, the field's
   // selection, the clipboard IPC), so its wiring is pinned at the source.
   assert.ok(
-    chatViewSource.includes('onContextMenu={(event) => void openComposerMenu(event)}'),
-    'the composer textarea opens the menu on right-click',
+    chatViewSource.includes('onContextMenu={(event, field) => void openComposerMenu(event, field)}'),
+    'the composer field opens the menu on right-click',
   )
   assert.match(
     chatViewSource.slice(chatViewSource.indexOf('const openComposerMenu')),

@@ -58,6 +58,7 @@ test("a WSL agent's call runs through the Windows side's registry as that agent'
       },
     },
     close: () => undefined,
+    closed: new Promise<void>(() => undefined),
   })) as unknown as typeof connect
   let connected: (connection: WslServerConnection) => void = () => undefined
   relayShellToolsets({ onConnected: (listener) => (connected = listener), registry, connectClient: fakeConnect })
@@ -130,6 +131,7 @@ async function relayed(shell: ReturnType<typeof definition>[], own: McpToolRegis
       },
     },
     close: () => undefined,
+    closed: new Promise<void>(() => undefined),
   })) as unknown as typeof connect
   let connected: (connection: WslServerConnection) => void = () => undefined
   relayShellToolsets({
@@ -328,6 +330,7 @@ test('a toolset is offered with each tool name once, and offered again when its 
         },
       },
       close: () => undefined,
+      closed: new Promise<void>(() => undefined),
     })) as unknown as typeof connect,
   })
   connected({
@@ -345,4 +348,41 @@ test('a toolset is offered with each tool name once, and offered again when its 
     offered[1].tools.map((tool) => tool.name),
     ['click'],
   )
+})
+
+test('a tools stream that closes while the server stays up is opened again, and the toolsets offered again', async () => {
+  const offered: string[] = []
+  const ends: Array<() => void> = []
+  const registry = {
+    visibleTools: () => [definition('browser', 'navigate')],
+    subscribe: () => () => undefined,
+    call: async () => ({ result: { content: [] } }),
+  } as unknown as ClientToolRegistry
+  let connected: (connection: WslServerConnection) => void = () => undefined
+  relayShellToolsets({
+    onConnected: (listener) => (connected = listener),
+    registry,
+    connectClient: (async () => ({
+      tools: {
+        offer: async (toolset: ToolsetInput) => {
+          offered.push(toolset.name)
+          return { name: toolset.name, wireNames: [], state: 'offered', withdraw: async () => undefined }
+        },
+      },
+      close: () => undefined,
+      closed: new Promise<void>((resolve) => ends.push(resolve)),
+    })) as unknown as typeof connect,
+  })
+  connected({
+    distro: 'Ubuntu',
+    backend: { isOpen: () => true, onClose: () => undefined } as unknown as WslServerConnection['backend'],
+    driveMountRoot: '/mnt/',
+    environmentId: 'env',
+    open: async () => assert.fail('the fake client opens nothing'),
+  })
+  await waitFor(() => offered.length === 1)
+  // The stream drops; the backend wire does not.
+  ends[0]()
+  await waitFor(() => offered.length === 2, 5_000)
+  assert.equal(ends.length, 2)
 })

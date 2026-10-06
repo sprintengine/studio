@@ -82,10 +82,14 @@ export type TourServiceDeps = {
   newId(): string
   /** The workspace's folder, from the registry. */
   resolveWorkspaceRoot(workspaceId: string): string | null
-  /** The agent's own checkout (a worktree agent reads a different tree from its workspace). */
-  resolveAgentCheckout(agentId: string): string | null
-  /** The repo-relative paths the agent's changelist owns in `repoRoot`, or null when it has none. */
-  readChangelistPaths(repoRoot: string, agentId: string): Promise<string[] | null>
+  /**
+   * The agent's own checkout (a worktree agent reads a different tree from its
+   * workspace). Agent ids are only unique within a workspace, so both name it.
+   */
+  resolveAgentCheckout(workspaceId: string, agentId: string): string | null
+  /** The repo-relative paths the agent's changelist owns in `repoRoot`, or null when it has none.
+   *  The workspace is half of the agent's identity: `agent-1` recurs in every chat. */
+  readChangelistPaths(repoRoot: string, owner: { workspaceId: string; agentId: string }): Promise<string[] | null>
   /** Workspace windows only: where a Diff tab can be docked. */
   broadcastToWorkspaceWindows(channel: string, payload: unknown): void
   /** Every window that can show a diff: workspace windows and the diff window. */
@@ -166,7 +170,7 @@ export function createTourService(deps: TourServiceDeps) {
   // ── Reading the changes ────────────────────────────────────────────────
 
   async function repoFor(caller: TourCaller): Promise<string | null> {
-    const checkout = caller.agentId ? deps.resolveAgentCheckout(caller.agentId) : null
+    const checkout = caller.agentId ? deps.resolveAgentCheckout(caller.workspaceId, caller.agentId) : null
     const start = checkout ?? deps.resolveWorkspaceRoot(caller.workspaceId)
     if (!start) return null
     return deps.git.resolveRepoRoot(start)
@@ -174,14 +178,14 @@ export function createTourService(deps: TourServiceDeps) {
 
   /** The files the tour covers, narrowed to a changelist when that is what it is about. */
   async function filesOf(
-    tour: Pick<Tour, 'repoRoot' | 'revisions' | 'changes' | 'author'>,
+    tour: Pick<Tour, 'workspaceId' | 'repoRoot' | 'revisions' | 'changes' | 'author'>,
   ): Promise<{ ok: true; files: TourChangedFile[] } | { ok: false; message: string }> {
     const listed = await deps.git.listTourFiles(tour.repoRoot, tour.revisions)
     if (!listed.ok) return listed
     if (tour.changes.kind !== 'changelist') return listed
     const agentId = tour.author.agentId
     if (!agentId) return { ok: true, files: [] }
-    const owned = new Set(await deps.readChangelistPaths(tour.repoRoot, agentId))
+    const owned = new Set(await deps.readChangelistPaths(tour.repoRoot, { workspaceId: tour.workspaceId, agentId }))
     return { ok: true, files: listed.files.filter((file) => owned.has(file.path) || owned.has(file.oldPath ?? '')) }
   }
 
@@ -209,7 +213,7 @@ export function createTourService(deps: TourServiceDeps) {
   }
 
   async function resolveSteps(
-    tour: Pick<Tour, 'repoRoot' | 'revisions' | 'changes' | 'author'>,
+    tour: Pick<Tour, 'workspaceId' | 'repoRoot' | 'revisions' | 'changes' | 'author'>,
     inputs: TourStepInput[],
   ): Promise<{ ok: true; steps: TourStep[] } | { ok: false; code: string; errors: string[] }> {
     const files = await filesOf(tour)
@@ -270,7 +274,10 @@ export function createTourService(deps: TourServiceDeps) {
         ? { kind: 'range' as const, base: revisions.base, head: revisions.head as string }
         : input.changes
 
-    const resolved = await resolveSteps({ repoRoot, revisions, changes, author }, input.steps)
+    const resolved = await resolveSteps(
+      { workspaceId: caller.workspaceId, repoRoot, revisions, changes, author },
+      input.steps,
+    )
     if (!resolved.ok) return { ...resolved, errors: [...priorErrors, ...resolved.errors] }
     if (priorErrors.length > 0) return { ok: false, code: 'invalid_tour', errors: [...priorErrors] }
 
@@ -549,14 +556,33 @@ export function createTourService(deps: TourServiceDeps) {
   }
 
   // ── Talking back ───────────────────────────────────────────────────────
+  //
+  // The author is named by its agent id, and an agent id is only unique within
+  // its workspace: nearly every chat's first agent is `agent-1`. The author
+  // always wrote from the tour's own workspace (and `askNewAgent` launches its
+  // successor there too), so the tour's workspace is the author's, and every
+  // match below pairs the two. Without it a question is typed into another
+  // chat's `agent-1`, and that agent exiting fails this tour's questions.
+  //
+  // "The tour's workspace" is the one the author's process was launched in. An
+  // author moved to another chat since sits in that chat, but its process (and
+  // so its tour) still names the first, so either of the two matches.
+
+  type AuthorPlace = { workspaceId?: string | null; launchWorkspaceId?: string | null }
+
+  function isAuthor(tour: Tour, place: AuthorPlace, agentId: string | null | undefined): boolean {
+    if (!tour.author.agentId || tour.author.agentId !== agentId) return false
+    return tour.workspaceId === place.workspaceId || tour.workspaceId === place.launchWorkspaceId
+  }
 
   function authorSession(tour: Tour): TerminalSessionSnapshot | null {
-    const agentId = tour.author.agentId
-    if (!agentId) return null
+    if (!tour.author.agentId) return null
     return (
       deps
         .listTerminals()
-        .find((session) => session.kind === 'agent' && session.agentId === agentId && session.processAlive) ?? null
+        .find(
+          (session) => session.kind === 'agent' && isAuthor(tour, session, session.agentId) && session.processAlive,
+        ) ?? null
     )
   }
 
@@ -579,9 +605,9 @@ export function createTourService(deps: TourServiceDeps) {
    * carries is only refreshed by the next hook event, so a second question
    * sent on the strength of the same `idle` would land mid-turn.
    */
-  function hasSentAsk(agentId: string): boolean {
+  function hasSentAsk(workspaceId: string, agentId: string): boolean {
     for (const tour of tours.values()) {
-      if (tour.author.agentId === agentId && tour.asks.some((entry) => entry.state === 'sent')) return true
+      if (isAuthor(tour, { workspaceId }, agentId) && tour.asks.some((entry) => entry.state === 'sent')) return true
     }
     return false
   }
@@ -611,7 +637,7 @@ export function createTourService(deps: TourServiceDeps) {
       return { ok: false, message: 'The agent that wrote this tour is no longer running.', authorGone: true }
     const text = tourAskText({ tour, step: live.value.steps[index], index, of: live.value.steps.length, question })
     const entry: TourAsk = { id: deps.newId(), stepId, text, state: 'queued', at: deps.now() }
-    if (isReady(session) && !hasSentAsk(session.agentId ?? '')) {
+    if (isReady(session) && !hasSentAsk(tour.workspaceId, session.agentId ?? '')) {
       send(session, text)
       entry.state = 'sent'
     }
@@ -663,7 +689,7 @@ export function createTourService(deps: TourServiceDeps) {
   /** The author's phase moved: flush a queued question, or mark a sent one answered. */
   function onAgentPhase(event: AgentPhaseEvent): void {
     for (const tour of tours.values()) {
-      if (tour.author.agentId !== event.agentId || tour.closed) continue
+      if (!isAuthor(tour, event, event.agentId) || tour.closed) continue
       const waiting = tour.asks.filter((entry) => entry.state === 'queued' || entry.state === 'sent')
       if (waiting.length === 0) continue
       let dirty = false
@@ -682,7 +708,7 @@ export function createTourService(deps: TourServiceDeps) {
           }
         }
         const next = tour.asks.find((entry) => entry.state === 'queued')
-        const session = next && !hasSentAsk(event.agentId) ? authorSession(tour) : null
+        const session = next && !hasSentAsk(tour.workspaceId, event.agentId) ? authorSession(tour) : null
         if (next && session) {
           send(session, next.text)
           next.state = 'sent'

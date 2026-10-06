@@ -50,6 +50,7 @@ import {
 import { recencyEqual, stableRecord, stableSet, type RowRecency } from './stableRowSlices'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { meshConversationSessionId } from '../../../../shared/tailnet-mesh'
+import { newAgentId, newAgentIdSuffix } from '../../../../shared/agent-ids'
 import { nextNewChatName } from '../../../../shared/workspace-title'
 import { machinePath } from '../../../../shared/machine-paths'
 import { combinedAgentActivity, conversationFinishedAt, conversationLastInputAt } from './sidebar/conversationLines'
@@ -66,6 +67,7 @@ import type {
 } from '../../types/workspace'
 import {
   agentWorktreePaths,
+  newChatWorktreeName,
   workspaceProjectRoot,
   workspaceProjectRootOf,
   worktreeIdFromPath,
@@ -77,9 +79,11 @@ import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { setBacklogHandoffHost, type BacklogHandoffRequest } from '../backlog/backlogHandoffHost'
 import type { CardRunResult, WorkspaceSkill } from '../../../../shared/electron-api'
 import type { HostedCard } from '../../../../shared/hosted-card-feed'
+import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import type { CardLaunchChoice } from './globalSurface/extensions/home/CardGoPicker'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { ensureChatWorktree } from '../../utils/chatWorktreeRestore'
 import { undeliveredPromptEntry, undeliveredPromptNotice } from '../../utils/undeliveredPrompt'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
@@ -348,6 +352,20 @@ const MENU_ACCELERATOR_COMMAND_IDS = [
   'panel.knowledge-graph.toggle',
 ] as const
 
+// A chat in the middle of a turn, or stopped on a card, holds its layout as a
+// live pty does: its view holds what was queued behind the turn, and sends it
+// when the turn ends. Unloaded mid-turn, the queued message went with the view
+// and nothing ever sent it. A chat has no pty, so the terminal checks miss it.
+function addWorkingChatWorkspaces(
+  busyWorkspaceIds: Set<string>,
+  sessions: readonly Pick<ConversationSessionSummary, 'workspaceId' | 'status' | 'turnStartedAt'>[],
+): void {
+  for (const session of sessions) {
+    if (session.turnStartedAt !== undefined || session.status === 'active' || session.status === 'awaiting_approval')
+      busyWorkspaceIds.add(session.workspaceId)
+  }
+}
+
 export default function WorkspaceManager() {
   useAppTheme()
   const dialog = useConfirmDialog()
@@ -518,6 +536,13 @@ export default function WorkspaceManager() {
       null,
     [primaryWorkspaceWindowId, workspaceWindowId, workspaceWindows],
   )
+  // Whether this window's own record is in the registry right now, rather than
+  // stood in for by the primary's. A move between windows can drop it for a
+  // beat; what this window holds is not known until it is back.
+  const ownWorkspaceWindowPresent = useMemo(
+    () => workspaceWindows.some((windowState) => windowState.id === workspaceWindowId),
+    [workspaceWindowId, workspaceWindows],
+  )
   const isPrimaryWorkspaceWindow = workspaceWindowId === (primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID)
   const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
   const setPaneOpen = useWorkspaceStore((s) => s.setPaneOpen)
@@ -560,15 +585,12 @@ export default function WorkspaceManager() {
   // win/linux the floating caption buttons sit over whichever top strip owns
   // that corner, and that strip leaves them room (WindowCaptionReserve): the
   // pane's own strip while it is open, the WorkspaceHeader otherwise.
-  const paneOwnsRightEdge = useWorkspaceStore(
+  // `paneOwnsRightEdge` itself is derived below, once the New chat door's state
+  // is known: the door hides the active workspace's pane.
+  const activeWorkspacePaneOpen = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState?.open ?? false,
   )
-  // The caption corner is narrower than the right edge: a MAXIMISED pane fills
-  // the row below the header, so the header keeps the corner and its own
-  // reserve (paneStripOwnsCaptionCorner). The card's right-edge gap below still
-  // reads `paneOwnsRightEdge`, so maximising reflows nothing under the pane.
   const paneMaximised = useWorkspaceStore((s) => s.workspacePaneMaximised)
-  const paneOwnsCaptionCorner = paneStripOwnsCaptionCorner({ open: paneOwnsRightEdge, maximised: paneMaximised })
   // (Was `activePaneOpen`, derived from `activeWorkspace`. Removed: the card's
   // right-edge gap is its only consumer and it now reads `paneOwnsRightEdge`
   // above, which selects `paneState.open` straight off the live store — one
@@ -592,6 +614,18 @@ export default function WorkspaceManager() {
   } | null>(null)
   const scheduledAgents = useScheduledAgents()
   const newChatPanelOpen = newChatPanelState !== null
+  // The New chat door belongs to no workspace yet: the chat it starts lands in
+  // a workspace of its own. The "active" workspace behind it is only the one
+  // that was showing when the door opened, so its pane — its tabs, its
+  // terminals — stays out of view until the door closes, rather than reading
+  // as part of the chat about to be made. The pane stays mounted (collapsed,
+  // like a closed pane), so cancelling the door brings it back as it was.
+  const paneOwnsRightEdge = activeWorkspacePaneOpen && !newChatPanelOpen
+  // The caption corner is narrower than the right edge: a MAXIMISED pane fills
+  // the row below the header, so the header keeps the corner and its own
+  // reserve (paneStripOwnsCaptionCorner). The card's right-edge gap below still
+  // reads `paneOwnsRightEdge`, so maximising reflows nothing under the pane.
+  const paneOwnsCaptionCorner = paneStripOwnsCaptionCorner({ open: paneOwnsRightEdge, maximised: paneMaximised })
   // At a phone's width (owner decision 5, phase 9 spec 7.2) the sidebar, with
   // the rail, and the content take turns at the full width: the sidebar
   // toggle switches between them, and choosing a chat, New chat or another
@@ -781,6 +815,15 @@ export default function WorkspaceManager() {
   const ownsGlobalSupervisors = isPrimaryWorkspaceWindow
   // Reclaims agent worktrees that are clean and merged; one window runs it.
   useAgentWorktreeCleanup(isPrimaryWorkspaceWindow)
+  // Opening a chat whose worktree that cleanup gave back starts bringing it
+  // back at once, not when the first of its panels asks for the folder
+  // (chatWorktreeRestore.ts); every panel then waits on the same restore. A
+  // sweep that started before the chat was opened can mark it while it is
+  // open, which asks again.
+  const activeWorktreeReclaimedAt = activeWorkspace?.worktree?.reclaimedAt
+  useEffect(() => {
+    if (windowActiveWorkspaceId) void ensureChatWorktree(windowActiveWorkspaceId)
+  }, [windowActiveWorkspaceId, activeWorktreeReclaimedAt])
   const renderedWorkspaceIds = visibleWorkspaces
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === windowActiveWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
@@ -1347,8 +1390,8 @@ export default function WorkspaceManager() {
       if (chosenCli) setLastSelectedCli(chosenCli)
       // The solo template carries exactly one agent tab, and the seed patch above
       // was merged onto it at creation, so the lone agent record IS this chat's
-      // agent. Read back rather than guessed: the id is the template's, not one
-      // this function minted.
+      // agent. Read back rather than guessed: `addWorkspace` minted its id, which
+      // is not the template's placeholder.
       if (!workspaceId) return null
       const created = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)
       const agentId = Object.keys(created?.agents ?? {})[0]
@@ -1757,6 +1800,7 @@ export default function WorkspaceManager() {
         busyWorkspaceIds.add(session.workspaceId)
       }
     }
+    addWorkingChatWorkspaces(busyWorkspaceIds, conversationSessions)
 
     const retention = computeRetainedWorkspaceLayoutIds({
       visibleWorkspaceIds,
@@ -1808,7 +1852,14 @@ export default function WorkspaceManager() {
         ? current
         : next
     })
-  }, [mountedWorkspaceIds, terminalSessions, visibleWorkspaces, windowActiveWorkspaceId, workspaceLayoutRetentionTick])
+  }, [
+    conversationSessions,
+    mountedWorkspaceIds,
+    terminalSessions,
+    visibleWorkspaces,
+    windowActiveWorkspaceId,
+    workspaceLayoutRetentionTick,
+  ])
 
   useEffect(() => {
     const now = Date.now()
@@ -1824,6 +1875,7 @@ export default function WorkspaceManager() {
         busyWorkspaceIds.add(session.workspaceId)
       }
     }
+    addWorkingChatWorkspaces(busyWorkspaceIds, conversationSessions)
 
     let nextDeadline = Number.POSITIVE_INFINITY
     for (const workspaceId of mountedWorkspaceIds) {
@@ -1841,7 +1893,14 @@ export default function WorkspaceManager() {
       Math.max(1_000, nextDeadline - now + 50),
     )
     return () => window.clearTimeout(timeout)
-  }, [mountedWorkspaceIds, terminalSessions, visibleWorkspaces, windowActiveWorkspaceId, workspaceLayoutRetentionTick])
+  }, [
+    conversationSessions,
+    mountedWorkspaceIds,
+    terminalSessions,
+    visibleWorkspaces,
+    windowActiveWorkspaceId,
+    workspaceLayoutRetentionTick,
+  ])
 
   // Auto-open New chat when there are no workspaces — unless the first-run CLI
   // question still owns that window. Precedence lives HERE, at the
@@ -2357,6 +2416,8 @@ export default function WorkspaceManager() {
       spawnError('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
       return null
     }
+    // From the worktree pool, on the default branch (main's git.ts): a
+    // reused slot keeps the last agent's installed dependencies.
     const result = await window.api.createGitWorktree({
       repoRoot,
       containerPath: paths.containerPath,
@@ -2365,6 +2426,7 @@ export default function WorkspaceManager() {
       baseRef: 'HEAD',
       copyIncludedFiles: true,
       agentLockOwner: agentId,
+      fromPool: true,
     })
     if (!result.ok) {
       spawnError('Agent worktree failed', result.message)
@@ -2374,7 +2436,7 @@ export default function WorkspaceManager() {
     const store = useWorkspaceStore.getState()
     store.setWorkspaceWorktreeState(workspace.id, { containerPath: paths.containerPath })
     const now = Date.now()
-    const worktreeId = worktreeIdFromPath(result.data.path)
+    const worktreeId = worktreeIdFromPath(result.data.path, result.data.leaseId)
     store.upsertWorktreeEntry(workspace.id, {
       id: worktreeId,
       path: result.data.path,
@@ -2430,7 +2492,7 @@ export default function WorkspaceManager() {
     const tabName =
       placement?.agentName ||
       pickRandomAgentName(Object.values(activeWorkspace?.agents ?? {}).map((agent) => agent.name))
-    const newId = `agent-${spawnCli}-${nanoid(6)}`
+    const newId = newAgentId(spawnCli)
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
     let execution: AgentExecution | undefined
@@ -2503,7 +2565,7 @@ export default function WorkspaceManager() {
 
     const tabName =
       placement?.agentName || pickRandomAgentName(Object.values(activeWorkspace.agents).map((agent) => agent.name))
-    const newId = `conversation-${target.providerId}-${nanoid(6)}`
+    const newId = `conversation-${target.providerId}-${newAgentIdSuffix()}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
     // Keep launch skills as agent state: the chat composer displays them as
@@ -2574,6 +2636,9 @@ export default function WorkspaceManager() {
     confirm: AgentComposerConfirm,
     environment: NonNullable<NewAgentLaunch['environment']>,
     startupPrompt?: string,
+    // The images staged beside the prompt, files on this computer: the chat
+    // reads them here and sends their bytes, wherever it runs.
+    startupImages?: string[],
   ) => {
     if (confirm.kind !== 'conversation') {
       showToast({
@@ -2585,6 +2650,7 @@ export default function WorkspaceManager() {
     }
     const seed = conversationNewChatSeed(confirm, {
       prompt: startupPrompt,
+      images: startupImages,
       permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
       ...cliPermissionModeLaunch(confirm.cli),
     })
@@ -2684,9 +2750,13 @@ export default function WorkspaceManager() {
         'This project is not a git repository, so a worktree cannot be created.',
       )
     }
-    const name = requestedName.trim() || `chat-${nanoid(4).toLowerCase()}`
+    const name = requestedName.trim() || newChatWorktreeName(nanoid(4))
     const paths = agentWorktreePaths(repoRoot, name)
     if (!paths) return fail('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
+    // From the worktree pool, on the default branch (main's git.ts): a
+    // reused slot keeps the last agent's installed dependencies. A chat on a
+    // WSL machine is declined by the pool and gets a fresh worktree from that
+    // machine's git, forked from the same default branch.
     const result = await window.api.createGitWorktree({
       repoRoot,
       containerPath: paths.containerPath,
@@ -2696,12 +2766,17 @@ export default function WorkspaceManager() {
       copyIncludedFiles: true,
       // The chat is created after its worktree, so the branch names the owner.
       agentLockOwner: paths.branchName,
+      fromPool: true,
       ...(worktreeHostId ? { hostId: worktreeHostId } : {}),
     })
     if (!result.ok) return fail('Worktree failed', result.message)
     return {
       folderPath: result.data.path,
-      worktree: { branch: result.data.branch ?? paths.branchName, baseRef: 'HEAD', repoRoot: projectFolder },
+      worktree: {
+        branch: result.data.branch ?? paths.branchName,
+        baseRef: result.data.baseRef,
+        repoRoot: projectFolder,
+      },
     }
   }
 
@@ -3157,7 +3232,7 @@ export default function WorkspaceManager() {
               DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
           ),
         permissionModeFor: (cli) => cliPermissionModeLaunch(cli).permissionMode,
-        newAgentId: (providerId) => `conversation-${providerId}-${nanoid(6)}`,
+        newAgentId: (providerId) => `conversation-${providerId}-${newAgentIdSuffix()}`,
         pickName: pickRandomAgentName,
         writeAgent: (workspaceId, agentId, patch) =>
           useWorkspaceStore.getState().updateAgent(workspaceId, agentId, patch),
@@ -4599,7 +4674,7 @@ export default function WorkspaceManager() {
                   <div
                     className="absolute inset-0"
                     aria-hidden={activeGlobalSurfaceEntry !== null || undefined}
-                    {...(activeGlobalSurfaceEntry !== null ? ({ inert: '' } as Record<string, string>) : {})}
+                    inert={activeGlobalSurfaceEntry !== null}
                   >
                     <>
                       {railWorkspaces.length === 0 && !activeWorkspace && (
@@ -4671,7 +4746,7 @@ export default function WorkspaceManager() {
                               permissionPreset={agentSpawnPermissionPreset}
                               onLaunch={({ prompt, images, extension, environment, ...confirm }) => {
                                 if (environment) {
-                                  confirmSshNewChat(confirm, environment, prompt)
+                                  confirmSshNewChat(confirm, environment, prompt, images)
                                   return
                                 }
                                 // confirmNewChat closes the panel (and forgets the draft) itself.
@@ -4844,6 +4919,8 @@ export default function WorkspaceManager() {
             <WorkspacePaneColumn
               activeWorkspaceId={windowActiveWorkspaceId}
               renderedWorkspaceIds={renderedWorkspaceIds}
+              suppressed={newChatPanelOpen}
+              windowWorkspaceIds={ownWorkspaceWindowPresent ? visibleWorkspaceIdSet : null}
             />
           </React.Suspense>
         </div>

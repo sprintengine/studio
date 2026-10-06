@@ -159,6 +159,20 @@ test('useConversationPeek', async () => {
       second.unmount()
     })
 
+    await run('a dwell left running by an anchor that went away does not close the open card', async () => {
+      const gone = mount(DS)
+      act(() => gone.slot.current.openSoon())
+      gone.unmount()
+
+      const open = mount(LL)
+      act(() => open.slot.current.openNow())
+      await act(async () => {
+        await new Promise((resolve) => dom.window.setTimeout(resolve, 700))
+      })
+      assert.equal(open.slot.current.open, true, 'the card on screen stays up')
+      open.unmount()
+    })
+
     if (failures !== 0) process.exit(1)
   }
 

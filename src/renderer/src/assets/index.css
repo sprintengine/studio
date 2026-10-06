@@ -194,7 +194,8 @@
      2026-10-04, option D of tmp/conversation-colors.html). Declared once here
      and resolved against each theme's own ramp through the cascade, so no theme
      needs an override; one that wants a different centerpiece can still set its
-     own --agent-surface in its block. */
+     own --agent-surface in its block. The Dark theme does — see the Dark-only
+     block below the git ref pills. */
   --agent-surface: var(--bg-surface-raised);
   /* What sits IN the conversation and has to read as a shape on it — the
      user's message bubble, a command's plain output. --bg-hover is the ramp's
@@ -1293,7 +1294,9 @@ code,
 kbd,
 pre,
 samp,
-.font-mono {
+.font-mono,
+.composer-markdown .cm-md-code,
+.composer-markdown .cm-line.cm-md-fence {
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
   font-feature-settings: 'tnum', 'zero';
 }
@@ -1556,6 +1559,18 @@ samp,
   background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff5a5f);
   border-color: color-mix(in oklab, var(--bg-surface) 66%, #ff5a5f);
   color: color-mix(in oklab, var(--text-strong) 30%, #ff5a5f);
+}
+
+/* Dark keeps the conversation on its black: --bg-app, the window frame's own
+ * ground, so the frame, the conversation and the tab strip over it (which
+ * follows --agent-surface, see the tab strip rules) are one black and only the
+ * composer is lifted off it. The raised paper (#101418) read as a grey slab on
+ * the right of the window (owner ruling 2026-10-04). Scoped here, not in the
+ * shared :root block, because every other dark theme inherits from that block
+ * and keeps its raised paper. */
+:root:not([data-theme]),
+:root[data-theme="dark"] {
+  --agent-surface: var(--bg-app);
 }
 
 /* Light-theme legibility: deepen lane strokes and pull pill labels to
@@ -2086,13 +2101,19 @@ samp,
   translate: 18px 0;
 }
 
+/* `SwitchGlyph`: the same picture inside a menu row that carries the state. */
+.switch-track[data-checked="true"] .switch-thumb {
+  translate: 18px 0;
+}
+
 /* One detail, not a spring: under the press the thumb stretches 3px, anchored
  * at the end it is resting against, and settles back on release. */
 @media (prefers-reduced-motion: no-preference) {
   .switch-track:active:not(:disabled) .switch-thumb {
     width: 15px;
   }
-  .switch-track[aria-checked="true"]:active:not(:disabled) .switch-thumb {
+  .switch-track[aria-checked="true"]:active:not(:disabled) .switch-thumb,
+  .switch-track[data-checked="true"]:active .switch-thumb {
     translate: 15px 0;
   }
 }
@@ -3665,6 +3686,18 @@ body:has([data-selection-pane]:focus-within)
   border-bottom-color: var(--border-subtle);
 }
 
+/* Over a conversation the strip is the conversation's ground, not the
+   terminal's: the pane reads as one surface with its tabs on top, rather than
+   a near-black bar across the top of the theme's paper (owner ruling
+   2026-10-04). The pane is not inside the tabset in FlexLayout's DOM, so the
+   selected tab's label carries `data-tab-surface="agent"` (WorkspaceLayout's
+   renderTab) and the strip reads it from there. Covers the focused strip too:
+   this out-specifies the `.flexlayout__tabset-selected` rule above. */
+.flexlayout__layout
+  .flexlayout__tabset_tabbar_outer:has(.flexlayout__tab_button--selected [data-tab-surface="agent"]) {
+  background: var(--agent-surface);
+}
+
 /* Focus ring for the terminal you're currently using — the documented terminal
    variant of the one indicator, exported as FOCUS_RING_TERMINAL_CLASS from
    components/ui/tokens.ts, which carries the full rationale. Driven by
@@ -4021,6 +4054,108 @@ body:has([data-selection-pane]:focus-within)
 .markdown-rendered[data-tone="muted"] {
   --markdown-ink: var(--text-muted);
   --markdown-ink-strong: var(--text-default);
+}
+
+/* ── The composer's markdown, drawn in place ────────────────────────────────
+ * agentChat/markdownLivePreview.ts names these on the composer's editor
+ * (agentChat/ComposerField.tsx). A rendered line takes the transcript's
+ * compact chat scale — the size the composer's own text is set at — so a draft
+ * reads the way it will once it is sent. Markup still on screen (the line the
+ * caret is on, a fence, a task box) steps back to the subtle ink, so the words
+ * it wraps keep the eye. */
+.composer-markdown .cm-md-syntax {
+  color: var(--text-subtle);
+}
+
+.composer-markdown .cm-md-heading {
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-strong);
+}
+
+/* Sized against the field's own text, not a ramp step: the field inherits its
+ * size from where it sits, and a step fixed in pixels can land under it. */
+.composer-markdown .cm-md-h1 {
+  font-size: 1.3em;
+}
+
+.composer-markdown .cm-md-h2 {
+  font-size: 1.15em;
+}
+
+.composer-markdown .cm-md-h3 {
+  font-size: 1.05em;
+}
+
+.composer-markdown .cm-md-strong {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.composer-markdown .cm-md-em {
+  font-style: italic;
+}
+
+.composer-markdown .cm-md-strike {
+  text-decoration: line-through;
+}
+
+.composer-markdown .cm-md-code {
+  border-radius: var(--radius-xs);
+  background: var(--bg-active);
+  padding: 0.05em 0.3em;
+  font-size: 0.9em;
+  color: var(--text-strong);
+}
+
+.composer-markdown .cm-md-link {
+  color: var(--accent-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.composer-markdown .cm-md-bullet,
+.composer-markdown .cm-md-list-number {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A block quote's rule is the line's own left edge, so it runs unbroken down
+ * the quote whether its markers are hidden or shown. `.cm-line` is in the
+ * selector to outrank the editor theme's line padding, which the editor
+ * injects after this sheet. */
+.composer-markdown .cm-line.cm-md-quote {
+  border-left: 2px solid var(--border-default);
+  padding-left: 0.75em;
+  color: var(--text-muted);
+}
+
+/* A code block is a band of lines on the raised ground: the first and last
+ * lines round its corners, so the band reads as one block. */
+.composer-markdown .cm-line.cm-md-fence {
+  background: var(--bg-surface-raised);
+  padding-inline: 0.75em;
+  font-size: 0.9em;
+  color: var(--text-default);
+}
+
+.composer-markdown .cm-line.cm-md-fence-first {
+  padding-top: 0.25em;
+  border-top-left-radius: var(--radius-sm);
+  border-top-right-radius: var(--radius-sm);
+}
+
+.composer-markdown .cm-line.cm-md-fence-last {
+  padding-bottom: 0.25em;
+  border-bottom-left-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+.composer-markdown .cm-md-rule {
+  display: inline-block;
+  width: 100%;
+  vertical-align: middle;
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* Conversation list rhythm: items a quarter-line apart and a nested list

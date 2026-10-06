@@ -2,6 +2,13 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 import { bundledPermissionModes } from '../../../../../../tests/permission-modes'
+import {
+  composerDisabled,
+  composerField,
+  composerPlaceholder,
+  composerText,
+  typeIntoComposer,
+} from '../../../../../../tests/composer-field'
 import { test } from 'vitest'
 
 test('NewAgentPanel', async () => {
@@ -33,6 +40,7 @@ test('NewAgentPanel', async () => {
   anyGlobal.HTMLElement = dom.window.HTMLElement
   anyGlobal.HTMLInputElement = dom.window.HTMLInputElement
   anyGlobal.HTMLTextAreaElement = dom.window.HTMLTextAreaElement
+  anyGlobal.MutationObserver = dom.window.MutationObserver
   anyGlobal.Node = dom.window.Node
   anyGlobal.MouseEvent = dom.window.MouseEvent
   anyGlobal.KeyboardEvent = dom.window.KeyboardEvent
@@ -541,6 +549,58 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
+    // 1d. The New chat door (the surface with a parked draft) opens with the
+    //     worktree on: a chat runs in a worktree of its own unless the person
+    //     turns it off. The pane's "+" (no draft) still opens with it off,
+    //     which 1c covers.
+    await check('the New chat door opens with the worktree on, and the launch carries it', async () => {
+      seedStore()
+      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      writeNewChatDraft('win-1', { prompt: 'fix the login redirect', folderPath: '/w/app' })
+      const view = await render({ draftKey: 'win-1' })
+      const chip = view.container.querySelector('[data-worktree-chip]')
+      assert.equal(chip?.getAttribute('data-worktree-chip'), 'on', 'the door starts in a worktree')
+      const start = [...view.container.querySelectorAll('button')].find(
+        (button) => button.getAttribute('aria-label') === 'Start agent',
+      )
+      await act(async () => {
+        start!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      assert.deepEqual(view.launches[0]?.worktree, { name: '' }, 'with a name made up at start')
+      view.unmount()
+      resetNewChatDraftsForTests()
+    })
+
+    // 1e. Outside a git repository the chip is not offered, so the worktree the
+    //     door starts with is dropped from the launch: carried, it would fail
+    //     to be made and keep the chat from starting at all.
+    await check('outside a git repository the door launches with no worktree', async () => {
+      seedStore()
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      const gitRepoRoot = api.getGitRepoRoot
+      api.getGitRepoRoot = async () => null
+      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      writeNewChatDraft('win-1', { prompt: 'tidy the notes', folderPath: '/w/notes' })
+      try {
+        const view = await render({ draftKey: 'win-1' })
+        assert.equal(view.container.querySelector('[data-worktree-chip]'), null, 'no chip outside a repository')
+        const start = [...view.container.querySelectorAll('button')].find(
+          (button) => button.getAttribute('aria-label') === 'Start agent',
+        )
+        await act(async () => {
+          start!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        assert.equal(view.launches.length, 1, 'the chat still starts')
+        assert.equal('worktree' in view.launches[0]!, false, 'with no worktree on it')
+        view.unmount()
+      } finally {
+        api.getGitRepoRoot = gitRepoRoot
+        resetNewChatDraftsForTests()
+      }
+    })
+
     // 2b. Picking a plain Terminal drops every CLI-shaped control: a shell
     //     launches no CLI, so it shows no model, no permission flag and no
     //     command line.
@@ -577,9 +637,9 @@ test('NewAgentPanel', async () => {
       // field that says so rather than dropping what was typed.
       const { SUGGESTION_BANK } = await import('./suggestionBank')
       assert.ok(!SUGGESTION_BANK.some((entry) => text.includes(entry.title)), 'no suggestion cards for a plain shell')
-      const promptField = view.container.querySelector('textarea')
-      assert.equal(promptField?.disabled, true, 'and no prompt to type into')
-      assert.ok((promptField?.getAttribute('placeholder') ?? '').includes('nothing typed'), 'which says why')
+      const promptField = composerField(view.container)
+      assert.equal(composerDisabled(promptField), true, 'and no prompt to type into')
+      assert.ok(composerPlaceholder(promptField).includes('nothing typed'), 'which says why')
 
       // The choice is a tag beside the "+", and its × goes back to a conversation;
       // the "+" still offers the terminal agent.
@@ -595,7 +655,7 @@ test('NewAgentPanel', async () => {
         'picking Terminal agent brings the engine chip — and the permission control inside it — back',
       )
       const back = view.text()
-      assert.equal(view.container.querySelector('textarea')?.disabled, false, 'and the prompt is typeable again')
+      assert.equal(composerDisabled(composerField(view.container)), false, 'and the prompt is typeable again')
       assert.ok(
         SUGGESTION_BANK.some((entry) => back.includes(entry.title)),
         'and the suggested tasks return',
@@ -624,7 +684,7 @@ test('NewAgentPanel', async () => {
       })
       assert.ok(view.text().includes('Terminal agent'), 'the choice rises as a tag')
       assert.match(
-        view.container.querySelector('textarea')?.getAttribute('placeholder') ?? '',
+        composerPlaceholder(composerField(view.container)) ?? '',
         /terminal you can take over/,
         'and the prompt says where it runs',
       )
@@ -692,10 +752,9 @@ test('NewAgentPanel', async () => {
     await check('Enter in the Chat agent launcher starts the chat on what was typed', async () => {
       seedStore()
       const view = await render({ initialSelection: { kind: 'conversation' } })
-      const field = view.container.querySelector('textarea')!
+      const field = composerField(view.container)
       await act(async () => {
-        Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'hi')
-        field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        typeIntoComposer(field, 'hi')
       })
       await act(async () => {
         field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
@@ -715,7 +774,7 @@ test('NewAgentPanel', async () => {
 
     await check('the prompt carries no caret, chat or CLI: the box is one composer', async () => {
       const caret = (view: Awaited<ReturnType<typeof render>>) =>
-        view.container.querySelector('textarea')!.parentElement!.querySelector(':scope > svg')
+        composerField(view.container).closest('[data-composer-field]')!.parentElement!.querySelector(':scope > svg')
       seedStore()
       const cliView = await render({ initialSelection: { kind: 'general' } })
       assert.equal(caret(cliView), null)
@@ -728,7 +787,7 @@ test('NewAgentPanel', async () => {
       })
       const view = await render({ initialSelection: { kind: 'conversation' } })
       assert.ok(view.text().includes('No agent CLI on this machine can run as a chat.'))
-      assert.ok(view.container.querySelector('textarea')?.closest('.hidden'), 'and hides the prompt that cannot run')
+      assert.ok(composerField(view.container).closest('.hidden'), 'and hides the prompt that cannot run')
       view.unmount()
     })
 
@@ -787,13 +846,10 @@ test('NewAgentPanel', async () => {
     await check('Start reports the launch to the host with the typed prompt', async () => {
       seedStore()
       const view = await render()
-      const textarea = view.container.querySelector('textarea')
-      assert.ok(textarea, 'the prompt field exists')
+      const textarea = composerField(view.container)
 
       await act(async () => {
-        const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')?.set
-        setter?.call(textarea, 'review the auth flow')
-        textarea!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        typeIntoComposer(textarea, 'review the auth flow')
       })
 
       const start = [...view.container.querySelectorAll('button')].find(
@@ -962,7 +1018,7 @@ test('NewAgentPanel', async () => {
     await check('the picker is there for every CLI and the placeholder stops advertising the trigger', async () => {
       seedStore()
       const withPrefix = await render({ initialSelection: { kind: 'conversation' } })
-      assert.equal(withPrefix.container.querySelector('textarea')?.getAttribute('placeholder'), 'Describe the task…')
+      assert.equal(composerPlaceholder(composerField(withPrefix.container)), 'Describe the task…')
       assert.ok(await skillsOffered(withPrefix), 'a claude runtime gets the picker')
       withPrefix.unmount()
 
@@ -986,7 +1042,7 @@ test('NewAgentPanel', async () => {
         ],
       })
       const noPrefix = await render({ initialSelection: { kind: 'conversation' } })
-      assert.equal(noPrefix.container.querySelector('textarea')?.getAttribute('placeholder'), 'Describe the task…')
+      assert.equal(composerPlaceholder(composerField(noPrefix.container)), 'Describe the task…')
       assert.ok(await skillsOffered(noPrefix), 'and so does a CLI with no typed form')
       noPrefix.unmount()
     })
@@ -1226,7 +1282,7 @@ test('NewAgentPanel', async () => {
       const view = await render({ initialSelection: { kind: 'general' } })
       const text = view.text()
       assert.ok(text.includes('No agent CLI is installed'), 'it says so plainly')
-      assert.ok(view.container.querySelector('textarea')?.closest('.hidden'), 'and hides the prompt that cannot run')
+      assert.ok(composerField(view.container).closest('.hidden'), 'and hides the prompt that cannot run')
       view.unmount()
     })
 
@@ -1567,10 +1623,9 @@ test('NewAgentPanel', async () => {
         await act(async () => {
           dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
         })
-        const field = view.container.querySelector('textarea')!
+        const field = composerField(view.container)
         await act(async () => {
-          Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'hi')
-          field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+          typeIntoComposer(field, 'hi')
         })
         await act(async () => {
           field.dispatchEvent(
@@ -1632,10 +1687,9 @@ test('NewAgentPanel', async () => {
         await act(async () => {
           dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
         })
-        const field = view.container.querySelector('textarea')!
+        const field = composerField(view.container)
         await act(async () => {
-          Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'hi')
-          field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+          typeIntoComposer(field, 'hi')
         })
         await act(async () => {
           field.dispatchEvent(
@@ -1716,11 +1770,9 @@ test('NewAgentPanel', async () => {
         })
         await settle()
         await pickMachine(view, 'Air')
-        const textarea = view.container.querySelector('textarea')!
+        const textarea = composerField(view.container)
         await act(async () => {
-          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
-          setter.call(textarea, 'fix the build')
-          textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+          typeIntoComposer(textarea, 'fix the build')
         })
 
         // Drop an image: its chip stays on screen, so the refusal must name it.
@@ -1800,11 +1852,9 @@ test('NewAgentPanel', async () => {
       assert.ok(machineTrigger(view), 'the machine dropdown is offered for a chat agent')
       await pickMachine(view, 'Air')
       assert.ok(machineTrigger(view)?.textContent?.includes('Air'), 'and a paired machine can be picked')
-      const textarea = view.container.querySelector('textarea')!
+      const textarea = composerField(view.container)
       await act(async () => {
-        const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
-        setter.call(textarea, 'fix the build')
-        textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        typeIntoComposer(textarea, 'fix the build')
       })
       await act(async () => {
         textarea.dispatchEvent(
@@ -1866,11 +1916,9 @@ test('NewAgentPanel', async () => {
         })
         await settle()
 
-        const textarea = view.container.querySelector('textarea')!
+        const textarea = composerField(view.container)
         await act(async () => {
-          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
-          setter.call(textarea, 'fix the build')
-          textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+          typeIntoComposer(textarea, 'fix the build')
         })
         await act(async () => {
           textarea.dispatchEvent(
@@ -1998,11 +2046,9 @@ test('NewAgentPanel', async () => {
           'a chat on another machine has no checkout here to fork, so no worktree chip',
         )
 
-        const textarea = view.container.querySelector('textarea')!
+        const textarea = composerField(view.container)
         await act(async () => {
-          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
-          setter.call(textarea, 'fix the build')
-          textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+          typeIntoComposer(textarea, 'fix the build')
         })
         await act(async () => {
           textarea.dispatchEvent(
@@ -2649,13 +2695,11 @@ test('NewAgentPanel', async () => {
         const shot = { id: 'img-1', mediaType: 'image/png', dataBase64: 'AAAA', byteLength: 4, path: '/tmp/shot.png' }
         writeNewChatDraft('win-1', { prompt: 'review the auth flow', images: [shot], folderPath: '/w/app' })
         const view = await render({ draftKey: 'win-1' })
-        const textarea = view.container.querySelector('textarea')
-        assert.equal(textarea?.value, 'review the auth flow', 'the parked words are back in the box')
+        const textarea = composerField(view.container)
+        assert.equal(composerText(textarea), 'review the auth flow', 'the parked words are back in the box')
         assert.ok(view.container.querySelector('img[src^="data:image/png"]'), 'and so is the pasted screenshot')
         await act(async () => {
-          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')?.set
-          setter?.call(textarea, 'review the auth flow, then the session store')
-          textarea!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+          typeIntoComposer(textarea, 'review the auth flow, then the session store')
         })
         assert.equal(
           readNewChatDraft('win-1')?.prompt,
@@ -2723,12 +2767,10 @@ test('NewAgentPanel', async () => {
       const { readNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
       resetNewChatDraftsForTests()
       const view = await render()
-      const textarea = view.container.querySelector('textarea')
-      assert.equal(textarea?.value, '')
+      const textarea = composerField(view.container)
+      assert.equal(composerText(textarea), '')
       await act(async () => {
-        const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')?.set
-        setter?.call(textarea, 'tab-local words')
-        textarea!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        typeIntoComposer(textarea, 'tab-local words')
       })
       assert.equal(readNewChatDraft('win-1'), null, 'the tab-strip host has no draft')
       view.unmount()
@@ -2747,7 +2789,7 @@ test('NewAgentPanel', async () => {
         return 'data:image/png;base64,iVBORw0K'
       }
       const view = await render()
-      const textarea = view.container.querySelector('textarea')!
+      const textarea = composerField(view.container)
       const paste = async (text: string) => {
         const event = new dom.window.Event('paste', { bubbles: true, cancelable: true })
         Object.defineProperty(event, 'clipboardData', {
@@ -2763,17 +2805,17 @@ test('NewAgentPanel', async () => {
       assert.equal(attached.defaultPrevented, true)
       assert.deepEqual(readPaths, ['/var/folders/x1/T/TemporaryItems/Screenshot 2026-09-27 at 22.41.31.png'])
       assert.ok(view.container.querySelector('img[src^="data:image/png"]'), 'the image is on the box, not its path')
-      assert.equal(textarea.value, '')
+      assert.equal(composerText(textarea), '')
 
       await paste('/Users/dev/gone.png')
-      assert.equal(textarea.value, '/Users/dev/gone.png', 'an unreadable path is typed after all')
+      assert.equal(composerText(textarea), '/Users/dev/gone.png', 'an unreadable path is typed after all')
       assert.match(view.container.textContent ?? '', /Could not attach gone\.png: the file no longer exists\./)
 
       // An image of the project itself is a file the agent can open: the path
       // is what the prompt is about, so it is typed like any other text.
       readPaths.length = 0
-      const inProject = await paste('/proj/public/logo.png')
-      assert.equal(inProject.defaultPrevented, false, 'a project path is left to the default paste')
+      await paste('/proj/public/logo.png')
+      assert.equal(composerText(textarea), '/Users/dev/gone.png/proj/public/logo.png', 'a project path is typed')
       assert.deepEqual(readPaths, [])
       delete api.readImageDataUrl
       view.unmount()
@@ -2801,14 +2843,13 @@ test('NewAgentPanel', async () => {
         ...extra,
       })
       const type = async (text: string) => {
-        const field = view.container.querySelector('textarea')!
+        const field = composerField(view.container)
         await act(async () => {
-          Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, text)
-          field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+          typeIntoComposer(field, text)
         })
         return field
       }
-      const enter = async (field: HTMLTextAreaElement) => {
+      const enter = async (field: HTMLElement) => {
         await act(async () => {
           field.dispatchEvent(
             new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
@@ -2906,7 +2947,7 @@ test('NewAgentPanel', async () => {
       const picker = dom.window.document.querySelector('[aria-label="Schedule this agent"]')
       assert.ok(picker?.textContent?.includes('Every Sunday at 9:00 PM'), 'the words are read as they are typed')
       await door.enter(field)
-      assert.equal(field.value, 'Sweep for dead code.', 'the /schedule words leave the prompt')
+      assert.equal(composerText(field), 'Sweep for dead code.', 'the /schedule words leave the prompt')
       assert.equal(door.drafts.length, 0, 'picking a schedule schedules nothing yet')
       const toggle = await scheduleRow(door.view)
       assert.equal(toggle?.getAttribute('aria-checked'), 'true', 'the door is on Schedule')
@@ -2953,8 +2994,8 @@ test('NewAgentPanel', async () => {
         'on',
         'with its worktree on',
       )
-      const field = door.view.container.querySelector('textarea')!
-      assert.equal(field.value, 'Refresh the forecast.')
+      const field = composerField(door.view.container)
+      assert.equal(composerText(field), 'Refresh the forecast.')
       await door.enter(field)
       assert.equal(updates.length, 1)
       assert.equal(updates[0]?.id, 'sa-9')
@@ -3089,13 +3130,10 @@ test('NewAgentPanel', async () => {
         onSelectProject: () => {},
         onBrowseProject: () => {},
       })
-      const setValue = async (field: HTMLInputElement | HTMLTextAreaElement, text: string) => {
-        const proto =
-          field.tagName === 'TEXTAREA'
-            ? dom.window.HTMLTextAreaElement.prototype
-            : dom.window.HTMLInputElement.prototype
+      const setValue = async (field: HTMLInputElement | HTMLElement, text: string) => {
         await act(async () => {
-          Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(field, text)
+          if (!(field instanceof dom.window.HTMLInputElement)) return typeIntoComposer(field, text)
+          Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!.call(field, text)
           field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
         })
       }
@@ -3104,7 +3142,7 @@ test('NewAgentPanel', async () => {
         await act(async () => new Promise((resolve) => dom.window.setTimeout(resolve, 200)))
       }
       const enter = async () => {
-        const field = view.container.querySelector('textarea')!
+        const field = composerField(view.container)
         await act(async () => {
           field.dispatchEvent(
             new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
@@ -3134,8 +3172,8 @@ test('NewAgentPanel', async () => {
       await act(async () => {
         idea!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
-      const field = door.view.container.querySelector('textarea')!
-      assert.match(field.value, /^A top-bar badge counting the pull requests/, 'the idea is now the prompt')
+      const field = composerField(door.view.container)
+      assert.match(composerText(field), /^A top-bar badge counting the pull requests/, 'the idea is now the prompt')
       assert.equal(door.view.launches.length, 0, 'an idea starts nothing')
 
       await door.enter()
@@ -3160,8 +3198,8 @@ test('NewAgentPanel', async () => {
 
     await check('extension mode: a name taken by something else is said, and holds ⏎', async () => {
       seedStore()
-      const door = await extensionDoor({ notes: 'taken', 'focus-timer': 'extension' })
-      await door.setValue(door.view.container.querySelector('textarea')!, 'A notes panel.')
+      const door = await extensionDoor({ notes: 'taken', 'focus-timer': 'extension', 'weather-deck': 'installed' })
+      await door.setValue(composerField(door.view.container), 'A notes panel.')
       await door.setValue(door.nameField()!, 'notes')
       await door.settle()
       assert.ok(door.view.text().includes('already has a notes folder'))
@@ -3169,6 +3207,13 @@ test('NewAgentPanel', async () => {
         door.view.container.querySelector('[data-extension-name-chip]')?.getAttribute('data-extension-name-chip'),
         'invalid',
       )
+      await door.enter()
+      assert.equal(door.view.launches.length, 0)
+
+      // A name an installed extension holds: its dev install would replace it.
+      await door.setValue(door.nameField()!, 'weather-deck')
+      await door.settle()
+      assert.ok(door.view.text().includes('weather-deck is already installed'))
       await door.enter()
       assert.equal(door.view.launches.length, 0)
 

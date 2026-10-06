@@ -35,9 +35,17 @@ export function registerBrowserIpc(
     return manager.register(input, event.sender)
   })
 
-  ipcMain.handle('browser:unregister', (_event, input: { tabId: string }) => {
+  // Sender-scoped like the note below: only the window hosting the tab's guest
+  // lets it go. A browser tab moves between windows — popped out of its pane
+  // and docked back — and the window it left unmounts its panel and asks to
+  // unregister; arriving after the new window registered, that request would
+  // have torn down the guest the tab had just moved into.
+  ipcMain.handle('browser:unregister', (event: IpcMainInvokeEvent, input: { tabId: string }) => {
     const tabId = tabIdOf(input)
-    if (tabId) manager.unregister(tabId)
+    if (!tabId) return
+    const host = manager.hostOf(tabId)
+    if (host && host !== event.sender) return
+    manager.unregister(tabId)
   })
 
   // The renderer's word on which tab the person is looking at: what a
@@ -54,6 +62,13 @@ export function registerBrowserIpc(
       // be this window's — `activeTab` also checks the workspace it belongs to.
       const host = tabId ? manager.hostOf(tabId) : null
       if (host && host !== event.sender) return
+      // "None" is only this window's to say over a tab it hosts: a page out in
+      // a pop-out window stays the one named while the pane shows a terminal.
+      if (!tabId) {
+        const noted = manager.notedActive(input.workspaceId)
+        const notedHost = noted ? manager.hostOf(noted) : null
+        if (notedHost && notedHost !== event.sender) return
+      }
       manager.noteActive(input.workspaceId, tabId)
     },
   )

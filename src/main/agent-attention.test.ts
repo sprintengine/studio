@@ -142,6 +142,20 @@ test('an agent that goes back to work on its own stops counting', () => {
   assert.deepEqual(badges, [])
 })
 
+test("two chats' agents that share an id are two waiting agents, and each stops counting on its own", () => {
+  // Nearly every chat's first agent is `agent-1`; only the workspace tells them apart.
+  const win = fakeWindow()
+  const { attention, badges } = harness('darwin', [win])
+  attention.onAgentPhase(phase({ workspaceId: 'ws-1' }))
+  attention.onAgentPhase(phase({ workspaceId: 'ws-2' }))
+  assert.equal(attention.pendingCount(), 2)
+  assert.deepEqual(badges, [1, 2])
+
+  attention.onAgentPhase(phase({ workspaceId: 'ws-2', phase: 'thinking', event: 'UserPromptSubmit', turnEnd: false }))
+  assert.equal(attention.pendingCount(), 1, "ws-2's agent going back to work leaves ws-1's waiting")
+  assert.deepEqual(badges, [1, 2, 1])
+})
+
 test('a hook that reached the binary as a second launch is told apart from a person', () => {
   const exe = 'C:\\Program Files\\SprintEngine Studio\\SprintEngine Studio.exe'
   assert.equal(

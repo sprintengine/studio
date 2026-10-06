@@ -13,6 +13,7 @@ import { cancelClientCallsAtTurnEnd } from '../tools/client-tool-turns'
 import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
 import { createClientToolsetStore, type ConversationRef } from '../tools/client-toolset-store'
 import { createPullRequestTools } from '../pull-requests/pull-request-tools'
+import { createLocalServerTools } from '../local-servers/local-server-tools'
 import { studioBridgeScriptPath, type StudioCore } from './studio-core'
 
 // The Studio MCP gateway over a core: the always-on socket agents reach the
@@ -79,6 +80,7 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
       resolveAgentPermissionPreset: core.resolveAgentPermissionPreset,
     }),
     ...createPullRequestTools({ link: (key, input) => core.pullRequests.linkForAgent(key, input) }),
+    ...createLocalServerTools({ link: (key, input) => core.localServers.linkForAgent(key, input) }),
   ]
 
   // The gateway's own tools: what no client may offer under the same family.

@@ -18,7 +18,8 @@ type BrowserViewMenuProps = {
   onToggleDeviceToolbar: () => void
   /** Whether this tab is the floating player right now. */
   floating: boolean
-  onToggleFloating: () => void
+  /** Absent where there is no workspace to float over (a pop-out window): the item is not offered. */
+  onToggleFloating?: () => void
   onColorScheme: (scheme: BrowserColorScheme) => void
   onZoom: (direction: 1 | -1 | 0) => void
   onClearCookies: () => void
@@ -73,13 +74,17 @@ export function BrowserViewMenu({
       disabled: !hasPage,
     },
     { id: 'window', label: 'Open separate window', onSelect: onOpenWindow, disabled: !hasPage },
-    {
-      id: 'float',
-      // One item, two labels — the same control both ways, the way the device
-      // toolbar's show/hide reads.
-      label: floating ? 'Dock in pane' : 'Float over workspace',
-      onSelect: onToggleFloating,
-    },
+    ...(onToggleFloating
+      ? [
+          {
+            id: 'float',
+            // One item, two labels — the same control both ways, the way the
+            // device toolbar's show/hide reads.
+            label: floating ? 'Dock in pane' : 'Float over workspace',
+            onSelect: onToggleFloating,
+          },
+        ]
+      : []),
     {
       id: 'device-toolbar',
       label: deviceToolbarOn ? 'Hide device toolbar' : 'Show device toolbar',

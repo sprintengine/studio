@@ -173,7 +173,14 @@ export function classifyPullRequestUrl(rawUrl: string): ClassifiedPullRequest | 
 
   const github = parsePullRequestUrl(trimmed)
   if (!github || 'unsupported' in github) return null
-  const canonical = canonicalPullRequestUrl(github)
+  // GitHub reads owner and repository without regard to case (`Acme/App` and
+  // `acme/app` are one repository), as the repository key does: lower case,
+  // so one pull request has one canonical URL and one record entry.
+  const canonical = canonicalPullRequestUrl({
+    ...github,
+    owner: github.owner.toLowerCase(),
+    repo: github.repo.toLowerCase(),
+  })
   return {
     forge: 'github',
     url: canonical,

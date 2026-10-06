@@ -86,6 +86,16 @@ export function watchWindowStudio(api: object, listener: () => void): () => void
   return () => set.delete(listener)
 }
 
+// The `studioConnect` of a page whose Studio is on another machine (a web
+// tab's socket to the server that served it): there, the device being offline
+// does say the Studio cannot be reached, and the client parks until it is back.
+const connectsToAnotherMachine = new WeakSet<object>()
+
+/** Says a port API's connections reach a Studio on another machine. */
+export function markStudioOnAnotherMachine(studioConnect: PortApi['studioConnect']): void {
+  connectsToAnotherMachine.add(studioConnect)
+}
+
 const clients = new WeakMap<object, Promise<StudioClient>>()
 // The client each window's promise settled to, so one that has closed is
 // known at once rather than a turn later.
@@ -118,6 +128,9 @@ export function windowStudioClient(api: PortApi = window.api): Promise<StudioCli
     // A window and the Studio it belongs to come and go together; a short
     // ceiling brings a window back quickly after a restart of the server.
     reconnect: { initialDelayMs: 100, maxDelayMs: 5_000 },
+    // A desktop window's Studio is on this machine: an offline laptop still
+    // reaches it. A web tab's is not, and waits for the network.
+    parkWhenOffline: connectsToAnotherMachine.has(api.studioConnect),
     ...(bound === undefined ? {} : { environmentId: bound }),
     onStateChange: (state) => {
       if (clients.get(api) !== connecting) return

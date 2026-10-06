@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useEffect, useState } from 'react'
 import type { AuxWindowKind } from '../../../../shared/electron-api'
 import { parseEditorRange, type EditorRange } from '../../../../shared/editor-reveal'
 import { useAppTheme } from '../../hooks/useAppTheme'
+import { followStoredSettings } from './auxSettingsWrite'
 import { writeAuxWindowBounds } from './auxWindowPlacement'
 import { InlineNotice, Spinner } from '../ui'
 
@@ -13,6 +14,7 @@ import { InlineNotice, Spinner } from '../ui'
 const DiffViewerWindow = lazy(() => import('./DiffViewerWindow'))
 const CheckpointDiffWindow = lazy(() => import('./CheckpointDiffWindow'))
 const ExternalEditorWindow = lazy(() => import('./ExternalEditorWindow'))
+const PanePopOutWindow = lazy(() => import('../workspace/pane/popout/PanePopOutWindow'))
 
 function AuxLoading() {
   return (
@@ -66,7 +68,7 @@ function parseRevealRange(raw: string | undefined): EditorRange | null {
 function readInitialParams(): { kind: AuxWindowKind; params: AuxWindowParams } | null {
   const search = new URLSearchParams(window.location.search)
   const kind = search.get('aux')
-  if (kind !== 'diff' && kind !== 'file') return null
+  if (kind !== 'diff' && kind !== 'file' && kind !== 'pane') return null
   const params: AuxWindowParams = {}
   search.forEach((value, key) => {
     if (key !== 'aux') params[key] = value
@@ -78,8 +80,11 @@ export default function AuxWindowApp() {
   // Drive <html data-theme="…"> from the persisted preference, exactly like the
   // workspace shell. The boot script in index.html applies the initial theme to
   // avoid a flash; this keeps the attribute (and the CSS variables the chrome
-  // reads) correct for the window's lifetime instead of leaving it frozen.
-  useAppTheme()
+  // reads) correct for the window's lifetime instead of leaving it frozen —
+  // following the workspace window's saved changes, and never telling main
+  // its copy of them.
+  useAppTheme({ mirrorToMain: false })
+  useEffect(() => followStoredSettings(), [])
   const [descriptor] = useState(readInitialParams)
   const [params, setParams] = useState<AuxWindowParams>(descriptor?.params ?? {})
   // Bumps on every retarget (even a repeat of the same params) so the file
@@ -104,6 +109,18 @@ export default function AuxWindowApp() {
 
   if (!descriptor) {
     return <AuxFailure message="Unknown auxiliary window." />
+  }
+
+  // A pane popped out of its workspace window. It names the pop-out and the
+  // workspace and nothing else: what it shows comes from the window that owns
+  // it, over IPC, and changes as that window's pane does.
+  if (descriptor.kind === 'pane') {
+    if (!params.popOutId || !params.workspaceId) return <AuxFailure message="Missing pane for this window." />
+    return (
+      <Suspense fallback={<AuxLoading />}>
+        <PanePopOutWindow popOutId={params.popOutId} workspaceId={params.workspaceId} />
+      </Suspense>
+    )
   }
 
   if (descriptor.kind === 'diff') {

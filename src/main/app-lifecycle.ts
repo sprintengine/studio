@@ -95,6 +95,12 @@ type RegisterAppLifecycleOptions = {
   canvasService?: {
     dispose(): Promise<void>
   }
+  // The worktree pool: a lease or return in flight finishes its write, and
+  // each pool's container lock is given up so another Studio can take the pool
+  // over.
+  worktreePool?: {
+    shutdown(): Promise<void>
+  }
   // Recordings of browser tabs an agent started: each is a file still being
   // written, so quit saves what was captured, with its length, before the
   // windows that encode them close.
@@ -118,6 +124,13 @@ type RegisterAppLifecycleOptions = {
   pullRequestRecord?: {
     flush(): Promise<void>
     dispose(): void
+  }
+  // The local servers the agents linked, in process only (out of process the
+  // server stops them in its own legs). The runs the Studio started itself
+  // stop here: left running, nothing would be left to stop them from.
+  localServers?: {
+    flush(): Promise<void>
+    dispose(): Promise<void>
   }
   // Product telemetry. Given a shutdown leg of its own because everything above
   // it can emit a final event, and the buffer is in memory, so a quit that does
@@ -189,10 +202,12 @@ export function registerAppLifecycle({
   removeSessionIntegrations,
   releaseDataDir,
   canvasService,
+  worktreePool,
   browserRecorder,
   desktopShell,
   conversationCommands,
   pullRequestRecord,
+  localServers,
   analytics,
   moduleKernel,
   moduleLoadReady,
@@ -608,9 +623,12 @@ export function registerAppLifecycle({
       // the record in its own legs.
       ['pull requests (flush)', () => pullRequestRecord?.flush()],
       ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
+      ['local servers (flush)', () => localServers?.flush()],
+      ['local servers (dispose)', () => localServers?.dispose()],
       ['chats', () => conversationOwner?.shutdown()],
       ['browser recordings', () => browserRecorder?.stopAll('app_quit')],
       ['canvas', () => canvasService?.dispose()],
+      ['worktree pool', () => worktreePool?.shutdown()],
       ['command lists', () => conversationCommands?.dispose()],
       ['workspace registry (final)', () => workspaceSyncService?.flush()],
       // Not when leaving for an update: the new build starts straight away and
@@ -646,6 +664,7 @@ export function registerAppLifecycle({
       ['browser recordings', () => browserRecorder?.stopAll('app_quit')],
       // The canvas's last board write lands before the server stops serving.
       ['canvas', () => canvasService?.dispose()],
+      ['worktree pool', () => worktreePool?.shutdown()],
       ['desktop tools', () => desktopShell?.stop()],
       [
         'studio server (drain)',

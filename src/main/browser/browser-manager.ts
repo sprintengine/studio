@@ -328,26 +328,88 @@ function guestPreloadUrl(): string | null {
   return path ? pathToFileURL(path).toString() : null
 }
 
+// How long a tab that left one window has to register in the next and still
+// find the agents that were driving it. A pop-out window boots a whole renderer
+// before its guest registers; that is seconds, not minutes.
+export const TAB_MOVE_GRACE_MS = 30_000
+
+/**
+ * Which tab each AGENT is driving, keyed `<workspaceId>\0<agentId>`.
+ *
+ * Separate from `activeTabByWorkspace`, which is what the PERSON is looking
+ * at. Before this, an agent with no `tabId` resolved the person's active tab,
+ * so two agents in one workspace drove the same page and stole it from each
+ * other mid-interaction — and from the person.
+ *
+ * An assignment is sticky for the same reason a provider session is pinned
+ * to one runtime: a multi-step interaction (open, type, click, wait) is
+ * stateful in the page's cookies and DOM, and moving it between tabs halfway
+ * through produces a failure nobody can read. It is dropped only when the tab
+ * it names goes away — and a tab that only moved windows, unregistering from
+ * one and registering under the same id in the other, has not gone away: what
+ * its going released is given back when it comes, for `TAB_MOVE_GRACE_MS`, to
+ * each agent that has not taken another tab since.
+ */
+export function createAgentTabAssignments(now: () => number = Date.now) {
+  const assignments = new Map<string, string>()
+  const released = new Map<string, { workspaceId: string; keys: string[]; at: number }>()
+  const keyOf = (workspaceId: string, agentId: string): string => `${workspaceId}\u0000${agentId}`
+
+  function forgetLapsed(): void {
+    for (const [tabId, entry] of released) {
+      if (now() - entry.at > TAB_MOVE_GRACE_MS) released.delete(tabId)
+    }
+  }
+
+  return {
+    get: (workspaceId: string, agentId: string): string | undefined => assignments.get(keyOf(workspaceId, agentId)),
+    set: (workspaceId: string, agentId: string, tabId: string): void => {
+      assignments.set(keyOf(workspaceId, agentId), tabId)
+    },
+    delete: (workspaceId: string, agentId: string): void => {
+      assignments.delete(keyOf(workspaceId, agentId))
+    },
+    holding(workspaceId: string): Array<{ agentId: string; tabId: string }> {
+      const held: Array<{ agentId: string; tabId: string }> = []
+      for (const [key, tabId] of assignments) {
+        const [keyWorkspace, agentId] = key.split('\u0000')
+        if (keyWorkspace === workspaceId && agentId) held.push({ agentId, tabId })
+      }
+      return held
+    },
+    /** The tab went: every agent holding it lets go, and is remembered for a while. */
+    release(tabId: string, workspaceId: string): void {
+      forgetLapsed()
+      const keys: string[] = []
+      for (const [key, assigned] of assignments) {
+        if (assigned !== tabId) continue
+        assignments.delete(key)
+        keys.push(key)
+      }
+      if (keys.length > 0) released.set(tabId, { workspaceId, keys, at: now() })
+    },
+    /** The tab registered again: it moved, so the agents it let go hold it again. */
+    restore(tabId: string, workspaceId: string): void {
+      forgetLapsed()
+      const entry = released.get(tabId)
+      if (!entry) return
+      released.delete(tabId)
+      if (entry.workspaceId !== workspaceId) return
+      for (const key of entry.keys) {
+        if (!assignments.has(key)) assignments.set(key, tabId)
+      }
+    },
+    clear(): void {
+      assignments.clear()
+      released.clear()
+    },
+  }
+}
+
 export function createBrowserManager(deps: BrowserManagerDeps) {
   const tabs = new Map<string, BrowserTab>()
   const activeTabByWorkspace = new Map<string, string>()
-  /**
-   * Which tab each AGENT is driving, keyed `<workspaceId>\0<agentId>`.
-   *
-   * Separate from `activeTabByWorkspace`, which is what the PERSON is looking
-   * at. Before this, an agent with no `tabId` resolved the person's active tab,
-   * so two agents in one workspace drove the same page and stole it from each
-   * other mid-interaction — and from the person.
-   *
-   * An assignment is sticky for the same reason a provider session is pinned
-   * to one runtime: a multi-step interaction (open, type, click, wait) is
-   * stateful in the page's cookies and DOM, and moving it between tabs halfway
-   * through produces a failure nobody can read. It is dropped only when the tab
-   * it names goes away.
-   */
-  const agentAssignments = new Map<string, string>()
-
-  const assignmentKey = (workspaceId: string, agentId: string): string => `${workspaceId}\u0000${agentId}`
+  const agentAssignments = createAgentTabAssignments()
   const unregisterListeners = new Set<(tabId: string) => void>()
   const humanInputListeners = new Set<(tabId: string) => void>()
 
@@ -679,6 +741,11 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       // Guests inherit the embedder's zoom; a tab is its own document.
       wc.setZoomFactor(1)
       tabs.set(input.tabId, tab)
+      // A tab moving between windows — popped out of its pane, docked back —
+      // unregisters from the one it left and registers here under the same
+      // id, a new guest on the same page. The agents that were driving it
+      // still are.
+      agentAssignments.restore(input.tabId, input.workspaceId)
       return { ok: true, state: tab.state }
     },
 
@@ -691,10 +758,9 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       deps.machinePartitions?.tabClosed(tabId)
       if (activeTabByWorkspace.get(tab.workspaceId) === tabId) activeTabByWorkspace.delete(tab.workspaceId)
       // A closed tab releases every agent holding it, so the next call resolves
-      // afresh rather than failing against a tab that is gone.
-      for (const [key, assigned] of agentAssignments) {
-        if (assigned === tabId) agentAssignments.delete(key)
-      }
+      // afresh rather than failing against a tab that is gone — unless the
+      // tab is only moving windows and registers again (`restore` above).
+      agentAssignments.release(tabId, tab.workspaceId)
       for (const listener of unregisterListeners) listener(tabId)
     },
 
@@ -717,6 +783,11 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       else activeTabByWorkspace.delete(workspaceId)
     },
 
+    /** The tab last noted as the one the person is looking at, as noted. */
+    notedActive(workspaceId: string): string | null {
+      return activeTabByWorkspace.get(workspaceId) ?? null
+    },
+
     activeTab(workspaceId: string): BrowserTab | null {
       const preferred = activeTabByWorkspace.get(workspaceId)
       const tab = preferred ? requireTab(preferred) : null
@@ -729,11 +800,11 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
 
     /** The tab this agent is driving, or null when it holds none that still exists. */
     assignedTab(workspaceId: string, agentId: string): BrowserTab | null {
-      const tabId = agentAssignments.get(assignmentKey(workspaceId, agentId))
+      const tabId = agentAssignments.get(workspaceId, agentId)
       if (!tabId) return null
       const tab = requireTab(tabId)
       if (tab && tab.workspaceId === workspaceId) return tab
-      agentAssignments.delete(assignmentKey(workspaceId, agentId))
+      agentAssignments.delete(workspaceId, agentId)
       return null
     },
 
@@ -741,17 +812,12 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     assignTab(workspaceId: string, agentId: string, tabId: string): void {
       const tab = requireTab(tabId)
       if (!tab || tab.workspaceId !== workspaceId) return
-      agentAssignments.set(assignmentKey(workspaceId, agentId), tabId)
+      agentAssignments.set(workspaceId, agentId, tabId)
     },
 
     /** Which agents hold a tab, for `browser.status` and the tests. */
     agentsHolding(workspaceId: string): Array<{ agentId: string; tabId: string }> {
-      const held: Array<{ agentId: string; tabId: string }> = []
-      for (const [key, tabId] of agentAssignments) {
-        const [keyWorkspace, agentId] = key.split('\u0000')
-        if (keyWorkspace === workspaceId && agentId) held.push({ agentId, tabId })
-      }
-      return held
+      return agentAssignments.holding(workspaceId)
     },
 
     /**

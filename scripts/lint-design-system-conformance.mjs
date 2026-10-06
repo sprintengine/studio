@@ -231,12 +231,12 @@ function readTokenDimensionPx(tokens, path) {
 }
 
 // The `sem.radius.*` steps allowed to stand outside the ramp, by name: the
-// composer's box and the strip tucked under it (owner ruling 2026-10-04). The
-// list is here, not only in the bundle, so the exception stays exactly these
-// two: a step the list does not name that marks itself `offRamp` is refused
+// composer's box and the strip tucked under it (owner ruling 2026-10-04), and
+// the cards set against it (owner ruling 2026-10-05). The list is here, not
+// only in the bundle, so the exception stays exactly these three: a step the list does not name that marks itself `offRamp` is refused
 // (exit 2) rather than skipped, or the flag would let any radius past the
 // ceiling.
-const OFF_RAMP_RADIUS_STEPS = new Set(['composer', 'composer-strip'])
+const OFF_RAMP_RADIUS_STEPS = new Set(['composer', 'composer-strip', 'composer-companion'])
 
 // Whether a `sem.radius.*` step is a named exception rather than a rung of the
 // ramp: its metadata carries `offRamp: true` (see readBundleDimensions).

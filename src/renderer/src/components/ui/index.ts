@@ -78,6 +78,8 @@ export { CreatePatchGlyph, DeleteChangelistGlyph, EditChangelistGlyph, NewChange
 // The diff tour's marks (design-system/components/tour-strip): the tour itself,
 // Play and Pause, and the step list's toggle.
 export { PauseGlyph, PlayGlyph, StepListGlyph, TourGlyph } from './TourGlyphs'
+// "In a window of its own": the Diff tab's separate window, and the pane's pop-out.
+export { OpenInWindowGlyph } from './OpenInWindowGlyph'
 export { ToolKindGlyph } from './ToolKindGlyph'
 // The diff tour's surfaces (design-system/components/tour-strip, tour-callout):
 // the band, the callout a step is said in, the step list and the Start card.
@@ -149,7 +151,7 @@ export { PointerPopover } from './PointerPopover'
 export { Tabs, TabPanel, TabsScroller } from './Tabs'
 export type { TabItem } from './Tabs'
 export { TaskCard } from './TaskCard'
-export { Switch } from './Switch'
+export { Switch, SwitchGlyph } from './Switch'
 export { Pager } from './Pager'
 export { SegmentedControl } from './SegmentedControl'
 // The ONE Field. `ui/Modal` used to export a second component under this name —
@@ -234,6 +236,7 @@ export {
   FOCUS_RING_INSET_CLASS,
   FOCUS_RING_WITHIN_CHECKBOX_CLASS,
   FOCUS_RING_WITHIN_INPUT_CLASS,
+  FOCUS_RING_WITHIN_EDITOR_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   TONE_COLOR_VAR,
   TONE_SOFT_VAR,

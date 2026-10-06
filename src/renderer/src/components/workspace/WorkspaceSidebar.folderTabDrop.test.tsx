@@ -213,6 +213,58 @@ test('WorkspaceSidebar.folderTabDrop', async () => {
     })
     assert.equal(storeWorkspaces().length, baseline + 1, 'a folder-reorder drag creates no workspace')
 
+    // An agent keeps its id when it moves. Two chats made before agent ids were
+    // minted both have an `agent-1`: dropping one's onto the other is refused
+    // before anything changes, rather than writing over the destination's own.
+    const agentRecord = (name: string) => ({ id: 'agent-1', name }) as never
+    const bravoLayout = { global: {}, borders: [], layout: { type: 'row', children: [] } }
+    useWorkspaceStore.setState((state) => ({
+      workspaces: [
+        ...state.workspaces,
+        { ...(workspace('w1', 'Alpha', '/projA') as object), agents: { 'agent-1': agentRecord('Source') } },
+        {
+          ...(workspace('w2', 'Bravo', '/projB') as object),
+          agents: { 'agent-1': agentRecord('Destination') },
+          layoutModel: bravoLayout,
+        },
+      ] as never,
+    }))
+    const agentPayload = serializeTabDragPayload({
+      sourceWorkspaceId: 'w1',
+      tabId: 'tab-agent-1',
+      component: 'agent',
+      name: 'Source',
+      config: { agentId: 'agent-1' },
+      className: null,
+    })
+    const agentsOf = (id: string) => storeWorkspaces().find((entry) => entry.id === id)?.agents ?? {}
+    const bravoRow = container.querySelector('[data-workspace-id="w2"]') as HTMLElement
+    assert.ok(bravoRow, 'the sidebar renders a row for Bravo')
+    const beforeRefusal = storeWorkspaces().length
+    act(() => {
+      fireDrag(bravoRow, 'drop', tabDataTransfer(agentPayload, TAB_DRAG_MIME))
+    })
+    assert.equal(agentsOf('w2')['agent-1']?.name, 'Destination', 'the destination keeps its own agent')
+    assert.equal(agentsOf('w1')['agent-1']?.name, 'Source', 'the dragged agent stays where it was')
+    assert.deepEqual(
+      storeWorkspaces().find((entry) => entry.id === 'w2')?.layoutModel,
+      bravoLayout,
+      'and no tab for it is added to the destination',
+    )
+    assert.equal(storeWorkspaces().length, beforeRefusal)
+
+    // Extracted into a chat of its own, it arrives under its own id, and the new
+    // chat's tab names that id: the chat does not mint a stranger for the tab.
+    act(() => {
+      fireDrag(projB, 'drop', tabDataTransfer(agentPayload, TAB_DRAG_MIME))
+    })
+    const extracted = storeWorkspaces().find((entry) => entry.name === 'Source')
+    assert.ok(extracted, 'dropping the agent on a project header makes a chat for it')
+    assert.deepEqual(Object.keys(extracted!.agents), ['agent-1'])
+    assert.equal(extracted!.agents['agent-1']?.name, 'Source')
+    assert.match(JSON.stringify(extracted!.layoutModel), /"agentId":"agent-1"/)
+    assert.equal(agentsOf('w1')['agent-1'], undefined, 'it left the chat it came from')
+
     act(() => {
       root.unmount()
     })

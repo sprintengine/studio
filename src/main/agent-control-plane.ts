@@ -274,8 +274,12 @@ export class AgentControlPlane {
     // mean" — reporting `not_alive` beats reporting `not_found` for a terminal
     // the caller can see in the UI. But a live match always wins over a dead
     // one, so a respawned agent is never addressed at its corpse.
-    const live = matches.filter((session) => session.alive)
-    const candidates = live.length > 0 ? live : matches
+    //
+    // For an agent target that holds only within one agent: ids recur across
+    // chats (nearly every chat has an `agent-1`), and a dead `agent-1` in one
+    // chat is not a corpse of the live one in another. Each chat's agent keeps
+    // its own best session, so two chats' agents read as ambiguous.
+    const candidates = isAgentTarget(parsed) ? preferLivePerAgent(matches) : preferLive(matches)
 
     if (candidates.length === 0) {
       return { ok: false, reason: 'not_found', message: `No agent session matches ${describeTarget(parsed)}.` }
@@ -858,6 +862,24 @@ export function parseTarget(target: ControlPlaneTarget): ParsedTarget | null {
       // is a session id, not an unknown selector.
       return { kind: 'sessionId', value: spec }
   }
+}
+
+function preferLive(sessions: ControlPlaneSession[]): ControlPlaneSession[] {
+  const live = sessions.filter((session) => session.alive)
+  return live.length > 0 ? live : sessions
+}
+
+function isAgentTarget(target: ParsedTarget): boolean {
+  return target.kind === 'agentId' || target.kind === 'agentName'
+}
+
+// The live-over-dead preference, applied within each agent (workspace + agent
+// id) rather than across them. Order is kept, so the candidate list reads in
+// the order the sessions were listed.
+function preferLivePerAgent(sessions: ControlPlaneSession[]): ControlPlaneSession[] {
+  const agentKey = (session: ControlPlaneSession) => `${session.workspaceId ?? ''} ${session.agentId ?? ''}`
+  const liveAgents = new Set(sessions.filter((session) => session.alive).map(agentKey))
+  return sessions.filter((session) => session.alive || !liveAgents.has(agentKey(session)))
 }
 
 function matchesTarget(session: ControlPlaneSession, target: ParsedTarget): boolean {

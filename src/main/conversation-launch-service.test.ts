@@ -9,7 +9,7 @@ import type {
   ConversationSessionSummary,
 } from '../shared/conversation-runtime'
 import { emptyAgentLaunchSettings, type AgentLaunchSettings } from '../shared/launch-settings'
-import { SOLO_CHAT_AGENT_ID } from '../shared/layouts/templates'
+import { SOLO_CHAT_TEMPLATE_AGENT_ID } from '../shared/layouts/templates'
 import {
   emptyWorkspaceRegistryFile,
   normalizeWorkspaceForRegistry,
@@ -181,6 +181,11 @@ test('a refused first message is reported, and the launch still stands', async (
   assert.match(record.warnings[0]!, /busy/)
 })
 
+/** Every agent id a layout's tabs name, in layout order. */
+function layoutAgentIds(layout: unknown): string[] {
+  return [...JSON.stringify(layout).matchAll(/"agentId":"([^"]+)"/g)].map((match) => match[1]!)
+}
+
 /** The launch wired to a real registry and bus, as app-services wires it, around one chat in a worktree. */
 function registryHarness(startSession?: ConversationLaunchServiceDeps['startSession']) {
   const existing: Workspace = {
@@ -251,7 +256,9 @@ test('a new chat is born in a workspace of its own, in the named workspace’s f
   assert.equal(result.ok, true)
   if (!result.ok) return
   assert.notEqual(result.workspaceId, 'ws-old')
-  assert.equal(result.agentId, SOLO_CHAT_AGENT_ID)
+  // An id of its own, never the template's placeholder every chat once shared.
+  assert.match(result.agentId, /^agent-claude-code-[0-9a-z]{16}$/)
+  assert.notEqual(result.agentId, SOLO_CHAT_TEMPLATE_AGENT_ID)
   assert.deepEqual(writes, [], 'nothing is added to the chat the workspace already was')
   assert.deepEqual(Object.keys(registry.getRecord('ws-old')?.agents ?? {}), [])
 
@@ -265,10 +272,26 @@ test('a new chat is born in a workspace of its own, in the named workspace’s f
   assert.equal(isDefaultWorkspaceName(created.name), true)
   assert.equal(created.titleLocked, undefined)
   // The layout's one agent tab is the chat's agent, from the first event.
-  assert.match(JSON.stringify(created.layoutModel), new RegExp(`"agentId":"${SOLO_CHAT_AGENT_ID}"`))
-  assert.deepEqual(Object.keys(created.agents), [SOLO_CHAT_AGENT_ID])
-  assert.equal(created.agents[SOLO_CHAT_AGENT_ID]?.runtimeKind, 'conversation')
-  assert.equal(created.agents[SOLO_CHAT_AGENT_ID]?.name, result.name)
+  assert.deepEqual(layoutAgentIds(created.layoutModel), [result.agentId])
+  assert.deepEqual(Object.keys(created.agents), [result.agentId])
+  assert.equal(created.agents[result.agentId]?.id, result.agentId)
+  assert.equal(created.agents[result.agentId]?.runtimeKind, 'conversation')
+  assert.equal(created.agents[result.agentId]?.name, result.name)
+})
+
+test('two new chats never share an agent id, so nothing matched by agent id reaches the other', async () => {
+  const { service, registry } = registryHarness()
+  const first = await service.launch({ workspaceId: 'ws-old', newChat: true, cli: 'claude-code' })
+  const second = await service.launch({ workspaceId: 'ws-old', newChat: true, cli: 'claude-code' })
+  assert.equal(first.ok && second.ok, true)
+  if (!first.ok || !second.ok) return
+  assert.notEqual(first.workspaceId, second.workspaceId)
+  assert.notEqual(first.agentId, second.agentId)
+  for (const launched of [first, second]) {
+    const created = registry.getRecord(launched.workspaceId)!
+    assert.deepEqual(layoutAgentIds(created.layoutModel), [launched.agentId])
+    assert.deepEqual(Object.keys(created.agents), [launched.agentId])
+  }
 })
 
 test('a new chat main starts is named after its first message, and the name stays open for a model title', async () => {
@@ -336,8 +359,9 @@ test('a chat born in a folder gets a workspace of its own there, on its machine 
   if (!result.ok) return
   assert.equal(registry.getRecords().length, before + 1, 'a workspace is minted; no existing one is joined')
   assert.deepEqual(writes, [])
-  assert.equal(result.agentId, SOLO_CHAT_AGENT_ID)
+  assert.match(result.agentId, /^agent-claude-code-[0-9a-z]{16}$/)
   const created = registry.getRecord(result.workspaceId)!
+  assert.deepEqual(layoutAgentIds(created.layoutModel), [result.agentId])
   assert.equal(created.folderPath, '/Users/dev/.worktrees/app/nightly-20260930-2100')
   assert.equal(created.hostId, 'wsl:Ubuntu')
   assert.deepEqual(created.worktree, {

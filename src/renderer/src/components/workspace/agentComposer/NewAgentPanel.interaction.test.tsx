@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { composerDisabled, composerField, composerText, typeIntoComposer } from '../../../../../../tests/composer-field'
 import { test } from 'vitest'
 
 test('NewAgentPanel interaction', async () => {
@@ -32,6 +33,7 @@ test('NewAgentPanel interaction', async () => {
   anyGlobal.HTMLElement = dom.window.HTMLElement
   anyGlobal.HTMLInputElement = dom.window.HTMLInputElement
   anyGlobal.HTMLTextAreaElement = dom.window.HTMLTextAreaElement
+  anyGlobal.MutationObserver = dom.window.MutationObserver
   anyGlobal.Node = dom.window.Node
   anyGlobal.MouseEvent = dom.window.MouseEvent
   anyGlobal.KeyboardEvent = dom.window.KeyboardEvent
@@ -351,11 +353,10 @@ test('NewAgentPanel interaction', async () => {
     }
 
     // ── Keyboard and the "+" menu ─────────────────────────────────────────────
-    const typeInto = async (view: Harness, text: string): Promise<HTMLTextAreaElement> => {
-      const field = view.container.querySelector('textarea')!
+    const typeInto = async (view: Harness, text: string): Promise<HTMLElement> => {
+      const field = composerField(view.container)
       await act(async () => {
-        Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, text)
-        field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        typeIntoComposer(field, text)
       })
       return field
     }
@@ -528,7 +529,7 @@ test('NewAgentPanel interaction', async () => {
     await check('a pasted screenshot is staged and rides the launch', async () => {
       seedStore()
       const view = await render({ initialSelection: { kind: 'conversation' } })
-      const field = view.container.querySelector('textarea')!
+      const field = composerField(view.container)
       const file = new dom.window.File([new Uint8Array([137, 80, 78, 71])], 'pasted.png', { type: 'image/png' })
       const event = new dom.window.Event('paste', { bubbles: true, cancelable: true })
       Object.defineProperty(event, 'clipboardData', {
@@ -568,7 +569,7 @@ test('NewAgentPanel interaction', async () => {
       assert.equal(parked?.prompt, 'keep me')
       assert.equal(parked?.selection?.kind, 'general')
       const second = await render({ draftKey: 'win-2', initialSelection: { kind: 'conversation' } })
-      assert.equal(second.container.querySelector('textarea')?.value, 'keep me', 'the words come back')
+      assert.equal(composerText(composerField(second.container)), 'keep me', 'the words come back')
       assert.ok(second.text().includes('Terminal agent'), 'and the kind, as its tag')
       second.unmount()
       writeNewChatDraft('win-2', {
@@ -608,7 +609,7 @@ test('NewAgentPanel interaction', async () => {
         '[aria-label="Start as a conversation instead of terminal"]',
       )
       assert.ok(remove, 'the kind is a tag with a ×')
-      assert.equal(view.container.querySelector('textarea')?.disabled, true, 'a plain shell takes no prompt')
+      assert.equal(composerDisabled(composerField(view.container)), true, 'a plain shell takes no prompt')
       await act(async () => {
         remove!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
@@ -617,7 +618,7 @@ test('NewAgentPanel interaction', async () => {
         null,
         'the tag is gone',
       )
-      assert.equal(view.container.querySelector('textarea')?.disabled, false, 'and the prompt takes words again')
+      assert.equal(composerDisabled(composerField(view.container)), false, 'and the prompt takes words again')
       const field = await typeInto(view, 'go')
       await act(async () => {
         field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))

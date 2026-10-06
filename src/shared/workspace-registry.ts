@@ -57,6 +57,7 @@ export type WorkspaceRegistryFieldStamps = {
   memory: number
   settledAt: number
   settledOverride: number
+  autoSettleEnabled: number
   snoozedUntil: number
 }
 
@@ -67,6 +68,7 @@ const WORKSPACE_REGISTRY_STAMPED_FIELDS = [
   'memory',
   'settledAt',
   'settledOverride',
+  'autoSettleEnabled',
   'snoozedUntil',
 ] as const
 
@@ -132,6 +134,7 @@ export function emptyWorkspaceRegistryFieldStamps(): WorkspaceRegistryFieldStamp
     memory: 0,
     settledAt: 0,
     settledOverride: 0,
+    autoSettleEnabled: 0,
     snoozedUntil: 0,
   }
 }

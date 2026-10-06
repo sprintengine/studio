@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { createWriteStream, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import type { IncomingMessage } from 'node:http'
 import { join } from 'node:path'
 
@@ -101,11 +102,18 @@ export function createWebUploads(options: { dataDir: string; now?: () => number 
           if (settled) return
           settled = true
           request.unpipe(out)
+          // Removed once the file is closed, then answered: Windows refuses to
+          // remove a file still open, and a throw here would be in a stream's
+          // listener, uncaught.
+          const removed = () =>
+            void rm(dir, { recursive: true, force: true })
+              .catch(() => undefined)
+              .then(() => resolve(answer))
+          if (out.closed) removed()
+          else out.once('close', removed)
           out.destroy()
-          rmSync(dir, { recursive: true, force: true })
           // Read the rest so the answer can be sent on a socket still in order.
           request.resume()
-          resolve(answer)
         }
         request.on('data', (chunk: Buffer) => {
           bytes += chunk.length

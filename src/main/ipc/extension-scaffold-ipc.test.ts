@@ -5,7 +5,7 @@
 // scaffolder, writing into a temporary folder.
 
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -20,16 +20,19 @@ import {
   EXTENSION_SCAFFOLD_TARGET_CHANNEL,
   registerExtensionScaffoldIpc,
   resolveScaffoldRoots,
+  SCAFFOLD_SDK_TARBALL,
   SCAFFOLD_SDK_VERSION,
 } from './extension-scaffold-ipc'
 
 const SDK = join(process.cwd(), 'packages', 'module-sdk')
-const ROOTS = { templatesRoot: join(SDK, 'templates'), skillsRoot: join(SDK, 'skills') }
 
 let parent = ''
+let sdkTarball = ''
 
 beforeEach(() => {
   parent = mkdtempSync(join(tmpdir(), 'extension-scaffold-ipc-'))
+  // Not written unless a test ships it.
+  sdkTarball = join(parent, 'shipped', SCAFFOLD_SDK_TARBALL)
 })
 
 afterEach(() => {
@@ -37,7 +40,10 @@ afterEach(() => {
 })
 
 function handlers() {
-  return createExtensionScaffoldHandlers({ roots: () => ROOTS })
+  return createExtensionScaffoldHandlers({
+    roots: () => ({ templatesRoot: join(SDK, 'templates'), skillsRoot: join(SDK, 'skills'), sdkTarball }),
+    moduleRoot: () => join(parent, 'installed-modules'),
+  })
 }
 
 describe('extensions:scaffold:target', () => {
@@ -60,6 +66,26 @@ describe('extensions:scaffold:target', () => {
     assert.equal(h.target({ parentDir: parent, id: 'focus-timer' })?.state, 'extension')
 
     assert.equal(h.target({ parentDir: join(parent, 'gone'), id: 'pr-radar' })?.state, 'no_parent')
+
+    mkdirSync(join(parent, 'elsewhere'))
+    symlinkSync(join(parent, 'elsewhere'), join(parent, 'linked'))
+    assert.equal(h.target({ parentDir: parent, id: 'linked' })?.state, 'taken', 'a link is never filled')
+  })
+
+  test('a free name an installed extension already holds is said, and not made', async () => {
+    const h = handlers()
+    mkdirSync(join(parent, 'installed-modules', 'weather-deck'), { recursive: true })
+    assert.equal(h.target({ parentDir: parent, id: 'weather-deck' })?.state, 'installed')
+    mkdirSync(join(parent, 'weather-deck'))
+    assert.equal(h.target({ parentDir: parent, id: 'weather-deck' })?.state, 'installed', 'nor its empty folder')
+    const made = await h.create({ parentDir: parent, id: 'weather-deck' })
+    assert.equal(made.ok === false && made.code, 'installed')
+    assert.equal(existsSync(join(parent, 'weather-deck', 'module')), false, 'nothing is written')
+
+    // The project that made it is carried on as before.
+    mkdirSync(join(parent, 'weather-deck', 'module'), { recursive: true })
+    writeFileSync(join(parent, 'weather-deck', 'module', 'manifest.json'), '{}')
+    assert.equal(h.target({ parentDir: parent, id: 'weather-deck' })?.state, 'extension')
   })
 
   test('a name that is not an id yet has no answer', () => {
@@ -85,12 +111,28 @@ describe('extensions:scaffold:create', () => {
     assert.equal(manifest.id, 'pr-radar')
     assert.equal(manifest.displayName, 'Pr radar', 'the display name comes from the id')
     const pkg = JSON.parse(readFileSync(join(result.folder, 'package.json'), 'utf8'))
-    assert.equal(pkg.devDependencies['@sprintengine/module-sdk'], `^${SCAFFOLD_SDK_VERSION}`)
+    assert.equal(
+      pkg.devDependencies['@sprintengine/module-sdk'],
+      `^${SCAFFOLD_SDK_VERSION}`,
+      'with no tarball shipped, the npm release',
+    )
+    assert.equal(existsSync(join(result.folder, 'vendor')), false)
     assert.equal(
       readFileSync(join(result.folder, 'IDEA.md'), 'utf8'),
       '# Pr radar\n\nA count of the PRs waiting on me.\n',
     )
     assert.equal(existsSync(join(result.folder, '.claude/skills/sprintengine-extension-builder/SKILL.md')), true)
+  })
+
+  test('depends on the SDK the app ships, copied into vendor/, so npm install needs no registry', async () => {
+    mkdirSync(join(parent, 'shipped'))
+    writeFileSync(sdkTarball, 'the packed SDK')
+    const result = await handlers().create({ parentDir: parent, id: 'pr-radar' })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    if (!result.ok) return
+    const pkg = JSON.parse(readFileSync(join(result.folder, 'package.json'), 'utf8'))
+    assert.equal(pkg.devDependencies['@sprintengine/module-sdk'], `file:vendor/${SCAFFOLD_SDK_TARBALL}`)
+    assert.equal(readFileSync(join(result.folder, 'vendor', SCAFFOLD_SDK_TARBALL), 'utf8'), 'the packed SDK')
   })
 
   test('an extension already there is handed back as it is, with nothing written', async () => {
@@ -127,13 +169,16 @@ describe('extensions:scaffold:create', () => {
 })
 
 test('reads the shipped copies when packaged and the SDK package in a checkout', () => {
+  assert.equal(SCAFFOLD_SDK_TARBALL, `sprintengine-module-sdk-${SCAFFOLD_SDK_VERSION}.tgz`)
   assert.deepEqual(resolveScaffoldRoots({ isPackaged: true, resourcesPath: '/App/Resources', appPath: '/x' }), {
     templatesRoot: join('/App/Resources', 'sdk-templates'),
     skillsRoot: join('/App/Resources', 'sdk-skills'),
+    sdkTarball: join('/App/Resources', 'module-sdk', SCAFFOLD_SDK_TARBALL),
   })
   assert.deepEqual(resolveScaffoldRoots({ isPackaged: false, resourcesPath: '/x', appPath: '/repo' }), {
     templatesRoot: join('/repo', 'packages', 'module-sdk', 'templates'),
     skillsRoot: join('/repo', 'packages', 'module-sdk', 'skills'),
+    sdkTarball: join('/repo', 'resources', 'module-sdk', SCAFFOLD_SDK_TARBALL),
   })
 })
 

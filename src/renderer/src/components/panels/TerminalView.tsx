@@ -50,6 +50,7 @@ import {
   resolveWorkspaceWorktree,
   resolveWorktreeSpawnFallback,
 } from '../../utils/workspaceWorktree'
+import { ensureChatWorktree } from '../../utils/chatWorktreeRestore'
 import {
   clearAgentLaunchFailed,
   hasAgentLaunchFailedThisAppSession,
@@ -1003,6 +1004,11 @@ function TerminalViewOnThisComputer({
       const latestAgent = latestContext.agent
       const latestCli = latestContext.cli
       if (!latestAgent || !latestCli) return
+      // A settled chat whose worktree the cleanup gave back has it checked out
+      // again before its agent relaunches there (chatWorktreeRestore.ts). The
+      // folder check already waits on that; a view kept mounted from before the
+      // worktree went holds an older answer, so the launch asks as well.
+      if (!(await ensureChatWorktree(workspaceId)) || disposed) return
       const terminalStatus = await window.api
         .terminalStatus(sessionId)
         .catch(() => ({ processAlive: false, suspended: false }))

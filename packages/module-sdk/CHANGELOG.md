@@ -84,6 +84,13 @@ new chat. The app no longer has an automations engine for a module to extend.
   lowered, not refused, and the answer names the preset in force. Before,
   `conversation:operate` alone started a conversation on `bypass`.
 
+### Fixed
+
+- **`npm run keygen` on Windows.** The templates' `keygen` script wrote the key
+  under `$HOME`, which `cmd.exe` (where npm runs scripts on Windows) does not
+  expand. It passes `~/.sprintengine/keys/<id>.key`, and `keygen --out`
+  expands a leading `~` to the home folder itself.
+
 ## 1.0.0-beta.0
 
 The first beta of the contract 1.0 will ship: modules reach the

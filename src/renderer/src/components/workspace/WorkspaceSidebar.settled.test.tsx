@@ -49,6 +49,8 @@ test('WorkspaceSidebar.settled', async () => {
   // Alpha holds a live agent pty; the settled rows hold nothing, which is what
   // a chat that came to rest looks like after the kill lands.
   const killed: string[] = []
+  // What main says Alpha's pty is doing when it is asked again at kill time.
+  let alphaActivityAtKill: 'idle' | 'working' = 'idle'
   // A chat agent has no pty: main owns its process, and Settle ends it through
   // the conversation runtime. Echo's live chat and a chat already stopped.
   const chatsSuspended: string[] = []
@@ -62,7 +64,7 @@ test('WorkspaceSidebar.settled', async () => {
         processAlive: true,
         kind: 'agent',
         cli: 'claude-code',
-        activity: { kind: 'idle', since: 1 },
+        activity: { kind: alphaActivityAtKill, since: 1 },
       },
     ],
     onTerminalSessionsDelta: () => () => {},
@@ -73,8 +75,8 @@ test('WorkspaceSidebar.settled', async () => {
     conversationSessionsList: async () => ({
       ok: true,
       sessions: [
-        { sessionId: 'echo-chat', workspaceId: 'w5', agentId: 'agent-5', status: 'ready' },
-        { sessionId: 'echo-old', workspaceId: 'w5', agentId: 'agent-5', status: 'stopped' },
+        { sessionId: 'echo-chat', workspaceId: 'w5', agentId: 'agent-1', status: 'ready' },
+        { sessionId: 'echo-old', workspaceId: 'w5', agentId: 'agent-1', status: 'stopped' },
       ],
     }),
     conversationSessionSuspend: async ({ sessionId }: { sessionId: string }) => {
@@ -224,6 +226,10 @@ test('WorkspaceSidebar.settled', async () => {
       const activeMenu = await openMenuOn('Alpha')
       assert.ok(activeMenu.includes('Settle'), `an active row's menu offers Settle (got ${activeMenu.join(' | ')})`)
       assert.equal(activeMenu.includes('Un-settle'), false)
+      assert.ok(
+        activeMenu.some((item) => item.startsWith('Auto-settle')),
+        `and its Auto-settle choice (got ${activeMenu.join(' | ')})`,
+      )
 
       // The one-click seat is rest, not removal. The ✕ that used to sit here
       // terminates the row's terminals and removes the chat; it keeps its entry
@@ -245,7 +251,21 @@ test('WorkspaceSidebar.settled', async () => {
       })
       await settle()
       assert.deepEqual(killed, ['alpha-pty'], 'settling a chat kills the terminals it held')
+      // Echo's chat runs as `agent-1` too: every workspace's first agent has
+      // that id, so it says nothing about which workspace a chat is in.
       assert.deepEqual(chatsSuspended, [], "and leaves another workspace's chat agents alone")
+
+      // A turn that started after the window last heard (a message from the
+      // phone) is not interrupted by a Settle decided before it: main is asked
+      // again just before the kill, and a chat working by then keeps running.
+      const killedBefore = killed.length
+      alphaActivityAtKill = 'working'
+      act(() => {
+        actionLabel('Settle Alpha')!.click()
+      })
+      await settle()
+      assert.deepEqual(killed.slice(killedBefore), [], 'a chat working by the time of the kill is left running')
+      alphaActivityAtKill = 'idle'
 
       // The row you are in stays put when it settles, so the seat has to say
       // it did: the tick becomes the ringed settled mark, which un-settles,
@@ -314,7 +334,7 @@ test('WorkspaceSidebar.settled', async () => {
         ...props,
         workspaces: [workspace('w1', 'Alpha'), workspace('w5', 'Echo')],
         activityByWorkspaceId: { w1: 'idle', w5: 'idle' },
-        conversationSessions: [{ sessionId: 'echo-chat', workspaceId: 'w5', agentId: 'agent-5', status: 'ready' }],
+        conversationSessions: [{ sessionId: 'echo-chat', workspaceId: 'w5', agentId: 'agent-1', status: 'ready' }],
       } as unknown as SidebarProps)
       const settleEcho = actionLabel('Settle Echo')
       assert.ok(settleEcho, 'Echo has a Settle button to click')
@@ -324,6 +344,62 @@ test('WorkspaceSidebar.settled', async () => {
       await settle()
       assert.deepEqual(chatsSuspended, ['echo-chat'], "settling a chat ends its chat agent's process")
       assert.deepEqual(killed, ['alpha-pty'], 'and kills no terminal for it')
+
+      // Settling ends a chat's agents and their work with them, so a chat with
+      // an agent still working cannot be settled: not while a turn runs, and
+      // not while an agent it launched in the background works on after it.
+      for (const [why, fields] of [
+        ['a turn running', { activityByWorkspaceId: { w1: 'idle', w6: 'working' }, conversationSessions: [] }],
+        [
+          'a background agent working under a waiting prompt',
+          {
+            activityByWorkspaceId: { w1: 'idle', w6: 'needs-input' },
+            conversationSessions: [
+              {
+                sessionId: 'fox-chat',
+                workspaceId: 'w6',
+                agentId: 'agent-1',
+                status: 'awaiting_approval',
+                phase: 'waiting_for_input',
+                backgroundAgents: 1,
+              },
+            ],
+          },
+        ],
+        [
+          'a background agent working after its parent failed',
+          {
+            activityByWorkspaceId: { w1: 'idle', w6: 'failed' },
+            conversationSessions: [
+              {
+                sessionId: 'fox-chat',
+                workspaceId: 'w6',
+                agentId: 'agent-1',
+                status: 'failed',
+                phase: 'failed',
+                backgroundAgents: 1,
+              },
+            ],
+          },
+        ],
+      ] as const) {
+        await render({
+          ...props,
+          workspaces: [workspace('w1', 'Alpha'), workspace('w6', 'Foxtrot')],
+          ...fields,
+        } as unknown as SidebarProps)
+        const settleFoxtrot = actionLabel('Settle Foxtrot')
+        assert.ok(settleFoxtrot, `Foxtrot still shows Settle with ${why}`)
+        // Announced unavailable but still focusable and hoverable, so the
+        // tooltip saying why can open.
+        assert.equal(settleFoxtrot.getAttribute('aria-disabled'), 'true', `but it is unavailable with ${why}`)
+        assert.equal(settleFoxtrot.disabled, false, `and keeps its tab stop with ${why}`)
+        act(() => {
+          settleFoxtrot.click()
+        })
+        await settle()
+        assert.deepEqual(chatsSuspended, ['echo-chat'], `and settles nothing with ${why}`)
+      }
 
       // Settling the chat you are in moves you on: the next chat down the rail
       // opens, or the one above it when there is none below. Settling a chat
@@ -360,6 +436,13 @@ test('WorkspaceSidebar.settled', async () => {
       act(() => actionLabel(`Settle ${nameOf[order[2]!]}`)!.click())
       await settle()
       assert.deepEqual(selected, [], 'settling a chat you are not in opens nothing')
+
+      // New chat up over the chat: the person has left it, and settling it from
+      // its row keeps them in New chat.
+      await render({ ...threeOpen, activeWorkspaceId: order[0], newChatOpen: true } as unknown as SidebarProps)
+      act(() => actionLabel(`Settle ${nameOf[order[0]!]}`)!.click())
+      await settle()
+      assert.deepEqual(selected, [], 'settling the chat under New chat opens nothing')
 
       // The last chat still going has nowhere to hand off to: New chat opens,
       // and the settled row leaves the rail rather than staying open, checked

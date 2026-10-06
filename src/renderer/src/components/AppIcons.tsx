@@ -123,6 +123,26 @@ export function WslMachineGlyph({ className }: IconProps) {
   )
 }
 
+// A local server an agent started: a port being served, drawn as a ring with
+// signal going out on both sides — something on this machine is answering.
+// Not the Beam (`RemoteMachineGlyph`), whose arcs leave one corner of a
+// screen and mean another machine; here they leave the middle and nothing is
+// attached, because what it names is a listener, not a device. A ring and not
+// a disc, so it never reads as a status dot. 16-grid, stroke 1.4.
+export function LocalServerGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <circle cx="8" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M5.2 5.2a4 4 0 0 0 0 5.6M10.8 5.2a4 4 0 0 1 0 5.6M3.1 3.1a6.9 6.9 0 0 0 0 9.8M12.9 3.1a6.9 6.9 0 0 1 0 9.8"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 // A scheduled agent: a clock face and nothing else, because what it names is a
 // time still to come. Not the history clock, whose rewind arrow means the
 // past. 16-grid, stroke 1.4; mirrored as design-system/glyphs/schedule.svg.
@@ -765,6 +785,25 @@ export function SettledChatsSettingsIcon({ className }: IconProps) {
       />
       <path
         d="M8.5 7.5l2.5 2.5 4.5-5"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// A branch forked off a trunk, three tips: the Worktrees tab lists every
+// checkout the agents work in, each one a branch of the project beside it.
+export function WorktreesSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="6" cy="5.5" r="2" stroke="currentColor" strokeWidth={iconStroke} />
+      <circle cx="6" cy="18.5" r="2" stroke="currentColor" strokeWidth={iconStroke} />
+      <circle cx="18" cy="8.5" r="2" stroke="currentColor" strokeWidth={iconStroke} />
+      <path
+        d="M6 7.5v9M18 10.5c0 3.5-4.5 3.5-10.4 6.6"
         stroke="currentColor"
         strokeWidth={iconStroke}
         strokeLinecap="round"

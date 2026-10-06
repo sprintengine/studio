@@ -357,7 +357,12 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     const server = handle.server!
     const { stream, transport, reason } = await openDoor(handle, 'backend')
     const backend = connectRemoteConversationBackend(stream, { log })
-    await backend.refresh()
+    // A first read that fails leaves nobody holding the wire: closed here, or
+    // every later attempt would leave another stream open on the server.
+    await backend.refresh().catch((error: unknown) => {
+      backend.close()
+      throw error
+    })
     const connection: WslServerConnection = {
       distro: handle.distro,
       backend,
@@ -437,6 +442,9 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     // The listing is in the PC's language, so "stopped" is any state but the
     // one it was listed in while the server ran; English where that is unknown.
     const listing = await deps.listDistros({ force: true }).catch(() => null)
+    // A message sent while WSL was being listed started a server again: what
+    // is said now would be about that one, and would end the turns it runs.
+    if (handle.server || handle.starting || handle.stopping) return
     const state = listing?.distros?.find((entry) => entry.name === handle.distro)?.state
     if (state && (handle.runningState ? state !== handle.runningState : /^stopped$/iu.test(state))) {
       setStatus(handle, {

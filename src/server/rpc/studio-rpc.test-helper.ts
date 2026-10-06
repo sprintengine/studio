@@ -19,6 +19,7 @@ import { redactConversationValue } from '../../main/conversation-tool-details'
 import { createStudioRpcServer, type StudioRpcServer } from './studio-rpc-server'
 import type { ClientToolRegistry } from '../tools/client-tool-registry'
 import type { StudioPullRequests } from '../pull-requests/pull-request-domain'
+import type { StudioLocalServers } from '../local-servers/local-server-domain'
 import type { StudioFiles } from './studio-files'
 import type {
   StudioAuditEntry,
@@ -146,6 +147,9 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
       // A refusal in the runtime's own words, which can name internals.
       if (command.kind === 'send' && command.message === 'explode')
         return { ok: false, message: 'ENOENT: no such file, open /Users/dev/app/.sprintengine/secret.json' }
+      // Another send to the chat is still being prepared.
+      if (command.kind === 'send' && command.message === 'behind another')
+        return { ok: false, code: 'busy', message: 'A send to this chat is being prepared.', retryAfterMs: 400 }
       backend.commands.push({ clientId, commandId, command })
       if (command.kind === 'setPermissionPreset') backend.presets.set(key.agentId, command.preset)
       const outcome: StudioCommandOutcome = { ok: true }
@@ -343,6 +347,7 @@ export async function startTestServer(
     tools?: ClientToolRegistry
     files?: StudioFiles
     pullRequests?: StudioPullRequests
+    localServers?: StudioLocalServers
   } = {},
 ): Promise<{
   server: StudioRpcServer
@@ -370,6 +375,7 @@ export async function startTestServer(
     ...(input.tools ? { tools: input.tools } : {}),
     ...(input.files ? { files: input.files } : {}),
     ...(input.pullRequests ? { pullRequests: input.pullRequests } : {}),
+    ...(input.localServers ? { localServers: input.localServers } : {}),
     audit: (entry) => audit.push(entry),
     log: (message) => logs.push(message),
     resyncRetryAfterMs: () => 1_500,

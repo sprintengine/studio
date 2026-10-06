@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, symlink, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -107,6 +107,30 @@ test('module-storage', async () => {
       assert.deepEqual(await storage.delete('calendar', { key: 'prefs' }), { ok: true, deleted: true })
       assert.deepEqual(await storage.delete('calendar', { key: 'prefs' }), { ok: true, deleted: false })
       assert.deepEqual(await storage.get('calendar', { key: 'prefs' }), { ok: true, value: undefined, found: false })
+
+      // A `<key>.json.tmp` link a cloned repository committed is not written
+      // through: the value lands in the store, and the link's target is untouched.
+      const outside = join(temp, 'outside.txt')
+      await writeFile(outside, 'untouched')
+      const planted = join(workspaceRoot, '.sprintengine', 'modules', 'calendar')
+      await mkdir(planted, { recursive: true })
+      await symlink(outside, join(planted, 'notes.json.tmp'))
+      assert.deepEqual(await storage.set('calendar', { key: 'notes', value: 'mine', workspaceRoot }), { ok: true })
+      assert.equal(await readFile(outside, 'utf8'), 'untouched')
+      assert.equal(await readFile(join(planted, 'notes.json'), 'utf8'), '"mine"')
+
+      // Nor is a module's folder that is a link, nor a stored file that is one.
+      const elsewhere = join(temp, 'elsewhere')
+      await mkdir(elsewhere)
+      await writeFile(join(elsewhere, 'secret.json'), '"theirs"')
+      await symlink(elsewhere, join(workspaceRoot, '.sprintengine', 'modules', 'planner'))
+      const linkedSet = await storage.set('planner', { key: 'notes', value: 'mine', workspaceRoot })
+      assert.equal(linkedSet.ok === false && linkedSet.code, 'io_error')
+      assert.equal(existsSync(join(elsewhere, 'notes.json')), false)
+      assert.equal((await storage.get('planner', { key: 'secret', workspaceRoot })).ok, false)
+      assert.equal((await storage.list('planner', { workspaceRoot })).ok, false)
+      await symlink(join(elsewhere, 'secret.json'), join(planted, 'secret.json'))
+      assert.equal((await storage.get('calendar', { key: 'secret', workspaceRoot })).ok, false)
 
       // Concurrent sets serialize — last write wins, file stays valid JSON.
       await Promise.all(Array.from({ length: 8 }, (_, index) => storage.set('calendar', { key: 'race', value: index })))

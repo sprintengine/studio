@@ -42,6 +42,7 @@ import {
   type DroppedFiles,
 } from '../../../utils/imageFileTransfer'
 import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
+import { ComposerField, type ComposerFieldHandle, type ComposerKeyEvent } from '../../panels/agentChat/ComposerField'
 import { basename } from '../../../utils/paths'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
@@ -49,7 +50,7 @@ import {
   ChipButton,
   CloseIconButton,
   COMPOSER_SURFACE_CLASS,
-  FOCUS_RING_WITHIN_TEXTAREA_CLASS,
+  FOCUS_RING_WITHIN_EDITOR_CLASS,
   HiddenFileInput,
   MachineGlyph,
   MENU_LIST_CLASS,
@@ -62,7 +63,6 @@ import {
   Popover,
   SendButton,
   SendGlyph,
-  Textarea,
   StarGlyph,
   Tooltip,
   useCliPermissionMode,
@@ -598,7 +598,16 @@ export default function NewAgentPanel({
       : initialMode === 'extension'
         ? [EXTENSION_BUILDER_CHIP]
         : draft?.skills,
-    initialWorktreeName: editing ? (editing.worktree?.name ?? null) : null,
+    // A New chat starts in a worktree of its own unless the person turns the
+    // chip off: a chat that edits the checkout everyone else is standing on
+    // is the exception, not the rule. The door only (the one with a parked
+    // draft); a scheduled agent or an extension opens with it off, and the
+    // pane's "+" spawns beside a workspace that already has its folder.
+    initialWorktreeName: editing
+      ? (editing.worktree?.name ?? null)
+      : draftKey && initialMode !== 'scheduled' && initialMode !== 'extension'
+        ? ''
+        : null,
     // The engine a parked draft was made on, when whoever made it stored none —
     // a card's `Go` picker, which must not move this door's remembered engine
     // on its way past (item 2473). The panel opens standing on that row and
@@ -756,15 +765,16 @@ export default function NewAgentPanel({
   React.useEffect(() => {
     if (remoteChosenAway) setRemoteTarget(null)
   }, [remoteChosenAway])
-  // A scheduled agent runs on this computer, so the machine list drops the SSH
-  // machines while scheduling; one picked before must go with them, or the
-  // strip would keep asking for a folder on that machine while the agent is
-  // saved for the project here.
-  const sshPickedWhileScheduled = scheduled && pickedSshId !== null
+  // A scheduled agent runs on this computer, and an extension is scaffolded on
+  // its disk, so the machine list drops the SSH machines for both; one picked
+  // before must go with them, or the strip would keep asking for a folder on
+  // that machine — and the press would start a plain chat there, with no
+  // agent saved or extension made in the project here.
+  const sshPickedWhileChatOnly = chatOnly && pickedSshId !== null
   React.useEffect(() => {
-    if (sshPickedWhileScheduled) pickSsh(null)
+    if (sshPickedWhileChatOnly) pickSsh(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sshPickedWhileScheduled])
+  }, [sshPickedWhileChatOnly])
   // The project in hand, as an identity the next machine can be searched for:
   // the local folder's repository, or the remote project's as its machine
   // served it. Null when nothing is chosen or the folder has no remote.
@@ -949,7 +959,7 @@ export default function NewAgentPanel({
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
   const [seed] = React.useState(() => newSuggestionSeed())
-  const promptRef = React.useRef<HTMLTextAreaElement>(null)
+  const promptRef = React.useRef<ComposerFieldHandle>(null)
 
   // ── Images pasted or dropped into the prompt box ──────────────────────────
   // Each image is held as a file on this computer. A chat's first message
@@ -1176,6 +1186,22 @@ export default function NewAgentPanel({
     }
   }, [workspaceRoot])
 
+  // Worktree is offered only inside a git repository on this machine, for an
+  // agent: absent, not disabled. A paired machine's or an SSH machine's chat
+  // has no checkout here to fork, and an extension's folder is new.
+  const worktreeOffered =
+    !extensionMode && selection.kind !== 'terminal' && !remoteTarget && !pickedSsh && workspaceIsGitRepo
+  // The chip starts on at the door, so a launch it is not offered for drops
+  // the worktree rather than carrying one nobody could see: a folder that is
+  // not a git repository would fail to make it and keep the chat from
+  // starting, and another machine's chat would ignore it.
+  const buildLaunchConfirm = (target: AgentComposerSelection): AgentComposerConfirm => {
+    const confirm = composer.buildConfirm(target)
+    if (worktreeOffered || confirm.kind === 'terminal' || !confirm.worktree) return confirm
+    const { worktree: _notOffered, ...rest } = confirm
+    return rest
+  }
+
   // ── What a launch would run, for Start's hover ───────────────────────────
   const [commandLine, setCommandLine] = React.useState<LaunchCommandLineState>({ status: 'idle' })
   const previewInput = React.useMemo(
@@ -1262,9 +1288,11 @@ export default function NewAgentPanel({
     ? extensionNameProblem
     : extensionTargetState === 'taken'
       ? `${projectLabel ?? 'The project'} already has a ${extensionName} folder. Choose another name.`
-      : extensionTargetState === 'no_parent'
-        ? 'That project folder is not there any more. Choose another project.'
-        : null
+      : extensionTargetState === 'installed'
+        ? `An extension named ${extensionName} is already installed on this computer. Choose another name.`
+        : extensionTargetState === 'no_parent'
+          ? 'That project folder is not there any more. Choose another project.'
+          : null
   // Everything the extension needs before ⏎: a project to make it in, a name
   // that is free (or an extension to carry on), and something to build.
   const extensionReady =
@@ -1329,7 +1357,7 @@ export default function NewAgentPanel({
       promptRef.current?.focus()
       return
     }
-    const confirm = composer.buildConfirm(selection)
+    const confirm = buildLaunchConfirm(selection)
     if (confirm.kind !== 'conversation' || !confirm.cli) return
     const draftRecord: ScheduledAgentDraft = {
       prompt: body,
@@ -1400,7 +1428,7 @@ export default function NewAgentPanel({
         showToast({ tone: 'warn', title: 'Which folder?', description: sshFolderProblem })
         return
       }
-      const confirm = composer.buildConfirm(selection)
+      const confirm = buildLaunchConfirm(selection)
       if (confirm.kind === 'conversation') {
         const providerId = confirm.cli ? conversationProviderForCli(confirm.cli) : null
         if (!providerId) return
@@ -1410,26 +1438,23 @@ export default function NewAgentPanel({
           modelLabel: engineNames.modelLabel ?? engineNames.cliLabel,
         }
       }
-      if (images.length > 0) {
-        showToast({
-          tone: 'warn',
-          title: 'That chat cannot travel yet',
-          description: `Remove the attached images to start on ${pickedSsh.label}; they are files on this computer.`,
-        })
-        return
-      }
       const folder = sshFolder.trim().replace(/(.)\/+$/u, '$1')
       lastSshFolders.set(pickedSsh.id, folder)
+      // The images go with the first message: they are files on this
+      // computer, which the chat reads here and sends as bytes, as it does
+      // for an image pasted into an SSH chat.
+      const sshImages = images.map((image) => image.path)
       onLaunch({
         ...confirm,
         prompt: text.trim(),
+        ...(sshImages.length > 0 ? { images: sshImages } : {}),
         environment: { kind: 'ssh', id: pickedSsh.id, label: pickedSsh.label, folder },
       })
       return
     }
     if (remoteTarget) {
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
-      const confirm = composer.buildConfirm(selection)
+      const confirm = buildLaunchConfirm(selection)
       if (confirm.kind !== 'conversation') return
       // A chat's skills are this machine's and its images are local files;
       // neither has a way over yet, so their chips refuse rather than vanish.
@@ -1465,7 +1490,7 @@ export default function NewAgentPanel({
         .catch(() => {})
       return
     }
-    const confirm = composer.buildConfirm(selection)
+    const confirm = buildLaunchConfirm(selection)
     // A chat sends the attached images as images with its first message. A
     // terminal agent is typed them as paths after the text, quoted only when
     // the path needs it — the terminal drop idiom.
@@ -1520,7 +1545,7 @@ export default function NewAgentPanel({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const onPromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const onPromptKeyDown = (event: ComposerKeyEvent) => {
     // The Enter that commits an input method's composition belongs to the
     // input method: it picks the characters, it does not send them half-typed.
     if (event.nativeEvent.isComposing) return
@@ -1631,10 +1656,6 @@ export default function NewAgentPanel({
   // the Worktree chip that sat on its row (owner ruling 2026-10-04).
   const machinePickerShown =
     (remoteSelectable && remoteMachines.length > 0) || localHosts.length > 1 || sshMachines.length > 0
-  // Worktree is offered only inside a git repository on this machine, for an
-  // agent: absent, not disabled. A paired machine's chat has no checkout here
-  // to fork, and an extension's folder is new.
-  const worktreeOffered = !extensionMode && selection.kind !== 'terminal' && !remoteTarget && workspaceIsGitRepo
   // The branch the launch starts from: the remote project's as its machine
   // read it, else this checkout's. An SSH machine's folder is typed, not read.
   const stripBranch = remoteTarget ? (remoteTarget.checkout?.branch ?? null) : pickedSsh ? null : branch
@@ -1752,13 +1773,13 @@ export default function NewAgentPanel({
           <ScheduleFailureTray failure={lastRunFailure} onDismiss={() => setLastRunFailure(null)} />
         ) : null}
         <div
-          // The box owns the visible border while the textarea inside it is the
+          // The box owns the visible border while the field inside it is the
           // tab stop, so the product's one focus ring lands on the box keyed to
-          // the textarea's own focus (`FOCUS_RING_WITHIN_TEXTAREA_CLASS`) — not
+          // the field's own focus (`FOCUS_RING_WITHIN_EDITOR_CLASS`) — not
           // an accent border swap on `focus-within`, which lit the box for the
           // row's buttons too and was a second focus idiom. Positioned, so it
           // paints over the strip tucked under its lower edge.
-          className={`relative ${terminalUnavailable ? 'hidden' : ''} ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+          className={`relative ${terminalUnavailable ? 'hidden' : ''} ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_EDITOR_CLASS} ${
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           data-new-chat-composer="true"
@@ -1825,19 +1846,17 @@ export default function NewAgentPanel({
           />
 
           <div className="px-5 pb-1 pt-4">
-            {/* Grows with its content (field-sizing: content) from the
-                three-row floor to a ceiling, then scrolls — a box that showed
-                two lines of a six-line prompt was hiding what the person was
-                about to send. `composer` is the kit's hosted multiline field:
-                no box of its own, because `COMPOSER_SURFACE_CLASS` around it
-                draws the border, the ground and the ring. */}
-            <Textarea
+            {/* Grows with its content from the three-row floor to a ceiling,
+                then scrolls — a box that showed two lines of a six-line prompt
+                was hiding what the person was about to send. The chat
+                composer's field, drawing the prompt's markdown in place, with
+                no box of its own: `COMPOSER_SURFACE_CLASS` around it draws the
+                border, the ground and the ring. */}
+            <ComposerField
               ref={promptRef}
-              variant="composer"
-              resize="none"
               value={prompt}
-              rows={3}
-              onPaste={(event) => {
+              leavesDrop={dataTransferHasDroppableFiles}
+              onPaste={(event, field) => {
                 // A pasted screenshot only exists as a clipboard item; a text
                 // paste reports no image and falls through to the default —
                 // unless the text is only paths to images outside the project,
@@ -1849,22 +1868,21 @@ export default function NewAgentPanel({
                   void attachDroppedFiles(files)
                   return
                 }
-                const text = event.clipboardData.getData('text/plain')
+                const text = event.clipboardData?.getData('text/plain') ?? ''
                 const paths = pastedImagePaths(text, !remoteTarget && workspaceRoot ? [workspaceRoot] : [])
                 if (!paths) return
                 event.preventDefault()
-                const field = event.currentTarget
                 void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
               }}
-              onChange={(event) => {
-                setPrompt(event.currentTarget.value)
+              onChange={(value) => {
+                setPrompt(value)
                 setMentionDismissed(false)
               }}
               onKeyDown={onPromptKeyDown}
               placeholder={placeholder}
               disabled={isTerminalLaunch}
-              aria-label="What this agent should do"
-              className="max-h-[280px] min-h-[66px] w-full overflow-y-auto font-mono text-body"
+              contentAttributes={{ 'aria-label': 'What this agent should do' }}
+              className="max-h-[280px] min-h-[66px] w-full font-mono text-body"
             />
           </div>
 
@@ -2062,7 +2080,7 @@ export default function NewAgentPanel({
                   pickSsh(null)
                   pickRemoteMachine(connection)
                 }}
-                sshMachines={scheduled ? [] : sshMachines}
+                sshMachines={chatOnly ? [] : sshMachines}
                 selectedSshId={pickedSsh?.id ?? null}
                 onSelectSsh={(id) => {
                   pickRemoteMachine(null)
@@ -2635,8 +2653,15 @@ function SuggestionCard({
     // a label. `bordered` keeps the hairline at rest, so hover moves the ground
     // and nothing else — a grid that reflows under the pointer is the defect
     // the tile spec rules out. The inset stays with the caller, because a
-    // tile's padding is a composition decision.
-    <CardButton variant="bordered" onClick={onLaunch} disabled={disabled} className="px-3 py-2.5">
+    // tile's padding is a composition decision — and so does the radius:
+    // `radius.composer-companion`, so the tiles read as one set with the
+    // composer above them rather than as ramp cards parked beside it.
+    <CardButton
+      variant="bordered"
+      onClick={onLaunch}
+      disabled={disabled}
+      className="rounded-[var(--sem-radius-composer-companion)] px-3 py-2.5"
+    >
       <div className="text-body font-medium text-[color:var(--text-strong)]">{entry.title}</div>
       <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{entry.description}</p>
       <span className="mt-1.5 inline-block self-start rounded border border-[color:var(--border-default)] px-1.5 text-micro text-[color:var(--text-subtle)]">
@@ -2650,7 +2675,11 @@ function ExtensionIdeaCard({ idea, onPick }: { idea: ExtensionIdea; onPick: () =
   return (
     // The suggestion tile's shape; the surface it adds leads, because the cards
     // together are a map of what an extension can be.
-    <CardButton variant="bordered" onClick={onPick} className="px-3 py-2.5">
+    <CardButton
+      variant="bordered"
+      onClick={onPick}
+      className="rounded-[var(--sem-radius-composer-companion)] px-3 py-2.5"
+    >
       <span className="text-micro text-[color:var(--text-subtle)]">{idea.surface}</span>
       <div className="mt-0.5 text-body font-medium text-[color:var(--text-strong)]">{idea.title}</div>
       <p className="mt-0.5 text-meta leading-5 text-[color:var(--text-muted)]">{idea.description}</p>

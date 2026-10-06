@@ -85,6 +85,10 @@ const MAX_PANE_TABS = 24
 const MAX_TITLE_LENGTH = 200
 const MAX_URL_LENGTH = 2048
 const MAX_DOCUMENT_PATH_LENGTH = 4096
+// A pop-out window's id: minted by the pane (nanoid), and the same shape main
+// accepts for one (pane-popout-broker.ts), so a mark the slice keeps is always
+// one main could have opened a window for.
+const POP_OUT_ID = /^[A-Za-z0-9_-]{1,64}$/
 
 // The floating player's bounds. The default is the spec's 360x240; the floor is
 // small enough to park out of the way and still read a page, the ceiling keeps
@@ -133,6 +137,7 @@ function normalizeTab(input: unknown): WorkspacePaneTab | null {
   if (typeof raw.title === 'string' && raw.title.trim().length > 0) {
     tab.title = raw.title.slice(0, MAX_TITLE_LENGTH)
   }
+  if (typeof raw.poppedOut === 'string' && POP_OUT_ID.test(raw.poppedOut)) tab.poppedOut = raw.poppedOut
   if (tab.kind === 'browser') {
     if (typeof raw.url === 'string' && raw.url.length > 0 && raw.url.length <= MAX_URL_LENGTH) {
       tab.url = raw.url
@@ -295,7 +300,10 @@ function normalizeRecentUrls(input: unknown): string[] {
   return out
 }
 
-/** What persists: the favicon is a per-load cache and is fetched again on load. */
+/**
+ * What persists: the favicon is a per-load cache and is fetched again on load,
+ * and whether a tab floats or sits in a pop-out window is this session's alone.
+ */
 export function partializeWorkspacePaneState(input: unknown): WorkspacePaneState | undefined {
   const normalized = normalizeWorkspacePaneState(input)
   if (!normalized) return undefined
@@ -306,10 +314,13 @@ export function partializeWorkspacePaneState(input: unknown): WorkspacePaneState
       // the "is it floating right now" does not.
       // So is an agent's reveal on a Diff tab: a restart must not re-narrow the
       // viewer or re-highlight lines nobody asked about today.
+      // And so is `poppedOut`: the window it names closes with the app, and a
+      // restart has to find the tab back in the pane rather than stranded as a
+      // placeholder for a window that is not there.
       const withoutReveal =
         tab.diff?.reveal !== undefined ? { ...tab, diff: (({ reveal: _reveal, ...diff }) => diff)(tab.diff) } : tab
-      if (!withoutReveal.faviconUrl && !withoutReveal.floating) return withoutReveal
-      const { faviconUrl: _faviconUrl, floating: _floating, ...rest } = withoutReveal
+      if (!withoutReveal.faviconUrl && !withoutReveal.floating && !withoutReveal.poppedOut) return withoutReveal
+      const { faviconUrl: _faviconUrl, floating: _floating, poppedOut: _poppedOut, ...rest } = withoutReveal
       return rest
     }),
   }
@@ -403,7 +414,7 @@ export function adoptLegacyBacklogTab(layoutModel: unknown, paneState: Workspace
   }
 }
 
-type WorkspacePaneOpenInput = {
+export type WorkspacePaneOpenInput = {
   kind: WorkspacePaneTabKind
   title?: string
   url?: string
@@ -462,6 +473,28 @@ export interface WorkspacePaneSliceActions {
    * is restyled — so neither direction reloads the page.
    */
   setPaneTabFloating: (id: WorkspaceId, tabId: string, floating: boolean) => void
+  /**
+   * Mark tabs as shown in the pop-out window `popOutId`. The tabs stay in the
+   * strip; the window mounts their bodies and this pane draws a placeholder.
+   *
+   * The pane stops SHOWING them, because the reason to pop a tab out is the
+   * room it takes: if the tab on screen left, the nearest tab still docked
+   * takes its place, and when none is left the pane closes and gives the
+   * workspace its width back. A popped-out tab can still be selected — that
+   * is where the placeholder and its "Bring back" are.
+   */
+  popOutPaneTabs: (id: WorkspaceId, tabIds: readonly string[], popOutId: string) => void
+  /**
+   * Bring tabs back from a pop-out window: every tab it holds, or only
+   * `tabIds`. With `activeTabId` (one of the tabs coming back) the pane opens
+   * on it — the window was the person's view of those tabs, so they land
+   * where they can see them again.
+   */
+  dockPaneTabs: (
+    id: WorkspaceId,
+    popOutId: string,
+    options?: { tabIds?: readonly string[]; activeTabId?: string | null },
+  ) => void
 }
 
 type PaneSliceCarrier = { workspaces: Workspace[] }
@@ -489,7 +522,9 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
         if (!ws) return
         const pane = paneOf(ws)
         const tab = pane.tabs.find((candidate) => candidate.id === tabId)
-        if (!tab || tab.kind !== 'browser') return
+        // A tab in a pop-out window is already off the pane: it has no
+        // docked panel to restyle into a player.
+        if (!tab || tab.kind !== 'browser' || tab.poppedOut) return
         if (floating) {
           tab.floating = true
           // No rect is fabricated here: the window's size is not known at this
@@ -503,6 +538,62 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
           delete tab.floating
           pane.open = true
           pane.activeTabId = tabId
+        }
+        ws.paneState = normalizeWorkspacePaneState(pane)
+      }),
+
+    popOutPaneTabs: (id, tabIds, popOutId) =>
+      set((state) => {
+        if (!POP_OUT_ID.test(popOutId)) return
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        const pane = paneOf(ws)
+        const asked = new Set(tabIds)
+        const marked = new Set<string>()
+        for (const tab of pane.tabs) {
+          // A tab already in another window stays there: one tab, one window.
+          if (!asked.has(tab.id) || tab.poppedOut) continue
+          tab.poppedOut = popOutId
+          // A floating player popped out is no longer floating: the window
+          // is where it shows now, and a float left set would pin the pane
+          // shut the next time the tab docks.
+          delete tab.floating
+          marked.add(tab.id)
+        }
+        if (marked.size === 0) return
+        // Only the tab on screen leaving moves the pane's view. A placeholder
+        // the person selected for a tab already out stays selected — a tab
+        // opened from its window joining that window is not a reason to move.
+        const activeIndex = pane.tabs.findIndex((tab) => tab.id === pane.activeTabId)
+        if (activeIndex !== -1 && marked.has(pane.tabs[activeIndex].id)) {
+          // The neighbour on the right, then the left — the rule closing a tab
+          // follows — among the tabs still docked.
+          const docked =
+            pane.tabs.slice(activeIndex + 1).find((tab) => !tab.poppedOut) ??
+            [...pane.tabs.slice(0, activeIndex)].reverse().find((tab) => !tab.poppedOut)
+          if (docked) pane.activeTabId = docked.id
+          else pane.open = false
+        }
+        ws.paneState = normalizeWorkspacePaneState(pane)
+      }),
+
+    dockPaneTabs: (id, popOutId, options) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws?.paneState) return
+        const pane = ws.paneState
+        const only = options?.tabIds ? new Set(options.tabIds) : null
+        const docked: string[] = []
+        for (const tab of pane.tabs) {
+          if (tab.poppedOut !== popOutId || (only && !only.has(tab.id))) continue
+          delete tab.poppedOut
+          docked.push(tab.id)
+        }
+        if (docked.length === 0) return
+        const landing = options?.activeTabId
+        if (landing && docked.includes(landing)) {
+          pane.activeTabId = landing
+          pane.open = true
         }
         ws.paneState = normalizeWorkspacePaneState(pane)
       }),

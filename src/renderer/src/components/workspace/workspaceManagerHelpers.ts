@@ -5,7 +5,7 @@
 
 import { cliForConversationProvider } from '../../../../shared/conversation-harness'
 import { isStarred } from '../../utils/highlight'
-import { findWorkspaceForAgentPreferring } from '../../utils/agentLocation'
+import { findAgentSessionWorkspace, findAgentWorkspaceFollowingMoves } from '../../utils/agentLocation'
 import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
 import { workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import { deriveWorkspaceDisplayActivity, isLiveTerminal } from '../../hooks/useTerminalSessions'
@@ -221,10 +221,15 @@ export function getSessionItems(
     const status = CONVERSATION_SESSION_STATUS[summary.status]
     if (!status) return []
     // A summary keyed to an id no workspace row claims (the review guide runs
-    // under its review id) is NOT dropped — it lands in a detached bucket. An
-    // agent the user cannot see is worse than an oddly-grouped one.
+    // under its review id, or its chat was closed) is NOT dropped — it lands in
+    // a detached bucket. An agent the user cannot see is worse than an
+    // oddly-grouped one. The runtime keys a conversation by its workspace, so
+    // that workspace is the one it belongs to: agent ids recur across chats,
+    // and a closed chat's `agent-1` is not the open chat's. An agent dragged to
+    // another chat is followed there only by a minted id, which no other agent
+    // shares.
     const workspace =
-      findWorkspaceForAgentPreferring(workspaces, summary.agentId, summary.workspaceId) ??
+      findAgentWorkspaceFollowingMoves(workspaces, summary.agentId, summary.workspaceId) ??
       workspaces.find((candidate) => candidate.id === summary.workspaceId) ??
       null
     // A conversation session can outlive (or precede) its AgentState entry —
@@ -259,7 +264,15 @@ export function getSessionItems(
   // the terminal twin instead of listing the agent twice. This is the one
   // remaining terminal-branch drop, and the agent it drops is still on screen:
   // its conversation row represents it.
-  const conversationAgentKeys = new Set(conversationItems.map((item) => `${item.group.id} ${item.agentId}`))
+  //
+  // Twins are matched by the chat they belong to, not by the bucket they are
+  // listed in: every closed chat shares the one "Other sessions" bucket, and two
+  // closed chats' `agent-1`s are not twins.
+  const conversationAgentKeys = new Set(
+    conversationSessions
+      .filter((summary) => CONVERSATION_SESSION_STATUS[summary.status])
+      .map((summary) => `${summary.workspaceId} ${summary.agentId}`),
+  )
 
   return terminalSessions
     .filter(
@@ -273,13 +286,17 @@ export function getSessionItems(
       const workspaceId = typeof session.workspaceId === 'string' ? session.workspaceId : null
       // Agent terminals can be moved between workspaces after spawn, but the PTY
       // session keeps its spawn-time workspaceId. Resolve an agent's *current*
-      // workspace preferring that recorded workspace (it disambiguates shared ids
-      // like `agent-1`, which recur in every template-built workspace), falling
-      // back to a global scan only for a genuinely-moved agent; otherwise a moved
-      // agent would open and mutate state in the workspace it left.
+      // workspace by the agent record that owns this session, so a moved agent
+      // does not open and mutate state in the workspace it left — and never by
+      // its id alone, which recurs in every chat (`agent-1`): a closed chat's
+      // session would otherwise group under an open chat's namesake.
       const workspace =
         (session.kind === 'agent' && session.agentId
-          ? findWorkspaceForAgentPreferring(workspaces, session.agentId, workspaceId)
+          ? findAgentSessionWorkspace(workspaces, {
+              agentId: session.agentId,
+              sessionId: session.sessionId,
+              workspaceId,
+            })
           : null) ??
         (workspaceId ? workspaces.find((candidate) => candidate.id === workspaceId) : null) ??
         null
@@ -288,7 +305,9 @@ export function getSessionItems(
       const group = workspace ? workspaceSessionGroup(workspace) : detachedSessionGroup(workspaceId, options)
 
       if (session.kind === 'agent') {
-        if (session.agentId && conversationAgentKeys.has(`${group.id} ${session.agentId}`)) return []
+        if (session.agentId && conversationAgentKeys.has(`${workspace?.id ?? workspaceId} ${session.agentId}`)) {
+          return []
+        }
         const agent = session.agentId ? workspace?.agents[session.agentId] : undefined
         const statusInfo = deriveSessionStatus(session)
 

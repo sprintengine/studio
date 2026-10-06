@@ -11,6 +11,7 @@ import { readRepositoryIdentityRead } from '../repository-identity'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
 import type { AgentWorktreeCleanupInput, BranchStepSelection } from '../../shared/electron-api'
 import { cleanupAgentWorktreesOnce } from '../agent-worktree-cleanup'
+import { activeWorktreePool } from '../worktree-pool/active-pool'
 import { setAgentWorktreeLockProfile } from '../agent-worktree-lock'
 import { checkIgnoredPaths } from '../git-ignore'
 import { readFileHunks, stageGitHunk, unstageGitHunk } from '../git-hunks'
@@ -44,6 +45,7 @@ import {
   revertGitCommit,
   createGitTagFromCommit,
   createGitWorktree,
+  restoreGitWorktree,
   fetchGitRemotes,
   getGitBranches,
   getGitCommitGraph,
@@ -89,8 +91,8 @@ export type GitIpcPaths = {
    *  feed uses (`git:changelists-changed`), so the renderer has one subscription
    *  for both kinds of writer. */
   onChangelistsChanged?: (repoRoot: string) => void
-  /** Working directories of the live terminal sessions; the worktree cleanup never removes one of them. */
-  livePaths?: () => string[]
+  /** Working directories of the live terminal sessions and chat sessions; the worktree cleanup never removes one of them. */
+  livePaths?: () => string[] | Promise<string[]>
 }
 
 export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, paths: GitIpcPaths): void {
@@ -387,6 +389,10 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
     return withGitHost(scopedHost(input?.hostId), () => createGitWorktree(input))
   })
 
+  ipcMain.handle('git:worktree:restore', async (_, input) => {
+    return withGitHost(scopedHost(input?.hostId), () => restoreGitWorktree(input))
+  })
+
   ipcMain.handle('git:worktree:remove', async (_, input) => {
     return removeGitWorktree(input)
   })
@@ -403,7 +409,8 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
   })
 
   // Agent worktree cleanup (agent-worktree-cleanup.ts): the renderer names the
-  // paths its records still use; main adds every live terminal's directory.
+  // paths and agents its records still use; main adds every live terminal's
+  // directory.
   ipcMain.handle('git:worktree:cleanup-agents', async (_, input: AgentWorktreeCleanupInput) => {
     if (!input || typeof input.repoRoot !== 'string' || !isRepoRoot(input.repoRoot)) {
       return { repoRoot: String(input?.repoRoot ?? ''), defaultRef: null, entries: [], dryRun: true }
@@ -422,8 +429,23 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
             protectedPaths,
             dryRun: input.dryRun === true,
             ownedOnly: input.ownedOnly === true,
+            ...(Array.isArray(input.agentIds)
+              ? { agentIds: input.agentIds.filter((id): id is string => typeof id === 'string' && id.length > 0) }
+              : {}),
+            ...(Array.isArray(input.agentKeys)
+              ? { agentKeys: input.agentKeys.filter((key): key is string => typeof key === 'string' && key.length > 0) }
+              : {}),
+            ...(Array.isArray(input.keepBranches)
+              ? {
+                  keepBranches: input.keepBranches.filter(
+                    (branch): branch is string => typeof branch === 'string' && branch.length > 0,
+                  ),
+                }
+              : {}),
           },
-          { livePaths: paths.livePaths },
+          // The pool takes back its own slots (worktree-pool/); this process's,
+          // when it keeps one.
+          { livePaths: paths.livePaths, pool: activeWorktreePool() },
         ),
     )
   })

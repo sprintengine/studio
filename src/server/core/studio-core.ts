@@ -2,6 +2,7 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
+import { isMachinePath } from '../../shared/machine-paths'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import { gitHostIdForPath, type ExecutionHostId, type ExecutionHostSettings } from '../../shared/execution-host'
 import { ensureSkillInstalled } from '../../main/builtin-skills'
@@ -24,7 +25,8 @@ import { createConversationModelCatalog } from '../../main/conversation-model-ca
 import { ConversationPlanStore } from '../../main/conversation-plan-store'
 import { ConversationRuntime, type ConversationRuntimeOptions } from '../../main/conversation-runtime'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
-import { installGitHostResolver } from '../../main/git-run'
+import { createGitWorktree, getGitRepoRoot } from '../../main/git'
+import { installGitHostResolver, withGitHost } from '../../main/git-run'
 import { createHostRegistry, installHostRegistry } from '../../main/hosts/host-registry'
 import { createAgentLaunchSettingsStore } from '../../main/launch-settings-store'
 import { readDiscoveredCliModelCatalogs } from '../../main/model-discovery/service'
@@ -37,6 +39,7 @@ import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
 import { createPullRequestDomain } from '../pull-requests/pull-request-domain'
+import { createLocalServerDomain } from '../local-servers/local-server-domain'
 import { localConversationBackend, refuseMachinePaths, type ConversationBackend } from './conversation-backend'
 import {
   createRoutedConversationBackend,
@@ -58,9 +61,10 @@ import { takeDataDir } from './take-data-dir'
 // registry and its sync, git's machine resolver, the conversation runtime and
 // the backend every caller drives chats through (providers, checkpoints, the
 // thread index and transcripts are the runtime's), the model catalog, the
-// launch service that starts a chat for a caller with no window, and the pull
+// launch service that starts a chat for a caller with no window, the pull
 // request record, which reacts to chats and so is the server's (owner ruling
-// 2026-10-03). The MCP
+// 2026-10-03), and the local servers the agents started, which are checked
+// where the agents run (owner ruling 2026-10-04). The MCP
 // gateway is composed beside it (studio-gateway.ts), because the desktop adds
 // tools to it that act on windows and terminals.
 //
@@ -292,6 +296,40 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     },
     startSession: (input) => conversations.startSession(input),
     send: (input) => conversations.sendTurn(input),
+    // The levels the CLI's picker offers, from the same manifests it reads.
+    reasoningLevels: (cli) =>
+      listPluginRegistryEntries()
+        .find((entry) => entry.id === cli)
+        ?.reasoningSelection?.levels.map((level) => level.id) ?? [],
+    // A new chat's worktree, cut by the machine the chat runs on, as a
+    // scheduled run's is: from the worktree pool when this process keeps one
+    // (the desktop's main does; a server out of process forks a fresh one), on
+    // the default branch, locked to its branch until the chat claims it.
+    getRepoRoot: (folderPath, hostId) =>
+      withGitHost(hostId ? hosts.get(hostId) : null, () => getGitRepoRoot(folderPath)),
+    createWorktree: async (input) => {
+      const created = await withGitHost(input.hostId ? hosts.get(input.hostId) : null, () =>
+        createGitWorktree({
+          repoRoot: input.repoRoot,
+          containerPath: input.containerPath,
+          destinationPath: input.destinationPath,
+          branchName: input.branchName,
+          baseRef: 'HEAD',
+          fromPool: true,
+          copyIncludedFiles: true,
+          // The chat is created after its worktree, so the branch names the owner.
+          agentLockOwner: input.branchName,
+        }),
+      )
+      return created.ok
+        ? {
+            ok: true,
+            path: created.data.path,
+            branch: created.data.branch ?? input.branchName,
+            baseRef: created.data.baseRef,
+          }
+        : { ok: false, message: created.message }
+    },
     // The same installer a terminal launch's skill-at-spawn uses, into the
     // folder the chat works in (a run's worktree when it has one).
     ensureSkillInstalled: (workingRoot, skillId) => ensureSkillInstalled(workingRoot, skillId),
@@ -314,6 +352,34 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
         level: 'warning',
         source: 'workspace',
         title: 'Pull request record',
+        message,
+        ...(error === undefined
+          ? {}
+          : { details: error instanceof Error ? (error.stack ?? error.message) : String(error) }),
+      })
+    },
+  })
+
+  // The local servers the conversations' agents started (local-server-domain.ts):
+  // linked through the gateway's `local_server.link`, checked from here, where
+  // the agents run, and read by every client through `localServers.*`. A
+  // command the agent gave without a folder runs where its chat works (the
+  // session's own root, a worktree, when it has one), else in the workspace's
+  // folder; a folder on another machine is not one to run in here.
+  const localFolder = (folder: string | null | undefined) => (folder && !isMachinePath(folder) ? folder : null)
+  const localServers = createLocalServerDomain({
+    dataDir,
+    conversationFolder: (key) => {
+      const listed = conversations.listSessions({ workspaceId: key.workspaceId, agentId: key.agentId })
+      const latest = listed.ok ? [...listed.sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0] : undefined
+      const sessionRoot = latest ? conversations.sessionWorkspaceRoot(latest.sessionId) : null
+      return localFolder(sessionRoot) ?? localFolder(workspaceRegistry.getRecord(key.workspaceId)?.folderPath)
+    },
+    log: (message, error) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        source: 'workspace',
+        title: 'Local servers',
         message,
         ...(error === undefined
           ? {}
@@ -391,6 +457,13 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       // paired device offers the same models and can switch to no other.
       conversationModelCatalog,
       listMarks,
+      // A phone's switch moves the chat's record as the chat view's own does,
+      // through the same bus, so it outlives the session it was applied to.
+      (key, patch) => {
+        if (!workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]) return
+        workspaceSyncService.updateWorkspaceAgent(key.workspaceId, key.agentId, patch, 'system')
+      },
+      (key) => workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.conversationReasoningEffort,
     )
 
   /**
@@ -408,9 +481,13 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     const legs: Array<() => unknown> = [
       () => workspaceSyncService.flush(),
       () => pullRequests.flush(),
+      () => localServers.flush(),
       () => conversationRuntime.flushTranscripts(),
       () => conversationOwner.shutdown(),
       () => pullRequests.dispose(),
+      // The servers the Studio itself started stop with it: nothing would be
+      // left to stop them from.
+      () => localServers.dispose(),
       () => workspaceSyncService.flush(),
       () => hosts.dispose(),
     ]
@@ -445,6 +522,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     resolveAgentPermissionPreset,
     createConversationHost,
     pullRequests,
+    localServers,
     shutdown,
   }
 }

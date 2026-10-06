@@ -480,7 +480,9 @@ function PlainTerminalPanelOnThisComputer({
           })
           .then((spawnResult) => {
             replayGate.finishReplayWait()
-            if (spawnResult.ok) return
+            // A pane gone before its answer came — a popped-out terminal brought
+            // back, whose re-attach main refused — has nothing to report.
+            if (spawnResult.ok || disposed) return
             if (!reportedTerminalFailure) {
               reportedTerminalFailure = true
               publishDiagnosticSync({

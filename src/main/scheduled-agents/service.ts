@@ -2,21 +2,37 @@
 // chat panel over IPC, an extension through the SDK, an agent through the MCP
 // tools — so each write is validated the same way and the scheduler hears of it.
 
+import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
+import { isLooserCliPermissionPreset } from '../../shared/cli-permission-preset'
 import {
   validateScheduledAgentDraft,
   type ScheduledAgent,
+  type ScheduledAgentDraft,
   type ScheduledAgentLastRun,
   type ScheduledAgentView,
   type ScheduledAgentWriteResult,
 } from '../../shared/scheduled-agents'
+import { refuseScheduledAgentRun } from '../automation/launch-permission-cap'
+import { moduleConversationCeiling } from '../module-host/module-conversation-service'
+import { clampToModuleToolCaller, moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import type { ScheduledAgentsScheduler } from './scheduler'
 import type { ScheduledAgentsStore } from './store'
+
+/** Lowers a validated draft's preset before it is stored; the identity when absent. */
+type CapPreset = (preset: CliPermissionPreset | null) => CliPermissionPreset | null
 
 export type ScheduledAgentsService = {
   list(options?: { ownerModuleId?: string }): ScheduledAgentView[]
   get(id: string): ScheduledAgentView | null
-  create(input: unknown, options?: { ownerModuleId?: string }): Promise<ScheduledAgentWriteResult>
-  update(id: string, input: unknown, options?: { ownerModuleId?: string }): Promise<ScheduledAgentWriteResult>
+  create(
+    input: unknown,
+    options?: { ownerModuleId?: string; capPreset?: CapPreset },
+  ): Promise<ScheduledAgentWriteResult>
+  update(
+    id: string,
+    input: unknown,
+    options?: { ownerModuleId?: string; capPreset?: CapPreset },
+  ): Promise<ScheduledAgentWriteResult>
   remove(id: string, options?: { ownerModuleId?: string }): Promise<{ ok: true } | { ok: false; message: string }>
   runNow(
     id: string,
@@ -58,6 +74,8 @@ export function createScheduledAgentsService(deps: ScheduledAgentsServiceDeps): 
     return agent
   }
   const notFound = (id: string) => ({ ok: false as const, message: `No scheduled agent "${id}".` })
+  const capped = (draft: ScheduledAgentDraft, capPreset: CapPreset | undefined): ScheduledAgentDraft =>
+    capPreset ? { ...draft, permissionPreset: capPreset(draft.permissionPreset) } : draft
 
   return {
     list(options) {
@@ -71,7 +89,8 @@ export function createScheduledAgentsService(deps: ScheduledAgentsServiceDeps): 
     async create(input, options) {
       const validated = validateScheduledAgentDraft(input, now())
       if (!validated.ok) return validated
-      const created = await deps.store.create(validated.draft, options?.ownerModuleId ?? null)
+      const draft = capped(validated.draft, options?.capPreset)
+      const created = await deps.store.create(draft, options?.ownerModuleId ?? null)
       changed()
       return { ok: true, agent: view(created) }
     },
@@ -79,7 +98,7 @@ export function createScheduledAgentsService(deps: ScheduledAgentsServiceDeps): 
       if (!reachable(id, options?.ownerModuleId)) return notFound(id)
       const validated = validateScheduledAgentDraft(input, now())
       if (!validated.ok) return validated
-      const updated = await deps.store.update(id, validated.draft)
+      const updated = await deps.store.update(id, capped(validated.draft, options?.capPreset))
       if (!updated) return notFound(id)
       changed()
       return { ok: true, agent: view(updated) }
@@ -129,14 +148,60 @@ export type ScheduledAgentsModuleRegistry = {
   onChanged(moduleId: string, listener: (agents: ScheduledAgentView[]) => void): () => void
 }
 
-export function createScheduledAgentsModuleRegistry(service: ScheduledAgentsService): ScheduledAgentsModuleRegistry {
+export function createScheduledAgentsModuleRegistry(
+  service: ScheduledAgentsService,
+  getModulePermissions: (moduleId: string) => readonly string[] | undefined,
+): ScheduledAgentsModuleRegistry {
+  // A module's schedule starts chats the way its conversation service's
+  // `create` does, so it is held to the same ceilings: its own (`auto`, or
+  // `bypass` with `conversation:bypass`), and that of the agent whose tool
+  // call into the module is running, which the stored preset is pinned to.
+  const capFor =
+    (moduleId: string): CapPreset =>
+    (preset) =>
+      clampToModuleToolCaller(
+        lowerToModuleCeiling(preset, getModulePermissions(moduleId)) ?? undefined,
+        moduleToolCallerCeiling(),
+      ) ?? null
   return {
-    create: (moduleId, draft) => service.create(draft, { ownerModuleId: moduleId }),
-    update: (moduleId, id, draft) => service.update(id, draft, { ownerModuleId: moduleId }),
+    create: (moduleId, draft) => service.create(draft, { ownerModuleId: moduleId, capPreset: capFor(moduleId) }),
+    update: (moduleId, id, draft) =>
+      service.update(id, draft, { ownerModuleId: moduleId, capPreset: capFor(moduleId) }),
     remove: (moduleId, id) => service.remove(id, { ownerModuleId: moduleId }),
     list: async (moduleId) => service.list({ ownerModuleId: moduleId }),
-    runNow: (moduleId, id) => service.runNow(id, { ownerModuleId: moduleId }),
+    runNow: async (moduleId, id) => {
+      const stored = service.list({ ownerModuleId: moduleId }).find((agent) => agent.id === id)
+      // Asked during a capped agent's tool call, a run that could start looser
+      // than that agent is refused, as the agent's own `schedule.run` is.
+      const refused = stored ? refuseScheduledAgentRun(stored.permissionPreset, moduleToolCallerCeiling()) : null
+      if (refused) return { ok: false, message: refused.message }
+      return service.runNow(id, { ownerModuleId: moduleId })
+    },
     onChanged: (moduleId, listener) =>
       service.onChanged((agents) => listener(agents.filter((agent) => agent.ownerModuleId === moduleId))),
   }
+}
+
+/** A preset lowered to the ceiling of a module with these permissions; null (the person's own default) stays null. */
+function lowerToModuleCeiling(
+  preset: CliPermissionPreset | null,
+  permissions: readonly string[] | undefined,
+): CliPermissionPreset | null {
+  const ceiling = moduleConversationCeiling(permissions ?? [])
+  return preset && isLooserCliPermissionPreset(preset, ceiling) ? ceiling : preset
+}
+
+/**
+ * The scheduled agent as a run starts it: one an extension made goes no looser
+ * than that extension may go now, so a module updated without
+ * `conversation:bypass`, or no longer installed, does not keep a `bypass`
+ * schedule it was once allowed.
+ */
+export function withinOwnerModuleCeiling(
+  agent: ScheduledAgent,
+  getModulePermissions: (moduleId: string) => readonly string[] | undefined,
+): ScheduledAgent {
+  if (!agent.ownerModuleId) return agent
+  const permissionPreset = lowerToModuleCeiling(agent.permissionPreset, getModulePermissions(agent.ownerModuleId))
+  return permissionPreset === agent.permissionPreset ? agent : { ...agent, permissionPreset }
 }

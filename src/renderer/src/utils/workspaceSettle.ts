@@ -1,9 +1,10 @@
 import type { Workspace } from '../types/workspace'
+import type { BranchPullRequest } from '../../../shared/git/pull-request'
 import type { WorkspaceFieldsPatch } from '../../../shared/workspace-sync'
 import { deriveWorkspaceRunGlyph } from './workspaceRunGlyph'
 import { isStarred } from './highlight'
 import { isSnoozeUnexpired, wakeSnoozedWorkspacePatch } from './workspaceSnooze'
-import { workspaceLastActiveAt } from './workspaceRecency'
+import { workspaceLastActiveAt, workspaceLastUserMessageAt } from './workspaceRecency'
 import type { LifecycleState } from '../../../shared/lifecycle-state'
 
 // A chat settles — moves from its folder's active list into the folder's
@@ -30,6 +31,16 @@ const PINNED_RUN_STATES: ReadonlySet<LifecycleState> = new Set(['in_progress', '
 // it are reasoning about.
 export { workspaceLastActiveAt } from './workspaceRecency'
 
+/**
+ * What the rest rule reads besides the record and the clock: the chat's pull
+ * requests (the Studio server's list for the workspace), and whether a merge
+ * settles a chat at all (Settings ▸ Settled chats).
+ */
+export type AutoSettleContext = {
+  pullRequests?: readonly BranchPullRequest[]
+  settleOnMerge?: boolean
+}
+
 /** The one answer to "is this row resting?". */
 export function isSettledWorkspace(workspace: Pick<Workspace, 'settledAt'>): boolean {
   return typeof workspace.settledAt === 'number'
@@ -41,15 +52,22 @@ export function isSettledWorkspace(workspace: Pick<Workspace, 'settledAt'>): boo
  * a working or blocked agent, the unseen finished mark — live with the
  * caller, which knows them; this reads only the record and the clock.
  *
+ * Only a row the person switched Auto-settle on for from its menu
+ * (`autoSettleEnabled`) is a candidate at all; off is the default.
+ *
  * Exempt for good, whatever the clock says: a row already resting, a row with
  * a hand decision on it (`settledOverride`), a starred row (the star is the
  * person saying "keep this in front of me"), a row born on a paired machine
  * (the Remote band has its own model), the rail-hidden hosts, and a row whose
  * module reports a run still in flight.
+ *
+ * Two ways in: three quiet days, or its pull requests landing
+ * (`pullRequestsLanded`) when Settle on merge is on.
  */
-export function shouldAutoSettleWorkspace(workspace: Workspace, now: number): boolean {
+export function shouldAutoSettleWorkspace(workspace: Workspace, now: number, context: AutoSettleContext = {}): boolean {
   if (isSettledWorkspace(workspace)) return false
   if (workspace.settledOverride != null) return false
+  if (workspace.autoSettleEnabled !== true) return false
   // A running snooze is a hand decision about this row's near future, and the
   // sweep never overrules one of those. Settling a row mid-snooze would strand
   // the person's "ask me again in an hour" behind an Un-settle they never asked
@@ -58,10 +76,36 @@ export function shouldAutoSettleWorkspace(workspace: Workspace, now: number): bo
   if (isSnoozeUnexpired(workspace, now)) return false
   if (isStarred(workspace.highlight)) return false
   if (workspace.remoteOrigin) return false
-  if (now - workspaceLastActiveAt(workspace) < WORKSPACE_AUTO_SETTLE_AFTER_MS) return false
   const glyph = deriveWorkspaceRunGlyph(workspace)
   if (glyph && PINNED_RUN_STATES.has(glyph.state)) return false
-  return true
+  if (now - workspaceLastActiveAt(workspace) >= WORKSPACE_AUTO_SETTLE_AFTER_MS) return true
+  return context.settleOnMerge === true && pullRequestsLanded(workspace, context.pullRequests ?? [])
+}
+
+/**
+ * Whether a chat's work has landed: it has pull requests, none is still open,
+ * at least one merged, and the person has not written to the chat since the
+ * last of them ended. A chat whose pull requests all closed unmerged did not
+ * land; the idle rule settles it in time. A message after the merge is the
+ * person carrying on — a follow-up, a question about what landed — and the
+ * chat stays.
+ *
+ * "Written to" is the person's last input of any kind: a message, or a
+ * keystroke into one of the chat's terminals (a dev server started in its
+ * shell after the merge is carrying on too, and settling would kill it).
+ *
+ * An entry with no end time (one read before the record kept it) cannot say
+ * whether the person wrote after it, so it holds the chat for the idle rule.
+ */
+export function pullRequestsLanded(workspace: Workspace, pullRequests: readonly BranchPullRequest[]): boolean {
+  if (pullRequests.length === 0) return false
+  let lastEnded = 0
+  for (const pr of pullRequests) {
+    if (pr.state === 'open' || typeof pr.endedAt !== 'number') return false
+    lastEnded = Math.max(lastEnded, pr.endedAt)
+  }
+  if (!pullRequests.some((pr) => pr.state === 'merged')) return false
+  return lastEnded >= Math.max(workspaceLastUserMessageAt(workspace), workspace.lastTerminalActivityAt ?? 0)
 }
 
 /**
@@ -94,6 +138,7 @@ export function decideWorkspaceSettlement(input: {
   active: boolean
   busy: boolean
   held: boolean
+  context?: AutoSettleContext
 }): SettlementDecision {
   const { workspace, now, active, busy, held } = input
   if (isSettledWorkspace(workspace)) {
@@ -101,7 +146,7 @@ export function decideWorkspaceSettlement(input: {
     return held && workspace.settledOverride == null ? 'wake' : 'none'
   }
   if (active || busy || held) return 'none'
-  return shouldAutoSettleWorkspace(workspace, now) ? 'settle' : 'none'
+  return shouldAutoSettleWorkspace(workspace, now, input.context) ? 'settle' : 'none'
 }
 
 /**

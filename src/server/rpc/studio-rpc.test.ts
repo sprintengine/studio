@@ -99,11 +99,15 @@ test('no credential, a wrong one, or a late or missing hello never reaches a req
 
   const skipped = await client(path)
   for (const frame of mutations) skipped.send(frame)
-  assert.equal(((await skipped.next(isT('bye'))) as { code: string }).code, 'hello_required')
+  const notHello = (await skipped.next(isT('bye'))) as { code: string; retryAfterMs?: number }
+  assert.equal(notHello.code, 'hello_required')
+  assert.equal(notHello.retryAfterMs, undefined, 'a client that says something else is not asked back')
   await skipped.closed
 
   const silent = await client(path)
-  assert.equal(((await silent.next(isT('bye'))) as { code: string }).code, 'hello_required')
+  const late = (await silent.next(isT('bye'))) as { code: string; retryAfterMs?: number }
+  assert.equal(late.code, 'hello_required')
+  assert.ok((late.retryAfterMs ?? 0) > 0, 'a hello that is only late may be tried again')
   await silent.closed
   // A hello after the deadline, with mutations behind it, reaches nothing either.
   for (const frame of [hello({ token: OWNER_TOKEN }), ...mutations]) silent.send(frame)
@@ -463,6 +467,14 @@ test('a refusal from below is answered in stable words, never the runtime’s ow
   assert.equal(!created.ok && created.error.message, 'There is no workspace with that id here.')
   const otherId = !created.ok && created.error.errorId
   assert.ok(otherId && otherId !== errorId, 'each refusal has an id of its own')
+})
+
+test('a send turned away behind another is answered busy with its delay, so the client retries it', async () => {
+  const { path, auth } = await serve()
+  const c = await open(path, pairFakeClient(auth, 'app', ['conversation:operate']))
+  const sent = await request(c, 's1', 'conversation.send', { key, commandId: 'later', message: 'behind another' })
+  assert.equal(!sent.ok && sent.error.code, 'busy')
+  assert.equal(!sent.ok && sent.error.retryAfterMs, 400)
 })
 
 test('a command id reused for a different command is refused; the same command again is answered from its receipt', async () => {

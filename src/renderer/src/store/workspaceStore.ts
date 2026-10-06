@@ -32,6 +32,7 @@ import type { AppTheme, ChatWidth, WindowMaterial } from '../types/appTheme'
 import { noteLaunchedAgentArrived, type LaunchedAgentProjection } from '../utils/launchedAgentProjection'
 import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
 import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
+import type { BranchPullRequest } from '../../../shared/git/pull-request'
 import type { CommandId } from '../commands/commandRegistry'
 import type { ExtensionsDrawerView } from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { createAuthSlice } from './slices/authSlice'
@@ -227,6 +228,13 @@ export interface WorkspaceStore
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
   /**
+   * Mark a chat's worktree as given back by the agent worktree cleanup (a
+   * stamp), or as on disk again (`null`). See `WorkspaceWorktree.reclaimedAt`.
+   */
+  setWorkspaceWorktreeReclaimed: (id: WorkspaceId, reclaimedAt: number | null) => void
+  /** Take a chat out of auto-settling (idle and merge alike), or put it back. */
+  setWorkspaceAutoSettle: (id: WorkspaceId, enabled: boolean) => void
+  /**
    * Put a chat to sleep until `wakeAt`, or wake it now with `null`. The RECORD
    * only: suspending the chat's terminals is the sidebar's half of the gesture
    * (`snoozeWorkspaceById`). See `utils/workspaceSnooze.ts`.
@@ -237,6 +245,7 @@ export interface WorkspaceStore
     now: number
     busyIds: ReadonlySet<WorkspaceId>
     heldIds: ReadonlySet<WorkspaceId>
+    pullRequestsByWorkspaceId?: Readonly<Record<string, readonly BranchPullRequest[]>>
   }) => WorkspaceId[]
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   recordWorkspaceUserMessage: (id: WorkspaceId, at: number) => void
@@ -293,6 +302,7 @@ export interface WorkspaceStore
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void
+  setSettleOnPullRequestMerge: (enabled: boolean) => void
   /** Keep the app (and its running agents) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
   setTelemetryEnabled: (enabled: boolean) => void
@@ -327,6 +337,8 @@ export interface WorkspaceStore
       worktree?: WorkspaceWorktree | null
       templateAgentCli?: AgentCli | null
       seedAgent?: SoloChatSeed | null
+      // A dragged-out agent tab: keep its id, and move its record in from here.
+      moveLayoutAgentsFrom?: WorkspaceId
       mode?: Workspace['mode']
       // Executor-triggered creation: skip the door-surface clear.
       background?: boolean
@@ -385,7 +397,7 @@ export interface WorkspaceStore
   remapOpenFiles: (workspaceId: WorkspaceId, fromPath: string, toPath: string) => void
   removeOpenFilesForPath: (workspaceId: WorkspaceId, path: string) => void
 
-  moveAgentToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, agentId: AgentId) => void
+  moveAgentToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, agentId: AgentId) => boolean
   moveOpenFileToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, path: string) => void
 }
 
@@ -443,8 +455,28 @@ function getPersistedWorkspaceCount(raw: string | null): number {
 const BACKUP_WRITE_DEBOUNCE_MS = 1000
 let backupWriteTimer: ReturnType<typeof setTimeout> | null = null
 
+// A pane pop-out window (`?aux=pane`) writes neither the settings key nor the
+// backup. It mounts the pane's own tab bodies, so any setter they reach runs
+// in it, and its store holds the settings as they were when it opened: a
+// write from it would put that snapshot back over everything the workspace
+// window has changed since (the hazard auxWindows/auxSettingsWrite.ts exists
+// for). Its workspace list moves on every registry broadcast and every pane
+// state its owner pushes, and each of those would otherwise ask for a backup
+// carrying the same stale settings. The settings its bodies do change go to
+// the owner, which writes them (panePopOutRedirect.ts).
+const PERSISTS_NOTHING = readAuxWindowKind() === 'pane'
+
+function readAuxWindowKind(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return new URL(window.location.href).searchParams.get('aux')
+  } catch {
+    return null
+  }
+}
+
 function scheduleBackupWrite(): void {
-  if (typeof window === 'undefined') return
+  if (typeof window === 'undefined' || PERSISTS_NOTHING) return
   const api = window.api
   if (!api || typeof api.workspaceBackupWrite !== 'function') return
 
@@ -830,6 +862,9 @@ let pendingSettingsWrite: { state: PersistedWorkspaceSlice; version: number } | 
 // The last slice setItem saw, for the reference comparison. Null until the
 // first write after hydration, which is therefore always examined in full.
 let lastPersistedSlice: PersistedWorkspaceSlice | null = null
+// Set while `adoptStoredSettings` applies settings another window saved: they
+// are already on disk, so the write the store would make of them is skipped.
+let adoptingStoredSettings = false
 
 /**
  * Write the pending settings change now, if there is one. Runs on the coalesce
@@ -976,9 +1011,19 @@ const workspaceStateStorage: PersistStorage<PersistedWorkspaceSlice> = {
   // state on the way back up.
   setItem: (_name: string, value: StorageValue<PersistedWorkspaceSlice>): void => {
     if (typeof window === 'undefined') return
+    if (PERSISTS_NOTHING) return
     const next = value.state
     const previous = lastPersistedSlice
     lastPersistedSlice = next
+    if (adoptingStoredSettings) {
+      // What is on disk now is what was just adopted. A write this window had
+      // waiting carries its older copy, and would put it back over the newer.
+      if (settingsWriteTimer !== null) clearTimeout(settingsWriteTimer)
+      settingsWriteTimer = null
+      pendingSettingsWrite = null
+      lastWrittenSettingsSerialized = JSON.stringify(extractSettingsFields(next as unknown as Record<string, unknown>))
+      return
+    }
 
     // A changed workspace list asks main for a fresh backup. Only a non-empty
     // one: the intentional empty case is honored locally but never promoted
@@ -1862,3 +1907,22 @@ export type { HydrationDiagnostic, PersistedStateClassification }
 
 export const __workspaceStoreBackupRecoveryPromise: Promise<void> = attemptBackupRecovery()
 export const __workspaceStoreRunBackupRecoveryForTests = attemptBackupRecovery
+
+/**
+ * Take settings another window has just saved, without writing them back.
+ *
+ * An auxiliary window (a diff, the editor, a popped-out pane) hydrates its
+ * settings once, when it opens. When a workspace window saves a change — a
+ * theme, a window material — the aux window adopts it through here. Writing
+ * the result back would be at best a copy of what is already saved and at
+ * worst, should the workspace window save again meanwhile, an older copy over
+ * the newer one, so the write it would cause is skipped.
+ */
+export function adoptStoredSettings(settings: Partial<WorkspaceStore>): void {
+  adoptingStoredSettings = true
+  try {
+    useWorkspaceStore.setState(settings)
+  } finally {
+    adoptingStoredSettings = false
+  }
+}

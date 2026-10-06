@@ -1,4 +1,5 @@
 import type { IJsonModel } from 'flexlayout-react'
+import { current, isDraft } from 'immer'
 import { nanoid } from 'nanoid'
 import { moveEditorBuffer } from '../../utils/editorBuffers'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
@@ -10,8 +11,10 @@ import {
 } from '../../utils/workspaceSettle'
 import { hasSnooze, snoozeWorkspacePatch, wakeSnoozedWorkspacePatch } from '../../utils/workspaceSnooze'
 import type { WorkspaceFieldsPatch } from '../../../../shared/workspace-sync'
+import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { isRetiredWorkspaceMode } from '../../../../shared/workspace-mode'
 import { hostIdToRecord } from '../../../../shared/execution-host'
+import { instantiateTemplateAgentIds } from '../../../../shared/agent-ids'
 import { workspaceProjectRoot, workspaceProjectRootOf } from '../../utils/workspaceWorktree'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { normalizeRecentWorkspaceFolders } from './settingsSlice'
@@ -268,6 +271,12 @@ interface WorkspacesSliceActions {
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
   /**
+   * Mark a chat's worktree as given back by the agent worktree cleanup (a
+   * stamp), or as on disk again (`null`). See `WorkspaceWorktree.reclaimedAt`.
+   */
+  setWorkspaceWorktreeReclaimed: (id: WorkspaceId, reclaimedAt: number | null) => void
+  setWorkspaceAutoSettle: (id: WorkspaceId, enabled: boolean) => void
+  /**
    * Put a chat to sleep until `wakeAt`, or wake it now with `null`. The RECORD
    * only: suspending the chat's terminals is the sidebar's half of the gesture
    * (`snoozeWorkspaceById`). See `utils/workspaceSnooze.ts`.
@@ -278,6 +287,8 @@ interface WorkspacesSliceActions {
     now: number
     busyIds: ReadonlySet<WorkspaceId>
     heldIds: ReadonlySet<WorkspaceId>
+    /** Each chat's pull requests, for Settle on merge; absent while not yet read. */
+    pullRequestsByWorkspaceId?: Readonly<Record<string, readonly BranchPullRequest[]>>
   }) => WorkspaceId[]
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   recordWorkspaceUserMessage: (id: WorkspaceId, at: number) => void
@@ -311,6 +322,12 @@ interface WorkspacesSliceActions {
       // record, `tabName` renames the lone layout tab, and `terminal` swaps that
       // tab for a terminal tab (and seeds no agent record).
       seedAgent?: SoloChatSeed | null
+      // The layout's agent tabs name agents of this workspace that are moving
+      // in (a tab dragged out of another chat): their ids are kept, and each
+      // one's own record leaves that workspace and arrives in this one's create,
+      // so main never holds the new chat's tab without the agent behind it.
+      // Otherwise every template agent takes a fresh id and a fresh record.
+      moveLayoutAgentsFrom?: WorkspaceId
     },
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
@@ -355,7 +372,12 @@ interface WorkspacesSliceActions {
    */
   setWorkspaceModuleState: (workspaceId: WorkspaceId, moduleId: string, state: unknown) => boolean
   importWorkspace: (ws: Workspace) => void
-  moveAgentToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, agentId: AgentId) => void
+  /**
+   * Move an agent record to another workspace, keeping its id. False, and
+   * nothing moved, when the destination already has an agent of that id; see
+   * the action for why it refuses rather than renaming.
+   */
+  moveAgentToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, agentId: AgentId) => boolean
   /** Delete an agent record from a workspace entirely (not just close its tab).
    *  Caller is responsible for killing the agent's terminal and removing its
    *  layout tab first. Idempotent: a missing workspace/agent is a no-op. */
@@ -562,7 +584,7 @@ export function applySoloChatSeed(layout: IJsonModel, seed: SoloChatSeed): IJson
   return next
 }
 
-function collectTemplateAgentTabs(template: LayoutTemplate): Array<{ id: AgentId; name?: string }> {
+function collectTemplateAgentTabs(layout: IJsonModel): Array<{ id: AgentId; name?: string }> {
   const seen = new Set<string>()
   const agents: Array<{ id: AgentId; name?: string }> = []
 
@@ -583,8 +605,8 @@ function collectTemplateAgentTabs(template: LayoutTemplate): Array<{ id: AgentId
     node.children?.forEach(collect)
   }
 
-  collect(template.layout.layout as LayoutAgentTabNode)
-  template.layout.borders?.forEach((border) => collect(border as LayoutAgentTabNode))
+  collect(layout.layout as LayoutAgentTabNode)
+  layout.borders?.forEach((border) => collect(border as LayoutAgentTabNode))
 
   return agents
 }
@@ -592,10 +614,10 @@ function collectTemplateAgentTabs(template: LayoutTemplate): Array<{ id: AgentId
 export function createWorkspacesSlice(
   set: WorkspacesSliceSet,
   deps: WorkspacesSliceDependencies,
-  // The current state, for the one action that has to DECIDE before it
-  // writes: a `set` whose draft goes untouched still notifies every
-  // subscriber through this store's middleware, and the rest sweep runs on a
-  // 30 s tick in every window.
+  // The current state, for the actions that have to DECIDE before they
+  // write: a `set` whose draft goes untouched still notifies every
+  // subscriber through this store's middleware, the rest sweep runs on a
+  // 30 s tick in every window, and a refused agent move tells its caller so.
   getState: () => WorkspacesSliceCarrier,
 ): WorkspacesSlice {
   return {
@@ -953,6 +975,37 @@ export function createWorkspacesSlice(
       if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
     },
 
+    // Not a hand gesture: the primary window's cleanup sweep stamps it when it
+    // gives a settled chat's worktree back, and whichever window brings the
+    // worktree back clears it. Either is the only window that knows, so it
+    // reports whatever window routes the row.
+    setWorkspaceWorktreeReclaimed: (id, reclaimedAt) => {
+      let patch: WorkspaceFieldsPatch | null = null
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws?.worktree || (ws.worktree.reclaimedAt ?? null) === reclaimedAt) return
+        const { reclaimedAt: _previous, ...rest } = ws.worktree
+        const worktree = reclaimedAt === null ? rest : { ...rest, reclaimedAt }
+        ws.worktree = worktree
+        patch = { worktree }
+      })
+      if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
+    },
+
+    // The row menu's Auto-settle switch. Settles and wakes nothing by itself:
+    // the sweep reads it on its next tick.
+    setWorkspaceAutoSettle: (id, enabled) => {
+      const patch: WorkspaceFieldsPatch = { autoSettleEnabled: enabled ? true : null }
+      let changed = false
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws || (ws.autoSettleEnabled === true) === enabled) return
+        Object.assign(ws, patch)
+        changed = true
+      })
+      if (changed) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
+    },
+
     // Sleep by hand (snooze, 2026-09-10): the row leaves the active list for
     // its folder's Snoozed shelf until `wakeAt`, and `null` brings it back now.
     //
@@ -980,7 +1033,7 @@ export function createWorkspacesSlice(
     },
 
     // The rest sweep (settled-chats, 2026-09-07), run by the sidebar on mount
-    // and on its 30 s tick: a quiet row settles after three idle days, a
+    // and on its 30 s tick: a quiet row with Auto-settle on settles after three idle days, a
     // resting row that is working again wakes. The sidebar passes what only
     // it knows — `busyIds`, the rows whose agent is working, and `heldIds`,
     // the rows that want the person (blocked on a prompt, or wearing the
@@ -994,7 +1047,7 @@ export function createWorkspacesSlice(
     // next snapshot reset it. The routed window decides, applies and
     // reports; the others learn from main's broadcast. The rule itself is
     // `decideWorkspaceSettlement`.
-    reconcileWorkspaceSettlement: ({ now, busyIds, heldIds }) => {
+    reconcileWorkspaceSettlement: ({ now, busyIds, heldIds, pullRequestsByWorkspaceId }) => {
       // Decide against the current state and write only when a row moves,
       // so a tick on which nothing changes touches no subscriber.
       const current = getState()
@@ -1016,6 +1069,10 @@ export function createWorkspacesSlice(
           active: activeIds.has(ws.id),
           busy: busyIds.has(ws.id),
           held: heldIds.has(ws.id),
+          context: {
+            pullRequests: pullRequestsByWorkspaceId?.[ws.id],
+            settleOnMerge: current.appSettings.settleOnPullRequestMerge,
+          },
         })
         if (decision === 'none') continue
         const patch = decision === 'settle' ? settleWorkspacePatch(ws, now, null) : wakeWorkspacePatch(null)
@@ -1172,6 +1229,9 @@ export function createWorkspacesSlice(
       // the rollback. Fire-and-forget after the synchronous set().
       let createdEventPayload: { workspace: Workspace; windowId: WorkspaceWindowId; folderPath: string | null } | null =
         null
+      // The agents that moved in from `moveLayoutAgentsFrom`, removed from that
+      // workspace in main once the create that carries them has been sent.
+      const movedInAgentIds: AgentId[] = []
 
       set((state) => {
         const folderPath = options?.folderPath ?? null
@@ -1191,8 +1251,29 @@ export function createWorkspacesSlice(
         // numbers globally, so comparing the two strings locked every new chat
         // at birth and the first prompt never named anything.
         const titleLocked = !isDefaultWorkspaceName(workspaceName, template.name)
+        // The template's agent ids (`agent-1`, `agent-2`) are placeholders every
+        // workspace made from it would share; this one's agents take ids of
+        // their own, and the layout's tabs follow them.
+        const moveFrom = options?.moveLayoutAgentsFrom
+          ? state.workspaces.find((candidate) => candidate.id === options.moveLayoutAgentsFrom)
+          : undefined
+        const templateLayout = options?.moveLayoutAgentsFrom
+          ? template.layout
+          : instantiateTemplateAgentIds(template.layout).layout
         const agents: Workspace['agents'] = {}
-        if (options?.seedAgent?.terminal || options?.seedAgent?.meshConversation) {
+        if (options?.moveLayoutAgentsFrom) {
+          // Each record moves within this one write, so no reader ever sees the
+          // agent in both chats or in neither.
+          for (const { id: agentId } of collectTemplateAgentTabs(templateLayout)) {
+            const record = moveFrom?.agents[agentId]
+            if (!moveFrom || !record) continue
+            // A plain copy: the record also rides the create command, which must
+            // not carry a draft that is revoked when this write ends.
+            agents[agentId] = isDraft(record) ? current(record) : record
+            delete moveFrom.agents[agentId]
+            movedInAgentIds.push(agentId)
+          }
+        } else if (options?.seedAgent?.terminal || options?.seedAgent?.meshConversation) {
           // Terminal and remote seeds: the lone agent tab is swapped for a
           // terminal / remote-pane tab in the layout below, so no local agent
           // record is created for it — a remote chat's agent lives on the
@@ -1203,7 +1284,7 @@ export function createWorkspacesSlice(
               ? options.templateAgentCli.trim()
               : state.appSettings.lastSelectedCli
           const agentPatch = options?.seedAgent?.agentPatch
-          collectTemplateAgentTabs(template).forEach((agent, index) => {
+          collectTemplateAgentTabs(templateLayout).forEach((agent, index) => {
             // A generic template tab label ("Agent", "Agent 2", "A1") is a slot
             // placeholder, never an identity — every agent gets a real picked
             // name (the layout tab renames itself to agent.name on render). A
@@ -1224,7 +1305,7 @@ export function createWorkspacesSlice(
         // user-saved template predating the nav-switch model never seeds a
         // redundant tab strip on Files / Git / Knowledge Graph. When a seed
         // renames the lone tab or swaps it for a terminal, apply that transform.
-        const baseStandardLayout = deps.hideNavRailTabStrip(template.layout) ?? template.layout
+        const baseStandardLayout = deps.hideNavRailTabStrip(templateLayout) ?? templateLayout
         const standardLayout =
           options?.seedAgent &&
           (options.seedAgent.tabName || options.seedAgent.terminal || options.seedAgent.meshConversation)
@@ -1299,6 +1380,11 @@ export function createWorkspacesSlice(
       if (createdEventPayload) {
         const { workspace, windowId, folderPath } = createdEventPayload
         void workspaceSyncClient.dispatchCreateWorkspace(workspace, windowId, folderPath)
+        // Sent after the create, so main holds the agent in one chat or the
+        // other throughout, never in neither.
+        for (const agentId of movedInAgentIds) {
+          void workspaceSyncClient.dispatchUpdateWorkspaceAgent(options!.moveLayoutAgentsFrom!, agentId, null)
+        }
       }
       return id
     },
@@ -1593,16 +1679,37 @@ export function createWorkspacesSlice(
       }),
 
     moveAgentToWorkspace: (sourceWorkspaceId, destWorkspaceId, agentId) => {
-      if (sourceWorkspaceId === destWorkspaceId) return
+      if (sourceWorkspaceId === destWorkspaceId) return false
+      // Decided before the write. An agent of the same id already in the
+      // destination is a different agent (template-built chats all began with
+      // an `agent-1`), and writing over it would lose its record while its
+      // transcript and process live on with nothing pointing at them. Renaming
+      // the arriving agent is no safer: its running process, transcript and
+      // checkpoints are all filed under the id it has. So the move is refused
+      // and both agents stay as they are.
+      const workspaces = getState().workspaces
+      const source = workspaces.find((w) => w.id === sourceWorkspaceId)
+      const dest = workspaces.find((w) => w.id === destWorkspaceId)
+      if (!source?.agents[agentId] || !dest || dest.agents[agentId]) return false
+      let moved: AgentState | undefined
       set((state) => {
-        const source = state.workspaces.find((w) => w.id === sourceWorkspaceId)
-        const dest = state.workspaces.find((w) => w.id === destWorkspaceId)
-        if (!source || !dest) return
-        const agent = source.agents[agentId]
-        if (!agent) return
-        dest.agents[agentId] = agent
-        delete source.agents[agentId]
+        const sourceDraft = state.workspaces.find((w) => w.id === sourceWorkspaceId)
+        const destDraft = state.workspaces.find((w) => w.id === destWorkspaceId)
+        const agent = sourceDraft?.agents[agentId]
+        if (!sourceDraft || !destDraft || !agent || destDraft.agents[agentId]) return
+        destDraft.agents[agentId] = agent
+        delete sourceDraft.agents[agentId]
+        moved = { ...(isDraft(agent) ? current(agent) : agent) }
       })
+      if (!moved) return false
+      // Main owns the registry: without these the move lived only in this
+      // window, and main, every other window and the next start all kept the
+      // agent in the chat it left. The whole record goes to the destination
+      // first, as a new agent's seed does, and only then leaves the source, so
+      // main never holds the agent in neither chat.
+      void workspaceSyncClient.dispatchUpdateWorkspaceAgent(destWorkspaceId, agentId, moved)
+      void workspaceSyncClient.dispatchUpdateWorkspaceAgent(sourceWorkspaceId, agentId, null)
+      return true
     },
 
     removeAgent: (workspaceId, agentId) => {

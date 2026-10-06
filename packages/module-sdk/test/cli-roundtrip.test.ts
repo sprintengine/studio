@@ -43,10 +43,11 @@ test('cli-roundtrip', async () => {
 
   type CliRun = { status: number | null; stdout: string; stderr: string }
 
-  function runCli(args: string[], cwd: string = workDir): CliRun {
+  function runCli(args: string[], cwd: string = workDir, env?: NodeJS.ProcessEnv): CliRun {
     const { status, stdout, stderr } = spawnSync(process.execPath, [cliBundle, ...args], {
       cwd,
       encoding: 'utf8',
+      ...(env ? { env } : {}),
     })
     return { status, stdout, stderr }
   }
@@ -94,6 +95,17 @@ test('cli-roundtrip', async () => {
     const second = runCli(['keygen', '--out', keyPath])
     assert.equal(second.status, 1)
     assert.match(second.stderr, /--force/)
+    // A leading ~ is the home folder, expanded by the CLI rather than a shell:
+    // the templates' keygen script runs in cmd.exe on Windows.
+    const home = join(workDir, 'home')
+    const homed = runCli(['keygen', '--out', '~/.sprintengine/keys/demo.key'], workDir, {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+    })
+    assert.equal(homed.status, 0, homed.stderr)
+    assert.ok(existsSync(join(home, '.sprintengine', 'keys', 'demo.key')))
+    assert.equal(existsSync(join(workDir, '~')), false)
   }
 
   // AC: a module signed with the CLI verifies as 'signed' in the app's real

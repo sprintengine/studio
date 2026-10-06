@@ -133,6 +133,9 @@ test('the app page without a session goes to pairing', async () => {
   const answer = await ask('/')
   expect(answer.status).toBe(302)
   expect(answer.headers.location).toBe('./pair')
+  // From a nested route, back to the root first, never to an app route of its own.
+  expect((await ask('/a/b')).headers.location).toBe('../pair')
+  expect((await ask('/pair/')).headers.location).toBe('../pair')
 })
 
 test('a rebinding Host is refused before anything is read', async () => {
@@ -208,6 +211,14 @@ test('a cookie alone with no Origin does not upgrade', async () => {
   const { status, socket } = await upgrade('/ws', { Cookie: cookie })
   socket.destroy()
   expect(status).toBe(403)
+})
+
+test('a ticket in the address does not stand in for an Origin where a cookie admits the socket', async () => {
+  const { cookie } = await pair()
+  const { status, socket } = await upgrade('/ws/ipc?ticket=anything', { Cookie: cookie })
+  socket.destroy()
+  expect(status).toBe(403)
+  expect(tunnelled).toHaveLength(0)
 })
 
 test('a same-origin upgrade with the session is served as that session', async () => {

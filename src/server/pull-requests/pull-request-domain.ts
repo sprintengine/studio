@@ -293,6 +293,7 @@ function toWire(entry: BranchPullRequest): StudioPullRequest {
     isDraft: entry.isDraft,
     openedAt: entry.openedAt,
     stateAt: entry.stateAt,
+    ...(typeof entry.endedAt === 'number' ? { endedAt: entry.endedAt } : {}),
     ...(entry.forge ? { forge: entry.forge } : {}),
     ...(entry.onSessionBranch ? { onConversationBranch: true as const } : {}),
   }

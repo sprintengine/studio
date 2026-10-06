@@ -8,7 +8,9 @@
 // edge behind the composer's top, so it reads as something that slid out from
 // under the field rather than a card parked above it. It collapses away when
 // no row has anything to say: every row renders nothing when idle, and an
-// empty tray is not drawn.
+// empty tray is not drawn. Its top corners are `radius.composer-companion`, so
+// the tray reads as part of the composer's set rather than a ramp card above a
+// 22px box; its bottom corners are hidden under the composer.
 
 import type React from 'react'
 import { CloseIconButton, LifecycleGlyph } from '../../ui'
@@ -20,7 +22,7 @@ export function ComposerTray({ children }: { children: React.ReactNode }) {
   return (
     <div
       data-composer-tray=""
-      className="composer-tray relative mx-3 -mb-2.5 overflow-hidden rounded-t-lg border border-b-0 border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pb-2.5 empty:hidden [&>*+*]:border-t [&>*+*]:border-[color:var(--border-subtle)]"
+      className="composer-tray relative mx-3 -mb-2.5 overflow-hidden rounded-t-[var(--sem-radius-composer-companion)] border border-b-0 border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pb-2.5 empty:hidden [&>*+*]:border-t [&>*+*]:border-[color:var(--border-subtle)]"
     >
       {children}
     </div>

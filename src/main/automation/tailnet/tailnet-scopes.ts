@@ -37,6 +37,7 @@ const TERMINAL_LAUNCH_TOOLS: ReadonlySet<string> = new Set(['terminal.create', '
  *
  * The `pull_request.*` family records a pull request as the calling agent's
  * conversation's, and a paired device has no conversation to record it under.
+ * The `local_server.*` family is the same, for a server the agent started.
  */
 export function localOnlyGatewayToolReason(toolName: string): string | null {
   if (toolName.startsWith('tailnet.')) {
@@ -47,6 +48,12 @@ export function localOnlyGatewayToolReason(toolName: string): string | null {
   }
   if (toolName.startsWith('pull_request.')) {
     return `"${toolName}" records a pull request as the calling agent's conversation's, and a paired device is not an agent. Run it from an agent on that machine.`
+  }
+  if (toolName.startsWith('local_server.')) {
+    return `"${toolName}" records a local server as the calling agent's conversation's, and a paired device is not an agent. Run it from an agent on that machine.`
+  }
+  if (toolName.startsWith('worktree.')) {
+    return `"${toolName}" hands the calling agent a worktree on this machine and holds it for that agent, and a paired device is not an agent. Run it from an agent on that machine.`
   }
   if (toolName.startsWith('terminal.')) {
     return `"${toolName}" reads the terminals on this machine, and terminals are not served over the tailnet. A paired device follows this machine's chats instead; run it from an agent on that machine.`

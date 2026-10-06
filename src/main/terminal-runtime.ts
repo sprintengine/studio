@@ -691,6 +691,16 @@ function setTerminalVisible(
 ): void {
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return
+  // Only the window the session is routed to speaks for its visibility. A pane
+  // terminal can move between windows — popped out of its workspace window and
+  // docked back — and the window it left still says "hidden" for it: its
+  // panel's unmount does, and so does its own hidden-window sweep over every
+  // session of a workspace it shows. Taken at its word, that froze the window
+  // the terminal is actually in. The same rule the output acks follow
+  // (`ackTerminalOutput`). A suspended session is the exception: its recorded
+  // sender can be a dead window or a sidecar's noop sink, and the reveal below
+  // adopts whichever window is painting it.
+  if (sender && session.sender !== sender && !session.suspended && !session.sender.isDestroyed()) return
   // A pane that has just been built holds nothing, whatever the last pane in
   // its place was sent. Forget that, so the reveal below (now or later) paints
   // it in full instead of "catching up" an empty xterm by zero bytes.
@@ -702,8 +712,14 @@ function setTerminalVisible(
   // A suspended session has no live pty routing output anywhere, and its
   // recorded sender can be a dead window (or the noop sender of a placeholder
   // rehydrated from a snapshot sidecar). Adopt the revealing window so the
-  // replay below actually reaches the view being painted.
-  if (sender && session.suspended && session.sender !== sender) {
+  // replay below actually reaches the view being painted. So does a live one
+  // routed to a window that is gone — a pane terminal's pop-out window that
+  // closed while its output went there: left routed, the window that does
+  // show it stays blank. Adopted, that window is sent the screen in full
+  // (nothing says what it holds), whether or not this is a hidden→visible
+  // edge.
+  const adopted = Boolean(sender && session.sender !== sender && (session.suspended || session.sender.isDestroyed()))
+  if (adopted && sender) {
     session.sender = sender
   }
   // While a terminal is hidden the agent keeps running and we keep appending to
@@ -726,7 +742,8 @@ function setTerminalVisible(
   // reveal of a pane that does have it sends nothing — the frozen screen can be
   // a couple of megabytes, and a workspace switch should not repaint it.
   const shouldReplay =
-    becameVisible || (visible && (freshPane || (session.suspended === true && !rendererHoldsSessionOutput(session))))
+    becameVisible ||
+    (visible && (freshPane || adopted || (session.suspended === true && !rendererHoldsSessionOutput(session))))
   if (becameVisible) {
     // Drop any batch buffered-but-not-forwarded while hidden: it is already in
     // the retained replay we are about to send, so forwarding it after the
@@ -2006,6 +2023,8 @@ function resolveSessionForAgentStateFrame(frame: AgentStateFrame): TerminalSessi
       executionId: session.agentSession?.executionId,
       sessionId: session.sessionId,
       workspaceId: session.workspaceId,
+      launchWorkspaceId: session.launchWorkspaceId,
+      alive: isTerminalProcessAlive(session),
       startedAt: session.startedAt,
     }))
   return selectAgentStateTarget(candidates, frame)
@@ -2588,6 +2607,9 @@ function notifyAgentPhaseListeners(
 
   const phaseEvent: AgentPhaseEvent = {
     workspaceId: session.workspaceId ?? null,
+    ...(session.launchWorkspaceId && session.launchWorkspaceId !== session.workspaceId
+      ? { launchWorkspaceId: session.launchWorkspaceId }
+      : {}),
     // A session carrying no agentId of its own was matched on the id the frame
     // carries, so that id is still its correlation handle.
     agentId: session.agentId ?? frame.agentId,
@@ -3392,6 +3414,7 @@ async function spawnTerminalFromIpc(
       pathStyle,
       hostId: host.id,
       workspaceId,
+      launchWorkspaceId: workspaceId,
       agentId,
       agentName,
       terminalId,

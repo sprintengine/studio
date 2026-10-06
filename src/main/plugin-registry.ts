@@ -18,7 +18,7 @@ import type {
 
 import { classifySignedManifestTrust, type ModuleTrustContext } from './modules/module-signature'
 import { validateManifestStructure } from './plugin-manifest-validate'
-import { declaredPermissionModes, declaredPermissionPresets } from './plugin-render'
+import { declaredPermissionModes, declaredPermissionPresets, pluginHostedVia } from './plugin-render'
 
 export type PluginRegistryOptions = {
   bundledRoot: string
@@ -522,16 +522,7 @@ function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEntry {
   const reasoningSelection = plugin.manifest.reasoningSelection
   const skillIntegration = plugin.manifest.skillIntegration
   const auth = plugin.manifest.auth
-  // Derived, never declared: a runtime that is the claude binary redirected at
-  // an alternate provider endpoint (zai, kimi-claude) is a hosted model, and
-  // pickers group it under "Models via Claude Code". claude-code itself is the
-  // host, not hosted.
-  const hostedVia =
-    plugin.manifest.binary === 'claude' &&
-    plugin.manifest.id !== 'claude-code' &&
-    typeof plugin.manifest.launch.env?.ANTHROPIC_BASE_URL === 'string'
-      ? ('claude-code' as const)
-      : undefined
+  const hostedVia = pluginHostedVia(plugin.manifest)
   return {
     id: plugin.manifest.id,
     displayName: plugin.manifest.displayName,

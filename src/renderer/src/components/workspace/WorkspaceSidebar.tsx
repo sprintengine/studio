@@ -10,19 +10,23 @@ import {
   conversationLineMark,
   conversationLineText,
   conversationsWithTabs,
+  workspaceIsWorking,
 } from './sidebar/conversationLines'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { groupConversationSessionsByWorkspace } from '../../hooks/conversationSessionsStore'
 import { summariesEqual, useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf } from './terminalLines'
-import { suspendWorkspaceTerminals, terminateWorkspaceTerminals } from './workspaceTerminalTermination'
+import { suspendWorkspaceTerminals, terminateSettledWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
 import { hostPlatform } from '../../clientCapabilities'
 import { openPullRequestCount, ProjectPullRequestMark, PullRequestMark } from './PullRequestMark'
+import { LocalServersRowMark } from './LocalServerMarks'
+import { useWorkspaceLocalServers, type WorkspaceLocalServers } from './useLocalServers'
 import {
   pullRequestsForRow,
   useConversationPullRequests,
+  usePullRequestsByConversation,
   type ConversationPullRequests,
 } from './useConversationPullRequests'
 import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
@@ -279,6 +283,11 @@ function didWorkspaceDragLeaveSidebar(event: React.DragEvent, sidebar: HTMLEleme
   return clientOutside || screenOutside
 }
 
+function tabDragAgentId(payload: TabDragPayload): string | null {
+  const agentId = payload.config?.agentId
+  return typeof agentId === 'string' && agentId ? agentId : null
+}
+
 function WorkspaceSidebar({
   workspaces,
   activeWorkspaceId,
@@ -349,6 +358,7 @@ function WorkspaceSidebar({
   const reorderWorkspaces = useWorkspaceStore((s) => s.reorderWorkspaces)
   const setWorkspaceHighlight = useWorkspaceStore((s) => s.setWorkspaceHighlight)
   const setWorkspaceSettled = useWorkspaceStore((s) => s.setWorkspaceSettled)
+  const setWorkspaceAutoSettle = useWorkspaceStore((s) => s.setWorkspaceAutoSettle)
   const setWorkspaceSnoozed = useWorkspaceStore((s) => s.setWorkspaceSnoozed)
   const clearWorkspaceHighlight = useWorkspaceStore((s) => s.clearWorkspaceHighlight)
   // The person changing a project's colour from its header menu; the only
@@ -545,8 +555,13 @@ function WorkspaceSidebar({
   // Read through refs, so these keep their identity while sessions move: the
   // sweep below is keyed on `quietSettledWorkspace`, and a new one on every
   // chat refresh re-ran the sweep over every workspace for nothing.
-  const openAgentSourcesRef = useRef({ sessionsByWorkspaceId, conversationsByWorkspaceId, workspaces })
-  openAgentSourcesRef.current = { sessionsByWorkspaceId, conversationsByWorkspaceId, workspaces }
+  const openAgentSourcesRef = useRef({
+    sessionsByWorkspaceId,
+    conversationsByWorkspaceId,
+    workspaces,
+    activityByWorkspaceId,
+  })
+  openAgentSourcesRef.current = { sessionsByWorkspaceId, conversationsByWorkspaceId, workspaces, activityByWorkspaceId }
   const rowHasOpenAgents = useCallback((workspace: Workspace) => {
     const sources = openAgentSourcesRef.current
     return (
@@ -556,11 +571,25 @@ function WorkspaceSidebar({
       )
     )
   }, [])
+  const rowIsWorking = useCallback((id: WorkspaceId) => {
+    const sources = openAgentSourcesRef.current
+    return workspaceIsWorking(
+      sources.activityByWorkspaceId[id] ?? 'idle',
+      sources.conversationsByWorkspaceId.get(id) ?? NO_CONVERSATIONS,
+      sources.sessionsByWorkspaceId.get(id) ?? NO_SESSIONS,
+    )
+  }, [])
   const quietSettledWorkspace = useCallback(
     (id: WorkspaceId) => {
       const workspace = openAgentSourcesRef.current.workspaces.find((candidate) => candidate.id === id)
       if (!workspace || !rowHasOpenAgents(workspace)) return
-      void terminateWorkspaceTerminals(workspace)
+      // The record as it stands when main has answered, not the render's: a
+      // chat un-settled meanwhile keeps its agents. One gone from the record
+      // was closed, and Close kills unconditionally anyway.
+      void terminateSettledWorkspaceTerminals(workspace, () => {
+        const now = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === id)
+        return now === undefined || isSettledWorkspace(now)
+      })
     },
     [rowHasOpenAgents],
   )
@@ -576,15 +605,45 @@ function WorkspaceSidebar({
   // coming back on a clock, so the session is kept resumable and the person's
   // first keystroke relaunches the agent with `--resume`. Waking resumes
   // nothing; see `suspendWorkspaceTerminals`.
+  //
+  // Never while an agent in it is working, for Settle's reason: pausing ends
+  // the agent processes, and an agent working in the background ends with
+  // them and does not come back on the wake.
   const snoozeWorkspaceById = useCallback(
     (id: WorkspaceId, wakeAt: number) => {
+      if (rowIsWorking(id)) return
       setWorkspaceSnoozed(id, wakeAt)
       const workspace = openAgentSourcesRef.current.workspaces.find((candidate) => candidate.id === id)
       if (!workspace || !rowHasOpenAgents(workspace)) return
       void suspendWorkspaceTerminals(workspace)
     },
-    [setWorkspaceSnoozed, rowHasOpenAgents],
+    [rowIsWorking, setWorkspaceSnoozed, rowHasOpenAgents],
   )
+
+  // ─── The pull requests a chat holds after its agents are gone ──────────
+  //
+  // Owner, 2026-09-10: "he is no longer active, but it doesn't show on his card
+  // that he has an open pull request… if I'm scanning through the old chats I
+  // don't know is there a pull request open that I'm missing."
+  //
+  // A live agent's marks arrive on its terminal session and are drawn on its
+  // own line; those are the more precise answer and this never overrides them
+  // (`pullRequestsForRow`). This is for the rows that have no line left. The
+  // rest sweep below reads it too: a chat whose pull requests have landed
+  // settles (Settle on merge).
+  const allWorkspaceIds = useMemo(() => workspaces.map((workspace) => workspace.id), [workspaces])
+  const conversationPullRequests = useConversationPullRequests(allWorkspaceIds)
+  // …and each chat line's own: the pull requests that chat's agent opened,
+  // which is what its line wears, not everything its workspace holds.
+  const conversationLineKeys = useMemo(
+    () => conversationSessions.map(({ workspaceId, agentId }) => ({ workspaceId, agentId })),
+    [conversationSessions],
+  )
+  const conversationLinePullRequests = usePullRequestsByConversation(conversationLineKeys)
+  // The local servers each chat's agents started, so the list says what is
+  // running right now without opening every chat. Asked of the same ids, and
+  // pushed by the Studio when one starts or stops.
+  const workspaceLocalServers = useWorkspaceLocalServers(allWorkspaceIds)
 
   // The rest sweep (settled-chats, 2026-09-07): on the 30 s tick the idle
   // labels ride, and whenever an agent's activity flips — so a resting row
@@ -601,18 +660,36 @@ function WorkspaceSidebar({
   // Keyed on whether both lists have landed rather than on the terminal list
   // itself: a terminal's semantic change moves no row's activity that
   // `activityByWorkspaceId` does not already carry.
+  //
+  // Busy is `workspaceIsWorking`, the rule Settle by hand follows: a row whose
+  // prompt or failed turn outranks a background agent still working is busy
+  // all the same, or a merge would settle it and end that agent.
   const sessionsListed = hasTerminalSessionsSnapshot() && conversationSessionsReady
   useEffect(() => {
     if (!sessionsListed) return
     const busyIds = new Set<WorkspaceId>()
     const heldIds = new Set<WorkspaceId>(unseenDoneIds)
     for (const [id, activity] of Object.entries(activityByWorkspaceId)) {
-      if (activity === 'working') busyIds.add(id)
+      if (rowIsWorking(id)) busyIds.add(id)
       else if (activity === 'needs-input') heldIds.add(id)
     }
-    const settledNow = useWorkspaceStore.getState().reconcileWorkspaceSettlement({ now, busyIds, heldIds })
+    const settledNow = useWorkspaceStore.getState().reconcileWorkspaceSettlement({
+      now,
+      busyIds,
+      heldIds,
+      pullRequestsByWorkspaceId: conversationPullRequests,
+    })
     for (const id of settledNow) quietSettledWorkspace(id)
-  }, [now, activityByWorkspaceId, unseenDoneIds, sessionsListed, quietSettledWorkspace])
+  }, [
+    now,
+    activityByWorkspaceId,
+    conversationSessions,
+    unseenDoneIds,
+    sessionsListed,
+    rowIsWorking,
+    quietSettledWorkspace,
+    conversationPullRequests,
+  ])
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   // Which Snoozed shelves are open. Session-only and closed by default: the
@@ -677,14 +754,23 @@ function WorkspaceSidebar({
   )
 
   // Settle by hand: the record first, then the ptys — the row must move even
-  // if a kill fails, and `terminateWorkspaceTerminals` absorbs its failures.
+  // if a kill fails, and `terminateSettledWorkspaceTerminals` absorbs its
+  // failures (and spares a chat that started working before the kill landed).
   //
   // Settling the chat you are in moves you on to the next one. The row you are
   // in is never shelved (`isShelved`), so without the hand-off it sat there,
   // checked off and still open, until you clicked somewhere else.
+  //
+  // Never while an agent in it is working: settling ends
+  // the chat's agent processes, and whatever they were doing with them. The
+  // row's button and menu item say so; this is the guard for every path.
   const settleWorkspaceById = useCallback(
     (id: WorkspaceId) => {
-      const settlingActive = id === activeWorkspaceId
+      if (rowIsWorking(id)) return
+      // Only the chat on screen: with New chat or a full-page surface over it
+      // the person has already left it, and settling it from its row must not
+      // pull them out of where they are into another chat.
+      const settlingActive = id === activeWorkspaceId && !newChatOpen && !globalSurfaceActive
       const successor = settlingActive ? successorRowOf(id) : null
       setWorkspaceSettled(id, true)
       quietSettledWorkspace(id)
@@ -694,7 +780,17 @@ function WorkspaceSidebar({
       // it stayed open and checked off.
       else if (settlingActive) onNewChat()
     },
-    [activeWorkspaceId, successorRowOf, setWorkspaceSettled, quietSettledWorkspace, onSelectWorkspace, onNewChat],
+    [
+      activeWorkspaceId,
+      newChatOpen,
+      globalSurfaceActive,
+      rowIsWorking,
+      successorRowOf,
+      setWorkspaceSettled,
+      quietSettledWorkspace,
+      onSelectWorkspace,
+      onNewChat,
+    ],
   )
 
   // Drilling into a surface hides this rail (item 1993), and hiding a scrollport
@@ -1041,18 +1137,6 @@ function WorkspaceSidebar({
     for (const group of groups) map.set(group.key, group)
     return map
   }, [groups])
-
-  // ─── The pull requests a chat holds after its agents are gone ──────────
-  //
-  // Owner, 2026-09-10: "he is no longer active, but it doesn't show on his card
-  // that he has an open pull request… if I'm scanning through the old chats I
-  // don't know is there a pull request open that I'm missing."
-  //
-  // A live agent's marks arrive on its terminal session and are drawn on its
-  // own line; those are the more precise answer and this never overrides them
-  // (`pullRequestsForRow`). This is for the rows that have no line left.
-  const allWorkspaceIds = useMemo(() => workspaces.map((workspace) => workspace.id), [workspaces])
-  const conversationPullRequests = useConversationPullRequests(allWorkspaceIds)
 
   // …and the same fact summed per project, which is the second half of the ask:
   // "if those agents are suspended or dead, then they won't be showing in the
@@ -1538,7 +1622,7 @@ function WorkspaceSidebar({
     (payload: TabDragPayload, destWorkspaceId: WorkspaceId) => {
       if (payload.sourceWorkspaceId === destWorkspaceId) return
       if (payload.component === 'agent') {
-        const agentId = payload.config && typeof payload.config.agentId === 'string' ? payload.config.agentId : null
+        const agentId = tabDragAgentId(payload)
         if (agentId) {
           moveAgentToWorkspace(payload.sourceWorkspaceId, destWorkspaceId, agentId)
         }
@@ -1594,9 +1678,13 @@ function WorkspaceSidebar({
         name: payload.name || undefined,
         folderPath,
         windowId: workspaceWindowId,
+        // The tab is an agent that already exists: it moves in with the create,
+        // under its own id, rather than the new chat minting a stranger for its
+        // tab or being created in main with a tab and no agent.
+        moveLayoutAgentsFrom: payload.sourceWorkspaceId,
       })
 
-      migrateTabSideEffects(payload, newWorkspaceId)
+      if (payload.component !== 'agent') migrateTabSideEffects(payload, newWorkspaceId)
       removeTab(payload.sourceWorkspaceId, payload.tabId, { preserveRuntime: true })
     },
     [addWorkspaceFromStore, migrateTabSideEffects, workspaceWindowId],
@@ -1637,6 +1725,20 @@ function WorkspaceSidebar({
 
       // No-op if dropped on the source workspace itself.
       if (payload.sourceWorkspaceId === workspace.id) return
+      // An agent keeps its id when it moves, so one whose id the destination
+      // already has (two chats that each began with an `agent-1`) cannot go
+      // there: the move would overwrite that chat's own agent. Refused before
+      // anything changes, so the tab stays where it was.
+      const movingAgentId = payload.component === 'agent' ? tabDragAgentId(payload) : null
+      const destination = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
+      if (movingAgentId && destination?.agents[movingAgentId]) {
+        showToast({
+          tone: 'error',
+          title: 'Agent not moved',
+          description: `${workspace.name} already has an agent with the same id. Drop it on New chat to give it a chat of its own.`,
+        })
+        return
+      }
 
       const liveSpec = extractTabSpec(payload.sourceWorkspaceId, payload.tabId) ?? null
       const spec: CrossWorkspaceTabSpec = liveSpec ?? {
@@ -1825,6 +1927,8 @@ function WorkspaceSidebar({
         conversationSessions={conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS}
         gitSummaries={rowGitSummaries.get(workspace.id) ?? NO_GIT_SUMMARIES}
         rowConversationPullRequests={conversationPullRequests[workspace.id]}
+        chatLinePullRequestsByAgent={conversationLinePullRequests[workspace.id]}
+        rowLocalServers={workspaceLocalServers[workspace.id]}
         moduleOverrides={moduleOverrides}
         isRovingTarget={rovingKey === rowKey}
         anyRenaming={renamingId !== null}
@@ -2589,6 +2693,7 @@ function WorkspaceSidebar({
           moduleOverrides={moduleOverrides}
           isDetachedWindow={isDetachedWindow}
           now={now}
+          working={rowIsWorking(contextMenu.workspaceId)}
           onClose={() => setContextMenu(null)}
           onSelect={(action) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
@@ -2654,6 +2759,10 @@ function WorkspaceSidebar({
               setWorkspaceHighlight(workspace.id, {
                 starred: !isStarred(workspace.highlight),
               })
+              return
+            }
+            if (action === 'toggle-auto-settle') {
+              setWorkspaceAutoSettle(workspace.id, workspace.autoSettleEnabled !== true)
               return
             }
             if (action === 'toggle-settle') {
@@ -2947,6 +3056,9 @@ type WorkspaceRowProps = {
   /** Only this row's checkouts, so a sweep that moved another row's numbers leaves this one alone. */
   gitSummaries: RowGitSummaries
   rowConversationPullRequests: ConversationPullRequests[string] | undefined
+  /** Agent → the pull requests its conversation opened: what each chat line wears. */
+  chatLinePullRequestsByAgent: ConversationPullRequests | undefined
+  rowLocalServers: WorkspaceLocalServers[string] | undefined
   moduleOverrides: ReturnType<typeof useWorkspaceStore.getState>['appSettings']['modules']
   isRovingTarget: boolean
   anyRenaming: boolean
@@ -2979,6 +3091,8 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   conversationSessions,
   gitSummaries,
   rowConversationPullRequests,
+  chatLinePullRequestsByAgent,
+  rowLocalServers,
   moduleOverrides,
   isRovingTarget,
   anyRenaming,
@@ -3086,7 +3200,16 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   // is not finishing anything anyway. The wash is waiting for them when the
   // row wakes, which is when it is news again.
   const unseenDone = !needsAttention && !options?.snoozed && unseenDoneMark
-  const folderMissing = workspace.folderMissing === true
+  // A chat whose worktree the cleanup gave back (`worktree.reclaimedAt`) has
+  // no folder on disk, and that is expected, not broken: opening it checks the
+  // worktree out again (chatWorktreeRestore.ts). So it never wears the
+  // strike-through and the warning triangle of a folder that went missing;
+  // its branch chip, which the parked line already draws, says the rest in
+  // its tooltip. No new mark: the branch is the durable fact, and the row
+  // reads like any other parked worktree chat. A restore that fails drops the
+  // mark, and the row then reads as missing, which it is.
+  const worktreeReclaimed = workspace.worktree?.reclaimedAt !== undefined
+  const folderMissing = workspace.folderMissing === true && !worktreeReclaimed
   const starred = isStarred(workspace.highlight)
   // "Hot": at least one resident (live-PTY) agent — instant to switch into.
   // Said in words for a screen reader, and since 2026-09-09 it is also what
@@ -3178,23 +3301,29 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     hasLiveLines: rowLines.lines.length > 0,
     conversation: rowConversationPullRequests,
   })
+  // Settle waits while an agent in the chat works (`settleWorkspaceById`).
+  const settleBlocked = workspaceIsWorking(activity, conversationSessions, liveSessions)
   const tabbedConversations = useMemo(
     () => conversationsWithTabs(conversationSessions, workspace.layoutModel),
     [conversationSessions, workspace.layoutModel],
   )
   const visibleConversations = rowIsLive && !options?.snoozed ? tabbedConversations : NO_CONVERSATIONS
-  // A chat's pull request sits on its chat's line, just after the agent's
-  // mark, as a terminal line's does. The record files a chat's pull request
-  // under the row and not under one agent, so only a row with a single chat
-  // line can say whose it is; with several it keeps a line of its own.
-  const chatLinePullRequests = visibleConversations.length === 1 ? parkedPullRequests : EMPTY_PULL_REQUESTS
+  // A chat's pull requests sit on its chat's line, just after the agent's
+  // mark, as a terminal line's do: the ones THAT chat's agent opened, which
+  // the record files under its conversation. What the row holds besides
+  // (an agent that is gone, a terminal agent's) keeps a line of its own.
+  const chatLinePullRequestsOf = (agentId: string): readonly BranchPullRequest[] =>
+    chatLinePullRequestsByAgent?.[agentId] ?? EMPTY_PULL_REQUESTS
+  const onChatLines = new Set(
+    visibleConversations.flatMap((session) => chatLinePullRequestsOf(session.agentId).map((pr) => pr.url)),
+  )
+  const rowOnlyPullRequests =
+    onChatLines.size > 0 ? parkedPullRequests.filter((pr) => !onChatLines.has(pr.url)) : parkedPullRequests
   // The second line exists for either fact now. A parked chat with a pull
   // request but no worktree branch used to have no line at all, which is
   // exactly the row the owner could not read anything off. A closed one is
   // not drawn (`PullRequestMark`), so it does not hold a line open either.
-  const parkedLine =
-    parkedWorktreeBranch !== null ||
-    (chatLinePullRequests.length === 0 && parkedPullRequests.some((pr) => pr.state !== 'closed'))
+  const parkedLine = parkedWorktreeBranch !== null || rowOnlyPullRequests.some((pr) => pr.state !== 'closed')
   const metaHasSubstance = rowLines.lines.length > 0 || visibleConversations.length > 0 || parkedLine
 
   // The row's status seat: run glyph / working mark + elapsed / tone dot /
@@ -3347,13 +3476,18 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
             </IconButton>
           </Tooltip>
         ) : (
-          <Tooltip content="Settle">
+          <Tooltip content={settleBlocked ? 'Settle once its agents finish' : 'Settle'}>
+            {/* `aria-disabled`, not `disabled`: a disabled button takes no
+                hover and no focus, so the tooltip saying why it waits could
+                never open. `settleWorkspaceById` refuses a working chat too. */}
             <IconButton
               onClick={(event) => {
                 event.stopPropagation()
+                if (settleBlocked) return
                 settleWorkspaceById(workspace.id)
               }}
               tone="quiet"
+              aria-disabled={settleBlocked || undefined}
               aria-label={`Settle ${workspace.name}`}
             >
               {/* `CheckIcon`'s geometry (24-grid, M5 12.5L10 17L19 7.5)
@@ -3690,6 +3824,14 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
           titleCluster
         )}
 
+        {/* What this chat's agents have running: a dev server, a preview.
+            On the title line rather than the meta line because it is about
+            the chat as a whole and is live state, which a parked row with no
+            second line still has. Drawn only while one is up. */}
+        {rowLocalServers && !renaming ? (
+          <LocalServersRowMark workspaceId={workspace.id} servers={rowLocalServers} dim={emphasis === 'quiet'} />
+        ) : null}
+
         {folderMissing ? (
           <svg
             className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
@@ -3735,6 +3877,11 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
               worktree
               cwd={workspace.folderPath ?? null}
               dim={emphasis === 'quiet'}
+              tooltip={
+                worktreeReclaimed
+                  ? 'Worktree given back once its work was merged · checked out again from this branch when you open the chat'
+                  : undefined
+              }
             />
           ) : null}
           {/* After the branch, where a live line puts it, so the two rows
@@ -3742,9 +3889,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
               the checkout's present state and not anything this chat did
               (the-diff-an-agent-made, decision 9) — the pull request is the
               one fact that is still this conversation's. */}
-          {chatLinePullRequests.length === 0 ? (
-            <PullRequestMark pullRequests={parkedPullRequests} dim={emphasis === 'quiet'} />
-          ) : null}
+          <PullRequestMark pullRequests={rowOnlyPullRequests} dim={emphasis === 'quiet'} />
           {flatProject ? null : statusSeat}
         </div>
       ) : null}
@@ -3753,10 +3898,12 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
         // opens that agent's changelist. The agent id comes from the row's
         // sessions rather than from the line, because a line is a drawing of
         // a terminal and the diff is a fact about the agent inside it.
-        const lineAgentId =
-          line.kind === 'agent'
-            ? (peekSessions.find((session) => session.sessionId === line.key)?.agentId ?? null)
-            : null
+        const lineSession =
+          line.kind === 'agent' ? peekSessions.find((session) => session.sessionId === line.key) : undefined
+        const lineAgentId = lineSession?.agentId ?? null
+        // An agent's list is filed under the workspace its process was launched
+        // in, which for one moved here from another chat is not this one.
+        const lineListWorkspaceId = lineSession?.launchWorkspaceId ?? workspace.id
         return (
           <TerminalLineView
             key={line.key}
@@ -3774,7 +3921,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
                       diff: {
                         focusPath: null,
                         focusKind: null,
-                        changelistId: changelistOwnerId(lineAgentId),
+                        changelistId: changelistOwnerId({ workspaceId: lineListWorkspaceId, agentId: lineAgentId }),
                       },
                     })
                 : undefined
@@ -3807,7 +3954,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
                 )}
               </span>
             </Tooltip>
-            <PullRequestMark pullRequests={chatLinePullRequests} dim={emphasis === 'quiet'} />
+            <PullRequestMark pullRequests={chatLinePullRequestsOf(session.agentId)} dim={emphasis === 'quiet'} />
             <span className="min-w-0 flex-1 truncate">{conversationLineText(session)}</span>
             {index === 0 && rowLines.lines.length === 0 && !flatProject ? (
               <>

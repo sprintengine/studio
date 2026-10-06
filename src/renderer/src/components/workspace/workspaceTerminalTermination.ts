@@ -1,6 +1,7 @@
 import { paneTerminalSessionId } from './pane/paneTerminals'
 import type { Workspace } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { workspaceIsWorking } from './sidebar/conversationLines'
 
 type LayoutSessionNode = {
   component?: string
@@ -88,11 +89,61 @@ export async function terminateWorkspaceTerminals(workspace: Workspace): Promise
 }
 
 /**
+ * Settle's half of the kill: the same as `terminateWorkspaceTerminals`, unless
+ * something in the workspace is working by the time main is asked. Resolves to
+ * whether the kill went ahead.
+ *
+ * Settle refuses a working chat, but it decides on the sessions the window last
+ * heard about, and the kill lands a round trip later: a turn started in that
+ * gap — a message from the phone, a scheduled prompt — would be interrupted by
+ * a gesture made before it existed. So main's own list is read once more first,
+ * and a chat working by then is left running. Its record still says settled;
+ * the rest sweep wakes a settled chat whose agent is working on its next pass,
+ * which here is the moment that activity reaches the window.
+ *
+ * Close keeps the unconditional kill: a chat being removed must not leave a
+ * writer behind.
+ */
+export async function terminateSettledWorkspaceTerminals(
+  workspace: Workspace,
+  // Asked again once main has answered: a chat un-settled during that round
+  // trip is the person's again, and is not killed.
+  stillSettled: () => boolean = () => true,
+): Promise<boolean> {
+  if (await workspaceWorkingNow(workspace)) return false
+  if (!stillSettled()) return false
+  await terminateWorkspaceTerminals(workspace)
+  return true
+}
+
+async function workspaceWorkingNow(workspace: Workspace): Promise<boolean> {
+  try {
+    const sessionIds = new Set(workspaceTerminalSessionIds(workspace))
+    const [terminals, conversations] = await Promise.all([
+      window.api.terminalList(),
+      window.api.conversationSessionsList(),
+    ])
+    return workspaceIsWorking(
+      'idle',
+      conversations.ok ? conversations.sessions.filter((session) => session.workspaceId === workspace.id) : [],
+      terminals.filter((session) => sessionIds.has(session.sessionId) || session.workspaceId === workspace.id),
+    )
+  } catch {
+    // Main unreachable: nothing would answer the kill either, and the gesture
+    // goes on as it did.
+    return false
+  }
+}
+
+/**
  * End the child process of every chat agent the workspace holds. A chat agent
  * has no pty, so neither `terminalKill` nor `terminalSuspend` reaches it: main
  * owns the process, and its sessions are asked for rather than collected from
- * the record. A session belongs here when its agent is one of the workspace's,
- * or when it was started under the workspace's id.
+ * the record. A session belongs here when it was started under the workspace's
+ * id, and only then. An agent id is unique within a workspace, not across them
+ * — nearly every chat's first agent is `agent-1` — so matching on it settled
+ * one chat and suspended every other chat's agent with it, ending the
+ * background agents they were running.
  *
  * Suspended, not stopped, for Settle and Close alike: a stopped session refuses
  * every later turn, and a settled chat can be un-settled and typed into. The
@@ -100,16 +151,13 @@ export async function terminateWorkspaceTerminals(workspace: Workspace): Promise
  * the same conversation. A running turn is interrupted: the person put the
  * chat away. Failures are absorbed like the pty kills'.
  */
-async function suspendWorkspaceConversations(passed: Workspace): Promise<void> {
-  const workspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === passed.id) ?? passed
+async function suspendWorkspaceConversations(workspace: Workspace): Promise<void> {
   try {
     const listed = await window.api.conversationSessionsList()
     if (!listed.ok) return
-    const agentIds = new Set(Object.keys(workspace.agents ?? {}))
     await Promise.all(
       listed.sessions
-        .filter((session) => session.status !== 'stopped')
-        .filter((session) => session.workspaceId === workspace.id || agentIds.has(session.agentId))
+        .filter((session) => session.status !== 'stopped' && session.workspaceId === workspace.id)
         .map((session) => window.api.conversationSessionSuspend({ sessionId: session.sessionId }).catch(() => {})),
     )
   } catch {

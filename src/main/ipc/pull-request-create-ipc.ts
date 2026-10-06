@@ -22,6 +22,8 @@ export type PullRequestCreateIpcDeps = {
 export function registerPullRequestCreateIpc(ipcMain: IpcMain, deps: PullRequestCreateIpcDeps = {}): void {
   const creator = deps.creator ?? createPullRequestCreator()
   const generate = deps.generate ?? generatePullRequestText
+  /** Drafts in flight, by the id the window gave each: closing the dialog stops its CLI. */
+  const drafts = new Map<string, AbortController>()
 
   ipcMain.handle('pull-request-create:state', async (_, cwd: unknown) => {
     const folder = folderOf(cwd)
@@ -32,14 +34,25 @@ export function registerPullRequestCreateIpc(ipcMain: IpcMain, deps: PullRequest
   ipcMain.handle('pull-request-create:draft', async (_, input: unknown): Promise<PullRequestTextResult> => {
     const request = readDraftRequest(input)
     if (!request) return { ok: false, code: 'unsupported', message: 'Malformed pull request draft request.' }
-    const gathered = await creator.draftInput(request.cwd)
-    if (!gathered.ok) return { ok: false, code: 'unsupported', message: gathered.message }
-    const result = await generate({
-      input: gathered.input,
-      engine: request.engine,
-      ...(request.cliRuntimes ? { cliRuntimes: request.cliRuntimes } : {}),
-    })
-    if (!result.ok) {
+    const controller = new AbortController()
+    if (request.draftId) {
+      drafts.get(request.draftId)?.abort()
+      drafts.set(request.draftId, controller)
+    }
+    let result: PullRequestTextResult
+    try {
+      const gathered = await creator.draftInput(request.cwd)
+      if (!gathered.ok) return { ok: false, code: 'unsupported', message: gathered.message }
+      result = await generate({
+        input: gathered.input,
+        engine: request.engine,
+        ...(request.cliRuntimes ? { cliRuntimes: request.cliRuntimes } : {}),
+        signal: controller.signal,
+      })
+    } finally {
+      if (request.draftId && drafts.get(request.draftId) === controller) drafts.delete(request.draftId)
+    }
+    if (!result.ok && result.code !== 'cancelled') {
       await writeDiagnosticLog({
         level: 'info',
         source: 'agents',
@@ -48,6 +61,12 @@ export function registerPullRequestCreateIpc(ipcMain: IpcMain, deps: PullRequest
       }).catch(() => undefined)
     }
     return result
+  })
+
+  ipcMain.handle('pull-request-create:draft-cancel', (_, draftId: unknown) => {
+    if (typeof draftId !== 'string') return
+    drafts.get(draftId)?.abort()
+    drafts.delete(draftId)
   })
 
   ipcMain.handle('pull-request-create:push', async (_, cwd: unknown) => {
@@ -74,15 +93,18 @@ function folderOf(value: unknown): string | null {
   return path.isAbsolute(value) ? value : null
 }
 
-function readDraftRequest(input: unknown): (Omit<PullRequestTextRequest, 'input'> & { cwd: string }) | null {
+function readDraftRequest(
+  input: unknown,
+): (Omit<PullRequestTextRequest, 'input' | 'signal'> & { cwd: string; draftId: string | null }) | null {
   if (!input || typeof input !== 'object') return null
-  const { cwd, engine, cliRuntimes } = input as Record<string, unknown>
+  const { cwd, engine, cliRuntimes, draftId } = input as Record<string, unknown>
   const folder = folderOf(cwd)
   if (!folder || !engine || typeof engine !== 'object') return null
   const { cli, model, reasoning } = engine as Record<string, unknown>
   if (typeof cli !== 'string' || typeof model !== 'string') return null
   return {
     cwd: folder,
+    draftId: typeof draftId === 'string' && draftId.length > 0 && draftId.length <= 200 ? draftId : null,
     engine: { cli, model, ...(typeof reasoning === 'string' && reasoning ? { reasoning } : {}) },
     ...(cliRuntimes && typeof cliRuntimes === 'object'
       ? { cliRuntimes: cliRuntimes as PullRequestTextRequest['cliRuntimes'] }

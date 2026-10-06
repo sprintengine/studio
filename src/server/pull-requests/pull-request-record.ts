@@ -227,6 +227,10 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   let writes: Promise<unknown> = Promise.resolve()
   let dirty = false
   let disposed = false
+  // The file is there but could not be read (locked by a scanner, a
+  // permission): nothing is written over it this run, or the next change
+  // would replace every stored pull request with what this run knows.
+  let unreadable = false
 
   // Every `gh` read passes through here. See MAX_CONCURRENT_GITHUB_READS.
   let activeReads = 0
@@ -334,11 +338,15 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
       try {
         raw = await readFile(path, 'utf-8')
       } catch (error) {
-        if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') warn('could not read the pull request record', error)
+        if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+          unreadable = true
+          warn('could not read the pull request record; keeping what is recorded this run in memory only', error)
+        }
       }
       let stored: BranchPullRequest[] | null
       let migrated: string[] = []
-      if (raw === null) {
+      if (unreadable) stored = []
+      else if (raw === null) {
         const legacy = await readLegacyStores(options.userDataDir, warn)
         stored = legacy.entries
         migrated = legacy.files
@@ -374,7 +382,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     dirty = true
     writes = writes.then(
       async () => {
-        if (!dirty || disposed) return
+        if (!dirty || disposed || unreadable) return
         dirty = false
         const snapshot = { version: STORE_VERSION, pullRequests: [...entries.values()] }
         await writeJsonFile(options.userDataDir, pullRequestStorePath(options.userDataDir), snapshot).catch((error) => {
@@ -465,14 +473,17 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
       title?: string | null
       openedAt?: number | null
       number?: number | null
+      endedAt?: number
     },
   ): void {
     const entry = entries.get(url)
     if (!entry) return
     // The host's word wins where it gave one; a read that said nothing never
-    // blanks what we have.
+    // blanks what we have. One that is open again (reopened) has no end.
+    const { endedAt: _endedAt, ...unended } = entry
     const updated: BranchPullRequest = {
-      ...entry,
+      ...(next.state === 'open' ? unended : entry),
+      ...(next.state !== 'open' && typeof next.endedAt === 'number' ? { endedAt: next.endedAt } : {}),
       ...(next.title ? { title: next.title } : {}),
       ...(typeof next.openedAt === 'number' && next.openedAt > 0 ? { openedAt: next.openedAt } : {}),
       ...(typeof next.number === 'number' && next.number > 0 ? { number: next.number } : {}),
@@ -697,6 +708,7 @@ function sameReading(a: BranchPullRequest, b: BranchPullRequest): boolean {
     a.state === b.state &&
     a.isDraft === b.isDraft &&
     a.openedAt === b.openedAt &&
+    a.endedAt === b.endedAt &&
     a.number === b.number &&
     a.headRefName === b.headRefName
   )
@@ -776,6 +788,8 @@ function parseEntry(raw: unknown, branch: string | null): BranchPullRequest | nu
   const number = typeof raw.number === 'number' && Number.isInteger(raw.number) && raw.number > 0 ? raw.number : 0
   const openedAt = typeof raw.openedAt === 'number' && Number.isFinite(raw.openedAt) ? raw.openedAt : 0
   const stateAt = typeof raw.stateAt === 'number' && Number.isFinite(raw.stateAt) ? raw.stateAt : 0
+  const endedAt =
+    state !== 'open' && typeof raw.endedAt === 'number' && Number.isFinite(raw.endedAt) ? raw.endedAt : null
   const text = (value: unknown, max: number) =>
     typeof value === 'string' && value.length > 0 && value.length <= max ? value : null
   const workspaceId = text(raw.openedByWorkspaceId, 200)
@@ -793,6 +807,7 @@ function parseEntry(raw: unknown, branch: string | null): BranchPullRequest | nu
     isDraft: raw.isDraft === true && state === 'open',
     openedAt,
     stateAt,
+    ...(endedAt !== null && classified.forge === 'github' ? { endedAt } : {}),
     ...(classified.forge !== 'github' ? { forge: classified.forge } : {}),
     ...(workspaceId ? { openedByWorkspaceId: workspaceId } : {}),
     ...(agentId ? { openedByAgentId: agentId } : {}),

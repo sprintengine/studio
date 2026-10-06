@@ -6,6 +6,11 @@ import { useWorkspaceStore } from '../workspaceStore'
 import { applySoloChatSeed, normalizeWorkspaceMode, workspaceFolderKey } from './workspacesSlice'
 import { test } from 'vitest'
 
+/** Every agent id a layout's tabs name, in layout order. */
+function layoutAgentIds(layout: unknown): string[] {
+  return [...JSON.stringify(layout).matchAll(/"agentId":"([^"]+)"/g)].map((match) => match[1]!)
+}
+
 test('workspacesSlice', async () => {
   const standardTemplate: LayoutTemplate = {
     id: 'standard-test',
@@ -94,12 +99,19 @@ test('workspacesSlice', async () => {
     '/Users/example/other',
     '/Users/example/project',
   ])
-  assert.equal(state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.cli, 'claude-code')
+  // The template's `agent-1` is a placeholder: the workspace's agent takes an
+  // id of its own, and the layout's tab names that id.
+  const soloDev = state.workspaces.find((workspace) => workspace.id === soloDevId)!
+  const [soloDevAgentId] = Object.keys(soloDev.agents)
+  assert.match(soloDevAgentId ?? '', /^agent-[0-9a-z]{16}$/)
+  assert.deepEqual(layoutAgentIds(soloDev.layoutModel), [soloDevAgentId])
+  assert.equal(soloDev.agents[soloDevAgentId!]?.id, soloDevAgentId)
+  assert.equal(soloDev.agents[soloDevAgentId!]?.cli, 'claude-code')
+  assert.deepEqual(layoutAgentIds(soloDevTemplate.layout), ['agent-1'], 'the shared template itself is never rewritten')
   // A generic template tab label ("Agent") is a slot placeholder, never an
   // identity: the seeded general agent gets a real picked name, like a
   // picked name. The layout tab renames itself to agent.name on render.
-  const soloDevAgentName =
-    state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.name ?? ''
+  const soloDevAgentName = soloDev.agents[soloDevAgentId!]?.name ?? ''
   assert.notEqual(soloDevAgentName, 'Agent')
   assert.match(soloDevAgentName, /^[A-Z][a-z]+ [A-Z][a-z]+( \d+)?$/)
 
@@ -357,10 +369,25 @@ test('workspacesSlice', async () => {
   ])
 
   useWorkspaceStore.getState().updateAgent(firstId, 'agent-1', { name: 'Agent One' })
-  useWorkspaceStore.getState().moveAgentToWorkspace(firstId, secondId, 'agent-1')
+  assert.equal(useWorkspaceStore.getState().moveAgentToWorkspace(firstId, secondId, 'agent-1'), true)
   state = useWorkspaceStore.getState()
   assert.equal(state.workspaces.find((workspace) => workspace.id === firstId)?.agents['agent-1'], undefined)
   assert.equal(state.workspaces.find((workspace) => workspace.id === secondId)?.agents['agent-1']?.name, 'Agent One')
+
+  // A chat made before ids were minted still has its `agent-1`, as may the chat
+  // it is dragged into. The move is refused rather than writing over the
+  // destination's own agent, and neither record changes.
+  useWorkspaceStore.getState().updateAgent(firstId, 'agent-1', { name: 'Other Agent One' })
+  assert.equal(useWorkspaceStore.getState().moveAgentToWorkspace(firstId, secondId, 'agent-1'), false)
+  state = useWorkspaceStore.getState()
+  assert.equal(
+    state.workspaces.find((workspace) => workspace.id === firstId)?.agents['agent-1']?.name,
+    'Other Agent One',
+  )
+  assert.equal(state.workspaces.find((workspace) => workspace.id === secondId)?.agents['agent-1']?.name, 'Agent One')
+  assert.equal(useWorkspaceStore.getState().moveAgentToWorkspace(firstId, firstId, 'agent-1'), false)
+  assert.equal(useWorkspaceStore.getState().moveAgentToWorkspace(firstId, secondId, 'no-such-agent'), false)
+  useWorkspaceStore.getState().removeAgent(firstId, 'agent-1')
 
   // removeAgent deletes the record entirely (used by automation run-finalize dispose).
   useWorkspaceStore.getState().removeAgent(secondId, 'agent-1')
@@ -694,9 +721,12 @@ test('workspacesSlice', async () => {
   })
   state = useWorkspaceStore.getState()
   const namedChat = state.workspaces.find((workspace) => workspace.id === namedChatId)
-  assert.equal(namedChat?.agents['agent-1']?.cli, 'codex')
-  assert.equal(namedChat?.agents['agent-1']?.name, 'Ada')
-  assert.equal(namedChat?.agents['agent-1']?.cliStartupPrompt, 'START_PROMPT')
+  // The seeded record is the one the lone tab names, under the id it was minted.
+  const namedChatAgentId = firstTab(namedChat)?.config?.agentId as string
+  assert.deepEqual(Object.keys(namedChat?.agents ?? {}), [namedChatAgentId])
+  assert.equal(namedChat?.agents[namedChatAgentId]?.cli, 'codex')
+  assert.equal(namedChat?.agents[namedChatAgentId]?.name, 'Ada')
+  assert.equal(namedChat?.agents[namedChatAgentId]?.cliStartupPrompt, 'START_PROMPT')
   assert.equal(firstTab(namedChat)?.component, 'agent')
   assert.equal(firstTab(namedChat)?.name, 'Ada')
 
@@ -714,8 +744,13 @@ test('workspacesSlice', async () => {
   })
   state = useWorkspaceStore.getState()
   const conversationChat = state.workspaces.find((workspace) => workspace.id === conversationChatId)
-  assert.equal(conversationChat?.agents['agent-1']?.runtimeKind, 'conversation')
-  assert.deepEqual(conversationChat?.agents['agent-1']?.conversation, { providerId: 'openai', modelId: 'gpt-5' })
+  const conversationChatAgentId = firstTab(conversationChat)?.config?.agentId as string
+  assert.notEqual(conversationChatAgentId, namedChatAgentId, 'two chats from one template share no agent id')
+  assert.equal(conversationChat?.agents[conversationChatAgentId]?.runtimeKind, 'conversation')
+  assert.deepEqual(conversationChat?.agents[conversationChatAgentId]?.conversation, {
+    providerId: 'openai',
+    modelId: 'gpt-5',
+  })
   assert.equal(firstTab(conversationChat)?.name, 'GPT-5')
 
   // Terminal seed: the lone agent tab is swapped for a terminal tab and no agent
@@ -1143,6 +1178,12 @@ test('workspacesSlice', async () => {
     assert.equal(activeIds().has(settleId), false, 'the fixture row is not the active row of any window')
     const bornAt = rowOf(settleId).createdAt
 
+    // Auto-settle is off until the person switches it on from the row menu.
+    reconcile(bornAt + 30 * DAY)
+    assert.equal(rowOf(settleId).settledAt ?? null, null, 'a chat nobody switched Auto-settle on for never settles')
+    useWorkspaceStore.getState().setWorkspaceAutoSettle(settleId, true)
+    assert.equal(rowOf(settleId).autoSettleEnabled, true, 'the switch records the opt-in')
+
     // Too recent: the sweep leaves it.
     reconcile(bornAt + DAY)
     assert.equal(rowOf(settleId).settledAt ?? null, null, 'a day-old row does not settle')
@@ -1226,6 +1267,7 @@ test('workspacesSlice', async () => {
     const activeId = useWorkspaceStore.getState().activeWorkspaceId
     assert.ok(activeId, 'the fixture store has an active row')
     const activeBornAt = rowOf(activeId!).createdAt
+    useWorkspaceStore.getState().setWorkspaceAutoSettle(activeId!, true)
     reconcile(activeBornAt + 30 * DAY)
     assert.equal(rowOf(activeId!).settledAt ?? null, null, 'the active row is exempt from the sweep')
   }
@@ -1304,4 +1346,21 @@ test('workspacesSlice', async () => {
   }
 
   console.log('workspacesSlice.test.ts: ok')
+})
+
+test('a chat worktree given back is marked on its marker, and the mark comes off when it is back', () => {
+  const id = 'worktree-reclaim-chat'
+  const marker = { branch: 'agent/chat-ab12', baseRef: 'HEAD', repoRoot: '/Users/dev/app' }
+  useWorkspaceStore.setState((state) => ({
+    workspaces: [
+      ...state.workspaces,
+      { id, folderPath: '/Users/dev/.sprintengine-worktrees/app/chat-ab12', worktree: marker } as unknown as Workspace,
+    ],
+  }))
+  const markerOf = () => useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === id)?.worktree
+  useWorkspaceStore.getState().setWorkspaceWorktreeReclaimed(id, 42)
+  assert.deepEqual(markerOf(), { ...marker, reclaimedAt: 42 }, 'the branch and project are kept beside the stamp')
+  useWorkspaceStore.getState().setWorkspaceWorktreeReclaimed(id, null)
+  assert.deepEqual(markerOf(), marker, 'cleared, not set to null, so the marker reads as before')
+  useWorkspaceStore.setState((state) => ({ workspaces: state.workspaces.filter((workspace) => workspace.id !== id) }))
 })

@@ -17,7 +17,8 @@ test('workspaceSettle', async () => {
   const DAY = 24 * 60 * 60 * 1000
 
   // Only the fields the rules read; cast at the test boundary keeps the
-  // fixtures readable without an `any`.
+  // fixtures readable without an `any`. Auto-settle is switched on here so the
+  // rules below are exercised; its default, off, is asserted on its own.
   function ws(fields: Partial<Workspace>): Workspace {
     return {
       id: 'w',
@@ -25,6 +26,7 @@ test('workspaceSettle', async () => {
       mode: 'standard',
       createdAt: NOW - 10 * DAY,
       lastTerminalActivityAt: null,
+      autoSettleEnabled: true,
       ...fields,
     } as unknown as Workspace
   }
@@ -47,6 +49,11 @@ test('workspaceSettle', async () => {
     NOW - DAY,
     'a turn that ended after the last keystroke counts as activity',
   )
+
+  // Auto-settle is opt-in per chat: a row nobody switched it on for never
+  // settles by itself, however long it has been quiet.
+  assert.equal(shouldAutoSettleWorkspace(ws({ autoSettleEnabled: undefined }), NOW), false, 'off by default')
+  assert.equal(shouldAutoSettleWorkspace(ws({ autoSettleEnabled: null }), NOW), false, 'a cleared switch is off')
 
   // The 3-day idle rule, measured from last activity.
   assert.equal(shouldAutoSettleWorkspace(ws({}), NOW), true, 'idle 10 days settles')
@@ -193,6 +200,64 @@ test('workspaceSettle', async () => {
     'but a row the SWEEP settled that wants the person comes back — it was settled on a reading taken too early',
   )
   assert.equal(decide(ws({ settledOverride: 'active' })), 'none', 'a hand Un-settle holds against the sweep')
+
+  // Settle on merge: a chat a day old (too recent for the idle rule) whose
+  // pull requests have landed.
+  const recent = (fields: Partial<Workspace> = {}) =>
+    ws({ createdAt: NOW - 2 * DAY, lastUserMessageAt: NOW - DAY, ...fields })
+  const pr = (state: 'open' | 'merged' | 'closed', endedAt?: number) =>
+    ({
+      url: `https://github.com/o/r/pull/${state}${endedAt ?? ''}`,
+      repoKey: 'github.com/o/r',
+      repoName: 'r',
+      number: 1,
+      title: '',
+      state,
+      isDraft: false,
+      openedAt: NOW - 2 * DAY,
+      stateAt: NOW,
+      ...(endedAt !== undefined ? { endedAt } : {}),
+    }) as const
+  const onMerge = (workspace: Workspace, pullRequests: ReturnType<typeof pr>[], settleOnMerge = true) =>
+    decideWorkspaceSettlement({
+      workspace,
+      now: NOW,
+      active: false,
+      busy: false,
+      held: false,
+      context: { pullRequests, settleOnMerge },
+    })
+  assert.equal(onMerge(recent(), [pr('merged', NOW - 60_000)]), 'settle', 'a merged pull request settles its chat')
+  assert.equal(
+    onMerge(recent(), [pr('merged', NOW - 60_000), pr('closed', NOW - 30_000)]),
+    'settle',
+    'one merged and one closed is still landed',
+  )
+  assert.equal(onMerge(recent(), [pr('closed', NOW - 60_000)]), 'none', 'closed without merging did not land')
+  assert.equal(
+    onMerge(recent(), [pr('merged', NOW - 60_000), pr('open')]),
+    'none',
+    'an open pull request is work still going',
+  )
+  assert.equal(
+    onMerge(recent({ lastUserMessageAt: NOW - 1000 }), [pr('merged', NOW - 60_000)]),
+    'none',
+    'a message after the merge is the person carrying on',
+  )
+  assert.equal(
+    onMerge(recent({ lastTerminalActivityAt: NOW - 1000 }), [pr('merged', NOW - 60_000)]),
+    'none',
+    'so is a keystroke into one of its terminals: a dev server started after the merge would die with the chat',
+  )
+  assert.equal(onMerge(recent(), [pr('merged')]), 'none', 'a merge with no time cannot say who came after it')
+  assert.equal(onMerge(recent(), [pr('merged', NOW - 60_000)], false), 'none', 'the setting off, merges settle nothing')
+  assert.equal(onMerge(recent(), []), 'none', 'no pull requests, nothing landed')
+  assert.equal(
+    onMerge(recent({ autoSettleEnabled: null }), [pr('merged', NOW - 60_000)]),
+    'none',
+    'auto-settle off for the chat holds it against a merge',
+  )
+  assert.equal(decide(ws({ autoSettleEnabled: null })), 'none', 'and against three quiet days')
 
   // The two transitions as field patches. A rest decision carries the input
   // clock so main is never behind the decision; a wake clears the stamp and

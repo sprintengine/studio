@@ -74,11 +74,11 @@
     },
     {
       "name": "browser.record_start",
-      "sha256": "19d6c33ac4d53134a8c41a94a5920195f5b146fe57a6727ff37d675b41c51b21"
+      "sha256": "cf83c308f8631537a8acb89d12bbae23eb524aec2fc5998b00d3d73163c7a038"
     },
     {
       "name": "browser.record_stop",
-      "sha256": "d2df6d688eefad9e656548d483312fb0ef31dcf8590ec0435be65944119883f1"
+      "sha256": "d12027a21668d1989cfcbd055283e5dc6ff87470e759e871f6dc0341d4a7d4d8"
     },
     {
       "name": "canvas.list",
@@ -146,11 +146,15 @@
     },
     {
       "name": "conversation.create",
-      "sha256": "3fdc72693f56234a839c0c37442c3f07aced25da87c9362bb1850cb804a89563"
+      "sha256": "4513a89e6c90786a077e672c604c274996bada01e4b88a4cdb702855435fb7d1"
     },
     {
       "name": "pull_request.link",
       "sha256": "20e4fcd9314ed05c8a6af5d22ef5d58e61e8949bc61ecf229eee512b71fcdee9"
+    },
+    {
+      "name": "local_server.link",
+      "sha256": "22c97db66798e939a9996a1cd7701da3b7b335019f256af6f847fb106fe16e5b"
     },
     {
       "name": "workspace.checkout",
@@ -186,7 +190,7 @@
     },
     {
       "name": "cli.runtime.list",
-      "sha256": "86f6573ca2fe4137d866d25b76f8c818c4f1c1838ad505a5a617d5d8936f34c9"
+      "sha256": "73405edf696f17098ec791c95408b017bf166607e412cbe383c76c28e5964611"
     },
     {
       "name": "terminal.list",
@@ -247,6 +251,14 @@
     {
       "name": "schedule.run",
       "sha256": "7781f2bebf27b02a6ca36e22fc5c213cc994f3c8c875d7462fcf85cf25abd5a7"
+    },
+    {
+      "name": "worktree.lease",
+      "sha256": "74aaae965b55687db134c913a61d66ce89f1e922cdc222e0385eb473a0f47333"
+    },
+    {
+      "name": "worktree.release",
+      "sha256": "3d2790cf5be92d92ba13ee951db2d9b29817673604684884759a130d4c48915f"
     },
     {
       "name": "tailnet.status",
@@ -356,11 +368,11 @@
     },
     {
       "name": "browser.record_start",
-      "sha256": "19d6c33ac4d53134a8c41a94a5920195f5b146fe57a6727ff37d675b41c51b21"
+      "sha256": "cf83c308f8631537a8acb89d12bbae23eb524aec2fc5998b00d3d73163c7a038"
     },
     {
       "name": "browser.record_stop",
-      "sha256": "d2df6d688eefad9e656548d483312fb0ef31dcf8590ec0435be65944119883f1"
+      "sha256": "d12027a21668d1989cfcbd055283e5dc6ff87470e759e871f6dc0341d4a7d4d8"
     },
     {
       "name": "canvas.list",
@@ -428,11 +440,15 @@
     },
     {
       "name": "conversation.create",
-      "sha256": "3fdc72693f56234a839c0c37442c3f07aced25da87c9362bb1850cb804a89563"
+      "sha256": "4513a89e6c90786a077e672c604c274996bada01e4b88a4cdb702855435fb7d1"
     },
     {
       "name": "pull_request.link",
       "sha256": "20e4fcd9314ed05c8a6af5d22ef5d58e61e8949bc61ecf229eee512b71fcdee9"
+    },
+    {
+      "name": "local_server.link",
+      "sha256": "22c97db66798e939a9996a1cd7701da3b7b335019f256af6f847fb106fe16e5b"
     },
     {
       "name": "workspace.checkout",
@@ -468,7 +484,7 @@
     },
     {
       "name": "cli.runtime.list",
-      "sha256": "86f6573ca2fe4137d866d25b76f8c818c4f1c1838ad505a5a617d5d8936f34c9"
+      "sha256": "73405edf696f17098ec791c95408b017bf166607e412cbe383c76c28e5964611"
     },
     {
       "name": "terminal.list",
@@ -529,6 +545,14 @@
     {
       "name": "schedule.run",
       "sha256": "7781f2bebf27b02a6ca36e22fc5c213cc994f3c8c875d7462fcf85cf25abd5a7"
+    },
+    {
+      "name": "worktree.lease",
+      "sha256": "74aaae965b55687db134c913a61d66ce89f1e922cdc222e0385eb473a0f47333"
+    },
+    {
+      "name": "worktree.release",
+      "sha256": "3d2790cf5be92d92ba13ee951db2d9b29817673604684884759a130d4c48915f"
     },
     {
       "name": "tailnet.status",
@@ -638,7 +662,7 @@
     },
     {
       "name": "cli.runtime.list",
-      "sha256": "86f6573ca2fe4137d866d25b76f8c818c4f1c1838ad505a5a617d5d8936f34c9"
+      "sha256": "73405edf696f17098ec791c95408b017bf166607e412cbe383c76c28e5964611"
     },
     {
       "name": "backlog.list",

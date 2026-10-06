@@ -100,6 +100,9 @@ export function wslRelayTarget(connection: WslServerConnection): RelayTarget {
   }
 }
 
+/** How long a tools stream that closed on its own waits before it is opened again. */
+const RELAY_REOPEN_MS = 1_000
+
 function asTarget(connection: WslServerConnection | RelayTarget): RelayTarget {
   return 'distro' in connection ? wslRelayTarget(connection) : connection
 }
@@ -402,9 +405,10 @@ export function relayShellToolsets(input: {
     }
   }
 
-  input.onConnected((offered) => {
+  input.onConnected((offered) => relay(asTarget(offered)))
+
+  function relay(connection: RelayTarget): void {
     if (closed) return
-    const connection = asTarget(offered)
     open.get(connection.key)?.stop()
     const doConnect = input.connectClient ?? connect
     void doConnect({
@@ -436,6 +440,23 @@ export function relayShellToolsets(input: {
         connection.backend.onClose(
           () => open.get(connection.key)?.client === client && open.get(connection.key)?.stop(),
         )
+        // The tools' own stream can end while the server and its backend wire
+        // stay up (each stream is its own relay): opened again, or the WSL
+        // agents lose the desktop's toolsets until the server restarts.
+        void client.closed
+          .then(
+            () => undefined,
+            () => undefined,
+          )
+          .then(() => {
+            if (open.get(connection.key)?.client !== client) return
+            open.get(connection.key)?.stop()
+            if (closed || connection.backend.isOpen() === false) return
+            log(`The desktop's tools stream to ${connection.name} closed; opening it again.`)
+            setTimeout(() => {
+              if (!closed && connection.backend.isOpen() !== false && !open.has(connection.key)) relay(connection)
+            }, RELAY_REOPEN_MS).unref?.()
+          })
         void sync(connection)
       },
       (error: unknown) =>
@@ -443,7 +464,7 @@ export function relayShellToolsets(input: {
           `The desktop's tools could not be offered to ${connection.name}: ${error instanceof Error ? error.message : String(error)}`,
         ),
     )
-  })
+  }
 
   return {
     close() {

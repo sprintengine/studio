@@ -85,6 +85,20 @@ This is what lets the version window stay narrow while the wire keeps growing: a
 **purely additive** feature ships as a capability with no version bump at all, so
 no peer is refused over it.
 
+A capability can name an addition to a gateway tool as well as to a route or a
+frame. The phone's New chat calls `conversation.create` and `cli.runtime.list`,
+and three capabilities (2026-10-05) say what those take and answer:
+`new-chat-worktree` (`conversation.create` takes `worktree`), `new-chat-effort`
+(it takes `effort`) and `cli-runtime-catalog` (`cli.runtime.list` answers each
+CLI with a `catalog`, the model picker's own rows). An argument needs its
+capability more than a route does: a handler skips an argument it does not
+know rather than refusing it, so a `worktree` sent to a desktop without the
+capability starts the chat in the checkout and says nothing. These names carry
+no `conversation-` prefix, which is kept for the conversation lane's own
+vocabulary: every `conversation-` capability this machine advertises must be
+one `@sprintengine/conversation-protocol` names
+(`conversation-protocol.test.ts`).
+
 Bump the version instead when the change is not additive: a field that changes
 meaning or type, a field that is removed, a response whose shape a peer is
 already parsing. Nothing a capability flag can describe should bump the version,
@@ -242,7 +256,11 @@ methods and stream, and `pull-request-tool-calls` the one method a client that
 runs its own agents forwards their tool calls with, `pullRequests.noteToolCall`,
 and `pull-request-link` `pullRequests.link`, which records a pull request an
 owner opened for a conversation (refused as `claimed` when another
-conversation opened it first). A hello's `client.kind` and `client.instanceId` are
+conversation opened it first). `local-servers` adds the owner-only
+`localServers.*` methods and stream: the local servers a Studio's agents
+linked, as the Studio checks them, and running one's command again, stopping
+that run, or forgetting the link (`run` and `stop` refused as `conflict` when
+it is already running, or when the Studio did not start the run). A hello's `client.kind` and `client.instanceId` are
 optional hints a Studio that does not know them ignores. Every method names its scope in `STUDIO_METHODS`,
 typed over the method map so a method without one does not compile.
 

@@ -259,7 +259,8 @@ export function createCodexConversationProvider(
     if (state.turn) state.turn.queue.push(next)
     else state.input.onSessionEvent?.(next)
   }
-  function finish(state: Session, failure?: string, interrupted = false) {
+  /** `refused`: the message was turned away here, before Codex was asked anything. */
+  function finish(state: Session, failure?: string, interrupted = false, refused = false) {
     if (!state.turn) return
     for (const requestId of state.pending.keys()) emit(state, 'approval_resolved', { requestId, approved: false })
     state.pending.clear()
@@ -270,7 +271,9 @@ export function createCodexConversationProvider(
     const providerCursor =
       state.threadId && state.turn.nativeId ? { sessionId: state.threadId, at: state.turn.nativeId } : null
     emit(state, failure ? 'turn_failed' : 'turn_completed', {
-      ...(failure ? { message: failure, reason: 'provider_error' } : { interrupted }),
+      ...(failure
+        ? { message: failure, reason: 'provider_error', ...(refused ? { refused: true } : {}) }
+        : { interrupted }),
       ...(providerCursor ? { providerCursor } : {}),
     })
     if (state.turn.watchdog) clearTimeout(state.turn.watchdog)
@@ -724,9 +727,10 @@ export function createCodexConversationProvider(
   // steps are drawn under the lane while the turn that can show them is open.
   async function onChildMessage(state: Session, child: Child, method: string | undefined, params: RecordValue) {
     if (method === 'turn/started' && child.done) {
-      // Given more to do after it finished (`sendInput`, a follow-up task).
+      // Given more to do after it finished (`sendInput`, a follow-up task):
+      // its ended lane reopens, which a plain `running` never does.
       child.done = false
-      emitSessionEvent(state, 'subagent_status', { toolUseId: child.toolUseId, status: 'running' })
+      emitSessionEvent(state, 'subagent_status', { toolUseId: child.toolUseId, status: 'running', resumed: true })
       return
     }
     if (method === 'turn/completed') {
@@ -1041,11 +1045,13 @@ export function createCodexConversationProvider(
             return finish(
               state,
               'Send /compact on its own: Codex compacts the conversation without instructions or images.',
+              false,
+              true,
             )
           // A thread that has not had a turn yet has nothing to summarise; a
           // fork's has the turns it was forked with.
           if (compact && !state.threadId && !state.forkFrom && !state.history.length)
-            return finish(state, 'There is no conversation to compact yet.')
+            return finish(state, 'There is no conversation to compact yet.', false, true)
           // Capture before starting the autonomous turn, not after an edit notification.
           await state.input.onBeforeTool?.('Edit')
           if (state.resetPolicy) restartForPolicy(state)

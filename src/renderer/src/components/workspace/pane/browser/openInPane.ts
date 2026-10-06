@@ -1,4 +1,6 @@
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
+import { showPaneTab } from '../popout/panePopOutHost'
+import { paneOpensHandedOff } from '../popout/panePopOutRedirect'
 
 // Open a URL in the workspace pane's browser (browser-pane epic): the active
 // browser tab if one is showing, else the first browser tab, else a new one.
@@ -14,7 +16,9 @@ export function openUrlInPane(workspaceId: string, rawUrl: string, options: { fo
     ? undefined
     : (browserTabs.find((tab) => tab.id === pane?.activeTabId) ?? browserTabs[0])
   if (target) {
-    store.setActivePaneTab(workspaceId, target.id)
+    // A tab out in a window of its own navigates there, and that window comes
+    // forward: the person clicked to see the page.
+    showPaneTab(workspaceId, target.id, { focus: true })
     // A tab whose guest has not registered yet refuses the navigation; the
     // URL then goes to a fresh tab rather than being dropped.
     void window.api.browserNavigate(target.id, url).then((ok) => {
@@ -22,7 +26,10 @@ export function openUrlInPane(workspaceId: string, rawUrl: string, options: { fo
     })
     return true
   }
-  return store.openPaneTab(workspaceId, { kind: 'browser', url }) !== null
+  // In a pop-out window the open goes to the owner, which answers with a push
+  // rather than an id: taken all the same, and not one for the system browser
+  // to open a second time.
+  return store.openPaneTab(workspaceId, { kind: 'browser', url }) !== null || paneOpensHandedOff(workspaceId)
 }
 
 // Chromium refuses to navigate to 0.0.0.0 (the wildcard bind a server prints

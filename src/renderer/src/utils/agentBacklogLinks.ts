@@ -1,5 +1,5 @@
 import type { BacklogItem, BacklogItemLink, BacklogResolvedLink } from './backlog'
-import { findWorkspaceForAgentPreferring } from './agentLocation'
+import { findAgentWorkspaceFollowingMoves } from './agentLocation'
 import type { BacklogLinkProviderInput } from '../modules/renderer-host'
 import type { Workspace } from '../types/workspace'
 
@@ -56,11 +56,12 @@ export function resolveAgentBacklogLink(
   if (!parsed) {
     return unavailableLink(input.link, 'Agent link target is malformed.')
   }
-  // Resolve to the live agent, preferring the workspace the link was recorded in.
-  // Agent ids are not globally unique (a bare `agent-1` recurs in every
-  // template-built workspace), so the stored workspace is what disambiguates the
-  // hit; the global scan is only a fallback for a genuinely-moved agent.
-  if (!findWorkspaceForAgentPreferring(input.workspaces, parsed.agentId, parsed.workspaceId)) {
+  // Resolve to the live agent in the workspace the link was recorded in. Agent
+  // ids are not globally unique (nearly every chat has an `agent-1`), so a link
+  // to a closed chat's agent reads closed rather than active against some other
+  // chat's namesake. Only a minted id, which no other agent shares, is followed
+  // to the chat it was dragged to.
+  if (!findAgentWorkspaceFollowingMoves(input.workspaces, parsed.agentId, parsed.workspaceId)) {
     return unavailableLink(input.link, 'This agent is no longer open.')
   }
   return { ...input.link, status: 'active', canOpen: true }
@@ -68,13 +69,12 @@ export function resolveAgentBacklogLink(
 
 export type AgentBacklogLinkOpenPorts = {
   // Activate the agent's workspace and focus (or add) its terminal tab. The
-  // workspace is resolved live, preferring `preferredWorkspaceId` (the workspace
-  // the link was recorded in) so a shared id like `agent-1` lands on the right
-  // workspace, with a global scan as the moved-agent fallback. Returns false when
-  // the agent is not open anywhere so the caller can surface a diagnostic. The
-  // port owns the workspace lookup and the mounted-model vs persisted-layout
-  // fallback.
-  focusAgent(input: { agentId: string; agentName: string; preferredWorkspaceId?: string }): boolean | Promise<boolean>
+  // workspace is the one the link was recorded in, so a shared id like `agent-1`
+  // lands on its own chat and never on another's. Returns false when that
+  // workspace is closed or no longer hosts the agent, so the caller can surface
+  // a diagnostic. The port owns the workspace lookup and the mounted-model vs
+  // persisted-layout fallback.
+  focusAgent(input: { agentId: string; agentName: string; workspaceId: string }): boolean | Promise<boolean>
   publishDiagnostic?(input: {
     level: 'info' | 'warning' | 'error'
     source: string
@@ -96,7 +96,7 @@ export async function agentBacklogOpenPorts(): Promise<AgentBacklogLinkOpenPorts
     { useWorkspaceStore },
     { publishDiagnostic },
     { focusOrAddAgentTab, ensureAgentTabInLayoutModel, flashAgentTab },
-    { findWorkspaceForAgentPreferring: findAgentWorkspace },
+    { findAgentWorkspaceFollowingMoves },
   ] = await Promise.all([
     import('../store/workspaceStore'),
     import('./diagnostics'),
@@ -104,12 +104,12 @@ export async function agentBacklogOpenPorts(): Promise<AgentBacklogLinkOpenPorts
     import('./agentLocation'),
   ])
   return {
-    focusAgent: ({ agentId, agentName, preferredWorkspaceId }) => {
+    focusAgent: ({ agentId, agentName, workspaceId }) => {
       const store = useWorkspaceStore.getState()
-      // Live lookup, preferring the workspace the link recorded: a shared id like
-      // `agent-1` must land on its own workspace, not the first other workspace
-      // that also has an `agent-1`. The global scan is the moved-agent fallback.
-      const workspace = findAgentWorkspace(store.workspaces, agentId, preferredWorkspaceId)
+      // Live lookup in the workspace the link recorded: a shared id like
+      // `agent-1` must land on its own workspace, not on another that also has
+      // an `agent-1`. A minted id follows its agent to the chat it moved to.
+      const workspace = findAgentWorkspaceFollowingMoves(store.workspaces, agentId, workspaceId)
       if (!workspace) return false
       store.setActiveWorkspace(workspace.id)
       // Flash the green spawn border so the user can see *which* terminal was
@@ -151,7 +151,7 @@ export async function openAgentBacklogLink(
   const focused = await input.ports.focusAgent({
     agentId: parsed.agentId,
     agentName: agentNameFromLink(input.link),
-    preferredWorkspaceId: parsed.workspaceId,
+    workspaceId: parsed.workspaceId,
   })
   if (!focused) {
     await input.ports.publishDiagnostic?.({

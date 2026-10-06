@@ -22,6 +22,7 @@ export type ConversationBackendMember =
   | 'listSessions'
   | 'sessionWorkspaceRoot'
   | 'listLiveConversationRoots'
+  | 'liveConversationWorkspaceRoots'
   | 'getProviderCapabilities'
   | 'getNativeProviderModels'
   | 'startSession'

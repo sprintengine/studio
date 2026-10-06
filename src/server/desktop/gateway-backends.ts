@@ -32,6 +32,7 @@ import { MobileControlSnapshotService, sanitizeMobileSnapshotForTransport } from
 import { getPluginRegistry } from '../../main/plugin-registry-instance'
 import { readRepositoryIdentity } from '../../main/repository-identity'
 import { listKnownWorkspaceRoots, uniqueResolvedRoots } from '../../main/workspace-roots'
+import { readDiscoveredCliModelCatalogs } from '../../main/model-discovery/service'
 import { agentWorktreePaths } from '../../shared/worktree-paths'
 
 // The gateway's automation backends that are the server's own: backlog reads
@@ -55,11 +56,30 @@ export type GatewayBackendDeps = Pick<
   | 'listInstalledThirdPartyModules'
   | 'listModuleContributedTools'
   | 'readMarketplaceRegistry'
->
+> & {
+  /**
+   * The ids the person added for a CLI in Settings, from the launch settings
+   * this process holds. Given, `cli.runtime.list` answers each CLI with the
+   * model picker's own rows (`readCliModelSources`); a gateway that does not
+   * serve that tool leaves it out.
+   */
+  userCliModels?: (cli: string) => readonly string[] | undefined
+}
 
 export function createServerGatewayBackends(deps: GatewayBackendDeps): AutomationBackends {
+  const { userCliModels, ...backends } = deps
   return {
-    ...deps,
+    ...backends,
+    // The model picker's sources, read where the picker's are: the discovery
+    // cache under this profile's user data, and the person's own ids.
+    ...(userCliModels
+      ? {
+          readCliModelSources: async () => ({
+            discovered: await readDiscoveredCliModelCatalogs().catch(() => ({})),
+            userModels: userCliModels,
+          }),
+        }
+      : {}),
     listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
     readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
     backlogWrite: {
@@ -86,14 +106,17 @@ export function createServerGatewayBackends(deps: GatewayBackendDeps): Automatio
     createAgentWorktree: async ({ workspaceRoot, name, baseRef }) => {
       const paths = agentWorktreePaths(workspaceRoot, name)
       if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
+      const named = baseRef?.trim()
       const created = await createGitWorktree({
         repoRoot: workspaceRoot,
         containerPath: paths.containerPath,
         destinationPath: paths.destinationPath,
         branchName: paths.branchName,
         // A remote launch names the branch to fork from (its picker lists
-        // this checkout's branches); a local one forks HEAD as it always did.
-        baseRef: baseRef?.trim() || 'HEAD',
+        // this checkout's branches); a launch that names none forks the
+        // default branch, from the worktree pool when this process keeps one.
+        baseRef: named || 'HEAD',
+        fromPool: !named,
         copyIncludedFiles: true,
         // The agent's id is minted after this, by the launch; the branch
         // names the owner until then.

@@ -103,6 +103,10 @@ export type TourRevisions = {
   head: string | 'worktree'
 }
 
+/**
+ * The agent that wrote the tour. Its `agentId` is only unique within the tour's
+ * `workspaceId`, where the author always is, so the two are matched together.
+ */
 export type TourAuthor = {
   agentId: string | null
   agentName: string | null

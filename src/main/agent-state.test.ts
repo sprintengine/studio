@@ -916,14 +916,108 @@ test('agent-state', async () => {
       })?.id,
       'x',
     )
-    // Two live sessions share an agent id: workspace scoping wins.
-    const dupA = cand({ id: 'old', agentId: 'a', workspaceId: 'w1', startedAt: 1 })
-    const dupB = cand({ id: 'new', agentId: 'a', workspaceId: 'w2', startedAt: 2 })
-    assert.equal(selectAgentStateTarget([dupA, dupB], { agentId: 'a', workspaceId: 'w1' })?.id, 'old')
-    // No workspace on the frame → most recently started wins.
-    assert.equal(selectAgentStateTarget([dupA, dupB], { agentId: 'a', workspaceId: null })?.id, 'new')
-    // Workspace given but matches none → fall back to most recent across all.
-    assert.equal(selectAgentStateTarget([dupA, dupB], { agentId: 'a', workspaceId: 'nope' })?.id, 'new')
+    // Two chats each have an `agent-1`: the frame's workspace picks its own.
+    const dupA = cand({ id: 'old', agentId: 'agent-1', workspaceId: 'w1', startedAt: 1 })
+    const dupB = cand({ id: 'new', agentId: 'agent-1', workspaceId: 'w2', startedAt: 2 })
+    assert.equal(selectAgentStateTarget([dupA, dupB], { agentId: 'agent-1', workspaceId: 'w1' })?.id, 'old')
+    assert.equal(selectAgentStateTarget([dupA, dupB], { agentId: 'agent-1', workspaceId: 'w2' })?.id, 'new')
+    // No workspace on the frame, and the id is in two chats → ambiguous, dropped
+    // rather than handed to the newer chat.
+    assert.equal(selectAgentStateTarget([dupA, dupB], { agentId: 'agent-1', workspaceId: null }), undefined)
+    // A workspace with no live match (a closed chat's late hook) → dropped, never
+    // the newest `agent-1` of another chat — even when that is the only one.
+    assert.equal(selectAgentStateTarget([dupA, dupB], { agentId: 'agent-1', workspaceId: 'closed' }), undefined)
+    assert.equal(selectAgentStateTarget([dupB], { agentId: 'agent-1', workspaceId: 'w1' }), undefined)
+    // No workspace on the frame and one chat has the id → placed (an old reporter).
+    assert.equal(selectAgentStateTarget([dupB], { agentId: 'agent-1', workspaceId: null })?.id, 'new')
+    // A relaunch inside one chat left two live sessions → the newer one, with or
+    // without the workspace on the frame.
+    const relaunched = cand({ id: 'relaunched', agentId: 'agent-1', workspaceId: 'w2', startedAt: 3 })
+    assert.equal(
+      selectAgentStateTarget([dupB, relaunched], { agentId: 'agent-1', workspaceId: null })?.id,
+      'relaunched',
+    )
+    assert.equal(
+      selectAgentStateTarget([dupB, relaunched], { agentId: 'agent-1', workspaceId: 'w2' })?.id,
+      'relaunched',
+    )
+    // An agent moved to another chat: its session now says w3, its process env
+    // (and so its frames) still says w1, where it was launched.
+    const movedAgent = {
+      ...cand({ id: 'moved', agentId: 'agent-1', workspaceId: 'w3', startedAt: 1 }),
+      launchWorkspaceId: 'w1',
+    }
+    assert.equal(selectAgentStateTarget([movedAgent, dupB], { agentId: 'agent-1', workspaceId: 'w1' })?.id, 'moved')
+    assert.equal(selectAgentStateTarget([movedAgent, dupB], { agentId: 'agent-1', workspaceId: 'w2' })?.id, 'new')
+    // The frame's workspace is its process's launch workspace, so a session
+    // launched there wins over a newer one that only sits there now, having
+    // moved in from another chat: that one's frames name the chat it left.
+    const movedOut = {
+      ...cand({ id: 'moved-out', agentId: 'agent-1', workspaceId: 'w2', startedAt: 1 }),
+      launchWorkspaceId: 'w1',
+    }
+    const movedIn = {
+      ...cand({ id: 'moved-in', agentId: 'agent-1', workspaceId: 'w1', startedAt: 5 }),
+      launchWorkspaceId: 'w3',
+    }
+    assert.equal(
+      selectAgentStateTarget([movedIn, movedOut], { agentId: 'agent-1', workspaceId: 'w1' })?.id,
+      'moved-out',
+    )
+    assert.equal(selectAgentStateTarget([movedIn, movedOut], { agentId: 'agent-1', workspaceId: 'w3' })?.id, 'moved-in')
+    assert.equal(
+      selectAgentStateTarget([movedIn], { agentId: 'agent-1', workspaceId: 'w1' }),
+      undefined,
+      'a session that moved in never sent a frame naming the chat it moved into',
+    )
+    // A session with no launch workspace on record (one parked across a
+    // restart) is matched by the workspace it is in.
+    assert.equal(selectAgentStateTarget([dupA], { agentId: 'agent-1', workspaceId: 'w1' })?.id, 'old')
+
+    // After a restart every old chat has a parked `agent-1` with no process. A
+    // frame with no workspace is still placed when only one `agent-1` is live.
+    const parked = (id: string, workspaceId: string) => ({
+      ...cand({ id, agentId: 'agent-1', workspaceId, startedAt: 9 }),
+      alive: false,
+    })
+    const running = { ...cand({ id: 'running', agentId: 'agent-1', workspaceId: 'w2', startedAt: 1 }), alive: true }
+    assert.equal(
+      selectAgentStateTarget([parked('p1', 'w1'), parked('p3', 'w3'), running], {
+        agentId: 'agent-1',
+        workspaceId: null,
+      })?.id,
+      'running',
+    )
+    // Two live ones in two chats are still ambiguous.
+    const runningElsewhere = {
+      ...running,
+      id: 'running-w1',
+      value: { ...running.value, id: 'running-w1' },
+      workspaceId: 'w1',
+    }
+    assert.equal(
+      selectAgentStateTarget([parked('p3', 'w3'), running, runningElsewhere], {
+        agentId: 'agent-1',
+        workspaceId: null,
+      }),
+      undefined,
+    )
+    // With none live the old rule holds: one chat's parked session is the
+    // answer (the caller drops the frame as late), two chats' are ambiguous.
+    assert.equal(selectAgentStateTarget([parked('p1', 'w1')], { agentId: 'agent-1', workspaceId: null })?.id, 'p1')
+    assert.equal(
+      selectAgentStateTarget([parked('p1', 'w1'), parked('p3', 'w3')], { agentId: 'agent-1', workspaceId: null }),
+      undefined,
+    )
+    // The execution and session ids are unique on their own: placed whatever
+    // workspace the frame names.
+    assert.equal(
+      selectAgentStateTarget([cand({ id: 'x', executionId: 'exec1', workspaceId: 'w1', startedAt: 1 }), dupB], {
+        agentId: 'exec1',
+        workspaceId: 'w2',
+      })?.id,
+      'x',
+    )
 
     // --- stall evaluation ---------------------------------------------------
     const stallBase = { phaseSince: 0, lastOutputAt: null, now: 100_000, thresholdMs: 90_000 }

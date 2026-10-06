@@ -4,6 +4,8 @@ import { conversationSummaryPhase, type ConversationPhase } from '../../../../..
 import { layoutHasAgentTab } from '../../../utils/launchedAgentProjection'
 import { labelForCliRuntime } from '../newWorkspace/cliRuntimeOptions'
 import type { Activity } from './rowStyle'
+import type { TerminalSessionSnapshot } from '../../../../../shared/ipc/terminal'
+import { isSessionWorking } from '../../../hooks/useTerminalSessions'
 
 /**
  * What a chat's mark says: the CLI it rides, so a chat line wears the same
@@ -143,6 +145,30 @@ export function conversationPhaseActivity(phase: ConversationPhase): Activity {
   if (phase === 'failed') return 'failed'
   if (phase === 'running' || phase === 'starting') return 'working'
   return 'idle'
+}
+
+/**
+ * Whether anything in the chat is still working, which Settle and Snooze
+ * refuse and the rest sweep waits for: both end the chat's agent processes,
+ * and the work with them. Read per session — chat and terminal alike — as well
+ * as from the row's combined activity, because a waiting prompt or a failed
+ * turn outranks working there: one terminal agent at a prompt hid another
+ * still mid-turn beside it, and Settle ended that one. An agent the chat
+ * launched in the background counts whatever its parent's phase says: it goes
+ * on working while the parent waits on the person, or after the parent's turn
+ * failed.
+ */
+export function workspaceIsWorking(
+  activity: Activity,
+  conversations: readonly ConversationSessionSummary[],
+  terminals: readonly TerminalSessionSnapshot[] = [],
+): boolean {
+  if (activity === 'working') return true
+  if (terminals.some(isSessionWorking)) return true
+  return conversations.some(
+    (summary) =>
+      (summary.backgroundAgents ?? 0) > 0 || conversationPhaseActivity(conversationSummaryPhase(summary)) === 'working',
+  )
 }
 
 /** The row's existing status vocabulary, including when a terminal shares it. */

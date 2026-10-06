@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { composerField, typeIntoComposer } from '../../../../../../tests/composer-field'
 import { test } from 'vitest'
 
 test('NewAgentPanel launch paths', async () => {
@@ -21,6 +22,7 @@ test('NewAgentPanel launch paths', async () => {
   anyGlobal.HTMLElement = dom.window.HTMLElement
   anyGlobal.HTMLInputElement = dom.window.HTMLInputElement
   anyGlobal.HTMLTextAreaElement = dom.window.HTMLTextAreaElement
+  anyGlobal.MutationObserver = dom.window.MutationObserver
   anyGlobal.Node = dom.window.Node
   anyGlobal.MouseEvent = dom.window.MouseEvent
   anyGlobal.KeyboardEvent = dom.window.KeyboardEvent
@@ -337,10 +339,9 @@ test('NewAgentPanel launch paths', async () => {
     const sendOf = (view: Harness): HTMLElement | undefined =>
       [...view.container.querySelectorAll<HTMLElement>('[data-new-chat-composer] button')].pop()
     const typePrompt = async (view: Harness, text: string): Promise<void> => {
-      const field = view.container.querySelector('textarea')!
+      const field = composerField(view.container)
       await act(async () => {
-        Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, text)
-        field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        typeIntoComposer(field, text)
       })
     }
 
@@ -512,6 +513,79 @@ test('NewAgentPanel launch paths', async () => {
         resetRememberedMachineForTests()
       }
     })
+
+    await check(
+      'an SSH machine picked before is dropped for an extension, which is made on this computer',
+      async () => {
+        seedStore()
+        const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+        api.sshMachinesEnabled = true
+        api.sshEnvironmentsList = async () => [
+          {
+            id: 'ssh-1',
+            label: 'build-box',
+            destination: 'dev@build-box',
+            resolved: { hostname: 'build-box', user: 'dev', port: 22, proxyJump: null },
+            environmentId: null,
+            settings: {},
+            addedAt: 0,
+            state: 'connected',
+            stateText: 'Connected',
+            working: false,
+            action: null,
+            server: null,
+            notes: [],
+          },
+        ]
+        api.extensionScaffoldTarget = async (input: { parentDir: string; id: string }) => ({
+          state: 'free',
+          folder: `${input.parentDir}/${input.id}`,
+        })
+        try {
+          // Picked in a chat door, and so remembered for the next one.
+          const chat = await render(scheduleProps())
+          await settle()
+          await click(chat.container.querySelector('[data-machine-trigger="true"]')!)
+          await click(dom.window.document.querySelector('[data-machine-ssh="ssh-1"]')!)
+          await settle()
+          assert.ok(chat.container.querySelector('[aria-label="Folder on build-box"]') !== null, 'picked')
+          chat.unmount()
+
+          const view = await render(scheduleProps({ initialMode: 'extension' }))
+          await settle()
+          assert.equal(
+            view.container.querySelector('[aria-label="Folder on build-box"]') !== null,
+            false,
+            'no SSH folder field for an extension',
+          )
+          const trigger = view.container.querySelector('[data-machine-trigger="true"]')
+          if (trigger) await click(trigger)
+          assert.equal(
+            dom.window.document.querySelector('[data-machine-ssh="ssh-1"]'),
+            null,
+            'nor an SSH machine to pick',
+          )
+          const name = view.container.querySelector('[aria-label="Extension name"]') as HTMLInputElement
+          await act(async () => {
+            Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!.call(name, 'pr-radar')
+            name.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+          })
+          await act(async () => new Promise((resolve) => dom.window.setTimeout(resolve, 200)))
+          await typePrompt(view, 'A badge counting open pull requests.')
+          await click(sendOf(view)!)
+          await settle()
+          assert.equal(view.launches.length, 1)
+          assert.deepEqual(view.launches[0]?.extension, { id: 'pr-radar' }, 'the extension is made here')
+          assert.equal(view.launches[0]?.environment, undefined, 'not a chat on the SSH machine')
+          view.unmount()
+        } finally {
+          delete api.sshMachinesEnabled
+          delete api.sshEnvironmentsList
+          delete api.extensionScaffoldTarget
+          resetRememberedMachineForTests()
+        }
+      },
+    )
 
     if (failures > 0) {
       console.error(`NewAgentPanel.launch.test.tsx: ${failures} failing check(s)`)
