@@ -513,17 +513,10 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       retryable: retryAfterMs !== undefined,
       ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     })
-  const subscribe = async (frame: Extract<ConversationClientMessage, { type: 'subscribe' }>): Promise<void> => {
-    const key = host.resolveKey(frame.key.workspaceId, frame.key.agentId)
-    if (!key) {
-      subscribeFailed(frame.key, 'not_found', 'Conversation is unavailable.')
-      return
-    }
-    subscription?.dispose()
-    const generation = ++subscriptionGeneration
-    // What an earlier subscription left waiting to be sent is stale now.
+  /** What subscriptions other than `keep` left waiting to be sent: stale once the client asked for another. */
+  const dropQueued = (keep?: number): void => {
     for (const entry of [...pending]) {
-      if (entry.subscription === undefined || entry.subscription === generation) continue
+      if (entry.subscription === undefined || entry.subscription === keep) continue
       if (entry.kind === 'live') removeLive(entry)
       else if (!entry.started) {
         pending.splice(pending.indexOf(entry), 1)
@@ -532,6 +525,29 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       }
     }
     releaseBulkWaiters()
+  }
+  /**
+   * The client asked to follow another conversation and could not: it follows
+   * none now. Commands carry no key, so one sent next must not land on the
+   * conversation it moved away from.
+   */
+  const unfollow = (): void => {
+    subscription?.dispose()
+    subscription = null
+    currentKey = null
+    dropQueued()
+  }
+  const subscribe = async (frame: Extract<ConversationClientMessage, { type: 'subscribe' }>): Promise<void> => {
+    const key = host.resolveKey(frame.key.workspaceId, frame.key.agentId)
+    if (!key) {
+      unfollow()
+      subscribeFailed(frame.key, 'not_found', 'Conversation is unavailable.')
+      return
+    }
+    subscription?.dispose()
+    const generation = ++subscriptionGeneration
+    // What an earlier subscription left waiting to be sent is stale now.
+    dropQueued(generation)
     currentKey = key
     // Every snapshot and fence names the conversation it belongs to, so a
     // client can refuse one for a conversation it no longer follows.
@@ -609,7 +625,13 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     if (frame.type === 'command') {
       const started = now()
       const key = currentKey
-      const finish = (ok: boolean, code?: ConversationWireErrorCode, message?: string, notice?: string): void => {
+      const finish = (
+        ok: boolean,
+        code?: ConversationWireErrorCode,
+        message?: string,
+        notice?: string,
+        retryAfterMs?: number,
+      ): void => {
         options.audit({
           tool: `conversation.${frame.command.kind}`,
           commandId: frame.commandId,
@@ -625,6 +647,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
           ...(code ? { code } : {}),
           ...(message ? { message } : {}),
           ...(notice ? { notice } : {}),
+          ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
         })
       }
       if (!mayOperate) return finish(false, 'conversation_operate_required')
@@ -639,6 +662,8 @@ export function createTailnetConversationStream(options: TailnetConversationStre
             ? 'unavailable'
             : commandResult.code,
           commandResult.message,
+          undefined,
+          commandResult.code === 'busy' ? commandResult.retryAfterMs : undefined,
         )
     }
   }
@@ -653,8 +678,10 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       return false
     }
     if (readsInFlight < MAX_IN_FLIGHT_READS) return true
-    if (frame.type === 'subscribe') subscribeFailed(frame.key, 'busy', 'Too many requests.', BUSY_RETRY_MS)
-    else sendLive({ type: 'result', requestId: frame.requestId, ...busy })
+    if (frame.type === 'subscribe') {
+      unfollow()
+      subscribeFailed(frame.key, 'busy', 'Too many requests.', BUSY_RETRY_MS)
+    } else sendLive({ type: 'result', requestId: frame.requestId, ...busy })
     return false
   }
   /** A handler that threw still settles what the client sent, under its own id. */

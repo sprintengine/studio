@@ -250,6 +250,24 @@ test('offline, a client parks with what it was asked kept, and the network comin
   }
 })
 
+test('a client of a Studio on this machine keeps reconnecting while the device is offline', async () => {
+  vi.stubGlobal('navigator', { onLine: false })
+  try {
+    const target = window()
+    const client = await connect({
+      transport: target.transport,
+      client: { name: 'Studio window' },
+      reconnect: { initialDelayMs: 5, maxDelayMs: 20 },
+      parkWhenOffline: false,
+    })
+    cleanups.push(() => client.close())
+    target.drop()
+    await until(() => target.tickets.length === 2 && client.state === 'open')
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
+
 test('a stream’s cursor is what its consumer has read, never what is still waiting to be read', async () => {
   const target = window()
   const client = await connected(target)

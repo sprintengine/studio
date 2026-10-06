@@ -157,6 +157,71 @@ test('a Studio without the local-servers capability is not asked', async () => {
   expect(seen.at(-1)).toEqual([])
 })
 
+test("moving to another conversation draws none of the last one's servers, even when its answer comes late", async () => {
+  // The first conversation's answer is held back until after the second's.
+  let releaseFirst: () => void = () => undefined
+  const firstHeld = new Promise<void>((resolve) => (releaseFirst = resolve))
+  studio.answer = async (_method, params) => {
+    const [owner] = (params as { conversations: Array<{ workspaceId: string; agentId: string }> }).conversations
+    if (owner.agentId === 'agent-1') await firstHeld
+    return { workspaces: {}, conversations: [{ ...owner, servers: [server({ id: `srv-${owner.agentId}` })] }] }
+  }
+  const seen: Array<readonly StudioLocalServer[]> = []
+  await render(<ConversationProbe conversation={CONVERSATION} seen={seen} />)
+  await settle()
+  await act(async () =>
+    root!.render(<ConversationProbe conversation={{ workspaceId: 'ws-1', agentId: 'agent-2' }} seen={seen} />),
+  )
+  await settle()
+  expect(seen.at(-1)?.map((entry) => entry.id)).toEqual(['srv-agent-2'])
+  releaseFirst()
+  await settle()
+  expect(seen.at(-1)?.map((entry) => entry.id)).toEqual(['srv-agent-2'])
+})
+
+test("a conversation's servers are not drawn under the next one while it is asked", async () => {
+  answerConversation(() => [server()])
+  const seen: Array<readonly StudioLocalServer[]> = []
+  await render(<ConversationProbe conversation={CONVERSATION} seen={seen} />)
+  await settle()
+  expect(seen.at(-1)?.map((entry) => entry.id)).toEqual(['srv-1'])
+  // The next conversation's Studio does not answer.
+  studio.supports = false
+  await act(async () =>
+    root!.render(<ConversationProbe conversation={{ workspaceId: 'ws-1', agentId: 'agent-2' }} seen={seen} />),
+  )
+  await settle()
+  expect(seen.at(-1)).toEqual([])
+})
+
+test('of two asks that overlap, the older answer landing last is not drawn', async () => {
+  // The first read is held back until after the push's read has answered.
+  let releaseFirst: () => void = () => undefined
+  const firstHeld = new Promise<void>((resolve) => (releaseFirst = resolve))
+  let reads = 0
+  studio.answer = async (_method, params) => {
+    const [owner] = (params as { conversations: Array<{ workspaceId: string; agentId: string }> }).conversations
+    const read = ++reads
+    if (read === 1) await firstHeld
+    return {
+      workspaces: {},
+      conversations: [{ ...owner, servers: [server({ state: read === 1 ? 'running' : 'stopped' })] }],
+    }
+  }
+  const seen: Array<readonly StudioLocalServer[]> = []
+  await render(<ConversationProbe conversation={CONVERSATION} seen={seen} />)
+  await settle()
+  vi.useFakeTimers()
+  push()
+  await act(async () => vi.advanceTimersByTime(300))
+  vi.useRealTimers()
+  await settle()
+  expect(seen.at(-1)?.[0]?.state).toBe('stopped')
+  releaseFirst()
+  await settle()
+  expect(seen.at(-1)?.[0]?.state).toBe('stopped')
+})
+
 test('a push asks again, once for a burst, and the new state is drawn', async () => {
   let state: StudioLocalServer['state'] = 'running'
   answerConversation(() => [server({ state })])

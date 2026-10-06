@@ -131,4 +131,19 @@ test('a time a DST change skips runs just after the gap, and a repeated one runs
     '2026-11-01T05:30:00.000Z',
     '2026-11-02T06:30:00.000Z',
   ])
+  // East of UTC the same rule holds: Berlin falls back at 03:00 CEST on 25
+  // October 2026, so 02:00 happens twice and runs at the first, on CEST.
+  const beforeBerlinFall = Date.UTC(2026, 9, 24, 12, 0)
+  assert.deepEqual(iso(nextCronRuns(parsed('0 2 * * *'), 'Europe/Berlin', beforeBerlinFall, 2)), [
+    '2026-10-25T00:00:00.000Z',
+    '2026-10-26T01:00:00.000Z',
+  ])
+  // And a half-hourly schedule keeps its rhythm up to the change instead of
+  // going quiet for an hour and a half.
+  assert.deepEqual(iso(nextCronRuns(parsed('*/30 * * * *'), 'Europe/Berlin', Date.UTC(2026, 9, 24, 23, 15), 4)), [
+    '2026-10-24T23:30:00.000Z',
+    '2026-10-25T00:00:00.000Z',
+    '2026-10-25T00:30:00.000Z',
+    '2026-10-25T02:00:00.000Z',
+  ])
 })

@@ -89,6 +89,8 @@ export type WorktreePoolSlotView = {
     owner: string
     /** The agent that leased it itself through MCP (`worktree.lease`); null for a chat's own worktree. */
     agentId: string | null
+    /** The chat that agent is in; null for a chat's own worktree and a lease taken before chats were recorded. */
+    workspaceId: string | null
     leasedAt: number
   } | null
   held: {
@@ -117,6 +119,15 @@ export type WorktreePoolSnapshot = {
   defaultRef: string | null
   lastFetchAt: number | null
   slots: WorktreePoolSlotView[]
+}
+
+/**
+ * An agent as a pool lease names it: its chat and its id together. Agent ids
+ * are unique only within a chat (older chats each have an `agent-1`), so a
+ * bare id says nothing about whose lease a slot is.
+ */
+export function agentLeaseKey(workspaceId: string, agentId: string): string {
+  return `${workspaceId}\u0000${agentId}`
 }
 
 export type WorktreePoolHeldAction = 'commit' | 'stash' | 'discard' | 'keep'

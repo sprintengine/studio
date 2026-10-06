@@ -109,7 +109,7 @@ import { createPoolStore } from './worktree-pool/pool-store'
 import { createWorktreePoolService } from './worktree-pool/worktree-pool-service'
 import { createWorktreePoolTools } from './worktree-pool/worktree-pool-tools'
 import { createConversationPeekService } from './conversation-peek/service'
-import { createConversationTerminalHandoff } from './conversation-terminal-handoff'
+import { chatHandoffStart, createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
 import {
   createTerminalRuntime,
@@ -1186,6 +1186,12 @@ export function createAppServices(
         chatName: (workspaceId, agentId) =>
           workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
             ?.agents?.[agentId]?.name,
+        chatStart: (workspaceId, agentId) =>
+          chatHandoffStart(
+            workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId),
+            agentId,
+            agentLaunchSettings.get(),
+          ),
       })
 
   // Built after workspace sync because adopting the retired skill packs needs to
@@ -1287,6 +1293,20 @@ export function createAppServices(
       resolveWorkspaceRoot: (workspaceId) =>
         workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
           ?.folderPath ?? null,
+      // The folder the agent's chat works in, its pool worktree for a New
+      // chat. Known here only when the chats are this process's; out of
+      // process the shell has no sessions, and the workspace folder is used.
+      resolveAgentRoot: ({ workspaceId, agentId }) => {
+        const conversations = core.conversations as Partial<typeof core.conversations>
+        if (
+          typeof conversations.listSessions !== 'function' ||
+          typeof conversations.sessionWorkspaceRoot !== 'function'
+        )
+          return null
+        const listed = conversations.listSessions({ workspaceId, agentId })
+        const latest = listed.ok ? [...listed.sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0] : undefined
+        return latest ? conversations.sessionWorkspaceRoot(latest.sessionId) : null
+      },
       machineLabel: (id) => ssh?.environments.list().find((machine) => machine.id === id)?.label ?? null,
     }),
     publish: (tabId, recording) => browserManager.setRecording(tabId, recording),
@@ -1528,6 +1548,7 @@ export function createAppServices(
               createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
               getScheduledAgents: () => resolveScheduledAgents(),
               defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+              userCliModels: (cli) => agentLaunchSettings.get().cliRuntimes[cli]?.models,
               // module.*/marketplace.*. The registry snapshot is the
               // renderer's mirror — main's own module list omits every renderer-only
               // module, so reporting from it would be wrong by construction. Trust

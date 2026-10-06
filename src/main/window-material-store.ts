@@ -73,8 +73,8 @@ export function getWindowCanvasColor(): string {
 }
 
 export function setWindowMaterial(material: WindowMaterial, canvasColor?: string): void {
-  // A push without a colour (glass has none to send) keeps the last one, so a
-  // later switch back to an opaque material still opens on the theme's ground.
+  // A push without a colour (no theme canvas readable yet) keeps the last one,
+  // so a window opened meanwhile still opens on the theme's ground.
   cached = { material, canvasColor: canvasColor ?? readMirror().canvasColor }
   try {
     writeFileSync(storePath(), JSON.stringify(cached) + '\n', 'utf8')

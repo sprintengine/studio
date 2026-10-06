@@ -86,6 +86,12 @@ export function createTailnetMeshStore(options: {
   // not there yet). They are written back exactly as read: a launch without
   // the keychain must not delete pairings a later launch can still open.
   const unopened = loaded.unopened
+  // What the file on disk is when it could not be read as a list of
+  // connections. An unreadable one (a scanner holding it, a permission) is
+  // never written over this run: the next pairing would replace every paired
+  // machine with what this run knows. One that is not valid JSON is moved
+  // aside, once, before the first write, so whatever it held can be recovered.
+  let fileState = loaded.onDisk
 
   function encryptionAvailable(): boolean {
     try {
@@ -133,6 +139,18 @@ export function createTailnetMeshStore(options: {
 
   function persist(): void {
     const path = join(options.resolveUserDataDir(), TAILNET_MESH_FILENAME)
+    if (fileState === 'unreadable') {
+      options.log?.(
+        `${TAILNET_MESH_FILENAME} could not be read, so it is not written over; this change lasts until quit.`,
+      )
+      return
+    }
+    if (fileState === 'invalid') {
+      const aside = `${path}.invalid-${now().getTime()}`
+      renameSync(path, aside)
+      options.log?.(`${TAILNET_MESH_FILENAME} was not valid JSON; it was kept as ${aside}.`)
+      fileState = 'readable'
+    }
     // A connection whose token cannot be sealed is left out of the file
     // entirely: session-only, the way the other secret stores fall back.
     const onDisk = connections.flatMap((entry) => {
@@ -266,18 +284,21 @@ type ReadResult = {
   unopened: Record<string, unknown>[]
   /** A token was read as plaintext, so the file must be rewritten sealed. */
   plaintextRead: boolean
+  /** Whether the file could be read as connections; see `fileState` in the store. */
+  onDisk: 'readable' | 'unreadable' | 'invalid'
 }
 
 function read(userDataDir: string, cipher: SecretCipher | null, log?: (message: string) => void): ReadResult {
-  const empty: ReadResult = { connections: [], unopened: [], plaintextRead: false }
+  const empty: ReadResult = { connections: [], unopened: [], plaintextRead: false, onDisk: 'readable' }
   const path = migrateLegacyFile(userDataDir, log)
   let raw: string
   try {
     raw = readFileSync(path, 'utf8')
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
-    if (code !== 'ENOENT') log?.(`Could not read ${TAILNET_MESH_FILENAME}: ${message(error)}`)
-    return empty
+    if (code === 'ENOENT') return empty
+    log?.(`Could not read ${TAILNET_MESH_FILENAME}: ${message(error)}`)
+    return { ...empty, onDisk: 'unreadable' }
   }
   let entries: unknown[]
   try {
@@ -285,9 +306,9 @@ function read(userDataDir: string, cipher: SecretCipher | null, log?: (message: 
     entries = isRecord(parsed) && Array.isArray(parsed.connections) ? parsed.connections : []
   } catch (error) {
     log?.(`${TAILNET_MESH_FILENAME} is not valid JSON (${message(error)}); no machine is paired until it is fixed.`)
-    return empty
+    return { ...empty, onDisk: 'invalid' }
   }
-  const result: ReadResult = { connections: [], unopened: [], plaintextRead: false }
+  const result: ReadResult = { connections: [], unopened: [], plaintextRead: false, onDisk: 'readable' }
   for (const entry of entries) {
     // A half-readable entry is dropped rather than repaired: a connection with a
     // guessed endpoint would send this machine's credential somewhere nobody chose.

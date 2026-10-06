@@ -38,7 +38,11 @@ export type WorktreeChatSource = {
   folderPath: string | null
   worktree?: { repoRoot?: string; branch?: string } | null
   settledAt?: number | null
-  agents?: Record<string, unknown>
+  agents?: Record<string, { execution?: { cwd?: string | null; worktreeId?: string | null } | null } | undefined>
+  /** The worktrees the chat's agents were spawned into (the tab strip's "+ Worktree"). */
+  worktreeState?: {
+    entries?: Record<string, { path?: string | null; status?: string; ownerAgentId?: string | null } | undefined>
+  } | null
   remoteOrigin?: unknown
   environment?: unknown
 }
@@ -132,26 +136,59 @@ export function inventoryRootsOf(workspaces: readonly WorktreeChatSource[]): str
   return [...roots.values()]
 }
 
-type ChatIndex = { byPath: Map<string, WorktreeChat[]>; byAgent: Map<string, WorktreeChat> }
+type ChatIndex = {
+  byPath: Map<string, WorktreeChat[]>
+  byWorkspace: Map<string, WorktreeChat>
+  /** By bare agent id, for a lease that does not name its chat; ids repeat across chats, so a guess. */
+  byAgent: Map<string, WorktreeChat>
+}
 
+/**
+ * Every folder a chat works in: its own, and the worktrees its agents were
+ * spawned into, which are not its folder (an agent the tab strip started
+ * "+ Worktree" works in one of its own, recorded on the chat's worktree
+ * entries and the agent's working directory). A worktree only an agent uses
+ * is as much in use as a chat's folder, and must not read as free to remove.
+ */
 function indexChats(workspaces: readonly WorktreeChatSource[]): ChatIndex {
   const byPath = new Map<string, WorktreeChat[]>()
+  const byWorkspace = new Map<string, WorktreeChat>()
   const byAgent = new Map<string, WorktreeChat>()
   for (const workspace of workspaces) {
     if (workspace.remoteOrigin || workspace.environment) continue
     const chat = { workspaceId: workspace.id, title: workspace.name, settled: Boolean(workspace.settledAt) }
-    if (workspace.folderPath) {
-      const key = comparablePath(workspace.folderPath)
-      byPath.set(key, [...(byPath.get(key) ?? []), chat])
+    byWorkspace.set(workspace.id, chat)
+    const paths = new Set<string>()
+    if (workspace.folderPath) paths.add(comparablePath(workspace.folderPath))
+    const agents = workspace.agents ?? {}
+    for (const [agentId, agent] of Object.entries(agents)) {
+      byAgent.set(agentId, chat)
+      if (agent?.execution?.cwd) paths.add(comparablePath(agent.execution.cwd))
     }
-    for (const agentId of Object.keys(workspace.agents ?? {})) byAgent.set(agentId, chat)
+    for (const entry of Object.values(workspace.worktreeState?.entries ?? {})) {
+      if (!entry?.path) continue
+      // As the cleanup reads them: an entry assigned to an agent that is gone
+      // is an orphan, not a use.
+      const assigned = entry.status === 'assigned' && (!entry.ownerAgentId || agents[entry.ownerAgentId])
+      if (assigned || entry.status === 'removing') paths.add(comparablePath(entry.path))
+    }
+    for (const key of paths) byPath.set(key, [...(byPath.get(key) ?? []), chat])
   }
-  return { byPath, byAgent }
+  return { byPath, byWorkspace, byAgent }
 }
 
-/** The chat that works in a folder: an open one before a settled one. */
+/** The chat whose agent leased a slot itself: by the chat the lease names, else (an older lease) by the id. */
+function chatOfLeasingAgent(index: ChatIndex, lease: WorktreePoolSlotView['lease']): WorktreeChat | null {
+  if (!lease?.agentId) return null
+  if (lease.workspaceId) return index.byWorkspace.get(lease.workspaceId) ?? null
+  return index.byAgent.get(lease.agentId) ?? null
+}
+
+/** The chat that works in a folder, or anywhere inside it: an open one before a settled one. */
 function chatAt(index: ChatIndex, path: string): WorktreeChat | null {
-  const chats = index.byPath.get(comparablePath(path)) ?? []
+  const key = comparablePath(path)
+  const chats = [...(index.byPath.get(key) ?? [])]
+  for (const [candidate, at] of index.byPath) if (candidate.startsWith(`${key}/`)) chats.push(...at)
   return chats.find((chat) => !chat.settled) ?? chats[0] ?? null
 }
 
@@ -177,7 +214,7 @@ function slotRow(
     slot.state === 'leased' ? 'in-use' : slot.state === 'held' ? 'held' : slot.state === 'idle' ? 'ready' : 'busy'
   const chat =
     slot.state === 'leased' || slot.state === 'leasing'
-      ? (chatAt(chats, slot.path) ?? (slot.lease?.agentId ? (chats.byAgent.get(slot.lease.agentId) ?? null) : null))
+      ? (chatAt(chats, slot.path) ?? chatOfLeasingAgent(chats, slot.lease))
       : null
   const branch = slot.lease?.branch ?? slot.held?.branch ?? entry?.branch ?? null
   let usedBy: string

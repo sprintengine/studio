@@ -1,4 +1,5 @@
-import { createGitWorktree, getGitRepoRoot } from '../git'
+import { createGitWorktree, getGitRepoRoot, removeGitWorktree } from '../git'
+import { activeWorktreePool } from '../worktree-pool/active-pool'
 import { withGitHost } from '../git-run'
 import { hostRegistry } from '../hosts/host-registry'
 import { powerActivity } from '../power-activity'
@@ -15,6 +16,7 @@ import { createScheduledAgentsScheduler } from '../scheduled-agents/scheduler'
 import {
   createScheduledAgentsModuleRegistry,
   createScheduledAgentsService,
+  withinOwnerModuleCeiling,
   type ScheduledAgentsService,
 } from '../scheduled-agents/service'
 import { createScheduledAgentsStore, scheduledAgentsFilePath } from '../scheduled-agents/store'
@@ -35,8 +37,14 @@ function gitHostFor(hostId: ExecutionHostId | null) {
   return hostId ? hostRegistry().get(hostId) : null
 }
 
-/** `paths` places the schedule file; `clients` hears every change to the list. */
-export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'paths' | 'clients'>): CapabilityModule {
+/**
+ * `paths` places the schedule file; `clients` hears every change to the list;
+ * `getModulePermissions` is what an extension's schedule is held to.
+ */
+export function createScheduledAgentsModule(
+  platform: Pick<StudioPlatform, 'paths' | 'clients'>,
+  getModulePermissions: (moduleId: string) => readonly string[] | undefined,
+): CapabilityModule {
   const broadcastScheduledAgents = (agents: ScheduledAgentView[]): void =>
     platform.clients.publish(SCHEDULED_AGENTS_CHANGED_CHANNEL, agents)
   return {
@@ -60,9 +68,28 @@ export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'path
       // Late-bound: the scheduler reports a finished run to the service, which
       // is built around the scheduler.
       let service: ScheduledAgentsService | null = null
+      // A run's first message refused before its start was recorded, by the
+      // chat it started in: the start is recorded as that failure instead.
+      const refusedBeforeRecorded = new Map<string, string>()
+      const firstSendFailed = (agentId: string, workspaceId: string, message: string): void => {
+        void store.failRun(agentId, workspaceId, message).then((failed) => {
+          if (failed) {
+            service?.notifyChanged()
+            return
+          }
+          refusedBeforeRecorded.set(workspaceId, message)
+          while (refusedBeforeRecorded.size > 32)
+            refusedBeforeRecorded.delete(refusedBeforeRecorded.keys().next().value!)
+        })
+      }
       const scheduler = createScheduledAgentsScheduler({
         list: () => store.list(),
-        recordRun: (id, run) => store.recordRun(id, run),
+        recordRun: (id, run) => {
+          const refused = run.ok ? refusedBeforeRecorded.get(run.workspaceId) : undefined
+          if (refused === undefined || !run.ok) return store.recordRun(id, run)
+          refusedBeforeRecorded.delete(run.workspaceId)
+          return store.recordRun(id, { at: run.at, ok: false, message: refused })
+        },
         onRan: () => service?.notifyChanged(),
         isRunWorking: (workspaceId) => {
           const listed = conversations.listSessions({ workspaceId })
@@ -72,6 +99,9 @@ export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'path
         // schedule's card has nothing to say about it — but it is written down,
         // so "why did it not run at nine" has an answer.
         onSkipped: (agent, reason) => {
+          // The skipped time moved its next run on: say so, or every window
+          // keeps showing the passed time as "now" until something else changes.
+          service?.notifyChanged()
           const workspaceId = agent.lastRun?.ok ? agent.lastRun.workspaceId : undefined
           void writeDiagnosticLog({
             level: 'info',
@@ -85,7 +115,7 @@ export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'path
           }).catch(() => undefined)
         },
         run: (agent) =>
-          runScheduledAgent(agent, {
+          runScheduledAgent(withinOwnerModuleCeiling(agent, getModulePermissions), {
             launchConversation: (request) => conversationLaunchService.launch(request),
             getRepoRoot: (folderPath, hostId) => withGitHost(gitHostFor(hostId), () => getGitRepoRoot(folderPath)),
             createWorktree: async (input) => {
@@ -103,18 +133,39 @@ export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'path
                   copyIncludedFiles: true,
                   // The chat is created after its worktree, so the branch names the owner.
                   agentLockOwner: input.branchName,
+                  // Named to the pool too: it serves this machine's own git
+                  // alone, and a run on a WSL machine (its folder may well be a
+                  // Windows drive) must get a fresh worktree from that git.
+                  ...(input.hostId ? { hostId: input.hostId } : {}),
                 }),
               )
               return created.ok
-                ? { ok: true, path: created.data.path, branch: created.data.branch ?? input.branchName }
+                ? {
+                    ok: true,
+                    path: created.data.path,
+                    branch: created.data.branch ?? input.branchName,
+                    leaseId: created.data.leaseId,
+                  }
                 : { ok: false, message: created.message }
             },
+            // A pool slot goes back to the pool; a fresh worktree is removed.
+            discardWorktree: async ({ repoRoot, path, leaseId, hostId }) => {
+              const pool = leaseId ? activeWorktreePool() : null
+              if (pool && leaseId) {
+                await pool.release(leaseId)
+                return
+              }
+              await withGitHost(gitHostFor(hostId), () => removeGitWorktree({ repoRoot, path, force: true }))
+            },
+            onFirstSendFailed: (workspaceId, message) => firstSendFailed(agent.id, workspaceId, message),
           }),
       })
       const scheduledAgents = createScheduledAgentsService({ store, scheduler })
       service = scheduledAgents
       host.provideService(ScheduledAgentsServiceToken, () => scheduledAgents)
-      host.provideService(ScheduledAgentsModuleServiceToken, () => createScheduledAgentsModuleRegistry(scheduledAgents))
+      host.provideService(ScheduledAgentsModuleServiceToken, () =>
+        createScheduledAgentsModuleRegistry(scheduledAgents, getModulePermissions),
+      )
       const unsubscribe = scheduledAgents.onChanged(broadcastScheduledAgents)
       host.onShutdown(unsubscribe)
 

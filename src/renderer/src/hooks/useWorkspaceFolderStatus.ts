@@ -21,6 +21,30 @@ export type WorkspaceFolderStatus = {
   recheckFolder: () => Promise<boolean>
 }
 
+/**
+ * The folder check, after the chat's worktree is brought back when it needs to
+ * be. A restore that failed is the answer: something may well sit at the path
+ * (a worktree pool slot given to another chat since, a folder put there by
+ * hand), but it is not this chat's worktree, and reading it as ready would let
+ * the chat's panels work in someone else's checkout.
+ */
+async function checkAfterRestore(
+  workspaceId: string,
+  folderPath: string,
+  restore: boolean,
+): Promise<WorkspaceFolderCheckResult> {
+  if (restore && !(await ensureChatWorktree(workspaceId))) {
+    return {
+      ok: false,
+      status: 'missing',
+      path: folderPath,
+      checkedPath: folderPath,
+      message: 'This chat’s worktree could not be brought back.',
+    }
+  }
+  return window.api.checkWorkspaceFolder(folderPath)
+}
+
 export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderStatus {
   // A folder on an SSH machine (phase 8) is that machine's: this computer
   // cannot look at it, and must not mark it missing for not finding it here.
@@ -67,8 +91,7 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
 
     setCheckState({ path: folderPath, status: 'checking' })
     try {
-      await ensureChatWorktree(workspaceId)
-      const result = await window.api.checkWorkspaceFolder(folderPath)
+      const result = await checkAfterRestore(workspaceId, folderPath, true)
       applyCheckResult(folderPath, result)
       return result.ok
     } catch (error) {
@@ -96,8 +119,7 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
     // A chat whose worktree the cleanup gave back gets it back before the
     // folder is judged: until then the panels wait on 'checking', which is
     // what keeps a terminal from starting in a folder that is not there yet.
-    ;(restoreHere ? ensureChatWorktree(workspaceId) : Promise.resolve(false))
-      .then(() => window.api.checkWorkspaceFolder(folderPath))
+    checkAfterRestore(workspaceId, folderPath, restoreHere)
       .then((result) => {
         if (!cancelled) applyCheckResult(folderPath, result)
       })

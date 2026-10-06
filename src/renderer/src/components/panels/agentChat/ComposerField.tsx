@@ -1,5 +1,5 @@
 import React, { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from 'react'
-import { history, historyKeymap, insertNewline, standardKeymap } from '@codemirror/commands'
+import { history, historyKeymap, insertNewline, isolateHistory, standardKeymap } from '@codemirror/commands'
 import {
   deleteMarkupBackward,
   insertNewlineContinueMarkup,
@@ -68,6 +68,8 @@ type Props = {
    *  wiring when a menu is open off the field. */
   contentAttributes?: Record<string, string | boolean | undefined>
   className?: string
+  /** Whose draft the field holds (a conversation). A change starts the undo history again. */
+  historyScope?: string
 }
 
 // An edit that came in through `value` rather than from typing; the update
@@ -79,7 +81,10 @@ const fromProps = Annotation.define<boolean>()
 // and the native caret and selection. The markdown classes are index.css's.
 // The host's `max-h-`/`min-h-` are the caller's; the editor takes them on
 // itself, so the editor's own scroller is the one that scrolls and the editor
-// keeps drawing only the lines in view.
+// keeps drawing only the lines in view. The floor is carried down to the
+// editable element too: an editor's scroller is only as tall as its lines, so a
+// three-row box with one line typed was the field for its first row alone, and
+// a click below it put no caret anywhere.
 const composerTheme = EditorView.theme({
   '&': {
     color: 'inherit',
@@ -89,8 +94,14 @@ const composerTheme = EditorView.theme({
     minHeight: 'inherit',
   },
   '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { fontFamily: 'inherit', lineHeight: '20px', overflowX: 'hidden', overflowY: 'auto' },
-  '.cm-content': { padding: '0', caretColor: 'currentColor' },
+  '.cm-scroller': {
+    fontFamily: 'inherit',
+    lineHeight: '20px',
+    overflowX: 'hidden',
+    overflowY: 'auto',
+    minHeight: 'inherit',
+  },
+  '.cm-content': { padding: '0', caretColor: 'currentColor', minHeight: 'inherit' },
   '.cm-line': { padding: '0' },
   '.cm-placeholder': { color: 'var(--text-disabled)' },
 })
@@ -113,6 +124,7 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
     placeholder: new Compartment(),
     editable: new Compartment(),
     attributes: new Compartment(),
+    history: new Compartment(),
   })
 
   const handleRef = useRef<ComposerFieldHandle | null>(null)
@@ -165,7 +177,7 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
     const host = hostRef.current
     if (!host) return
     const field = handleRef.current!
-    const { placeholder, editable, attributes } = compartments.current
+    const { placeholder, editable, attributes, history: undoHistory } = compartments.current
     const initial = propsRef.current
     const view = new EditorView({
       parent: host,
@@ -212,7 +224,7 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
               },
             }),
           ),
-          history(),
+          undoHistory.of(history()),
           // Enter is the composer's (send); Shift+Enter is the newline, and it
           // carries a list or quote on to the next line the way a markdown
           // editor does. Backspace at a bare list marker takes the marker.
@@ -253,18 +265,42 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
   // by a pick from the @ or / menu — replaces the document. The caret goes to
   // its end, where a textarea given a new value puts it; a caller that wants it
   // elsewhere sets it after.
-  const { value } = props
+  //
+  // A replacement is one step to undo, so ⌘Z takes back a menu's Paste or an @
+  // pick as it would a keystroke. A draft cleared (sent) starts the history
+  // again: ⌘Z must not bring back a message that was already sent. The history
+  // is taken out for the clearing and put back fresh after it, so neither the
+  // edits before nor the clearing itself is there to undo.
+  const { value, historyScope } = props
   useLayoutEffect(() => {
     const view = viewRef.current
     if (!view || value === heldRef.current) return
     heldRef.current = value
     if (view.state.doc.toString() === value) return
+    const cleared = value === ''
+    const { history: undoHistory } = compartments.current
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
       selection: EditorSelection.cursor(value.length),
-      annotations: fromProps.of(true),
+      // A step of its own: typing straight after it is not merged into it.
+      annotations: [fromProps.of(true), isolateHistory.of('full')],
+      ...(cleared ? { effects: undoHistory.reconfigure([]) } : {}),
     })
+    if (cleared) view.dispatch({ effects: undoHistory.reconfigure(history()) })
   }, [value])
+
+  // Another conversation's draft in the same field starts the history again
+  // too, whatever the two drafts hold: one chat's edits are not the next's to
+  // undo. Runs after the draft above has been swapped in.
+  const scopeRef = useRef(historyScope)
+  useLayoutEffect(() => {
+    const view = viewRef.current
+    if (!view || scopeRef.current === historyScope) return
+    scopeRef.current = historyScope
+    const { history: undoHistory } = compartments.current
+    view.dispatch({ effects: undoHistory.reconfigure([]) })
+    view.dispatch({ effects: undoHistory.reconfigure(history()) })
+  }, [historyScope])
 
   const { placeholder, disabled, contentAttributes } = props
   useLayoutEffect(() => {

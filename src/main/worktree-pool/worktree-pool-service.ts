@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { rm } from 'fs/promises'
 import { basename, dirname, isAbsolute, resolve } from 'path'
 import {
+  agentLeaseKey,
   type WorktreePoolActionInput,
   type WorktreePoolActionResult,
   type WorktreePoolHeldReason,
@@ -13,7 +14,7 @@ import { hostIdForFolder, isWslHostId, LOCAL_HOST_ID, normalizeExecutionHostId }
 import { pathJoin } from '../../shared/paths'
 import { slugifyWorktreeName, worktreeContainerPath } from '../../shared/worktree-paths'
 import { lockAgentWorktree } from '../agent-worktree-lock'
-import { hiddenEditPaths, insideAny, pathSpellings } from '../agent-worktree-keep-checks'
+import { hiddenEditPaths, ignoredPathsAtRisk, insideAny, pathSpellings } from '../agent-worktree-keep-checks'
 import { pathExists } from '../git-utils'
 import { withWorktreeRegistryLock } from '../worktree-registry-lock'
 import { measureDiskUsage, type MeasureDiskUsage } from './disk-usage'
@@ -29,6 +30,7 @@ import {
   type InstanceLockDeps,
   type PoolRecord,
   type PoolStore,
+  type SlotLease,
   type SlotRecord,
 } from './pool-store'
 import {
@@ -137,6 +139,14 @@ export const POOL_MAX_SLOTS = 32
 const MEASURE_CONCURRENCY = 3
 const FETCH_FRESH_MS = 60_000
 const HEARTBEAT_INTERVAL_MS = 5 * 60_000
+/**
+ * How long quitting waits for the pool's steps in flight (a lease's fetch and
+ * reset, a return) before it gives the container's lock up anyway. A step cut
+ * short is what crash recovery exists for; a lock given up under a step still
+ * running would let another Studio take over and "recover" a slot this one is
+ * moving.
+ */
+const SHUTDOWN_WAIT_MS = 10_000
 const SLOT_NAME = /^pool-(\d{2,})$/u
 
 export type WorktreePoolServiceDeps = {
@@ -167,6 +177,8 @@ export type WorktreePoolLeaseInput = {
   owner?: string | null
   /** The agent that asked for the worktree itself (MCP), which keeps it while it exists. */
   agentId?: string | null
+  /** The chat that agent is in: an agent id is unique only within its chat. */
+  workspaceId?: string | null
   /** The machine the worktree is for; the pool serves only this machine's own git. */
   hostId?: string | null
   /** Copy the repository's `.worktreeinclude` set in, as a fresh worktree would. */
@@ -223,6 +235,13 @@ export type WorktreePoolReturnInput = {
    * is kept. Left out or null: unknown, and every such slot is kept.
    */
   agentIds?: ReadonlySet<string> | null
+  /**
+   * The same agents with their chats (`agentLeaseKey`), which a lease that
+   * records its agent's chat is matched against: a bare id is unique only
+   * within a chat, so another chat's `agent-1` must not keep this one's slot.
+   * Left out or null: unknown, and every such slot is kept.
+   */
+  agentKeys?: ReadonlySet<string> | null
   dryRun?: boolean
 }
 
@@ -270,6 +289,17 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   let loaded: Promise<void> | null = null
   let stopped = false
   let heartbeat: NodeJS.Timeout | null = null
+  /** Every public step still running, which quitting waits for (`shutdown`). */
+  const inFlight = new Set<Promise<unknown>>()
+
+  function track<T>(step: Promise<T>): Promise<T> {
+    inFlight.add(step)
+    void step.then(
+      () => inFlight.delete(step),
+      () => inFlight.delete(step),
+    )
+    return step
+  }
 
   // ── Plumbing ──────────────────────────────────────────────────────────────
 
@@ -458,6 +488,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
               branch: slot.lease.branch,
               owner: slot.lease.owner,
               agentId: slot.lease.agentId,
+              workspaceId: slot.lease.workspaceId,
               leasedAt: slot.lease.leasedAt,
             }
           : null,
@@ -756,6 +787,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     if (!slug) {
       return { ok: false, reason: 'invalid-name', message: `"${input.name}" does not reduce to a usable branch name.` }
     }
+    // Declined before any git runs: under a WSL machine's scope even the
+    // repository lookup is that machine's git, and its answer (`/mnt/c/…`)
+    // would be remembered for this computer's own leases of the folder.
+    const declined = unsupportedHost(input.repoRoot, input.hostId)
+    if (declined) return { ok: false, reason: 'unsupported', message: declined }
     const repo = await resolveRepo(input.repoRoot)
     if (!repo) return { ok: false, reason: 'not-a-repo', message: 'Not a git repository with a main checkout.' }
     const unsupported = unsupportedHost(repo.repoRoot, input.hostId)
@@ -783,11 +819,16 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     // Idle slots, the least recently used first: the slot a settled chat gave
     // back most recently is the last to go to someone else, so reopening that
     // chat finds its worktree still free to reclaim (`reclaim`).
+    // Idle slots passed over for this lease (a terminal sits in one): it stays
+    // idle, and picking it again would never get past it.
+    const passedOver = new Set<string>()
     for (let attempt = 0; attempt <= POOL_MAX_SLOTS; attempt += 1) {
       let created = false
       let slot: SlotRecord | null = await withPool(pool, async () => {
         const picked = pool.record.slots
-          .filter((candidate) => candidate.state === 'idle' && !pool.busy.has(candidate.id))
+          .filter(
+            (candidate) => candidate.state === 'idle' && !pool.busy.has(candidate.id) && !passedOver.has(candidate.id),
+          )
           .sort((a, b) => (a.lastUsedAt ?? a.createdAt) - (b.lastUsedAt ?? b.createdAt))[0]
         if (!picked) return null
         picked.state = 'leasing'
@@ -809,6 +850,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         if (!created) {
           if (somethingRunsIn(slot.path)) {
             // Someone opened a terminal in an idle slot; it is not reset under them.
+            passedOver.add(slot.id)
             await withPool(pool, async () => {
               slot!.state = 'idle'
               await persist(pool)
@@ -863,7 +905,15 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           slot!.error = notes.length ? notes.join('; ') : null
           slot!.baseRef = base.ref
           slot!.baseSha = base.sha
-          slot!.lease = { leaseId, branch, owner, agentId: input.agentId ?? null, leasedAt: now(), claimed: false }
+          slot!.lease = {
+            leaseId,
+            branch,
+            owner,
+            agentId: input.agentId ?? null,
+            workspaceId: input.agentId ? (input.workspaceId ?? null) : null,
+            leasedAt: now(),
+            claimed: false,
+          }
           slot!.lastUsedAt = now()
           slot!.uses += 1
           pool.record.lastLeaseAt = now()
@@ -898,6 +948,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   async function bind(leaseId: string, owner: string): Promise<boolean> {
     const found = findLease(leaseId)
     if (!found || !found.slot.lease) return false
+    if (!(await ready(found.pool))) return false
     await lockAgentWorktree(found.pool.record.repoRoot, found.slot.path, owner, git).catch(() => null)
     await withPool(found.pool, async () => {
       if (!found.slot.lease) return
@@ -947,6 +998,50 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     if (began.kind === 'done') return { ok: true }
     if (began.kind === 'refused') {
       const other = began.other
+      // Held with the chat's own branch still checked out (a return that found
+      // its work uncommitted): that is this chat's worktree, as it left it, and
+      // the chat opens on it so the work can be committed or discarded there.
+      // It is leased to the chat again, so the Worktree manager no longer offers
+      // to discard or return a folder the open chat works in, and the chat's
+      // own return later holds it again if the work is still uncommitted.
+      if (other.state === 'held' && other.held?.branch === branch) {
+        const taken = await withPool(pool, async () => {
+          if (other.state !== 'held' || other.held?.branch !== branch || pool.busy.has(other.id)) return false
+          pool.busy.add(other.id)
+          return true
+        })
+        if (taken) {
+          try {
+            const status = await readSlotStatus(git, other.path)
+            if (status.ok && status.status.branch === branch) {
+              await git(pool.record.repoRoot, ['worktree', 'unlock', other.path])
+              const locked = await lockAgentWorktree(pool.record.repoRoot, other.path, input.owner, git)
+              if (!locked.ok) log(`${other.path}: could not lock (${tail(locked.message, 200)}); reclaiming anyway`)
+              await withPool(pool, async () => {
+                other.state = 'leased'
+                other.op = null
+                other.held = null
+                other.error = null
+                other.lease = {
+                  leaseId: randomUUID(),
+                  branch,
+                  owner: input.owner,
+                  agentId: null,
+                  workspaceId: null,
+                  leasedAt: now(),
+                  claimed: false,
+                }
+                other.lastUsedAt = now()
+                await persist(pool)
+              })
+              log(`${other.path}: held work given back to its chat on ${branch}`)
+              return { ok: true }
+            }
+          } finally {
+            pool.busy.delete(other.id)
+          }
+        }
+      }
       return {
         ok: false,
         message:
@@ -994,6 +1089,34 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           message: 'The worktree this chat used changed while it was in the pool; it is held in the Worktree manager.',
         }
       }
+      // Commits made on the idle slot's detached HEAD since the pool left it
+      // are on no branch: switching away would leave them to the reflog, which
+      // the slot's eventual removal takes with it. Held, as eviction holds them.
+      const from = status.status.oid
+      if (from && slot.baseSha && from !== slot.baseSha && !(await commitIsReachable(git, slot.path, from))) {
+        await hold(pool, slot, 'unexpected-head', 'found while giving it back to its chat: commits no branch has')
+        return {
+          ok: false,
+          message: 'The worktree this chat used changed while it was in the pool; it is held in the Worktree manager.',
+        }
+      }
+      // Another agent may have used the slot since, and left ignored files
+      // (its build output, an `.env`) where the chat's branch tracks a file:
+      // `switch` would overwrite them without a word, as a reset would.
+      const tip = await revParseCommit(git, pool.record.repoRoot, `refs/heads/${branch}`)
+      if (from && tip && from !== tip) {
+        const inTheWay = await ignoredFilesInTheWay(git, slot.path, from, tip)
+        if (inTheWay === null || inTheWay.length > 0) {
+          await putBack()
+          return {
+            ok: false,
+            message:
+              inTheWay === null
+                ? 'Could not check the worktree this chat used for ignored files its branch would overwrite.'
+                : `The worktree this chat used has ignored files its branch would overwrite (${inTheWay.slice(0, 3).join(', ')}). Clear its ignored files in Settings ▸ Worktrees, then open the chat again.`,
+          }
+        }
+      }
       const locked = await lockAgentWorktree(pool.record.repoRoot, slot.path, input.owner, git)
       if (!locked.ok) log(`${slot.path}: could not lock (${tail(locked.message, 200)}); reclaiming anyway`)
       const switched = await git(slot.path, ['switch', '--quiet', branch])
@@ -1010,6 +1133,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           branch,
           owner: input.owner,
           agentId: null,
+          workspaceId: null,
           leasedAt: now(),
           claimed: false,
         }
@@ -1160,6 +1284,16 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     return 'returned'
   }
 
+  /** Whether the agent that leased a slot through MCP is still in the app's records. */
+  function agentStillHeld(lease: SlotLease, input: WorktreePoolReturnInput): boolean {
+    if (lease.agentId === null) return false
+    if (lease.workspaceId !== null) {
+      return input.agentKeys == null || input.agentKeys.has(agentLeaseKey(lease.workspaceId, lease.agentId))
+    }
+    // A lease recorded before leases named their chat: the id alone.
+    return input.agentIds == null || input.agentIds.has(lease.agentId)
+  }
+
   /**
    * Return every leased slot of a repository that nothing uses any more. Asked
    * by the agent worktree cleanup, which already knows every path the app's
@@ -1190,8 +1324,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       const base = { path: slot.path, branch: lease.branch }
       const slotSpellings = await pathSpellings(slot.path)
       const inUse =
-        protectedSpellings.some((spellings) => insideAny(spellings, slotSpellings)) ||
-        (lease.agentId !== null && (input.agentIds == null || input.agentIds.has(lease.agentId)))
+        protectedSpellings.some((spellings) => insideAny(spellings, slotSpellings)) || agentStillHeld(lease, input)
       if (inUse) {
         if (!lease.claimed && !input.dryRun) {
           await withPool(pool, async () => {
@@ -1224,7 +1357,19 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
 
   // ── Evicting ─────────────────────────────────────────────────────────────
 
-  async function evictSlot(pool: PoolRuntime, slot: SlotRecord, why: string): Promise<boolean> {
+  /**
+   * Remove an idle slot from disk and from the pool. True when it is gone;
+   * otherwise why not, worded for the person who asked (Settings): the slot is
+   * left idle, or held when it turned out to hold work.
+   */
+  async function evictSlot(pool: PoolRuntime, slot: SlotRecord, why: string): Promise<true | string> {
+    const putBack = async (): Promise<void> => {
+      await withPool(pool, async () => {
+        slot.state = 'idle'
+        slot.op = null
+        await persist(pool)
+      })
+    }
     const began = await withPool(pool, async () => {
       if (pool.busy.has(slot.id) || (slot.state !== 'idle' && slot.state !== 'evicting')) return false
       pool.busy.add(slot.id)
@@ -1233,15 +1378,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       await persist(pool)
       return true
     })
-    if (!began) return false
+    if (!began) return 'Only a worktree that is ready to reuse can be removed.'
     try {
       if (somethingRunsIn(slot.path)) {
-        await withPool(pool, async () => {
-          slot.state = 'idle'
-          slot.op = null
-          await persist(pool)
-        })
-        return false
+        await putBack()
+        return 'A terminal is open in it. Close it first.'
       }
       if (await pathExists(slot.path)) {
         const status = await readSlotStatus(git, slot.path)
@@ -1253,7 +1394,46 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
             'found while evicting',
             status.ok ? { changedPaths: status.status.changedPaths, branch: status.status.branch } : {},
           )
-          return false
+          return 'It changed since it came back to the pool, and is held there now.'
+        }
+        // Commits made on the idle slot's detached HEAD (a person in a
+        // terminal there) are on no branch, and removing the worktree takes
+        // its HEAD reflog with it: they would be lost. Where the pool left
+        // it is the pool's to drop; anywhere else, unreachable, is held.
+        const oid = status.status.oid
+        if (oid && oid !== slot.baseSha && !(await commitIsReachable(git, slot.path, oid))) {
+          await hold(pool, slot, 'unexpected-head', 'found while evicting: commits no branch has')
+          return 'It holds commits no branch has, and is held in the pool now.'
+        }
+        // Tracked files hidden from `status` (`--assume-unchanged`,
+        // `--skip-worktree`): neither the read above nor git's own check at
+        // removal sees their edits, which would go with the folder.
+        const hidden = await hiddenEditPaths(slot.path, git)
+        if (!hidden.ok || hidden.paths.length > 0) {
+          await hold(
+            pool,
+            slot,
+            'dirty',
+            hidden.ok ? `edits hidden from git status: ${hidden.paths.slice(0, 5).join(', ')}` : hidden.message,
+            { changedPaths: hidden.ok ? hidden.paths.length : null },
+          )
+          return 'It has edits git status does not show, and is held in the pool now.'
+        }
+        // Removing deletes the ignored files too, and the ones that may be
+        // someone's work are kept as the agent worktree cleanup keeps them:
+        // an edited `.env`, notes in an ignored folder (agent-worktree-keep-
+        // checks.ts). The slot stays idle; clearing its ignored files, which a
+        // person confirms, is the way to let them go.
+        const ignored = await ignoredPathsAtRisk(pool.record.repoRoot, slot.path, git)
+        if (!ignored.ok || ignored.paths.length > 0) {
+          await putBack()
+          if (!ignored.ok) {
+            log(`${slot.path}: kept (could not check its ignored files: ${ignored.message})`)
+            return 'Could not check its ignored files, so it is kept.'
+          }
+          const listedPaths = ignored.paths.slice(0, 3).join(', ')
+          log(`${slot.path}: kept (ignored files that may be work: ${listedPaths})`)
+          return `It has ignored files that may be someone’s work (${listedPaths}). Clear its ignored files first if they can go.`
         }
         // No --force: git checks cleanliness again at the moment of removal.
         // Only a tree with submodules, which plain `remove` always refuses, is
@@ -1268,7 +1448,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         }
         if (!removed.ok) {
           await hold(pool, slot, 'error', `could not remove: ${tail(removed.message, 200)}`)
-          return false
+          return `Git could not remove it: ${tail(removed.message, 200) ?? 'unknown error'}`
         }
       } else {
         await withWorktreeRegistryLock(pool.record.repoRoot, () => git(pool.record.repoRoot, ['worktree', 'prune']))
@@ -1344,7 +1524,10 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     const { diskLimitGb } = await getSettings()
     if (diskLimitGb === null) return
     const limit = diskLimitGb * 1024 ** 3
-    const driven = [...pools.values()].filter((pool) => pool.instance === 'held')
+    const driven: PoolRuntime[] = []
+    // Confirmed, not remembered: a pool whose lock went to another Studio is
+    // that Studio's to evict from.
+    for (const pool of pools.values()) if (pool.instance === 'held' && (await ready(pool))) driven.push(pool)
     let total = driven.reduce(
       (sum, pool) => sum + pool.record.slots.reduce((poolSum, slot) => poolSum + (slot.size?.bytes ?? 0), 0),
       0,
@@ -1357,7 +1540,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     for (const { pool, slot } of idle) {
       if (total <= limit) break
       const bytes = slot.size?.bytes ?? 0
-      if (await evictSlot(pool, slot, 'over the disk limit')) total -= bytes
+      if ((await evictSlot(pool, slot, 'over the disk limit')) === true) total -= bytes
     }
   }
 
@@ -1548,6 +1731,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
               branch: entry.branch!,
               owner: entry.branch!,
               agentId: null,
+              workspaceId: null,
               leasedAt: now(),
               claimed: false,
             }
@@ -1576,10 +1760,12 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     })
     // Finished in the background: a lease waiting on recovery needs the
     // records settled, not these slots.
-    void (async () => {
-      for (const slot of toReturn) await returnSlot(pool, slot, true)
-      for (const slot of toEvict) await evictSlot(pool, slot, 'resumed')
-    })().catch((error: unknown) => log(`${record.repoRoot}: resuming after recovery failed: ${messageOf(error)}`))
+    void track(
+      (async () => {
+        for (const slot of toReturn) await returnSlot(pool, slot, true)
+        for (const slot of toEvict) await evictSlot(pool, slot, 'resumed')
+      })(),
+    ).catch((error: unknown) => log(`${record.repoRoot}: resuming after recovery failed: ${messageOf(error)}`))
   }
 
   // ── Held-slot actions ────────────────────────────────────────────────────
@@ -1711,9 +1897,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     const slot = slotById(pool, input.slotId)
     if (!slot) return { ok: false, message: 'No such worktree in the pool.' }
     if (input.kind === 'evict') {
-      return (await evictSlot(pool, slot, 'by request'))
-        ? { ok: true, message: 'Removed.' }
-        : { ok: false, message: 'Only an idle, clean worktree can be removed.' }
+      const evicted = await evictSlot(pool, slot, 'by request')
+      return evicted === true ? { ok: true, message: 'Removed.' } : { ok: false, message: evicted }
     }
     if (input.kind === 'clear-ignored') return clearIgnored(pool, slot)
     return heldAction(pool, slot, input.action, input.message)
@@ -1727,15 +1912,24 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   async function release(leaseId: string): Promise<'returned' | 'held' | 'postponed' | 'busy' | 'not-found'> {
     const found = findLease(leaseId)
     if (!found) return 'not-found'
+    // Only while this instance still holds the pool: one that lost the lock
+    // (another Studio judged it stale) must not move a slot that is now
+    // someone else's.
+    if (!(await ready(found.pool))) return 'busy'
     const outcome = await returnSlot(found.pool, found.slot)
     return outcome === 'skipped' ? 'busy' : outcome
   }
 
   /** The lease an agent took through MCP, by the slot path it was given. */
-  function leaseAt(path: string): { leaseId: string; agentId: string | null; branch: string } | null {
+  function leaseAt(
+    path: string,
+  ): { leaseId: string; agentId: string | null; workspaceId: string | null; branch: string } | null {
     for (const pool of pools.values()) {
       const slot = pool.record.slots.find((candidate) => comparablePath(candidate.path) === comparablePath(path))
-      if (slot?.lease) return { leaseId: slot.lease.leaseId, agentId: slot.lease.agentId, branch: slot.lease.branch }
+      if (slot?.lease) {
+        const { leaseId, agentId, workspaceId, branch } = slot.lease
+        return { leaseId, agentId, workspaceId, branch }
+      }
     }
     return null
   }
@@ -1747,7 +1941,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     // A lower limit takes effect now, and the caller (Settings) sees the pools
     // it leaves behind.
     for (const pool of pools.values()) {
-      if (pool.instance === 'held') await evictOverLimit(pool)
+      if (pool.instance === 'held' && (await ready(pool))) await evictOverLimit(pool)
     }
     await enforceDiskLimit()
     return next
@@ -1764,6 +1958,23 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   async function shutdown(): Promise<void> {
     stopped = true
     if (heartbeat) clearInterval(heartbeat)
+    // Nothing new starts now (`ready` refuses); what already runs is waited
+    // for, briefly, before the lock that keeps another Studio off it goes.
+    // Until none is left, not just the ones running now: a recovery already
+    // under way when quitting began still schedules its slot moves (`track`).
+    if (inFlight.size > 0) {
+      let timer: NodeJS.Timeout | null = null
+      let timedOut = false
+      const deadline = new Promise<void>((resolveWait) => {
+        timer = setTimeout(() => {
+          timedOut = true
+          resolveWait()
+        }, SHUTDOWN_WAIT_MS)
+        timer.unref?.()
+      })
+      while (inFlight.size > 0 && !timedOut) await Promise.race([Promise.allSettled([...inFlight]), deadline])
+      if (timer) clearTimeout(timer)
+    }
     for (const pool of pools.values()) {
       await pool.chain.catch(() => {})
       if (pool.instance === 'held') await releaseInstanceLock(pool.containerPath, instanceId)
@@ -1773,21 +1984,21 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   return {
     /** Read the records. Recovery waits for each pool's first use: nothing runs at start. */
     load,
-    lease,
-    bind,
-    reclaim,
-    release,
-    returnUnused,
+    lease: (input: WorktreePoolLeaseInput) => track(lease(input)),
+    bind: (leaseId: string, owner: string) => track(bind(leaseId, owner)),
+    reclaim: (input: Parameters<typeof reclaim>[0]) => track(reclaim(input)),
+    release: (leaseId: string) => track(release(leaseId)),
+    returnUnused: (input: WorktreePoolReturnInput) => track(returnUnused(input)),
     leaseAt,
-    action,
+    action: (input: WorktreePoolActionInput) => track(action(input)),
     snapshot,
     snapshots: async () => {
       await load()
       return [...pools.values()].map(snapshotOf)
     },
     getSettings,
-    updateSettings,
-    measure,
+    updateSettings: (patch: Partial<WorktreePoolSettings>) => track(updateSettings(patch)),
+    measure: (repoRoot?: string) => track(measure(repoRoot)),
     ownsPath,
     shutdown,
   }

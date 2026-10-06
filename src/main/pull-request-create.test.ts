@@ -147,6 +147,49 @@ test('the push sets an upstream the first time, then pushes only what the remote
   assert.deepEqual(await creator.push(clone), { ok: true, pushed: false })
 })
 
+test('a branch cut from origin/main, and so tracking it, is pushed to its own name and never to main', async () => {
+  const { clone, origin } = await checkout()
+  await git(clone, 'push', '-q', origin, 'main')
+  await git(clone, 'fetch', '-q', origin, '+refs/heads/main:refs/remotes/origin/main')
+  await git(clone, 'branch', '--set-upstream-to=origin/main')
+  await git(clone, 'config', 'push.default', 'upstream')
+  const mainBefore = await git(origin, 'rev-parse', 'refs/heads/main')
+  const creator = createPullRequestCreator({ listBranch: lookupOf(NONE).listBranch })
+  assert.deepEqual(await creator.push(clone), { ok: true, pushed: true })
+  assert.equal(await git(origin, 'rev-parse', 'refs/heads/main'), mainBefore, 'main is untouched')
+  assert.equal(await git(origin, 'rev-parse', 'refs/heads/feature/marks'), await git(clone, 'rev-parse', 'HEAD'))
+  assert.equal(await git(clone, 'rev-parse', '--abbrev-ref', '@{u}'), 'origin/feature/marks')
+})
+
+test('a branch set to push to a fork is pushed there, under its own name, and its pull request names the fork', async () => {
+  const { clone, origin } = await checkout()
+  const fork = path.join(path.dirname(origin), 'fork.git')
+  await exec('git', ['init', '-q', '--bare', '-b', 'main', fork])
+  await git(clone, 'remote', 'add', 'mine', 'git@github.com:dev/app.git')
+  await git(clone, 'remote', 'set-url', '--push', 'mine', fork)
+  await git(clone, 'config', 'branch.feature/marks.pushRemote', 'mine')
+  const calls: string[][] = []
+  const gh: GhRunner = {
+    available: async () => true,
+    run: async (args) => {
+      calls.push(args)
+      return { found: true, code: 0, stdout: 'https://github.com/acme/app/pull/14\n', stderr: '' }
+    },
+  }
+  const creator = createPullRequestCreator({ gh, listBranch: lookupOf(NONE).listBranch })
+  assert.deepEqual(await creator.push(clone), { ok: true, pushed: true })
+  assert.equal(await git(fork, 'rev-parse', 'refs/heads/feature/marks'), await git(clone, 'rev-parse', 'HEAD'))
+  await assert.rejects(git(origin, 'rev-parse', '--verify', 'refs/heads/feature/marks'), 'nothing was pushed to origin')
+  await creator.create(clone, { title: 'feat: marks', body: '' })
+  assert.equal(calls[0][calls[0].indexOf('--head') + 1], 'dev:feature/marks')
+
+  // A push remote that does not exist is not guessed at: origin it is.
+  await git(clone, 'config', 'branch.feature/marks.pushRemote', 'nowhere')
+  await commit(clone, 'more.ts', 'export const more = 1\n', 'feat: more')
+  assert.deepEqual(await creator.push(clone), { ok: true, pushed: true })
+  assert.equal(await git(origin, 'rev-parse', 'refs/heads/feature/marks'), await git(clone, 'rev-parse', 'HEAD'))
+})
+
 test('GitHub: gh creates it with the body from a file, and an existing one is taken rather than failed', async () => {
   const { clone } = await checkout()
   const calls: Array<{ args: string[]; body: string }> = []

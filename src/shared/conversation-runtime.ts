@@ -315,9 +315,13 @@ export type ConversationSuspendSessionInput = {
 
 // Resume in terminal: the chat's CLI session is taken over by a terminal agent
 // running the CLI's own resume (`claude --resume <id>`, `codex resume <id>`).
-export type ConversationTerminalHandoffInput = {
-  sessionId: string
-}
+export type ConversationTerminalHandoffInput =
+  | { sessionId: string }
+  // The chat by its identity, for a caller that holds no session of it (a tab's
+  // menu): main hands over the session it has running, or starts one from the
+  // chat's record to read the CLI session from its transcript, as after an app
+  // restart, when nothing has been sent to the chat yet.
+  | { workspaceId: string; agentId: string }
 
 export type ConversationTerminalHandoffResult =
   // The terminal agent now carrying the conversation on, in the chat's workspace.

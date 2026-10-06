@@ -1375,6 +1375,9 @@ test('conversation-runtime', async () => {
       assert.equal(interrupted.ok, true)
       if (!interrupted.ok) return
       assert.equal(interrupted.session.status, 'ready')
+      // Stopped is not failed: the sidebar reads the phase, and a stop it
+      // called "Failed" flagged the chat as needing a look.
+      assert.equal(interrupted.session.phase, 'completed')
       gate.resolve()
       const sent = await sentPromise
       assert.equal(sent.ok, true)

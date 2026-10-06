@@ -5,6 +5,7 @@ import {
   isPathInside,
   pastedImagePaths,
   pathsForPathlessFiles,
+  quotePromptPath,
   readPastedImagePaths,
   splitShellWords,
 } from './imageFileTransfer'
@@ -75,6 +76,19 @@ test('a path is inside a folder only at a separator', () => {
 test('words split the way a shell splits them', () => {
   assert.deepEqual(splitShellWords(`a 'b c' "d \\" e" f\\ g`), ['a', 'b c', 'd " e', 'f g'])
   assert.equal(splitShellWords('ends with \\'), null)
+})
+
+test('a dropped path is quoted only when it needs it, and reads back as the one path', () => {
+  assert.equal(quotePromptPath('/Users/dev/project/src/app.ts'), '/Users/dev/project/src/app.ts')
+  assert.equal(quotePromptPath('/Users/dev/Desktop/Q3 budget.xlsx'), "'/Users/dev/Desktop/Q3 budget.xlsx'")
+  // An apostrophe would end a single-quoted path, so it is spliced out.
+  const apostrophe = "/Users/dev/Desktop/Dev's Files/notes.md"
+  assert.equal(quotePromptPath(apostrophe), `'/Users/dev/Desktop/Dev'"'"'s Files/notes.md'`)
+  assert.deepEqual(splitShellWords(quotePromptPath(apostrophe)), [apostrophe])
+  assert.deepEqual(splitShellWords(quotePromptPath("/Users/dev/it's.md")), ["/Users/dev/it's.md"])
+  // A Windows path takes double quotes, which none can contain.
+  assert.equal(quotePromptPath("C:\\Users\\dev\\Dev's Files\\a.txt"), `"C:\\Users\\dev\\Dev's Files\\a.txt"`)
+  assert.equal(quotePromptPath('\\\\build-box\\share\\My Docs'), '"\\\\build-box\\share\\My Docs"')
 })
 
 test('pasted paths are read into image files at paste time, or not at all', async () => {

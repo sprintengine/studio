@@ -72,8 +72,13 @@ beforeAll(() => {
 })
 
 const popOutRequests: unknown[] = []
+const activeNotes: Array<string | null> = []
 const apiTarget: Record<string, unknown> = {
   platform: 'win32',
+  browserNoteActive: (_workspaceId: string, tabId: string | null) => {
+    activeNotes.push(tabId)
+    return Promise.resolve()
+  },
   panePopOutOpen: (input: unknown) => {
     popOutRequests.push(input)
     return Promise.resolve({ ok: true })
@@ -82,6 +87,7 @@ const apiTarget: Record<string, unknown> = {
 
 afterEach(() => {
   popOutRequests.length = 0
+  activeNotes.length = 0
   if (root) act(() => root?.unmount())
   host?.remove()
   root = null
@@ -306,4 +312,20 @@ test('a popped-out tab wears the pop-out mark, and its menu brings it back inste
   assert.equal(pane?.tabs.find((candidate) => candidate.id === 't2')?.poppedOut, undefined)
   assert.equal(pane?.activeTabId, 't2', 'back, it is the tab on screen')
   assert.equal(popOutRequests.length, 0, 'bringing a tab back opens no window')
+})
+
+test('a pane never names a browser tab that is out in a window of its own', async () => {
+  await renderPane(
+    {
+      open: true,
+      activeTabId: 'web',
+      tabs: [
+        { id: 'files', kind: 'files' },
+        { id: 'web', kind: 'browser', url: 'http://localhost:3000/', poppedOut: 'pop-1' },
+      ],
+    },
+    false,
+  )
+  // Main keeps this "none" from clearing the pop-out's word (browser-ipc).
+  assert.deepEqual(activeNotes, [null], 'the window holding the page names it, not the pane')
 })

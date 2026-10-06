@@ -1402,9 +1402,10 @@ test('a turn’s steps rest folded, the latest one included; its agents are card
       event('turn_completed', { turnId: 'fold-first' }),
     ],
   })
-  const openPaneTab = vi.fn()
+  const openPaneTab = vi.fn(() => 'agents-tab')
+  const setActivePaneTab = vi.fn()
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')
-  useWorkspaceStore.setState({ openPaneTab } as never)
+  useWorkspaceStore.setState({ openPaneTab, setActivePaneTab } as never)
   const fold = () => chat.button('Worked for')
   try {
     expect(fold()?.textContent, 'the agent is not one of the steps').toContain('1 step')
@@ -1417,7 +1418,8 @@ test('a turn’s steps rest folded, the latest one included; its agents are card
     expect(card?.textContent).toContain('Explore agent')
     expect(card?.textContent).toContain('Map the test suites')
     await chat.act(async () => card!.click())
-    expect(openPaneTab).toHaveBeenCalledWith('workspace', { kind: 'agents' })
+    expect(openPaneTab).toHaveBeenCalledWith('workspace', { kind: 'agents', activate: false })
+    expect(setActivePaneTab, 'a docked Agents tab is shown in the pane').toHaveBeenCalledWith('workspace', 'agents-tab')
     await chat.act(async () => fold()!.click())
     expect(chat.host.textContent, 'opened, the fold shows the steps').toContain('a.ts')
   } finally {

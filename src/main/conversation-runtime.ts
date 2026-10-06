@@ -31,13 +31,13 @@ import type {
   ConversationStartSessionResult,
   ConversationStopSessionInput,
   ConversationSuspendSessionInput,
-  ConversationTerminalHandoffInput,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
   ConversationToolDetailInput,
   ConversationToolDetailResult,
   ConversationToolDetail,
   ConversationJsonValue,
+  ConversationToolStatus,
   ConversationTurnDiffInput,
   ConversationTurnDiffResult,
   ConversationRevertInput,
@@ -83,11 +83,13 @@ import { ConversationAttachmentStore } from './conversation-attachment-store'
 import { ConversationPlanStore } from './conversation-plan-store'
 import { approvalRememberLabels, approvalRuleCandidate } from '../shared/conversation/approvalRules'
 import {
+  looksLikePermissionSettingRefusal,
   permissionFallbackNotice,
   permissionModeAllows,
   permissionModeApprovalLabel,
   type PermissionModeRequest,
 } from '../shared/conversation/permissionModes'
+import { isRecord } from '../shared/records'
 import { getConversationProviderById } from './plugin-registry-instance'
 import { ProviderSecretStore } from './secret-store'
 import { clampSuspendIdleAfterMs, DEFAULT_SUSPEND_IDLE_AFTER_MS } from './terminal-reap-policy'
@@ -694,7 +696,8 @@ export class ConversationRuntime {
       )
     try {
       // A runtime that will not start under the chat's permission mode (a flag
-      // its CLI no longer takes, a mode it refuses) is started again with no
+      // its CLI no longer takes, a mode it refuses — said in so many words,
+      // `isPermissionSettingRefusal`) is started again with no
       // permission setting rather than leaving the person with no chat, and
       // the chat says so. Only when that start works: a runtime that fails
       // either way reports its first failure, and keeps the mode it was given.
@@ -704,7 +707,13 @@ export class ConversationRuntime {
       } catch (error) {
         const preset = session.permissionPreset
         const mode = session.permissionMode
-        if (!preset || preset === 'none' || this.sessions.get(sessionId) !== session) throw error
+        if (
+          !preset ||
+          preset === 'none' ||
+          this.sessions.get(sessionId) !== session ||
+          !isPermissionSettingRefusal(error)
+        )
+          throw error
         validation.adapter.disposeChildProcess?.(sessionId)
         session.permissionPreset = 'none'
         delete session.permissionMode
@@ -971,7 +980,8 @@ export class ConversationRuntime {
 
   /**
    * A turn whose runtime fails before it does anything, under a permission mode
-   * that passes the CLI a setting, is sent again with no permission setting:
+   * that passes the CLI a setting, and says it refused that setting
+   * (`isPermissionSettingRefusal`), is sent again with no permission setting:
    * the child a runtime starts for a turn (Claude Code's first message, a
    * relaunch after a mode change) or the turn itself (Codex's approval policy)
    * is where a setting the CLI no longer takes shows up. The retry's events
@@ -996,7 +1006,17 @@ export class ConversationRuntime {
     let failure: ConversationEvent | null = null
     let started = false
     for (let next = await first.next(); !next.done; next = await first.next()) {
-      if (!started && next.value.type === 'turn_failed' && !input.signal?.aborted) {
+      // A message the runtime turned away itself (`refused`) never reached a
+      // CLI, so it says nothing about the flag — and a guard that depends on
+      // the mode, like refusing a typed command that loosens it, must not be
+      // retried under No flag, where it lets the command through.
+      if (
+        !started &&
+        next.value.type === 'turn_failed' &&
+        next.value.payload?.refused !== true &&
+        isPermissionSettingRefusal(next.value) &&
+        !input.signal?.aborted
+      ) {
         failure = next.value
         break
       }
@@ -1005,6 +1025,13 @@ export class ConversationRuntime {
     }
     if (!failure) return
     await first.return?.()
+    // A mode the person picked while the turn was starting is theirs: the
+    // failure was under the old one, and neither No flag nor the old mode put
+    // back after a failed retry may replace it.
+    if (session.permissionPreset !== preset || session.permissionMode !== mode) {
+      yield failure
+      return
+    }
     const noFlag = await adapter
       .setPermissionPreset({ ...session, permissionPreset: 'none', permissionMode: undefined })
       .catch((): { ok: false } => ({ ok: false }))
@@ -1014,6 +1041,8 @@ export class ConversationRuntime {
     }
     session.permissionPreset = 'none'
     delete session.permissionMode
+    // Still on the No flag set here, or moved on by the person since.
+    const untouched = () => session.permissionPreset === 'none' && session.permissionMode === undefined
     const notice = () =>
       this.eventForSession(session, 'session_updated', {
         permissionPreset: 'none',
@@ -1025,11 +1054,13 @@ export class ConversationRuntime {
       const event = next.value
       if (!retried && event.type === 'turn_failed') {
         await retry.return?.()
-        await adapter
-          .setPermissionPreset({ ...session, permissionPreset: preset, permissionMode: mode })
-          .catch(() => undefined)
-        session.permissionPreset = preset
-        if (mode) session.permissionMode = mode
+        if (untouched()) {
+          await adapter
+            .setPermissionPreset({ ...session, permissionPreset: preset, permissionMode: mode })
+            .catch(() => undefined)
+          session.permissionPreset = preset
+          if (mode) session.permissionMode = mode
+        }
         yield failure
         return
       }
@@ -1037,11 +1068,11 @@ export class ConversationRuntime {
       if (event.type === 'turn_started') continue
       if (!retried && !TURN_OPENING_EVENTS.has(event.type)) {
         retried = true
-        yield notice()
+        if (untouched()) yield notice()
       }
       yield event
     }
-    if (!retried) yield notice()
+    if (!retried && untouched()) yield notice()
   }
 
   /**
@@ -1390,6 +1421,17 @@ export class ConversationRuntime {
     else delete session.permissionMode
     session.updatedAt = this.now()
     this.answerWaitingApprovalsByMode(session)
+    // Said on the stream, as a model switch is: a change made from a paired
+    // device or an extension reaches every view of the chat, whose chip
+    // follows the live session's own report and would otherwise keep the old
+    // mode (and offer no way to pick it again).
+    await this.emit(
+      session,
+      this.eventForSession(session, 'session_updated', {
+        permissionPreset: input.permissionPreset,
+        ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+      }),
+    )
     return { ok: true, session: this.toSummary(session), ...(applied.notice ? { notice: applied.notice } : {}) }
   }
 
@@ -1612,9 +1654,9 @@ export class ConversationRuntime {
   // since the terminal and the chat's child would both write to the one
   // session. Everything that does refuse is checked here first, so a handoff
   // that cannot happen never stops anything.
-  async terminalHandoffTarget(
-    input: ConversationTerminalHandoffInput,
-  ): Promise<{ ok: true; target: ConversationTerminalHandoffTarget } | { ok: false; message: string }> {
+  async terminalHandoffTarget(input: {
+    sessionId: string
+  }): Promise<{ ok: true; target: ConversationTerminalHandoffTarget } | { ok: false; message: string }> {
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     if (!session.stateful)
@@ -1675,9 +1717,9 @@ export class ConversationRuntime {
   // chat started live in that child and end with it; their cards are closed
   // here rather than left showing agents nothing is running. Until
   // `endTerminalHandoff`, a send is refused (see `sendTurn`).
-  async stopForTerminalHandoff(
-    input: ConversationTerminalHandoffInput,
-  ): Promise<{ ok: true; stopped: { turn: boolean; agents: number } } | { ok: false; message: string }> {
+  async stopForTerminalHandoff(input: {
+    sessionId: string
+  }): Promise<{ ok: true; stopped: { turn: boolean; agents: number } } | { ok: false; message: string }> {
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     this.terminalHandoffs.add(session.sessionId)
@@ -1702,7 +1744,7 @@ export class ConversationRuntime {
     return { ok: true, stopped: { turn, agents: agents.length } }
   }
 
-  endTerminalHandoff(input: ConversationTerminalHandoffInput): void {
+  endTerminalHandoff(input: { sessionId: string }): void {
     this.terminalHandoffs.delete(input.sessionId)
   }
 
@@ -2217,7 +2259,10 @@ export class ConversationRuntime {
     // When the last turn ended, read off the event rather than the clock so
     // the transcript replay on resume restores the true time, not the resume.
     if (event.type === 'turn_completed' || event.type === 'turn_failed') session.lastTurnEndedAt = event.createdAt
-    if (event.type === 'turn_completed') session.phase = 'completed'
+    // A turn the person stopped ended where they asked it to: the chat reads as
+    // done, as its own transcript does, not as failed and needing a look.
+    if (event.type === 'turn_completed' || (event.type === 'turn_failed' && isInterruptedTurn(event)))
+      session.phase = 'completed'
     else if (event.type === 'turn_failed') session.phase = 'failed'
     else if (event.type === 'approval_resolved' && session.pendingApprovalRequestIds.size > 0) {
       // Another card is still up: the turn is still waiting on a person.
@@ -2605,9 +2650,18 @@ export class ConversationRuntime {
    * generated picture's path arrives with its completion), and the last word
    * is the one that stands. Null when the transcript has no such call.
    */
-  async findToolCall(
-    input: ConversationToolDetailInput,
-  ): Promise<{ name: string; kind: unknown; input: ConversationJsonValue | undefined } | null> {
+  async findToolCall(input: ConversationToolDetailInput): Promise<{
+    name: string
+    kind: unknown
+    input: ConversationJsonValue | undefined
+    /** How the step ended, as its newest `tool_output` says; absent while it has not. */
+    status?: ConversationToolStatus
+    /**
+     * Whether the step has ended at all (any `tool_output`, with a status or
+     * from before steps carried one). Absent from a backend older than this.
+     */
+    ended?: boolean
+  } | null> {
     if (
       !input.workspaceRoot?.trim() ||
       !input.workspaceId?.trim() ||
@@ -2629,10 +2683,21 @@ export class ConversationRuntime {
       )
       if (!event?.payload) return null
       const name = event.payload.name ?? event.payload.tool
+      // A step announces itself before it is approved, so its end is read as
+      // well: a declined read showed nothing, and must not serve its file.
+      const output = await this.transcripts.findLast(
+        input.workspaceRoot,
+        path,
+        (candidate) => candidate.type === 'tool_output' && candidate.payload?.toolUseId === input.toolUseId,
+        TOOL_CALL_SCAN_BYTES,
+      )
+      const status = output?.payload?.status
       return {
         name: typeof name === 'string' ? name : '',
         kind: event.payload.kind,
         input: event.payload.input as ConversationJsonValue | undefined,
+        ...(status === 'ok' || status === 'error' || status === 'declined' || status === 'stopped' ? { status } : {}),
+        ended: output !== null && output !== undefined,
       }
     } catch {
       return null
@@ -3847,6 +3912,12 @@ function isWordedUserMessage(event: ConversationEvent): boolean {
   )
 }
 
+// How each runtime says a turn was stopped: the reason, or (an ACP agent
+// cancelled mid-prompt) the bare word as its message.
+function isInterruptedTurn(event: ConversationEvent): boolean {
+  return event.payload?.reason === 'interrupted' || event.payload?.message === 'interrupted'
+}
+
 function isSessionBusy(session: RuntimeSession): boolean {
   return session.activeTurnId !== null || session.pendingRequestId !== null
 }
@@ -3860,7 +3931,9 @@ function isSessionBusy(session: RuntimeSession): boolean {
 function steerRefusal(session: RuntimeSession, adapter: ConversationProviderAdapter): string | null {
   if (session.capabilities?.steer !== true || !adapter.steer)
     return 'This agent cannot take a message while it is working.'
-  if (!session.activeTurnId) return 'Conversation turn is already in progress.'
+  // No turn running: the one the message was aimed at ended on its way here
+  // (a handover that waited behind the turn's last events, or Stop).
+  if (!session.activeTurnId) return 'The agent has just finished; the message goes as the next turn.'
   if (session.pendingApprovalRequestIds.size > 0) return 'Conversation turn is awaiting approval.'
   const running = session.providerTurn
   if (!running || running.turnId !== session.activeTurnId)
@@ -4075,6 +4148,21 @@ function eventIterator(
 
 async function* fromArray(events: ConversationEvent[]): AsyncIterable<ConversationEvent> {
   yield* events
+}
+
+// Whether a failure is the runtime refusing the permission setting it was
+// started or sent with: the provider says so (`permissionRefused`), or its
+// message does (`looksLikePermissionSettingRefusal`). Only then is a retry
+// with no flag worth it. A timeout or a crash retried under No flag could
+// work by luck and leave the chat on the CLI's own default, which may skip
+// every prompt, while blaming a flag that was never the problem.
+function isPermissionSettingRefusal(failure: unknown): boolean {
+  if (isRecord(failure) && failure.permissionRefused === true) return true
+  if (isRecord(failure) && isRecord(failure.payload)) {
+    if (failure.payload.permissionRefused === true) return true
+    return looksLikePermissionSettingRefusal(readTurnFailure(failure as ConversationEvent))
+  }
+  return looksLikePermissionSettingRefusal(failure instanceof Error ? failure.message : String(failure))
 }
 
 function readTurnFailure(event: ConversationEvent | null): string {

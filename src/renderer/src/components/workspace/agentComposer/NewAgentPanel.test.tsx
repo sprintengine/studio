@@ -3198,7 +3198,7 @@ test('NewAgentPanel', async () => {
 
     await check('extension mode: a name taken by something else is said, and holds ⏎', async () => {
       seedStore()
-      const door = await extensionDoor({ notes: 'taken', 'focus-timer': 'extension' })
+      const door = await extensionDoor({ notes: 'taken', 'focus-timer': 'extension', 'weather-deck': 'installed' })
       await door.setValue(composerField(door.view.container), 'A notes panel.')
       await door.setValue(door.nameField()!, 'notes')
       await door.settle()
@@ -3207,6 +3207,13 @@ test('NewAgentPanel', async () => {
         door.view.container.querySelector('[data-extension-name-chip]')?.getAttribute('data-extension-name-chip'),
         'invalid',
       )
+      await door.enter()
+      assert.equal(door.view.launches.length, 0)
+
+      // A name an installed extension holds: its dev install would replace it.
+      await door.setValue(door.nameField()!, 'weather-deck')
+      await door.settle()
+      assert.ok(door.view.text().includes('weather-deck is already installed'))
       await door.enter()
       assert.equal(door.view.launches.length, 0)
 

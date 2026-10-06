@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { createAnsiState, parseAnsi, type AnsiColor, type AnsiLine } from './ansi'
+import { ansiPlainText, createAnsiState, parseAnsi, type AnsiColor, type AnsiLine } from './ansi'
 
 const fg = (index: number): AnsiColor => ({ kind: 'palette', index })
 const rgb = (r: number, g: number, b: number): AnsiColor => ({ kind: 'rgb', r, g, b })
@@ -107,4 +107,23 @@ test('character set selections leave no stray final byte, even split across chun
   let state = createAnsiState()
   state = parseAnsi('x\x1b(', state).state
   assert.deepEqual(parseAnsi('By', state).lines, [[{ text: 'xy' }]])
+})
+
+test('plain text keeps the words a terminal would show and drops every escape', () => {
+  assert.equal(
+    ansiPlainText(
+      '\x1b[32madded\x1b[39m 3 packages\n\x1b]8;;https://example.com\x07docs\x1b]8;;\x07\nfetching 10%\rfetching 100%\n',
+    ),
+    'added 3 packages\ndocs\nfetching 100%\n',
+  )
+})
+
+test('a line that clears itself after a carriage return reads as what it was cleared to', () => {
+  assert.equal(ansiPlainText('Downloading package 100%\r\x1b[KDone\n'), 'Done\n')
+  assert.equal(ansiPlainText('resolving dependencies...\r\x1b[2Kok'), 'ok')
+  assert.equal(ansiPlainText('abcdef\rxyz\x1b[1K'), '    ef')
+})
+
+test('an OSC cut short by another escape ends there instead of swallowing the rest', () => {
+  assert.equal(ansiPlainText('\x1b]0;title\x1b[31mred text\x1b[0m'), 'red text')
 })

@@ -783,6 +783,11 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       else activeTabByWorkspace.delete(workspaceId)
     },
 
+    /** The tab last noted as the one the person is looking at, as noted. */
+    notedActive(workspaceId: string): string | null {
+      return activeTabByWorkspace.get(workspaceId) ?? null
+    },
+
     activeTab(workspaceId: string): BrowserTab | null {
       const preferred = activeTabByWorkspace.get(workspaceId)
       const tab = preferred ? requireTab(preferred) : null

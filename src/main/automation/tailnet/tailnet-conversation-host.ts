@@ -25,7 +25,7 @@ import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../shared/launch-se
 import { parseCliPermissionModeId } from '../../../shared/cli-permission-mode'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import { openConfinedExistingFile } from '../../conversation-file-access'
-import { conversationImagePathOf } from './tailnet-conversation-images'
+import { conversationImageFileOf, conversationImagePathOf } from './tailnet-conversation-images'
 import {
   ATTACHABLE_IMAGE_TYPES,
   MAX_ATTACHMENT_BYTES,
@@ -166,8 +166,35 @@ export type ConversationGatewayCommandResult = {
   ok: boolean
   message?: string
   code?: ConversationWireErrorCode | 'command_id_conflict'
+  /** With `busy`: when trying again can succeed. */
+  retryAfterMs?: number
   notice?: string
 }
+
+/** A count or a time in milliseconds as the wire carries it: a whole number, never below zero. */
+function wholeNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : null
+}
+
+/**
+ * A listed row's numbers as whole numbers. A transcript's times can come from
+ * a file's modification time (fractional milliseconds) or be missing for one
+ * that could not be read; a client that reads them as integers would refuse
+ * the row, or the whole list.
+ */
+function wholeNumbers(thread: ConversationThread): ConversationThread {
+  const createdAt = wholeNumber(thread.createdAt) ?? wholeNumber(thread.updatedAt) ?? 0
+  return {
+    ...thread,
+    createdAt,
+    updatedAt: wholeNumber(thread.updatedAt) ?? createdAt,
+    turnCount: wholeNumber(thread.turnCount) ?? 0,
+    lastSeq: wholeNumber(thread.lastSeq) ?? 0,
+  }
+}
+
+/** How long a send turned away behind another send to the same chat waits before trying again. */
+const SEND_BUSY_RETRY_MS = 1_000
 
 /**
  * What a listed chat carries beside its conversation: the machine it runs on
@@ -194,6 +221,14 @@ export type ConversationListMarks = {
  * second desktop lists the conversation as; the thread's own title (its first
  * message, or a rename) answers only for a conversation with no named agent.
  */
+/** What a paired device's switch changes on a chat's agent record. */
+export type AgentChoicePatch = {
+  cliPermissionPreset?: ConversationPermissionPreset
+  /** Written with the preset, or cleared with it: a mode left from an earlier preset is not this one's. */
+  cliPermissionMode?: string | undefined
+  conversation?: { providerId: string; modelId: string }
+}
+
 export function createConversationGatewayHost(
   runtime: ConversationBackend,
   resolveWorkspaceRoot: (workspaceId: string) => string | null,
@@ -203,6 +238,19 @@ export function createConversationGatewayHost(
   agentName: (key: { workspaceId: string; agentId: string }) => string | null | undefined = () => null,
   modelCatalog: (providerId: string) => Promise<ConversationModelCatalog | null> = async () => null,
   marks: ConversationListMarks = {},
+  /**
+   * Writes a choice a paired device made for a chat to its agent record, as the
+   * chat view writes the person's own: the record is what the chat starts on
+   * after this desktop's tab remounts or the app restarts, and what its chip
+   * shows with no live session. Without it a phone's switch lasted only as long
+   * as the session it was applied to, and the next start put the old one back.
+   */
+  writeAgentChoice: (key: { workspaceId: string; agentId: string }, patch: AgentChoicePatch) => void = () => {},
+  // The effort the chat's agent record keeps (a New chat's pick, or one
+  // changed in the chat since), which a window's chat view sends every turn
+  // with. A turn sent from here runs at it too, or a chat would switch effort
+  // each time the person moved between the phone and the desk.
+  reasoningEffortOf: (key: { workspaceId: string; agentId: string }) => string | null | undefined = () => null,
 ): ConversationGatewayHost {
   // A slot placeholder ("Agent 2", the record id) is not a name; the thread's
   // title says more than it does.
@@ -349,6 +397,7 @@ export function createConversationGatewayHost(
       ...(fingerprint ? { commandFingerprint: fingerprint } : {}),
     })
     if (!switched.ok) return { ok: false, message: switched.message }
+    writeAgentChoice(key, { conversation: { providerId: session.providerId, modelId } })
     return { ok: true, ...(switched.notice ? { notice: switched.notice } : {}) }
   }
   // The machine once per workspace, and the pull requests in one read of the
@@ -439,7 +488,7 @@ export function createConversationGatewayHost(
           capabilities: wireCapabilities(summary),
         })
       }
-      const listed = [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt)
+      const listed = [...byId.values()].map(wholeNumbers).sort((a, b) => b.updatedAt - a.updatedAt)
       return withMarks(listed)
     },
     ...(marks.selfMachine ? { machine: () => marks.selfMachine?.() ?? null } : {}),
@@ -464,25 +513,43 @@ export function createConversationGatewayHost(
       const now = Date.now()
       const kept = imagePaths.get(id)
       if (kept && now - kept.at < IMAGE_PATH_TTL_MS) return kept.found
+      // Kept only once the step has ended well: one still waiting on its
+      // approval may yet be declined, and is asked about again.
+      let settled = false
       const found = (async (): Promise<ConversationToolImagePath> => {
         // A chat is one the list would name: a live session, or a thread the
         // workspace's history holds.
-        if (!sessionFor(key) && !(await threadFor(key))) return { ok: false, code: 'unknown_conversation' }
+        const live = sessionFor(key)
+        if (!live && !(await threadFor(key))) return { ok: false, code: 'unknown_conversation' }
         const tool = await runtime.findToolCall({ ...key, toolUseId })
-        const path = tool ? conversationImagePathOf(tool) : null
-        if (!path) return { ok: false, code: 'unknown_image' }
+        // A step declined, stopped or failed shows no picture in the chat,
+        // so its file is not served either.
+        if (tool?.status && tool.status !== 'ok') return { ok: false, code: 'unknown_image' }
+        // Nor one not yet ended: a read still waiting on its approval may be
+        // declined, and the chat's device draws a picture only once it is done.
+        // (A backend from before `ended` says nothing, and is read as before.)
+        if (tool?.ended === false) return { ok: false, code: 'unknown_image' }
+        settled = tool?.status === 'ok' || tool?.ended === true
+        const recorded = tool ? conversationImagePathOf(tool) : null
+        if (!recorded) return { ok: false, code: 'unknown_image' }
+        const path = conversationImageFileOf(recorded, key.workspaceRoot)
         // A relative path names a file in the chat's folder, as a link to it in
-        // the same transcript does.
-        return { ok: true, path: isAbsolute(path) ? path : resolve(key.workspaceRoot, path) }
+        // the same transcript does: the folder its session works in (a New
+        // chat's pool worktree), else the workspace's.
+        const sessionRoot =
+          live && typeof runtime.sessionWorkspaceRoot === 'function'
+            ? runtime.sessionWorkspaceRoot(live.sessionId)
+            : null
+        return { ok: true, path: isAbsolute(path) ? path : resolve(sessionRoot || key.workspaceRoot, path) }
       })()
       // Shared while it is being found, so a burst of asks is one scan; kept
-      // afterwards only when it named a picture.
+      // afterwards only when it named a picture of a step that has ended.
       imagePaths.delete(id)
       imagePaths.set(id, { at: now, found })
       while (imagePaths.size > MAX_IMAGE_PATHS) imagePaths.delete(imagePaths.keys().next().value!)
       void found.then(
         (answer) => {
-          if (!answer.ok && imagePaths.get(id)?.found === found) imagePaths.delete(id)
+          if ((!answer.ok || !settled) && imagePaths.get(id)?.found === found) imagePaths.delete(id)
         },
         () => {
           if (imagePaths.get(id)?.found === found) imagePaths.delete(id)
@@ -504,6 +571,18 @@ export function createConversationGatewayHost(
       const stamp = fingerprint ? { commandFingerprint: fingerprint } : {}
       const execute = async (): Promise<ConversationGatewayCommandResult> => relay(await run())
       const run = async (): Promise<ConversationGatewayCommandResult | ConversationSessionActionResult> => {
+        // An upload names the session the list showed, which a resume below
+        // may replace (a failed turn's session is listed, but a send resumes
+        // the chat on a new one, and the runtime forgets the old): read before
+        // that, any session of this chat will do.
+        const listedForChat = api.listSessions({ workspaceId: key.workspaceId, agentId: key.agentId })
+        const chatSessions = new Set(
+          listedForChat.ok
+            ? listedForChat.sessions
+                .filter((entry) => entry.workspaceId === key.workspaceId && entry.agentId === key.agentId)
+                .map((entry) => entry.sessionId)
+            : [],
+        )
         let session = sessionFor(key)
         // A send, or a preset switch, reaches a conversation with no live
         // session by resuming it; the switch then applies to that session.
@@ -515,6 +594,10 @@ export function createConversationGatewayHost(
         if (!session) return { ok: false, message: 'Conversation is unavailable.' }
         switch (command.kind) {
           case 'send': {
+            // Only a level the chat's provider runs, as the chat view checks it.
+            const effort = reasoningEffortOf(key) ?? undefined
+            const turnEffort =
+              effort && session.capabilities?.reasoningEfforts?.includes(effort) ? { reasoningEffort: effort } : {}
             const ids = command.uploadIds ?? []
             if (ids.length > MAX_ATTACHMENTS_PER_TURN) return { ok: false, message: 'Too many image attachments.' }
             const retry =
@@ -526,15 +609,17 @@ export function createConversationGatewayHost(
                 commandId,
                 message: command.message,
                 attachments: [],
+                ...turnEffort,
                 ...stamp,
               })
+            chatSessions.add(session.sessionId)
             const attachments: ConversationImageAttachment[] = []
             for (const id of ids) {
               const upload = uploads.get(id)
               if (
                 !upload ||
                 upload.deviceId !== deviceId ||
-                upload.sessionId !== session.sessionId ||
+                !chatSessions.has(upload.sessionId) ||
                 !ATTACHABLE_IMAGE_TYPES.includes(upload.mediaType as (typeof ATTACHABLE_IMAGE_TYPES)[number]) ||
                 upload.bytes > MAX_ATTACHMENT_BYTES ||
                 Date.now() - upload.at > UPLOAD_TTL_MS
@@ -560,6 +645,7 @@ export function createConversationGatewayHost(
               commandId,
               message: command.message,
               attachments,
+              ...turnEffort,
               ...stamp,
             })
             // Accepted: the images are in the turn now, so their staged files
@@ -610,13 +696,19 @@ export function createConversationGatewayHost(
             // A mode that is no mode id of a CLI's own is dropped, and the
             // preset's own mode runs, as a client from before modes gets.
             const permissionMode = parseCliPermissionModeId(command.permissionMode)
-            return api.setPermissionPreset({
+            const applied = await api.setPermissionPreset({
               sessionId: session.sessionId,
               commandId,
               permissionPreset: command.preset,
               ...(permissionMode ? { permissionMode } : {}),
               ...stamp,
             })
+            if (applied.ok)
+              writeAgentChoice(key, {
+                cliPermissionPreset: command.preset,
+                cliPermissionMode: permissionMode ?? undefined,
+              })
+            return applied
           }
         }
       }
@@ -628,10 +720,21 @@ export function createConversationGatewayHost(
       if (pending)
         return pending.commandId === commandId && pending.deviceId === deviceId
           ? pending.promise
-          : Promise.resolve({ ok: false, message: 'A conversation send is already in progress.' })
+          : // Busy, not failed: a phone queues the message and sends it again.
+            Promise.resolve({
+              ok: false,
+              code: 'busy',
+              retryAfterMs: SEND_BUSY_RETRY_MS,
+              message: 'A conversation send is already in progress.',
+            })
       const hasImages = Boolean(command.uploadIds?.length)
       if (hasImages && imageSends >= 2)
-        return Promise.resolve({ ok: false, message: 'Image sends are busy. Please retry shortly.' })
+        return Promise.resolve({
+          ok: false,
+          code: 'busy',
+          retryAfterMs: SEND_BUSY_RETRY_MS,
+          message: 'Image sends are busy. Please retry shortly.',
+        })
       if (hasImages) imageSends++
       const promise = execute().finally(() => {
         if (sending.get(id)?.promise === promise) sending.delete(id)

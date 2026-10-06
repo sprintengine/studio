@@ -90,10 +90,14 @@ export type RecordingOutput = {
   discard(): Promise<void>
 }
 
+/** The agent a recording is for: its conversation, whose own folder (a worktree) the file goes in when Studio knows it. */
+export type RecordingAgent = { workspaceId: string; agentId: string }
+
 export type RecordingOutputs = {
   create(input: {
     workspaceId: string
     stem: string
+    agent?: RecordingAgent | null
   }): Promise<{ ok: true; output: RecordingOutput } | RecordingFailure>
 }
 
@@ -355,6 +359,8 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
       tabId: string
       workspaceId: string
       owner: string
+      /** The calling agent's conversation, so the file lands in the folder it works in. */
+      agent?: RecordingAgent | null
       maxSeconds?: number | null
       cursor?: boolean
       /**
@@ -384,6 +390,7 @@ export function createBrowserRecorder(deps: BrowserRecorderDeps) {
       const created = await deps.outputs.create({
         workspaceId: input.workspaceId,
         stem: recordingStem(deps.describeTab(input.tabId), startedAtDate),
+        ...(input.agent ? { agent: input.agent } : {}),
       })
       if (!created.ok) return created
       // Asked again: two starts for one tab may have raced past the check above.

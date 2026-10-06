@@ -128,7 +128,7 @@ export function WorkspaceAsideColumn({
       aria-hidden={(collapsed && !keepInteractive) || undefined}
       // A zero-width column is out of the accessibility tree AND out of the
       // tab order: focus stranded in hidden chrome types into a hidden terminal.
-      {...(collapsed && !keepInteractive ? ({ inert: '' } as Record<string, string>) : {})}
+      inert={collapsed && !keepInteractive}
       className={[
         'flex shrink-0 flex-col overflow-hidden',
         // Docked, the column is a gutter beside the card and sits on the app

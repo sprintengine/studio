@@ -8,7 +8,7 @@
 import { useState } from 'react'
 import { newAgentIdSuffix } from '../../../../../shared/agent-ids'
 
-import type { ConversationKey } from '../../../../../shared/conversation-runtime'
+import type { ConversationImageAttachment, ConversationKey } from '../../../../../shared/conversation-runtime'
 import type { AgentState } from '../../../types/workspace'
 import { GhostButton, Tooltip } from '../../ui'
 import { showToast } from '../../../store/toastStore'
@@ -18,12 +18,34 @@ import { conversationAgentRuntimePatch } from '../../workspace/conversationSpawn
 import { composerDraftStore, type ComposerDraft } from './draftStore'
 import type { TranscriptEntry } from './conversationProjection'
 import { useConversationTransport, type ConversationTransport } from './conversationTransport'
+import { editFromHereDraft } from './editFromHere'
 
 type UserEntry = Extract<TranscriptEntry, { kind: 'user' }>
 
 /** Where to fork: after a reply's turn, or before one of the person's messages, which the fork's composer gets back. */
 export type ForkFromHereTarget =
-  { side: 'assistant'; turnId: string } | { side: 'user'; turnSeq: number; draft: Omit<ComposerDraft, 'updatedAt'> }
+  | { side: 'assistant'; turnId: string }
+  | {
+      side: 'user'
+      turnSeq: number
+      draft: Omit<ComposerDraft, 'updatedAt'>
+      // The images the message carried, staged in the fork's composer with it.
+      attachments?: ConversationImageAttachment[]
+    }
+
+// The images a fork's composer starts with, until its view mounts and takes
+// them. Held here rather than in the draft store, which is written to disk and
+// keeps text only.
+const forkedAttachments = new Map<string, ConversationImageAttachment[]>()
+const forkedAttachmentsKey = (workspaceId: string, agentId: string) => `${workspaceId}\u0000${agentId}`
+
+/** The images a fork's composer was handed, once: taking them answers the hand-off. */
+export function takeForkedAttachments(workspaceId: string, agentId: string): ConversationImageAttachment[] {
+  const key = forkedAttachmentsKey(workspaceId, agentId)
+  const taken = forkedAttachments.get(key) ?? []
+  forkedAttachments.delete(key)
+  return taken
+}
 
 /** "Fork from here" under one of the person's messages. */
 export function ForkMessageAction({
@@ -46,13 +68,17 @@ export function ForkMessageAction({
       running={running}
       tooltip="Open a new chat with the conversation before this message, and this message ready to send"
       className={className}
-      onFork={() =>
-        onFork({
+      onFork={async () => {
+        // The message goes back as it was sent, its images included, read from
+        // the store when the send is no longer in memory.
+        const { attachments } = await editFromHereDraft(entry, transport)
+        await onFork({
           side: 'user',
           turnSeq,
           draft: { text: entry.text, skillIds: entry.skills ?? [], mentions: entry.mentions ?? [] },
+          ...(attachments.length ? { attachments } : {}),
         })
-      }
+      }}
     />
   )
 }
@@ -150,7 +176,11 @@ export async function forkChat(input: {
   })
   if (!forked.ok) throw new Error(forked.message)
   useWorkspaceStore.getState().updateAgent(key.workspaceId, agentId, forkedAgentPatch(parent, name))
-  if (target.side === 'user') composerDraftStore().getState().put(key.workspaceId, agentId, target.draft)
+  if (target.side === 'user') {
+    composerDraftStore().getState().put(key.workspaceId, agentId, target.draft)
+    if (target.attachments?.length)
+      forkedAttachments.set(forkedAttachmentsKey(key.workspaceId, agentId), target.attachments)
+  }
   placeSpawnedAgentTab(key.workspaceId, agentId, name, { afterAgentId: key.agentId })
   showToast({ tone: 'neutral', title: `Forked into ${name}. Both chats work in the same files.` })
 }

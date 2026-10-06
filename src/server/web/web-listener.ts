@@ -371,7 +371,14 @@ export function createWebListener(options: WebListenerOptions): WebListener {
       return
     }
 
-    if (url.pathname === '/pair' || url.pathname === '/pair/') {
+    // The pairing page's links are relative to `/pair`: under `/pair/` they
+    // would name `/pair/assets/…`, which no file answers.
+    if (url.pathname === '/pair/') {
+      response.writeHead(302, { ...AUTHENTICATED_HEADERS, Location: '../pair', 'Cache-Control': 'no-store' })
+      response.end()
+      return
+    }
+    if (url.pathname === '/pair') {
       const file = resolveStaticFile(root.directory, '/pair.html')
       if (!file) {
         sendText(response, 503, 'This server was built without the pairing page (npm run build:web).')
@@ -408,7 +415,11 @@ export function createWebListener(options: WebListenerOptions): WebListener {
     // Any other path is an app route: the app, for a paired browser.
     const session = sessionOf(request)
     if (!session) {
-      response.writeHead(302, { ...AUTHENTICATED_HEADERS, Location: './pair', 'Cache-Control': 'no-store' })
+      // Relative, for a server reached under a path of its own, and back to
+      // its root first: from `/a/b`, `./pair` would be `/a/pair`, an app
+      // route that redirects to itself.
+      const toRoot = '../'.repeat(Math.max(0, url.pathname.split('/').length - 2)) || './'
+      response.writeHead(302, { ...AUTHENTICATED_HEADERS, Location: `${toRoot}pair`, 'Cache-Control': 'no-store' })
       response.end()
       return
     }
@@ -431,7 +442,9 @@ export function createWebListener(options: WebListenerOptions): WebListener {
         host: request.headers.host,
         origin: typeof request.headers.origin === 'string' ? request.headers.origin : undefined,
         upgrade: true,
-        ticket: ticket !== null,
+        // Only where a ticket is what admits the socket: `/ws/ipc` admits by
+        // the cookie alone, so a `?ticket=` there must not stand in for an Origin.
+        ticket: ticket !== null && url.pathname === '/ws',
       },
       policy(),
     )

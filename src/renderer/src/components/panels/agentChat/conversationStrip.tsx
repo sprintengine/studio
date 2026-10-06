@@ -103,6 +103,10 @@ export function ConversationComposerStrip({
     cwd: string
     conversation: { workspaceId: string; agentId: string }
     onSettled: () => void
+    /** Keeps the control in the slot while it shows its dialog, a step or a failure. */
+    onHoldChange?: (held: boolean) => void
+    /** Whether the checkout reads as ready now; a held failure is dismissed rather than retried when not. */
+    ready?: boolean
   } | null
   /**
    * The local servers this conversation's agents linked, and the workspace
@@ -173,6 +177,24 @@ export function ConversationComposerStrip({
   // What the slot draws, as a key its width is measured under.
   const pullRequestText = slot === 'create' ? 'create' : (pullRequest?.text ?? null)
   const serversText = serversCopy ? `${serversCopy.label} · ${serversCopy.state}` : null
+  // "Create PR" changes width without changing its key: the button gives way
+  // to a step ("Pushing the branch…") or a failure. The slot is watched, and
+  // a new width measures the line again.
+  const [slotResized, setSlotResized] = useState(0)
+  const slotDrawn = pullRequestText !== null
+  useLayoutEffect(() => {
+    const node = pullRequestRef.current
+    if (!slotDrawn || !node || typeof ResizeObserver !== 'function') return
+    let last = node.getBoundingClientRect().width
+    const observer = new ResizeObserver(() => {
+      const width = node.getBoundingClientRect().width
+      if (width === last) return
+      last = width
+      setSlotResized((count) => count + 1)
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [slotDrawn, stripEl])
   useLayoutEffect(() => {
     const strip = stripEl
     const known = widths.current
@@ -239,6 +261,7 @@ export function ConversationComposerStrip({
     changesKey,
     ringShown,
     pullRequestText,
+    slotResized,
     serversText,
     fit,
   ])
@@ -348,6 +371,8 @@ export function ConversationComposerStrip({
               cwd={createPullRequest.cwd}
               conversation={createPullRequest.conversation}
               onSettled={createPullRequest.onSettled}
+              onHoldChange={createPullRequest.onHoldChange}
+              ready={createPullRequest.ready}
             />
           ) : (
             <PullRequestStripButton pullRequests={pullRequests} now={now} />
@@ -357,7 +382,7 @@ export function ConversationComposerStrip({
       {percentage !== null && context ? (
         <span
           ref={ringRef}
-          className={`${pullRequest || serversText !== null ? '' : 'ml-auto '}inline-flex shrink-0`}
+          className={`${pullRequestText !== null || serversText !== null ? '' : 'ml-auto '}inline-flex shrink-0`}
           data-strip-context=""
         >
           <ContextRing usedPercentage={percentage} tokens={context} />

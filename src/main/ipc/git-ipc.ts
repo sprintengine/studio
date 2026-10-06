@@ -432,6 +432,9 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
             ...(Array.isArray(input.agentIds)
               ? { agentIds: input.agentIds.filter((id): id is string => typeof id === 'string' && id.length > 0) }
               : {}),
+            ...(Array.isArray(input.agentKeys)
+              ? { agentKeys: input.agentKeys.filter((key): key is string => typeof key === 'string' && key.length > 0) }
+              : {}),
             ...(Array.isArray(input.keepBranches)
               ? {
                   keepBranches: input.keepBranches.filter(

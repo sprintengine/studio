@@ -75,6 +75,7 @@ export function createWorktreePoolTools(deps: WorktreePoolToolsDeps): McpToolReg
           name: args.name.trim(),
           owner: caller.agentId,
           agentId: caller.agentId,
+          workspaceId: caller.workspaceId,
           copyIncludedFiles: true,
         })
         if (!leased.ok) {
@@ -120,7 +121,12 @@ export function createWorktreePoolTools(deps: WorktreePoolToolsDeps): McpToolReg
           return toolError('invalid_arguments', '"path" is the path worktree.lease returned.')
         }
         const lease = deps.pool.leaseAt(args.path.trim())
-        if (!lease || lease.agentId !== caller.agentId) {
+        // The agent AND its chat: another chat's agent may carry the same id.
+        if (
+          !lease ||
+          lease.agentId !== caller.agentId ||
+          (lease.workspaceId !== null && lease.workspaceId !== caller.workspaceId)
+        ) {
           return toolError('not_leased', 'You hold no leased worktree at that path.')
         }
         const outcome = await deps.pool.release(lease.leaseId)

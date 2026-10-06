@@ -90,6 +90,7 @@ export async function generatePullRequestText(
       engine: request.engine,
       cliRuntimes: request.cliRuntimes,
       timeoutMs: request.timeoutMs,
+      signal: request.signal,
       prompt: buildPullRequestTextPrompt(request.input),
       schema: PULL_REQUEST_TEXT_OUTPUT_SCHEMA,
       read: readPullRequestTextOutput,
@@ -108,6 +109,7 @@ async function runStructuredJob<T>(
     engine: TextGenerationEngine
     cliRuntimes: TextGenerationCliRuntimeOverrides | undefined
     timeoutMs: number | undefined
+    signal?: AbortSignal
     prompt: string
     schema: object
     read: (answer: unknown) => T | null
@@ -127,6 +129,7 @@ async function runStructuredJob<T>(
 
   const binaryPath = await resolveBinary(engine.cli, job.cliRuntimes, deps.detect ?? cachedDetect)
   if (!binaryPath.ok) return binaryPath
+  if (job.signal?.aborted) return { ok: false, code: 'cancelled', message: `${engine.cli} was stopped.` }
 
   const scratch = await mkdtemp(path.join(deps.scratchRoot ?? tmpdir(), SCRATCH_PREFIX))
   try {
@@ -141,7 +144,14 @@ async function runStructuredJob<T>(
       schemaJson: JSON.stringify(job.schema),
       scratch,
     })
-    const outcome = await run({ ...backend.invocation, cwd: scratch, env, stdin: job.prompt, timeoutMs })
+    const outcome = await run({
+      ...backend.invocation,
+      cwd: scratch,
+      env,
+      stdin: job.prompt,
+      timeoutMs,
+      ...(job.signal ? { signal: job.signal } : {}),
+    })
     const failure = runFailure(engine.cli, outcome)
     if (failure) return failure
     const value = job.read(await backend.readAnswer(outcome.stdout))
@@ -270,6 +280,7 @@ function runFailure(
   cli: string,
   outcome: Awaited<ReturnType<RunCommand>>,
 ): Extract<TextGenerationResult, { ok: false }> | null {
+  if (outcome.cancelled) return { ok: false, code: 'cancelled', message: `${cli} was stopped.` }
   if (outcome.spawnError) {
     return { ok: false, code: 'unavailable', message: `${cli} could not be started: ${outcome.spawnError}` }
   }

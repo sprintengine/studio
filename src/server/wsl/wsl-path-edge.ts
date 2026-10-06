@@ -192,7 +192,10 @@ export function createWslPathEdge(input: { distro: string; driveMountRoot: strin
   return {
     distro,
     ...createPathEdge({
-      isClientPath: isWindowsPath,
+      // A share spelled with forward slashes (`//wsl.localhost/Ubuntu/…`, as
+      // Git for Windows prints a repository root there) is routed here like
+      // its backslash spelling, so it is translated like it too.
+      isClientPath: (path) => isWindowsPath(path) || distroOfUncPath(path) !== null,
       toServer: toLinux,
       pathOut: (path) => wslToWindowsPath(path, { distro, ...(driveMountRoot ? { driveMountRoot } : {}) }),
       handoffHostId: `wsl:${distro}` as ExecutionHostId,

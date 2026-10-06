@@ -147,6 +147,9 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
       // A refusal in the runtime's own words, which can name internals.
       if (command.kind === 'send' && command.message === 'explode')
         return { ok: false, message: 'ENOENT: no such file, open /Users/dev/app/.sprintengine/secret.json' }
+      // Another send to the chat is still being prepared.
+      if (command.kind === 'send' && command.message === 'behind another')
+        return { ok: false, code: 'busy', message: 'A send to this chat is being prepared.', retryAfterMs: 400 }
       backend.commands.push({ clientId, commandId, command })
       if (command.kind === 'setPermissionPreset') backend.presets.set(key.agentId, command.preset)
       const outcome: StudioCommandOutcome = { ok: true }

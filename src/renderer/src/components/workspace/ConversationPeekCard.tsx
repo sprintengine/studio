@@ -26,9 +26,9 @@ import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 // rail now shows the whole history in place, so the card is back to what a
 // hover is for: at most four short facts, one per line — the machine when it
 // is not this one, the branch, the model, and how much of the context window
-// it has spent, in tokens. Modelled on T3 Code's thread hover card, minus the
-// project (the row already sits under it) and minus "this computer", which
-// is the unmarked default everywhere else in the sidebar too.
+// it has spent, in tokens. Not the project (the row already sits under it),
+// and not "this computer", which is the unmarked default everywhere else in
+// the sidebar too.
 //
 // ONE AGENT PER CARD (owner, 2026-09-09). The sidebar already lists a chat's
 // agents as its own sub-lines, so the person points at the one they mean and

@@ -100,6 +100,23 @@ const PERMISSION_MODE_NAMES: Record<ConversationPermissionPreset, string> = {
   none: 'No flag',
 }
 
+// A failure reads as the runtime refusing its permission setting only when it
+// says so: a refusal word ("unknown option", "argument … is invalid", "unknown
+// variant", "expected one of") beside a word that names the setting (the
+// flag, the mode, an approval policy or sandbox). Anything else — a timeout, a
+// dropped connection, a CLI that died for its own reasons — is not the
+// setting's, and retrying it under No flag would only trade the person's mode
+// for the CLI's own default, which may be to ask about nothing.
+const REFUSAL_WORDS =
+  /\b(?:unknown|unrecogni[sz]ed|unexpected|invalid|unsupported|not (?:a )?(?:valid|supported|allowed)|no such|(?:must be|expected) one of|possible values)\b/iu
+const SETTING_WORDS =
+  /permission|approval|approve|sandbox|bypass|dangerously|yolo|accept-?edits|auto-review|--force\b|\bmode\b|untrusted|on-request|on-failure|read-only|workspace-write|full-access/iu
+
+/** Whether a runtime's failure message says it would not take its permission setting. */
+export function looksLikePermissionSettingRefusal(message: string): boolean {
+  return message.split('\n').some((line) => REFUSAL_WORDS.test(line) && SETTING_WORDS.test(line))
+}
+
 /**
  * What a chat says when its runtime would not start under the mode it was
  * given and it was started again with no permission setting, so the person

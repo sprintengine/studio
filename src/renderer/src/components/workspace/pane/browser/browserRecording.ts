@@ -299,36 +299,64 @@ export async function startGuestRecording(
     size = { width: settings.width ?? 0, height: settings.height ?? 0 }
   }
 
-  const recorder = new MediaRecorder(new MediaStream([recordedTrack]), {
-    mimeType,
-    videoBitsPerSecond: options.bitsPerSecond,
-  })
-  // Each chunk is read out in the order it came, so the file is in order.
+  let recorder: MediaRecorder
+  try {
+    recorder = new MediaRecorder(new MediaStream([recordedTrack]), {
+      mimeType,
+      videoBitsPerSecond: options.bitsPerSecond,
+    })
+  } catch (failure) {
+    // The capture is running; nothing will record it, so it stops here.
+    for (const cleanup of cleanups) cleanup()
+    throw failure
+  }
+  let error: string | undefined
+  const stop = (): void => {
+    if (recorder.state !== 'inactive') recorder.stop()
+  }
+  // Each chunk is read out in the order it came, so the file is in order. A
+  // chunk that cannot be read leaves a hole no later chunk can follow (the
+  // WebM after it would not play), so the recording ends there, saying why,
+  // with what came before it kept.
   let handedOver: Promise<void> = Promise.resolve()
+  let chunkLost = false
   recorder.ondataavailable = (event: BlobEvent) => {
     if (event.data.size === 0) return
     const blob = event.data
-    handedOver = handedOver.then(async () => io.onChunk(new Uint8Array(await blob.arrayBuffer())))
+    handedOver = handedOver.then(async () => {
+      if (chunkLost) return
+      try {
+        io.onChunk(new Uint8Array(await blob.arrayBuffer()))
+      } catch (failure) {
+        chunkLost = true
+        const reason = failure instanceof Error ? failure.message : String(failure)
+        error ??= reason
+          ? `A piece of the video could not be read: ${reason}`
+          : 'A piece of the video could not be read.'
+        stop()
+      }
+    })
   }
   const startedAt = performance.now()
-  let error: string | undefined
   const stopped = new Promise<void>((resolve) => {
     recorder.onstop = () => resolve()
   })
   recorder.onerror = (event: Event) => {
     const reason = (event as Event & { error?: { message?: string } }).error?.message
     error = reason ? `The encoder failed: ${reason}` : 'The encoder failed.'
-    if (recorder.state !== 'inactive') recorder.stop()
-  }
-  const stop = (): void => {
-    if (recorder.state !== 'inactive') recorder.stop()
+    stop()
   }
   // The guest went away (the tab closed, or its page crashed).
   track.addEventListener('ended', () => {
     error ??= 'The tab stopped being captured.'
     stop()
   })
-  recorder.start(CHUNK_MS)
+  try {
+    recorder.start(CHUNK_MS)
+  } catch (failure) {
+    for (const cleanup of cleanups) cleanup()
+    throw failure
+  }
 
   const finished = (async () => {
     await stopped

@@ -14,6 +14,7 @@ import { runSpawnDescriptor, type RunOutcome, type SpawnDescriptor } from './pro
 import { knownDefaultWslDistro, resolveDefaultWslDistro, wslLoginScript, wslScriptDescriptor } from './hosts/wsl-distro'
 import { hostRegistry } from './hosts/host-registry'
 import { LOCAL_HOST_ID, distroOfHostId, isWslHostId, type ExecutionHostId } from '../shared/execution-host'
+import { ansiPlainText } from '../shared/conversation/ansi'
 import { createLoginShellPathResolver, findExecutable, searchDirectories } from './login-shell-path'
 import { access, constants as fsConstants } from 'node:fs/promises'
 
@@ -1009,11 +1010,10 @@ export async function installCli(
 // touch a copy it did not install, a network error all used to read the same.
 // The banner line (`$ …`) is what ran, not what it said, so it is left out.
 export function updateFailure(code: number, log: string): string {
-  const said = log
-    // Colour and cursor escapes, and the OSC 8 hyperlinks some CLIs print.
-    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, '')
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
-    .split(/\r?\n|\r/)
+  // Without colour and cursor escapes or the OSC 8 hyperlinks some CLIs print,
+  // and a progress bar as its last frame.
+  const said = ansiPlainText(log)
+    .split('\n')
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith('$ '))
     .slice(-3)

@@ -30,6 +30,7 @@ let root: Root | null = null
 const opened: Array<{ popOutId: string; workspaceId: string }> = []
 const pushes: Array<{ popOutId: string; state: PanePopOutState }> = []
 const closed: string[] = []
+const focused: string[] = []
 let actionListener: ((event: PanePopOutActionEvent) => void) | null = null
 let closedListener: ((event: PanePopOutClosedEvent) => void) | null = null
 
@@ -44,6 +45,11 @@ const apiTarget: Record<string, unknown> = {
     closed.push(popOutId)
     return Promise.resolve()
   },
+  panePopOutFocus: (popOutId: string) => {
+    focused.push(popOutId)
+    return Promise.resolve()
+  },
+  browserNavigate: () => Promise.resolve(true),
   onPanePopOutAction: (listener: (event: PanePopOutActionEvent) => void) => {
     actionListener = listener
     return () => {
@@ -79,6 +85,7 @@ afterEach(() => {
   opened.length = 0
   pushes.length = 0
   closed.length = 0
+  focused.length = 0
 })
 
 async function store() {
@@ -343,4 +350,48 @@ test("the pop-out window's pane writes go to the owner, and other workspaces' do
     false,
     'restored, the store writes its own pane again',
   )
+})
+
+test('a popped-out tab asked for from elsewhere comes forward in its window, and the pane stays as it is', async () => {
+  await seed({
+    open: true,
+    activeTabId: 'files',
+    tabs: [
+      { id: 'files', kind: 'files' },
+      { id: 'web', kind: 'browser', url: 'http://localhost:3000/' },
+      { id: 'agents', kind: 'agents' },
+      { id: 'board', kind: 'canvas', canvas: { path: '/Users/dev/app/plan.canvas' } },
+    ],
+  })
+  const useWorkspaceStore = await store()
+  const { showPaneTab } = await import('./panePopOutHost')
+  const { openAgentsPane } = await import('../agents/agentsPaneFocus')
+  const { openUrlInPane } = await import('../browser/openInPane')
+  await mountHost(new Set([WS, OTHER]))
+  const popOutId = await popOut(['web', 'agents', 'board'])
+  act(() => useWorkspaceStore.getState().setPaneOpen(WS, false))
+  const reveal = () => pushes.filter((push) => push.popOutId === popOutId).at(-1)?.state.reveal?.tabId
+
+  // An agent's canvas.open: forward in the window, which is not raised.
+  act(() => showPaneTab(WS, 'board'))
+  assert.equal(reveal(), 'board')
+  assert.deepEqual(focused, [], 'an agent never raises a window')
+
+  // The person's clicks: forward, and the window raised.
+  act(() => openAgentsPane(WS, 'agent-1', null))
+  assert.equal(reveal(), 'agents')
+  act(() => {
+    assert.equal(openUrlInPane(WS, 'http://localhost:3000/docs'), true)
+  })
+  assert.equal(reveal(), 'web')
+  assert.deepEqual(focused, [popOutId, popOutId])
+
+  const after = await pane()
+  assert.equal(after?.open, false, 'the pane is not opened on a placeholder')
+  assert.equal(after?.activeTabId, 'files')
+  assert.equal(after?.tabs.length, 4, 'nothing was opened a second time')
+
+  // A docked tab is shown the usual way.
+  act(() => showPaneTab(WS, 'files'))
+  assert.equal((await pane())?.open, true)
 })

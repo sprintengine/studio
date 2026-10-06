@@ -38,6 +38,7 @@ import { DEFAULT_TAILNET_LISTENER_PORT, readTailnetSettings } from './tailnet/ta
 import {
   computeWebSocketAcceptKey,
   createWebSocketFrameDecoder,
+  encodeMaskedTextFrame,
   encodeTextFrame,
   WEBSOCKET_CLOSE_REVOKED,
 } from './tailnet/websocket-frames'
@@ -778,6 +779,9 @@ test('tailnet', async () => {
         'conversation-hello',
         'conversation-plans',
         'conversation-cli-permission-modes',
+        'new-chat-worktree',
+        'new-chat-effort',
+        'cli-runtime-catalog',
       ])
 
       // The pairing code is one-time: replaying it does not mint a second device.
@@ -867,6 +871,9 @@ test('tailnet', async () => {
         'conversation-hello',
         'conversation-plans',
         'conversation-cli-permission-modes',
+        'new-chat-worktree',
+        'new-chat-effort',
+        'cli-runtime-catalog',
       ])
       assert.deepEqual([...TAILNET_CAPABILITIES], body.capabilities)
       // Nothing about this machine, its user, its workspaces, or its devices.
@@ -1547,6 +1554,18 @@ test('tailnet', async () => {
     assert.deepEqual(chunked.push(whole.subarray(0, 3)), { kind: 'frames', frames: [] })
     const rest = chunked.push(whole.subarray(3))
     assert.deepEqual(rest.kind === 'frames' ? rest.frames : [], [{ kind: 'text', text: '{"split":true}' }])
+
+    // A large message in many small chunks, with the next one behind it in
+    // the last chunk, reads whole and in order.
+    const large = 'é'.repeat(300_000)
+    const pieces = Buffer.concat([encodeMaskedTextFrame(large), maskedTextFrame('{"next":1}')])
+    const streamed = createWebSocketFrameDecoder()
+    const texts: string[] = []
+    for (let start = 0; start < pieces.length; start += 16_384) {
+      const step = streamed.push(pieces.subarray(start, start + 16_384))
+      if (step.kind === 'frames') for (const got of step.frames) if (got.kind === 'text') texts.push(got.text)
+    }
+    assert.deepEqual(texts, [large, '{"next":1}'])
 
     // An unmasked client frame is an RFC 6455 violation the server must fail on.
     const unmasked = createWebSocketFrameDecoder()

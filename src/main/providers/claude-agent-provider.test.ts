@@ -2074,6 +2074,38 @@ test('a Claude compact boundary marks the transcript with what triggered it and 
   assert.deepEqual(mapSdkMessage(state, { type: 'system', subtype: 'status', session_id: 'native' }), [])
 })
 
+test('a /compact reports the window as the summary left it, not as full as the last request was', () => {
+  const state = mapperState()
+  mapSdkMessage(state, { type: 'system', subtype: 'init', session_id: 'native', model: 'claude-opus-4-7' })
+  mapSdkMessage(state, {
+    type: 'stream_event',
+    session_id: 'native',
+    parent_tool_use_id: null,
+    event: { type: 'message_start', message: { usage: { input_tokens: 10, cache_read_input_tokens: 180_000 } } },
+  })
+  const result = () =>
+    mapSdkMessage(state, {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 'native',
+      usage: { input_tokens: 10, output_tokens: 0 },
+      modelUsage: { 'claude-opus-4-7': { contextWindow: 200_000 } },
+    }).find((event) => event.type === 'usage_updated')
+  assert.equal(result()?.payload?.contextUsed, 180_010)
+  // The compaction makes no request the stream shows before its result.
+  mapSdkMessage(state, {
+    type: 'system',
+    subtype: 'compact_boundary',
+    session_id: 'native',
+    compact_metadata: { trigger: 'manual', pre_tokens: 180_010, post_tokens: 12_000 },
+  })
+  assert.equal(result()?.payload?.contextUsed, 12_000)
+  // A boundary that does not say what is left reports no reading at all.
+  mapSdkMessage(state, { type: 'system', subtype: 'compact_boundary', session_id: 'native' })
+  assert.equal(result()?.payload?.contextUsed, undefined)
+})
+
 test('a Claude API retry tells the turn why it has nothing yet and when the next attempt runs', () => {
   const state = mapperState()
   const [retrying] = mapSdkMessage(state, {
@@ -2495,7 +2527,7 @@ test('a foreground Claude agent keeps its own result and background shells are n
  * recorded, and `emit` plays a message out of the child when the test says so.
  * `refuseModes` stands in for a CLI that will not take a live permission mode.
  */
-function scriptedHarness(options: { refuseModes?: boolean; wedged?: boolean } = {}) {
+function scriptedHarness(options: { refuseModes?: boolean; wedged?: boolean; slowModesMs?: number } = {}) {
   const prompts: Record<string, unknown>[] = []
   const spawned: Record<string, unknown>[] = []
   const interrupts: unknown[] = []
@@ -2524,6 +2556,7 @@ function scriptedHarness(options: { refuseModes?: boolean; wedged?: boolean } = 
       },
       setPermissionMode: async (mode: string) => {
         if (options.wedged) await new Promise(() => undefined)
+        if (options.slowModesMs) await new Promise((resolve) => setTimeout(resolve, options.slowModesMs))
         if (options.refuseModes) throw new Error('Cannot set permission mode.')
         modes.push(mode)
       },
@@ -3385,6 +3418,44 @@ test('a mode switch a wedged child never answers does not hold the switch, and a
     assert.deepEqual(await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'auto' }), {
       ok: true,
     })
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('a switch a slow child takes late is not trusted, so switching back still reaches the child', async () => {
+  const h = scriptedHarness({ slowModesMs: 60 })
+  try {
+    await h.adapter.startSession({ ...h.turn('turn_1'), permissionPreset: 'auto' })
+    const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    h.emit(init)
+    await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'bypass' })
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    assert.deepEqual(h.modes, ['bypassPermissions'], 'the child took bypass after all')
+    await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'auto' })
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    assert.equal(h.modes.length, 2, 'the switch back is sent, not taken as already in force')
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('a switch back made while the child is still answering a switch reaches the child too', async () => {
+  const h = scriptedHarness({ slowModesMs: 30 })
+  try {
+    await h.adapter.startSession({ ...h.turn('turn_1'), permissionPreset: 'auto' })
+    const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    h.emit(init)
+    const toBypass = h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'bypass' })
+    const back = h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'auto' })
+    await Promise.all([toBypass, back])
+    assert.deepEqual(h.modes, ['bypassPermissions', 'auto'], 'the child ends on auto, not on bypass')
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
   } finally {
     await h.adapter.disposeAll()
   }

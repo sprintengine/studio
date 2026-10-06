@@ -5,7 +5,7 @@ import { distroOfUncPath, toWslPath } from '../../shared/host-paths'
 import { isMachinePath, parseMachinePath } from '../../shared/machine-paths'
 import { sidecarRelativePath } from '../../shared/workspace-sidecar'
 import { workspaceSidecarPath } from '../workspace-sidecar'
-import type { RecordingFailure, RecordingOutput, RecordingOutputs } from './browser-recorder'
+import type { RecordingAgent, RecordingFailure, RecordingOutput, RecordingOutputs } from './browser-recorder'
 import { withWebmDuration } from './webm-duration'
 
 // Where a browser recording is saved: in the calling agent's workspace, beside
@@ -13,7 +13,11 @@ import { withWebmDuration } from './webm-duration'
 // ignores itself (the same `.gitignore` the screenshots write), so a recording
 // never shows in `git status`.
 //
-// The workspace is where the agent is. A workspace on this computer is written
+// The folder is the one the agent works in: its own worktree when its chat
+// runs in one (a New chat leases one from the pool), so `workspacePath` is
+// relative to the agent's own working folder and opens from where it is; the
+// workspace's folder when Studio cannot say (a chat served out of process, or
+// a caller that is not an agent). A folder on this computer is written
 // here directly, and so is one in WSL, through the `\\wsl.localhost\…` path
 // this computer opens it by, which is the same folder the agent reads in the
 // distribution. The answer names the file relative to the workspace, which
@@ -75,6 +79,8 @@ const nodeFs: RecordingFs = {
 export type WorkspaceRecordingOutputsDeps = {
   /** A workspace's folder from main's registry; null when it has none. */
   resolveWorkspaceRoot(workspaceId: string): string | null
+  /** The folder an agent's chat works in (its worktree), when this process knows it; null otherwise. */
+  resolveAgentRoot?(agent: RecordingAgent): string | null
   /** An SSH machine's name for its saved id, for the refusal's wording. */
   machineLabel?(id: string): string | null
   fs?: RecordingFs
@@ -90,8 +96,8 @@ export function createWorkspaceRecordingOutputs(deps: WorkspaceRecordingOutputsD
   const fail = (code: string, message: string): RecordingFailure => ({ ok: false, code, message })
 
   return {
-    async create({ workspaceId, stem }) {
-      const root = deps.resolveWorkspaceRoot(workspaceId)
+    async create({ workspaceId, stem, agent }) {
+      const root = (agent ? deps.resolveAgentRoot?.(agent) : null) || deps.resolveWorkspaceRoot(workspaceId)
       if (!root) return fail('no_workspace_folder', 'This workspace has no folder to save a recording in.')
       if (isMachinePath(root)) {
         const machine = parseMachinePath(root)

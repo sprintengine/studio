@@ -6,7 +6,7 @@ import { applyGatewayLaunchTokenChange, type LaunchTokenChange } from '../core/g
 import { createTailnetTools, type TailnetToolsFrontDoor } from '../../main/automation/tailnet/tailnet-tools'
 import { cliResumeCapabilities } from '../../main/cli-resume-capabilities'
 import { createConversationAttentionListener } from '../../main/conversation-attention'
-import { createConversationTerminalHandoff } from '../../main/conversation-terminal-handoff'
+import { chatHandoffStart, createConversationTerminalHandoff } from '../../main/conversation-terminal-handoff'
 import { setDiagnosticsLogName, writeDiagnosticLog } from '../../main/diagnostics-service'
 import { createFilesystemReadHandlers } from '../../main/filesystem-read'
 import { createFilesystemWatchSearchHandlers } from '../../main/filesystem-watch-search-handlers'
@@ -292,6 +292,7 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           getScheduledAgents: () => modules.scheduledAgents(),
           defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+          userCliModels: (cli) => agentLaunchSettings.get().cliRuntimes[cli]?.models,
           getModuleRegistrySnapshot: () => moduleRegistry,
           // The marketplace and the module trust store are the shell's caches.
           listInstalledThirdPartyModules: () => rpc.call(SHELL_METHODS.thirdPartyModules),
@@ -355,6 +356,12 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
       workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)?.agents?.[
         agentId
       ]?.name,
+    chatStart: (workspaceId, agentId) =>
+      chatHandoffStart(
+        workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId),
+        agentId,
+        agentLaunchSettings.get(),
+      ),
   })
   const files = { ...createFilesystemWatchSearchHandlers(), ...createFilesystemReadHandlers() }
   const domains = registerServerDomainIpc(tunnel.registry as unknown as Parameters<typeof registerServerDomainIpc>[0], {

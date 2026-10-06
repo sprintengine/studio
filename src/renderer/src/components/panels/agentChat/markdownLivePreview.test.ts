@@ -67,6 +67,23 @@ test('an inline link shows its words as a link; a reference link is left as type
   expect(drawn('see [docs][1]\n\n[1]: https://example.com')).not.toContain('cm-md-link:docs')
 })
 
+test('a link whose target runs onto the next line hides it a line at a time, never the line break', () => {
+  // The editor throws on a hidden line break from a view plugin, which took
+  // the whole composer down with a pasted link like these.
+  expect(drawn('see [docs](\nhttps://example.com) now')).toEqual([
+    'hidden:[',
+    'cm-md-link:docs',
+    'hidden:](',
+    'hidden:https://example.com)',
+  ])
+  expect(drawn('[docs](https://example.com\n"Title")', [2])).toEqual([
+    'hidden:[',
+    'cm-md-link:docs',
+    'hidden:](https://example.com',
+    'cm-md-syntax:"Title")',
+  ])
+})
+
 test('a bullet is drawn as a bullet off the caret line; a number stays a number', () => {
   expect(drawn('- one\n- two', [2])).toEqual(['bullet:-', 'cm-md-syntax:-'])
   expect(drawn('1. one')).toEqual(['cm-md-list-number:1.'])

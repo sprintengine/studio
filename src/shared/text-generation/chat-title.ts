@@ -138,6 +138,20 @@ export function sanitizeGeneratedChatTitle(raw: string | null | undefined): stri
     title = lastSpace > MIN_CHAT_TITLE_LENGTH ? cut.slice(0, lastSpace) : cut
   }
   title = title.replace(/[\s,;:.\-–—]+$/, '').trim()
-  if (title.length < MIN_CHAT_TITLE_LENGTH || !/[a-z]/i.test(title)) return null
+  if (!namesSomething(title)) return null
   return title.charAt(0).toUpperCase() + title.slice(1)
+}
+
+/**
+ * Whether a generated title says enough to name something: a letter of any
+ * script (a title in Japanese or Cyrillic names a chat as well as one in
+ * English), and at least three characters — or two where a character is a
+ * word or a syllable (Han, kana, Hangul), as in 修正 ("fix"). Counted in code
+ * points, so a character outside the basic plane counts once.
+ */
+export function namesSomething(title: string): boolean {
+  if (!/\p{L}/u.test(title)) return false
+  const length = [...title].length
+  if (length >= MIN_CHAT_TITLE_LENGTH) return true
+  return length === 2 && /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+$/u.test(title)
 }

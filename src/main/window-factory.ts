@@ -333,7 +333,7 @@ export function createDiagnosticsWindow(): BrowserWindow {
     minHeight: 400,
     show: false,
     title: 'SprintEngine Studio Diagnostics',
-    backgroundColor: '#09090b',
+    backgroundColor: getWindowCanvasColor(),
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -449,7 +449,10 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null, focus
           trafficLightPosition: { x: 12, y: 11 },
         }),
     autoHideMenuBar: process.platform !== 'darwin',
-    backgroundColor: '#09090b',
+    // The theme's own canvas (the workspace window's last push), so a light
+    // theme does not open, or resize, on a dark ground before the page paints.
+    // An aux window takes no vibrancy, whatever the material: always opaque.
+    backgroundColor: getWindowCanvasColor(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       // Which process owns the server's IPC channels this session (ipc-router.ts).

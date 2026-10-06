@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { DiscoveredCliModelCatalog } from '../../../../shared/cli-model-catalog'
+import { ansiPlainText } from '../../../../shared/conversation/ansi'
 import type { AgentCliAvailabilityMap } from '../../../../shared/electron-api'
 import {
   emptyExecutionHostSettings,
@@ -536,7 +537,7 @@ export function AgentClisSection({
                       aria-label={`${plugin.displayName} update output`}
                       className="max-h-48 overflow-auto whitespace-pre-wrap rounded-[var(--radius-sm)] bg-[color:var(--bg-app)] px-2.5 py-1.5 font-mono text-meta leading-[1.5] text-[color:var(--text-muted)]"
                     >
-                      {updateRun.log || 'Starting…'}
+                      {ansiPlainText(updateRun.log) || 'Starting…'}
                     </pre>
                   ) : null}
                   <CliInstallControl

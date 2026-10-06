@@ -9,6 +9,12 @@ import { createScheduledAgentsModule } from './scheduled-agents-module'
 // Note: memory-graph and dev-tools have no main module — their backends
 // (knowledge graph, filesystem) are foundational, always registered in
 // register-core-ipc; only their renderer panels are capability modules.
-export function createBundledMainModules(platform: StudioPlatform): CapabilityModule[] {
-  return [createScheduledAgentsModule(platform)]
+//
+// `getModulePermissions` answers for every module the app assembled, the
+// bundled ones included, so it is read late: it may be built after this list.
+export function createBundledMainModules(
+  platform: StudioPlatform,
+  getModulePermissions: (moduleId: string) => readonly string[] | undefined,
+): CapabilityModule[] {
+  return [createScheduledAgentsModule(platform, getModulePermissions)]
 }

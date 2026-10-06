@@ -90,8 +90,11 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
   const activeTabId = paneState?.activeTabId ?? null
   const collapsedWithFloatingPlayer = !(paneState?.open ?? false) && tabs.some((tab) => tab.floating)
   // What the agent tools act on when they name no tab: the browser tab the
-  // person is looking at, or none when the active tab is not a browser.
-  const activeBrowserTabId = tabs.find((tab) => tab.id === activeTabId && tab.kind === 'browser')?.id ?? null
+  // person is looking at, or none when the active tab is not a browser. A
+  // browser tab out in a window of its own is that window's to name; main
+  // keeps this pane's "none" from clearing it (browser:note-active).
+  const activeBrowserTabId =
+    tabs.find((tab) => tab.id === activeTabId && tab.kind === 'browser' && !tab.poppedOut)?.id ?? null
   useEffect(() => {
     void window.api.browserNoteActive(workspaceId, activeBrowserTabId)
   }, [activeBrowserTabId, workspaceId])
@@ -199,7 +202,7 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
           otherwise focus lands in chrome nobody can see. */}
       <div
         className="chrome-bar app-drag flex h-[36px] shrink-0 items-end pl-1.5 pr-1"
-        {...(collapsedWithFloatingPlayer ? ({ inert: '' } as Record<string, string>) : {})}
+        inert={collapsedWithFloatingPlayer}
       >
         {/* Scrolls sideways with no scrollbar and a fade at each overflowing
             edge (TabsScroller): a 10px bar under a 36px strip is a second line

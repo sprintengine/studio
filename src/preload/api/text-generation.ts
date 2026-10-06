@@ -22,12 +22,20 @@ export const textGenerationApi = {
     cwd: string
     engine: TextGenerationEngine
     cliRuntimes?: TextGenerationCliRuntimeOverrides
+    draftId?: string
   }): Promise<PullRequestTextResult> => ipcRenderer.invoke('pull-request-create:draft', request),
+  cancelPullRequestDraft: (draftId: string): Promise<void> =>
+    ipcRenderer.invoke('pull-request-create:draft-cancel', draftId),
   pushForPullRequest: (cwd: string): Promise<PushForPullRequestOutcome> =>
     ipcRenderer.invoke('pull-request-create:push', cwd),
   createPullRequest: (input: { cwd: string; title: string; body: string }): Promise<CreatePullRequestOutcome> =>
     ipcRenderer.invoke('pull-request-create:create', input),
 } satisfies Pick<
   ElectronApi,
-  'generateChatTitle' | 'createPullRequestState' | 'draftPullRequestText' | 'pushForPullRequest' | 'createPullRequest'
+  | 'generateChatTitle'
+  | 'createPullRequestState'
+  | 'draftPullRequestText'
+  | 'cancelPullRequestDraft'
+  | 'pushForPullRequest'
+  | 'createPullRequest'
 >
