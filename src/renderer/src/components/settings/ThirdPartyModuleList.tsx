@@ -385,10 +385,13 @@ export function ThirdPartyModuleList({
       const name = module.manifest.displayName
       const confirmed = await confirmDialog({
         title: `Uninstall ${name}?`,
-        // Says what leaves and what stays. Project data a module wrote is its
-        // own and is never touched by an uninstall, and saying so is the
-        // difference between a reversible action and one nobody dares press.
-        body: `Its files are removed from this machine, along with anything else its plugin installed. Work it saved inside your projects stays on disk. Loaded module code is only unloaded when the app restarts.`,
+        // Says what leaves and what stays. What the app kept for the module
+        // outside any project (its settings, its stored data, the secrets
+        // given to it) is deleted, so a module installed under the same id
+        // later starts empty. Project data a module wrote is its own and is
+        // never touched by an uninstall, and saying so is the difference
+        // between a reversible action and one nobody dares press.
+        body: `Its files are removed from this machine, along with anything else its plugin installed. Its settings, the data it stored outside your projects and the keys or secrets you gave it are deleted too. Work it saved inside your projects stays on disk. Loaded module code is only unloaded when the app restarts.`,
         confirmLabel: 'Uninstall',
         tone: 'danger',
       })
