@@ -244,3 +244,33 @@ export function ansiPlainText(text: string): string {
     .map((line) => line.map((span) => span.text).join(''))
     .join('\n')
 }
+
+/**
+ * {@link ansiPlainText} for a log that grows while it is shown (an install or
+ * update streaming in): each call parses only what was appended since the
+ * last, and reads back only the row still being written, rather than parsing
+ * the whole log again for every chunk. A text that does not continue the last
+ * one (a new run) is read from its start.
+ */
+export function createAnsiPlainTextReader(): (text: string) => string {
+  let source = ''
+  let state = createState()
+  // The rows no later character can change (every one before the cursor's),
+  // each with its newline.
+  let finished = ''
+  let finishedRows = 0
+  const rowText = (row: Cell[]) => row.map((cell) => cell.text).join('')
+  return (text) => {
+    if (!text.startsWith(source)) {
+      source = ''
+      state = createState()
+      finished = ''
+      finishedRows = 0
+    }
+    consume(state, text.slice(source.length))
+    source = text
+    for (; finishedRows < state.rows.length - 1; finishedRows += 1)
+      finished += `${rowText(state.rows[finishedRows]!)}\n`
+    return finished + rowText(state.rows.at(-1) ?? [])
+  }
+}
