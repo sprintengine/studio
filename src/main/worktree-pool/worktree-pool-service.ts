@@ -288,6 +288,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   let settings: WorktreePoolSettings | null = null
   let loaded: Promise<void> | null = null
   let stopped = false
+  /** Aborts a disk measurement in progress when quitting begins. */
+  const stopping = new AbortController()
   let heartbeat: NodeJS.Timeout | null = null
   /** Every public step still running, which quitting waits for (`shutdown`). */
   const inFlight = new Set<Promise<unknown>>()
@@ -1316,6 +1318,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     )
     const entries: WorktreePoolSweepEntry[] = []
     for (const slot of [...pool.record.slots]) {
+      // Quitting: the slots not reached yet are the next start's sweep's.
+      if (stopped) break
       if (slot.state === 'returning' && !pool.busy.has(slot.id)) {
         // A return a previous sweep postponed, or the app stopped in.
         const outcome = await returnSlot(pool, slot, true)
@@ -1484,15 +1488,19 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       .sort((a, b) => (b.lastUsedAt ?? b.createdAt) - (a.lastUsedAt ?? a.createdAt))
     const others = pool.record.slots.length - idle.length
     const limit = enabled ? Math.min(keepIdle, Math.max(0, maxSlots - others)) : 0
-    for (const slot of idle.slice(limit)) await evictSlot(pool, slot, 'over the idle limit')
+    for (const slot of idle.slice(limit)) {
+      if (stopped) return
+      await evictSlot(pool, slot, 'over the idle limit')
+    }
   }
 
   // ── Disk ─────────────────────────────────────────────────────────────────
 
   async function measureSlot(pool: PoolRuntime, slot: SlotRecord): Promise<void> {
     if (!(await pathExists(slot.path))) return
-    const size = await measureSize(slot.path).catch(() => null)
-    if (!size) return
+    if (stopped) return
+    const size = await measureSize(slot.path, stopping.signal).catch(() => null)
+    if (!size || stopped) return
     await withPool(pool, async () => {
       if (!pool.record.slots.includes(slot)) return
       slot.size = size
@@ -1517,7 +1525,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       }
     }
     const worker = async (): Promise<void> => {
-      for (let next = queue.shift(); next; next = queue.shift()) await measureSlot(next.pool, next.slot)
+      for (let next = queue.shift(); next && !stopped; next = queue.shift()) await measureSlot(next.pool, next.slot)
     }
     await Promise.all(Array.from({ length: Math.min(MEASURE_CONCURRENCY, queue.length) }, worker))
     await enforceDiskLimit()
@@ -1531,7 +1539,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
    */
   async function enforceDiskLimit(): Promise<void> {
     const { diskLimitGb } = await getSettings()
-    if (diskLimitGb === null) return
+    if (diskLimitGb === null || stopped) return
     const limit = diskLimitGb * 1024 ** 3
     const driven: PoolRuntime[] = []
     // Confirmed, not remembered: a pool whose lock went to another Studio is
@@ -1547,7 +1555,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       .filter(({ pool, slot }) => slot.state === 'idle' && !pool.busy.has(slot.id))
       .sort((a, b) => (a.slot.lastUsedAt ?? a.slot.createdAt) - (b.slot.lastUsedAt ?? b.slot.createdAt))
     for (const { pool, slot } of idle) {
-      if (total <= limit) break
+      if (total <= limit || stopped) break
       const bytes = slot.size?.bytes ?? 0
       if ((await evictSlot(pool, slot, 'over the disk limit')) === true) total -= bytes
     }
@@ -1776,8 +1784,10 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     // records settled, not these slots.
     void track(
       (async () => {
-        for (const slot of toReturn) await returnSlot(pool, slot, true)
-        for (const slot of toEvict) await evictSlot(pool, slot, 'resumed')
+        // Quitting stops between slots: the rest stay as recorded, and the
+        // next start's recovery resumes them.
+        for (const slot of toReturn) if (!stopped) await returnSlot(pool, slot, true)
+        for (const slot of toEvict) if (!stopped) await evictSlot(pool, slot, 'resumed')
       })(),
     ).catch((error: unknown) => log(`${record.repoRoot}: resuming after recovery failed: ${messageOf(error)}`))
   }
@@ -1969,8 +1979,13 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     return false
   }
 
-  async function shutdown(): Promise<void> {
+  /**
+   * Stop, wait up to `waitMs` (ten seconds unless the caller is short of time)
+   * for the steps in flight, and give each pool's lock up.
+   */
+  async function shutdown(options: { waitMs?: number } = {}): Promise<void> {
     stopped = true
+    stopping.abort()
     if (heartbeat) clearInterval(heartbeat)
     // Nothing new starts now (`ready` refuses); what already runs is waited
     // for, briefly, before the lock that keeps another Studio off it goes.
@@ -1983,7 +1998,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         timer = setTimeout(() => {
           timedOut = true
           resolveWait()
-        }, SHUTDOWN_WAIT_MS)
+        }, options.waitMs ?? SHUTDOWN_WAIT_MS)
         timer.unref?.()
       })
       while (inFlight.size > 0 && !timedOut) await Promise.race([Promise.allSettled([...inFlight]), deadline])

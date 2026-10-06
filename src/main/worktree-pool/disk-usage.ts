@@ -19,7 +19,8 @@ const NAMED_PARTS = 4
 const DU_TIMEOUT_MS = 120_000
 const WALK_CONCURRENCY = 16
 
-export type MeasureDiskUsage = (path: string) => Promise<WorktreeDiskUsage | null>
+/** `signal` stops a measurement part-way (quitting): the answer is then null. */
+export type MeasureDiskUsage = (path: string, signal?: AbortSignal) => Promise<WorktreeDiskUsage | null>
 
 function breakdown(total: number, children: Array<{ name: string; bytes: number }>, measuredAt: number) {
   const sorted = children.filter((child) => child.bytes > 0).sort((a, b) => b.bytes - a.bytes)
@@ -46,13 +47,14 @@ export function parseDuOutput(stdout: string, root: string, measuredAt: number):
   return total === null ? null : breakdown(total, children, measuredAt)
 }
 
-function runDu(path: string): Promise<string | null> {
+function runDu(path: string, signal?: AbortSignal): Promise<string | null> {
   return new Promise((resolveRun) => {
     execFile(
       'du',
       ['-k', '-d', '1', path],
-      { timeout: DU_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
+      { timeout: DU_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024, windowsHide: true, signal },
       (error, stdout) => {
+        if (signal?.aborted) return resolveRun(null)
         // A file it may not read makes `du` exit 1 after printing every total
         // it could; those totals are still the answer.
         if (stdout) resolveRun(stdout)
@@ -63,24 +65,28 @@ function runDu(path: string): Promise<string | null> {
 }
 
 /** Bytes under `path`, symlinks not followed. */
-async function walk(path: string): Promise<number> {
+async function walk(path: string, signal?: AbortSignal): Promise<number> {
+  if (signal?.aborted) return 0
   const info = await lstat(path).catch(() => null)
   if (!info) return 0
   if (!info.isDirectory()) return info.isSymbolicLink() ? 0 : info.size
   const names = await readdir(path).catch(() => [] as string[])
   let total = 0
   for (let index = 0; index < names.length; index += WALK_CONCURRENCY) {
-    const sizes = await Promise.all(names.slice(index, index + WALK_CONCURRENCY).map((name) => walk(join(path, name))))
+    const sizes = await Promise.all(
+      names.slice(index, index + WALK_CONCURRENCY).map((name) => walk(join(path, name), signal)),
+    )
     total += sizes.reduce((sum, size) => sum + size, 0)
   }
   return total
 }
 
-async function walkTopLevel(path: string, measuredAt: number): Promise<WorktreeDiskUsage | null> {
+async function walkTopLevel(path: string, measuredAt: number, signal?: AbortSignal): Promise<WorktreeDiskUsage | null> {
   const names = await readdir(path).catch(() => null)
   if (!names) return null
   const children: Array<{ name: string; bytes: number }> = []
-  for (const name of names) children.push({ name, bytes: await walk(join(path, name)) })
+  for (const name of names) children.push({ name, bytes: await walk(join(path, name), signal) })
+  if (signal?.aborted) return null
   return breakdown(
     children.reduce((sum, child) => sum + child.bytes, 0),
     children,
@@ -88,12 +94,13 @@ async function walkTopLevel(path: string, measuredAt: number): Promise<WorktreeD
   )
 }
 
-export const measureDiskUsage: MeasureDiskUsage = async (path) => {
+export const measureDiskUsage: MeasureDiskUsage = async (path, signal) => {
   const measuredAt = Date.now()
   if (process.platform !== 'win32') {
-    const stdout = await runDu(path)
+    const stdout = await runDu(path, signal)
     const parsed = stdout ? parseDuOutput(stdout, path, measuredAt) : null
     if (parsed) return parsed
+    if (signal?.aborted) return null
   }
-  return walkTopLevel(path, measuredAt)
+  return walkTopLevel(path, measuredAt, signal)
 }

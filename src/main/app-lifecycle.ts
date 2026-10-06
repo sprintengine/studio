@@ -99,7 +99,7 @@ type RegisterAppLifecycleOptions = {
   // each pool's container lock is given up so another Studio can take the pool
   // over.
   worktreePool?: {
-    shutdown(): Promise<void>
+    shutdown(options?: { waitMs?: number }): Promise<void>
   }
   // Recordings of browser tabs an agent started: each is a file still being
   // written, so quit saves what was captured, with its length, before the
@@ -577,6 +577,10 @@ export function registerAppLifecycle({
   //     module kernel's own shutdown.
   let shutdownRun: Promise<void> | null = null
   let leavingForUpdate = false
+  // The pool's wait for slot steps in flight, short when leaving for an
+  // update: its ten seconds also have to cover the Studio server's drain after
+  // it. A step cut short is recovered at the next start, as after a crash.
+  const poolShutdownOptions = () => (leavingForUpdate ? { waitMs: POOL_UPDATE_SHUTDOWN_WAIT_MS } : {})
   // Who hears about each leg as it finishes: "Restart to update" passes one in,
   // which drives the progress window and the diagnostics timings. Joined late
   // (the shutdown already running), it still hears the legs that are left.
@@ -628,7 +632,7 @@ export function registerAppLifecycle({
       ['chats', () => conversationOwner?.shutdown()],
       ['browser recordings', () => browserRecorder?.stopAll('app_quit')],
       ['canvas', () => canvasService?.dispose()],
-      ['worktree pool', () => worktreePool?.shutdown()],
+      ['worktree pool', () => worktreePool?.shutdown(poolShutdownOptions())],
       ['command lists', () => conversationCommands?.dispose()],
       ['workspace registry (final)', () => workspaceSyncService?.flush()],
       // Not when leaving for an update: the new build starts straight away and
@@ -664,7 +668,7 @@ export function registerAppLifecycle({
       ['browser recordings', () => browserRecorder?.stopAll('app_quit')],
       // The canvas's last board write lands before the server stops serving.
       ['canvas', () => canvasService?.dispose()],
-      ['worktree pool', () => worktreePool?.shutdown()],
+      ['worktree pool', () => worktreePool?.shutdown(poolShutdownOptions())],
       ['desktop tools', () => desktopShell?.stop()],
       [
         'studio server (drain)',
@@ -773,6 +777,9 @@ export function registerAppLifecycle({
  * more than a leg that has hung.
  */
 const UPDATE_SHUTDOWN_BUDGET_MS = 10_000
+
+/** How long the worktree pool may wait for its steps in flight within that budget. */
+const POOL_UPDATE_SHUTDOWN_WAIT_MS = 2_000
 
 /**
  * How long the Studio server may drain at quit, and within "Restart to

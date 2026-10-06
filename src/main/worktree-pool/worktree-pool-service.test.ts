@@ -13,6 +13,7 @@ import { installWorktreePool } from './active-pool'
 import { acquireInstanceLock, createPoolStore, POOL_RECORD_VERSION, poolIdFor, type PoolRecord } from './pool-store'
 import { agentLeaseKey } from '../../shared/ipc/worktree-pool'
 import { parseSlotStatus } from './slot-git'
+import type { MeasureDiskUsage } from './disk-usage'
 import { createWorktreeInventory } from './worktree-inventory'
 import { createWorktreePoolService } from './worktree-pool-service'
 import { createWorktreePoolTools } from './worktree-pool-tools'
@@ -69,7 +70,7 @@ function makeService(
     live?: string[]
     now?: () => number
     instanceId?: string
-    measure?: ReturnType<typeof fakeMeasure>
+    measure?: MeasureDiskUsage
   } = {},
 ) {
   const live = options.live ?? []
@@ -592,6 +593,43 @@ test('quitting waits for a lease in flight before giving the pool’s lock up', 
   assert.equal(leased, true, 'the lease finished before the lock went')
   assert.equal(await exists(join(container, '.pool.lock')), false)
   await pending
+})
+
+test('quitting stops a disk measurement part-way, and a short wait is not stretched by a step that hangs', async () => {
+  let started = 0
+  let aborted = false
+  const abortable: MeasureDiskUsage = (_path, signal) => {
+    started += 1
+    return new Promise((resolveMeasure) => {
+      signal?.addEventListener('abort', () => {
+        aborted = true
+        resolveMeasure(null)
+      })
+    })
+  }
+  const harness = makeService({ measure: abortable })
+  await lease(harness, 'first')
+  const measuring = harness.service.measure(repo)
+  while (started === 0) await new Promise((resolveTick) => setTimeout(resolveTick, 5))
+  await harness.service.shutdown()
+  assert.equal(aborted, true)
+  await measuring
+
+  // One that never ends, quitting for an update: the lock goes at the cap.
+  let hanging = 0
+  const stuck = makeService({
+    measure: () => {
+      hanging += 1
+      return new Promise(() => {})
+    },
+  })
+  await lease(stuck, 'second')
+  void stuck.service.measure(repo)
+  while (hanging === 0) await new Promise((resolveTick) => setTimeout(resolveTick, 5))
+  const before = Date.now()
+  await stuck.service.shutdown({ waitMs: 50 })
+  assert.ok(Date.now() - before < 2_000, 'the short wait is kept')
+  assert.equal(await exists(join(container, '.pool.lock')), false)
 })
 
 test('a Studio that lost the pool’s lock no longer returns a slot', async () => {
