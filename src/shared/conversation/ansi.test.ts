@@ -117,3 +117,13 @@ test('plain text keeps the words a terminal would show and drops every escape', 
     'added 3 packages\ndocs\nfetching 100%\n',
   )
 })
+
+test('a line that clears itself after a carriage return reads as what it was cleared to', () => {
+  assert.equal(ansiPlainText('Downloading package 100%\r\x1b[KDone\n'), 'Done\n')
+  assert.equal(ansiPlainText('resolving dependencies...\r\x1b[2Kok'), 'ok')
+  assert.equal(ansiPlainText('abcdef\rxyz\x1b[1K'), '    ef')
+})
+
+test('an OSC cut short by another escape ends there instead of swallowing the rest', () => {
+  assert.equal(ansiPlainText('\x1b]0;title\x1b[31mred text\x1b[0m'), 'red text')
+})
