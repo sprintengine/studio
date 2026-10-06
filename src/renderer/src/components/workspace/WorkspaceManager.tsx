@@ -512,6 +512,7 @@ export default function WorkspaceManager() {
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
+  const recordProjectUse = useWorkspaceStore((s) => s.recordProjectUse)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
@@ -1441,6 +1442,14 @@ export default function WorkspaceManager() {
       // app's own agent, so the CLI it was started on is the answer every surface
       // without a remembered CLI of its own falls back to.
       if (chosenCli) setLastSelectedCli(chosenCli)
+      // A new chat is a use of its project, which the project pickers list by
+      // (shared/project-frecency.ts): the folder the picker offered, which for a
+      // chat with Worktree on is the checkout its worktree was cut from.
+      if (workspaceId) {
+        const usedFolder =
+          worktree?.repoRoot ?? (folderPath === undefined ? (activeWorkspace?.folderPath ?? null) : folderPath)
+        if (usedFolder) recordProjectUse(usedFolder)
+      }
       // The solo template carries exactly one agent tab, and the seed patch above
       // was merged onto it at creation, so the lone agent record IS this chat's
       // agent. Read back rather than guessed: `addWorkspace` minted its id, which
@@ -1451,6 +1460,7 @@ export default function WorkspaceManager() {
       return agentId ? { workspaceId, agentId } : null
     },
     [
+      activeWorkspace?.folderPath,
       agentCliCatalog,
       agentSpawnPermissionPreset,
       createSoloChatWorkspace,
@@ -1458,6 +1468,7 @@ export default function WorkspaceManager() {
       pluginCatalogEntries,
       lastSelectedAgentModel,
       lastSelectedCli,
+      recordProjectUse,
       setLastSelectedCli,
     ],
   )

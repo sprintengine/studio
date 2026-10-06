@@ -23,7 +23,12 @@ The settings in question are seven fields, one record:
   by CLI id: what the spawn footer's picker last chose for that runtime. A CLI
   with no entry reads `lastAgentSpawnPermissionPreset`, and every launch, in a
   window or in main, resolves `requested ?? cliPermissionPresets[cli] ??
-  lastAgentSpawnPermissionPreset` (`resolveAgentSpawnPermissionPreset`).
+lastAgentSpawnPermissionPreset` (`resolveAgentSpawnPermissionPreset`).
+- `projectUsage` — where chats were started, per project folder: a frecency
+  score, the latest use and a use count (`src/shared/project-frecency.ts`).
+  The New chat project picker lists by it, and `workspace.list` hands it to a
+  paired phone. A patch's `projectUse` adds one use rather than replacing the
+  map, so a window's New chat and a phone's, recorded by main, both count.
 
 The shapes and the patch rules are in `src/shared/launch-settings.ts`.
 
@@ -54,12 +59,12 @@ launch only saw what the last window to open had pushed.
 
 ## Channels
 
-| Channel | Direction | What it carries |
-| --- | --- | --- |
-| `launch-settings:get` | window → main | The record (null before any write) and the settings in force, which is what a window shows at boot. |
-| `launch-settings:update` | window → main | A partial patch. Answered with the record main now holds. |
-| `launch-settings:migrate` | window → main | The one-time handover described below. Answered with main's record either way. |
-| `launch-settings:changed` | main → every window | The new record, after every write that changed it, whoever made it. |
+| Channel                   | Direction           | What it carries                                                                                     |
+| ------------------------- | ------------------- | --------------------------------------------------------------------------------------------------- |
+| `launch-settings:get`     | window → main       | The record (null before any write) and the settings in force, which is what a window shows at boot. |
+| `launch-settings:update`  | window → main       | A partial patch. Answered with the record main now holds.                                           |
+| `launch-settings:migrate` | window → main       | The one-time handover described below. Answered with main's record either way.                      |
+| `launch-settings:changed` | main → every window | The new record, after every write that changed it, whoever made it.                                 |
 
 A patch names only what it changes. A CLI's runtime is replaced whole and the
 other CLIs are untouched; the MCP switch and each server are separate fields,

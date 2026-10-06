@@ -3,6 +3,7 @@ import type { BranchStepSelection } from '../../../shared/electron-api'
 import type { IJsonModel } from 'flexlayout-react'
 import type { BrowserViewport } from '../../../shared/browser-devices'
 import type { CliPermissionPreset } from '../../../shared/cli-permission-preset'
+import type { ProjectUsageMap } from '../../../shared/project-frecency'
 // The `AgentState` record is shared with the main process, which composes agent
 // launches with no window open. Canonical definitions — including all field
 // documentation — live in `src/shared/agent-state.ts`; the imports pull in the
@@ -344,6 +345,12 @@ export type AppSettings = {
    * beside the CLI's `cliPermissionPresets` entry. A read model of main's.
    */
   cliPermissionModes?: Partial<Record<AgentCli, string>>
+  /**
+   * Where chats were started, by project folder: what the New chat project
+   * picker lists by (`shared/project-frecency.ts`). A read model of main's;
+   * recorded through `recordProjectUse`.
+   */
+  projectUsage?: ProjectUsageMap
   /**
    * The model (and reasoning-effort level) an agent spawn last ran on, stored
    * with the CLI it was picked for so a later CLI switch cannot leak a stale

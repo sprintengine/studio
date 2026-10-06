@@ -52,6 +52,7 @@ export type GatewayBackendDeps = Pick<
   | 'createWorkspace'
   | 'getScheduledAgents'
   | 'defaultChatCli'
+  | 'projectUsage'
   | 'getModuleRegistrySnapshot'
   | 'listInstalledThirdPartyModules'
   | 'listModuleContributedTools'

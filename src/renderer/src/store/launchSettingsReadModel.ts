@@ -1,7 +1,7 @@
 /**
  * The seam between the store's `appSettings` and main's agent-launch settings.
  *
- * Nine `appSettings` fields are a read model of main's record rather than
+ * Ten `appSettings` fields are a read model of main's record rather than
  * settings this window owns: they are filled from main, never persisted to
  * localStorage, and ignored when a persisted envelope is read back (except
  * once, as the migration offer — see `launchSettingsClient`). Everything that
@@ -14,6 +14,7 @@ import {
   normalizeCliPermissionPresets,
   type AgentLaunchSettings,
 } from '../../../shared/launch-settings'
+import { normalizeProjectUsageMap } from '../../../shared/project-frecency'
 import type { AppSettings, Workspace } from '../types/workspace'
 import { normalizeAppSettings } from './slices/settingsSlice'
 
@@ -27,6 +28,7 @@ export const LAUNCH_SETTINGS_KEYS = [
   'lastAgentSpawnPermissionPreset',
   'cliPermissionPresets',
   'cliPermissionModes',
+  'projectUsage',
 ] as const
 
 type LaunchSettingsKey = (typeof LAUNCH_SETTINGS_KEYS)[number]
@@ -50,6 +52,7 @@ export function pickLaunchSettings(appSettings: AppSettings): LaunchSettingsFiel
     lastAgentSpawnPermissionPreset: appSettings.lastAgentSpawnPermissionPreset,
     cliPermissionPresets: appSettings.cliPermissionPresets,
     cliPermissionModes: appSettings.cliPermissionModes,
+    projectUsage: appSettings.projectUsage,
   }
 }
 
@@ -75,6 +78,7 @@ export function launchSettingsFromAppSettings(appSettings: AppSettings): AgentLa
     lastAgentSpawnPermissionPreset: appSettings.lastAgentSpawnPermissionPreset ?? null,
     cliPermissionPresets: normalizeCliPermissionPresets(appSettings.cliPermissionPresets),
     cliPermissionModes: normalizeCliPermissionModes(appSettings.cliPermissionModes),
+    projectUsage: normalizeProjectUsageMap(appSettings.projectUsage),
   }
 }
 
@@ -103,6 +107,7 @@ export function withLaunchSettings(
       lastAgentSpawnPermissionPreset: effective.lastAgentSpawnPermissionPreset,
       cliPermissionPresets: effective.cliPermissionPresets,
       cliPermissionModes: effective.cliPermissionModes,
+      projectUsage: effective.projectUsage,
     },
     workspaces,
   )

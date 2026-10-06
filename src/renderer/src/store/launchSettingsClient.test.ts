@@ -237,6 +237,7 @@ test('client: nothing is adopted while an update is in flight, then the newest r
     lastAgentSpawnPermissionPreset: null,
     cliPermissionPresets: {},
     cliPermissionModes: {},
+    projectUsage: {},
   })
   const applied: Array<string | null> = []
   const client = createLaunchSettingsClient()
@@ -253,6 +254,7 @@ test('client: nothing is adopted while an update is in flight, then the newest r
       lastAgentSpawnPermissionPreset: null,
       cliPermissionPresets: {},
       cliPermissionModes: {},
+      projectUsage: {},
     }),
     onLegacySettled: () => applied.push('settled'),
   })
@@ -295,6 +297,7 @@ test('client: a main that does not answer the boot read leaves the legacy values
     lastAgentSpawnPermissionPreset: null,
     cliPermissionPresets: {},
     cliPermissionModes: {},
+    projectUsage: {},
   }
   const warn = console.warn
   console.warn = () => undefined

@@ -248,6 +248,14 @@ export type ConversationLaunchServiceDeps = {
     branchName: string
     hostId: ExecutionHostId | null
   }) => Promise<{ ok: true; path: string; branch: string; baseRef: string } | { ok: false; message: string }>
+  /**
+   * Count a new chat in the project at this folder, for the project pickers'
+   * order (`shared/project-frecency.ts`). Told after a `newChat` launch has
+   * started, which is a phone's or a paired machine's New chat: the same use a
+   * window's New chat records. A scheduled run (`newChatIn`) is not a person
+   * choosing the project, and is not told.
+   */
+  recordProjectUse?: (folderPath: string) => void
   /** Where a first message the runtime refused is reported; the chat itself shows a failed turn. */
   warn?: (message: string) => void
   /** Agent id suffix. Injected so tests get stable ids. */
@@ -556,6 +564,10 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       else deps.writeAgent(workspace.id, agentId, null)
       return { ok: false, code: 'conversation_start_failed', message: started.message }
     }
+
+    // The folder the person picked, as its project list showed it: not the
+    // worktree this chat may have been given.
+    if (request.newChat === true) deps.recordProjectUse?.(workspaceRoot)
 
     const prompt = request.prompt?.trim()
     if (prompt && request.sendFirst !== false) {

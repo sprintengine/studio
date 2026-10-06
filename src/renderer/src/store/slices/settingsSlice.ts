@@ -6,6 +6,7 @@ import {
   normalizeCliPermissionPresets,
 } from '../../../../shared/launch-settings'
 import { normalizeMachineMarkSettings, type MachineMarkSetting } from '../../../../shared/machine-identity'
+import { normalizeProjectUsageMap } from '../../../../shared/project-frecency'
 import type { TextGenerationSettings } from '../../../../shared/text-generation/contract'
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
@@ -714,6 +715,7 @@ export const defaultAppSettings = (): AppSettings => ({
   // No CLI chosen for yet: every one reads the app-wide default above.
   cliPermissionPresets: {},
   cliPermissionModes: {},
+  projectUsage: {},
   lastSelectedAgentModel: null,
   projectKnowledgeRoots: {},
   // Nothing seen yet. Every project in the map got there by being shown once,
@@ -778,6 +780,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     cliPermissionPresets: normalizeCliPermissionPresets(settings?.cliPermissionPresets),
     cliPermissionModes: normalizeCliPermissionModes(settings?.cliPermissionModes),
+    projectUsage: normalizeProjectUsageMap(settings?.projectUsage),
     // Every field here is built explicitly and `settings` is never spread, so a
     // key an older build persisted drops on every hydration — the same
     // merge-not-only-migrate enforcement as the opt-in reset below.
@@ -1008,6 +1011,12 @@ export interface SettingsSliceActions {
   refreshMcpServersFromSource: (servers: McpServerConfig[]) => void
   removeMcpServer: (serverId: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
+  /**
+   * Count a new chat started in the project at `folderPath`, for the project
+   * pickers' order. Main records it and the store follows main's broadcast;
+   * nothing is applied here first, because no picker is open while it lands.
+   */
+  recordProjectUse: (folderPath: string) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
   /** Turn model-written chat titles on or off. The engine choice survives an off. */
   setTextGenerationEnabled: (enabled: boolean) => void
@@ -1439,6 +1448,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.lastSelectedCli = cli
       })
       launchSettingsClient.update({ lastSelectedCli: cli })
+    },
+
+    recordProjectUse: (folderPath) => {
+      if (!folderPath.trim()) return
+      launchSettingsClient.update({ projectUse: { folderPath, at: Date.now() } })
     },
 
     setLastSelectedConversationModel: (selection) =>
