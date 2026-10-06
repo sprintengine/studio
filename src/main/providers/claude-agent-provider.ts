@@ -1345,6 +1345,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       })
       if (!switched) {
         if (state.query !== query) return { ok: true }
+        // Which mode the child ends on is not known: it may yet take this one
+        // late. It is trusted with neither, so a switch back sends its mode
+        // and the next turn respawns the child, rather than taking the old
+        // preset as still in force under a child that went to bypass.
+        state.childPreset = null
+        state.childMode = null
         if (childIsIdle(state)) {
           disposeChild(state)
           return { ok: true }

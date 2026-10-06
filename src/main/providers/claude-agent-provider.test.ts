@@ -2527,7 +2527,7 @@ test('a foreground Claude agent keeps its own result and background shells are n
  * recorded, and `emit` plays a message out of the child when the test says so.
  * `refuseModes` stands in for a CLI that will not take a live permission mode.
  */
-function scriptedHarness(options: { refuseModes?: boolean; wedged?: boolean } = {}) {
+function scriptedHarness(options: { refuseModes?: boolean; wedged?: boolean; slowModesMs?: number } = {}) {
   const prompts: Record<string, unknown>[] = []
   const spawned: Record<string, unknown>[] = []
   const interrupts: unknown[] = []
@@ -2556,6 +2556,7 @@ function scriptedHarness(options: { refuseModes?: boolean; wedged?: boolean } = 
       },
       setPermissionMode: async (mode: string) => {
         if (options.wedged) await new Promise(() => undefined)
+        if (options.slowModesMs) await new Promise((resolve) => setTimeout(resolve, options.slowModesMs))
         if (options.refuseModes) throw new Error('Cannot set permission mode.')
         modes.push(mode)
       },
@@ -3417,6 +3418,26 @@ test('a mode switch a wedged child never answers does not hold the switch, and a
     assert.deepEqual(await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'auto' }), {
       ok: true,
     })
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('a switch a slow child takes late is not trusted, so switching back still reaches the child', async () => {
+  const h = scriptedHarness({ slowModesMs: 60 })
+  try {
+    await h.adapter.startSession({ ...h.turn('turn_1'), permissionPreset: 'auto' })
+    const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    h.emit(init)
+    await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'bypass' })
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    assert.deepEqual(h.modes, ['bypassPermissions'], 'the child took bypass after all')
+    await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'auto' })
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    assert.equal(h.modes.length, 2, 'the switch back is sent, not taken as already in force')
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
   } finally {
     await h.adapter.disposeAll()
   }
