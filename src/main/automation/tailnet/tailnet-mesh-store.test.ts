@@ -1,5 +1,15 @@
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
@@ -226,5 +236,34 @@ test('a file that is not valid JSON is kept aside before the next pairing is wri
     assert.equal(aside.length, 1)
     assert.equal(readFileSync(join(dir, aside[0]!), 'utf8'), '{"version":1,"connections":[')
     assert.equal(readFile(dir).parsed.connections.length, 1)
+  })
+})
+
+test('an invalid file deleted since it was read leaves the next pairing free to write a new one', () => {
+  withDir((dir) => {
+    const path = join(dir, TAILNET_MESH_FILENAME)
+    writeFileSync(path, '{"version":1,"connections":[', { mode: 0o600 })
+    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher() })
+    unlinkSync(path)
+    store.add(input)
+    assert.equal(readFile(dir).parsed.connections.length, 1)
+  })
+})
+
+test('an invalid file that cannot be moved aside is left alone, and pairing still works', () => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) return
+  withDir((dir) => {
+    const path = join(dir, TAILNET_MESH_FILENAME)
+    writeFileSync(path, '{"version":1,"connections":[', { mode: 0o600 })
+    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher() })
+    chmodSync(dir, 0o500)
+    try {
+      store.add(input)
+      store.add({ ...input, deviceId: 'dev_10' })
+    } finally {
+      chmodSync(dir, 0o700)
+    }
+    assert.equal(store.list().length, 2, 'both pairings work for the session')
+    assert.equal(readFileSync(path, 'utf8'), '{"version":1,"connections":[')
   })
 })

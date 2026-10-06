@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
@@ -44,5 +44,34 @@ test('a devices file that is not valid JSON is kept aside before the next pairin
     assert.equal(aside.length, 1)
     assert.equal(readFileSync(join(dir, aside[0]!), 'utf8'), '{"version":1,"devices":[')
     assert.equal((JSON.parse(readFileSync(path, 'utf8')) as { devices: unknown[] }).devices.length, 1)
+  })
+})
+
+test('an invalid devices file deleted since it was read leaves the next pairing free to write a new one', () => {
+  withDir((dir) => {
+    const path = join(dir, TAILNET_DEVICES_FILENAME)
+    writeFileSync(path, '{"version":1,"devices":[', { mode: 0o600 })
+    const store = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
+    unlinkSync(path)
+    store.mintDevice(mint as never)
+    assert.equal((JSON.parse(readFileSync(path, 'utf8')) as { devices: unknown[] }).devices.length, 1)
+  })
+})
+
+test('an invalid devices file that cannot be moved aside is left alone, and pairing still works', () => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) return
+  withDir((dir) => {
+    const path = join(dir, TAILNET_DEVICES_FILENAME)
+    writeFileSync(path, '{"version":1,"devices":[', { mode: 0o600 })
+    const store = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
+    chmodSync(dir, 0o500)
+    try {
+      store.mintDevice(mint as never)
+      store.mintDevice(mint as never)
+    } finally {
+      chmodSync(dir, 0o700)
+    }
+    assert.equal(store.listDevices().length, 2, 'both devices work for the session')
+    assert.equal(readFileSync(path, 'utf8'), '{"version":1,"devices":[')
   })
 })
