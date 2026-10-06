@@ -19,7 +19,11 @@ import type {
 } from '../shared/conversation-index'
 
 type Fingerprint = { file: string; size: number; mtime: number }
-type Index = { version: 2; threads: ConversationThread[]; files: Fingerprint[] }
+// 3 since a row carries `lastTurnEndedAt`: a version 2 cache has rows read
+// before it was kept, so it is read again once rather than trusted, and every
+// chat that ever finished a turn says when.
+const INDEX_VERSION = 3
+type Index = { version: typeof INDEX_VERSION; threads: ConversationThread[]; files: Fingerprint[] }
 /**
  * One transcript's row as it stood after reading the file up to `offset` (the
  * end of its last complete line), with what the row's counts are made from.
@@ -99,7 +103,7 @@ export class ConversationIndex {
         const thread = await this.thread(key.workspaceRoot, folder, file, rows.get(file.file))
         if (thread) threads.push(thread)
       }
-      await saveIndex(key.workspaceRoot, folder, { version: 2, threads, files })
+      await saveIndex(key.workspaceRoot, folder, { version: INDEX_VERSION, threads, files })
       return sorted(threads)
     })
   }
@@ -121,7 +125,7 @@ export class ConversationIndex {
         files.sort((a, b) => a.file.localeCompare(b.file))
         const threads = cache.threads.filter((entry) => entry.agentId !== key.agentId)
         if (thread) threads.push(thread)
-        await saveIndex(key.workspaceRoot, folder, { version: 2, threads, files })
+        await saveIndex(key.workspaceRoot, folder, { version: INDEX_VERSION, threads, files })
       } else {
         const files = await this.files(key)
         const threads: ConversationThread[] = []
@@ -129,7 +133,7 @@ export class ConversationIndex {
           const entry = file.file === name ? thread : await this.thread(key.workspaceRoot, folder, file)
           if (entry) threads.push(entry)
         }
-        await saveIndex(key.workspaceRoot, folder, { version: 2, threads, files })
+        await saveIndex(key.workspaceRoot, folder, { version: INDEX_VERSION, threads, files })
       }
       return thread
     })
@@ -454,6 +458,10 @@ function foldEvent(fold: ThreadFold, event: ConversationEvent): void {
   // starts at its mark.
   if (event.type === 'session_updated' && event.payload?.forkedFrom && typeof event.payload.forkedFrom === 'object')
     fold.costs.clear()
+  // When the agent last finished a turn, as the runtime's session reads it
+  // (`lastTurnEndedAt`): a steered turn's end is not one, the work went on.
+  if ((event.type === 'turn_completed' && event.payload?.steered !== true) || event.type === 'turn_failed')
+    thread.lastTurnEndedAt = Math.max(thread.lastTurnEndedAt ?? 0, event.createdAt)
   if (event.type === 'turn_completed') {
     const cost = event.payload?.costUsd
     if (typeof cost === 'number' && Number.isFinite(cost) && cost >= 0)
@@ -502,7 +510,7 @@ async function readIndex(root: string, path: string): Promise<Index | null> {
     const value = record(
       JSON.parse((await readConversationStorage(root, file, MAX_CONVERSATION_METADATA_BYTES)).toString('utf8')),
     )
-    if (value.version !== 2 || !Array.isArray(value.threads) || !Array.isArray(value.files)) return null
+    if (value.version !== INDEX_VERSION || !Array.isArray(value.threads) || !Array.isArray(value.files)) return null
     if (
       !value.threads.every((thread) => {
         const item = record(thread)
@@ -516,6 +524,7 @@ async function readIndex(root: string, path: string): Promise<Index | null> {
           Number.isFinite(item.updatedAt) &&
           Number.isSafeInteger(item.turnCount) &&
           Number.isSafeInteger(item.lastSeq) &&
+          (item.lastTurnEndedAt === undefined || Number.isFinite(item.lastTurnEndedAt)) &&
           (item.totalCostUsd === undefined ||
             (typeof item.totalCostUsd === 'number' && Number.isFinite(item.totalCostUsd) && item.totalCostUsd >= 0)) &&
           ['first-message', 'user', 'generated'].includes(text(item.titleSource))

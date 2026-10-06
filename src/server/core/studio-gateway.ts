@@ -2,6 +2,7 @@ import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import type { ConversationEventType } from '../../shared/conversation-runtime'
 import { createAutomationService } from '../../main/automation/automation-service'
 import { createConversationTools } from '../../main/automation/conversation-tools'
+import { createConversationListChangeFilter } from '../../main/automation/conversation-lifecycle'
 import { launchPermissionCeiling } from '../../main/automation/launch-permission-cap'
 import { createStudioGatewayTools } from '../../main/automation/studio-gateway-tools'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
@@ -78,6 +79,7 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
     ...createConversationTools({
       launch: (request) => core.conversationLaunchService.launch(request),
       resolveAgentPermissionPreset: core.resolveAgentPermissionPreset,
+      lifecycle: core.conversationLifecycle,
     }),
     ...createPullRequestTools({ link: (key, input) => core.pullRequests.linkForAgent(key, input) }),
     ...createLocalServerTools({ link: (key, input) => core.localServers.linkForAgent(key, input) }),
@@ -187,6 +189,24 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
   // push, throttled in the listener so a burst here is one push there, and a
   // device re-reads only when told to.
   workspaceSyncService.subscribeEvents(() => automationService.notifyWorkspacesChanged())
+  // The conversation list reads the desktop's records too (a chat settled,
+  // renamed, written to or looked at), so the changes it reads are the same
+  // push as a conversation event; `createConversationListChangeFilter` keeps
+  // the visits stamped while a chat is on screen from becoming a push each.
+  const listChanged = createConversationListChangeFilter({
+    turnEndOf: (workspaceId) => {
+      const listed = conversations.listSessions()
+      if (!listed.ok) return undefined
+      let latest: number | undefined
+      for (const session of listed.sessions)
+        if (session.workspaceId === workspaceId && (session.lastTurnEndedAt ?? -1) > (latest ?? -1))
+          latest = session.lastTurnEndedAt
+      return latest
+    },
+  })
+  workspaceSyncService.subscribeEvents((event) => {
+    if (listChanged(event)) automationService.notifyConversationsChanged()
+  })
   // A conversation's row on another machine shows its phase: running, waiting
   // on a person, done. The events that move it (never a token of a reply)
   // become the same throttled push.

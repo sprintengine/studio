@@ -470,6 +470,75 @@ machine?: { kind: string; color: string }
   `machineMarks` applied. A `host` of `local` on a listed chat carries the same
   pair.
 
+### Rest, order and read state in the list
+
+The desktop is the one owner of whether a chat is settled and of whether its
+latest finish has been seen, and every client — the phone, another desktop,
+the desktop's own sidebar — agrees with it. A desktop that advertises
+`conversation-lifecycle` (owner report 2026-10-05) answers `list` this way:
+
+- **Settled chats are not listed.** The sidebar draws no row for a chat whose
+  record has `settledAt`, so no list does either. `workspace.list` items carry
+  `settledAt` (null while the chat is in the list), so a paired desktop's
+  browse leaves those workspaces out too.
+- **The order is the sidebar's.** Most recently written to first, by the
+  person's last message from any device (`lastUserMessageAt`), falling back,
+  for a chat nobody has written to, to the latest of when it was made and when
+  it was last typed into. Never by what an agent is doing: a finishing or
+  waiting agent recolours its row, it does not move it. A message a paired
+  device sends moves the desktop's own clock, so the sidebar and every list
+  agree.
+- **Four optional members on each row**, beside the agent's name in `title`,
+  which older clients keep reading:
+
+  ```ts
+  chatTitle?: string          // the chat's title as the desktop's sidebar shows it
+  lastUserMessageAt?: number  // when a person last sent it a message, from any device
+  lastTurnEndedAt?: number    // when its agent last finished a turn, or failed one
+  lastVisitedAt?: number      // when a person last had it on screen, on any device
+  ```
+
+  `lastTurnEndedAt` is read from the chat's transcript (the thread index keeps
+  it, and a session running now reads it off the same events), so a rename, a
+  model switch or a session starting does not move it, and it is there for
+  every chat whose agent has finished a turn, including turns that ended
+  before it was kept. A chat whose `lastTurnEndedAt` is later than its
+  `lastVisitedAt` has a finish nobody has seen. Nothing recorded visits before
+  this, so the first launch of a desktop that does counts every chat it
+  already had as seen at that moment, once; a chat made since starts with its
+  own creation as its visit.
+- **`conversation.settle`** `{ workspaceId, settled? }` (default `true`)
+  writes the same patch as the row menu's Settle, or with `false` its
+  Un-settle, and answers `{ ok: true, workspaceId, settledAt }` (`null` when
+  the chat is in the list). It is refused as `working` while an agent in the
+  chat is working, and `unknown_workspace` for a chat the desktop does not
+  have; settling a settled chat again changes nothing. The desktop then does
+  what its own Settle does: the chat's agents stop, and a window that has it
+  in front moves on to the next chat.
+- **`conversation.visit`** `{ workspaceId, visitedAt? }` moves the chat's
+  `lastVisitedAt` forward to `visitedAt` (now when omitted, and never past the
+  desktop's now) and answers `{ ok: true, workspaceId, lastVisitedAt }`. It is
+  not activity: the chat keeps its place and a settled one stays settled. The
+  desktop stamps its own windows' visits the same way: at once when the chat
+  in front has an unseen finish, otherwise at most every ten seconds while it
+  stays in front of a visible, focused window. A visit from elsewhere clears
+  the desktop's own "finished while you were away" mark too.
+
+The change feed says the conversation list moved when a chat is settled or
+brought back, renamed, or written to, and for a visit when it is the first
+since the chat's agent finished (the visits stamped while a chat stays on
+screen are not a push each).
+
+Both tools need `conversation:operate` and are audited, like
+`conversation.create`. A paired desktop's Remote rows use all of it: they are
+titled with `chatTitle`, ordered by `lastUserMessageAt` (else `updatedAt`),
+offer Settle from their menu on a desktop with the capability, and say a chat
+opened here was visited there. A chat opened here offers Settle in its row menu
+too: the other desktop is asked, and once it has settled the chat the row here
+goes the way a local Settle takes a row. One that machine settles without
+asking here (on the phone, or on that machine) is followed once its browse says
+so, and the row here leaves the rail the same way.
+
 ### Following from another desktop
 
 A Studio desktop paired to this one follows its conversations with the same

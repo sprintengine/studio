@@ -29,7 +29,9 @@ import {
   normalizeWorkspaceForRegistry,
   parseWorkspaceRegistryFile,
   parseWorkspaceRegistryRecord,
+  seedWorkspaceVisitClocks,
   shouldApplyFieldEdit,
+  stampWorkspaceVisitClockAtBirth,
   toWorkspaceRegistryRecord,
   WORKSPACE_REGISTRY_SCHEMA_VERSION,
   type PersistedStateClassification,
@@ -171,6 +173,18 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
     })
   }
 
+  // The first load under a build that keeps the visit clock counts every chat
+  // already here as seen (`seedWorkspaceVisitClocks`), and writes that down so
+  // it happens once. Seeded on copies: the store compares a write with the
+  // file it read, and records changed in place would read as unchanged.
+  if (loaded.status === 'loaded') {
+    const workspaces = file.workspaces.map((record) => ({ ...record }))
+    if (seedWorkspaceVisitClocks(workspaces, now()) > 0) {
+      file = { ...file, workspaces }
+      options.store.write(persistableFile(file))
+    }
+  }
+
   let state: WorkspaceSyncState = fileToState(file)
 
   // -------------------------------------------------------------------------
@@ -229,6 +243,10 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       if (record) record.revision = revision
     }
     stampEditedFields(event)
+    if (event.type === 'workspace.created') {
+      const created = getRecord(event.payload.workspace.id)
+      if (created) stampWorkspaceVisitClockAtBirth(created, at)
+    }
 
     let tombstones = file.tombstones
     if (event.type === 'workspace.removed') {
@@ -587,6 +605,9 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
     // gets. Without it a malformed `workspaceWindows` entry from an old profile
     // would be seeded verbatim and break routing on the very first boot.
     file = parseWorkspaceRegistryFile(JSON.parse(JSON.stringify(seedFile)))?.file ?? seedFile
+    // A window's own registry is chats from before this build: seen, as a
+    // loaded file's are.
+    seedWorkspaceVisitClocks(file.workspaces, at)
     state = fileToState(file)
     seeded = true
     options.store.write(persistableFile(file))

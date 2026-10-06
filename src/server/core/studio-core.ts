@@ -36,6 +36,8 @@ import { getSharedCredentialStore } from '../../main/secret-store'
 import { createWorkspaceRegistryService } from '../../main/workspace-registry-service'
 import { createWorkspaceRegistryStore } from '../../main/workspace-registry-store'
 import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
+import { createConversationLifecycle } from '../../main/automation/conversation-lifecycle'
+import { conversationSummaryPhase } from '../../shared/conversation/phase'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
 import { createPullRequestDomain } from '../pull-requests/pull-request-domain'
@@ -430,6 +432,26 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     },
     selfMachine: () => tailnetSelfMachine(machineContext()),
   }
+  // A chat's rest and its person-clocks, written for a paired device to the
+  // same record the sidebar writes (conversation-lifecycle.ts). Busy is the
+  // row menu's rule for the chats main holds: a turn running, or an agent the
+  // chat launched still working in the background.
+  const conversationLifecycle = createConversationLifecycle({
+    getRecord: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
+    updateWorkspaceFields: (workspaceId, patch, actor) =>
+      workspaceSyncService.updateWorkspaceFields(workspaceId, patch, actor),
+    isWorking: (workspaceId) => {
+      const listed = conversations.listSessions()
+      return (
+        listed.ok &&
+        listed.sessions.some((session) => {
+          if (session.workspaceId !== workspaceId || session.status === 'stopped') return false
+          const phase = conversationSummaryPhase(session)
+          return phase === 'running' || phase === 'starting'
+        })
+      )
+    },
+  })
   const createConversationHost = () =>
     createConversationGatewayHost(
       conversations,
@@ -457,13 +479,18 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       // paired device offers the same models and can switch to no other.
       conversationModelCatalog,
       listMarks,
-      // A phone's switch moves the chat's record as the chat view's own does,
-      // through the same bus, so it outlives the session it was applied to.
-      (key, patch) => {
-        if (!workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]) return
-        workspaceSyncService.updateWorkspaceAgent(key.workspaceId, key.agentId, patch, 'system')
+      {
+        workspaceOf: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
+        noteUserMessage: (workspaceId, at) => conversationLifecycle.noteUserMessage(workspaceId, at, 'gateway'),
+        reasoningEffortOf: (key) =>
+          workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.conversationReasoningEffort,
+        // A phone's switch moves the chat's record as the chat view's own does,
+        // through the same bus, so it outlives the session it was applied to.
+        writeAgentChoice: (key, patch) => {
+          if (!workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]) return
+          workspaceSyncService.updateWorkspaceAgent(key.workspaceId, key.agentId, patch, 'system')
+        },
       },
-      (key) => workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.conversationReasoningEffort,
     )
 
   /**
@@ -521,6 +548,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     conversationLaunchService,
     resolveAgentPermissionPreset,
     createConversationHost,
+    conversationLifecycle,
     pullRequests,
     localServers,
     shutdown,

@@ -84,6 +84,8 @@ import {
   normalizeWorkspaceForPartialize,
 } from './slices/normalizers'
 import { keepLaterWorkspaceClocks } from '../utils/workspaceRecency'
+import { isSettledWorkspace } from '../utils/workspaceSettle'
+import { noteWorkspaceSettledElsewhere } from '../utils/settledElsewhere'
 import { isPlaceholderAgentName } from '../utils/agentNames'
 import { applyWorkspaceFieldsPatch } from '../../../shared/workspace-sync'
 import { isRetiredWorkspaceMode } from '../../../shared/workspace-mode'
@@ -250,6 +252,8 @@ export interface WorkspaceStore
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   recordWorkspaceUserMessage: (id: WorkspaceId, at: number) => void
   recordWorkspaceTurnEnd: (id: WorkspaceId, at: number) => void
+  recordWorkspaceVisit: (id: WorkspaceId, at: number) => void
+  speaksForWorkspace: (id: WorkspaceId) => boolean
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
   projectLaunchedAgentSessions: (sessions: TerminalSessionSnapshot[]) => LaunchedAgentProjection[]
   setAuthState: (authState: SprintEngineAuthState) => void
@@ -502,9 +506,10 @@ function scheduleBackupWrite(): void {
 }
 
 // Workspace fields whose change alone does not refresh the backup: the
-// keystroke clock, written on terminal input. The next change that does
-// refresh it carries the clock along.
-const BACKUP_IGNORED_WORKSPACE_FIELDS: ReadonlySet<string> = new Set(['lastTerminalActivityAt'])
+// keystroke clock, written on terminal input, and the visit clock, stamped
+// every few seconds while a chat is on screen. The next change that does
+// refresh it carries the clocks along.
+const BACKUP_IGNORED_WORKSPACE_FIELDS: ReadonlySet<string> = new Set(['lastTerminalActivityAt', 'lastVisitedAt'])
 
 /**
  * Whether a new workspace list differs from the previous one in anything but
@@ -1774,15 +1779,20 @@ function initWorkspaceSyncClient(): void {
         })),
       ),
     applyWorkspaceFieldsUpdated: (apply) =>
-      applyImportedSyncEvent(() =>
+      applyImportedSyncEvent(() => {
+        let settled = false
         patchWorkspace(apply.workspaceId, (workspace) => {
           // The shared patch contract: absent = no opinion, null = cleared, a
           // clock only advances (`applyWorkspaceFieldsPatch`).
           const next = { ...workspace } as Record<string, unknown>
           applyWorkspaceFieldsPatch(next, apply.patch)
+          settled = !isSettledWorkspace(workspace) && isSettledWorkspace(next as Workspace)
           return next as Workspace
-        }),
-      ),
+        })
+        // Settled somewhere else: the sidebar ends its processes and moves
+        // the person on, as a Settle made here does.
+        if (settled) noteWorkspaceSettledElsewhere(apply.workspaceId)
+      }),
     applyWorkspaceAgentUpdated: (apply) =>
       applyImportedSyncEvent(() =>
         patchWorkspace(apply.workspaceId, (workspace) => {

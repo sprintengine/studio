@@ -18,6 +18,8 @@ import {
   type MeshMachineReachability,
   type MeshPairRequestPhase,
   type MeshCreateConversationResult,
+  type MeshSettleConversationResult,
+  type MeshVisitConversationResult,
   type MeshGap,
   type MeshPairResult,
   type MeshWorkspace,
@@ -232,6 +234,25 @@ export type TailnetMeshService = {
     cliModel?: unknown
     permissionPreset?: unknown
   }): Promise<MeshCreateConversationResult>
+  /**
+   * Settle a chat on a paired machine, or bring it back with `settled: false`
+   * (`conversation:operate`). That machine owns the chat's rest: it writes
+   * the same record its own row menu does, and its list leaves the chat out.
+   */
+  settleConversation(input: {
+    connectionId: unknown
+    workspaceId?: unknown
+    settled?: unknown
+  }): Promise<MeshSettleConversationResult>
+  /**
+   * Say a chat on a paired machine is on screen here, so its "finished,
+   * unseen" mark clears on every device that shows it.
+   */
+  visitConversation(input: {
+    connectionId: unknown
+    workspaceId?: unknown
+    visitedAt?: unknown
+  }): Promise<MeshVisitConversationResult>
   /**
    * One remote workspace's checkout facts — branch, trunk, branches,
    * worktrees — over `workspace.checkout` (workspace:read). A pairing that
@@ -1391,6 +1412,8 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
                   name: typeof repository.name === 'string' ? repository.name : repository.canonicalKey,
                 }
               : null,
+          settledAt:
+            typeof record.settledAt === 'number' && Number.isFinite(record.settledAt) ? record.settledAt : null,
         },
       ]
     })
@@ -1512,6 +1535,85 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     }
   }
 
+  // ── A remote chat's rest and visit clock ────────────────────────────────
+  //
+  // Both are that machine's to keep (`conversation-lifecycle`). A machine
+  // that has said it does not serve them is not asked; one that has not said
+  // anything yet is, and a build from before the tools answers "Unknown tool",
+  // which reads the same as a list without the capability.
+  type LifecycleCall =
+    | { ok: true; connection: StoredMeshConnection; value: Record<string, unknown> }
+    | { ok: false; code: string; message: string }
+  async function callLifecycleTool(
+    connectionId: unknown,
+    workspaceId: unknown,
+    tool: 'conversation.settle' | 'conversation.visit',
+    args: Record<string, unknown>,
+  ): Promise<LifecycleCall> {
+    const connection = connectionFor(connectionId)
+    if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
+    if (typeof workspaceId !== 'string' || !workspaceId) {
+      return { ok: false, code: 'invalid_arguments', message: 'Name the remote chat.' }
+    }
+    const unsupported = {
+      ok: false as const,
+      code: 'lifecycle_unsupported',
+      message: `${connection.machineName} cannot settle its chats from here yet. Update SprintEngine Studio there to settle one from here.`,
+    }
+    const capabilities = peerCapabilities.get(connection.id)
+    if (capabilities && !tailnetPeerSupports(capabilities, 'conversation-lifecycle')) return unsupported
+    const answer = await callRemoteTool({
+      endpoint: endpointOf(connection),
+      token: connection.deviceToken,
+      tool,
+      args: { workspaceId, ...args },
+    })
+    if (!answer.ok) {
+      if (answer.code === 'rpc_error' && /Unknown tool/u.test(answer.message)) return unsupported
+      return { ok: false, code: answer.code, message: answer.message }
+    }
+    return { ok: true, connection, value: answer.value }
+  }
+
+  async function settleConversation(input: {
+    connectionId: unknown
+    workspaceId?: unknown
+    settled?: unknown
+  }): Promise<MeshSettleConversationResult> {
+    const settled = input.settled !== false
+    const answer = await callLifecycleTool(input.connectionId, input.workspaceId, 'conversation.settle', {
+      settled,
+    })
+    if (!answer.ok) return answer
+    const settledAt = answer.value.settledAt
+    return {
+      ok: true,
+      workspaceId: input.workspaceId as string,
+      settledAt: typeof settledAt === 'number' && Number.isFinite(settledAt) ? settledAt : null,
+    }
+  }
+
+  async function visitConversation(input: {
+    connectionId: unknown
+    workspaceId?: unknown
+    visitedAt?: unknown
+  }): Promise<MeshVisitConversationResult> {
+    // This machine's clock, as the far end caps it: a visit is never later
+    // than its own now.
+    const visitedAt =
+      typeof input.visitedAt === 'number' && Number.isFinite(input.visitedAt) && input.visitedAt >= 0
+        ? input.visitedAt
+        : Date.now()
+    const answer = await callLifecycleTool(input.connectionId, input.workspaceId, 'conversation.visit', { visitedAt })
+    if (!answer.ok) return answer
+    const lastVisitedAt = answer.value.lastVisitedAt
+    return {
+      ok: true,
+      workspaceId: input.workspaceId as string,
+      lastVisitedAt: typeof lastVisitedAt === 'number' && Number.isFinite(lastVisitedAt) ? lastVisitedAt : visitedAt,
+    }
+  }
+
   function getLiveState(): MeshLiveState {
     return {
       revision,
@@ -1552,6 +1654,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
           ...listed,
           modelSwitch: tailnetPeerSupports(identity.value.capabilities, 'conversation-models'),
           permissionModes: tailnetPeerSupports(identity.value.capabilities, 'conversation-permission-modes'),
+          lifecycle: tailnetPeerSupports(identity.value.capabilities, 'conversation-lifecycle'),
         }
       : listed
   }
@@ -1675,6 +1778,8 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     },
     browse,
     createConversation,
+    settleConversation,
+    visitConversation,
     workspaceCheckout,
 
     async listConversations(connectionId): Promise<MeshConversationListResult> {

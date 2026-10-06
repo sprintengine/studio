@@ -100,6 +100,32 @@ export function deriveUnseenCompletions(input: {
   return next
 }
 
+/**
+ * The unseen-completion marks a visit from elsewhere has not cleared.
+ *
+ * A mark is this window's own reading, but whether the finish has been seen
+ * is not: a person who read the chat on their phone, or in another desktop
+ * following it, has seen it, and the chat's `lastVisitedAt` says so. A mark
+ * that a visit landed on or after (`markedAt`, when this window put it up)
+ * comes down, so reading a chat anywhere clears its green here too. Answers
+ * `marks` itself when nothing changed, so a caller can keep its identity.
+ */
+export function keepUnvisitedCompletions(input: {
+  marks: ReadonlySet<string>
+  markedAt: ReadonlyMap<string, number>
+  visitedAt: (workspaceId: string) => number | null | undefined
+}): ReadonlySet<string> {
+  let next: Set<string> | null = null
+  for (const id of input.marks) {
+    const marked = input.markedAt.get(id)
+    const visited = input.visitedAt(id)
+    if (marked === undefined || typeof visited !== 'number' || visited < marked) continue
+    next ??= new Set(input.marks)
+    next.delete(id)
+  }
+  return next ?? input.marks
+}
+
 /** A live session whose hooks report a settled phase: the turn ended, the agent is still there. */
 export function isHookSettledSession(session: {
   processAlive: boolean

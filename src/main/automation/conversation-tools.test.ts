@@ -6,16 +6,31 @@ import { CONVERSATION_MUTATION_TOOL_NAMES, createConversationTools } from './con
 import { isStudioGatewayMutation } from './studio-gateway-tools'
 import { requiredScopeForTool } from './tailnet/tailnet-scopes'
 
+// conversation.create never touches a chat's rest; its tests leave it unreachable.
+const noLifecycle = {
+  settle: () => assert.fail('conversation.create does not settle'),
+  visit: () => assert.fail('conversation.create does not visit'),
+}
+
 function tool(launch: (request: ConversationLaunchRequest) => Promise<ConversationLaunchResult>) {
-  const [registration] = createConversationTools({ launch, resolveAgentPermissionPreset: () => 'bypass' })
+  const [registration] = createConversationTools({
+    launch,
+    resolveAgentPermissionPreset: () => 'bypass',
+    lifecycle: noLifecycle,
+  })
   assert.equal(registration?.name, 'conversation.create')
   return registration!
 }
 
-test('starting a chat is an audited mutation needing conversation:operate', () => {
-  assert.deepEqual([...CONVERSATION_MUTATION_TOOL_NAMES], ['conversation.create'])
-  assert.equal(isStudioGatewayMutation('conversation.create'), true)
-  assert.equal(requiredScopeForTool('conversation.create', true), 'conversation:operate')
+test('starting, settling and visiting a chat are audited mutations needing conversation:operate', () => {
+  assert.deepEqual(
+    [...CONVERSATION_MUTATION_TOOL_NAMES],
+    ['conversation.create', 'conversation.settle', 'conversation.visit'],
+  )
+  for (const name of CONVERSATION_MUTATION_TOOL_NAMES) {
+    assert.equal(isStudioGatewayMutation(name), true, name)
+    assert.equal(requiredScopeForTool(name, true), 'conversation:operate', name)
+  }
 })
 
 test('conversation.create forwards the launch and answers with the ids a pane follows', async () => {

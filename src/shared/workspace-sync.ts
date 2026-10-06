@@ -107,13 +107,24 @@ export type WorkspaceSyncCommand =
 
 /**
  * The activity clocks a record carries — the person's last keystroke, the
- * person's last submitted message, and the agent's last turn end — only ever
- * move forward, and every window learns them from the same sessions. So a
- * patch may only ADVANCE them: main's reducer and the renderer's inbound
- * paths both keep the later value, and an older reading from a lagging window
- * can never roll a persisted clock back.
+ * person's last submitted message, the agent's last turn end, and the last
+ * time a person had the chat on screen — only ever move forward, and every
+ * window learns them from the same sessions. So a patch may only ADVANCE
+ * them: main's reducer and the renderer's inbound paths both keep the later
+ * value, and an older reading from a lagging window can never roll a
+ * persisted clock back.
+ *
+ * `lastVisitedAt` is written by every device that shows the chat — this
+ * desktop's windows, a phone, another desktop — and a visit stamped on a
+ * clock running slightly behind must not undo one stamped a moment earlier
+ * somewhere else, so it is monotonic for the same reason the others are.
  */
-export const MONOTONIC_WORKSPACE_CLOCKS = ['lastTerminalActivityAt', 'lastUserMessageAt', 'lastTurnEndedAt'] as const
+export const MONOTONIC_WORKSPACE_CLOCKS = [
+  'lastTerminalActivityAt',
+  'lastUserMessageAt',
+  'lastTurnEndedAt',
+  'lastVisitedAt',
+] as const
 
 /** True unless writing `value` into `key` would roll an activity clock back. */
 export function workspaceFieldMayApply(record: Record<string, unknown>, key: string, value: unknown): boolean {
@@ -154,6 +165,7 @@ export type WorkspaceFieldsPatch = {
   lastTerminalActivityAt?: number | null
   lastUserMessageAt?: number | null
   lastTurnEndedAt?: number | null
+  lastVisitedAt?: number | null
 }
 
 export type WorkspaceSyncEventType =

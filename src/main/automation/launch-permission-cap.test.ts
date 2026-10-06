@@ -137,6 +137,10 @@ function harness(
     ...createAutomationTools(backends),
     ...createConversationTools({
       resolveAgentPermissionPreset,
+      lifecycle: {
+        settle: () => assert.fail('no chat is settled here'),
+        visit: () => assert.fail('no chat is visited here'),
+      },
       launch: async (request) => {
         h.chats.push(request)
         return {
