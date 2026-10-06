@@ -21,6 +21,7 @@ const fakeMain = createFakeLaunchSettingsMain({
   lastAgentSpawnPermissionPreset: 'none',
   cliPermissionPresets: {},
   cliPermissionModes: {},
+  projectUsage: {},
 })
 // This window read main while it still had no record.
 const racingApi = {

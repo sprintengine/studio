@@ -1548,6 +1548,7 @@ export function createAppServices(
               createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
               getScheduledAgents: () => resolveScheduledAgents(),
               defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+              projectUsage: () => agentLaunchSettings.get().projectUsage,
               userCliModels: (cli) => agentLaunchSettings.get().cliRuntimes[cli]?.models,
               // module.*/marketplace.*. The registry snapshot is the
               // renderer's mirror — main's own module list omits every renderer-only
@@ -1702,6 +1703,7 @@ export function createAppServices(
                 }),
                 getScheduledAgents: () => null,
                 defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+                projectUsage: () => agentLaunchSettings.get().projectUsage,
                 getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
                 listInstalledThirdPartyModules: async () => ({ modules: [], rejected: [] }),
                 listModuleContributedTools: () => [],

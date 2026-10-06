@@ -77,6 +77,7 @@ function harness(
   const worktreeAsks: WorktreeAsk[] = []
   const starts: ConversationStartSessionInput[] = []
   const sends: SendInput[] = []
+  const uses: string[] = []
   const capabilities = { reasoningEfforts: options.reasoningEfforts ?? null } as ConversationCapabilities
   const service = createConversationLaunchService({
     getWorkspace: (id) => registry.getRecord(id),
@@ -107,6 +108,9 @@ function harness(
       return { ok: true } as ConversationSessionActionResult
     },
     reasoningLevels: (cli) => LEVELS[cli] ?? [],
+    recordProjectUse: (folderPath) => {
+      uses.push(folderPath)
+    },
     ...(options.withoutGit
       ? {}
       : {
@@ -129,7 +133,7 @@ function harness(
     newWorktreeSuffix: () => 'K7QZ',
     newCommandId: () => 'cmd-1',
   })
-  return { service, registry, repoRootAsks, worktreeAsks, starts, sends }
+  return { service, registry, repoRootAsks, worktreeAsks, starts, sends, uses }
 }
 
 test('a new chat with a worktree is born in one cut from the project, on an agent branch under its container', async () => {
@@ -295,4 +299,27 @@ test('a new worktree chat carries its effort into the workspace it is born in', 
   const created = h.registry.getRecord(result.workspaceId)!
   assert.equal(created.agents[result.agentId]?.conversationReasoningEffort, 'low')
   assert.equal(h.sends[0]?.reasoningEffort, 'low')
+})
+
+// A phone's New chat is a use of the project it picked, as a window's is, so
+// the project pickers here and on the phone list it higher next time.
+test('a new chat counts as a use of the folder it was asked for, not the worktree it was given', async () => {
+  const h = harness()
+  const plain = await h.service.launch({ workspaceId: 'ws-app', newChat: true, cli: 'codex' })
+  assert.equal(plain.ok, true, plain.ok ? '' : plain.message)
+  const cut = await h.service.launch({ workspaceId: 'ws-app', newChat: true, newWorktree: true, cli: 'codex' })
+  assert.equal(cut.ok, true, cut.ok ? '' : cut.message)
+  // Named by a worktree chat: the phone lists that folder as its own entry.
+  const fromWorktree = await h.service.launch({ workspaceId: 'ws-wt', newChat: true, cli: 'codex' })
+  assert.equal(fromWorktree.ok, true, fromWorktree.ok ? '' : fromWorktree.message)
+  assert.deepEqual(h.uses, ['/Users/dev/app', '/Users/dev/app', '/Users/dev/.sprintengine-worktrees/app/login-fix'])
+})
+
+test('a chat joining a workspace, or a scheduled run, is not a use of the project', async () => {
+  const h = harness()
+  const joined = await h.service.launch({ workspaceId: 'ws-app', cli: 'codex' })
+  assert.equal(joined.ok, true, joined.ok ? '' : joined.message)
+  const run = await h.service.launch({ newChatIn: { folderPath: '/Users/dev/app' }, cli: 'codex' })
+  assert.equal(run.ok, true, run.ok ? '' : run.message)
+  assert.deepEqual(h.uses, [])
 })

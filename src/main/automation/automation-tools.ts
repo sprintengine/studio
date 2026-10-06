@@ -3,6 +3,7 @@ import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { CliPermissionPreset, TerminalSessionSnapshot } from '../../shared/electron-api'
 import { projectColorKey, projectHue } from '../../shared/project-hue'
+import { projectFrecency, projectUsageKey, type ProjectUsageMap } from '../../shared/project-frecency'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { declaredPermissionModes, declaredPermissionPresets, pluginHostedVia } from '../plugin-render'
 import { mergeCliModelCatalog, type DiscoveredCliModelCatalog } from '../../shared/cli-model-catalog'
@@ -156,6 +157,13 @@ export type AutomationBackends = {
    * copy of a repository to its own. Cached in main; never throws.
    */
   readRepositoryIdentity(folderPath: string): Promise<RepositoryIdentity | null>
+  /**
+   * Where chats were started, by project folder: the agent-launch settings'
+   * `projectUsage`. Served on `workspace.list` as each row's
+   * `projectFrecency`, so a phone lists its projects in the order New chat
+   * here does. Absent, the rows go without it, as they did before.
+   */
+  projectUsage?(): ProjectUsageMap
   /**
    * The checkout facts a remote launch panel needs before choosing where a
    * chat runs (checkout-and-branch-on-remote-create): whether the folder is
@@ -623,6 +631,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
       const { state } = backends.getWorkspaceSyncSnapshot()
+      const usage = backends.projectUsage?.() ?? null
+      const listedAt = now()
       // The repository each folder is a clone of rides the listing
       // (one-project-across-machines): it is how a paired Studio recognises
       // its own project on this machine. Read per folder, cached in main.
@@ -636,6 +646,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             // The project's hue, as `terminal.list` sends it: derived here so a
             // phone paints the degree the sidebar does; null for no folder.
             projectHue: colorKey ? projectHue(colorKey) : null,
+            ...(usage ? projectUseFields(workspace, usage, listedAt) : {}),
           }
         }),
       )
@@ -2232,6 +2243,33 @@ function terminalSessionProjection(session: TerminalSessionSnapshot): Record<str
 // manifest-declared, so the projection is honest about its own limits: an empty
 // `models` means the CLI declares no seed list, which — with
 // `allowCustomModelId` — is different from "no model may be passed".
+/**
+ * How much the workspace's project is used, for a phone to order its project
+ * list the way New chat here does (shared/project-frecency.ts). Additive and
+ * optional on the wire: a phone that does not read them lists as it did, and a
+ * phone that finds them absent (an older desktop) orders by its own picks.
+ *
+ * - `projectFrecency`: the project's score as of this listing, 0 for a project
+ *   never used. Every row of one listing is scored at the same moment, so they
+ *   compare. Keyed by the row's own folder, which is what a phone lists a
+ *   project by: a worktree chat's folder is its own entry there.
+ * - `projectLastUsedAt`: the latest use as an ISO time, null for never; a tie
+ *   on the score goes to the later one.
+ */
+function projectUseFields(
+  workspace: Workspace,
+  usage: ProjectUsageMap,
+  now: number,
+): { projectFrecency: number; projectLastUsedAt: string | null } {
+  const key = projectUsageKey(workspace.folderPath)
+  const entry = key ? usage[key] : undefined
+  return {
+    // Six places are plenty to order by and keep the float noise off the wire.
+    projectFrecency: Math.round(projectFrecency(entry, now) * 1e6) / 1e6,
+    projectLastUsedAt: entry ? new Date(entry.lastUsedAt).toISOString() : null,
+  }
+}
+
 function cliRuntimeProjection(plugin: LoadedPlugin): Record<string, unknown> {
   const { manifest } = plugin
   return {

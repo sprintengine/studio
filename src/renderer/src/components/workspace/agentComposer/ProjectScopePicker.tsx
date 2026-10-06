@@ -1,5 +1,6 @@
 import React from 'react'
 
+import { sortByProjectUse } from '../../../../../shared/project-frecency'
 import { basename } from '../../../utils/paths'
 import { showToast } from '../../../store/toastStore'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -133,6 +134,19 @@ export function ProjectScopePicker({
     }
     return recents
   }, [options, storedRecentFolders])
+  // The projects used most come first (owner, 2026-10-06): both lists, each in
+  // its own section, by the frecency main records for every new chat
+  // (shared/project-frecency.ts). Never-used projects keep the order the host
+  // gave them (rail order) and the recents keep theirs, below the used ones.
+  const projectUsage = useWorkspaceStore((s) => s.appSettings.projectUsage)
+  const [orderedOptions, orderedRecentOptions] = React.useMemo(() => {
+    const now = Date.now()
+    const folderOf = (option: ProjectScopeOption) => option.path
+    return [
+      sortByProjectUse(options, folderOf, projectUsage, now),
+      sortByProjectUse(recentOptions, folderOf, projectUsage, now),
+    ]
+  }, [options, projectUsage, recentOptions])
   // One map for the chip and every row in the list, out of the same store the
   // sidebar's glyphs read, so a colour changed from the project header moves
   // all of them at once.
@@ -252,8 +266,8 @@ export function ProjectScopePicker({
           place into the shipped Git import — one surface, no second
           dialog stacked on the first. */}
       <ProjectSourceMenu
-        options={options}
-        recentOptions={recentOptions}
+        options={orderedOptions}
+        recentOptions={orderedRecentOptions}
         selectedPath={selectedPath}
         defaultParent={defaultParent}
         onSelect={(path) => onSelect(path)}

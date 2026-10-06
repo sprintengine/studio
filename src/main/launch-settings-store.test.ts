@@ -28,6 +28,7 @@ function settings(overrides: Partial<AgentLaunchSettings> = {}): AgentLaunchSett
     lastAgentSpawnPermissionPreset: 'auto' as never,
     cliPermissionPresets: {},
     cliPermissionModes: {},
+    projectUsage: {},
     ...overrides,
   }
 }

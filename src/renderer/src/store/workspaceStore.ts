@@ -269,6 +269,7 @@ export interface WorkspaceStore
   refreshMcpServersFromSource: (servers: McpServerConfig[]) => void
   removeMcpServer: (serverId: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
+  recordProjectUse: (folderPath: string) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
   setTextGenerationEnabled: (enabled: boolean) => void
   setTextGenerationEngine: (selection: AgentCliModelSelection | null) => void

@@ -2217,6 +2217,67 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
+    // The projects used most come first (owner, 2026-10-06), in both of the
+    // menu's lists, by the frecency main records for every new chat. A project
+    // never used keeps the order the host gave it, below the used ones.
+    await check('the project menu lists the projects used most first, open ones and recents alike', async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      meshConnections = []
+      const now = Date.now()
+      const day = 24 * 60 * 60 * 1000
+      const used = (score: number, ago: number) => ({
+        score,
+        scoredAt: now - ago,
+        lastUsedAt: now - ago,
+        useCount: Math.ceil(score),
+      })
+      useWorkspaceStore.setState(
+        (state) =>
+          ({
+            appSettings: {
+              ...state.appSettings,
+              recentWorkspaceFolders: ['/old-a', '/old-b'],
+              projectUsage: {
+                '/third': used(4, 0),
+                '/second': used(1, day),
+                '/old-b': used(1, 30 * day),
+              },
+            },
+          }) as never,
+      )
+      const view = await render({
+        folderPath: '/first',
+        projectOptions: [
+          { path: '/first', label: 'first' },
+          { path: '/second', label: 'second' },
+          { path: '/third', label: 'third' },
+        ],
+        onSelectProject: () => {},
+        onBrowseProject: () => {},
+      })
+      await settle()
+      const trigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
+      await click(trigger!)
+      await settle()
+      const menu = dom.window.document.querySelector('[role="menu"][aria-label="Project this agent runs in"]')!
+      const rows = [...menu.querySelectorAll('[role="menuitemradio"]')].map((row) =>
+        ['/third', '/second', '/first', '/old-b', '/old-a'].find((path) => (row.textContent ?? '').includes(path)),
+      )
+      assert.deepEqual(
+        rows,
+        ['/third', '/second', '/first', '/old-b', '/old-a'],
+        'used projects by score, the never-used one after them; the used recent above the other',
+      )
+      view.unmount()
+      useWorkspaceStore.setState(
+        (state) =>
+          ({
+            appSettings: { ...state.appSettings, recentWorkspaceFolders: [], projectUsage: {} },
+          }) as never,
+      )
+    })
+
     // ── One colour per project, on the scope line ────────────────────────────
     // Owner ruling 2026-09-09, backlog item
     // `one-colour-per-project-on-the-folder-glyph`, decision 7: "I keep opening

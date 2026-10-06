@@ -34,6 +34,7 @@ import {
   type ExecutionHostId,
   type ExecutionHostSettings,
 } from './execution-host'
+import { normalizeProjectUsageMap, withProjectUse, type ProjectUsageMap } from './project-frecency'
 
 // 2: the per-CLI "run through WSL" switch left the CLI runtime, and each
 // machine this computer offers (a WSL distribution) got settings of its own in
@@ -94,6 +95,15 @@ export type AgentLaunchSettings = {
    * stays the level everything else reasons with.
    */
   cliPermissionModes: Record<string, string>
+  /**
+   * Where chats were started, by project folder (`projectUsageKey`): each
+   * project's frecency score, latest use and use count (`project-frecency.ts`).
+   * Every project picker for a new chat lists by it, here and on a paired
+   * phone through `workspace.list`. Kept beside `lastSelectedCli` because it is
+   * the same kind of memory, of where launches went, and main records a chat
+   * started from the phone with no window open.
+   */
+  projectUsage: ProjectUsageMap
 }
 
 /** Names the process boundary a write came through, never the human. */
@@ -132,6 +142,9 @@ export type AgentLaunchSettingsRecord = {
  *   mode goes with it unless the same patch names one, so a window that knows
  *   only presets never leaves a mode behind under a preset it did not choose.
  * - `cliPermissionModes`: per CLI, a mode id sets it and `null` removes it.
+ * - `projectUse` records one use of the project at that folder, at `at`
+ *   (epoch milliseconds). It adds to what main holds rather than replacing it,
+ *   so two windows and the phone each starting a chat all count.
  */
 export type AgentLaunchSettingsPatch = {
   cliRuntimes?: Record<string, AgentLaunchCliRuntimeSettings | null>
@@ -148,6 +161,7 @@ export type AgentLaunchSettingsPatch = {
   lastAgentSpawnPermissionPreset?: CliPermissionPreset | null
   cliPermissionPresets?: Record<string, CliPermissionPreset | null>
   cliPermissionModes?: Record<string, string | null>
+  projectUse?: { folderPath: string; at: number }
 }
 
 /**
@@ -295,6 +309,7 @@ export function emptyAgentLaunchSettings(): AgentLaunchSettings {
     lastAgentSpawnPermissionPreset: null,
     cliPermissionPresets: {},
     cliPermissionModes: {},
+    projectUsage: {},
   }
 }
 
@@ -387,6 +402,7 @@ export function normalizeAgentLaunchSettings(raw: unknown): AgentLaunchSettings 
     lastAgentSpawnPermissionPreset: parseCliPermissionPreset(raw.lastAgentSpawnPermissionPreset),
     cliPermissionPresets: normalizeCliPermissionPresets(raw.cliPermissionPresets),
     cliPermissionModes: normalizeCliPermissionModes(raw.cliPermissionModes),
+    projectUsage: normalizeProjectUsageMap(raw.projectUsage),
   }
 }
 
@@ -490,6 +506,15 @@ export function normalizeAgentLaunchSettingsPatch(raw: unknown): AgentLaunchSett
     }
     patch.cliPermissionModes = modes
   }
+  if (
+    isPlainObject(raw.projectUse) &&
+    typeof raw.projectUse.folderPath === 'string' &&
+    raw.projectUse.folderPath.trim() &&
+    typeof raw.projectUse.at === 'number' &&
+    Number.isFinite(raw.projectUse.at)
+  ) {
+    patch.projectUse = { folderPath: raw.projectUse.folderPath, at: raw.projectUse.at }
+  }
   return patch
 }
 
@@ -507,6 +532,7 @@ export function applyAgentLaunchSettingsPatch(
     projectKnowledgeRoots: { ...settings.projectKnowledgeRoots },
     cliPermissionPresets: { ...settings.cliPermissionPresets },
     cliPermissionModes: { ...settings.cliPermissionModes },
+    projectUsage: { ...settings.projectUsage },
   }
   for (const [cli, runtime] of Object.entries(patch.cliRuntimes ?? {})) {
     if (runtime === null) delete next.cliRuntimes[cli]
@@ -543,6 +569,9 @@ export function applyAgentLaunchSettingsPatch(
   for (const [cli, mode] of Object.entries(patch.cliPermissionModes ?? {})) {
     if (mode === null) delete next.cliPermissionModes[cli]
     else next.cliPermissionModes[cli] = mode
+  }
+  if (patch.projectUse) {
+    next.projectUsage = withProjectUse(next.projectUsage, patch.projectUse.folderPath, patch.projectUse.at)
   }
   return next
 }

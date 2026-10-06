@@ -296,6 +296,9 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     },
     startSession: (input) => conversations.startSession(input),
     send: (input) => conversations.sendTurn(input),
+    recordProjectUse: (folderPath) => {
+      agentLaunchSettings.update({ projectUse: { folderPath, at: Date.now() } }, 'system')
+    },
     // The levels the CLI's picker offers, from the same manifests it reads.
     reasoningLevels: (cli) =>
       listPluginRegistryEntries()
