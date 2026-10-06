@@ -467,4 +467,27 @@ test('a retired-mode row is dropped on load and cannot be proposed back', async 
   }
 })
 
+test('an imported chat is dated by the session it came from, and stays in the list', async () => {
+  const h = harness()
+  try {
+    const result = create(h, {
+      name: 'Fix the login bug',
+      folderPath: '/Users/dev/acme-app',
+      imported: { startedAt: 100, lastActiveAt: 200 },
+    })
+    const record = h.registry.getRecord(result.workspace.id)
+    assert.equal(record?.createdAt, 100)
+    assert.equal(record?.settledAt, undefined)
+    assert.equal(record?.lastUserMessageAt, 200)
+    assert.equal(record?.lastTurnEndedAt, 200)
+    await h.registry.flush()
+    assert.equal(
+      h.readFile()?.file.workspaces.find((entry) => entry.id === result.workspace.id)?.lastUserMessageAt,
+      200,
+    )
+  } finally {
+    h.cleanup()
+  }
+})
+
 console.log('workspace-registry-service.test.ts: ok')

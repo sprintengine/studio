@@ -318,6 +318,7 @@ export interface WorkspaceStore
   setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void
   dismissFirstRunCliCard: () => void
   markAgentConfigAdopted: () => void
+  markConversationImportOffered: () => void
   // Transient outcome of the silent first-run config adoption, read out as one
   // line in Settings → Agents. Not persisted (see extractSettingsFields).
   agentConfigAdoptionResult: AgentConfigAdoptionResult | null

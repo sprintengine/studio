@@ -84,6 +84,9 @@ const KNOWN_BOOT_REFUSALS = new Set([
   'git:checkout-watch-retain',
   'hosted-card-feed:get',
   'skills:list-workspace',
+  // Importing this machine's CLI conversations is the desktop's: a browser has
+  // none of its own to offer at first run.
+  'conversation-import:scan',
 ])
 
 // A server run with no inherited Studio settings: nothing of this machine's own Studio is read.

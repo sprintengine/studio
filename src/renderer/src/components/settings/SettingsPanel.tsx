@@ -71,6 +71,7 @@ import { ProjectKnowledgeList } from './ProjectKnowledgeList'
 import { DesignSystemSettings } from './DesignSystemSettings'
 import { orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { AgentConfigAdoptionStatus } from '../onboarding/agentConfigAdoption'
+import { ConversationImportSettings } from './ConversationImportSettings'
 import {
   GeneralSettingsIcon,
   ProfileSettingsIcon,
@@ -1499,6 +1500,7 @@ export default function SettingsPanel({
               only place it is ever reported. Renders nothing unless an adoption
               actually ran this session, and says so plainly when it failed. */}
           <AgentConfigAdoptionStatus adoption={agentConfigAdoptionResult} />
+          <ConversationImportSettings />
           <AgentClisSection
             runs={agentCliRuns}
             machine={agentsMachine}

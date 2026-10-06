@@ -122,6 +122,11 @@ export type AgentState = {
   // conversation runtime additionally requires a valid `conversation` pair.
   runtimeKind?: AgentRuntimeKind
   conversation?: AgentConversationRuntime
+  // The session a person ran in the CLI's own terminal that this chat was
+  // imported from (`conversation-import-service.ts`). The chat resumes it by
+  // the id its transcript records; this copy is what tells a later import the
+  // session is a chat here already.
+  importedFrom?: { source: import('./ipc/conversation-import').ConversationImportSource; sessionId: string }
   // Next-turn conversation controls persist independently of terminal flags.
   conversationMode?: 'default' | 'plan' | 'ask'
   conversationReasoningEffort?: string

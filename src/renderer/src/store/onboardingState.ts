@@ -47,7 +47,7 @@ export function shouldShowFirstRunCliCard(input: {
 // 'error' holds indefinitely, and that is deliberate — a probe that could not
 // run is not evidence the machine has a CLI. The empty stage keeps its own "New
 // chat" button, so holding the auto-open delays New chat, never blocks it.
-function isFirstRunCliCardPending(input: {
+export function isFirstRunCliCardPending(input: {
   cliAvailabilityStatus: CliAvailabilityStatus
   cliAvailability: AgentCliAvailabilityMap
   firstRunCliCardDismissed: boolean
@@ -68,7 +68,36 @@ export function shouldAutoOpenNewChat(input: {
   cliAvailabilityStatus: CliAvailabilityStatus
   cliAvailability: AgentCliAvailabilityMap
   firstRunCliCardDismissed: boolean
+  conversationImport?: ConversationImportOfferInput
 }): boolean {
   if (input.workspaceCount > 0) return false
-  return !isFirstRunCliCardPending(input)
+  if (isFirstRunCliCardPending(input)) return false
+  return !input.conversationImport || !isConversationImportOfferPending(input.conversationImport)
+}
+
+// The second first-run question: the conversations this person already had
+// in Claude Code or Codex, which the app can find but not choose for them.
+// Asked on a fresh profile only, after the CLI question (a machine with no CLI
+// has nothing to resume them with), and only once the scan has found
+// something: a person with no sessions is never shown an empty card. Until
+// the scan answers, New chat waits as it waits on the CLI probe, so neither
+// flashes over the other; a scan that failed is no reason to hold it.
+export type ConversationImportOfferInput = {
+  workspaceCount: number
+  conversationImportOffered: boolean
+  scan: 'loading' | 'ready' | 'error'
+  importableCount: number
+}
+
+export function shouldShowConversationImportCard(
+  input: ConversationImportOfferInput & { firstRunCliCardPending: boolean },
+): boolean {
+  if (input.firstRunCliCardPending) return false
+  return isConversationImportOfferPending(input) && input.scan === 'ready'
+}
+
+function isConversationImportOfferPending(input: ConversationImportOfferInput): boolean {
+  if (input.conversationImportOffered || input.workspaceCount > 0) return false
+  if (input.scan === 'loading') return true
+  return input.scan === 'ready' && input.importableCount > 0
 }
