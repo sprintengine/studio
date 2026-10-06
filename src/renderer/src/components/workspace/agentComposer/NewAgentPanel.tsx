@@ -1438,19 +1438,16 @@ export default function NewAgentPanel({
           modelLabel: engineNames.modelLabel ?? engineNames.cliLabel,
         }
       }
-      if (images.length > 0) {
-        showToast({
-          tone: 'warn',
-          title: 'That chat cannot travel yet',
-          description: `Remove the attached images to start on ${pickedSsh.label}; they are files on this computer.`,
-        })
-        return
-      }
       const folder = sshFolder.trim().replace(/(.)\/+$/u, '$1')
       lastSshFolders.set(pickedSsh.id, folder)
+      // The images go with the first message: they are files on this
+      // computer, which the chat reads here and sends as bytes, as it does
+      // for an image pasted into an SSH chat.
+      const sshImages = images.map((image) => image.path)
       onLaunch({
         ...confirm,
         prompt: text.trim(),
+        ...(sshImages.length > 0 ? { images: sshImages } : {}),
         environment: { kind: 'ssh', id: pickedSsh.id, label: pickedSsh.label, folder },
       })
       return
