@@ -183,11 +183,48 @@ test('a branch set to push to a fork is pushed there, under its own name, and it
   await creator.create(clone, { title: 'feat: marks', body: '' })
   assert.equal(calls[0][calls[0].indexOf('--head') + 1], 'dev:feature/marks')
 
-  // A push remote that does not exist is not guessed at: origin it is.
+  // Pushed elsewhere by a setting, the branch keeps the upstream it had.
+  await assert.rejects(git(clone, 'rev-parse', '--abbrev-ref', '@{u}'), 'no upstream was set')
+
+  // A push remote that does not exist is an error, as it is for git, and
+  // nothing goes to origin instead.
   await git(clone, 'config', 'branch.feature/marks.pushRemote', 'nowhere')
   await commit(clone, 'more.ts', 'export const more = 1\n', 'feat: more')
+  const refused = await creator.push(clone)
+  assert.equal(refused.ok, false)
+  assert.match(refused.ok ? '' : refused.message, /“nowhere”.*branch\.feature\/marks\.pushRemote/)
+  await assert.rejects(git(origin, 'rev-parse', '--verify', 'refs/heads/feature/marks'), 'still nothing on origin')
+})
+
+test('a push remote is chosen as git chooses it: the branch’s own, then the default, then a fork it tracks', async () => {
+  const { clone, origin } = await checkout()
+  const fork = path.join(path.dirname(origin), 'fork.git')
+  await exec('git', ['init', '-q', '--bare', '-b', 'main', fork])
+  await git(clone, 'remote', 'add', 'mine', 'git@github.com:dev/app.git')
+  await git(clone, 'remote', 'set-url', '--push', 'mine', fork)
+  const creator = createPullRequestCreator({ listBranch: lookupOf(NONE).listBranch })
+  const head = () => git(clone, 'rev-parse', 'HEAD')
+
+  // remote.pushDefault sends it to the fork…
+  await git(clone, 'config', 'remote.pushDefault', 'mine')
   assert.deepEqual(await creator.push(clone), { ok: true, pushed: true })
-  assert.equal(await git(origin, 'rev-parse', 'refs/heads/feature/marks'), await git(clone, 'rev-parse', 'HEAD'))
+  assert.equal(await git(fork, 'rev-parse', 'refs/heads/feature/marks'), await head())
+  // …and the branch's own pushRemote, origin included, wins over it.
+  await git(clone, 'config', 'branch.feature/marks.pushRemote', 'origin')
+  assert.deepEqual(await creator.push(clone), { ok: true, pushed: true })
+  assert.equal(await git(origin, 'rev-parse', 'refs/heads/feature/marks'), await head())
+
+  // With neither, a branch tracking its namesake on the fork is pushed there,
+  // and its upstream is left on the fork.
+  await git(clone, 'config', '--unset', 'branch.feature/marks.pushRemote')
+  await git(clone, 'config', '--unset', 'remote.pushDefault')
+  await git(clone, 'config', 'branch.feature/marks.remote', 'mine')
+  await git(clone, 'config', 'branch.feature/marks.merge', 'refs/heads/feature/marks')
+  await commit(clone, 'fork.ts', 'export const fork = 1\n', 'feat: fork')
+  assert.deepEqual(await creator.push(clone), { ok: true, pushed: true })
+  assert.equal(await git(fork, 'rev-parse', 'refs/heads/feature/marks'), await head())
+  assert.notEqual(await git(origin, 'rev-parse', 'refs/heads/feature/marks'), await head(), 'origin is not pushed')
+  assert.equal(await git(clone, 'config', '--get', 'branch.feature/marks.remote'), 'mine')
 })
 
 test('GitHub: gh creates it with the body from a file, and an existing one is taken rather than failed', async () => {

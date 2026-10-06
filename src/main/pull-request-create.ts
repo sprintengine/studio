@@ -217,17 +217,48 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
   }
 
   /**
-   * The remote the branch is pushed to: the one git's own settings name for
-   * pushing it (`branch.<b>.pushRemote`, then `remote.pushDefault`), as a
-   * plain `git push` would choose, when that remote exists; origin otherwise.
-   * A fork workflow pushes to the fork and opens the pull request on origin.
+   * Where the branch is pushed, chosen as a plain `git push` chooses:
+   * `branch.<b>.pushRemote` (origin included), then `remote.pushDefault`, then
+   * the branch's own remote when it tracks its namesake there (a branch set up
+   * on a fork as `fork/<b>`), then origin. A configured push remote that does
+   * not exist is an error, as it is for git, never a quiet push to origin.
+   *
+   * `setUpstream` only for a branch that tracks nothing yet or tracks the
+   * trunk (cut from `origin/main`), and pushed where no setting sent it: a
+   * branch configured to push elsewhere keeps the upstream it was given.
    */
-  async function pushRemoteOf(gitRoot: string, branch: string): Promise<string> {
+  async function pushTargetOf(
+    gitRoot: string,
+    branch: string,
+    defaultBranch: string | null,
+  ): Promise<{ ok: true; remote: string; setUpstream: boolean } | { ok: false; message: string }> {
     for (const key of [`branch.${branch}.pushRemote`, 'remote.pushDefault']) {
       const named = await out(gitRoot, ['config', '--get', key])
-      if (named && named !== 'origin' && (await out(gitRoot, ['remote', 'get-url', '--push', named]))) return named
+      if (!named) continue
+      // A URL in the setting is a remote too, for git.
+      if ((await out(gitRoot, ['remote', 'get-url', '--push', named])) || /[:/]/u.test(named)) {
+        return { ok: true, remote: named, setUpstream: false }
+      }
+      return {
+        ok: false,
+        message: `Git is set to push this branch to “${named}” (${key}), and this checkout has no remote of that name. Add the remote or change the setting, then push again.`,
+      }
     }
-    return 'origin'
+    const [upstreamRemote, upstreamMerge] = await Promise.all([
+      out(gitRoot, ['config', '--get', `branch.${branch}.remote`]),
+      out(gitRoot, ['config', '--get', `branch.${branch}.merge`]),
+    ])
+    if (
+      upstreamRemote &&
+      upstreamRemote !== '.' &&
+      upstreamMerge === `refs/heads/${branch}` &&
+      (await out(gitRoot, ['remote', 'get-url', '--push', upstreamRemote]))
+    ) {
+      return { ok: true, remote: upstreamRemote, setUpstream: false }
+    }
+    const tracksTrunk =
+      upstreamRemote === 'origin' && defaultBranch !== null && upstreamMerge === `refs/heads/${defaultBranch}`
+    return { ok: true, remote: 'origin', setUpstream: !upstreamMerge || tracksTrunk }
   }
 
   /**
@@ -240,30 +271,27 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
     const ready = createPullRequestReadiness(facts)
     if (!gitRoot || !facts.branch) return { ok: false, message: 'This folder is not a checkout on a branch.' }
     if (!ready.ready) return { ok: false, message: readinessMessage(ready) }
-    const remote = await pushRemoteOf(gitRoot, facts.branch)
+    const target = await pushTargetOf(gitRoot, facts.branch, facts.defaultBranch)
+    if (!target.ok) return target
+    const { remote } = target
     const refspec = `HEAD:refs/heads/${facts.branch}`
     // Only the branch's own namesake on the push remote is "already pushed".
     const pushedRef = `refs/remotes/${remote}/${facts.branch}`
     if (await out(gitRoot, ['rev-parse', '--verify', '--quiet', pushedRef])) {
       const ahead = Number.parseInt((await out(gitRoot, ['rev-list', '--count', `${pushedRef}..HEAD`])) ?? '0', 10)
       if (!(ahead > 0)) return { ok: true, pushed: false }
-      const pushed = await git(gitRoot, ['push', remote, refspec])
-      return pushed.ok ? { ok: true, pushed: true } : { ok: false, message: gitFailure('push', pushed) }
     }
-    // The first push to origin makes origin/<branch> the upstream. One to a
-    // push remote the person set up leaves the upstream as they had it: in
-    // that workflow a branch tracks origin and pushes elsewhere.
-    const pushed = await git(gitRoot, ['push', ...(remote === 'origin' ? ['-u'] : []), remote, refspec])
+    const pushed = await git(gitRoot, ['push', ...(target.setUpstream ? ['-u'] : []), remote, refspec])
     return pushed.ok ? { ok: true, pushed: true } : { ok: false, message: gitFailure('push', pushed) }
   }
 
   /** `owner:branch` for a branch pushed to a fork, as `gh pr create --head` names it; the branch alone on origin. */
-  async function headOf(gitRoot: string, branch: string): Promise<string> {
-    const remote = await pushRemoteOf(gitRoot, branch)
-    if (remote === 'origin') return branch
+  async function headOf(gitRoot: string, branch: string, defaultBranch: string | null): Promise<string> {
+    const target = await pushTargetOf(gitRoot, branch, defaultBranch)
+    if (!target.ok || target.remote === 'origin') return branch
     // The remote's own address names the fork's owner (a push URL may be a mirror).
-    const url = await out(gitRoot, ['remote', 'get-url', remote])
-    const owner = url ? forgeOfRemote(url)?.webUrl.split('/').at(-2) : undefined
+    const url = (await out(gitRoot, ['remote', 'get-url', target.remote])) ?? target.remote
+    const owner = forgeOfRemote(url)?.webUrl.split('/').at(-2)
     return owner ? `${owner}:${branch}` : branch
   }
 
@@ -293,7 +321,7 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
           '--base',
           facts.defaultBranch,
           '--head',
-          await headOf(gitRoot, facts.branch),
+          await headOf(gitRoot, facts.branch, facts.defaultBranch),
           '--title',
           title,
           '--body-file',
