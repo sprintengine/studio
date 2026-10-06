@@ -292,6 +292,7 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           getScheduledAgents: () => modules.scheduledAgents(),
           defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+          userCliModels: (cli) => agentLaunchSettings.get().cliRuntimes[cli]?.models,
           getModuleRegistrySnapshot: () => moduleRegistry,
           // The marketplace and the module trust store are the shell's caches.
           listInstalledThirdPartyModules: () => rpc.call(SHELL_METHODS.thirdPartyModules),

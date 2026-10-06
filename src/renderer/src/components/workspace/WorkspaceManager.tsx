@@ -67,6 +67,7 @@ import type {
 } from '../../types/workspace'
 import {
   agentWorktreePaths,
+  newChatWorktreeName,
   workspaceProjectRoot,
   workspaceProjectRootOf,
   worktreeIdFromPath,
@@ -2749,7 +2750,7 @@ export default function WorkspaceManager() {
         'This project is not a git repository, so a worktree cannot be created.',
       )
     }
-    const name = requestedName.trim() || `chat-${nanoid(4).toLowerCase()}`
+    const name = requestedName.trim() || newChatWorktreeName(nanoid(4))
     const paths = agentWorktreePaths(repoRoot, name)
     if (!paths) return fail('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
     // From the worktree pool, on the default branch (main's git.ts): a

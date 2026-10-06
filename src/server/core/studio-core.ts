@@ -25,7 +25,8 @@ import { createConversationModelCatalog } from '../../main/conversation-model-ca
 import { ConversationPlanStore } from '../../main/conversation-plan-store'
 import { ConversationRuntime, type ConversationRuntimeOptions } from '../../main/conversation-runtime'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
-import { installGitHostResolver } from '../../main/git-run'
+import { createGitWorktree, getGitRepoRoot } from '../../main/git'
+import { installGitHostResolver, withGitHost } from '../../main/git-run'
 import { createHostRegistry, installHostRegistry } from '../../main/hosts/host-registry'
 import { createAgentLaunchSettingsStore } from '../../main/launch-settings-store'
 import { readDiscoveredCliModelCatalogs } from '../../main/model-discovery/service'
@@ -295,6 +296,40 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     },
     startSession: (input) => conversations.startSession(input),
     send: (input) => conversations.sendTurn(input),
+    // The levels the CLI's picker offers, from the same manifests it reads.
+    reasoningLevels: (cli) =>
+      listPluginRegistryEntries()
+        .find((entry) => entry.id === cli)
+        ?.reasoningSelection?.levels.map((level) => level.id) ?? [],
+    // A new chat's worktree, cut by the machine the chat runs on, as a
+    // scheduled run's is: from the worktree pool when this process keeps one
+    // (the desktop's main does; a server out of process forks a fresh one), on
+    // the default branch, locked to its branch until the chat claims it.
+    getRepoRoot: (folderPath, hostId) =>
+      withGitHost(hostId ? hosts.get(hostId) : null, () => getGitRepoRoot(folderPath)),
+    createWorktree: async (input) => {
+      const created = await withGitHost(input.hostId ? hosts.get(input.hostId) : null, () =>
+        createGitWorktree({
+          repoRoot: input.repoRoot,
+          containerPath: input.containerPath,
+          destinationPath: input.destinationPath,
+          branchName: input.branchName,
+          baseRef: 'HEAD',
+          fromPool: true,
+          copyIncludedFiles: true,
+          // The chat is created after its worktree, so the branch names the owner.
+          agentLockOwner: input.branchName,
+        }),
+      )
+      return created.ok
+        ? {
+            ok: true,
+            path: created.data.path,
+            branch: created.data.branch ?? input.branchName,
+            baseRef: created.data.baseRef,
+          }
+        : { ok: false, message: created.message }
+    },
     // The same installer a terminal launch's skill-at-spawn uses, into the
     // folder the chat works in (a run's worktree when it has one).
     ensureSkillInstalled: (workingRoot, skillId) => ensureSkillInstalled(workingRoot, skillId),
@@ -428,6 +463,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
         if (!workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]) return
         workspaceSyncService.updateWorkspaceAgent(key.workspaceId, key.agentId, patch, 'system')
       },
+      (key) => workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.conversationReasoningEffort,
     )
 
   /**

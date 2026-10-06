@@ -779,6 +779,9 @@ test('tailnet', async () => {
         'conversation-hello',
         'conversation-plans',
         'conversation-cli-permission-modes',
+        'new-chat-worktree',
+        'new-chat-effort',
+        'cli-runtime-catalog',
       ])
 
       // The pairing code is one-time: replaying it does not mint a second device.
@@ -868,6 +871,9 @@ test('tailnet', async () => {
         'conversation-hello',
         'conversation-plans',
         'conversation-cli-permission-modes',
+        'new-chat-worktree',
+        'new-chat-effort',
+        'cli-runtime-catalog',
       ])
       assert.deepEqual([...TAILNET_CAPABILITIES], body.capabilities)
       // Nothing about this machine, its user, its workspaces, or its devices.
