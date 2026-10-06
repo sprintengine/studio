@@ -213,6 +213,14 @@ test('a cookie alone with no Origin does not upgrade', async () => {
   expect(status).toBe(403)
 })
 
+test('a ticket in the address does not stand in for an Origin where a cookie admits the socket', async () => {
+  const { cookie } = await pair()
+  const { status, socket } = await upgrade('/ws/ipc?ticket=anything', { Cookie: cookie })
+  socket.destroy()
+  expect(status).toBe(403)
+  expect(tunnelled).toHaveLength(0)
+})
+
 test('a same-origin upgrade with the session is served as that session', async () => {
   const { cookie, sessionId } = await pair()
   const { status, socket } = await upgrade('/ws', { Cookie: cookie, Origin: own() })

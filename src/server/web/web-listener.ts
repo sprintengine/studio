@@ -442,7 +442,9 @@ export function createWebListener(options: WebListenerOptions): WebListener {
         host: request.headers.host,
         origin: typeof request.headers.origin === 'string' ? request.headers.origin : undefined,
         upgrade: true,
-        ticket: ticket !== null,
+        // Only where a ticket is what admits the socket: `/ws/ipc` admits by
+        // the cookie alone, so a `?ticket=` there must not stand in for an Origin.
+        ticket: ticket !== null && url.pathname === '/ws',
       },
       policy(),
     )
