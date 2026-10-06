@@ -3,6 +3,8 @@ import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron'
 import {
   MESH_BROWSE_CHANNEL,
   MESH_CREATE_CONVERSATION_CHANNEL,
+  MESH_SETTLE_CONVERSATION_CHANNEL,
+  MESH_VISIT_CONVERSATION_CHANNEL,
   MESH_WORKSPACE_CHECKOUT_CHANNEL,
   MESH_FORGET_CHANNEL,
   MESH_GET_LIVE_STATE_CHANNEL,
@@ -99,6 +101,23 @@ export function registerMeshIpc(ipcMain: IpcMain, service: AutomationService): v
       prompt: record.prompt,
       cliModel: record.cliModel,
       permissionPreset: record.permissionPreset,
+    })
+  })
+  // A remote chat's rest and visit clock, kept by the machine it runs on.
+  ipcMain.handle(MESH_SETTLE_CONVERSATION_CHANNEL, (_event, input: unknown) => {
+    const record = asRecord(input) ?? {}
+    return service.mesh().settleConversation({
+      connectionId: record.connectionId,
+      workspaceId: record.workspaceId,
+      settled: record.settled,
+    })
+  })
+  ipcMain.handle(MESH_VISIT_CONVERSATION_CHANNEL, (_event, input: unknown) => {
+    const record = asRecord(input) ?? {}
+    return service.mesh().visitConversation({
+      connectionId: record.connectionId,
+      workspaceId: record.workspaceId,
+      visitedAt: record.visitedAt,
     })
   })
   ipcMain.handle(MESH_WORKSPACE_CHECKOUT_CHANNEL, (_event, input: unknown) => {

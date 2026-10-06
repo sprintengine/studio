@@ -46,6 +46,8 @@ import type {
   ConversationRewindResult,
   ConversationForkInput,
   ConversationForkResult,
+  ConversationImportTranscriptInput,
+  ConversationImportTranscriptResult,
 } from '../shared/conversation-runtime'
 import { CONVERSATION_SESSION_NOT_FOUND } from '../shared/conversation-runtime'
 import { cliRuntimesOnPlatform, distroOfHostId, type ExecutionHostId } from '../shared/execution-host'
@@ -3670,6 +3672,79 @@ export class ConversationRuntime {
     }
   }
 
+  /**
+   * Write a new chat's history from a session an agent CLI saved by itself,
+   * the way a fork writes its own: the events as given, each step's full
+   * input and output in its detail file and a bounded preview in the
+   * transcript, then a mark naming the CLI's session as the resume cursor
+   * (readResumeCursor). The chat's next message resumes that session, so the
+   * agent remembers everything the history shows. Refused for a chat that
+   * already has a conversation.
+   */
+  async importTranscript(input: ConversationImportTranscriptInput): Promise<ConversationImportTranscriptResult> {
+    const { key } = input
+    if (!key?.workspaceRoot?.trim() || !key.workspaceId?.trim() || !key.agentId?.trim())
+      return { ok: false, message: 'Conversation identity is required.' }
+    const providerSessionId = input.providerSessionId?.trim()
+    if (!providerSessionId || !input.providerId?.trim())
+      return { ok: false, message: 'The session to import is required.' }
+    const path = this.transcriptPath(key.workspaceRoot, key.workspaceId, key.agentId)
+    if (this.deletingTranscripts.has(path) || this.startingTranscripts.has(path) || this.liveSessionFor(path))
+      return { ok: false, message: 'The chat to import into is in use.' }
+    this.startingTranscripts.add(path)
+    try {
+      if ((await this.transcripts.tail(key.workspaceRoot, path, { events: 1 })).length)
+        return { ok: false, message: 'The chat to import into already has a conversation.' }
+      const envelope = {
+        sessionId: 'imported',
+        workspaceId: key.workspaceId,
+        agentId: key.agentId,
+        providerId: input.providerId,
+        modelId: input.modelId,
+      }
+      const details = new Map<string, ConversationToolDetail>()
+      const events: ConversationEvent[] = input.events.map((draft, index) => ({
+        ...envelope,
+        id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
+        seq: index + 1,
+        type: draft.type,
+        createdAt: draft.createdAt,
+        payload: importedToolPayload(draft.type, draft.payload, details),
+      }))
+      events.push({
+        ...envelope,
+        id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
+        seq: events.length + 1,
+        createdAt: events.at(-1)?.createdAt ?? this.now(),
+        type: 'session_updated',
+        payload: {
+          providerSessionId,
+          importedFrom: input.importedFrom,
+          ...(input.title?.trim() ? { conversationTitle: input.title.trim().slice(0, 200), titleSource: 'user' } : {}),
+        },
+      })
+      const appended = events.map((event) => this.eventLog.append(path, redactEvent(event), key.workspaceRoot))
+      await this.eventLog.flush(path)
+      if ((await Promise.all(appended)).includes('failed')) {
+        await this.eventLog.close(path)
+        await removeConversationStorage(key.workspaceRoot, path).catch(() => undefined)
+        return { ok: false, message: 'The imported conversation could not be saved to disk.' }
+      }
+      this.sequences.set(path, events.length)
+      await this.eventLog.close(path)
+      for (const [toolUseId, detail] of details)
+        await writeToolDetail(key.workspaceRoot, this.toolDetailPath({ ...key, toolUseId }), detail).catch(
+          () => undefined,
+        )
+      this.runInBackground(this.threadIndex.refresh(key).catch(() => undefined))
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'The conversation could not be imported.' }
+    } finally {
+      this.startingTranscripts.delete(path)
+    }
+  }
+
   // The details of the steps a fork holds, so its tool rows open as the
   // parent's do. Best effort: a step whose detail is missing shows its
   // preview, as one whose detail was never written does.
@@ -4101,6 +4176,64 @@ function isAsyncIterable(
   value: ConversationEvent[] | AsyncIterable<ConversationEvent>,
 ): value is AsyncIterable<ConversationEvent> {
   return typeof (value as AsyncIterable<ConversationEvent>)[Symbol.asyncIterator] === 'function'
+}
+
+/**
+ * An imported step's event as prepareToolEvent leaves a live one's: the call's
+ * input and its whole result go to the detail kept under `details`, and the
+ * transcript holds the opening of the result, as a one-shot result's preview
+ * is read.
+ */
+function importedToolPayload(
+  type: ConversationEvent['type'],
+  source: Record<string, unknown>,
+  details: Map<string, ConversationToolDetail>,
+): Record<string, unknown> {
+  const toolUseId = typeof source.toolUseId === 'string' ? source.toolUseId : undefined
+  if ((type !== 'tool_started' && type !== 'tool_output') || !toolUseId) return source
+  const payload = { ...source }
+  const detail: ConversationToolDetail = details.get(toolUseId) ?? {
+    input: {},
+    output: '',
+    status: 'ok',
+    clipped: false,
+  }
+  details.set(toolUseId, detail)
+  if (type === 'tool_started') {
+    const name = typeof payload.name === 'string' ? payload.name : typeof payload.tool === 'string' ? payload.tool : ''
+    payload.name = name
+    payload.kind = payload.kind ?? inferConversationToolKind(name)
+    detail.input = (payload.input ?? {}) as ConversationJsonValue
+    if (Buffer.byteLength(JSON.stringify(detail.input)) > 64 * 1024) {
+      payload.input = {}
+      payload.inputTruncated = true
+    }
+    return payload
+  }
+  const output = (payload.output ?? '') as ConversationJsonValue
+  const text = typeof output === 'string' ? output : JSON.stringify(output)
+  const mime = typeof payload.mime === 'string' ? payload.mime : undefined
+  const binary = mime !== undefined && !/^(text\/|application\/(json|xml))/.test(mime)
+  const status =
+    payload.status === 'declined' || payload.status === 'stopped' || payload.status === 'error'
+      ? payload.status
+      : payload.isError
+        ? 'error'
+        : 'ok'
+  payload.preview = binary ? '' : text.slice(0, TOOL_PREVIEW_CHARS)
+  payload.truncated = binary || text.length > TOOL_PREVIEW_CHARS
+  payload.totalBytes = Math.max(
+    Buffer.byteLength(text),
+    typeof payload.totalBytes === 'number' ? payload.totalBytes : 0,
+  )
+  payload.output = payload.preview
+  payload.status = status
+  detail.status = status
+  detail.totalBytes = payload.totalBytes as number
+  detail.output = binary ? '' : output
+  if (typeof payload.exitCode === 'number') detail.exitCode = payload.exitCode
+  if (mime !== undefined) detail.mime = mime
+  return payload
 }
 
 function redactEvent(event: ConversationEvent): ConversationEvent {

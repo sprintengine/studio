@@ -57,7 +57,7 @@ test('missing, corrupt and old-version caches rebuild from authoritative events'
       await writeFile(cache, invalid)
       expect((await index.list(key))[0]?.title).toBe('Build a useful chat')
     }
-    expect(JSON.parse(await readFile(cache, 'utf8')).version).toBe(2)
+    expect(JSON.parse(await readFile(cache, 'utf8')).version).toBe(3)
   }))
 
 test('conversation cost includes old turns and deduplicates completion records', async () =>
@@ -360,4 +360,51 @@ test('a transcript deleted and written again under the same name is read whole',
       ]),
     )
     expect((await index.list(key))[0]).toMatchObject({ title: 'New chat', turnCount: 2 })
+  }))
+
+test('a row says when its agent last finished a turn, a steered end aside, and keeps it across an append', async () =>
+  fixture(async (key, path) => {
+    await writeFile(
+      path,
+      lines([
+        event(1, 'user_message', { turnId: 'one', text: 'Question' }),
+        event(2, 'turn_completed', { turnId: 'one' }),
+        event(3, 'user_message', { turnId: 'two', text: 'More' }),
+        // A message steered into a running turn ends nothing: the work goes on.
+        event(4, 'turn_completed', { turnId: 'two', steered: true }),
+        event(5, 'session_updated', { conversationTitle: 'Renamed', titleSource: 'user' }),
+      ]),
+    )
+    const index = new ConversationIndex()
+    const [first] = await index.list(key)
+    expect(first?.lastTurnEndedAt).toBe(2000)
+    // A rename moves `updatedAt`, never the turn end.
+    expect(first?.updatedAt).toBe(5000)
+    await appendFile(path, lines([event(6, 'turn_failed', { turnId: 'two' })]))
+    expect((await index.list(key))[0]?.lastTurnEndedAt).toBe(6000)
+  }))
+
+test('a chat whose agent never finished a turn names no turn end', async () =>
+  fixture(async (key, path) => {
+    await writeFile(path, lines([event(1, 'user_message', { turnId: 'one', text: 'Question' })]))
+    expect('lastTurnEndedAt' in (await new ConversationIndex().list(key))[0]!).toBe(false)
+  }))
+
+test('a cache written before rows kept the turn end is read again, so older turns say when they ended', async () =>
+  fixture(async (key, path) => {
+    await writeFile(
+      path,
+      lines([
+        event(1, 'user_message', { turnId: 'one', text: 'Question' }),
+        event(2, 'turn_completed', { turnId: 'one' }),
+      ]),
+    )
+    const cache = join(key.workspaceRoot, '.sprintengine', 'conversations', key.workspaceId, 'index.json')
+    // The file as the version before wrote it: the same fingerprint, a row
+    // with no turn end.
+    await new ConversationIndex().list(key)
+    const written = JSON.parse(await readFile(cache, 'utf8'))
+    for (const thread of written.threads) delete thread.lastTurnEndedAt
+    await writeFile(cache, JSON.stringify({ ...written, version: 2 }))
+    expect((await new ConversationIndex().list(key))[0]?.lastTurnEndedAt).toBe(2000)
   }))

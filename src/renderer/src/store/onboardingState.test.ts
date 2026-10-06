@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 
 import type { AgentCli, AgentCliAvailabilityMap } from '../../../shared/electron-api'
-import { shouldAutoOpenNewChat, shouldShowFirstRunCliCard } from './onboardingState'
+import {
+  shouldAutoOpenNewChat,
+  shouldShowConversationImportCard,
+  shouldShowFirstRunCliCard,
+  type ConversationImportOfferInput,
+} from './onboardingState'
 import { test } from 'vitest'
 
 test('onboardingState', async () => {
@@ -277,4 +282,54 @@ test('onboardingState', async () => {
   testInstallingACliHandsTheWindowToTheHub()
 
   console.log('onboarding-state tests passed')
+})
+
+const FRESH_IMPORT: ConversationImportOfferInput = {
+  workspaceCount: 0,
+  conversationImportOffered: false,
+  scan: 'ready',
+  importableCount: 3,
+}
+const CLI_READY = {
+  cliAvailabilityStatus: 'ready' as const,
+  cliAvailability: {
+    'claude-code': { cli: 'claude-code' as AgentCli, installed: true, resolvedPath: '/usr/bin/claude', version: '1' },
+  },
+  firstRunCliCardDismissed: false,
+}
+
+test('a fresh profile whose scan found sessions is offered them before New chat opens', () => {
+  assert.equal(shouldShowConversationImportCard({ ...FRESH_IMPORT, firstRunCliCardPending: false }), true)
+  assert.equal(shouldAutoOpenNewChat({ ...CLI_READY, workspaceCount: 0, conversationImport: FRESH_IMPORT }), false)
+})
+
+test('New chat waits for the scan, and opens when it finds nothing or fails', () => {
+  const loading = { ...FRESH_IMPORT, scan: 'loading' as const }
+  assert.equal(shouldShowConversationImportCard({ ...loading, firstRunCliCardPending: false }), false)
+  assert.equal(shouldAutoOpenNewChat({ ...CLI_READY, workspaceCount: 0, conversationImport: loading }), false)
+  for (const done of [
+    { ...FRESH_IMPORT, importableCount: 0 },
+    { ...FRESH_IMPORT, scan: 'error' as const },
+  ]) {
+    assert.equal(shouldShowConversationImportCard({ ...done, firstRunCliCardPending: false }), false)
+    assert.equal(shouldAutoOpenNewChat({ ...CLI_READY, workspaceCount: 0, conversationImport: done }), true)
+  }
+})
+
+test('the import offer is asked once, on a fresh profile, after the CLI question', () => {
+  assert.equal(shouldShowConversationImportCard({ ...FRESH_IMPORT, firstRunCliCardPending: true }), false)
+  assert.equal(
+    shouldShowConversationImportCard({
+      ...FRESH_IMPORT,
+      conversationImportOffered: true,
+      firstRunCliCardPending: false,
+    }),
+    false,
+  )
+  assert.equal(
+    shouldShowConversationImportCard({ ...FRESH_IMPORT, workspaceCount: 2, firstRunCliCardPending: false }),
+    false,
+  )
+  const answered = { ...FRESH_IMPORT, conversationImportOffered: true }
+  assert.equal(shouldAutoOpenNewChat({ ...CLI_READY, workspaceCount: 0, conversationImport: answered }), true)
 })

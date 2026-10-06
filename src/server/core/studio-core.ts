@@ -21,6 +21,7 @@ import {
 import { ConversationApprovalRuleStore } from '../../main/conversation-approval-rules'
 import { ConversationAttachmentStore } from '../../main/conversation-attachment-store'
 import { createConversationLaunchService } from '../../main/conversation-launch-service'
+import { createConversationImportService } from '../../main/conversation-import/conversation-import-service'
 import { createConversationModelCatalog } from '../../main/conversation-model-catalog'
 import { ConversationPlanStore } from '../../main/conversation-plan-store'
 import { ConversationRuntime, type ConversationRuntimeOptions } from '../../main/conversation-runtime'
@@ -36,6 +37,8 @@ import { getSharedCredentialStore } from '../../main/secret-store'
 import { createWorkspaceRegistryService } from '../../main/workspace-registry-service'
 import { createWorkspaceRegistryStore } from '../../main/workspace-registry-store'
 import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
+import { createConversationLifecycle } from '../../main/automation/conversation-lifecycle'
+import { conversationSummaryPhase } from '../../shared/conversation/phase'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
 import { createPullRequestDomain } from '../pull-requests/pull-request-domain'
@@ -338,6 +341,23 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     },
   })
 
+  // The sessions a person ran in an agent CLI's own terminal, brought in as
+  // chats (conversation-import-service.ts). The CLIs' homes it reads are this
+  // machine's, so the chats it writes are this process's own runtime's, never
+  // a router's: a session ran here, in a folder here.
+  const conversationImport = createConversationImportService({
+    listWorkspaces: () => workspaceRegistry.getRecords(),
+    createWorkspace: (request) => {
+      const created = workspaceSyncService.createWorkspace(request, 'system')
+      return created.ok ? { ok: true, workspaceId: created.result.workspace.id } : created
+    },
+    removeWorkspace: (workspaceId) => {
+      workspaceSyncService.removeWorkspace(workspaceId, 'system')
+    },
+    importTranscript: (input) => conversationRuntime.importTranscript(input),
+    getLaunchSettings: () => agentLaunchSettings.get(),
+  })
+
   // The pull requests the conversations opened (pull-request-domain.ts): heard
   // from a chat's create calls, from a client's forwarded terminal tool calls,
   // and from the gateway's `pull_request.link`. Every client reads it through
@@ -430,6 +450,26 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     },
     selfMachine: () => tailnetSelfMachine(machineContext()),
   }
+  // A chat's rest and its person-clocks, written for a paired device to the
+  // same record the sidebar writes (conversation-lifecycle.ts). Busy is the
+  // row menu's rule for the chats main holds: a turn running, or an agent the
+  // chat launched still working in the background.
+  const conversationLifecycle = createConversationLifecycle({
+    getRecord: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
+    updateWorkspaceFields: (workspaceId, patch, actor) =>
+      workspaceSyncService.updateWorkspaceFields(workspaceId, patch, actor),
+    isWorking: (workspaceId) => {
+      const listed = conversations.listSessions()
+      return (
+        listed.ok &&
+        listed.sessions.some((session) => {
+          if (session.workspaceId !== workspaceId || session.status === 'stopped') return false
+          const phase = conversationSummaryPhase(session)
+          return phase === 'running' || phase === 'starting'
+        })
+      )
+    },
+  })
   const createConversationHost = () =>
     createConversationGatewayHost(
       conversations,
@@ -457,13 +497,18 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       // paired device offers the same models and can switch to no other.
       conversationModelCatalog,
       listMarks,
-      // A phone's switch moves the chat's record as the chat view's own does,
-      // through the same bus, so it outlives the session it was applied to.
-      (key, patch) => {
-        if (!workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]) return
-        workspaceSyncService.updateWorkspaceAgent(key.workspaceId, key.agentId, patch, 'system')
+      {
+        workspaceOf: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
+        noteUserMessage: (workspaceId, at) => conversationLifecycle.noteUserMessage(workspaceId, at, 'gateway'),
+        reasoningEffortOf: (key) =>
+          workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.conversationReasoningEffort,
+        // A phone's switch moves the chat's record as the chat view's own does,
+        // through the same bus, so it outlives the session it was applied to.
+        writeAgentChoice: (key, patch) => {
+          if (!workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]) return
+          workspaceSyncService.updateWorkspaceAgent(key.workspaceId, key.agentId, patch, 'system')
+        },
       },
-      (key) => workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.conversationReasoningEffort,
     )
 
   /**
@@ -519,8 +564,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     approvalRules,
     conversationModelCatalog,
     conversationLaunchService,
+    conversationImport,
     resolveAgentPermissionPreset,
     createConversationHost,
+    conversationLifecycle,
     pullRequests,
     localServers,
     shutdown,

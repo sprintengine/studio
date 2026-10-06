@@ -14,6 +14,7 @@ import { registerAutomationIpc } from '../../main/ipc/automation-ipc'
 import { registerBacklogIpc } from '../../main/ipc/backlog-ipc'
 import { registerCliModelDiscoveryIpc } from '../../main/ipc/cli-model-discovery-ipc'
 import { registerConversationCommandsIpc } from '../../main/ipc/conversation-commands-ipc'
+import { registerConversationImportIpc } from '../../main/ipc/conversation-import-ipc'
 import { createConversationIpcHandlers, registerConversationIpc } from '../../main/ipc/conversation-ipc'
 import { registerCredentialIpc } from '../../main/ipc/credential-ipc'
 import { registerGitHubReposIpc } from '../../main/ipc/github-repos-ipc'
@@ -52,7 +53,13 @@ type IpcRegistryLike = Pick<IpcMain, 'handle' | 'on' | 'removeHandler' | 'remove
 export type ServerDomainIpcDeps = {
   core: Pick<
     StudioCore,
-    'workspaceSyncService' | 'workspaceRegistry' | 'agentLaunchSettings' | 'hosts' | 'conversations' | 'platform'
+    | 'workspaceSyncService'
+    | 'workspaceRegistry'
+    | 'agentLaunchSettings'
+    | 'hosts'
+    | 'conversations'
+    | 'conversationImport'
+    | 'platform'
   > & { hosts: HostRegistry; agentLaunchSettings: AgentLaunchSettingsStore }
   gateway: StudioGateway
   studioRpc: StudioRpcService
@@ -115,6 +122,7 @@ export function registerServerDomainIpc(registry: IpcRegistryLike, deps: ServerD
         })),
     }),
   )
+  registerConversationImportIpc(ipc, core.conversationImport)
   registerCredentialIpc(ipc)
   return { conversationCommands }
 }
