@@ -252,14 +252,23 @@ export function LocalServersMenu({
   const surfaceRef = useRef<HTMLElement | null>(null)
   const canOpenInPane = clientSupports('browser-pane')
 
+  /** Which opening the tailnet read in flight is for: a read from an earlier one is not drawn. */
+  const openingRef = useRef(0)
+
   const onOpenChange = useCallback(
     (next: boolean) => {
       setOpen(next)
+      if (!next) return
       // Read when the menu opens, never polled: shares live in the Tailscale
       // daemon and can change from a terminal, so a remembered answer would
-      // offer to share what is already shared.
-      if (next && servers.some((server) => isLoopbackUrl(server.url))) {
-        void readTailnetStatus().then(setTailnet)
+      // offer to share what is already shared. The last opening's answer is
+      // dropped at once, so nothing tailnet is offered until this one's lands.
+      const opening = ++openingRef.current
+      setTailnet(null)
+      if (servers.some((server) => isLoopbackUrl(server.url))) {
+        void readTailnetStatus().then((status) => {
+          if (openingRef.current === opening) setTailnet(status)
+        })
       }
     },
     [servers],

@@ -168,6 +168,20 @@ test('a call reaches its client and the reply reaches the agent', async () => {
   assert.equal(alive.t === 'res' && alive.ok, true)
 })
 
+test('a reply that comes after its toolset was withdrawn is dropped, and the connection stays', async () => {
+  const { open, auth, registry } = await setup()
+  const game = await open(pairFakeClient(auth, 'game-app', ['tools:offer']))
+  await request(game, 'r1', 'tools.offer', { toolset: toolset('game') })
+  const pending = registry.call({ caller, toolset: 'game', tool: 'spawn_enemy', args: {} })
+  const call = (await game.next((frame) => frame.t === 'call')) as StudioCallFrame
+  await request(game, 'r2', 'tools.withdraw', { toolset: 'game' })
+  await pending
+  // It now offers nothing and waits on nothing, but it was sent this call.
+  game.send({ t: 'reply', id: call.id, ok: true, result: { content: [{ type: 'text', text: 'Late.' }] } })
+  const alive = await request(game, 'r3', 'server.ping', {})
+  assert.equal(alive.t === 'res' && alive.ok, true)
+})
+
 test('a client that was never sent a call is closed for answering one', async () => {
   const { open, auth } = await setup()
   const reader = await open(pairFakeClient(auth, 'reader-app', ['conversation:read']))

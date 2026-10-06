@@ -49,6 +49,8 @@ test('WorkspaceSidebar.settled', async () => {
   // Alpha holds a live agent pty; the settled rows hold nothing, which is what
   // a chat that came to rest looks like after the kill lands.
   const killed: string[] = []
+  // What main says Alpha's pty is doing when it is asked again at kill time.
+  let alphaActivityAtKill: 'idle' | 'working' = 'idle'
   // A chat agent has no pty: main owns its process, and Settle ends it through
   // the conversation runtime. Echo's live chat and a chat already stopped.
   const chatsSuspended: string[] = []
@@ -62,7 +64,7 @@ test('WorkspaceSidebar.settled', async () => {
         processAlive: true,
         kind: 'agent',
         cli: 'claude-code',
-        activity: { kind: 'idle', since: 1 },
+        activity: { kind: alphaActivityAtKill, since: 1 },
       },
     ],
     onTerminalSessionsDelta: () => () => {},
@@ -253,6 +255,18 @@ test('WorkspaceSidebar.settled', async () => {
       // that id, so it says nothing about which workspace a chat is in.
       assert.deepEqual(chatsSuspended, [], "and leaves another workspace's chat agents alone")
 
+      // A turn that started after the window last heard (a message from the
+      // phone) is not interrupted by a Settle decided before it: main is asked
+      // again just before the kill, and a chat working by then keeps running.
+      const killedBefore = killed.length
+      alphaActivityAtKill = 'working'
+      act(() => {
+        actionLabel('Settle Alpha')!.click()
+      })
+      await settle()
+      assert.deepEqual(killed.slice(killedBefore), [], 'a chat working by the time of the kill is left running')
+      alphaActivityAtKill = 'idle'
+
       // The row you are in stays put when it settles, so the seat has to say
       // it did: the tick becomes the ringed settled mark, which un-settles,
       // and the row is pinned open while the flourish plays. The record is
@@ -376,7 +390,10 @@ test('WorkspaceSidebar.settled', async () => {
         } as unknown as SidebarProps)
         const settleFoxtrot = actionLabel('Settle Foxtrot')
         assert.ok(settleFoxtrot, `Foxtrot still shows Settle with ${why}`)
-        assert.equal(settleFoxtrot.disabled, true, `but it is disabled with ${why}`)
+        // Announced unavailable but still focusable and hoverable, so the
+        // tooltip saying why can open.
+        assert.equal(settleFoxtrot.getAttribute('aria-disabled'), 'true', `but it is unavailable with ${why}`)
+        assert.equal(settleFoxtrot.disabled, false, `and keeps its tab stop with ${why}`)
         act(() => {
           settleFoxtrot.click()
         })
@@ -419,6 +436,13 @@ test('WorkspaceSidebar.settled', async () => {
       act(() => actionLabel(`Settle ${nameOf[order[2]!]}`)!.click())
       await settle()
       assert.deepEqual(selected, [], 'settling a chat you are not in opens nothing')
+
+      // New chat up over the chat: the person has left it, and settling it from
+      // its row keeps them in New chat.
+      await render({ ...threeOpen, activeWorkspaceId: order[0], newChatOpen: true } as unknown as SidebarProps)
+      act(() => actionLabel(`Settle ${nameOf[order[0]!]}`)!.click())
+      await settle()
+      assert.deepEqual(selected, [], 'settling the chat under New chat opens nothing')
 
       // The last chat still going has nowhere to hand off to: New chat opens,
       // and the settled row leaves the rail rather than staying open, checked

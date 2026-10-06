@@ -335,6 +335,16 @@ class Queue implements AsyncIterable<ConversationEvent> {
   }
 }
 type Pending = { options: RequestPermissionRequest['options']; resolve: (value: RequestPermissionResponse) => void }
+// How much of a CLI's stderr is kept for the message of a failure it ends with.
+const STDERR_TAIL_CHARS = 4000
+
+/** A failure's message with the last lines the CLI printed, when it printed any. */
+function withStderrTail(message: string, stderrTail: string): string {
+  const tail = stderrTail.trim().split('\n').slice(-3).join('\n').trim()
+  if (!tail) return message
+  return `${message} (${tail.length > 300 ? `${tail.slice(0, 299)}…` : tail})`
+}
+
 type State = {
   input: MockAdapterSessionInput
   // What the agent said it can connect to, from its handshake.
@@ -794,7 +804,15 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       )
       state.child = child
       state.spawnedAt = Date.now()
-      child.stderr.on('data', () => undefined)
+      // The end of what the CLI printed, kept for the message of a start or a
+      // turn it ends: a build that refuses a permission flag says so here and
+      // only here, and that sentence is what lets the runtime start the chat
+      // again with no flag (`looksLikePermissionSettingRefusal`).
+      let stderrTail = ''
+      child.stderr.on('data', (data: Buffer | string) => {
+        stderrTail = `${stderrTail}${data.toString()}`.slice(-STDERR_TAIL_CHARS)
+      })
+      const childClosed = new Promise<void>((resolve) => child.once('close', () => resolve()))
       // A CLI that cannot be started is reported as that, not as a protocol
       // failure followed by a sign-in hint that would send the person the
       // wrong way. Later errors close the stream, which rejects what is pending.
@@ -814,7 +832,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         state.connection = undefined
         cancelPermissions(state)
         if (state.queue) {
-          emit(state, 'turn_failed', { message: `${profile.displayName} process exited.` })
+          emit(state, 'turn_failed', { message: withStderrTail(`${profile.displayName} process exited.`, stderrTail) })
           state.queue.end()
         }
       })
@@ -1064,7 +1082,10 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         }
         // Not a sign-in problem, so without the sign-in hint.
         if (error instanceof AcpMcpServerUnsupportedError) throw error
-        throw new Error(`${error instanceof Error ? error.message : String(error)} ${profile.authHint}`)
+        // What it printed as it went is all read once it has closed.
+        await Promise.race([childClosed, new Promise((resolve) => setTimeout(resolve, 250))])
+        const message = withStderrTail(error instanceof Error ? error.message : String(error), stderrTail)
+        throw new Error(`${message} ${profile.authHint}`)
       } finally {
         if (timer) clearTimeout(timer)
       }
@@ -1083,7 +1104,9 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
     listModels: () => Array.from(modelIds),
     async startSession(input) {
       const refused = input.permissionPreset ? presetRefusal(profile, input.permissionPreset) : null
-      if (refused) throw new Error(refused)
+      // Marked, so the runtime knows this is the preset's refusal (Cursor's
+      // Manual) and may start the chat again with no flag.
+      if (refused) throw Object.assign(new Error(refused), { permissionRefused: true })
       const state: State = {
         input,
         closed: false,
@@ -1137,8 +1160,14 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       input.signal?.addEventListener('abort', abort, { once: true })
       void (async () => {
         try {
+          // Turned away here, before any child is asked: marked `refused`, so
+          // the runtime does not read it as the CLI refusing its permission
+          // flag and send the command again with no flag, where it is allowed.
           const refusal = permissionCommandRefusal(profile, state.input.permissionPreset, input.message)
-          if (refusal) throw new Error(refusal)
+          if (refusal) {
+            emit(state, 'turn_failed', { message: refusal, refused: true })
+            return
+          }
           const previousId = state.nativeId
           await ensure(state)
           // A reconnect can land in a different session; record it as the
@@ -1194,17 +1223,19 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
             },
           ]
           const seeding = Boolean(prior)
-          if (!command) {
-            state.replayHistory = false
-            state.seedPending = false
-          }
           if (input.attachments?.length && !state.capabilities.images)
             throw new Error('This ACP agent does not support images.')
           for (const attachment of input.attachments ?? [])
             prompt.push({ type: 'image', data: attachment.dataBase64, mimeType: attachment.mediaType })
           const result = await state.connection!.prompt({ sessionId: state.nativeId!, prompt })
-          // The agent has the conversation now; until here a fork that was
-          // owed it is owed it still, after a restart too.
+          // The agent has the conversation now. Until it answered the prompt
+          // (a refused image, an agent that died on it) the conversation is
+          // owed still, to the next message and after a restart too, as Codex
+          // owes it until its turn starts.
+          if (!command) {
+            state.replayHistory = false
+            state.seedPending = false
+          }
           if (seeding) emit(state, 'session_updated', { historySeeded: true })
           if (result.usage)
             emit(state, 'usage_updated', {

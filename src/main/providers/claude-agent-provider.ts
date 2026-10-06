@@ -1337,6 +1337,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       }
       const query = state.query
       const before = state.childPreset
+      // Until the child answers, which mode it is on is not known: a switch
+      // back made meanwhile sends its own mode rather than take the one this
+      // is replacing as still in force, and the requests reach it in order.
+      state.childPreset = null
+      state.childMode = null
       // Bounded: a child that never answers the control request (a process
       // wedged inside WSL) held the switch — and the chip, and the answer the
       // person had just given — for as long as the process lived.
@@ -1345,6 +1350,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       })
       if (!switched) {
         if (state.query !== query) return { ok: true }
+        // Which mode the child ends on is not known: it may yet take this one
+        // late. It is trusted with neither, so a switch back sends its mode
+        // and the next turn respawns the child, rather than taking the old
+        // preset as still in force under a child that went to bypass.
+        state.childPreset = null
+        state.childMode = null
         if (childIsIdle(state)) {
           disposeChild(state)
           return { ok: true }
@@ -2124,6 +2135,11 @@ export function mapSdkMessage(
       const trigger = metadata?.trigger === 'manual' || metadata?.trigger === 'auto' ? metadata.trigger : undefined
       const preTokens = finiteNumber(metadata?.pre_tokens)
       const postTokens = finiteNumber(metadata?.post_tokens)
+      // The window holds the summary from here, not the last request read off
+      // the stream: a `/compact` makes no request this mapper sees before its
+      // result, which would otherwise report the window as full as it was.
+      state.contextPromptTokens = postTokens
+      state.contextOutputTokens = 0
       events.push(
         eventFor(state, 'context_compacted', {
           turnId,

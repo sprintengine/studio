@@ -344,6 +344,11 @@ test('accessibility-contracts', async () => {
     'FocusTrap installs focus sentinels around the trapped region',
   )
   expectIncludes(focusTrap, 'startRef.current', 'FocusTrap reads its region from between its own sentinels')
+  expectIncludes(
+    focusTrap,
+    '[contenteditable]:not([contenteditable="false"])',
+    'FocusTrap cycles through editable fields, which are tab stops without a tabindex',
+  )
   expectIncludes(drawer, 'prefersReducedMotion', 'Drawer reads prefers-reduced-motion to skip slide animation')
   expectIncludes(drawer, 'drawer-panel', 'Drawer uses the canonical .drawer-panel elevation class')
   expectIncludes(rendererCss, '--shadow-drawer:', 'Canonical drawer elevation token is defined in index.css')

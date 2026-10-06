@@ -64,12 +64,18 @@ test('WorkspaceSidebar.allChats', async () => {
   // The pull request record is the Studio server's, read over the window's
   // own client: a table the test fills, and a push naming what moved.
   const pullRequestAnswers: Record<string, StudioPullRequest[]> = {}
+  /** By conversation, `workspaceId\0agentId`: what each chat's own agent opened. */
+  const conversationPullRequestAnswers: Record<string, StudioPullRequest[]> = {}
   const pullRequestListeners = new Set<(change: PullRequestsChanged) => void>()
   const pullRequests: StudioPullRequests = {
     list: async (target) => {
       const workspaces: Record<string, StudioPullRequest[]> = {}
       for (const id of target.workspaceIds ?? []) if (pullRequestAnswers[id]) workspaces[id] = pullRequestAnswers[id]
-      return { workspaces, conversations: [] }
+      const conversations = (target.conversations ?? []).flatMap((key) => {
+        const found = conversationPullRequestAnswers[`${key.workspaceId}\0${key.agentId}`]
+        return found ? [{ ...key, pullRequests: found }] : []
+      })
+      return { workspaces, conversations }
     },
     refresh: async () => ({ asked: true }),
     noteWork: async () => undefined,
@@ -359,21 +365,22 @@ test('WorkspaceSidebar.allChats', async () => {
       )
 
       // A chat's pull request sits on its chat's line, just after the agent's
-      // mark, not on a line of its own above it.
+      // mark, not on a line of its own above it. One an agent that is gone
+      // opened in the same chat is not this line's, and keeps a line of its own.
       terminalAnswer = []
-      pullRequestAnswers.w1 = [
-        {
-          url: 'https://github.com/acme/apples/pull/144',
-          repoKey: 'github.com/acme/apples',
-          repoName: 'apples',
-          number: 144,
-          title: 'Agent tokens',
-          state: 'open',
-          isDraft: false,
-          openedAt: now - MINUTE,
-          stateAt: now,
-        },
-      ]
+      const opened = (number: number, title: string): StudioPullRequest => ({
+        url: `https://github.com/acme/apples/pull/${number}`,
+        repoKey: 'github.com/acme/apples',
+        repoName: 'apples',
+        number,
+        title,
+        state: 'open',
+        isDraft: false,
+        openedAt: now - MINUTE - number,
+        stateAt: now,
+      })
+      pullRequestAnswers.w1 = [opened(144, 'Agent tokens'), opened(90, 'An earlier agent’s')]
+      conversationPullRequestAnswers['w1\0conversation-agent'] = [opened(144, 'Agent tokens')]
       await act(async () => {
         await refreshTerminalSessions()
       })
@@ -406,12 +413,20 @@ test('WorkspaceSidebar.allChats', async () => {
       const chatLine = rowFor('Alpha').querySelector('[data-peek-session="conversation-1"]')
       const mark = chatLine?.querySelector('[data-pull-request-mark]')
       assert.ok(mark, 'the mark is on the chat line')
+      assert.equal(mark?.getAttribute('data-pull-request-mark'), 'https://github.com/acme/apples/pull/144', 'its own')
       const agentMark = chatLine?.querySelector('[aria-label="Claude Code chat"]')
       assert.ok(
         agentMark && agentMark.compareDocumentPosition(mark!) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
         'just after the agent that opened it',
       )
-      assert.equal(rowFor('Alpha').querySelectorAll('[data-pull-request-mark]').length, 1, 'and drawn once')
+      const marks = [...rowFor('Alpha').querySelectorAll('[data-pull-request-mark]')].map((node) =>
+        node.getAttribute('data-pull-request-mark'),
+      )
+      assert.deepEqual(
+        marks.sort(),
+        ['https://github.com/acme/apples/pull/144', 'https://github.com/acme/apples/pull/90'],
+        'each drawn once: the chat’s on its line, the earlier agent’s on the row’s own',
+      )
     } finally {
       act(() => {
         root.unmount()

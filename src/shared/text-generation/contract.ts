@@ -31,6 +31,7 @@ type TextGenerationFailureCode =
   | 'timeout'
   | 'transport' // spawn failed, non-zero exit, or unparseable output
   | 'guardrail' // the model answered, but not with a usable title
+  | 'cancelled' // the person called it off, and the CLI was stopped
 
 export type TextGenerationResult =
   { ok: true; value: string; ms: number } | { ok: false; code: TextGenerationFailureCode; message: string }
@@ -60,6 +61,8 @@ export type PullRequestTextRequest = {
   engine: TextGenerationEngine
   cliRuntimes?: TextGenerationCliRuntimeOverrides
   timeoutMs?: number
+  /** The person closed the dialog: the CLI is stopped. Main-side only; it does not cross IPC. */
+  signal?: AbortSignal
 }
 
 export type PullRequestTextResult =

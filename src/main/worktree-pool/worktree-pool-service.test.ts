@@ -11,6 +11,7 @@ import { setAgentWorktreeLockProfile } from '../agent-worktree-lock'
 import { createGitWorktree, restoreGitWorktree } from '../git'
 import { installWorktreePool } from './active-pool'
 import { acquireInstanceLock, createPoolStore, POOL_RECORD_VERSION, poolIdFor, type PoolRecord } from './pool-store'
+import { agentLeaseKey } from '../../shared/ipc/worktree-pool'
 import { parseSlotStatus } from './slot-git'
 import { createWorktreeInventory } from './worktree-inventory'
 import { createWorktreePoolService } from './worktree-pool-service'
@@ -343,6 +344,18 @@ test('a return waits while a terminal is inside, and a merge in progress holds t
   assert.equal((await slotAt(harness, 'pool-01')).held?.reason, 'operation')
 })
 
+test('a lease passes over an idle slot a terminal sits in and makes a new one', async () => {
+  const live: string[] = []
+  const harness = makeService({ live })
+  const first = await lease(harness, 'first')
+  await returnAll(harness)
+  live.push(first.path)
+  const second = await lease(harness, 'second')
+  assert.notEqual(second.path, first.path)
+  assert.equal(second.created, true)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle', 'left as it was')
+})
+
 test('a detached HEAD holding commits no ref reaches gets a branch before the slot is reused', async () => {
   const harness = makeService()
   const leased = await lease(harness, 'detach')
@@ -367,6 +380,72 @@ test('an idle slot someone edited is held at the next lease, which gets a new sl
   assert.equal(slot.state, 'held')
   assert.equal(slot.held?.reason, 'dirty')
   assert.equal(await readFile(join(first.path, 'README.md'), 'utf8'), '# someone was here\n')
+})
+
+test('removing an idle slot holding commits no branch has holds it instead', async () => {
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await returnAll(harness)
+  // Someone commits on the idle slot's detached HEAD.
+  await writeFile(join(first.path, 'stray.txt'), 'stray\n')
+  await git(first.path, 'add', '.')
+  await git(first.path, 'commit', '-q', '-m', 'stray')
+  const evicted = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(evicted.ok, false)
+  assert.equal(await exists(first.path), true, 'the commit’s worktree is still on disk')
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'held')
+})
+
+test('removing an idle slot with edits hidden from git status holds it instead', async () => {
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await returnAll(harness)
+  // Someone marks a tracked file skip-worktree in the idle slot and edits it.
+  await git(first.path, 'update-index', '--skip-worktree', 'README.md')
+  await writeFile(join(first.path, 'README.md'), 'local only\n')
+  const evicted = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(evicted.ok, false)
+  assert.equal(await readFile(join(first.path, 'README.md'), 'utf8'), 'local only\n', 'the edit is still on disk')
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'held')
+})
+
+test('an idle slot with ignored files that may be work is not removed until a person clears them', async () => {
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await mkdir(join(first.path, 'node_modules', 'pkg'), { recursive: true })
+  await writeFile(join(first.path, 'node_modules', 'pkg', 'index.js'), 'x\n')
+  // An `.env` the agent wrote, which no `.worktreeinclude` copy accounts for.
+  await writeFile(join(first.path, '.env'), 'TOKEN=edited\n')
+  await returnAll(harness)
+  const kept = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(kept.ok, false)
+  assert.match(kept.message ?? '', /\.env/)
+  assert.equal(await exists(first.path), true)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+  // The idle limit leaves it too.
+  await harness.service.updateSettings({ keepIdle: 0 })
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+
+  await harness.service.action({ kind: 'clear-ignored', repoRoot: repo, slotId: 'pool-01' })
+  const removed = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(removed.ok, true)
+  assert.equal(await exists(first.path), false)
+})
+
+test('an idle slot holding only what tools rebuild (a virtualenv, logs, caches) is removed', async () => {
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await writeFile(join(repo, '.git', 'info', 'exclude'), 'venv/\n*.log\n.eslintcache\n__pycache__/\n')
+  await mkdir(join(first.path, 'venv', 'bin'), { recursive: true })
+  await writeFile(join(first.path, 'venv', 'bin', 'python'), 'x\n')
+  await writeFile(join(first.path, 'npm-debug.log'), 'x\n')
+  await writeFile(join(first.path, '.eslintcache'), '{}\n')
+  await mkdir(join(first.path, '__pycache__'), { recursive: true })
+  await writeFile(join(first.path, '__pycache__', 'app.cpython-312.pyc'), 'x')
+  await returnAll(harness)
+  const removed = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal(removed.ok, true, removed.message ?? '')
+  assert.equal(await exists(first.path), false)
 })
 
 test('an ignored file where the new base adds a tracked one holds the slot rather than being overwritten', async () => {
@@ -426,6 +505,61 @@ test('a slot an agent leased for itself is kept while that agent exists, whereve
   assert.equal(swept[0]?.verdict, 'in-use', 'agents unknown: kept')
   swept = await harness.service.returnUnused({ repoRoot: repo, protectedPaths: [], agentIds: new Set() })
   assert.equal(swept[0]?.verdict, 'returned')
+})
+
+test('a slot an agent leased is kept by that agent in its own chat, not by a namesake in another', async () => {
+  const harness = makeService()
+  await harness.service.lease({
+    repoRoot: repo,
+    name: 'mcp',
+    owner: 'agent-1',
+    agentId: 'agent-1',
+    workspaceId: 'ws-1',
+  })
+  harness.clock.offset += 2 * HOUR
+  const ids = new Set(['agent-1'])
+  let swept = await harness.service.returnUnused({
+    repoRoot: repo,
+    protectedPaths: [],
+    agentIds: ids,
+    agentKeys: new Set([agentLeaseKey('ws-1', 'agent-1')]),
+  })
+  assert.equal(swept[0]?.verdict, 'in-use')
+  // Its chat is gone; another chat still has an `agent-1`.
+  swept = await harness.service.returnUnused({
+    repoRoot: repo,
+    protectedPaths: [],
+    agentIds: ids,
+    agentKeys: new Set([agentLeaseKey('ws-2', 'agent-1')]),
+  })
+  assert.equal(swept[0]?.verdict, 'returned')
+})
+
+test('quitting waits for a lease in flight before giving the pool’s lock up', async () => {
+  const harness = makeService()
+  let leased = false
+  const pending = harness.service.lease({ repoRoot: repo, name: 'late', owner: 'agent-late' }).then((result) => {
+    leased = result.ok
+    return result
+  })
+  // Once the lease holds the lock, it is past the point quitting refuses.
+  while (!(await exists(join(container, '.pool.lock')))) await new Promise((resolveTick) => setTimeout(resolveTick, 5))
+  await harness.service.shutdown()
+  assert.equal(leased, true, 'the lease finished before the lock went')
+  assert.equal(await exists(join(container, '.pool.lock')), false)
+  await pending
+})
+
+test('a Studio that lost the pool’s lock no longer returns a slot', async () => {
+  const harness = makeService({ instanceId: 'this-one' })
+  const leased = await lease(harness, 'mine')
+  // Another Studio took the container over (it judged this one stale).
+  await writeFile(
+    join(container, '.pool.lock'),
+    JSON.stringify({ pid: 1, host: 'build-box', instanceId: 'other', startedAt: Date.now() }),
+  )
+  assert.equal(await harness.service.release(leased.leaseId), 'busy')
+  assert.equal(await git(leased.path, 'branch', '--show-current'), 'agent/mine', 'left as it was')
 })
 
 test('a second Studio holding the container gets no slot; a dead holder is taken over', async () => {
@@ -547,6 +681,14 @@ test('a repository on a WSL machine gets no pool', async () => {
   const harness = makeService()
   const result = await harness.service.lease({ repoRoot: repo, name: 'wsl', hostId: 'wsl:Ubuntu' })
   assert.equal(result.ok ? null : result.reason, 'unsupported')
+  // Declined before any git looks the folder up: under that machine's scope
+  // the lookup would be its git, and its answer remembered for this one's.
+  const unlooked = await harness.service.lease({
+    repoRoot: join(caseDir, 'nowhere'),
+    name: 'wsl',
+    hostId: 'wsl:Ubuntu',
+  })
+  assert.equal(unlooked.ok ? null : unlooked.reason, 'unsupported')
 })
 
 test('the agent worktree cleanup hands pool slots back instead of removing them, and deletes merged agent branches', async () => {
@@ -664,6 +806,12 @@ test('worktree.lease serves only an agent Studio started, and only that agent ca
     { metadata: { kind: 'studio-agent', workspaceId: 'ws-1', agentId: 'agent-2' } },
   )
   assert.equal(stranger.isError, true)
+  // Another chat's agent with the same id (ids repeat across older chats).
+  const namesake = await releaseTool.handler(
+    { path },
+    { metadata: { kind: 'studio-agent', workspaceId: 'ws-2', agentId: 'agent-1' } },
+  )
+  assert.equal(namesake.isError, true)
 
   const released = await releaseTool.handler({ path }, agent)
   assert.equal((released.structuredContent as { released: boolean }).released, true)
@@ -742,6 +890,70 @@ test('a returned slot given to another agent since is refused to its old chat, w
   const gone = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/chat' })
   assert.equal(gone.ok, false)
   assert.equal('definitive' in gone && gone.definitive, true)
+})
+
+test('a slot is not given back to its chat over commits no branch has, made on it while idle', async () => {
+  const harness = makeService()
+  installWorktreePool(harness.service)
+  const chat = await lease(harness, 'chat')
+  await returnAll(harness)
+  // Someone commits on the idle slot's detached HEAD.
+  await writeFile(join(chat.path, 'stray.txt'), 'stray\n')
+  await git(chat.path, 'add', '.')
+  await git(chat.path, 'commit', '-q', '-m', 'stray')
+  const stray = await git(chat.path, 'rev-parse', 'HEAD')
+  const restored = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/chat' })
+  assert.equal(restored.ok, false)
+  assert.equal(await git(chat.path, 'rev-parse', 'HEAD'), stray, 'HEAD still reaches the commit')
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'held')
+})
+
+test('a slot held with its chat’s uncommitted work opens for that chat, and for no other', async () => {
+  const harness = makeService()
+  installWorktreePool(harness.service)
+  const chat = await lease(harness, 'chat')
+  await writeFile(join(chat.path, 'wip.txt'), 'unsaved\n')
+  await returnAll(harness)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'held')
+
+  const restored = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/chat' })
+  assert.equal(restored.ok, true, restored.ok ? '' : restored.message)
+  assert.equal(await readFile(join(chat.path, 'wip.txt'), 'utf8'), 'unsaved\n', 'the work is where it was left')
+  // Leased to the chat again: the Worktree manager offers no Discard on a
+  // folder the open chat works in, and nothing else can be given it.
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'leased')
+  assert.equal((await slotAt(harness, 'pool-01')).lease?.branch, 'agent/chat')
+
+  const stranger = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/stranger' })
+  assert.equal(stranger.ok, false)
+  assert.match(stranger.ok ? '' : stranger.message, /given to another agent/)
+
+  // Returned again with the work still uncommitted, it is held again.
+  await returnAll(harness)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'held')
+  assert.equal(await readFile(join(chat.path, 'wip.txt'), 'utf8'), 'unsaved\n')
+})
+
+test('a slot is not given back to its chat over ignored files a later agent left where the chat’s branch tracks one', async () => {
+  const harness = makeService()
+  installWorktreePool(harness.service)
+  const chat = await lease(harness, 'chat')
+  // The chat's branch tracks a file the default branch ignores.
+  await writeFile(join(chat.path, '.env'), 'CHAT=1\n')
+  await git(chat.path, 'add', '-f', '.env')
+  await git(chat.path, 'commit', '-q', '-m', 'track env')
+  await returnAll(harness)
+  // A later agent in the same slot writes its own, ignored there.
+  const other = await lease(harness, 'other')
+  assert.equal(other.path, chat.path)
+  await writeFile(join(other.path, '.env'), 'OTHER=1\n')
+  await returnAll(harness)
+
+  const restored = await restoreGitWorktree({ repoRoot: repo, path: chat.path, branchName: 'agent/chat' })
+  assert.equal(restored.ok, false)
+  assert.match(restored.ok ? '' : restored.message, /ignored files its branch would overwrite \(\.env\)/)
+  assert.equal(await readFile(join(chat.path, '.env'), 'utf8'), 'OTHER=1\n', 'the later agent’s file is untouched')
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
 })
 
 test('a pool holds no more worktrees than its limit, and lowering the limit removes idle ones', async () => {

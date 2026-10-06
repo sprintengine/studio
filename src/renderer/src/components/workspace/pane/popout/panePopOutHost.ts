@@ -127,6 +127,23 @@ export function revealPoppedOutTab(workspaceId: WorkspaceId, tabId: string): boo
   return true
 }
 
+/**
+ * Show a pane tab something outside the strip asked for — a board an agent
+ * opened, a chat's agent lane, a link sent to the pane's browser. A tab out in
+ * a window of its own is brought forward there and the pane is left as it is,
+ * rather than opened on its placeholder; any other tab is selected and the
+ * pane opens on it. `focus` raises the window too: for the person's own click,
+ * never for an agent, which must not take the keyboard.
+ */
+export function showPaneTab(workspaceId: WorkspaceId, tabId: string, options: { focus?: boolean } = {}): void {
+  const popOutId = paneTabs(workspaceId).find((tab) => tab.id === tabId)?.poppedOut
+  if (revealPoppedOutTab(workspaceId, tabId)) {
+    if (options.focus && popOutId) showPanePopOut(popOutId)
+    return
+  }
+  useWorkspaceStore.getState().setActivePaneTab(workspaceId, tabId)
+}
+
 // What a pop-out may say about a tab. The owner's slice normalizes every
 // write after this, so a field's shape is checked there; these lists are about
 // which fields a window may touch at all.

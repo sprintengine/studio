@@ -45,3 +45,11 @@ test.skipIf(!posix)('a kill ends a child that ignores SIGTERM', async () => {
   const ended = await Promise.race([run.exited.then(() => true), sleep(5_000).then(() => false)])
   assert.equal(ended, true)
 })
+
+test('a command no process can be started with ends the run at once', async () => {
+  const run = runner()({ command: 'echo \0', cwd: process.cwd() })
+  const ended = await Promise.race([run.exited.then(() => true), sleep(2_000).then(() => false)])
+  assert.equal(ended, true)
+  assert.equal(run.alive(), false)
+  assert.notEqual(run.output(), '')
+})

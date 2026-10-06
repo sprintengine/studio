@@ -21,9 +21,11 @@
 import React, { useCallback, useRef, type JSX } from 'react'
 
 // Tabbable candidates, as close to the browser's own tab order as a selector
-// gets: disabled controls and `tabindex="-1"` are out by construction.
+// gets: disabled controls and `tabindex="-1"` are out by construction. An
+// editable element is a tab stop with no tabindex of its own — the chat
+// composer's field is one (agentChat/ComposerField) — and out while read-only.
 const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable]:not([contenteditable="false"]):not([tabindex="-1"])'
 
 const SENTINEL_ATTR = 'data-focus-sentinel'
 

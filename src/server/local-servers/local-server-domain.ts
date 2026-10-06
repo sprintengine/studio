@@ -367,9 +367,13 @@ export function createLocalServerDomain(options: LocalServerDomainOptions): Loca
       if (disposed || !server) return
       // A run the person stopped ended because they asked; there is nothing
       // to explain. One that ended on its own says how.
-      if (own.stopping === null) lastExits.set(id, { code, at: now(), output: own.run.output() })
-      // The run is over; what is on the port now is read fresh.
+      const exit = own.stopping === null ? { code, at: now(), output: own.run.output() } : null
+      // The run is over; what is on the port now is read fresh. The exit is
+      // kept only once that read is in, so nobody sees how a run ended beside
+      // a state that still says it is starting.
       await check(server)
+      // Run again started while the port was read: that run owns the line now.
+      if (exit && !runs.has(id) && record.get(id)) lastExits.set(id, exit)
       publish([server])
       schedule()
     })
@@ -424,6 +428,10 @@ export function createLocalServerDomain(options: LocalServerDomainOptions): Loca
       }
     if (disposed || runs.has(server.id))
       return { ok: false, code: 'conflict', message: 'This server is already running.' }
+    // Removed, or taken over by another conversation, while its port and
+    // folder were checked: a run started now would follow no link, with
+    // nothing on screen to stop it.
+    if (!owned(input.conversation, server.id)) return notFound()
     const own: OwnRun = {
       run: startRun({ command: server.command, cwd }),
       startedAt: now(),

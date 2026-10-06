@@ -340,6 +340,7 @@ export default function WorktreeManager({
             repoRoot,
             protectedPaths: plan.protectedPaths,
             agentIds: plan.agentIds,
+            agentKeys: plan.agentKeys,
             dryRun: true,
           })
           .catch(() => null)
@@ -586,6 +587,7 @@ export default function WorktreeManager({
         repoRoot,
         protectedPaths: plan.protectedPaths,
         agentIds: plan.agentIds,
+        agentKeys: plan.agentKeys,
         keepBranches: plan.keepBranches,
       })
       const after = useWorkspaceStore.getState()

@@ -484,6 +484,12 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
         noteUserMessage: (workspaceId, at) => conversationLifecycle.noteUserMessage(workspaceId, at, 'gateway'),
         reasoningEffortOf: (key) =>
           workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.conversationReasoningEffort,
+        // A phone's switch moves the chat's record as the chat view's own does,
+        // through the same bus, so it outlives the session it was applied to.
+        writeAgentChoice: (key, patch) => {
+          if (!workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]) return
+          workspaceSyncService.updateWorkspaceAgent(key.workspaceId, key.agentId, patch, 'system')
+        },
       },
     )
 

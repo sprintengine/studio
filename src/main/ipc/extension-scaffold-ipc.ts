@@ -23,7 +23,7 @@
 // picker (open projects, recent folders, Browse…) is enough to choose it and
 // no dialog of this module's is needed.
 
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 import { app, type IpcMain } from 'electron'
@@ -44,6 +44,7 @@ import {
   type ExtensionScaffoldTargetInput,
   type ExtensionScaffoldTargetState,
 } from '../../shared/extension-scaffold'
+import { defaultUserModuleRoot } from '../modules/user-module-registry'
 import { assertAppSender } from './ipc-sender'
 
 export const EXTENSION_SCAFFOLD_TARGET_CHANNEL = 'extensions:scaffold:target'
@@ -93,6 +94,8 @@ export function resolveScaffoldRoots(
 
 export type ExtensionScaffoldDeps = {
   roots: () => ScaffoldRoots
+  /** Where extensions are installed on this computer, one folder per id. */
+  moduleRoot: () => string
   sdkVersion: string
   scaffold: (options: ScaffoldModuleOptions) => Promise<ScaffoldModuleResult>
 }
@@ -100,6 +103,7 @@ export type ExtensionScaffoldDeps = {
 function defaultDeps(): ExtensionScaffoldDeps {
   return {
     roots: () => resolveScaffoldRoots(),
+    moduleRoot: () => defaultUserModuleRoot(),
     sdkVersion: SCAFFOLD_SDK_VERSION,
     scaffold: scaffoldModuleProject,
   }
@@ -117,28 +121,42 @@ function isDirectory(path: string): boolean {
   }
 }
 
-/** What is at `folder` inside `parent`, read from the disk as it is now. */
-function targetState(parent: string, folder: string): ExtensionScaffoldTargetState {
+/**
+ * What is at `folder` inside `parent`, read from the disk as it is now. A
+ * folder that would be free is `installed` when an extension with this id is
+ * installed already: the new project's dev install copies into that id's
+ * folder, and would replace an extension that came from somewhere else.
+ */
+function targetState(parent: string, folder: string, installed: () => boolean): ExtensionScaffoldTargetState {
   if (!isDirectory(parent)) return 'no_parent'
-  if (!existsSync(folder)) return 'free'
-  if (!isDirectory(folder)) return 'taken'
+  let entry: Stats
+  try {
+    entry = lstatSync(folder)
+  } catch {
+    return installed() ? 'installed' : 'free'
+  }
+  // A link is never filled, even to an empty folder: a project is a cloned
+  // repository's to fill, and one could point a likely name anywhere.
+  if (entry.isSymbolicLink() || !entry.isDirectory()) return 'taken'
   if (existsSync(join(folder, 'module', 'manifest.json'))) return 'extension'
   try {
-    return readdirSync(folder).length === 0 ? 'free' : 'taken'
+    if (readdirSync(folder).length !== 0) return 'taken'
   } catch {
     return 'taken'
   }
+  return installed() ? 'installed' : 'free'
 }
 
 export function createExtensionScaffoldHandlers(overrides: Partial<ExtensionScaffoldDeps> = {}) {
   const deps: ExtensionScaffoldDeps = { ...defaultDeps(), ...overrides }
+  const isInstalled = (id: string) => () => existsSync(join(deps.moduleRoot(), id))
 
   return {
     target(input: ExtensionScaffoldTargetInput | undefined): ExtensionScaffoldTarget | null {
       if (!input || !isString(input.parentDir) || !isString(input.id) || extensionIdProblem(input.id)) return null
       const parent = resolve(input.parentDir)
       const folder = join(parent, input.id)
-      return { state: targetState(parent, folder), folder }
+      return { state: targetState(parent, folder, isInstalled(input.id)), folder }
     },
 
     async create(input: ExtensionScaffoldCreateInput | undefined): Promise<ExtensionScaffoldCreateResult> {
@@ -157,7 +175,7 @@ export function createExtensionScaffoldHandlers(overrides: Partial<ExtensionScaf
 
       const parent = resolve(parentDir)
       const folder = join(parent, id)
-      const state = targetState(parent, folder)
+      const state = targetState(parent, folder, isInstalled(id))
       if (state === 'no_parent') {
         return { ok: false, code: 'no_parent', message: `${parent} is not a folder any more. Choose another project.` }
       }
@@ -167,6 +185,13 @@ export function createExtensionScaffoldHandlers(overrides: Partial<ExtensionScaf
           ok: false,
           code: 'dir_not_empty',
           message: `${folder} already has files in it. Choose another name.`,
+        }
+      }
+      if (state === 'installed') {
+        return {
+          ok: false,
+          code: 'installed',
+          message: `An extension named ${id} is already installed on this computer. Choose another name.`,
         }
       }
 

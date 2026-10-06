@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 // Hover intent behind the conversation peek. Split from the card so the two
 // anchors (a sidebar row, an agent tab) share one set of timings, and so
@@ -136,6 +136,18 @@ export function useConversationPeek(sessionId: string | null): ConversationPeekH
   const keepOpen = useCallback(() => {
     clearCloseTimer()
   }, [clearCloseTimer])
+
+  // An anchor that goes away (a row settled, a tab closed) takes its timers and
+  // its hold on the latch with it: a dwell left running would open a card for
+  // nothing, and close whichever card is open now on the way.
+  useEffect(
+    () => () => {
+      clearOpenTimer()
+      clearCloseTimer()
+      if (openPeek === selfClose.current) openPeek = null
+    },
+    [clearCloseTimer, clearOpenTimer],
+  )
 
   return {
     open: open && sessionId !== null,

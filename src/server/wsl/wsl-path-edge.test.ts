@@ -9,6 +9,9 @@ test('a root inside the distribution and one on a drive cross as Linux paths, un
   assert.equal(edge.rootIn('\\\\wsl$\\ubuntu-24.04\\home\\dev\\other'), '/home/dev/other', 'either share, any case')
   assert.equal(edge.rootIn('C:\\Users\\dev\\repo'), '/win/c/Users/dev/repo')
   assert.equal(edge.rootIn('/home/dev/already'), '/home/dev/already')
+  // A share spelled with forward slashes, as Git for Windows prints it, crosses too, and reads back as given.
+  assert.equal(edge.rootIn('//wsl.localhost/Ubuntu-24.04/home/dev/forward'), '/home/dev/forward')
+  assert.equal(edge.pathOut('/home/dev/forward/a.ts'), '//wsl.localhost/Ubuntu-24.04/home/dev/forward/a.ts')
   assert.throws(() => edge.rootIn('\\\\wsl.localhost\\Debian\\home\\dev'), /in WSL: Debian, not in Ubuntu-24.04/u)
   assert.throws(() => edge.rootIn('\\\\fileserver\\share\\repo'), /network share/u)
 })

@@ -26,7 +26,8 @@
   (`environment_changed`) before any cursor is resumed or request resent.
 - **Waking.** A refused credential (`unauthorized`, `revoked`) or being
   offline parks the client (`state: 'parked'`) until `wake()`, or in a browser
-  the page coming back online or to the foreground.
+  the page coming back online or to the foreground. `parkWhenOffline: false`
+  keeps a client of a Studio on the same machine reconnecting while offline.
 - **Liveness and timeouts.** `heartbeat` pings a quiet connection and makes a
   silent one again; `readTimeoutMs` (60 s) bounds every read.
 - `StudioError.errorId`, and `errorId` on a failed `ConversationResult`.
@@ -37,6 +38,8 @@
   settles only on `close()` or a refusal waking cannot help.
 - A stream's `cursor` is what its consumer has read, never what is still
   waiting to be read.
+- A `hello_required` that carries `retryAfterMs` (a hello that arrived too
+  late) is reconnected after, not taken as the end of the client.
 
 ## 0.1.0
 

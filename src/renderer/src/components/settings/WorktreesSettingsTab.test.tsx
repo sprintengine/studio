@@ -52,7 +52,14 @@ const inventory: WorktreeInventory = {
             id: 'pool-01',
             path: `${POOL}/pool-01`,
             state: 'leased',
-            lease: { leaseId: 'l1', branch: 'agent/fix-login', owner: 'a', agentId: null, leasedAt: now },
+            lease: {
+              leaseId: 'l1',
+              branch: 'agent/fix-login',
+              owner: 'a',
+              agentId: null,
+              workspaceId: null,
+              leasedAt: now,
+            },
             lastUsedAt: now,
             size: size(2 * GB),
           },
@@ -223,4 +230,92 @@ test('Free up space removes the extra ready slot and the merged worktree, keepin
   await click(free!)
   expect(calls.actions).toEqual([{ kind: 'evict', repoRoot: REPO, slotId: 'pool-04' }])
   expect(calls.removed).toEqual([{ repoRoot: REPO, path: '/code/by-hand' }])
+})
+
+test('Free up space keeps what the person unticked when the page reads the worktrees again', async () => {
+  let poolChanged: (() => void) | null = null
+  Object.assign((window as unknown as { api: object }).api, {
+    onWorktreePoolChanged: (cb: () => void) => {
+      poolChanged = cb
+      return () => {}
+    },
+  })
+  await render()
+  await click(button(host, 'Free up space…'))
+  const mergedRow = [...document.body.querySelectorAll<HTMLLabelElement>('[role="dialog"] label')].find((label) =>
+    label.textContent?.includes('whose branch is merged'),
+  )
+  await click(mergedRow!.querySelector('input')!)
+  // A slot moves somewhere: the page reads again, a moment later.
+  await act(async () => {
+    poolChanged?.()
+    await new Promise((resolve) => setTimeout(resolve, 450))
+  })
+  const free = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((candidate) =>
+    candidate.textContent?.startsWith('Free 1.0 GB'),
+  )
+  expect(free).toBeTruthy()
+  await click(free!)
+  expect(calls.actions).toEqual([{ kind: 'evict', repoRoot: REPO, slotId: 'pool-04' }])
+  expect(calls.removed).toEqual([])
+})
+
+test('Prune says what git did: a missing worktree locked by hand is kept, and the page says so', async () => {
+  const gone = {
+    ...inventory.projects[0].worktrees[0],
+    path: '/code/gone-by-hand',
+    branch: 'feat/gone',
+    missing: true,
+    size: null,
+  }
+  Object.assign((window as unknown as { api: object }).api, {
+    getWorktreeInventory: async () => ({
+      ...inventory,
+      projects: [{ ...inventory.projects[0], worktrees: [...inventory.projects[0].worktrees, gone] }],
+    }),
+    listGitWorktrees: async () => ({
+      ok: true,
+      data: {
+        repoRoot: REPO,
+        updatedAt: now,
+        worktrees: [{ path: '/code/gone-by-hand', locked: true, lockedReason: 'on a USB drive' }],
+      },
+      message: null,
+    }),
+  })
+  await render()
+  await click(button(rowNamed('gone-by-hand')!, 'Prune'))
+  expect(host.textContent).toContain('Git kept gone-by-hand: it is locked (on a USB drive)')
+  expect(host.textContent).not.toContain('Git forgot')
+})
+
+test('Prune counts only the other missing worktrees git actually forgot', async () => {
+  const missing = (name: string) => ({
+    ...inventory.projects[0].worktrees[0],
+    path: `/code/${name}`,
+    branch: `feat/${name}`,
+    missing: true,
+    size: null,
+  })
+  Object.assign((window as unknown as { api: object }).api, {
+    getWorktreeInventory: async () => ({
+      ...inventory,
+      projects: [
+        {
+          ...inventory.projects[0],
+          worktrees: [...inventory.projects[0].worktrees, missing('gone'), missing('kept-on-usb')],
+        },
+      ],
+    }),
+    // The other missing one is locked, so git keeps it.
+    listGitWorktrees: async () => ({
+      ok: true,
+      data: { repoRoot: REPO, updatedAt: now, worktrees: [{ path: '/code/kept-on-usb', locked: true }] },
+      message: null,
+    }),
+  })
+  await render()
+  await click(button(rowNamed('gone')!, 'Prune'))
+  expect(host.textContent).toContain('Git forgot gone.')
+  expect(host.textContent).not.toContain('other missing worktree')
 })

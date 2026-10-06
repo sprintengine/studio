@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useState } from 'react'
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import type { CreatePullRequestState } from '../../../../../shared/git/pull-request-create'
 import type { BranchPullRequest } from '../../../../../shared/git/pull-request'
@@ -54,18 +54,25 @@ export function pullRequestSlotChoice(
  */
 export function useCreatePullRequestState(cwd: string | null, refreshKey: string): CreatePullRequestState | null {
   const [state, setState] = useState<CreatePullRequestState | null>(null)
+  // Asks overlap (a focus during a turn's end, a `gh` lookup that takes
+  // seconds), and only the latest may answer: an earlier one landing last
+  // would put back a reading the checkout has since moved on from.
+  const latest = useRef(0)
   const ask = useCallback(async () => {
+    const asked = ++latest.current
     const api = typeof window === 'undefined' ? undefined : window.api
     if (!cwd || typeof api?.createPullRequestState !== 'function') {
       setState(null)
       return
     }
+    let next: CreatePullRequestState | null
     try {
-      setState(await api.createPullRequestState(cwd))
+      next = await api.createPullRequestState(cwd)
     } catch {
       // A shell that cannot answer (the web client has no checkout here) draws no button.
-      setState(null)
+      next = null
     }
+    if (asked === latest.current) setState(next)
   }, [cwd])
   useEffect(() => {
     void ask()
@@ -94,14 +101,35 @@ export function CreatePullRequestControl({
   cwd,
   conversation,
   onSettled,
+  onHoldChange,
+  ready = true,
 }: {
   cwd: string
   conversation: { workspaceId: string; agentId: string }
+  /**
+   * Whether the checkout reads as ready for a pull request now. Held on a
+   * failure once it is not (the pull request it opened exists), the control
+   * offers to dismiss the failure rather than a Create PR that could only fail.
+   */
+  ready?: boolean
   /** The flow ended (created, opened a forge page, or failed): ask again whether the button may show. */
   onSettled: () => void
+  /**
+   * The control has something on screen of its own: the dialog, a step in
+   * progress, or a failure. The slot keeps it while it does, even once the
+   * checkout stops reading as ready, which it does the moment the pull
+   * request exists: the ask `onSettled` starts would otherwise unmount it
+   * with a failure to record it still unread.
+   */
+  onHoldChange?: (held: boolean) => void
 }): React.JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [progress, setProgress] = useState<Progress>(null)
+  const held = dialogOpen || progress !== null
+  useEffect(() => {
+    onHoldChange?.(held)
+  }, [held, onHoldChange])
+  useEffect(() => () => onHoldChange?.(false), [onHoldChange])
 
   const create = async (text: { title: string; body: string }) => {
     setDialogOpen(false)
@@ -152,7 +180,18 @@ export function CreatePullRequestControl({
           {STEP_WORDS[progress.step]}
         </span>
       ) : null}
-      {busy ? null : (
+      {busy ? null : progress?.step === 'failed' && !ready ? (
+        <GhostButton
+          size="xs"
+          tone="subtle"
+          // Read: the slot goes back to what the checkout says.
+          onClick={() => setProgress(null)}
+          aria-label="Dismiss this Create PR failure"
+          className="shrink-0 whitespace-nowrap"
+        >
+          Dismiss
+        </GhostButton>
+      ) : (
         <GhostButton
           size="xs"
           tone="subtle"
@@ -215,9 +254,17 @@ function CreatePullRequestDialog({
       )
       return
     }
+    // Named, so closing the dialog mid-draft stops the CLI writing it rather
+    // than leaving it to run to its deadline for an answer nobody will read.
+    const draftId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    let pending = true
     void window.api
-      .draftPullRequestText({ cwd, engine, ...(cliRuntimes ? { cliRuntimes } : {}) })
+      .draftPullRequestText({ cwd, engine, draftId, ...(cliRuntimes ? { cliRuntimes } : {}) })
       .then((result) => {
+        pending = false
         if (!alive) return
         if (result.ok) {
           setTitle((current) => current || result.value.title)
@@ -227,6 +274,7 @@ function CreatePullRequestDialog({
         }
       })
       .catch((error: unknown) => {
+        pending = false
         if (alive) setDraftError(`The draft could not be written: ${failed(error).message}`)
       })
       .finally(() => {
@@ -234,6 +282,7 @@ function CreatePullRequestDialog({
       })
     return () => {
       alive = false
+      if (pending) void window.api.cancelPullRequestDraft?.(draftId)?.catch(() => undefined)
     }
     // Drafted once per opening; the runtimes only matter at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps

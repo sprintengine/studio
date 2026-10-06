@@ -1,4 +1,5 @@
 import type { AgentWorktreeCleanupReport } from '../../../shared/electron-api'
+import { agentLeaseKey } from '../../../shared/ipc/worktree-pool'
 import { workspaceProjectRootOf } from '../../../shared/worktree-paths'
 import type { Workspace } from '../types/workspace'
 import { isPathOrChild, samePath } from './paths'
@@ -34,13 +35,10 @@ type CleanupWorkspace = Pick<Workspace, 'id' | 'folderPath' | 'worktree' | 'agen
  * orphan from before agents released their worktrees, and is NOT protected:
  * that is exactly the backlog this sweep exists to clear.
  *
- * Every agent the records hold is named too: a worktree pool slot an agent
- * leased for itself (MCP `worktree.lease`) is in use while that agent exists,
- * wherever its terminal sits.
- *
  * Every agent the records hold is named, because a worktree pool slot an agent
  * leased for itself (MCP `worktree.lease`) is in use while that agent exists,
- * wherever its terminal sits. Every branch a chat or worktree entry records is
+ * wherever its terminal sits. Each is named with its chat as well
+ * (`agentKeys`): an agent id is unique only within its chat. Every branch a chat or worktree entry records is
  * named too: main deletes merged `agent/` branches, but never one a chat may
  * still be restored from (`chatWorktreeRestore.ts`).
  *
@@ -55,11 +53,13 @@ export function agentWorktreeCleanupPlan(
   repoRoots: string[]
   protectedPaths: string[]
   agentIds: string[]
+  agentKeys: string[]
   keepBranches: string[]
 } {
   const active = new Set(activeWorkspaceIds)
   const protectedPaths = new Set<string>()
   const agentIds = new Set<string>()
+  const agentKeys = new Set<string>()
   const keepBranches = new Set<string>()
   const repoRoots: string[] = []
   const addRoot = (root: string | null): void => {
@@ -77,6 +77,7 @@ export function agentWorktreeCleanupPlan(
     const entries = workspace.worktreeState?.entries ?? {}
     for (const [agentId, agent] of Object.entries(workspace.agents ?? {})) {
       agentIds.add(agentId)
+      agentKeys.add(agentLeaseKey(workspace.id, agentId))
       const execution = agent?.execution
       if (!execution) continue
       if (execution.cwd) protect(execution.cwd)
@@ -96,6 +97,7 @@ export function agentWorktreeCleanupPlan(
     repoRoots,
     protectedPaths: [...protectedPaths],
     agentIds: [...agentIds],
+    agentKeys: [...agentKeys],
     keepBranches: [...keepBranches],
   }
 }

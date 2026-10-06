@@ -8,7 +8,11 @@ import { ConversationRuntime } from '../../conversation-runtime'
 import { createMockConversationProvider } from '../../providers/mock-conversation-provider'
 import type { ConversationProviderAdapter } from '../../providers/conversation-provider-adapter'
 import type { ConversationPermissionPreset } from '../../../shared/conversation-runtime'
-import { createConversationGatewayHost, readBoundedConversationUpload } from './tailnet-conversation-host'
+import {
+  createConversationGatewayHost,
+  readBoundedConversationUpload,
+  type AgentChoicePatch,
+} from './tailnet-conversation-host'
 import { MAX_ATTACHMENTS_PER_TURN, MAX_ATTACHMENT_BYTES } from '../../../shared/conversation-attachments'
 import { CONVERSATION_MAX_IMAGES } from '../../../../packages/conversation-protocol/src'
 import type { ConversationModelCatalog } from '../../conversation-model-catalog'
@@ -35,6 +39,7 @@ async function fixture(
   }
   const runtime = new ConversationRuntime({ adapters: [adapter], getProviderById: () => undefined })
   const defaults: Array<{ workspaceId: string; agentId: string }> = []
+  const written: AgentChoicePatch[] = []
   const host = createConversationGatewayHost(
     runtime,
     (id) => (id === key.workspaceId ? workspaceRoot : null),
@@ -44,7 +49,13 @@ async function fixture(
       return options.defaultPreset ?? 'bypass'
     },
     (asked) => (asked.agentId === key.agentId ? options.agentName : null),
-    ...(options.modelCatalog ? [options.modelCatalog] : []),
+    options.modelCatalog,
+    undefined,
+    {
+      writeAgentChoice: (asked, patch) => {
+        if (asked.workspaceId === key.workspaceId && asked.agentId === key.agentId) written.push(patch)
+      },
+    },
   )
   const start = (permissionPreset: Preset = options.preset ?? 'bypass') =>
     runtime.startSession({
@@ -59,6 +70,7 @@ async function fixture(
     runtime,
     start,
     defaults,
+    written,
     cleanup: async (keepFolder = false) => {
       await runtime.shutdown()
       if (!keepFolder) await rm(workspaceRoot, { recursive: true, force: true })
@@ -187,6 +199,85 @@ test('upload references are device/session bound, bounded and invalidated by siz
       false,
     )
     assert.equal(send.mock.calls.length, 1)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a listed row carries whole-number times and counts, whatever its transcript gave', async () => {
+  const f = await fixture()
+  try {
+    vi.spyOn(f.runtime, 'listThreads').mockResolvedValue({
+      ok: true,
+      threads: [
+        {
+          agentId: 'agent',
+          title: 'Unreadable',
+          providerId: 'mock',
+          model: 'default',
+          updatedAt: 1_700_000_000_123.456,
+          createdAt: Number.NaN,
+          turnCount: 2.5,
+          lastSeq: -1,
+        },
+      ],
+    } as never)
+    const [row] = await f.host.list()
+    assert.equal(row.updatedAt, 1_700_000_000_123)
+    assert.equal(row.createdAt, 1_700_000_000_123)
+    assert.equal(row.turnCount, 3)
+    assert.equal(row.lastSeq, 0)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a send behind another send to the same chat is busy, with a delay to retry after', async () => {
+  const f = await fixture()
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    let release: () => void = () => undefined
+    vi.spyOn(f.runtime, 'sendTurn').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true, session: started.session })
+        }),
+    )
+    const first = f.host.command(f.key, 'phone', 'first', { kind: 'send', message: 'one' })
+    const second = await f.host.command(f.key, 'phone', 'second', { kind: 'send', message: 'two' })
+    assert.equal(second.ok, false)
+    assert.equal(second.code, 'busy')
+    assert.ok((second.retryAfterMs ?? 0) > 0)
+    release()
+    assert.equal((await first).ok, true)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('an upload for a session that ended is sent on the session the send resumes the chat on', async () => {
+  const f = await fixture()
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    const path = join(f.key.workspaceRoot, 'image.png')
+    await writeFile(path, 'image')
+    const id = f.host.registerUpload!({
+      deviceId: 'phone',
+      sessionId: started.session.sessionId,
+      path,
+      name: 'image.png',
+      mediaType: 'image/png',
+      bytes: 5,
+    })
+    // The session the phone uploaded against ends (a failed turn, a stop) before the send.
+    await f.runtime.stopSession({ sessionId: started.session.sessionId })
+    const send = vi.spyOn(f.runtime, 'sendTurn')
+    const result = await f.host.command(f.key, 'phone', 'after-end', { kind: 'send', message: '', uploadIds: [id] })
+    assert.equal(result.ok, true)
+    assert.notEqual(send.mock.calls[0][0].sessionId, started.session.sessionId)
+    assert.equal(send.mock.calls[0][0].attachments?.length, 1)
   } finally {
     await f.cleanup()
   }
@@ -327,6 +418,12 @@ test('a remote switch carries the CLI’s own mode, the list names it, and a pre
     })
     assert.equal(setPermission.mock.calls.at(-1)?.[0].permissionMode, undefined)
     assert.equal((await f.host.list())[0].permissionMode, undefined)
+    // Each switch is written to the chat's record too, so it outlives the
+    // session: a remount or a restart starts on it, not on the old one.
+    assert.deepEqual(f.written, [
+      { cliPermissionPreset: 'auto', cliPermissionMode: 'acceptEdits' },
+      { cliPermissionPreset: 'manual', cliPermissionMode: undefined },
+    ])
   } finally {
     await f.cleanup()
   }
@@ -462,6 +559,7 @@ test('a remote model switch runs through the runtime, and the list and transcrip
     const listed = (await f.host.list())[0]
     assert.equal(listed.modelId, 'mock-large')
     assert.equal(listed.providerId, 'mock-provider', 'the CLI never changes')
+    assert.deepEqual(f.written, [{ conversation: { providerId: 'mock-provider', modelId: 'mock-large' } }])
     const transcript = await f.runtime.readTranscript(f.key)
     assert.ok(transcript.ok)
     assert.equal(transcript.events.at(-1)?.type, 'session_updated')

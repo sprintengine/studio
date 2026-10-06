@@ -2112,7 +2112,8 @@ samp,
   .switch-track:active:not(:disabled) .switch-thumb {
     width: 15px;
   }
-  .switch-track[aria-checked="true"]:active:not(:disabled) .switch-thumb {
+  .switch-track[aria-checked="true"]:active:not(:disabled) .switch-thumb,
+  .switch-track[data-checked="true"]:active .switch-thumb {
     translate: 15px 0;
   }
 }

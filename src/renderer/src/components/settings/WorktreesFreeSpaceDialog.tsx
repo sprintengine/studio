@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useState } from 'react'
+import React, { useId, useMemo, useState } from 'react'
 
 import { DescribedCheckRow, DescribedCheckRowList } from '../ui'
 import { DangerButton, GhostButton } from '../ui/Buttons'
@@ -39,12 +39,20 @@ export function FreeSpaceDialog({
   const [extra, setExtra] = useState(true)
   const [merged, setMerged] = useState(true)
   const [clear, setClear] = useState(false)
-  useEffect(() => {
-    if (!open) return
-    setExtra(plan.extraReady.length > 0)
-    setMerged(plan.merged.length > 0)
-    setClear(false)
-  }, [open, plan])
+  // Back to the defaults each time it opens, and only then. The plan is
+  // rebuilt whenever the page re-reads (every pool change, every store write),
+  // and resetting on that would tick again a removal the person had just
+  // unticked, under the button they are about to press. A row with nothing in
+  // it is never checked, whatever its flag says.
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setExtra(true)
+      setMerged(true)
+      setClear(false)
+    }
+  }
   if (!open) return null
 
   const removing = [...(extra ? plan.extraReady : []), ...(merged ? plan.merged : [])]

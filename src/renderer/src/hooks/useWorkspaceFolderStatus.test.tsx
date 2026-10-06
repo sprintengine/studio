@@ -100,3 +100,21 @@ test('a chat kept mounted behind another looks again at its folder, but brings t
   expect(checks).toHaveLength(3)
   await unmount()
 })
+
+test('a worktree that could not be brought back reads as missing, even with something at its path', async () => {
+  const missing: boolean[] = []
+  store.setState({
+    workspaces: [{ id: 'rested', folderPath: FOLDER, worktree: { branch: 'agent/rested', reclaimedAt: 7 } }],
+    activeWorkspaceId: 'rested',
+    workspaceWindows: [],
+    setFolderMissing: (_id, value) => missing.push(value),
+  })
+  // The pool gave the chat's slot to another chat: the path is there, the worktree is not.
+  ensureChatWorktree.mockResolvedValueOnce(false)
+  const unmount = await mounted()
+  expect(ensureChatWorktree).toHaveBeenCalledTimes(1)
+  expect(checks).toEqual([])
+  expect(missing.at(-1)).toBe(true)
+  await unmount()
+  store.setState({ setFolderMissing: () => {} })
+})

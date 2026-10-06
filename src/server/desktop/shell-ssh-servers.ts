@@ -51,7 +51,12 @@ export function createShellSshServers(deps: ShellSshServersDeps): ShellSshServer
   async function connectNow(key: string): Promise<SshRoutedConnection> {
     const { stream: wire, label } = await stream(key, 'backend')
     const backend = connectRemoteConversationBackend(wire, { ...(deps.log ? { log: deps.log } : {}) })
-    await backend.refresh()
+    // A first read that fails leaves nobody holding the wire: closed here, or
+    // every later attempt would leave another stream open on the relay.
+    await backend.refresh().catch((error: unknown) => {
+      backend.close()
+      throw error
+    })
     const connection = {
       key,
       label,

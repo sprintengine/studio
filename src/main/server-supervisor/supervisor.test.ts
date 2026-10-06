@@ -278,6 +278,22 @@ test('the watchdog does not count while the machine sleeps, nor for a while afte
   assert.equal(child.killed, false)
 })
 
+test('a server that exits during the wake grace leaves the watchdog on for the next one', async () => {
+  const { supervisor, fake } = setup()
+  supervisor.start()
+  ready(fake.latest())
+  supervisor.power('suspend')
+  supervisor.power('resume')
+  // It crashes before the grace is over; the next one comes up and hangs.
+  fake.latest().exit({ code: 1 })
+  await vi.advanceTimersByTimeAsync(1_000)
+  assert.equal(fake.children.length, 2)
+  const hung = fake.latest()
+  ready(hung)
+  await vi.advanceTimersByTimeAsync(40_000)
+  assert.equal(hung.killed, true)
+})
+
 test('a quit while ready drains within the budget and reports each leg', async () => {
   const { supervisor, fake } = setup()
   supervisor.start()

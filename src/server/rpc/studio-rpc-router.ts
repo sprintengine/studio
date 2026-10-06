@@ -128,7 +128,12 @@ const NO_CONTEXT: StudioRequestContext = { connectionId: '', slot: 0, ownWindow:
 /** How a request is answered: what its replies show, and in whose words a failure is told. */
 type Voice = {
   redact<T>(value: T): T
-  failed(code: string, detail: string | undefined, context: string): { ok: false; error: StudioErrorBody }
+  failed(
+    code: string,
+    detail: string | undefined,
+    context: string,
+    retryAfterMs?: number,
+  ): { ok: false; error: StudioErrorBody }
 }
 
 /**
@@ -149,7 +154,14 @@ const STABLE_MESSAGES: Readonly<Record<string, string>> = {
   unknown_skill: 'A skill the request names is not installed here.',
   conversation_start_failed: 'The conversation could not be started.',
   command_id_conflict: 'That command id was already used for a different command. Send this one under a new id.',
+  // Another send to the chat is being prepared: the client tries again after
+  // `retryAfterMs` (the SDK does so by itself), rather than failing for good.
+  busy: 'Studio is busy with another message for this chat. Try again shortly.',
 }
+
+/** The delay a `busy` refusal carries, when there is one to carry. */
+const retryAfter = (code: string, retryAfterMs: number | undefined): { retryAfterMs?: number } =>
+  code === 'busy' && retryAfterMs !== undefined ? { retryAfterMs } : {}
 
 /** JSON with every object's keys in order, so two spellings of one command hash alike. */
 function canonicalJson(value: unknown): string {
@@ -222,19 +234,28 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
   // A refusal from below: logged in its own words under an opaque id, answered
   // in stable ones carrying that id, so a person can quote it and the log
   // still says what really happened.
-  const failed = (code: string, detail: string | undefined, context: string): { ok: false; error: StudioErrorBody } => {
+  const failed = (
+    code: string,
+    detail: string | undefined,
+    context: string,
+    retryAfterMs?: number,
+  ): { ok: false; error: StudioErrorBody } => {
     const known = Object.hasOwn(STABLE_MESSAGES, code) ? code : 'unavailable'
     const errorId = studioErrorId()
     options.log?.(`Studio RPC ${context} refused (${code}) [${errorId}]: ${detail || STABLE_MESSAGES[known]}`)
-    return { ok: false, error: { code: known, message: STABLE_MESSAGES[known], errorId } }
+    return {
+      ok: false,
+      error: { code: known, message: STABLE_MESSAGES[known], errorId, ...retryAfter(known, retryAfterMs) },
+    }
   }
   const clientVoice: Voice = { redact: (value) => backend.redact(value), failed }
   // Studio's own window hears what its IPC would have said, in the same words.
   const windowVoice: Voice = {
     redact: (value) => value,
-    failed: (code, detail) => {
+    failed: (code, detail, _context, retryAfterMs) => {
       const known = Object.hasOwn(STABLE_MESSAGES, code) ? code : 'unavailable'
-      return refuse(known, detail || STABLE_MESSAGES[known])
+      const refused = refuse(known, detail || STABLE_MESSAGES[known])
+      return { ok: false, error: { ...refused.error, ...retryAfter(known, retryAfterMs) } }
     },
   }
   const now = options.now ?? Date.now
@@ -339,7 +360,13 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       carried,
       fingerprint,
     )
-    if (!outcome.ok) return voice.failed(outcome.code ?? 'unavailable', outcome.message, `conversation.${carried.kind}`)
+    if (!outcome.ok)
+      return voice.failed(
+        outcome.code ?? 'unavailable',
+        outcome.message,
+        `conversation.${carried.kind}`,
+        outcome.retryAfterMs,
+      )
     const notice = outcome.notice ? { notice: outcome.notice } : {}
     if (carried.kind === 'setPermissionPreset')
       return {

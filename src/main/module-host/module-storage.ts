@@ -1,6 +1,7 @@
-import { mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
+import { randomUUID } from 'crypto'
+import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { isAbsolute, join } from 'path'
-import { workspaceSidecarPath } from '../workspace-sidecar'
+import { workspaceSidecarPath, workspaceSidecarRoot } from '../workspace-sidecar'
 
 // Per-module, per-workspace JSON storage for capability modules (SDK
 // getModuleStorage). The host owns file placement so modules stop inventing
@@ -72,7 +73,9 @@ export function createModuleStorageRegistry(options: { userDataDir: () => string
   const resolveDir = (
     moduleId: string,
     scope: ModuleStorageScope | undefined,
-  ): { ok: true; dir: string } | { ok: false; code: ModuleStorageErrorCode; message: string } => {
+  ):
+    | { ok: true; dir: string; linkRoot: string | null }
+    | { ok: false; code: ModuleStorageErrorCode; message: string } => {
     if (UNSAFE_SEGMENT.test(moduleId) || moduleId.trim().length === 0) {
       return { ok: false, code: 'io_error', message: `Module id "${moduleId}" is not usable as a storage folder.` }
     }
@@ -85,9 +88,36 @@ export function createModuleStorageRegistry(options: { userDataDir: () => string
           message: 'workspaceRoot must be an absolute path (resolve it via the workspace context).',
         }
       }
-      return { ok: true, dir: workspaceSidecarPath(workspaceRoot, 'modules', moduleId) }
+      return {
+        ok: true,
+        dir: workspaceSidecarPath(workspaceRoot, 'modules', moduleId),
+        linkRoot: workspaceSidecarRoot(workspaceRoot),
+      }
     }
-    return { ok: true, dir: join(options.userDataDir(), 'module-storage', moduleId) }
+    return { ok: true, dir: join(options.userDataDir(), 'module-storage', moduleId), linkRoot: null }
+  }
+
+  // A workspace folder is a cloned repository's to fill, so any folder from
+  // `.sprintengine` down to the module's own (or a stored file) could be a
+  // link it committed, and a value written or read through it would land
+  // wherever it points. What is not there yet is made real by the write.
+  const throughLink = async (
+    linkRoot: string | null,
+    path: string,
+  ): Promise<{ ok: false; code: ModuleStorageErrorCode; message: string } | null> => {
+    if (!linkRoot) return null
+    let at = linkRoot
+    for (const segment of ['', ...path.slice(linkRoot.length).split(/[\\/]/).filter(Boolean)]) {
+      at = segment ? join(at, segment) : at
+      try {
+        if ((await lstat(at)).isSymbolicLink()) {
+          return { ok: false, code: 'io_error', message: `${at} is a link; module storage is not kept through one.` }
+        }
+      } catch {
+        return null
+      }
+    }
+    return null
   }
 
   const validateKey = (key: string): string | null => {
@@ -107,6 +137,8 @@ export function createModuleStorageRegistry(options: { userDataDir: () => string
       const dir = resolveDir(moduleId, input)
       if (!dir.ok) return dir
       const path = join(dir.dir, `${input.key}.json`)
+      const linked = await throughLink(dir.linkRoot, path)
+      if (linked) return linked
       let source: string
       try {
         source = await readFile(path, 'utf8')
@@ -143,11 +175,22 @@ export function createModuleStorageRegistry(options: { userDataDir: () => string
       }
       return enqueue(async () => {
         const path = join(dir.dir, `${input.key}.json`)
+        const linked = await throughLink(dir.linkRoot, dir.dir)
+        if (linked) return linked
         try {
           await mkdir(dir.dir, { recursive: true })
-          const tmp = `${path}.tmp`
-          await writeFile(tmp, serialized, 'utf8')
-          await rename(tmp, path)
+          // A fresh name, created exclusively: a workspace folder is a cloned
+          // repository's to fill, and a `<key>.json.tmp` link it committed
+          // would otherwise have the value written through it to wherever it
+          // points.
+          const tmp = `${path}.${process.pid}-${randomUUID()}.tmp`
+          try {
+            await writeFile(tmp, serialized, { encoding: 'utf8', flag: 'wx' })
+            await rename(tmp, path)
+          } catch (error) {
+            await rm(tmp, { force: true }).catch(() => undefined)
+            throw error
+          }
           return { ok: true as const }
         } catch (error) {
           return failure<object>('io_error', error instanceof Error ? error.message : String(error))
@@ -162,6 +205,8 @@ export function createModuleStorageRegistry(options: { userDataDir: () => string
       if (!dir.ok) return dir
       return enqueue(async () => {
         const path = join(dir.dir, `${input.key}.json`)
+        const linked = await throughLink(dir.linkRoot, dir.dir)
+        if (linked) return linked
         try {
           await readFile(path, 'utf8')
         } catch (error) {
@@ -181,6 +226,8 @@ export function createModuleStorageRegistry(options: { userDataDir: () => string
     async list(moduleId, input) {
       const dir = resolveDir(moduleId, input)
       if (!dir.ok) return dir
+      const linked = await throughLink(dir.linkRoot, dir.dir)
+      if (linked) return linked
       let entries: string[]
       try {
         entries = await readdir(dir.dir)

@@ -867,6 +867,9 @@ let pendingSettingsWrite: { state: PersistedWorkspaceSlice; version: number } | 
 // The last slice setItem saw, for the reference comparison. Null until the
 // first write after hydration, which is therefore always examined in full.
 let lastPersistedSlice: PersistedWorkspaceSlice | null = null
+// Set while `adoptStoredSettings` applies settings another window saved: they
+// are already on disk, so the write the store would make of them is skipped.
+let adoptingStoredSettings = false
 
 /**
  * Write the pending settings change now, if there is one. Runs on the coalesce
@@ -1017,6 +1020,15 @@ const workspaceStateStorage: PersistStorage<PersistedWorkspaceSlice> = {
     const next = value.state
     const previous = lastPersistedSlice
     lastPersistedSlice = next
+    if (adoptingStoredSettings) {
+      // What is on disk now is what was just adopted. A write this window had
+      // waiting carries its older copy, and would put it back over the newer.
+      if (settingsWriteTimer !== null) clearTimeout(settingsWriteTimer)
+      settingsWriteTimer = null
+      pendingSettingsWrite = null
+      lastWrittenSettingsSerialized = JSON.stringify(extractSettingsFields(next as unknown as Record<string, unknown>))
+      return
+    }
 
     // A changed workspace list asks main for a fresh backup. Only a non-empty
     // one: the intentional empty case is honored locally but never promoted
@@ -1905,3 +1917,22 @@ export type { HydrationDiagnostic, PersistedStateClassification }
 
 export const __workspaceStoreBackupRecoveryPromise: Promise<void> = attemptBackupRecovery()
 export const __workspaceStoreRunBackupRecoveryForTests = attemptBackupRecovery
+
+/**
+ * Take settings another window has just saved, without writing them back.
+ *
+ * An auxiliary window (a diff, the editor, a popped-out pane) hydrates its
+ * settings once, when it opens. When a workspace window saves a change — a
+ * theme, a window material — the aux window adopts it through here. Writing
+ * the result back would be at best a copy of what is already saved and at
+ * worst, should the workspace window save again meanwhile, an older copy over
+ * the newer one, so the write it would cause is skipped.
+ */
+export function adoptStoredSettings(settings: Partial<WorkspaceStore>): void {
+  adoptingStoredSettings = true
+  try {
+    useWorkspaceStore.setState(settings)
+  } finally {
+    adoptingStoredSettings = false
+  }
+}

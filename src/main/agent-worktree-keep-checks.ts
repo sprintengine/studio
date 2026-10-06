@@ -149,20 +149,30 @@ const REBUILDABLE_DIRS = new Set([
   '.cache',
   '.gradle',
   '.venv',
+  'venv',
   '__pycache__',
   '.pytest_cache',
   '.mypy_cache',
   '.ruff_cache',
+  '.tox',
+  '.nox',
+  '.hypothesis',
+  '.nyc_output',
+  '.angular',
+  '.dart_tool',
 ])
 
 /** Ignored files that are never anyone's work. */
-const DISPOSABLE_FILES = new Set(['.DS_Store', 'Thumbs.db'])
+const DISPOSABLE_FILES = new Set(['.DS_Store', 'Thumbs.db', '.eslintcache', '.stylelintcache'])
+
+/** Ignored file endings a tool writes and rewrites: build info, bytecode, logs. */
+const DISPOSABLE_ENDINGS = ['.tsbuildinfo', '.pyc', '.pyo', '.log']
 
 function isRebuildable(path: string): boolean {
   const directory = path.endsWith('/')
   const segments = path.split('/').filter(Boolean)
   const last = segments.at(-1) ?? ''
-  if (!directory) return DISPOSABLE_FILES.has(last) || last.endsWith('.tsbuildinfo')
+  if (!directory) return DISPOSABLE_FILES.has(last) || DISPOSABLE_ENDINGS.some((ending) => last.endsWith(ending))
   // `--ignored=matching` names a folder only when the folder itself is
   // ignored as a whole (`packages/a/dist/`). A file is named on its own when
   // its folder is NOT ignored, so a file under `build/` proves that `build/` is

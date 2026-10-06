@@ -13,6 +13,7 @@ import { createMockConversationProvider } from '../../providers/mock-conversatio
 import { createConversationGatewayHost } from './tailnet-conversation-host'
 import {
   CONVERSATION_IMAGE_MAX_BYTES,
+  conversationImageFileOf,
   conversationImagePathOf,
   sniffConversationImage,
 } from './tailnet-conversation-images'
@@ -43,7 +44,7 @@ const GIF = Buffer.from('GIF89a\u0001\u0000\u0001\u0000', 'latin1')
 const workspaceId = 'workspace'
 const agentId = 'agent'
 
-type Step = { id: string; name: string; kind?: string; input: Record<string, unknown> }
+type Step = { id: string; name: string; kind?: string; input: Record<string, unknown>; status?: string }
 
 /** A provider whose turn announces the steps its message lists, as JSON. */
 function stepProvider(): ConversationProviderAdapter {
@@ -73,7 +74,17 @@ function stepProvider(): ConversationProviderAdapter {
             ...(step.kind ? { kind: step.kind } : {}),
             input: step.input,
           }),
-          event('tool_output', { turnId: input.turnId, toolUseId: step.id, output: 'done', status: 'ok' }),
+          // `pending` stands for a step still waiting on its approval: announced, never ended.
+          ...(step.status === 'pending'
+            ? []
+            : [
+                event('tool_output', {
+                  turnId: input.turnId,
+                  toolUseId: step.id,
+                  output: 'done',
+                  status: step.status ?? 'ok',
+                }),
+              ]),
         ]),
         event('turn_completed', { turnId: input.turnId }),
       ]
@@ -145,6 +156,29 @@ beforeAll(async () => {
     { id: 'read-folder', name: 'Read', kind: 'file_read', input: { file_path: join(files, 'folder.png') } },
     { id: 'edit-image', name: 'Write', kind: 'file_write', input: { file_path: join(files, 'generated.png') } },
     { id: 'generate-unsaved', name: 'GenerateImage', kind: 'other', input: { prompt: 'nothing saved' } },
+    // Announced before the person answered, then declined: the chat shows
+    // no picture, and neither does the route.
+    {
+      id: 'read-declined',
+      name: 'Read',
+      kind: 'file_read',
+      input: { file_path: join(files, 'screenshot.png') },
+      status: 'declined',
+    },
+    {
+      id: 'read-unanswered',
+      name: 'Read',
+      kind: 'file_read',
+      input: { file_path: join(files, 'screenshot.png') },
+      status: 'pending',
+    },
+    {
+      id: 'read-failed',
+      name: 'Read',
+      kind: 'file_read',
+      input: { file_path: join(files, 'screenshot.png') },
+      status: 'error',
+    },
   ]
   const sent = await runtime.sendTurn({ sessionId: started.session.sessionId, message: JSON.stringify(steps) })
   assert.ok(sent.ok)
@@ -302,7 +336,15 @@ test('a chat this machine does not have is an unknown conversation', async () =>
 })
 
 test('a step that is not there, shows no picture, or saved none is an unknown image', async () => {
-  for (const toolUseId of ['no-such-step', 'read-text', 'edit-image', 'generate-unsaved']) {
+  for (const toolUseId of [
+    'no-such-step',
+    'read-text',
+    'edit-image',
+    'generate-unsaved',
+    'read-declined',
+    'read-unanswered',
+    'read-failed',
+  ]) {
     const answer = await get(imagePath(toolUseId), { token: reader })
     assert.equal(answer.status, 404, toolUseId)
     assert.equal(errorOf(answer).code, 'unknown_image', toolUseId)
@@ -552,4 +594,19 @@ test('the fetch is bounded by the ceiling and re-reads the type off the bytes', 
   } finally {
     await new Promise<void>((resolve) => peer.close(() => resolve()))
   }
+})
+
+test("a WSL chat's picture paths are opened as Windows spells them", () => {
+  // A drive mount is its drive; a path in the distribution its share, spelled as the folder is.
+  assert.equal(
+    conversationImageFileOf('/mnt/c/Users/dev/shot.png', 'C:\\Users\\dev\\repo', 'win32'),
+    'C:\\Users\\dev\\shot.png',
+  )
+  assert.equal(
+    conversationImageFileOf('/home/dev/repo/shot.png', '\\\\wsl$\\Ubuntu\\home\\dev\\repo', 'win32'),
+    '//wsl$/Ubuntu/home/dev/repo/shot.png',
+  )
+  // A distribution the folder does not name cannot be guessed; elsewhere nothing changes.
+  assert.equal(conversationImageFileOf('/home/dev/shot.png', 'C:\\repo', 'win32'), '/home/dev/shot.png')
+  assert.equal(conversationImageFileOf('/Users/dev/shot.png', '/Users/dev/repo', 'darwin'), '/Users/dev/shot.png')
 })

@@ -1521,7 +1521,11 @@ export type ElectronApi = {
     cwd: string
     engine: ChatTitleRequest['engine']
     cliRuntimes?: ChatTitleRequest['cliRuntimes']
+    /** Names the draft, so `cancelPullRequestDraft` can stop its CLI. */
+    draftId?: string
   }) => Promise<PullRequestTextResult>
+  /** The dialog closed while its draft was being written: the drafting CLI is stopped. */
+  cancelPullRequestDraft: (draftId: string) => Promise<void>
   pushForPullRequest: (cwd: string) => Promise<PushForPullRequestOutcome>
   createPullRequest: (input: { cwd: string; title: string; body: string }) => Promise<CreatePullRequestOutcome>
   /** Create a new design-system bundle in a user-chosen folder — seeded from an existing bundle, or bare from the shipped templates. Never overwrites; rolls back on failure. */

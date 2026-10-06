@@ -2,6 +2,12 @@ import { constants } from 'node:fs'
 import { open, realpath, stat, type FileHandle } from 'node:fs/promises'
 
 import { inferConversationToolKind } from '../../../shared/conversation/toolKind'
+import {
+  distroOfUncPath,
+  isWslDriveMountPath,
+  wslPathInRootSpelling,
+  wslToWindowsPath,
+} from '../../../shared/host-paths'
 import { MAX_IMAGE_DATA_URL_BYTES } from '../../filesystem-read-limits'
 
 // The pictures a chat shows under its steps — one Codex generated, one an
@@ -70,6 +76,24 @@ export function conversationImagePathOf(tool: { name: string; kind: unknown; inp
   if (tool.name === 'GenerateImage') return path
   const kind = typeof tool.kind === 'string' && tool.kind ? tool.kind : inferConversationToolKind(tool.name)
   return kind === 'file_read' && IMAGE_PATH.test(path.trim()) ? path : null
+}
+
+/**
+ * A picture's path as this machine opens it. A chat run in WSL records Linux
+ * paths (`/mnt/c/…`, `/home/…`), which Windows cannot open as they are: a
+ * drive mount becomes its drive, and a path inside the distribution its share,
+ * spelled as the chat's folder is (`\\wsl$\…` stays `\\wsl$\…`). A path
+ * inside a distribution the folder does not name is left as it is.
+ */
+export function conversationImageFileOf(
+  path: string,
+  workspaceRoot: string,
+  platform: string = process.platform,
+): string {
+  if (platform !== 'win32' || !path.startsWith('/') || path.startsWith('//')) return path
+  const distro = distroOfUncPath(workspaceRoot)
+  if (distro) return wslPathInRootSpelling(path, workspaceRoot, distro)
+  return isWslDriveMountPath(path) ? wslToWindowsPath(path) : path
 }
 
 export type ConversationImageRefusal = {

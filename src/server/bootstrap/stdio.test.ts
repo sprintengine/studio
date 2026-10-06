@@ -6,6 +6,7 @@ import { PassThrough } from 'node:stream'
 import { test } from 'vitest'
 
 import { createServerLog } from '../../main/server-supervisor/server-log'
+import { ServerBootstrapError, readEnvelope, type ServerControlChannel } from './control-channel'
 import { keepStderrIn, keepStderrInLogsDir } from './stdio'
 
 test('what a stdio server says on stderr is kept in its log as well, and still said', () => {
@@ -52,4 +53,17 @@ test("a server's log is owner-only, and a logs directory that cannot be made cos
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('a channel already closed before the envelope is a bootstrap error, said as one', async () => {
+  const closed: ServerControlChannel = {
+    carriesPorts: false,
+    send: () => undefined,
+    onMessage: () => () => undefined,
+    onClose: (listener) => {
+      listener()
+      return () => undefined
+    },
+  }
+  await assert.rejects(readEnvelope(closed, { unwrap: false }), ServerBootstrapError)
 })

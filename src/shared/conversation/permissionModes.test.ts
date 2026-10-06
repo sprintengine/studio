@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
-import { permissionModeAllows, permissionModeApprovalLabel, type PermissionModeRequest } from './permissionModes'
+import {
+  looksLikePermissionSettingRefusal,
+  permissionModeAllows,
+  permissionModeApprovalLabel,
+  type PermissionModeRequest,
+} from './permissionModes'
 
 const root = '/Users/dev/app'
 const edit = (input: unknown): PermissionModeRequest => ({ action: 'Edit', toolKind: 'file_edit', input })
@@ -134,4 +139,26 @@ test('auto leaves a request the runtime would not let be remembered to the perso
 test('an automatic answer names the mode that gave it', () => {
   assert.equal(permissionModeApprovalLabel('bypass'), 'Bypass permissions mode')
   assert.equal(permissionModeApprovalLabel('auto'), 'Auto mode')
+})
+
+test('a failure reads as a refused permission setting only when it names the setting and refuses it', () => {
+  for (const refusal of [
+    "error: unknown option '--permission-mode'",
+    "error: option '--permission-mode <mode>' argument 'auto' is invalid. Allowed choices are default, plan.",
+    'Claude Code process exited with code 1\nerror: unknown option --dangerously-skip-permissions',
+    'Invalid params: unknown variant `untrusted`, expected one of `on-request`, `never`',
+    "error: unexpected argument '--approve-for-me' found",
+    "error: unknown option '--force'",
+  ])
+    assert.equal(looksLikePermissionSettingRefusal(refusal), true, refusal)
+  for (const other of [
+    'Codex app-server did not start in time.',
+    'ACP agent startup timed out.',
+    'read ECONNRESET',
+    'Invalid API key. Run claude login.',
+    'Claude Code process exited with code 1',
+    'There is no conversation to compact yet.',
+    '',
+  ])
+    assert.equal(looksLikePermissionSettingRefusal(other), false, other)
 })

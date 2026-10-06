@@ -73,7 +73,7 @@ test('every channel the server registers is in the table, and every table entry 
           host.provideService(ConversationRuntimeToken, () => anything())
         },
       },
-      ...createBundledMainModules(platform),
+      ...createBundledMainModules(platform, () => undefined),
     ],
   })
   assert.deepEqual(modules.report.errors, [])

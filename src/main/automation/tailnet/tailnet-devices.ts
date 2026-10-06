@@ -1,5 +1,5 @@
 import { randomBytes, randomInt } from 'crypto'
-import { chmodSync, readFileSync, writeFileSync } from 'fs'
+import { chmodSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
 import { hashSecret, secretsMatch } from './secret-hash'
@@ -289,7 +289,14 @@ export function createTailnetDeviceStore(options: {
   const pairRequestTtlMs = Math.max(1, options.pairRequestTtlMs ?? DEFAULT_PAIR_REQUEST_TTL_MS)
   const revokeListeners = new Set<(deviceId: string) => void>()
   const scopeListeners = new Set<(device: TailnetDevice) => void>()
-  let devices: StoredDevice[] = readDevices(options.resolveUserDataDir(), options.log)
+  const loaded = readDevices(options.resolveUserDataDir(), options.log)
+  let devices: StoredDevice[] = loaded.devices
+  // What the file on disk is when it could not be read as a list of devices.
+  // An unreadable one (a scanner holding it, a permission) is never written
+  // over this run: the next pairing would replace every paired device with
+  // what this run knows. One that is not valid JSON is moved aside, once,
+  // before the first write, so whatever it held can still be recovered.
+  let onDisk: 'readable' | 'unreadable' | 'invalid' = loaded.onDisk
   let pairing: {
     tokenHash: string
     scopes: TailnetScope[]
@@ -325,6 +332,18 @@ export function createTailnetDeviceStore(options: {
 
   function persist(): void {
     const path = join(options.resolveUserDataDir(), TAILNET_DEVICES_FILENAME)
+    if (onDisk === 'unreadable') {
+      options.log?.(
+        `${TAILNET_DEVICES_FILENAME} could not be read, so it is not written over; this change lasts until quit.`,
+      )
+      return
+    }
+    if (onDisk === 'invalid') {
+      const aside = `${path}.invalid-${now().getTime()}`
+      renameSync(path, aside)
+      options.log?.(`${TAILNET_DEVICES_FILENAME} was not valid JSON; it was kept as ${aside}.`)
+      onDisk = 'readable'
+    }
     const body = `${JSON.stringify({ version: 1, devices }, null, 2)}\n`
     writeFileSync(path, body, { mode: 0o600 })
     if (process.platform !== 'win32') chmodSync(path, 0o600)
@@ -829,26 +848,33 @@ function publicDevice(device: StoredDevice | TailnetDevice): TailnetDevice {
   }
 }
 
-function readDevices(userDataDir: string, log?: (message: string) => void): StoredDevice[] {
+function readDevices(
+  userDataDir: string,
+  log?: (message: string) => void,
+): { devices: StoredDevice[]; onDisk: 'readable' | 'unreadable' | 'invalid' } {
   let raw: string
   try {
     raw = readFileSync(join(userDataDir, TAILNET_DEVICES_FILENAME), 'utf8')
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
-    if (code !== 'ENOENT') log?.(`Could not read ${TAILNET_DEVICES_FILENAME}: ${message(error)}`)
-    return []
+    if (code === 'ENOENT') return { devices: [], onDisk: 'readable' }
+    log?.(`Could not read ${TAILNET_DEVICES_FILENAME}: ${message(error)}`)
+    return { devices: [], onDisk: 'unreadable' }
   }
   try {
     const parsed: unknown = JSON.parse(raw)
     const entries = isRecord(parsed) && Array.isArray(parsed.devices) ? parsed.devices : []
     // A malformed entry is dropped, never repaired into a device with guessed
     // scopes: an unreadable grant is not a grant.
-    return entries.flatMap((entry) => (isStoredDevice(entry) ? [normalizeStored(entry)] : []))
+    return {
+      devices: entries.flatMap((entry) => (isStoredDevice(entry) ? [normalizeStored(entry)] : [])),
+      onDisk: 'readable',
+    }
   } catch (error) {
     log?.(
       `${TAILNET_DEVICES_FILENAME} is not valid JSON (${message(error)}); no tailnet device is trusted until it is fixed.`,
     )
-    return []
+    return { devices: [], onDisk: 'invalid' }
   }
 }
 

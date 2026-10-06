@@ -9,7 +9,7 @@ import {
   type ConversationService,
   type EventStreamOptions,
 } from './conversations.js'
-import { StudioError, TERMINAL_CODES } from './errors.js'
+import { StudioError, isTerminalStudioCode } from './errors.js'
 import {
   STUDIO_METHODS,
   STUDIO_PROTOCOL_MIN_SUPPORTED,
@@ -120,6 +120,12 @@ export type ConnectOptions = {
    * back online or to the foreground. Default on wherever those events exist.
    */
   wakeups?: boolean
+  /**
+   * `false` for a Studio on this machine (a desktop window's own server): the
+   * device being offline says nothing about reaching it, so the client keeps
+   * reconnecting rather than park until the network is back. Default on.
+   */
+  parkWhenOffline?: boolean
 }
 
 /** The ref-level conversation service, plus the reads only a Studio serves. */
@@ -491,6 +497,9 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     const check = () => {
       heartbeatTimer = null
       if (state !== 'open' || transport !== watched) return
+      // Reading paused for a consumer that is behind hears nothing, however
+      // well the line works: quiet then says nothing about the connection.
+      if (paused) lastHeard = Date.now()
       const quiet = Date.now() - lastHeard
       if (quiet < heartbeat.intervalMs) {
         heartbeatTimer = quietly(setTimeout(check, heartbeat.intervalMs - quiet))
@@ -503,7 +512,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
         setTimeout(() => {
           heartbeatTimer = null
           if (state !== 'open' || transport !== watched) return
-          if (lastHeard >= asked) check()
+          if (lastHeard >= asked || paused) check()
           else watched?.close()
         }, heartbeat.timeoutMs),
       )
@@ -542,7 +551,9 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     setState('parked', error)
   }
 
-  const offline = () => (globalThis as { navigator?: { onLine?: boolean } }).navigator?.onLine === false
+  const offline = () =>
+    options.parkWhenOffline !== false &&
+    (globalThis as { navigator?: { onLine?: boolean } }).navigator?.onLine === false
 
   function attempt(): void {
     reconnectTimer = null
@@ -552,7 +563,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
           ? error
           : new StudioError('disconnected', error instanceof Error ? error.message : String(error))
       if (PARKING_CODES.has(failure.code)) park(failure)
-      else if (TERMINAL_CODES.has(failure.code)) fail(failure)
+      else if (isTerminalStudioCode(failure.code, failure.retryAfterMs)) fail(failure)
       else schedule(failure.retryAfterMs)
     })
   }
@@ -809,11 +820,19 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     // What this client offers goes first: a call Studio sends again after the
     // drop finds its toolset, and an agent's next call finds it at all.
     tools.reoffer()
+    // A retry a refusal before the drop scheduled is overtaken: left armed, it
+    // would subscribe the id a second time and be refused as a duplicate.
     for (const stream of streams.values()) {
+      if (stream.retry) clearTimeout(stream.retry)
+      stream.retry = null
       stream.parts = null
       subscribe(stream)
     }
-    for (const push of pushes.values()) subscribePush(push)
+    for (const push of pushes.values()) {
+      if (push.retry) clearTimeout(push.retry)
+      push.retry = null
+      subscribePush(push)
+    }
     for (const pending of unanswered)
       if (requests.get(pending.id) === pending)
         send({ t: 'req', id: pending.id, method: pending.method, params: pending.params })
@@ -831,7 +850,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       park(new StudioError(bye.code, bye.message))
       return
     }
-    if (bye && TERMINAL_CODES.has(bye.code)) {
+    if (bye && isTerminalStudioCode(bye.code, bye.retryAfterMs)) {
       fail(new StudioError(bye.code, bye.message))
       return
     }

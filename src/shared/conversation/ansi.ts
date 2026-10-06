@@ -88,6 +88,24 @@ function appendPlain(state: AnsiState, text: string): void {
   }
 }
 
+/**
+ * `CSI K`: erase in the current row — from the cursor to the end (0, the
+ * default), from the start through the cursor (1), or all of it (2) — the way
+ * a progress line clears itself after `\r`. The cursor does not move; the
+ * cells before it that were erased read as spaces, so a row never has a hole.
+ */
+function eraseInLine(state: AnsiState, params: string): void {
+  const row = state.rows[state.rows.length - 1]
+  const mode = params === '' ? 0 : Number(params)
+  if (mode === 0) {
+    if (row.length > state.cursor) row.length = state.cursor
+  } else if (mode === 1 || mode === 2) {
+    const blank = Math.min(row.length, mode === 1 ? state.cursor + 1 : row.length)
+    for (let index = 0; index < blank; index++) row[index] = { text: ' ', style: {} }
+    if (mode === 2 && row.length > state.cursor) row.length = state.cursor
+  }
+}
+
 function sameStyle(a: Cell['style'], b: Cell['style']): boolean {
   return (
     a.bold === b.bold &&
@@ -145,6 +163,7 @@ function consumeEscape(state: AnsiState, char: string): boolean {
     const final = char.charCodeAt(0)
     if (final >= 0x40 && final <= 0x7e) {
       if (char === 'm') updateStyle(state, state.pending.slice(2, -1))
+      else if (char === 'K') eraseInLine(state, state.pending.slice(2, -1))
       state.pending = ''
       state.escapeKind = undefined
       return true
@@ -159,6 +178,15 @@ function consumeEscape(state: AnsiState, char: string): boolean {
       state.escapeKind = undefined
       state.oscEscape = false
       return true
+    }
+    if (state.oscEscape) {
+      // An ESC that is not the `ESC \\` terminator cuts the OSC short and
+      // starts the next escape, as a terminal reads it, rather than swallowing
+      // everything after it into an OSC that never ends.
+      state.pending = '\x1b'
+      state.escapeKind = 'start'
+      state.oscEscape = false
+      return consumeEscape(state, char)
     }
     state.oscEscape = char === '\x1b'
     return false
@@ -203,4 +231,16 @@ export function parseAnsi(text: string, state?: AnsiState): AnsiLine[] | { lines
 
 export function createAnsiState(): AnsiState {
   return createState()
+}
+
+/**
+ * Terminal output as the words it leaves on screen: colour, cursor and OSC
+ * escapes gone, and a line a progress bar redrew with `\r` as it ended up.
+ * For output shown as plain text (a CLI's install or update log), where the
+ * escapes would otherwise print as `[32m` and the bar as every frame of it.
+ */
+export function ansiPlainText(text: string): string {
+  return parseAnsi(text)
+    .map((line) => line.map((span) => span.text).join(''))
+    .join('\n')
 }
