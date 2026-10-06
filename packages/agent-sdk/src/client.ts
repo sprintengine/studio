@@ -120,6 +120,12 @@ export type ConnectOptions = {
    * back online or to the foreground. Default on wherever those events exist.
    */
   wakeups?: boolean
+  /**
+   * `false` for a Studio on this machine (a desktop window's own server): the
+   * device being offline says nothing about reaching it, so the client keeps
+   * reconnecting rather than park until the network is back. Default on.
+   */
+  parkWhenOffline?: boolean
 }
 
 /** The ref-level conversation service, plus the reads only a Studio serves. */
@@ -545,7 +551,9 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     setState('parked', error)
   }
 
-  const offline = () => (globalThis as { navigator?: { onLine?: boolean } }).navigator?.onLine === false
+  const offline = () =>
+    options.parkWhenOffline !== false &&
+    (globalThis as { navigator?: { onLine?: boolean } }).navigator?.onLine === false
 
   function attempt(): void {
     reconnectTimer = null

@@ -118,6 +118,8 @@ export function windowStudioClient(api: PortApi = window.api): Promise<StudioCli
     // A window and the Studio it belongs to come and go together; a short
     // ceiling brings a window back quickly after a restart of the server.
     reconnect: { initialDelayMs: 100, maxDelayMs: 5_000 },
+    // Its Studio is on this machine: an offline laptop still reaches it.
+    parkWhenOffline: false,
     ...(bound === undefined ? {} : { environmentId: bound }),
     onStateChange: (state) => {
       if (clients.get(api) !== connecting) return
