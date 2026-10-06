@@ -1,11 +1,12 @@
 import { JSDOM } from 'jsdom'
 import { expect, test } from 'vitest'
 
-// A draft the chat sets from outside — sent and cleared, restored, recalled —
-// starts the undo history again, as a textarea given a new value does: ⌘Z
-// must not bring back a message that was already sent.
+// A draft the chat clears (sends) starts the undo history again: ⌘Z must not
+// bring back a message that was already sent. Any other draft set from
+// outside (a menu's Paste, an @ pick) is one step to undo, and another
+// conversation's draft starts the history again whatever it holds.
 
-test('a draft set from outside starts the undo history again; typing after it undoes as usual', async () => {
+test('a cleared draft starts the undo history again; a draft set from outside undoes as one step', async () => {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
   Object.assign(globalThis, {
@@ -26,6 +27,7 @@ test('a draft set from outside starts the undo history again; typing after it un
     const { ComposerField } = await import('./ComposerField')
 
     let draft = ''
+    let scope = 'chat-a'
     const host = document.createElement('div')
     document.body.appendChild(host)
     const root = createRoot(host)
@@ -33,6 +35,7 @@ test('a draft set from outside starts the undo history again; typing after it un
       root.render(
         createElement(ComposerField, {
           value: draft,
+          historyScope: scope,
           onChange: (value: string) => {
             draft = value
           },
@@ -60,16 +63,32 @@ test('a draft set from outside starts the undo history again; typing after it un
     expect(undo(view)).toBe(false)
     expect(view.state.doc.toString()).toBe('')
 
-    // A restored draft is where the history starts, and what is typed after it
-    // undoes back to it, not past it.
+    // A restored draft is one step: what is typed after it undoes back to it,
+    // and the restore itself undoes to the cleared field, never past it.
     draft = 'restored'
     await act(async () => render())
     type(' and more')
     await act(async () => render())
     expect(undo(view)).toBe(true)
     expect(view.state.doc.toString()).toBe('restored')
+    expect(undo(view)).toBe(true)
+    expect(view.state.doc.toString()).toBe('')
     expect(undo(view)).toBe(false)
-    expect(view.state.doc.toString()).toBe('restored')
+
+    // Typing, then a menu's Paste replacing the draft: ⌘Z takes the paste back
+    // and keeps what was typed.
+    type('draft')
+    await act(async () => render())
+    draft = 'draft pasted'
+    await act(async () => render())
+    expect(undo(view)).toBe(true)
+    expect(view.state.doc.toString()).toBe('draft')
+
+    // Another conversation, with the same draft text: nothing of this one's
+    // edits is there to undo.
+    scope = 'chat-b'
+    await act(async () => render())
+    expect(undoDepth(view.state)).toBe(0)
 
     await act(async () => root.unmount())
   } finally {

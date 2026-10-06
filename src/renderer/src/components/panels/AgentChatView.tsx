@@ -3099,6 +3099,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                   ref={composerRef}
                   contentAttributes={{ 'aria-label': `Message ${label}`, ...contextPicker.comboboxProps }}
                   value={draft}
+                  historyScope={`${workspaceId}\0${agentId}`}
                   onBlur={flushDraft}
                   leavesDrop={dataTransferHasDroppableFiles}
                   onPaste={(event, field) => {

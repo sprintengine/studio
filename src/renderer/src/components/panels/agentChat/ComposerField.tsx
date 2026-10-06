@@ -1,5 +1,5 @@
 import React, { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from 'react'
-import { history, historyKeymap, insertNewline, standardKeymap } from '@codemirror/commands'
+import { history, historyKeymap, insertNewline, isolateHistory, standardKeymap } from '@codemirror/commands'
 import {
   deleteMarkupBackward,
   insertNewlineContinueMarkup,
@@ -68,6 +68,8 @@ type Props = {
    *  wiring when a menu is open off the field. */
   contentAttributes?: Record<string, string | boolean | undefined>
   className?: string
+  /** Whose draft the field holds (a conversation). A change starts the undo history again. */
+  historyScope?: string
 }
 
 // An edit that came in through `value` rather than from typing; the update
@@ -264,26 +266,41 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
   // its end, where a textarea given a new value puts it; a caller that wants it
   // elsewhere sets it after.
   //
-  // And the undo history starts again, as a textarea's does when it is given a
-  // value: what was typed before belongs to a draft that is gone, and ⌘Z must
-  // not bring back a message that was already sent. The history is taken out
-  // for the replacement and put back fresh after it, so neither the edits
-  // before nor the replacement itself is there to undo.
-  const { value } = props
+  // A replacement is one step to undo, so ⌘Z takes back a menu's Paste or an @
+  // pick as it would a keystroke. A draft cleared (sent) starts the history
+  // again: ⌘Z must not bring back a message that was already sent. The history
+  // is taken out for the clearing and put back fresh after it, so neither the
+  // edits before nor the clearing itself is there to undo.
+  const { value, historyScope } = props
   useLayoutEffect(() => {
     const view = viewRef.current
     if (!view || value === heldRef.current) return
     heldRef.current = value
     if (view.state.doc.toString() === value) return
+    const cleared = value === ''
     const { history: undoHistory } = compartments.current
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
       selection: EditorSelection.cursor(value.length),
-      annotations: fromProps.of(true),
-      effects: undoHistory.reconfigure([]),
+      // A step of its own: typing straight after it is not merged into it.
+      annotations: [fromProps.of(true), isolateHistory.of('full')],
+      ...(cleared ? { effects: undoHistory.reconfigure([]) } : {}),
     })
-    view.dispatch({ effects: undoHistory.reconfigure(history()) })
+    if (cleared) view.dispatch({ effects: undoHistory.reconfigure(history()) })
   }, [value])
+
+  // Another conversation's draft in the same field starts the history again
+  // too, whatever the two drafts hold: one chat's edits are not the next's to
+  // undo. Runs after the draft above has been swapped in.
+  const scopeRef = useRef(historyScope)
+  useLayoutEffect(() => {
+    const view = viewRef.current
+    if (!view || scopeRef.current === historyScope) return
+    scopeRef.current = historyScope
+    const { history: undoHistory } = compartments.current
+    view.dispatch({ effects: undoHistory.reconfigure([]) })
+    view.dispatch({ effects: undoHistory.reconfigure(history()) })
+  }, [historyScope])
 
   const { placeholder, disabled, contentAttributes } = props
   useLayoutEffect(() => {
