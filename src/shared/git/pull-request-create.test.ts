@@ -55,6 +55,12 @@ test('a remote names its forge by host, and the forges the app does not drive op
     'https://gitlab.example.com:8443/acme/app',
     'a web remote keeps its port',
   )
+  assert.equal(
+    forgeOfRemote('http://gitea.lan:3000/acme/app.git')?.webUrl,
+    'http://gitea.lan:3000/acme/app',
+    'and its scheme: a forge cloned over plain http serves its pages there',
+  )
+  assert.equal(forgeOfRemote('ssh://git@gitea.lan:2222/acme/app.git')?.webUrl, 'https://gitea.lan/acme/app')
   assert.equal(forgeOfRemote('https://codeberg.org/acme/app.git')?.forge, 'gitea')
   assert.equal(forgeOfRemote('git@forgejo.example.com:acme/app.git')?.forge, 'gitea')
   assert.equal(forgeOfRemote('git@bitbucket.org:acme/app.git')?.forge, 'bitbucket')
