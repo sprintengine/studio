@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { access, appendFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -422,11 +422,14 @@ test('an idle slot with ignored files that may be work is not removed until a pe
   assert.match(kept.message ?? '', /\.env/)
   assert.equal(await exists(first.path), true)
   assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
-  // The idle limit leaves it too.
+  // The idle limit leaves it too, and Settings says why.
   await harness.service.updateSettings({ keepIdle: 0 })
-  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+  const idle = await slotAt(harness, 'pool-01')
+  assert.equal(idle.state, 'idle')
+  assert.match(idle.kept ?? '', /^has ignored files .*\.env/)
 
   await harness.service.action({ kind: 'clear-ignored', repoRoot: repo, slotId: 'pool-01' })
+  assert.equal((await slotAt(harness, 'pool-01')).kept, null)
   const removed = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
   assert.equal(removed.ok, true)
   assert.equal(await exists(first.path), false)
@@ -446,6 +449,47 @@ test('an idle slot holding only what tools rebuild (a virtualenv, logs, caches) 
   const removed = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
   assert.equal(removed.ok, true, removed.message ?? '')
   assert.equal(await exists(first.path), false)
+})
+
+test('what the app and the agent CLIs wrote, and a linked node_modules, do not keep an idle slot', async () => {
+  await appendFile(
+    join(repo, '.git', 'info', 'exclude'),
+    '.sprintengine/\n.agents/\n.claude/\n.opencode/\nnode_modules\n',
+  )
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  // A chat's transcript, a skill the app installed, what OpenCode installs
+  // for itself, an empty folder a CLI made, and dependencies linked in.
+  await mkdir(join(first.path, '.sprintengine', 'conversations', 'ws-1'), { recursive: true })
+  await writeFile(join(first.path, '.sprintengine', 'conversations', 'ws-1', 'agent-1.jsonl'), '{}\n')
+  const skill = join(first.path, '.agents', 'skills', 'design-system')
+  await mkdir(skill, { recursive: true })
+  await writeFile(join(skill, 'SKILL.md'), '# design system\n')
+  await writeFile(join(skill, '.sprintengine-skill.json'), '{}\n')
+  await mkdir(join(first.path, '.opencode', 'node_modules', 'plugin'), { recursive: true })
+  await writeFile(join(first.path, '.opencode', 'package.json'), '{}\n')
+  await mkdir(join(first.path, '.claude'), { recursive: true })
+  const shared = join(caseDir, 'shared-node-modules')
+  await mkdir(join(shared, 'left-pad'), { recursive: true })
+  await symlink(shared, join(first.path, 'node_modules'))
+  await returnAll(harness)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+
+  await harness.service.updateSettings({ keepIdle: 0 })
+  assert.equal(await exists(first.path), false)
+  assert.equal(await exists(join(shared, 'left-pad')), true, 'the linked folder itself is untouched')
+})
+
+test('a skill folder the app did not install keeps an idle slot', async () => {
+  await appendFile(join(repo, '.git', 'info', 'exclude'), '.claude/\n')
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await mkdir(join(first.path, '.claude', 'skills', 'mine'), { recursive: true })
+  await writeFile(join(first.path, '.claude', 'skills', 'mine', 'SKILL.md'), '# my own skill\n')
+  await returnAll(harness)
+  await harness.service.updateSettings({ keepIdle: 0 })
+  assert.equal(await exists(first.path), true)
+  assert.match((await slotAt(harness, 'pool-01')).kept ?? '', /\.claude\//)
 })
 
 test('an ignored file where the new base adds a tracked one holds the slot rather than being overwritten', async () => {

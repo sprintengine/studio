@@ -497,6 +497,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         uses: slot.uses,
         lastBranch: slot.lastBranch,
         size: slot.size,
+        kept: slot.kept,
       })),
     }
   }
@@ -746,6 +747,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         uses: 0,
         lastBranch: null,
         size: null,
+        kept: null,
       }
       pool.record.slots.push(created)
       pool.busy.add(created.id)
@@ -1264,6 +1266,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         slot.held = null
         slot.op = null
         slot.error = null
+        slot.kept = null
         slot.lastUsedAt = now()
         await persist(pool)
       })
@@ -1363,10 +1366,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
    * left idle, or held when it turned out to hold work.
    */
   async function evictSlot(pool: PoolRuntime, slot: SlotRecord, why: string): Promise<true | string> {
-    const putBack = async (): Promise<void> => {
+    const putBack = async (kept: string | null = slot.kept): Promise<void> => {
       await withPool(pool, async () => {
         slot.state = 'idle'
         slot.op = null
+        slot.kept = kept
         await persist(pool)
       })
     }
@@ -1424,14 +1428,19 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         // an edited `.env`, notes in an ignored folder (agent-worktree-keep-
         // checks.ts). The slot stays idle; clearing its ignored files, which a
         // person confirms, is the way to let them go.
+        // What the app and the agent CLIs wrote there themselves (transcripts,
+        // installed skills, the MCP config) and a linked `node_modules` are
+        // not: Settings ▸ Worktrees shows why a slot stays.
         const ignored = await ignoredPathsAtRisk(pool.record.repoRoot, slot.path, git)
         if (!ignored.ok || ignored.paths.length > 0) {
-          await putBack()
           if (!ignored.ok) {
+            await putBack('could not check its ignored files')
             log(`${slot.path}: kept (could not check its ignored files: ${ignored.message})`)
             return 'Could not check its ignored files, so it is kept.'
           }
-          const listedPaths = ignored.paths.slice(0, 3).join(', ')
+          const more = ignored.paths.length > 3 ? ` and ${ignored.paths.length - 3} more` : ''
+          const listedPaths = `${ignored.paths.slice(0, 3).join(', ')}${more}`
+          await putBack(`has ignored files that may be someone’s work: ${listedPaths}`)
           log(`${slot.path}: kept (ignored files that may be work: ${listedPaths})`)
           return `It has ignored files that may be someone’s work (${listedPaths}). Clear its ignored files first if they can go.`
         }
@@ -1563,6 +1572,10 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       const cleaned = await git(slot.path, ['clean', '-fdX', '--quiet'])
       if (!cleaned.ok) return { ok: false, message: cleaned.message ?? 'git clean failed.' }
       log(`${slot.path}: ignored files cleared`)
+      await withPool(pool, async () => {
+        slot.kept = null
+        await persist(pool)
+      })
     } finally {
       pool.busy.delete(slot.id)
     }
@@ -1751,6 +1764,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         uses: 0,
         lastBranch: null,
         size: null,
+        kept: null,
       })
       log(`${entry.path}: adopted into the pool (${leased ? 'leased' : 'held'})`)
     }
