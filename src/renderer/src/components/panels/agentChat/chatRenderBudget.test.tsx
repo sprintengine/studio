@@ -171,6 +171,8 @@ async function mountChat(events: ConversationEvent[]) {
   Object.assign(dom.window, { requestAnimationFrame: requestFrame, cancelAnimationFrame: cancelFrame })
   const frames: ((frame: ConversationSessionFrame) => void)[] = []
   let releaseSend: (() => void) | null = null
+  let releaseStart: ((ok?: boolean) => void) | null = null
+  let sessionStarts = 0
   Object.assign(dom.window, {
     matchMedia: () => ({ matches: true, addEventListener: () => undefined, removeEventListener: () => undefined }),
     api: {
@@ -195,20 +197,30 @@ async function mountChat(events: ConversationEvent[]) {
         ],
       }),
       conversationSecretStatus: async () => ({ ok: false, message: 'No secret' }),
-      conversationSessionStart: async () => ({
-        ok: true,
-        session: {
-          sessionId: 'session',
-          workspaceId: 'workspace',
-          agentId: 'agent',
-          providerId: 'mock',
-          modelId: 'mock-model',
-          status: 'ready',
-          createdAt: 1,
-          updatedAt: 1,
-          capabilities: {},
-        },
-      }),
+      // Held until the test lets it go, as a CLI starting up holds it.
+      conversationSessionStart: () =>
+        new Promise((resolve) => {
+          sessionStarts++
+          releaseStart = (ok = true) =>
+            resolve(
+              ok
+                ? {
+                    ok: true,
+                    session: {
+                      sessionId: 'session',
+                      workspaceId: 'workspace',
+                      agentId: 'agent',
+                      providerId: 'mock',
+                      modelId: 'mock-model',
+                      status: 'ready',
+                      createdAt: 1,
+                      updatedAt: 1,
+                      capabilities: {},
+                    },
+                  }
+                : { ok: false, message: 'The CLI did not start.' },
+            )
+        }),
       conversationSessionSendTurn: () =>
         new Promise((resolve) => {
           releaseSend = () => resolve({ ok: true })
@@ -278,6 +290,11 @@ async function mountChat(events: ConversationEvent[]) {
     runFrames,
     emit: (frame: ConversationSessionFrame) => frames.at(-1)?.(frame),
     releaseSend: () => releaseSend?.(),
+    releaseStart: (ok?: boolean) => releaseStart?.(ok),
+    get sessionStarts() {
+      return sessionStarts
+    },
+    transcript: () => host.querySelector('[role="log"]')?.textContent ?? '',
     type: (value: string) => {
       const view = editor()
       view.dispatch({
@@ -425,3 +442,42 @@ test('streaming one long code block parses only its opener per token', async () 
     await chat.unmount()
   }
 }, 120_000)
+
+test('a first message shows in the transcript on Enter, before its session has started', async () => {
+  const chat = await mountChat([])
+  try {
+    await chat.act(async () => chat.type('Why does the cache miss?'))
+    const commitsBefore = chat.counter?.commits ?? 0
+    await chat.act(async () => chat.enter())
+    const enterCommits = (chat.counter?.commits ?? 0) - commitsBefore
+    // On screen from the Enter's own commit, before any frame or IPC answer.
+    expect(chat.transcript()).toContain('Why does the cache miss?')
+    if (chat.counter) expect(enterCommits).toBeLessThanOrEqual(2)
+    await chat.act(async () => chat.runFrames())
+    expect(chat.sessionStarts).toBe(1)
+    if (process.env.CHAT_BENCH_REPORT)
+      process.stderr.write(
+        `\nSEND visible=${chat.transcript().includes('Why does the cache miss?')} commits=${(chat.counter?.commits ?? 0) - commitsBefore}\n`,
+      )
+    expect(chat.transcript()).toContain('Why does the cache miss?')
+    await chat.act(async () => chat.releaseStart())
+    await chat.settle()
+    expect(chat.transcript()).toContain('Why does the cache miss?')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a first message whose session will not start leaves the transcript and goes back to the composer', async () => {
+  const chat = await mountChat([])
+  try {
+    await chat.act(async () => chat.type('Why does the cache miss?'))
+    await chat.act(async () => chat.enter())
+    await chat.act(async () => chat.releaseStart(false))
+    await chat.settle()
+    expect(chat.transcript()).not.toContain('Why does the cache miss?')
+    expect(chat.host.querySelector('.cm-content')?.textContent).toContain('Why does the cache miss?')
+  } finally {
+    await chat.unmount()
+  }
+})
