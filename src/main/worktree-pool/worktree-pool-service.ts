@@ -22,6 +22,7 @@ import {
   pathSpellings,
 } from '../agent-worktree-keep-checks'
 import { pathExists } from '../git-utils'
+import { GIT_NETWORK_TIMEOUT_MS } from '../git-run'
 import { withWorktreeRegistryLock } from '../worktree-registry-lock'
 import { measureDiskUsage, type MeasureDiskUsage } from './disk-usage'
 import {
@@ -935,13 +936,18 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
             await persist(pool)
           })
         }
+        // Both talk to a remote, and the new chat waits on them: each has the
+        // network deadline, and one that runs out is a note on the slot (the
+        // agent can run it again), not a failed lease.
         const notes: string[] = []
         if (await hasFile(slot.path, '.gitmodules')) {
-          const modules = await git(slot.path, ['submodule', 'update', '--init', '--recursive'])
+          const modules = await git(slot.path, ['submodule', 'update', '--init', '--recursive'], {
+            timeoutMs: GIT_NETWORK_TIMEOUT_MS,
+          })
           if (!modules.ok) notes.push(`submodules: ${tail(modules.message, 200)}`)
         }
         if (await usesLfs(slot.path)) {
-          const lfs = await git(slot.path, ['lfs', 'pull'])
+          const lfs = await git(slot.path, ['lfs', 'pull'], { timeoutMs: GIT_NETWORK_TIMEOUT_MS })
           if (!lfs.ok) notes.push(`lfs: ${tail(lfs.message, 200)}`)
         }
         // `.worktreeinclude` names ignored files (an `.env`) the tree needs; a

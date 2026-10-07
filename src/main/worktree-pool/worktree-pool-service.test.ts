@@ -970,6 +970,25 @@ test('after a failed fetch, leases fork from the ref as it stands without trying
   assert.equal(third.baseNote, null)
 })
 
+test('a lease’s submodule update and LFS pull run under a deadline, and failing is a note, not a failed lease', async () => {
+  await pushToOrigin('.gitmodules', '')
+  await pushToOrigin('.gitattributes', '*.bin filter=lfs diff=lfs merge=lfs -text\n')
+  const deadlines = new Map<string, number | null | undefined>()
+  const recording: SlotGitRunner = (cwd, args, options) => {
+    if (args[0] === 'submodule' || args[0] === 'lfs') {
+      deadlines.set(args[0], options?.timeoutMs)
+      // As a run past its deadline answers.
+      return Promise.resolve({ ok: false, stdout: '', stderr: '', message: `${args[0]} did not finish` })
+    }
+    return defaultSlotGitRunner(cwd, args, options)
+  }
+  const harness = makeService({ git: recording })
+  const leased = await lease(harness, 'with-modules')
+  assert.ok((deadlines.get('submodule') ?? 0) > 0, 'submodule update has a deadline')
+  assert.ok((deadlines.get('lfs') ?? 0) > 0, 'lfs pull has a deadline')
+  assert.match((await slotAt(harness, leased.slotId)).error ?? '', /submodules: .*; lfs: /)
+})
+
 test('a fresh worktree made because the pool declined forks from the base the pool already fetched', async () => {
   // A ref only the pool names: the fresh path's own lookup would say origin/main.
   await git(repo, 'update-ref', 'refs/remotes/origin/pool-base', 'HEAD')
