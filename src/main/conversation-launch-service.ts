@@ -64,6 +64,8 @@ import { agentWorktreePaths, newChatWorktreeName, workspaceProjectRootOf } from 
 import type { WorkspaceWorktree } from '../renderer/src/types/workspace'
 import type { WorkspaceCreateRequest } from './workspace-registry-service'
 import { isMachinePath } from '../shared/machine-paths'
+import { PROJECT_REPOSITORIES_WORKTREE_REASON } from '../shared/project-repositories'
+import { discoverProjectRepositories } from './project-repositories'
 import {
   effectiveAgentLaunchSettings,
   resolveAgentSpawnPermission,
@@ -299,6 +301,11 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
     const hostId = workspace.hostId ?? null
     const repoRoot = await deps.getRepoRoot(projectFolder, hostId).catch(() => null)
     if (!repoRoot) {
+      // A folder of several repositories is not "not a repository" to the
+      // person who opened it, so it is refused in the words the New chat
+      // composer uses (docs/design/multi-repo-projects.md).
+      if (discoverProjectRepositories(projectFolder))
+        return { ok: false, message: PROJECT_REPOSITORIES_WORKTREE_REASON }
       return {
         ok: false,
         message: `${projectFolder} is not a git repository, so a worktree cannot be created. Start the chat without one.`,

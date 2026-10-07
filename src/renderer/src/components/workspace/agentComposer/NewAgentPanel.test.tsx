@@ -601,6 +601,49 @@ test('NewAgentPanel', async () => {
       }
     })
 
+    // 1f. A folder of several repositories looks as if it could have a
+    //     worktree, so the chip stays, disabled and saying why, and the launch
+    //     carries none.
+    await check('in a folder of several repositories the chip is disabled and says why', async () => {
+      seedStore()
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      const gitRepoRoot = api.getGitRepoRoot
+      api.getGitRepoRoot = async () => null
+      api.getProjectRepositories = async (folderPath: string) => ({
+        root: folderPath,
+        source: { kind: 'children' },
+        repositories: [
+          { path: `${folderPath}/api`, relativePath: 'api', name: 'api' },
+          { path: `${folderPath}/web`, relativePath: 'web', name: 'web' },
+        ],
+        truncated: false,
+      })
+      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      writeNewChatDraft('win-1', { prompt: 'add the field to both', folderPath: '/w/acme' })
+      try {
+        const view = await render({ draftKey: 'win-1' })
+        const chip = view.container.querySelector('[data-worktree-chip]')
+        assert.equal(chip?.getAttribute('data-worktree-chip'), 'unavailable', 'the chip stays, unavailable')
+        const button = chip?.querySelector('button')
+        assert.equal(button?.disabled, true, 'and cannot be turned on')
+        assert.match(button?.getAttribute('aria-label') ?? '', /several repositories/, 'it says why')
+        const start = [...view.container.querySelectorAll('button')].find(
+          (candidate) => candidate.getAttribute('aria-label') === 'Start agent',
+        )
+        await act(async () => {
+          start!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        assert.equal(view.launches.length, 1, 'the chat still starts')
+        assert.equal('worktree' in view.launches[0]!, false, 'in the project folder, with no worktree')
+        view.unmount()
+      } finally {
+        api.getGitRepoRoot = gitRepoRoot
+        delete api.getProjectRepositories
+        resetNewChatDraftsForTests()
+      }
+    })
+
     // 2b. Picking a plain Terminal drops every CLI-shaped control: a shell
     //     launches no CLI, so it shows no model, no permission flag and no
     //     command line.

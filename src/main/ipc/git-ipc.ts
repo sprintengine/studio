@@ -8,6 +8,7 @@ import { isAbsolute, join } from 'path'
 import { diffBranchSelection, listBranchSteps, readFileAtRev } from '../branch-steps'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import { readRepositoryIdentityRead } from '../repository-identity'
+import { discoverProjectRepositories } from '../project-repositories'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
 import type { AgentWorktreeCleanupInput, BranchStepSelection } from '../../shared/electron-api'
 import { cleanupAgentWorktreesOnce } from '../agent-worktree-cleanup'
@@ -180,6 +181,18 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
   ipcMain.handle('git:get-repository-identity', async (_, folderPath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-repository-identity', { folderPath }, () =>
       readRepositoryIdentityRead(folderPath),
+    )
+  })
+
+  // The repositories a project folder holds when it is not one itself
+  // (docs/design/multi-repo-projects.md): the Git panel's Repository row and
+  // the New chat composer's worktree chip. A directory listing and a few
+  // `lstat`s, cached in the module; no git process.
+  ipcMain.handle('git:get-project-repositories', async (_, folderPath: string, options?: { refresh?: boolean }) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-project-repositories', { folderPath }, async () =>
+      discoverProjectRepositories(typeof folderPath === 'string' ? folderPath : null, {
+        refresh: options?.refresh === true,
+      }),
     )
   })
 
