@@ -483,9 +483,14 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   async function ready(pool: PoolRuntime): Promise<boolean> {
     if (stopped) return false
     if (!(await holdInstance(pool))) return false
-    pool.recovered ??= recoverPool(pool).catch((error: unknown) =>
-      log(`${pool.record.repoRoot}: recovery failed: ${messageOf(error)}`),
-    )
+    if (!pool.recovered) {
+      const recovering: Promise<void> = recoverPool(pool).catch((error: unknown) => {
+        log(`${pool.record.repoRoot}: recovery failed: ${messageOf(error)}; it is tried again at the next use`)
+        // Not remembered as done: a dead run's slots would stay as it left them.
+        if (pool.recovered === recovering) pool.recovered = null
+      })
+      pool.recovered = recovering
+    }
     await pool.recovered
     return true
   }
@@ -1735,7 +1740,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   async function recoverPool(pool: PoolRuntime): Promise<void> {
     const record = pool.record
     const listed = await git(record.repoRoot, ['worktree', 'list', '--porcelain'])
-    if (!listed.ok) return
+    if (!listed.ok) throw new Error(`git worktree list failed: ${tail(listed.message, 200) ?? 'no reason given'}`)
     const registered = new Map<string, { path: string; locked: string | null; branch: string | null }>()
     let current: { path: string; locked: string | null; branch: string | null } | null = null
     for (const line of listed.stdout.split(/\r?\n/u)) {

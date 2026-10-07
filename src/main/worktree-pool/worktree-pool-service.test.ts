@@ -997,6 +997,24 @@ test('a lease’s submodule update and LFS pull run under a deadline, and failin
   assert.match((await slotAt(harness, leased.slotId)).error ?? '', /submodules: .*; lfs: /)
 })
 
+test('a recovery that failed is tried again at the next use, not remembered as done', async () => {
+  let listings = 0
+  const flaky: SlotGitRunner = (cwd, args, options) => {
+    if (args[0] === 'worktree' && args[1] === 'list') {
+      listings += 1
+      if (listings === 1) return Promise.resolve({ ok: false, stdout: '', stderr: '', message: 'volume busy' })
+    }
+    return defaultSlotGitRunner(cwd, args, options)
+  }
+  const harness = makeService({ git: flaky })
+  await lease(harness, 'first')
+  assert.equal(listings, 1)
+  await lease(harness, 'second')
+  assert.equal(listings, 2, 'recovery ran again')
+  await lease(harness, 'third')
+  assert.equal(listings, 2, 'and, once it succeeded, not again')
+})
+
 test('a fresh worktree made because the pool declined forks from the base the pool already fetched', async () => {
   // A ref only the pool names: the fresh path's own lookup would say origin/main.
   await git(repo, 'update-ref', 'refs/remotes/origin/pool-base', 'HEAD')
