@@ -28,6 +28,7 @@ import {
 } from './codex-json-rpc'
 import { explainCodexInitializeTimeout, isCodexInitializeTimeout } from './codex-start-failure'
 import { conversationCommandsFor, publishConversationCommands } from '../conversation-commands/registry'
+import { projectRepositoriesHostContext } from '../project-repositories'
 import { CODEX_COMPACT_COMMAND, codexCompactRequest, codexConversationCommands } from '../conversation-commands/codex'
 import type { ConversationCommand } from '../../shared/conversation/commands'
 import { codexPlanInput, codexTool, codexToolResult } from './codex-items'
@@ -847,8 +848,13 @@ export function createCodexConversationProvider(
         if (account.requiresOpenaiAuth === true && !account.account)
           throw new Error('Codex is not logged in. Run codex login in a terminal, then retry.')
         const policy = codexPermissionPolicy(state.input.permissionPreset, state.input.permissionMode)
+        // In a folder of several repositories, which ones and to run git in
+        // each; set only there, so every other thread starts as it did. Not on
+        // WSL, where these would be this computer's paths.
+        const developerInstructions = wsl ? null : projectRepositoriesHostContext(state.input.workspaceRoot)
         const threadParams = {
           cwd: state.input.workspaceRoot === undefined ? undefined : hostCwd(state.input.workspaceRoot, wsl),
+          ...(developerInstructions ? { developerInstructions } : {}),
           ...(state.input.modelId !== CONVERSATION_DEFAULT_MODEL_ID ? { model: state.input.modelId } : {}),
           ...(policy.approvalPolicy
             ? {

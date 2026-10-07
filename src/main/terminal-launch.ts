@@ -34,6 +34,7 @@ import { resolveAgentStateSocketPath } from './agent-state-service'
 import { installedStudioPlatform, studioPlatform } from '../server/platform/platform'
 import { getPluginManifest } from './plugin-registry-instance'
 import { getColorScheme } from './color-scheme-store'
+import { discoverProjectRepositories } from './project-repositories'
 import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
 import { AGENT_IDENTITY_ENV_KEYS, MCP_CHANNEL_TOKEN_ENV, studioEnvEntry, withoutStudioEnv } from '../shared/studio-env'
 import { withoutInheritedSessionEnv } from './inherited-session-env'
@@ -1135,6 +1136,9 @@ export function resolveHostContextDelivery(input: {
     // worth putting in their words; those CLIs learn the editor tools from the
     // tool descriptions and the studio-workspaces skill instead.
     ...(input.editorTools && mode !== 'prompt' ? { editorTools: true } : {}),
+    // A folder holding several repositories, not being one: the agent is told
+    // which, and to run git in each (docs/design/multi-repo-projects.md).
+    projectRepositories: discoverProjectRepositories(input.cwd),
   })
   if (!document || mode === 'prompt') return { mode, document, filePath: null }
   if (input.onHost) {

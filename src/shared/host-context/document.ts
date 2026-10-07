@@ -26,6 +26,7 @@
 import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../design-system/attach'
 import { STUDIO_PRODUCT_NAME } from '../product-identity'
 import { knowledgeLaunchContext } from '../project-knowledge'
+import { projectRepositoriesInstructions, type ProjectRepositories } from '../project-repositories'
 
 /**
  * The first line of every host-context document, in every mode.
@@ -70,6 +71,12 @@ export type HostContextInput = {
    * connection. Absent for a plain launch, whose document is unchanged.
    */
   editorTools?: boolean
+  /**
+   * The repositories the launch folder holds when it is not one itself
+   * (`docs/design/multi-repo-projects.md`). Absent or null for every other
+   * folder, whose document is unchanged.
+   */
+  projectRepositories?: ProjectRepositories | null
 }
 
 /**
@@ -111,6 +118,11 @@ export function buildHostContextDocument(input: HostContextInput): string | null
 
   if (input.editorTools) {
     sections.push(['## Showing files and diffs', '', EDITOR_TOOLS_HOST_CONTEXT_SECTION].join('\n'))
+  }
+
+  const repositories = projectRepositoriesInstructions(input.projectRepositories ?? null)
+  if (repositories) {
+    sections.push(['## Repositories', '', repositories].join('\n'))
   }
 
   if (sections.length === 0) return null

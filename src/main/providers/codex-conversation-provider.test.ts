@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { expect, test, vi } from 'vitest'
 import {
@@ -1680,4 +1683,37 @@ test('a seeded Codex fork says when Codex took its conversation, and a refused s
   const starts = f.calls.filter((call) => call.method === 'turn/start')
   expect(JSON.stringify(starts.at(-1)?.params)).toContain('persisted question')
   expect(f.events.filter((event) => event.payload?.historySeeded === true)).toHaveLength(1)
+})
+
+test('a thread in a folder of several repositories is told which, and any other thread is not', async () => {
+  const acme = mkdtempSync(join(tmpdir(), 'codex-project-repositories-'))
+  try {
+    for (const name of ['api', 'web']) mkdirSync(join(acme, name, '.git'), { recursive: true })
+    const f = fixture()
+    await f.adapter.startSession({ ...f.input, workspaceRoot: acme })
+    const done = f.send()
+    await f.started
+    const params = f.calls.find((call) => call.method === 'thread/start')?.params as {
+      developerInstructions?: string
+    }
+    expect(params.developerInstructions).toMatch(/^## Repositories$/mu)
+    expect(params.developerInstructions).toMatch(/^- `api\/`$/mu)
+    await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+    await done
+
+    const plain = fixture()
+    await plain.adapter.startSession(plain.input)
+    const plainDone = plain.send()
+    await plain.started
+    expect(plain.calls.find((call) => call.method === 'thread/start')?.params).not.toHaveProperty(
+      'developerInstructions',
+    )
+    await plain.message({
+      method: 'turn/completed',
+      params: { threadId: 'native-thread', turn: { status: 'completed' } },
+    })
+    await plainDone
+  } finally {
+    rmSync(acme, { recursive: true, force: true })
+  }
 })

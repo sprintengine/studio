@@ -1,6 +1,7 @@
 import { lstatSync, readdirSync, readFileSync, realpathSync, statSync, type Dirent } from 'fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 
+import { buildHostContextDocument } from '../shared/host-context/document'
 import {
   PROJECT_REPOSITORY_LIMIT,
   type ProjectRepositories,
@@ -278,4 +279,14 @@ function withoutTrailingCommas(text: string): string {
     index++
   }
   return out
+}
+
+/**
+ * What a chat started in `folder` is told about the repositories it holds: the
+ * host-context document with only its Repositories section, so a chat reads
+ * the same words, under the same boundary line, as a terminal agent does. Null
+ * for every folder that is not a project of several repositories.
+ */
+export function projectRepositoriesHostContext(folder: string | null | undefined): string | null {
+  return buildHostContextDocument({ projectRepositories: discoverProjectRepositories(folder) })
 }

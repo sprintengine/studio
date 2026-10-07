@@ -3569,3 +3569,38 @@ test('an ask bypass would still have made is marked as one no mode answers', asy
     await h.adapter.disposeAll()
   }
 })
+
+test('a Claude chat in a folder of several repositories is told which, after the project instructions', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'claude-project-repositories-'))
+  const acme = join(root, 'acme')
+  const tempDir = join(root, 'tmp')
+  await mkdir(join(acme, 'api', '.git'), { recursive: true })
+  await mkdir(join(acme, 'web', '.git'), { recursive: true })
+  await mkdir(tempDir)
+  await writeFile(join(acme, 'CLAUDE.md'), 'Keep the API and the page in step.')
+  const { adapter, queries } = skillsHarness(tempDir)
+  const turn: MockAdapterTurnInput = {
+    sessionId: 'conv_1',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: CLAUDE_AGENT_PROVIDER_ID,
+    modelId: 'sonnet',
+    workspaceRoot: acme,
+    turnId: 'turn_1',
+    requestId: 'approval_turn_1',
+    message: 'hello',
+  }
+  try {
+    await adapter.startSession(turn)
+    await drain(await adapter.sendTurn(turn))
+    const append = (queries[0]?.systemPrompt as { append?: string } | undefined)?.append ?? ''
+    assert.match(append, /Keep the API and the page in step\./u)
+    assert.match(append, /^## Repositories$/mu)
+    assert.match(append, /^- `api\/`$/mu)
+    assert.match(append, /^- `web\/`$/mu)
+    assert.ok(append.indexOf('Keep the API') < append.indexOf('## Repositories'), 'the project speaks first')
+  } finally {
+    await adapter.disposeAll()
+    await rm(root, { recursive: true, force: true })
+  }
+})

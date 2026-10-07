@@ -133,3 +133,24 @@ test('an agent bound to a workspace is told when to open files instead of pastin
   // A launch without the tools says nothing new.
   assert.equal(buildHostContextDocument({ editorTools: false }), null)
 })
+
+test('a project of several repositories gets a Repositories section, and nothing else changes', () => {
+  const projectRepositories = {
+    root: '/Users/dev/acme',
+    source: { kind: 'children' as const },
+    repositories: [
+      { path: '/Users/dev/acme/api', relativePath: 'api', name: 'api' },
+      { path: '/Users/dev/acme/web', relativePath: 'web', name: 'web' },
+    ],
+    truncated: false,
+  }
+  const doc = buildHostContextDocument({ projectRepositories })
+  assert.ok(doc)
+  assert.equal(doc.split('\n')[0], HOST_CONTEXT_BOUNDARY_LINE)
+  assert.match(doc, /^## Repositories$/mu)
+  assert.match(doc, /^- `api\/`$/mu)
+  assert.match(doc, /git -C <repository> status/u)
+  // No repositories, no section: a plain folder's launch is unchanged.
+  assert.equal(buildHostContextDocument({ projectRepositories: null }), null)
+  assert.equal(buildHostContextDocument({ projectRepositories: { ...projectRepositories, repositories: [] } }), null)
+})
