@@ -54,7 +54,7 @@ import {
   sortFiles,
   type DroppedFiles,
 } from '../../utils/imageFileTransfer'
-import { attachedFileName, attachedFilePaths, attachedFilesOf, workspaceRunsHere } from '../../utils/attachedFiles'
+import { attachedFileName, attachedFilesOf, workspaceRunsHere } from '../../utils/attachedFiles'
 import {
   attachmentCountLabel,
   attachmentPreviewUrl,
@@ -179,7 +179,7 @@ import { CompactGlyph } from './agentChat/toolRows/ToolKindGlyph'
 import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
 import { TimelineRow, type TimelineChrome } from './agentChat/timelineRows'
 import { UnreadDivider } from './agentChat/turnMeta'
-import type { EditFromHereDraft } from './agentChat/editFromHere'
+import { editFromHereDraft, type EditFromHereDraft } from './agentChat/editFromHere'
 import { forkChat, takeForkedAttachments, type ForkFromHereTarget } from './agentChat/forkFromHere'
 import { EmptyChatState, ReadinessState, readinessLabel, type ChatReadiness } from './agentChat/chatStates'
 import { ComposerActionButton, ComposerContextMenu, type ComposerMenuState } from './agentChat/composerControls'
@@ -293,6 +293,11 @@ const END_FOLLOW_TRIGGERS = { dataChange: true, itemLayout: true, layout: true }
 // Said on the composer when a settled chat's worktree could not be checked out
 // again; the toast that came with it says why (chatWorktreeRestore.ts).
 const WORKTREE_NOT_BACK = 'This chat’s worktree could not be brought back, so nothing can run in it.'
+
+// What Retry sends when the failed turn answered news Studio brought the chat:
+// the person asking the agent to carry on, in their own words, rather than the
+// news repeated as though they were reporting it.
+const RETRY_AFTER_STUDIO_NOTICE = 'Continue.'
 
 // Stable empty-catalog reference: returned for any provider whose live catalog
 // has not loaded so effects keyed on the derived list do not re-run each render.
@@ -2102,25 +2107,36 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
 
   // Retry re-sends the last user message. The projection's entries are the
   // authoritative source — after an app restart the message only exists in the
-  // replayed transcript, not in the local userTurns state.
+  // replayed transcript, not in the local userTurns state. Its images are read
+  // back from the store the transcript names them in, as Edit from here does:
+  // a stored message carries refs rather than the bytes, and an image-only
+  // message would otherwise retry as nothing at all.
   //
-  // When that message was Studio's own (a resume after a usage limit), the
-  // retry is the person asking the agent to carry on, and goes as theirs: a
-  // window cannot send as Studio, and repeating Studio's name in front would
-  // tell the agent Studio was speaking when the person was.
-  const retryLatestRef = useRef<() => void>(() => undefined)
-  retryLatestRef.current = () => {
+  // When that message was Studio's own, the retry is the person asking the
+  // agent to carry on, and goes as theirs: a window cannot send as Studio, and
+  // repeating Studio's name in front would tell the agent Studio was speaking
+  // when the person was. A resume after a usage limit already is that ask, so
+  // its words go without the name. A launched agent's news is not: sent as the
+  // person's, it would have them reporting what another agent did, so its
+  // retry is the plain ask to carry on.
+  const retryLatestRef = useRef<() => Promise<void>>(async () => undefined)
+  retryLatestRef.current = async () => {
     const lastUser = [...projection.entries]
       .reverse()
       .find((entry): entry is Extract<TranscriptEntry, { kind: 'user' }> => entry.kind === 'user')
-    if (lastUser)
-      void sendTurn(lastUser.origin ? withoutStudioNoticePrefix(lastUser.text) : lastUser.text, lastUser.attachments, {
-        skillIds: lastUser.skills ?? [],
-        mentions: lastUser.mentions ?? [],
-        files: attachedFilePaths(lastUser.files),
-      })
+    if (!lastUser) return
+    if (lastUser.origin && lastUser.origin.reason !== 'usage-resume') {
+      void sendTurn(RETRY_AFTER_STUDIO_NOTICE)
+      return
+    }
+    const message = await editFromHereDraft(lastUser, transport)
+    void sendTurn(lastUser.origin ? withoutStudioNoticePrefix(message.text) : message.text, message.attachments, {
+      skillIds: message.skills,
+      mentions: message.mentions,
+      files: message.files,
+    })
   }
-  const retry = useCallback(() => retryLatestRef.current(), [])
+  const retry = useCallback(() => void retryLatestRef.current(), [])
   // The composer's Retry repeats the send that failed. A failed send hands its
   // message back to the composer, so when the composer still holds it the retry
   // goes from there and empties it, as the first attempt did; edited since, the

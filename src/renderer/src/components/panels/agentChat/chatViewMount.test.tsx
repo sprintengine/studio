@@ -2026,3 +2026,64 @@ test('Retry after a failed resume from Studio asks again as the person, without 
     await chat.unmount()
   }
 })
+
+test('Retry after a failed turn on a launched agent’s news asks to carry on, rather than repeat the news as the person’s', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({
+    events: [
+      event('user_message', {
+        turnId: 't1',
+        text: '[SprintEngine Studio] Agent Builder, which you launched, finished its turn.',
+        origin: { kind: 'studio', reason: 'agent-notice' },
+      }),
+      event('turn_started', { turnId: 't1' }),
+      event('turn_failed', { turnId: 't1', reason: 'runtime' }),
+    ],
+    sendTurn,
+  })
+  try {
+    const retry = chat.button('Retry')
+    expect(retry, 'the failed turn offers Retry').toBeDefined()
+    await chat.act(async () => retry!.click())
+    expect(sendTurn).toHaveBeenCalledTimes(1)
+    expect(sendTurn.mock.calls[0]?.[0]).toMatchObject({ message: 'Continue.' })
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('Retry re-sends a failed message’s stored images', async () => {
+  const sent: Record<string, unknown>[] = []
+  const attachment = vi.fn(async () => ({ ok: true, mediaType: 'image/png', dataBase64: 'iVBORw0KGgo=' }))
+  const chat = await mountChat({
+    capabilities: { images: true },
+    sendTurn: async (input) => {
+      sent.push(input as Record<string, unknown>)
+      return { ok: true }
+    },
+    api: { conversationAttachment: attachment },
+    events: [
+      // Image-only: the stored message names its picture and carries no words.
+      event('user_message', {
+        turnId: 't1',
+        text: '',
+        attachments: [{ id: 'img-1', mediaType: 'image/png', ref: 'sha256-abc', byteLength: 8, name: 'shot.png' }],
+      }),
+      event('turn_started', { turnId: 't1' }),
+      event('turn_failed', { turnId: 't1', reason: 'runtime', message: 'Overloaded' }),
+    ],
+  })
+  try {
+    const retry = chat.button('Retry')
+    expect(retry, 'a Retry is offered').toBeDefined()
+    await chat.act(async () => retry!.click())
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(attachment).toHaveBeenCalledWith(expect.objectContaining({ ref: 'sha256-abc' }))
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.attachments).toEqual([
+      { id: 'img-1', mediaType: 'image/png', dataBase64: 'iVBORw0KGgo=', byteLength: 8, name: 'shot.png' },
+    ])
+  } finally {
+    await chat.unmount()
+  }
+})
