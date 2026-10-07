@@ -253,6 +253,7 @@ import type { ConversationCommandsRequest } from './ipc/conversation-commands'
 import type { ConversationCommandCatalog } from './conversation/commands'
 import type { UsageLimitsState } from './usage-limits'
 import type { UsageLimitResumeState, UsageLimitResumeUpdate } from './usage-limit-resume'
+import type { ScheduledMessagesState, ScheduledMessageUpdate } from './scheduled-messages'
 import type {
   AgentLaunchPreviewInput,
   AgentLaunchPreviewResult,
@@ -1564,6 +1565,11 @@ export type ElectronApi = {
   usageLimitResumes: () => Promise<UsageLimitResumeState>
   updateUsageLimitResume: (update: UsageLimitResumeUpdate) => Promise<UsageLimitResumeState>
   onUsageLimitResumesChanged: (listener: (state: UsageLimitResumeState) => void) => () => void
+  // The messages a person scheduled into a chat from its composer's "+", sent
+  // when their time comes (src/main/scheduled-messages), and every change after.
+  scheduledMessages: () => Promise<ScheduledMessagesState>
+  updateScheduledMessage: (update: ScheduledMessageUpdate) => Promise<ScheduledMessagesState>
+  onScheduledMessagesChanged: (listener: (state: ScheduledMessagesState) => void) => () => void
   // One-shot text generation on the person's own agent CLI (their login, no
   // API key): today the chat title from a first prompt. Never rejects — a
   // failure is a typed `{ ok: false }` the caller answers by keeping what it

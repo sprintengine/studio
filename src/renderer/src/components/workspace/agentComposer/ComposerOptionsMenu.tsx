@@ -25,8 +25,9 @@ import type { AgentComposerSelection } from './useAgentComposer'
 //
 // Every row is a feature the panel already had: "Start as" is the launch kind,
 // Attach files the image attachment the box takes by paste and drop, Skills,
-// plugins & MCPs the picker that was a chip on the row, and Schedule the
-// Scheduled agents module. A row whose feature is not there is not drawn.
+// plugins & MCPs the picker that was a chip on the row, and Schedule sends the
+// message later — in New chat through the Scheduled agents module, in an open
+// chat as a scheduled message. A row whose feature is not there is not drawn.
 
 export type StartAs = AgentComposerSelection['kind']
 
@@ -146,14 +147,22 @@ export function ComposerOptions({
           <MenuOption
             role="menuitemcheckbox"
             selected={schedule.on}
-            stacked
+            stacked={schedule.disabled !== null}
             disabled={schedule.disabled !== null}
             data-menu-item="true"
             data-composer-schedule="true"
             tabIndex={-1}
-            icon={<ScheduleGlyph className="mt-0.5 icon-sm shrink-0 text-[color:var(--text-muted)]" />}
+            icon={
+              <ScheduleGlyph
+                className={`${schedule.disabled !== null ? 'mt-0.5 ' : ''}icon-sm shrink-0 text-[color:var(--text-muted)]`}
+              />
+            }
             trailing={
-              schedule.on ? <CheckIcon className="mt-0.5 icon-xs shrink-0 text-[color:var(--accent-primary)]" /> : null
+              schedule.on ? (
+                <CheckIcon
+                  className={`${schedule.disabled !== null ? 'mt-0.5 ' : ''}icon-xs shrink-0 text-[color:var(--accent-primary)]`}
+                />
+              ) : null
             }
             onClick={() => {
               schedule.onToggle()
@@ -161,9 +170,10 @@ export function ComposerOptions({
             }}
           >
             <span className="block text-body font-medium">Schedule</span>
-            <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">
-              {schedule.disabled ?? 'Makes a scheduled agent, not a chat'}
-            </span>
+            {/* Only why it cannot be picked now: what it does is the row's word. */}
+            {schedule.disabled !== null ? (
+              <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{schedule.disabled}</span>
+            ) : null}
           </MenuOption>
         </>
       ) : null}

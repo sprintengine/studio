@@ -111,6 +111,7 @@ import {
 } from '../../../../../shared/extension-scaffold'
 import { ScheduleSlashPicker, type ScheduleSlashPickerHandle } from './schedule/ScheduleSlashPicker'
 import { localTimeZone } from './schedule/scheduleEditor'
+import { defaultSendAt, sendTimeWords } from './schedule/sendTime'
 import { rememberSchedule } from './schedule/recentSchedules'
 import { selectModuleEnabled } from '../../../modules'
 import {
@@ -523,6 +524,9 @@ export default function NewAgentPanel({
   const [mode, setMode] = React.useState<NewAgentPanelMode>(editing ? 'scheduled' : initialMode)
   const extensionMode = mode === 'extension'
   const [cron, setCron] = React.useState(() => editing?.schedule.cron ?? DEFAULT_SCHEDULED_AGENT_CRON)
+  // A one-time schedule's moment, or null for the cron's repeats. Scheduling
+  // from the "+" starts here, at the next whole hour: the prompt, sent later.
+  const [once, setOnce] = React.useState<number | null>(() => editing?.schedule.once ?? null)
   // Written in this computer's zone: the scheduler runs here, on its clock.
   const [scheduleTimezone] = React.useState(() => editing?.schedule.timezone ?? localTimeZone())
   const scheduledAgentsEnabled = useWorkspaceStore((s) =>
@@ -1211,6 +1215,7 @@ export default function NewAgentPanel({
     setPrompt((current) => current.replace(SCHEDULE_COMMAND, '').trimEnd())
     setMode('scheduled')
     setCron(picked.cron)
+    setOnce(null)
     promptRef.current?.focus()
   }, [])
 
@@ -1433,11 +1438,15 @@ export default function NewAgentPanel({
       promptRef.current?.focus()
       return
     }
+    if (once !== null && once <= Date.now()) {
+      showToast({ tone: 'warn', title: 'Pick a time ahead', description: 'That time has already passed.' })
+      return
+    }
     const confirm = buildLaunchConfirm(selection)
     if (confirm.kind !== 'conversation' || !confirm.cli) return
     const draftRecord: ScheduledAgentDraft = {
       prompt: body,
-      schedule: { cron, timezone: scheduleTimezone },
+      schedule: { cron, timezone: scheduleTimezone, ...(once !== null ? { once } : {}) },
       folderPath: folder,
       // This PC is kept only where the folder would say otherwise.
       hostId: hostIdToRecord(hostId, folder) ?? null,
@@ -1459,7 +1468,7 @@ export default function NewAgentPanel({
         showToast({ tone: 'error', title: editing ? 'Not saved' : 'Not scheduled', description: result.message })
         return
       }
-      rememberSchedule(cron)
+      if (once === null) rememberSchedule(cron)
       onScheduled?.(result.agent)
     } catch (error) {
       showToast({
@@ -1856,7 +1865,14 @@ export default function NewAgentPanel({
             : selection.kind !== 'conversation'
               ? 'Only a conversation can run on a schedule'
               : null,
-          onToggle: () => setMode(scheduled ? 'chat' : 'scheduled'),
+          onToggle: () => {
+            if (scheduled) {
+              setMode('chat')
+              return
+            }
+            setOnce(defaultSendAt(Date.now()))
+            setMode('scheduled')
+          },
         }
       : undefined
 
@@ -2150,9 +2166,12 @@ export default function NewAgentPanel({
             {/* The tags: each choice the "+" made that is not the default. */}
             {scheduled ? (
               <ScheduleTag
-                cron={cron}
+                schedule={{ cron, once }}
                 timezone={scheduleTimezone}
-                onChange={setCron}
+                onChange={(next) => {
+                  setCron(next.cron)
+                  setOnce(next.once)
+                }}
                 onRemove={editing ? undefined : () => setMode('chat')}
               />
             ) : null}
@@ -2254,6 +2273,8 @@ export default function NewAgentPanel({
                 scheduled ? (
                   editing ? (
                     'Save the prompt, schedule and settings'
+                  ) : once !== null ? (
+                    `Starts a new ${engineNames.cliLabel} chat with this prompt once, ${sendTimeWords(once, Date.now())}`
                   ) : (
                     `Starts a new ${engineNames.cliLabel} chat with this prompt each time the schedule comes round`
                   )

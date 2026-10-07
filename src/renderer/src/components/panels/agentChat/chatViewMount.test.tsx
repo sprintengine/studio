@@ -1777,9 +1777,83 @@ test('the composer row is the New chat’s: the "+" opens attach and skills, wit
     const menu = chat.dom.window.document.querySelector('[role="menu"][aria-label="Options"]')
     expect(menu?.textContent).toContain('Attach files')
     expect(menu?.textContent).toContain('Skills, plugins & MCPs')
-    // A running chat is a conversation already, and it is not a schedule.
+    // A running chat is a conversation already; it schedules a message only
+    // where main is there to keep it (below).
     expect(menu?.querySelector('[role="group"][aria-label="Start as"]')).toBeNull()
     expect(menu?.querySelector('[data-composer-schedule]')).toBeNull()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('the "+" schedules the next message: Enter hands it to main for its time, and the tray says when it goes', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  type Message = { id: string; workspaceId: string; agentId: string; text: string; sendAt: number; createdAt: number }
+  let state: { messages: Message[] } = { messages: [] }
+  const updates: Array<Record<string, unknown>> = []
+  const chat = await mountChat({
+    capabilities: { skills: 'workspace' },
+    sendTurn,
+    api: {
+      scheduledMessages: async () => state,
+      onScheduledMessagesChanged: () => () => undefined,
+      updateScheduledMessage: async (update: Record<string, unknown>) => {
+        updates.push(update)
+        if (update.kind === 'schedule')
+          state = {
+            messages: [
+              {
+                id: 'sm-1',
+                workspaceId: update.workspaceId as string,
+                agentId: update.agentId as string,
+                text: update.text as string,
+                sendAt: update.sendAt as number,
+                createdAt: Date.now(),
+              },
+            ],
+          }
+        if (update.kind === 'delete') state = { messages: state.messages.filter((entry) => entry.id !== update.id) }
+        return state
+      },
+    },
+  })
+  try {
+    const doc = chat.dom.window.document
+    const plus = Array.from(doc.querySelectorAll('button')).find(
+      (item) => item.getAttribute('aria-label') === 'Options',
+    )
+    await chat.act(async () => plus!.click())
+    const row = doc.querySelector<HTMLElement>('[role="menu"][aria-label="Options"] [data-composer-schedule="true"]')
+    expect(row?.textContent?.trim()).toBe('Schedule')
+    await chat.act(async () => row!.click())
+    expect(chat.host.querySelector('[data-send-time-tag="true"]')).not.toBeNull()
+    expect(chat.host.querySelector('[data-composer-schedule-send="true"]')?.textContent?.trim()).toBe('Schedule')
+
+    await chat.act(async () => chat.type('Carry on with the migration.'))
+    await chat.act(async () => chat.enter())
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(sendTurn).not.toHaveBeenCalled()
+    expect(updates[0]).toMatchObject({
+      kind: 'schedule',
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      text: 'Carry on with the migration.',
+    })
+    expect(updates[0]!.sendAt as number).toBeGreaterThan(Date.now())
+    expect(chat.draft()).toBe('')
+    expect(chat.host.querySelector('[data-send-time-tag="true"]'), 'the next message sends as usual').toBeNull()
+
+    const tray = chat.host.querySelector<HTMLElement>('[role="group"][aria-label="Scheduled message"]')
+    expect(tray?.textContent).toContain('Sends ')
+    expect(tray?.textContent).toContain('Carry on with the migration.')
+
+    const edit = Array.from(tray!.querySelectorAll('button')).find((item) => item.textContent?.trim() === 'Edit')
+    await chat.act(async () => edit!.click())
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(updates[1]).toEqual({ kind: 'delete', id: 'sm-1' })
+    expect(chat.draft()).toBe('Carry on with the migration.')
+    expect(chat.host.querySelector('[data-send-time-tag="true"]'), 'still set for its time').not.toBeNull()
+    expect(chat.host.querySelector('[role="group"][aria-label="Scheduled message"]')).toBeNull()
   } finally {
     await chat.unmount()
   }

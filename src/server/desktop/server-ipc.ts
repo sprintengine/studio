@@ -24,6 +24,7 @@ import { registerLaunchSettingsIpc } from '../../main/ipc/launch-settings-ipc'
 import { registerMeshIpc } from '../../main/ipc/mesh-ipc'
 import { registerStudioLocalAppsIpc } from '../../main/ipc/studio-local-apps-ipc'
 import { registerUsageLimitResumeIpc } from '../../main/ipc/usage-limit-resume-ipc'
+import { registerScheduledMessagesIpc } from '../../main/ipc/scheduled-messages-ipc'
 import { registerUsageLimitsIpc } from '../../main/ipc/usage-limits-ipc'
 import { registerWorkspaceBackupIpc } from '../../main/ipc/workspace-backup-ipc'
 import { registerWorkspaceSyncIpc } from '../../main/ipc/workspace-sync-ipc'
@@ -65,6 +66,7 @@ export type ServerDomainIpcDeps = {
     | 'conversationLifecycle'
     | 'platform'
     | 'usageLimitResumes'
+    | 'scheduledMessages'
   > & { hosts: HostRegistry; agentLaunchSettings: AgentLaunchSettingsStore }
   gateway: StudioGateway
   studioRpc: StudioRpcService
@@ -102,6 +104,8 @@ export function registerServerDomainIpc(registry: IpcRegistryLike, deps: ServerD
   registerUsageLimitsIpc(ipc, { userDataDir: dataDir() })
   // The chats a usage limit stopped, and the resume each can have when it resets.
   registerUsageLimitResumeIpc(ipc, core.usageLimitResumes)
+  // The messages a person scheduled into a chat, sent when their time comes.
+  registerScheduledMessagesIpc(ipc, core.scheduledMessages)
   registerLaunchSettingsIpc(ipc, { launchSettings: core.agentLaunchSettings })
   registerHostsIpc(ipc, { hosts: core.hosts })
   registerBacklogIpc(ipc)

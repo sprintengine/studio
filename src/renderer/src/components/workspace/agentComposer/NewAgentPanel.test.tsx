@@ -2932,19 +2932,20 @@ test('NewAgentPanel', async () => {
     const sendButton = (view: Harness): HTMLElement | undefined =>
       [...view.container.querySelectorAll<HTMLElement>('[data-new-chat-composer] button')].pop()
 
-    await check('Scheduled agent saves the launch on screen, on the tag’s schedule, and starts nothing', async () => {
+    await check('Schedule saves the launch on screen, to send once at the tag’s time, and starts nothing', async () => {
       seedStore()
       const door = await scheduleDoor()
       assert.equal(door.view.container.querySelector('[role="radiogroup"]'), null, 'no Chat | Scheduled switch')
       const toggle = await scheduleRow(door.view)
       assert.ok(toggle, 'the "+" offers Schedule')
       assert.equal(toggle?.getAttribute('aria-checked'), 'false')
+      assert.equal(toggle?.textContent?.trim(), 'Schedule', 'the row is its word, with no line under it')
       await act(async () => {
         toggle!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
       assert.ok(
-        door.view.container.querySelector('[data-schedule-tag="true"]')?.textContent?.includes('Weekdays at 9:00 AM'),
-        'a new one starts on weekdays at 9 AM, said on a tag beside the "+"',
+        door.view.container.querySelector('[data-schedule-tag="true"]')?.textContent?.startsWith('Once, '),
+        'a new one is the prompt sent once, later, said on a tag beside the "+"',
       )
       assert.equal(sendButton(door.view)?.textContent?.trim(), 'Schedule', 'and the send says Schedule')
       const field = await door.type('Triage the new issues.')
@@ -2953,7 +2954,9 @@ test('NewAgentPanel', async () => {
       assert.equal(door.drafts.length, 1, 'one scheduled agent is made')
       const draft = door.drafts[0]!
       assert.equal(draft.prompt, 'Triage the new issues.')
-      assert.deepEqual((draft.schedule as { cron: string }).cron, '0 9 * * 1-5')
+      const once = (draft.schedule as { once?: number }).once
+      assert.ok(typeof once === 'number' && once > Date.now(), 'once, at a time ahead')
+      assert.equal(new Date(once).getMinutes(), 0, 'on the hour')
       assert.equal(draft.folderPath, '/proj')
       assert.equal(draft.hostId, null)
       assert.equal(draft.cli, 'claude-code')
