@@ -100,6 +100,7 @@ test('a missing entry is written, the MIME cache refreshed, and it is made the d
   assert.ok(isOwnUrlHandlerEntry(text))
   assert.deepEqual(h.commands, [
     `update-desktop-database ${APPS}`,
+    `xdg-mime query default ${MIME}`,
     `xdg-mime default sprintengine-url-handler.desktop ${MIME}`,
   ])
   assert.deepEqual(h.recorded, [`sprintengine ${ENTRY}`])
@@ -125,17 +126,58 @@ test('a current entry that is already the default is left alone', async () => {
   assert.deepEqual(h.recorded, [`sprintengine ${ENTRY}`], 'listed in the ledger even when nothing was written')
 })
 
-test('a current entry another app took the scheme from is made the default again, and not rewritten', async () => {
-  const h = harness({
-    files: { [ENTRY]: renderUrlHandlerEntry('sprintengine', APPIMAGE) },
+test('a default the person or another app chose is theirs: it is not taken back at the next start', async () => {
+  for (const [label, files] of [
+    ['an entry in the home', { [`${APPS}/other-app.desktop`]: '[Desktop Entry]\n' }],
+    ['a system entry', { '/usr/share/applications/other-app.desktop': '[Desktop Entry]\n' }],
+    ['one in a subdirectory', { '/usr/share/applications/other/app.desktop': '[Desktop Entry]\n' }],
+  ] as const) {
+    const h = harness({
+      files: { [ENTRY]: renderUrlHandlerEntry('sprintengine', APPIMAGE), ...files },
+      currentDefault: 'other-app.desktop',
+    })
+    await h.run()
+    assert.deepEqual(h.writes, [], label)
+    assert.deepEqual(h.commands, [`xdg-mime query default ${MIME}`], label)
+    assert.deepEqual(h.recorded, [`sprintengine ${ENTRY}`], label)
+  }
+  // The same on a first start: the entry is written, the choice kept.
+  const first = harness({
+    files: { [`${APPS}/other-app.desktop`]: '[Desktop Entry]\n' },
     currentDefault: 'other-app.desktop',
   })
+  await first.run()
+  assert.deepEqual(first.writes, [ENTRY])
+  assert.deepEqual(first.commands, [`update-desktop-database ${APPS}`, `xdg-mime query default ${MIME}`])
+})
+
+test('a default that names an entry no longer on the machine is claimed', async () => {
+  const h = harness({
+    env: { APPIMAGE, XDG_DATA_DIRS: '/opt/share' },
+    files: {
+      [ENTRY]: renderUrlHandlerEntry('sprintengine', APPIMAGE),
+      // Where the default XDG_DATA_DIRS would look, but not this machine's.
+      '/usr/share/applications/removed-app.desktop': '[Desktop Entry]\n',
+    },
+    currentDefault: 'removed-app.desktop',
+  })
   await h.run()
-  assert.deepEqual(h.writes, [])
   assert.deepEqual(h.commands, [
     `xdg-mime query default ${MIME}`,
     `xdg-mime default sprintengine-url-handler.desktop ${MIME}`,
   ])
+})
+
+test('a file of the entry’s name the app did not write is left alone', async () => {
+  const theirs =
+    '[Desktop Entry]\nType=Application\nName=Mine\nExec=/opt/mine %U\nMimeType=x-scheme-handler/sprintengine;\n'
+  const h = harness({ files: { [ENTRY]: theirs } })
+  await h.run()
+  assert.deepEqual(h.writes, [])
+  assert.equal(h.files.get(ENTRY), theirs)
+  assert.deepEqual(h.commands, [], 'nor is the scheme’s default touched')
+  assert.deepEqual(h.recorded, [], 'nor is it listed as the app’s, so removal leaves it too')
+  assert.deepEqual(h.logs, ['info: Left a link handler entry the app did not write'])
 })
 
 test('an entry written for an AppImage that has moved is rewritten and registered again', async () => {
@@ -146,10 +188,7 @@ test('an entry written for an AppImage that has moved is rewritten and registere
   await h.run()
   assert.deepEqual(h.writes, [ENTRY])
   assert.ok(h.files.get(ENTRY)?.includes(`Exec="${APPIMAGE}" %U`))
-  assert.deepEqual(h.commands, [
-    `update-desktop-database ${APPS}`,
-    `xdg-mime default sprintengine-url-handler.desktop ${MIME}`,
-  ])
+  assert.deepEqual(h.commands, [`update-desktop-database ${APPS}`, `xdg-mime query default ${MIME}`])
 })
 
 test('the AppImage path is quoted and escaped by the desktop-entry Exec rules', () => {

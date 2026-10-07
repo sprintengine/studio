@@ -11,13 +11,17 @@ import { writeFileAtomically } from './config-file-write'
 // integration tool unpacks one, so on most machines a `sprintengine://` link
 // had no app to open it. The app writes that entry itself instead, a hidden one
 // that does nothing but answer for the scheme, pointing at the AppImage file
-// that is running, and makes it the scheme's default.
+// that is running, and makes it the scheme's default when nothing else is.
 //
 // At every start, after `ready` and without anyone waiting on it. Nothing is
-// written when the entry on disk is already this one, and `xdg-mime` is asked
-// again only when it names another file. A machine without the tools, or a
-// home that cannot be written, keeps the link prompt it had before, and the
-// failure goes to the diagnostics log rather than anywhere the person sees it.
+// written when the entry on disk is already this one, and a file of that name
+// the app did not write (no `X-SprintEngine-Handler` line) is left alone. The
+// scheme's default is the person's: it is claimed only when there is none, or
+// it names a desktop entry that no longer exists (an app since removed), never
+// taken back from one they or another app chose. A machine without the tools,
+// or a home that cannot be written, keeps the link prompt it had before, and
+// the failure goes to the diagnostics log rather than anywhere the person
+// sees it.
 //
 // Electron-free: what it touches comes in as `LinuxUrlHandlerDeps`, so a test
 // drives it with a stand-in file system and stand-in commands.
@@ -117,24 +121,55 @@ async function registerScheme(deps: LinuxUrlHandlerDeps, dir: string, scheme: st
   const mimeType = `x-scheme-handler/${scheme}`
   const content = renderUrlHandlerEntry(scheme, appImage)
   const existing = await deps.readFile(path).catch(() => null)
-  if (existing === content) {
-    deps.record(path, scheme)
-    // The entry is current, but another app may have claimed the scheme since.
-    const current = await run(deps, 'xdg-mime', ['query', 'default', mimeType])
-    if (!current || current.code !== 0 || current.stdout.trim() === name) return
-    await run(deps, 'xdg-mime', ['default', name, mimeType])
+  if (existing !== null && existing !== content && !isOwnUrlHandlerEntry(existing)) {
+    // Someone's own entry under this name (written by hand, or by an
+    // integration tool): it is theirs to keep.
+    deps.log('info', 'Left a link handler entry the app did not write', { scheme, path })
     return
   }
-  // Missing, or written for an AppImage that has since moved or been replaced.
-  await deps.mkdir(dir)
-  await deps.writeFile(path, content)
+  const written = existing !== content
+  if (written) {
+    // Missing, or written for an AppImage that has since moved or been replaced.
+    await deps.mkdir(dir)
+    await deps.writeFile(path, content)
+    // Some desktops only take an entry as a scheme's handler once the MIME
+    // cache lists it. The cache is a nicety: `xdg-mime` below runs whether or
+    // not it could be refreshed.
+    await run(deps, 'update-desktop-database', [dir])
+  }
   deps.record(path, scheme)
-  // Some desktops only take an entry as a scheme's handler once the MIME cache
-  // lists it. The cache is a nicety: `xdg-mime` below runs whether or not it
-  // could be refreshed.
-  await run(deps, 'update-desktop-database', [dir])
+  const current = await run(deps, 'xdg-mime', ['query', 'default', mimeType])
+  // No answer: nothing to go on, so nothing is changed.
+  if (!current || current.code !== 0) return
+  const chosen = current.stdout.trim()
+  if (chosen === name) return
+  if (chosen && (await desktopEntryExists(deps, chosen))) return
   const set = await run(deps, 'xdg-mime', ['default', name, mimeType])
-  if (set?.code === 0) deps.log('info', 'Registered the link handler', { scheme, path })
+  if (set?.code === 0) deps.log('info', 'Registered the link handler', { scheme, path, replaced: chosen || null })
+}
+
+/**
+ * Whether a desktop file id names an entry on this machine: in the
+ * applications directory of `$XDG_DATA_HOME` or of any `$XDG_DATA_DIRS`. An id
+ * can stand for a file in a subdirectory, its `/` written as `-`
+ * (`kde-org.foo.desktop` for `kde/org.foo.desktop`), so the leading dashes are
+ * tried as directories too.
+ */
+async function desktopEntryExists(deps: LinuxUrlHandlerDeps, id: string): Promise<boolean> {
+  if (id.includes('/') || !id.endsWith('.desktop')) return true
+  const dataDirs = (deps.env.XDG_DATA_DIRS || '/usr/local/share:/usr/share').split(':').filter((dir) => isAbsolute(dir))
+  const dirs = [applicationsDir(deps.env, deps.homeDir), ...dataDirs.map((dir) => join(dir, 'applications'))]
+  const parts = id.split('-')
+  const relatives = [id]
+  for (let depth = 1; depth < Math.min(parts.length, 4); depth += 1) {
+    relatives.push(join(...parts.slice(0, depth), parts.slice(depth).join('-')))
+  }
+  for (const dir of dirs) {
+    for (const relative of relatives) {
+      if ((await deps.readFile(join(dir, relative)).catch(() => null)) !== null) return true
+    }
+  }
+  return false
 }
 
 /** A command's result, or null when it could not be run. A failure is logged either way, never thrown. */
