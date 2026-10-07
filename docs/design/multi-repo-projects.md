@@ -65,8 +65,9 @@ temporary folders.
    file sits directly in the project folder and parses, its `folders[].path`
    entries are the candidates, in the file's order. The file is JSON with
    comments and trailing commas, which the reader tolerates. Two or more such
-   files are ambiguous and are ignored, as is one that does not parse; both
-   fall back to rule 3.
+   files are ambiguous and are ignored, as is one that does not parse or lists
+   no repository (a single-folder `{ "path": "." }` file is the common case);
+   each falls back to rule 3.
 3. **Otherwise, immediate children.** Every direct child directory with a `.git`
    entry, sorted by name. Never recursive.
 4. **Never outside the project folder.** A workspace entry that is absolute
