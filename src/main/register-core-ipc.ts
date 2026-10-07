@@ -220,7 +220,7 @@ export function registerCoreIpc(
     },
   )
   registerGitRepoWatchIpc(machineIpc)
-  registerWorktreePoolIpc(ipcMain, services.worktreePool)
+  registerWorktreePoolIpc(ipcMain, services.worktreePool, services.dependencyInstaller)
   registerVersionControlIpc(machineIpc)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain, { applyLive: options.applyModuleEnablementLive })

@@ -241,6 +241,7 @@ import { controlTabContextItemOf, controlTabContextOf, cycleFocusedControlTabSco
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { createAppUpdateToastDriver, showAppUpdateOutcomeToast } from './manager/appUpdateToast'
 import { showCliUpdateToast } from './manager/cliUpdateToast'
+import { showWorktreeInstallToast } from './manager/worktreeInstallToast'
 import { cardSurfaceRoute } from './manager/cardSurfaceRoute'
 import { subscribeAppUpdateState } from '../../store/appUpdateStore'
 import { useSettingsUpdateBadges } from '../settings/useSettingsUpdateBadges'
@@ -1667,6 +1668,19 @@ export default function WorkspaceManager() {
       }),
     [],
   )
+
+  // A leased worktree's dependency install (main's worktree-pool/
+  // dependency-install.ts): a toast in every window while it runs and as it
+  // ends, and one bell row, from the primary window, for one that failed.
+  const reportsWorktreeInstalls = useRef(isPrimaryWorkspaceWindow)
+  reportsWorktreeInstalls.current = isPrimaryWorkspaceWindow
+  useEffect(() => {
+    const api = typeof window === 'undefined' ? null : window.api
+    if (!api || typeof api.onWorktreeInstallChanged !== 'function') return
+    return api.onWorktreeInstallChanged((view) =>
+      showWorktreeInstallToast(view, { report: reportsWorktreeInstalls.current }),
+    )
+  }, [])
 
   useEffect(
     () =>

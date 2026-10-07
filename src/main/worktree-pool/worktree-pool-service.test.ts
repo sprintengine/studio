@@ -10,6 +10,7 @@ import { cleanupAgentWorktrees } from '../agent-worktree-cleanup'
 import { setAgentWorktreeLockProfile } from '../agent-worktree-lock'
 import { createGitWorktree, restoreGitWorktree } from '../git'
 import { installWorktreePool } from './active-pool'
+import { createDependencyInstaller, DEPENDENCY_INSTALL_RECORD, installDependencyInstaller } from './dependency-install'
 import { acquireInstanceLock, createPoolStore, POOL_RECORD_VERSION, poolIdFor, type PoolRecord } from './pool-store'
 import { agentLeaseKey } from '../../shared/ipc/worktree-pool'
 import { parseSlotStatus } from './slot-git'
@@ -912,6 +913,56 @@ test('createGitWorktree with fromPool leases from the installed pool, and withou
 
   const taken = await createGitWorktree(input('pooled'))
   assert.equal(taken.ok, false, 'an existing branch is reported, not papered over with a fresh worktree')
+})
+
+test('a project that opted in installs in a leased slot once per lockfile, and records it in git’s admin directory', async () => {
+  await pushToOrigin('package-lock.json', '{"lockfileVersion":3}\n')
+  const input = (name: string) => ({
+    repoRoot: repo,
+    containerPath: container,
+    destinationPath: join(container, name),
+    branchName: `agent/${name}`,
+    baseRef: 'HEAD',
+    agentLockOwner: `agent/${name}`,
+    fromPool: true,
+  })
+  const calls: string[] = []
+  const harness = makeService()
+  installWorktreePool(harness.service)
+  installDependencyInstaller(
+    createDependencyInstaller({
+      env: async () => ({}),
+      run: async ({ command, cwd }) => {
+        calls.push(command)
+        await mkdir(join(cwd, 'node_modules'), { recursive: true })
+        return { code: 0, timedOut: false, cancelled: false }
+      },
+      log: () => {},
+    }),
+  )
+  try {
+    const off = await createGitWorktree(input('before-opting-in'))
+    assert.equal(off.ok && off.data.dependencyInstall, null, 'off until the project opts in')
+    await returnAll(harness)
+
+    await harness.service.updateSettings({ dependencyInstall: { [repo]: { enabled: true, command: null } } })
+    const first = await createGitWorktree(input('first'))
+    assert.equal(first.ok, true, first.ok ? '' : first.message)
+    if (!first.ok) return
+    assert.match(first.data.path, /pool-01$/)
+    assert.equal(first.data.dependencyInstall?.state, 'succeeded')
+    assert.equal(first.data.dependencyInstall?.command, 'npm ci')
+    assert.ok(await exists(join(repo, '.git', 'worktrees', 'pool-01', DEPENDENCY_INSTALL_RECORD)))
+    assert.equal(await git(first.data.path, 'status', '--porcelain'), '', 'the worktree itself is untouched')
+    await returnAll(harness)
+
+    const second = await createGitWorktree(input('second'))
+    assert.equal(second.ok && second.data.path, first.data.path, 'the same slot again')
+    assert.equal(second.ok && second.data.dependencyInstall, null, 'same lockfile: no install')
+    assert.deepEqual(calls, ['npm ci'])
+  } finally {
+    installDependencyInstaller(null)
+  }
 })
 
 test('worktree.lease serves only an agent Studio started, and only that agent can release it', async () => {

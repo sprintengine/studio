@@ -1,5 +1,6 @@
 import { BrowserWindow, type IpcMain } from 'electron'
 import type {
+  WorktreeDependencyInstallView,
   WorktreeInventory,
   WorktreeInventoryInput,
   WorktreePoolActionInput,
@@ -8,12 +9,14 @@ import type {
   WorktreePoolSnapshot,
 } from '../../shared/ipc/worktree-pool'
 import { createWorktreeInventory } from '../worktree-pool/worktree-inventory'
+import type { DependencyInstaller } from '../worktree-pool/dependency-install'
 import type { WorktreePoolService } from '../worktree-pool/worktree-pool-service'
 
 /**
  * The windows' side of the worktree pool: a snapshot of a repository's pool,
- * a person's action on a held or idle slot, the pool's settings, and the
- * inventory of every worktree Settings ▸ Worktrees draws. A window
+ * a person's action on a held or idle slot, the pool's settings, the
+ * inventory of every worktree Settings ▸ Worktrees draws, and the dependency
+ * installs leased worktrees run (listed, and cancelled). A window
  * is sent `worktree-pool:changed` with a pool's snapshot whenever one moves.
  * Leases are not asked for here; an agent worktree created with `fromPool`
  * comes from the pool (git.ts). Every git step runs in main.
@@ -25,6 +28,9 @@ function isString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0
 }
 
+/** A leased worktree's dependency install started, moved on, or ended (`WorktreeDependencyInstallView`). */
+export const WORKTREE_INSTALL_CHANGED_CHANNEL = 'worktree-install:changed'
+
 export function broadcastWorktreePoolChanged(snapshot: WorktreePoolSnapshot): void {
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed() || window.webContents.isDestroyed()) continue
@@ -32,7 +38,11 @@ export function broadcastWorktreePoolChanged(snapshot: WorktreePoolSnapshot): vo
   }
 }
 
-export function registerWorktreePoolIpc(ipcMain: IpcMain, pool: WorktreePoolService): void {
+export function registerWorktreePoolIpc(
+  ipcMain: IpcMain,
+  pool: WorktreePoolService,
+  installer: DependencyInstaller | null = null,
+): void {
   ipcMain.handle(
     'worktree-pool:action',
     async (_, input: WorktreePoolActionInput): Promise<WorktreePoolActionResult> => {
@@ -69,8 +79,19 @@ export function registerWorktreePoolIpc(ipcMain: IpcMain, pool: WorktreePoolServ
       if (typeof patch.keepIdle === 'number') clean.keepIdle = patch.keepIdle
       if (typeof patch.maxSlots === 'number') clean.maxSlots = patch.maxSlots
       if (patch.diskLimitGb === null || typeof patch.diskLimitGb === 'number') clean.diskLimitGb = patch.diskLimitGb
+      // Every project's choice at once, as the page holds them; checked entry
+      // by entry where it is stored (normalizePoolSettings).
+      if (patch.dependencyInstall && typeof patch.dependencyInstall === 'object') {
+        clean.dependencyInstall = patch.dependencyInstall
+      }
       return pool.updateSettings(clean)
     },
+  )
+
+  // The installs running now (a window opening while one runs), and Cancel on one.
+  ipcMain.handle('worktree-install:list', async (): Promise<WorktreeDependencyInstallView[]> => installer?.list() ?? [])
+  ipcMain.handle('worktree-install:cancel', async (_, id: unknown): Promise<boolean> =>
+    isString(id) ? (installer?.cancel(id) ?? false) : false,
   )
 
   const inventory = createWorktreeInventory({ pool })

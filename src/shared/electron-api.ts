@@ -367,6 +367,7 @@ import type {
   AgentWorktreeCleanupReport,
 } from './ipc/git'
 import type {
+  WorktreeDependencyInstallView,
   WorktreeInventory,
   WorktreeInventoryInput,
   WorktreePoolActionInput,
@@ -1353,6 +1354,12 @@ export type ElectronApi = {
   setWorktreePoolSettings: (patch: Partial<WorktreePoolSettings>) => Promise<WorktreePoolSettings>
   /** Every worktree of these projects and of every pool, for Settings ▸ Worktrees. */
   getWorktreeInventory: (input: WorktreeInventoryInput) => Promise<WorktreeInventory>
+  /** The dependency installs leased worktrees are running now. */
+  listWorktreeInstalls: () => Promise<WorktreeDependencyInstallView[]>
+  /** A leased worktree's dependency install started, moved on, or ended. */
+  onWorktreeInstallChanged: (cb: (view: WorktreeDependencyInstallView) => void) => () => void
+  /** Stop a running install; its agent starts as after a failed one. False when it had already ended. */
+  cancelWorktreeInstall: (id: string) => Promise<boolean>
   /**
    * The branch's commits as steps, oldest first, for the changed-files surface.
    * Read live on every call — a rebase re-identifies commits, so a cached strip

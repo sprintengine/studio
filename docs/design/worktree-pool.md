@@ -86,12 +86,49 @@ pool per repository and machine so Windows and WSL never share slots.
 The owner's rulings on restarting the work, and how the open questions above
 were settled:
 
-- **No installs, ever.** The pool never runs a package manager, in the
-  background or after hand-out. A reused slot keeps the last agent's ignored
-  files (`node_modules`, build output, a virtual environment), so the next
-  agent's own install is incremental or unnecessary. This replaces the
-  "install when the lockfile changed" decision in section 3, and with it
-  questions 4 and 5.
+- **Installs only when a project asks, and only when the lockfile changed**
+  (owner ruling 2026-10-06, revising the 2026-10-05 "no installs, ever"). The
+  first ruling held that the pool never runs a package manager: a reused slot
+  keeps the last agent's ignored files (`node_modules`, build output, a virtual
+  environment), so the next agent's own install is incremental or unnecessary,
+  and nothing runs a repository's scripts that the person did not start. Both
+  halves still hold for the pool itself, which never installs and never does
+  anything in the background. What changed is the hand-out: a project may now
+  opt in (Settings ▸ Worktrees, on the project's card; off by default), and
+  then a leased slot installs before its agent starts when its lockfile
+  differs from the one it last installed with. That answers question 5 the
+  cautious way: an install runs the repository's own scripts with the
+  person's rights, so it happens only where the person turned it on.
+  - **Where.** `createAgentWorktreeFromPool` (git.ts), after the lease, which
+    every agent worktree goes through: New chat, the tab strip's worktree
+    spawn, `agent.launch` and scheduled runs all wait the same way
+    (`worktree-pool/dependency-install.ts`). A fresh worktree made because the
+    pool declined, a reclaimed settled chat and `worktree.lease` do not install.
+  - **When.** The slot's record is a fingerprint of the command and the
+    lockfile it reads, kept in the slot's git admin directory
+    (`.git/worktrees/<slot>/sprintengine-dependencies.json`): outside the
+    worktree, so `clean -fd` and "Clear ignored files" never reach it, ignored
+    by git, and gone with the slot's registration. It runs when the record is
+    missing, differs, or `node_modules` (or Yarn's `.pnp.cjs`) is gone. The
+    record is cleared before an install starts and written only when it
+    succeeds, so a failed, timed-out or cancelled one runs again at the next
+    lease.
+  - **What.** Inferred from the lockfile, never one that rewrites it: `npm ci`,
+    `pnpm install --frozen-lockfile`, `yarn install --frozen-lockfile` (Yarn 1)
+    or `--immutable` (Yarn 2+), `bun install --frozen-lockfile`;
+    `packageManager` in package.json breaks a tie between lockfiles. A
+    project's own command replaces it, and then every lockfile present
+    (Cargo, uv, Poetry, Bundler, Composer and Go's included) counts, since
+    nothing says which it reads. Other ecosystems get no inferred command. It
+    runs through the platform shell with the PATH of the person's login shell,
+    which is what the CLI probes use, and with none of the app's own variables.
+  - **How it shows** (question 4). A toast that stays while it runs ("npm ci
+    in pool-03: the lockfile changed. The agent starts when it finishes."),
+    re-shown in place as it ends; the worktree's row in Settings ▸ Worktrees
+    says it is installing, with its last output line and Cancel. The agent
+    waits for it, and starts whatever came of it: a failure, a timeout (20
+    minutes) or a cancel is a warning toast and a bell row carrying what the
+    install printed, never a withheld chat.
 - **Always the default branch.** Every agent worktree forks from
   `origin/<default>`, fetched at hand-out (at most once a minute per
   repository, and never waiting more than ten seconds; offline it forks from

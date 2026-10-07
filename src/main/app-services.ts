@@ -25,6 +25,8 @@ import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../server/wsl/wsl-tool
 import { cliTakesLaunchPlugins } from './agent-launch-render'
 import { resolveSocketPath as resolveAutomationSocketPath } from './automation/automation-service'
 import { invalidateCliAvailabilityOnHost, subscribeKnownCliAvailability } from './cli-availability'
+import { personalCommandPath } from './cli-runtime-install'
+import { withoutInheritedSessionEnv } from './inherited-session-env'
 import { wslHostId } from '../shared/execution-host'
 import {
   appLaunchPluginsActive,
@@ -47,7 +49,7 @@ import { createDesktopShellTools } from './desktop-shell-tools'
 import { createAgentPermissionResolver } from './automation/launch-permission-cap'
 import { liveGatewayLaunchTokens, onGatewayLaunchTokenChange } from '../server/core/gateway-launch-tokens'
 import { shellTerminalToolsets } from '../server/desktop/shell-toolsets'
-import { readStudioEnv } from '../shared/studio-env'
+import { AGENT_IDENTITY_ENV_KEYS, readStudioEnv, withoutStudioEnv } from '../shared/studio-env'
 import type { McpToolContribution } from './module-host/main-host'
 import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
@@ -104,8 +106,9 @@ import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { excludeMcpConfigFromWorktree, seedWorktreeIncludedFiles } from './git'
-import { broadcastWorktreePoolChanged } from './ipc/worktree-pool-ipc'
+import { broadcastWorktreePoolChanged, WORKTREE_INSTALL_CHANGED_CHANNEL } from './ipc/worktree-pool-ipc'
 import { installWorktreePool } from './worktree-pool/active-pool'
+import { createDependencyInstaller, installDependencyInstaller } from './worktree-pool/dependency-install'
 import { createPoolStore } from './worktree-pool/pool-store'
 import { chatIdsOnRecord } from './agent-worktree-keep-checks'
 import { createWorktreePoolService } from './worktree-pool/worktree-pool-service'
@@ -1377,6 +1380,26 @@ export function createAppServices(
   })
   installWorktreePool(worktreePool)
   void worktreePool.load()
+  // The dependency install a leased worktree runs when its project opted in
+  // and its lockfile changed (worktree-pool/dependency-install.ts), with the
+  // PATH the person's own terminal has and none of the app's own variables.
+  const dependencyInstaller = createDependencyInstaller({
+    env: async () => {
+      const env = withoutStudioEnv(
+        withoutInheritedSessionEnv(
+          Object.fromEntries(
+            Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+          ),
+        ),
+        AGENT_IDENTITY_ENV_KEYS,
+      )
+      delete env.ELECTRON_RUN_AS_NODE
+      const path = await personalCommandPath(env)
+      return path ? { ...env, PATH: path } : env
+    },
+    onChange: (view) => broadcastToWorkspaceWindows(WORKTREE_INSTALL_CHANGED_CHANNEL, view),
+  })
+  installDependencyInstaller(dependencyInstaller)
   // `worktree.lease` and `worktree.release`: in process the gateway's own, out
   // of process the shell's `worktree` toolset.
   const worktreeTools = createWorktreePoolTools({
@@ -2009,6 +2032,7 @@ export function createAppServices(
     canvasService,
     canvasSubscribers,
     worktreePool,
+    dependencyInstaller,
     automationService,
     studioRpcService,
     backgroundModeStore,

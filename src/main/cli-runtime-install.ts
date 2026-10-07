@@ -247,6 +247,18 @@ export function invalidateLoginShellPath(): void {
   cliExecutables.invalidate()
 }
 
+/**
+ * The PATH a command the app runs for the person should see on host macOS or
+ * Linux: their login shell's directories first, then this process's. The same
+ * answer every CLI probe uses, so a dependency install finds the `npm` (or
+ * `pnpm`, `node`, …) their own terminal would. Elsewhere, this process's PATH.
+ */
+export async function personalCommandPath(env: NodeJS.ProcessEnv): Promise<string | undefined> {
+  if (process.platform === 'win32') return env.PATH
+  const loginPath = await loginShellPath.resolve(env)
+  return searchDirectories(loginPath, env.PATH).join(':')
+}
+
 // Host macOS/Linux: resolve the binary against the session's login-shell PATH
 // in this process, then run only the binary itself for its version. That is
 // one process per INSTALLED CLI and none for an absent one, where this used to

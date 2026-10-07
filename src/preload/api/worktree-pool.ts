@@ -2,6 +2,7 @@ import type { IpcRendererEvent } from 'electron'
 import { ipc as ipcRenderer } from '../ipc-router'
 import type {
   ElectronApi,
+  WorktreeDependencyInstallView,
   WorktreeInventory,
   WorktreeInventoryInput,
   WorktreePoolActionInput,
@@ -28,6 +29,14 @@ export const worktreePoolApi = {
     ipcRenderer.invoke('worktree-pool:settings-set', patch),
   getWorktreeInventory: (input: WorktreeInventoryInput): Promise<WorktreeInventory> =>
     ipcRenderer.invoke('worktree-pool:inventory', input),
+  listWorktreeInstalls: (): Promise<WorktreeDependencyInstallView[]> => ipcRenderer.invoke('worktree-install:list'),
+  onWorktreeInstallChanged: (cb: (view: WorktreeDependencyInstallView) => void): (() => void) => {
+    const channel = 'worktree-install:changed'
+    const handler = (_: IpcRendererEvent, view: WorktreeDependencyInstallView) => cb(view)
+    ipcRenderer.on(channel, handler)
+    return () => ipcRenderer.removeListener(channel, handler)
+  },
+  cancelWorktreeInstall: (id: string): Promise<boolean> => ipcRenderer.invoke('worktree-install:cancel', id),
 } satisfies Pick<
   ElectronApi,
   | 'worktreePoolAction'
@@ -36,4 +45,7 @@ export const worktreePoolApi = {
   | 'getWorktreePoolSettings'
   | 'setWorktreePoolSettings'
   | 'getWorktreeInventory'
+  | 'listWorktreeInstalls'
+  | 'onWorktreeInstallChanged'
+  | 'cancelWorktreeInstall'
 >

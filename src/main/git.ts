@@ -16,9 +16,11 @@ import {
 } from './git-utils'
 import { listGitWorktrees } from './git-worktree-list'
 import { activeWorktreePool } from './worktree-pool/active-pool'
+import { activeDependencyInstaller } from './worktree-pool/dependency-install'
 import { defaultSlotGitRunner, resolveAgentForkBase } from './worktree-pool/slot-git'
 import { withWorktreeRegistryLock } from './worktree-registry-lock'
 import { repoRootFromWorktreePath, WORKTREE_CONTAINER_DIR, worktreeContainerPath } from '../shared/worktree-paths'
+import { dependencyInstallSettingFor, type WorktreeDependencyInstallView } from '../shared/ipc/worktree-pool'
 import {
   resolveRepoRoot,
   resolveWorktreeDestination,
@@ -224,6 +226,8 @@ export type GitWorktreeCreated = GitWorktreeEntry & {
   baseRef: string
   /** Set when the worktree is a pool slot: the lease to give back if the launch fails. */
   leaseId: string | null
+  /** The dependency install the lease ran before handing the slot out, when it ran one. */
+  dependencyInstall?: WorktreeDependencyInstallView | null
 }
 
 /**
@@ -520,7 +524,23 @@ async function createAgentWorktreeFromPool(
           )
         : undefined
       if (entry) {
-        return { ok: true, data: { ...entry, baseRef: leased.baseRef, leaseId: leased.leaseId }, message: null }
+        // The project's dependency install, when it opted in and the slot's
+        // lockfile changed since it last installed: before the agent starts,
+        // which it does whatever came of it (worktree-pool/dependency-install.ts).
+        const installer = activeDependencyInstaller()
+        const dependencyInstall = installer
+          ? await installer.prepare({
+              repoRoot: leased.repoRoot,
+              path: leased.path,
+              branch: leased.branch,
+              setting: dependencyInstallSettingFor(await pool.getSettings(), leased.repoRoot),
+            })
+          : null
+        return {
+          ok: true,
+          data: { ...entry, baseRef: leased.baseRef, leaseId: leased.leaseId, dependencyInstall },
+          message: null,
+        }
       }
       // Leased, yet git does not list it: give it straight back rather than
       // hand out a path nobody can account for.

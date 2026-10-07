@@ -202,6 +202,8 @@ export type WorktreePoolLeaseResult =
       ok: true
       leaseId: string
       slotId: string
+      /** The project's main checkout, as the pool and its settings name it. */
+      repoRoot: string
       path: string
       branch: string
       baseRef: string
@@ -940,6 +942,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           ok: true,
           leaseId,
           slotId: slot.id,
+          repoRoot: pool.record.repoRoot,
           path: slot.path,
           branch,
           baseRef: base.ref,
