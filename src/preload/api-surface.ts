@@ -21,6 +21,7 @@ import { conversationApi } from './api/conversation'
 import { conversationCommandsApi } from './api/conversation-commands'
 import { usageLimitsApi } from './api/usage-limits'
 import { usageLimitResumeApi } from './api/usage-limit-resume'
+import { scheduledMessagesApi } from './api/scheduled-messages'
 import { conversationPeekApi } from './api/conversation-peek'
 import { agentCompactApi } from './api/agent-compact'
 import { pullRequestApi } from './api/pull-request'
@@ -115,6 +116,7 @@ export const apiModules = {
   ...conversationCommandsApi,
   ...usageLimitsApi,
   ...usageLimitResumeApi,
+  ...scheduledMessagesApi,
   ...conversationPeekApi,
   ...agentCompactApi,
   ...pullRequestApi,

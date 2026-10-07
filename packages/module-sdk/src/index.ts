@@ -590,6 +590,12 @@ export type ScheduledAgentSchedule = {
   cron: string
   /** The IANA zone the cron's wall-clock is read in. */
   timezone: string
+  /**
+   * One run, at this instant (epoch ms), instead of the cron's repeats. The
+   * cron then names the same minute. Once its run has started a chat, the
+   * scheduled agent is closed.
+   */
+  once?: number
 }
 
 /** A skill or an installed MCP server, by id, with the name its chip shows. */

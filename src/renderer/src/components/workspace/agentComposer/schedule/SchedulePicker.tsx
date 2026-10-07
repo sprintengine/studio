@@ -1,7 +1,7 @@
 import React from 'react'
 
 import { AttachmentChip } from '../../../ui/AttachmentChip'
-import { ChipButton, CloseIconButton, Input, LinkButton, Popover, SegmentedControl } from '../../../ui'
+import { ChipButton, Input, LinkButton, Popover, SegmentedControl } from '../../../ui'
 import { ScheduleGlyph } from '../../../AppIcons'
 import { ComposerTray, ComposerTrayRow } from '../../../panels/agentChat/composerTray'
 import { CRON_FIELD_NAMES, describeCronSchedule, parseCronSchedule } from '../../../../../../shared/cron'
@@ -10,15 +10,24 @@ import {
   cronFromEditorState,
   editorStateFromCron,
   formatRunTimes,
-  formatScheduleTime,
-  parseScheduleTime,
   switchTab,
   type ScheduleEditorState,
   type ScheduleTab,
   type ScheduleTime,
 } from './scheduleEditor'
+import { SendTimeEditor } from './SendTimeEditor'
+import { defaultSendAt, sendTimeWords } from './sendTime'
+import { TimeField } from './TimeField'
 
-const TABS: { value: ScheduleTab; label: string }[] = [
+/**
+ * What the picker holds: a repeating schedule's cron, or one time to run at.
+ * The cron is kept while Once is picked, so going back to a repeat finds the
+ * one that was there.
+ */
+export type PickedSchedule = { cron: string; once: number | null }
+
+const TABS: { value: ScheduleTab | 'once'; label: string }[] = [
+  { value: 'once', label: 'Once' },
   { value: 'daily', label: 'Daily' },
   { value: 'weekly', label: 'Weekly' },
   { value: 'monthly', label: 'Monthly' },
@@ -59,6 +68,18 @@ export function readSchedule(
   return { ok: true, words: describeCronSchedule(parsed.schedule), next: formatRunTimes(runs, timezone, now) }
 }
 
+/** What a picked schedule says and when it next runs, or why it cannot be read. */
+export function readPickedSchedule(
+  schedule: PickedSchedule,
+  timezone: string,
+  now: number,
+): ReturnType<typeof readSchedule> {
+  if (schedule.once === null) return readSchedule(schedule.cron, timezone, now)
+  if (schedule.once <= now) return { ok: false, message: 'That time has passed' }
+  const when = sendTimeWords(schedule.once, now)
+  return { ok: true, words: `Once, ${when}`, next: [when] }
+}
+
 /**
  * The schedule, as a tag beside the composer's "+" (owner ruling 2026-10-04):
  * the schedule glyph, what the schedule says, and × to stop scheduling. The
@@ -67,19 +88,19 @@ export function readSchedule(
  * edited there is no ×: it stays a scheduled agent.
  */
 export function ScheduleTag({
-  cron,
+  schedule,
   timezone,
   onChange,
   onRemove,
 }: {
-  cron: string
+  schedule: PickedSchedule
   timezone: string
-  onChange: (cron: string) => void
+  onChange: (schedule: PickedSchedule) => void
   /** Stop scheduling. Absent, the tag cannot be removed. */
   onRemove?: () => void
 }) {
   const [open, setOpen] = React.useState(false)
-  const read = readSchedule(cron, timezone, Date.now())
+  const read = readPickedSchedule(schedule, timezone, Date.now())
   const words = read.ok ? read.words : 'Schedule'
   const editor = (
     <Popover
@@ -105,7 +126,7 @@ export function ScheduleTag({
         </LinkButton>
       )}
     >
-      <ScheduleEditor cron={cron} timezone={timezone} onChange={onChange} />
+      <ScheduleEditor schedule={schedule} timezone={timezone} onChange={onChange} />
     </Popover>
   )
   const glyph = <ScheduleGlyph className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
@@ -137,39 +158,72 @@ export function ScheduleFailureTray({ failure, onDismiss }: { failure: string; o
 }
 
 /**
- * The picker. Daily, Weekly and Monthly write the everyday shapes; Cron takes
- * anything. Every change that reads is handed back at once, so the tag it
- * opens from says the new schedule while the picker is still open; one that does
- * not read is kept here, marked, and the last schedule that did stays.
+ * The picker. Once runs a single time; Daily, Weekly and Monthly write the
+ * everyday shapes of a repeat; Cron takes anything. Every change that reads is
+ * handed back at once, so the tag it opens from says the new schedule while
+ * the picker is still open; one that does not read is kept here, marked, and
+ * the last schedule that did stays.
  */
 export function ScheduleEditor({
-  cron,
+  schedule,
   timezone,
   onChange,
 }: {
-  cron: string
+  schedule: PickedSchedule
   timezone: string
-  onChange: (cron: string) => void
+  onChange: (schedule: PickedSchedule) => void
 }) {
-  const [state, setState] = React.useState<ScheduleEditorState>(() => editorStateFromCron(cron))
+  const [state, setState] = React.useState<ScheduleEditorState>(() => editorStateFromCron(schedule.cron))
+  // The time Once picks, kept while a repeat is picked so going back finds it.
+  const [onceAt, setOnceAt] = React.useState(() => schedule.once ?? defaultSendAt(Date.now()))
   const update = (next: ScheduleEditorState) => {
     setState(next)
     const written = cronFromEditorState(next)
-    if (written && parseCronSchedule(written).ok) onChange(written)
+    if (written && parseCronSchedule(written).ok) onChange({ cron: written, once: null })
   }
   const written = cronFromEditorState(state) ?? ''
   const read = readSchedule(written, timezone, Date.now())
 
+  const tabs = (
+    <SegmentedControl
+      ariaLabel="How often"
+      size="sm"
+      items={TABS}
+      value={schedule.once !== null ? 'once' : state.tab}
+      onChange={(tab) => {
+        if (tab === 'once') {
+          onChange({ cron: schedule.cron, once: onceAt })
+          return
+        }
+        // Back from Once: the repeat the controls hold, on the tab picked.
+        if (schedule.once !== null && tab === state.tab) {
+          onChange({ cron: written && parseCronSchedule(written).ok ? written : schedule.cron, once: null })
+          return
+        }
+        update(switchTab(state, tab))
+      }}
+      className="w-full [&>*]:flex-1 [&>*]:justify-center"
+    />
+  )
+  if (schedule.once !== null) {
+    return (
+      <div className="flex flex-col gap-3">
+        {tabs}
+        <SendTimeEditor
+          at={schedule.once}
+          timezone={timezone}
+          onChange={(at) => {
+            setOnceAt(at)
+            onChange({ cron: schedule.cron, once: at })
+          }}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-3">
-      <SegmentedControl
-        ariaLabel="How often"
-        size="sm"
-        items={TABS}
-        value={state.tab}
-        onChange={(tab) => update(switchTab(state, tab))}
-        className="w-full [&>*]:flex-1 [&>*]:justify-center"
-      />
+      {tabs}
 
       {state.tab === 'weekly' ? (
         <ScheduleSection label="On">
@@ -308,54 +362,6 @@ function nextFreeTime(times: ScheduleTime[]): ScheduleTime {
   let candidate = ((times[times.length - 1] ?? 8 * 60) + 60) % (24 * 60)
   while (times.includes(candidate)) candidate = (candidate + 60) % (24 * 60)
   return candidate
-}
-
-/**
- * One time of day, typed: "9", "9:30", "9pm", "21:00". Read on Enter or when
- * focus leaves; one that does not read goes back to what it was. A bare hour
- * keeps the AM/PM the field already had.
- */
-function TimeField({
-  time,
-  removable,
-  onChange,
-  onRemove,
-}: {
-  time: ScheduleTime
-  removable: boolean
-  onChange: (time: ScheduleTime) => void
-  onRemove: () => void
-}) {
-  const shown = formatScheduleTime(time)
-  const [text, setText] = React.useState(`${shown.clock} ${shown.meridiem}`)
-  React.useEffect(() => setText(`${shown.clock} ${shown.meridiem}`), [shown.clock, shown.meridiem])
-  const commit = () => {
-    const read = parseScheduleTime(text, shown.meridiem)
-    if (read === null) setText(`${shown.clock} ${shown.meridiem}`)
-    else if (read !== time) onChange(read)
-  }
-  return (
-    <span className="inline-flex items-center">
-      <Input
-        size="sm"
-        fullWidth={false}
-        value={text}
-        onChange={(event) => setText(event.currentTarget.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault()
-            commit()
-          }
-        }}
-        aria-label="Time of day"
-        className="w-[10ch] tabular-nums"
-      />
-      {removable ? (
-        <CloseIconButton size="xs" aria-label={`Remove ${shown.clock} ${shown.meridiem}`} onClick={onRemove} />
-      ) : null}
-    </span>
-  )
 }
 
 function CronField({

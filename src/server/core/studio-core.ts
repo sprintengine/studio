@@ -55,6 +55,7 @@ import type { WslServers } from '../wsl/desktop-wsl-servers'
 import type { StudioRole } from './data-dir'
 import { takeDataDir } from './take-data-dir'
 import { createStudioUsageLimitResumes } from './studio-usage-limit-resumes'
+import { createStudioScheduledMessages } from './studio-scheduled-messages'
 
 // The Studio core: the services the server owns (studio-server design, section
 // 4.1), composed once. The desktop builds it inside Electron main, from
@@ -569,6 +570,29 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     workspaceRegistry.subscribe(() => usageLimitResumes.prune()),
   ]
 
+  // Messages a person scheduled into a chat from its composer's "+"
+  // (scheduled-messages/scheduled-messages.ts, wired in
+  // studio-scheduled-messages.ts): sent when their time comes through the same
+  // send a paired device's takes, as the person's own words.
+  const scheduledMessages = createStudioScheduledMessages({
+    dataDir,
+    conversations,
+    workspaceRecord: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
+    createHost: () => createConversationHost(),
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Scheduled messages', message })
+    },
+  })
+  void scheduledMessages.start()
+  const stopFollowingScheduledMessages = [
+    powerActivity.onResume(() => scheduledMessages.wake()),
+    powerActivity.onScreenLockChange((locked) => {
+      if (!locked) scheduledMessages.wake()
+    }),
+    // A deleted chat's scheduled messages go with it.
+    workspaceRegistry.subscribe(() => scheduledMessages.prune()),
+  ]
+
   /**
    * The core's own end, for a process that owns nothing else: the registry
    * flushed around the chats' end, the machines' helpers told to stop, the
@@ -594,6 +618,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       () => {
         for (const stop of stopFollowingResumes) stop()
         return usageLimitResumes.dispose()
+      },
+      () => {
+        for (const stop of stopFollowingScheduledMessages) stop()
+        return scheduledMessages.dispose()
       },
       () => workspaceSyncService.flush(),
       () => hosts.dispose(),
@@ -633,6 +661,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     pullRequests,
     localServers,
     usageLimitResumes,
+    scheduledMessages,
     shutdown,
   }
 }

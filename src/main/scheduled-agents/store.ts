@@ -149,7 +149,7 @@ function parseStoreFile(input: unknown, now: number, warn?: (message: string) =>
   const agents: ScheduledAgent[] = []
   for (const entry of input.agents) {
     if (!isRecord(entry) || typeof entry.id !== 'string' || !entry.id) continue
-    const validated = validateScheduledAgentDraft(entry, now)
+    const validated = validateScheduledAgentDraft(entry, now, { stored: true })
     if (!validated.ok) {
       warn?.(`Scheduled agent "${entry.id}" was skipped: ${validated.message}`)
       continue

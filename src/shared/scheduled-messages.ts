@@ -1,0 +1,91 @@
+// A message a person wrote in an open chat and asked to go out later: at a
+// time they picked, into that chat, as if they had pressed Send then. Main
+// keeps them (src/main/scheduled-messages/scheduled-messages.ts) and sends
+// them through the chat's own send path, which brings back an agent that is
+// no longer running; the chat's composer tray draws its own
+// (agentChat/scheduledMessages.tsx).
+//
+// What a scheduled message carries is the text alone: a picture or a file
+// attached by path belongs to the moment it was attached, and is not kept on
+// this computer's disk for later.
+
+import { isRecord } from './records'
+
+/** A chat by its identity: the agent record it is, in the workspace that holds it. */
+export type ScheduledMessageChat = { workspaceId: string; agentId: string }
+
+export type ScheduledMessage = ScheduledMessageChat & {
+  id: string
+  text: string
+  /** When it goes out (epoch ms). */
+  sendAt: number
+  createdAt: number
+  /**
+   * It came due while the chat was working, and waits for the turn to end
+   * (epoch ms it first came due). Absent while it is still ahead.
+   */
+  waitingSince?: number
+  /** It is on its way into the chat now. Never kept in the file. */
+  sending?: true
+  /**
+   * It went out and the chat refused it, in the chat's words. It stays, saying
+   * so, until Retry, Edit or Delete; nothing is scheduled.
+   */
+  failure?: string
+}
+
+export type ScheduledMessagesState = { messages: ScheduledMessage[] }
+
+/**
+ * What a window asks: schedule a message into a chat, move one to another
+ * time, send one now (a failed one included), or delete one.
+ */
+export type ScheduledMessageUpdate =
+  | (ScheduledMessageChat & { kind: 'schedule'; text: string; sendAt: number })
+  | { kind: 'reschedule'; id: string; sendAt: number }
+  | { kind: 'send-now'; id: string }
+  | { kind: 'delete'; id: string }
+
+export const SCHEDULED_MESSAGES_GET_CHANNEL = 'scheduled-messages:get'
+export const SCHEDULED_MESSAGES_UPDATE_CHANNEL = 'scheduled-messages:update'
+export const SCHEDULED_MESSAGES_CHANGED_CHANNEL = 'scheduled-messages:changed'
+
+/** Ids are minted by the app and short; this only keeps a strange one out. */
+const MAX_ID_LENGTH = 200
+/** A message is a turn a person typed; this keeps a pasted novel out of a small file. */
+export const MAX_SCHEDULED_MESSAGE_LENGTH = 100_000
+
+/** An update as a window sent it, or null for anything else. */
+export function parseScheduledMessageUpdate(input: unknown): ScheduledMessageUpdate | null {
+  if (!isRecord(input)) return null
+  if (input.kind === 'schedule') {
+    if (!isId(input.workspaceId) || !isId(input.agentId) || !isTime(input.sendAt)) return null
+    if (typeof input.text !== 'string') return null
+    const text = input.text.trim()
+    if (!text || text.length > MAX_SCHEDULED_MESSAGE_LENGTH) return null
+    return { kind: 'schedule', workspaceId: input.workspaceId, agentId: input.agentId, text, sendAt: input.sendAt }
+  }
+  if (!isId(input.id)) return null
+  if (input.kind === 'reschedule')
+    return isTime(input.sendAt) ? { kind: 'reschedule', id: input.id, sendAt: input.sendAt } : null
+  if (input.kind === 'send-now' || input.kind === 'delete') return { kind: input.kind, id: input.id }
+  return null
+}
+
+/** The chat's scheduled messages, soonest first. */
+export function selectChatScheduledMessages(
+  state: ScheduledMessagesState | null,
+  chat: ScheduledMessageChat,
+): ScheduledMessage[] {
+  return (state?.messages ?? [])
+    .filter((message) => message.workspaceId === chat.workspaceId && message.agentId === chat.agentId)
+    .sort((a, b) => a.sendAt - b.sendAt)
+}
+
+export function isId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH
+}
+
+export function isTime(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}

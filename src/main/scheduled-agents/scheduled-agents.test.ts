@@ -5,7 +5,13 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 
 import type { ConversationLaunchRequest } from '../conversation-launch-service'
-import type { ScheduledAgent, ScheduledAgentDraft } from '../../shared/scheduled-agents'
+import {
+  cronForInstant,
+  scheduledAgentScheduleWords,
+  validateScheduledAgentDraft,
+  type ScheduledAgent,
+  type ScheduledAgentDraft,
+} from '../../shared/scheduled-agents'
 import { isRunChatWorking, runScheduledAgent } from './runner'
 import { createScheduledAgentsScheduler } from './scheduler'
 import { runAsModuleToolCall } from '../module-host/module-tool-caller'
@@ -195,6 +201,85 @@ test('a schedule that changes counts from now; one that closes stops', async () 
   agents = []
   scheduler.refresh()
   assert.equal(time.armedAt(), null)
+})
+
+test('a one-time schedule runs once at its time, and never again', async () => {
+  const time = fakeTime(NOW)
+  const at = Date.UTC(2026, 8, 30, 15, 30)
+  let agents = [agent({ schedule: { cron: cronForInstant(at, 'UTC'), timezone: 'UTC', once: at } })]
+  const runs: number[] = []
+  const scheduler = createScheduledAgentsScheduler({
+    list: () => agents,
+    run: async () => {
+      runs.push(time.now())
+      return { at: time.now(), ok: true, workspaceId: 'w' }
+    },
+    recordRun: async (_id, run) => {
+      agents = agents.map((entry) => ({ ...entry, lastRun: run }))
+    },
+    now: time.now,
+    setTimer: time.setTimer,
+    clearTimer: time.clearTimer,
+  })
+  scheduler.start()
+  assert.equal(scheduler.nextRunAt('sa-1'), at)
+  await time.advanceTo(at)
+  assert.deepEqual(runs, [at])
+  assert.equal(scheduler.nextRunAt('sa-1'), null, 'no next run: its cron names the same day next year, and is not read')
+  await time.advanceTo(at + 366 * 24 * 60 * 60 * 1000)
+  assert.equal(runs.length, 1)
+})
+
+test('a one-time schedule whose time passed while the app was closed runs once it is open', async () => {
+  const time = fakeTime(NOW)
+  const at = NOW - 60 * 60 * 1000
+  let runCount = 0
+  const scheduler = createScheduledAgentsScheduler({
+    list: () => [agent({ schedule: { cron: cronForInstant(at, 'UTC'), timezone: 'UTC', once: at } })],
+    run: async () => {
+      runCount += 1
+      return { at: time.now(), ok: true, workspaceId: 'w' }
+    },
+    recordRun: async () => undefined,
+    now: time.now,
+    setTimer: time.setTimer,
+    clearTimer: time.clearTimer,
+  })
+  scheduler.start()
+  await time.advanceTo(NOW + 1)
+  assert.equal(runCount, 1)
+  // One whose run already went (it failed, and is kept to say so) is done.
+  const ran = createScheduledAgentsScheduler({
+    list: () => [
+      agent({
+        schedule: { cron: cronForInstant(at, 'UTC'), timezone: 'UTC', once: at },
+        lastRun: { at: at + 1, ok: false, message: 'No such CLI.' },
+      }),
+    ],
+    run: async () => ({ at: time.now(), ok: true, workspaceId: 'w' }),
+    recordRun: async () => undefined,
+    now: time.now,
+    setTimer: time.setTimer,
+    clearTimer: time.clearTimer,
+  })
+  ran.start()
+  assert.equal(ran.nextRunAt('sa-1'), null)
+})
+
+test('a one-time schedule is held to a time ahead, said in words, and its cron is its minute', () => {
+  const at = Date.UTC(2026, 9, 7, 15, 30)
+  const written = validateScheduledAgentDraft(draft({ schedule: { cron: '', timezone: 'UTC', once: at } }), NOW)
+  assert.ok(written.ok)
+  assert.deepEqual(written.draft.schedule, { cron: '30 15 7 10 *', timezone: 'UTC', once: at })
+  assert.equal(scheduledAgentScheduleWords(written.draft.schedule), 'Once, Wed 7 Oct at 3:30 PM')
+  const passed = validateScheduledAgentDraft(draft({ schedule: { cron: '', timezone: 'UTC', once: NOW - 1 } }), NOW)
+  assert.deepEqual(passed, { ok: false, message: 'That time has already passed.' })
+  // Read back from the file, a time gone by is the one it ran, or missed.
+  assert.ok(
+    validateScheduledAgentDraft(draft({ schedule: { cron: '', timezone: 'UTC', once: NOW - 1 } }), NOW, {
+      stored: true,
+    }).ok,
+  )
 })
 
 test('a time that comes round while the last run is still working is skipped, and said so', async () => {
