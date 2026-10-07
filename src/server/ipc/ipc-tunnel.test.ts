@@ -86,6 +86,17 @@ test('a handler that throws answers as itself failing, and a channel nobody serv
   assert.match((await window.result(2)).error.message, /No handler registered for 'nothing:here'/)
 })
 
+test('an answer that does not clone still answers the invoke, as a failure', async () => {
+  const tunnel = createIpcTunnel()
+  tunnel.registry.handle('settings:get', () => ({ theme: 'dark', reload: () => undefined }))
+  const window = portPair()
+  tunnel.attach(client('w1'), window.server)
+  window.send({ t: 'ipc.invoke', id: 1, channel: 'settings:get', args: [] })
+  const result = await window.result(1)
+  assert.equal(result.ok, false)
+  assert.match(result.error.message, /^settings:get's answer could not be sent to the window: /)
+})
+
 test('a handler hears who asked', async () => {
   const tunnel = createIpcTunnel()
   tunnel.registry.handle('who', (event) => event.caller)
