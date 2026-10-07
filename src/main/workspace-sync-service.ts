@@ -549,6 +549,9 @@ function validateWorkspaceCreated(
         workspace: clone(payload.workspace) as Workspace,
         windowId,
         insert: { kind: 'folder_head', folderPath },
+        // A chat started from this window without being brought to the
+        // front (⌘⏎ from New chat): the echo must leave the window as it is.
+        ...(payload.activate === false ? { activate: false as const } : {}),
       },
     },
   }

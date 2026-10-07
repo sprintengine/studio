@@ -86,7 +86,7 @@ producer that needs a toast to stay says so with `autoDismissMs: false` (the
 app-update steps). (The shipped kit names the danger tone `error`; the class
 here follows the token grammar, `status.danger`.)
 
-**The action row, two consumers.** Owner ruling 2026-09-04: the CLI-update
+**The action row, three consumers.** Owner ruling 2026-09-04: the CLI-update
 toast ("Update available: Codex 0.153.3")
 carries `.ds-toast-actions` with **Settings** (ghost) and **Update** (primary),
 and `.ds-toast-glyph` — the agent CLI's icon — in place of the tone's mark. It
@@ -130,7 +130,17 @@ toast a spinner may appear: the process it marks is live, named, and the one
 the person just started. At the start after an update the toast reports how it
 went — "Updated to SprintEngine Studio 0.7.0" (good) or "Update to 0.7.0 did
 not install" (warn, with the reason) — without buttons.
-These two are the only toasts in the system with buttons.
+These two were the only toasts with buttons until the third below.
+
+**The action row's third consumer (2026-10-07).** ⌘⏎ in New chat starts the
+chat without opening it, and says so: "Started in the background" (good mark),
+the chat's name as its description, and one **Open** (primary). It is a
+polite report on the tone's own timer; a second ⌘⏎ replaces it in place, so
+Open always means the latest. Open is not the only way there — the chat's row
+is in the sidebar the moment it starts — and missing the toast loses nothing,
+which is what lets an action ride a timer here. Pressing it takes the toast
+down and goes to the chat as a click on its row does. These three are the only
+toasts in the system with buttons.
 
 **In a browser tab (2026-10-03).** A web tab has no installer: the server it
 talks to is updated, and the tab is a reload away from the new version. So the

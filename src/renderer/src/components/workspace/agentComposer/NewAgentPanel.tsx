@@ -166,8 +166,8 @@ export type NewAgentLaunch = AgentComposerConfirm & {
   environment?: { kind: 'ssh'; id: string; label: string; folder: string }
   /**
    * Start it and stay on New chat (⌘⏎, `chat.new.launchInBackground`): the
-   * host starts the chat as it would for ⏎ but leaves the door up, and the
-   * panel empties for the next one. Only sent where `launchesInBackground`.
+   * host starts the chat ⏎ would start, out of sight, and leaves the door up;
+   * the panel empties for the next one. Only sent where `launchesInBackground`.
    */
   stay?: true
 }
@@ -1494,10 +1494,10 @@ export default function NewAgentPanel({
   }
 
   // A ⌘⏎ launch went out: the box empties for the next task, keeping every
-  // choice around it, and takes focus back from whatever the started chat
-  // mounted under the door. Should the host say nothing started (a worktree
-  // that could not be made, which says why itself), the prompt comes back,
-  // unless the person has already typed the next one.
+  // choice around it, and keeps the focus (a toast offers to open the chat).
+  // Should the host say nothing started (a worktree that could not be made,
+  // which says why itself), the prompt comes back, unless the person has
+  // already typed the next one.
   const keepOnNewChat = (started: void | Promise<boolean>, sentPrompt: string, sentImages: PromptImage[]) => {
     const sentFiles = files
     setPrompt('')

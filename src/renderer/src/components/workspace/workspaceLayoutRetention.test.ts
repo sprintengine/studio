@@ -4,6 +4,7 @@ import {
   WORKSPACE_LAYOUT_BUSY_RETAINED_LIMIT,
   WORKSPACE_LAYOUT_IDLE_UNLOAD_MS,
   WORKSPACE_LAYOUT_RETAINED_INACTIVE_LIMIT,
+  workspaceLayers,
 } from './workspaceLayoutRetention'
 import { test } from 'vitest'
 
@@ -185,4 +186,35 @@ test('workspaceLayoutRetention', async () => {
   }
 
   console.log('workspaceLayoutRetention.test.ts: ok')
+})
+
+test('a chat started in the background is drawn as a warm hidden layer, never the active one', () => {
+  const layers = workspaceLayers({
+    visibleWorkspaceIds: ['started', 'open', 'a', 'b', 'c', 'gone-cold'],
+    activeWorkspaceId: 'open',
+    mountedWorkspaceIds: ['open', 'a', 'b', 'c', 'gone-cold'],
+    startingWorkspaceIds: ['started', 'closed-meanwhile'],
+    lastFocusedAtByWorkspaceId: { open: 50, a: 40, b: 30, c: 20, 'gone-cold': 10 },
+    warmLimit: 3,
+  })
+  assert.deepEqual(layers.rendered, ['started', 'open', 'a', 'b', 'c', 'gone-cold'], 'mounted before it is retained')
+  assert.deepEqual(
+    [...layers.warm].sort(),
+    ['a', 'b', 'c', 'started'],
+    'warm on top of the recent ones, which it does not push out',
+  )
+  assert.equal(layers.warm.has('open'), false)
+})
+
+test('nothing starting: the active layer, the retained ones, the most recent warm', () => {
+  const layers = workspaceLayers({
+    visibleWorkspaceIds: ['open', 'a', 'b', 'unmounted'],
+    activeWorkspaceId: 'open',
+    mountedWorkspaceIds: ['a', 'b'],
+    startingWorkspaceIds: [],
+    lastFocusedAtByWorkspaceId: { a: 1, b: 2 },
+    warmLimit: 1,
+  })
+  assert.deepEqual(layers.rendered, ['open', 'a', 'b'])
+  assert.deepEqual([...layers.warm], ['b'])
 })

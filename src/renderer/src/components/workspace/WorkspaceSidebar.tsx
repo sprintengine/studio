@@ -480,6 +480,24 @@ function WorkspaceSidebar({
     rowGitSummariesRef.current = next
     return next
   }, [workspaces, sessionsByWorkspaceId, gitSummaries])
+  // A door-routed full-page surface owns the card region (global-surfaces epic
+  // 1704). While one is active no project row is "current" — the door row carries
+  // the selection instead, so the sidebar shows exactly one selected thing. This
+  // resolves + module-gates the active surface exactly as WorkspaceManager does
+  // for the mount, so the two agree: a stale id whose surface is unregistered or
+  // whose module was disabled falls back to the workspace (region shows it, and a
+  // project row re-selects) rather than leaving nothing selected.
+  const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
+  const globalSurfaceActive = useMemo(() => {
+    if (!activeGlobalSurface) return false
+    const entry = getRendererHost().getGlobalSurface(activeGlobalSurface)
+    return entry !== undefined && selectModuleEnabled(moduleOverrides, entry.moduleId)
+  }, [activeGlobalSurface, moduleOverrides])
+  // The chat a person can see: the window's own, unless New chat or a door
+  // covers it. A chat started with ⌘⏎ is not it, and neither is the one under
+  // New chat while the person types the next task: each is stamped as seen,
+  // and loses its finished mark, only once it is uncovered.
+  const onScreenWorkspaceId = newChatOpen || globalSurfaceActive ? null : activeWorkspaceId
   // The unseen-completion mark (the green row, `doneRowClass`). Session-only: the
   // store's recency slice persists when a workspace was last TYPED into, not
   // when it was last looked at, so "seen" has no honest home there yet and a
@@ -514,12 +532,12 @@ function WorkspaceSidebar({
         workingSinceBefore: before,
         workingSinceNow,
         settledWorkspaceIds,
-        activeWorkspaceId,
+        activeWorkspaceId: onScreenWorkspaceId,
       })
       if (next.size === previous.size && [...next].every((id) => previous.has(id))) return previous
       return next
     })
-  }, [terminalRecencyByWorkspaceId, terminalSessions, conversationSessions, activeWorkspaceId])
+  }, [terminalRecencyByWorkspaceId, terminalSessions, conversationSessions, onScreenWorkspaceId])
   useEffect(() => {
     onUnseenDoneChange?.(unseenDoneIds)
   }, [unseenDoneIds, onUnseenDoneChange])
@@ -565,19 +583,6 @@ function WorkspaceSidebar({
     })
   }, [unseenVisits])
 
-  // A door-routed full-page surface owns the card region (global-surfaces epic
-  // 1704). While one is active no project row is "current" — the door row carries
-  // the selection instead, so the sidebar shows exactly one selected thing. This
-  // resolves + module-gates the active surface exactly as WorkspaceManager does
-  // for the mount, so the two agree: a stale id whose surface is unregistered or
-  // whose module was disabled falls back to the workspace (region shows it, and a
-  // project row re-selects) rather than leaving nothing selected.
-  const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
-  const globalSurfaceActive = useMemo(() => {
-    if (!activeGlobalSurface) return false
-    const entry = getRendererHost().getGlobalSurface(activeGlobalSurface)
-    return entry !== undefined && selectModuleEnabled(moduleOverrides, entry.moduleId)
-  }, [activeGlobalSurface, moduleOverrides])
   // Module-contributed top-nav doors used to be resolved here and handed to
   // ExtensionsRail. They are resolved inside `useExtensionsDrawerRows` now: the
   // memo here was keyed on module enablement alone, so a third-party module
@@ -1214,13 +1219,13 @@ function WorkspaceSidebar({
   // The chat in front in this window, stamped as seen while the window is
   // visible and focused (`useVisitStamp`). A chat here stamps this desktop's
   // own record; a chat followed from a paired machine stamps that machine's,
-  // which keeps its read state, when it keeps one. A full-page surface
-  // covering the chat means nobody is looking at it.
+  // which keeps its read state, when it keeps one. A full-page surface or New
+  // chat covering the chat means nobody is looking at it.
   const windowActive = useWindowActive()
   const recordWorkspaceVisit = useWorkspaceStore((s) => s.recordWorkspaceVisit)
   const visitTarget = useMemo((): VisitTarget | null => {
-    if (globalSurfaceActive || !activeWorkspaceId) return null
-    const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId)
+    if (!onScreenWorkspaceId) return null
+    const workspace = workspaces.find((candidate) => candidate.id === onScreenWorkspaceId)
     if (!workspace) return null
     const origin = workspace.remoteOrigin
     if (origin) {
@@ -1258,14 +1263,7 @@ function WorkspaceSidebar({
       },
       left: () => noteChatLeft(workspace.id),
     }
-  }, [
-    globalSurfaceActive,
-    activeWorkspaceId,
-    workspaces,
-    remoteConversationByWorkspace,
-    conversationsByWorkspaceId,
-    recordWorkspaceVisit,
-  ])
+  }, [onScreenWorkspaceId, workspaces, remoteConversationByWorkspace, conversationsByWorkspaceId, recordWorkspaceVisit])
   useVisitStamp(visitTarget, windowActive)
 
   // Mark unread puts a row's "finished while you were away" mark back up and,

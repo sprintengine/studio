@@ -3,61 +3,51 @@ import { test } from 'vitest'
 
 import { createNewChatStay, NEW_CHAT_STAY_WATCH_MS } from './newChatStay'
 
-test('a ⌘⏎ launch keeps New chat up over each chat it creates, once', async () => {
+const offScreen = () => false
+
+test('a chat ⌘⏎ started is held as starting until its agent is seen under way', () => {
   const stay = createNewChatStay(() => 1_000)
-  let runningDuringLaunch = false
-  const started = await stay.run(() => {
-    runningDuringLaunch = stay.isRunning()
-    stay.noteCreated('chat-1')
-  })
-  assert.equal(started, true)
-  assert.equal(runningDuringLaunch, true, 'the launch paths see it and leave the door up')
-  assert.equal(stay.isRunning(), false)
-  // Its activation under the door does not park New chat; a later one does.
-  assert.equal(stay.keepsNewChatOver('chat-1'), true)
-  assert.equal(stay.keepsNewChatOver('chat-1'), false)
-  assert.equal(stay.keepsNewChatOver(null), false)
+  stay.started('chat-1')
+  stay.started('chat-2')
+  assert.deepEqual(stay.starting(), ['chat-1', 'chat-2'])
+  // Not in the activity yet (the render that lists it has not happened), or
+  // idle while its view comes up: still starting.
+  assert.deepEqual(stay.review({ 'chat-1': 'idle' }, offScreen).starting, ['chat-1', 'chat-2'])
+  assert.deepEqual(stay.review({ 'chat-1': 'working' }, offScreen).starting, ['chat-2'])
+  // A turn that ends quickly does not make it starting again.
+  assert.deepEqual(stay.review({ 'chat-1': 'idle', 'chat-2': 'working' }, offScreen).starting, [])
 })
 
-test('a chat ⏎ creates is not one to keep New chat over', () => {
+test('only a chat ⌘⏎ started is held or watched', () => {
   const stay = createNewChatStay()
-  stay.noteCreated('chat-2')
-  assert.equal(stay.keepsNewChatOver('chat-2'), false)
+  assert.deepEqual(stay.review({ 'opened-with-enter': 'failed' }, offScreen), { failed: [], starting: [] })
 })
 
-test('a ⌘⏎ launch that created nothing says so, and a throwing one still ends', async () => {
-  const stay = createNewChatStay()
-  assert.equal(await stay.run(async () => undefined), false)
-  await assert.rejects(
-    stay.run(() => {
-      throw new Error('worktree')
-    }),
-  )
-  assert.equal(stay.isRunning(), false)
-})
-
-test('a started chat failing in its first minute is reported once, unless it is on screen', async () => {
+test('a started chat failing in its first minute is reported once, unless it is on screen', () => {
   let now = 1_000
   const stay = createNewChatStay(() => now)
-  await stay.run(() => {
-    stay.noteCreated('quiet')
-    stay.noteCreated('watched')
-    stay.noteCreated('seen')
-    stay.noteCreated('asks')
-  })
-  const offScreen = () => false
-  assert.deepEqual(stay.takeFailures({ quiet: 'working', watched: 'working', seen: 'idle' }, offScreen), [])
-  // Stopping to ask is a chat that started: no longer watched.
-  assert.deepEqual(stay.takeFailures({ asks: 'needs-input' }, offScreen), [])
-  assert.deepEqual(stay.takeFailures({ asks: 'failed' }, offScreen), [])
-  assert.deepEqual(
-    stay.takeFailures({ watched: 'failed', seen: 'failed' }, (id) => id === 'seen'),
-    ['watched'],
-    'the one on screen shows its own failure',
-  )
-  assert.deepEqual(stay.takeFailures({ watched: 'failed' }, offScreen), [], 'reported once')
+  for (const id of ['quiet', 'watched', 'seen', 'asks']) stay.started(id)
+  assert.deepEqual(stay.review({ quiet: 'working', watched: 'working', seen: 'idle' }, offScreen).failed, [])
+  // Stopping to ask is a chat that started: no longer watched or held.
+  const asked = stay.review({ asks: 'needs-input' }, offScreen)
+  assert.equal(asked.starting.includes('asks'), false)
+  assert.deepEqual(stay.review({ asks: 'failed' }, offScreen).failed, [])
+  const failing = stay.review({ watched: 'failed', seen: 'failed' }, (id) => id === 'seen')
+  assert.deepEqual(failing.failed, ['watched'], 'the one on screen shows its own failure')
+  assert.equal(failing.starting.includes('seen'), false, 'a failed start is not held')
+  assert.deepEqual(stay.review({ watched: 'failed' }, offScreen).failed, [], 'reported once')
   // Past its first minute a failure is an ordinary failed turn, the badge's.
   now += NEW_CHAT_STAY_WATCH_MS + 1
-  assert.deepEqual(stay.takeFailures({ quiet: 'working' }, offScreen), [])
-  assert.deepEqual(stay.takeFailures({ quiet: 'failed' }, offScreen), [])
+  assert.deepEqual(stay.review({ quiet: 'working' }, offScreen).failed, [])
+  assert.deepEqual(stay.review({ quiet: 'failed' }, offScreen).failed, [])
+})
+
+test('a chat that never gets under way is let go after its first minute', () => {
+  let now = 1_000
+  const stay = createNewChatStay(() => now)
+  stay.started('stuck')
+  assert.deepEqual(stay.review({ stuck: 'idle' }, offScreen).starting, ['stuck'])
+  now += NEW_CHAT_STAY_WATCH_MS + 1
+  assert.deepEqual(stay.review({ stuck: 'idle' }, offScreen).starting, [])
+  assert.deepEqual(stay.starting(), [])
 })
