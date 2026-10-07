@@ -313,6 +313,12 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** Why a step that answers `{ ok, message }` failed, or null when it did not. */
+function failureOf(result: unknown): string | null {
+  if (typeof result !== 'object' || result === null || !('ok' in result) || result.ok !== false) return null
+  return 'message' in result && typeof result.message === 'string' ? result.message : 'no reason given'
+}
+
 export type WorktreePoolService = ReturnType<typeof createWorktreePoolService>
 
 export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
@@ -845,7 +851,9 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       pool.busy.delete(slot.id)
       return 'error'
     }
-    await writeSlotMarker(git, slot.path).catch(() => {})
+    await writeSlotMarker(git, slot.path).catch((error: unknown) =>
+      log(`${slot.path}: could not mark it as a slot (${messageOf(error)}); it is not adopted back if its record is lost`),
+    )
     await withPool(pool, async () => {
       slot.state = 'leasing'
       slot.op = { kind: 'lease', startedAt: now(), pid: process.pid }
@@ -960,7 +968,13 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         // `.worktreeinclude` names ignored files (an `.env`) the tree needs; a
         // reused slot still has the last copy, but the checkout's may have
         // changed since.
-        if (input.copyIncludedFiles) await deps.seedIncludedFiles?.(pool.record.repoRoot, slot.path)?.catch(() => null)
+        if (input.copyIncludedFiles && deps.seedIncludedFiles) {
+          const seeded = await deps.seedIncludedFiles(pool.record.repoRoot, slot.path).then(
+            (result) => failureOf(result),
+            (error: unknown) => messageOf(error),
+          )
+          if (seeded !== null) log(`${slot.path}: could not copy the .worktreeinclude files (${tail(seeded, 200)}); leasing anyway`)
+        }
         // Locked BEFORE the branch exists: from the moment the slot is on an
         // `agent/` branch, nothing else may remove it.
         const locked = await lockAgentWorktree(pool.record.repoRoot, slot.path, owner, git)
@@ -1027,23 +1041,6 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       }
     }
     return { ok: false, reason: 'error', message: 'No pool worktree passed its checks.', base }
-  }
-
-  /**
-   * Name the owner of a lease taken before its owner existed (a launch makes
-   * its worktree before it mints the agent's id).
-   */
-  async function bind(leaseId: string, owner: string): Promise<boolean> {
-    const found = findLease(leaseId)
-    if (!found || !found.slot.lease) return false
-    if (!(await ready(found.pool))) return false
-    await lockAgentWorktree(found.pool.record.repoRoot, found.slot.path, owner, git).catch(() => null)
-    await withPool(found.pool, async () => {
-      if (!found.slot.lease) return
-      found.slot.lease.owner = owner
-      await persist(found.pool)
-    })
-    return true
   }
 
   /**
@@ -1921,7 +1918,9 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       if (action === 'keep') {
         await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
         // No longer the pool's: nothing may ever adopt it back.
-        await removeSlotMarker(git, slot.path).catch(() => {})
+        await removeSlotMarker(git, slot.path).catch((error: unknown) =>
+          log(`${slot.path}: could not remove its slot mark (${messageOf(error)})`),
+        )
         await withPool(pool, async () => {
           pool.record.slots = pool.record.slots.filter((candidate) => candidate !== slot)
           pool.record.releasedPaths.push(slot.path)
@@ -2116,7 +2115,6 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     /** Read the records. Recovery waits for each pool's first use: nothing runs at start. */
     load,
     lease: (input: WorktreePoolLeaseInput) => track(lease(input)),
-    bind: (leaseId: string, owner: string) => track(bind(leaseId, owner)),
     reclaim: (input: Parameters<typeof reclaim>[0]) => track(reclaim(input)),
     release: (leaseId: string) => track(release(leaseId)),
     returnUnused: (input: WorktreePoolReturnInput) => track(returnUnused(input)),

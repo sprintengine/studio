@@ -997,6 +997,27 @@ test('a lease’s submodule update and LFS pull run under a deadline, and failin
   assert.match((await slotAt(harness, leased.slotId)).error ?? '', /submodules: .*; lfs: /)
 })
 
+test('a .worktreeinclude copy that fails is logged and the lease goes ahead', async () => {
+  const lines: string[] = []
+  const answers: Array<() => Promise<unknown>> = [
+    () => Promise.reject(new Error('disk full')),
+    () => Promise.resolve({ ok: false, message: 'source unreadable' }),
+  ]
+  const service = createWorktreePoolService({
+    store: createPoolStore(userData),
+    log: (line) => lines.push(line),
+    timers: false,
+    fetchFreshMs: 0,
+    seedIncludedFiles: () => answers.shift()!(),
+  })
+  for (const name of ['seed-throws', 'seed-fails']) {
+    const leased = await service.lease({ repoRoot: repo, name, copyIncludedFiles: true })
+    assert.equal(leased.ok, true)
+  }
+  assert.ok(lines.some((line) => /could not copy the \.worktreeinclude files \(disk full\)/.test(line)))
+  assert.ok(lines.some((line) => /could not copy the \.worktreeinclude files \(source unreadable\)/.test(line)))
+})
+
 test('a recovery that failed is tried again at the next use, not remembered as done', async () => {
   let listings = 0
   const flaky: SlotGitRunner = (cwd, args, options) => {
