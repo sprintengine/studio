@@ -9,7 +9,11 @@ import {
 } from '../../shared/workspace-sync'
 import { settleWorkspacePatch } from '../../shared/workspace-lifecycle'
 import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
-import { createConversationLifecycle, createConversationListChangeFilter } from './conversation-lifecycle'
+import {
+  createConversationLifecycle,
+  createConversationListChangeFilter,
+  movesWorkspaceList,
+} from './conversation-lifecycle'
 import { createConversationTools } from './conversation-tools'
 
 const NOW = 1_000_000
@@ -253,4 +257,25 @@ test('Mark unread moves the list every time: the clock went back, which every de
   // Read again: the first visit since the rewind is news too.
   assert.equal(changed(fieldsEvent('ws-1', { lastVisitedAt: 400 })), true)
   assert.equal(changed(fieldsEvent('ws-1', { lastVisitedAt: 410 })), false)
+})
+
+test('a patch of the clocks alone does not move the workspace list, which carries none of them', () => {
+  assert.equal(movesWorkspaceList(fieldsEvent('ws-1', { lastVisitedAt: 200 })), false, 'a visit stamp')
+  assert.equal(movesWorkspaceList(fieldsEvent('ws-1', { lastVisitedAt: 99, visitRewoundAt: 300 })), false)
+  assert.equal(movesWorkspaceList(fieldsEvent('ws-1', { lastTerminalActivityAt: 5, lastTurnEndedAt: 6 })), false)
+  assert.equal(movesWorkspaceList(fieldsEvent('ws-1', { lastUserMessageAt: 5 })), false)
+  // A field the list does carry, alone or beside a clock, still moves it.
+  assert.equal(movesWorkspaceList(fieldsEvent('ws-1', { settledAt: 5, lastTerminalActivityAt: 4 })), true)
+  assert.equal(movesWorkspaceList(fieldsEvent('ws-1', { folderPath: '/Users/dev/app' })), true)
+  assert.equal(
+    movesWorkspaceList({
+      id: 'e',
+      type: 'workspace.renamed',
+      sourceWindowId: 'primary',
+      sequence: 2,
+      createdAt: 1,
+      payload: { workspaceId: 'ws-1', name: 'Fix the login', editedAt: 1 },
+    } as WorkspaceSyncEvent),
+    true,
+  )
 })

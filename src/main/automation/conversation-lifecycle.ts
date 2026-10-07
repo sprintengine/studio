@@ -202,3 +202,28 @@ export function createConversationListChangeFilter(deps: {
 
 /** The record fields a listed chat reads, beside the visit clock. */
 const LIST_FIELDS = ['settledAt', 'lastUserMessageAt'] as const satisfies ReadonlyArray<keyof WorkspaceFieldsPatch>
+
+/**
+ * Whether a registry change moves what `workspace.list` says, so the change
+ * feed tells a paired device to read it again. Every change does but a patch
+ * of the clocks alone, which the list does not carry: a visit is stamped every
+ * few seconds while a chat is on screen, and a keystroke or a turn's end moves
+ * one too, and each was a re-read of every workspace on every paired device
+ * for a list that came back the same. The conversation list, which does read
+ * them, has its own filter above.
+ */
+export function movesWorkspaceList(event: WorkspaceSyncEvent): boolean {
+  if (event.type !== 'workspace.fields_updated') return true
+  return Object.entries(event.payload.patch).some(
+    ([field, value]) => value !== undefined && !UNLISTED_CLOCKS.has(field as keyof WorkspaceFieldsPatch),
+  )
+}
+
+/** The record's clocks, none of which `workspace.list` projects. */
+const UNLISTED_CLOCKS = new Set<keyof WorkspaceFieldsPatch>([
+  'lastVisitedAt',
+  'visitRewoundAt',
+  'lastTerminalActivityAt',
+  'lastUserMessageAt',
+  'lastTurnEndedAt',
+])
