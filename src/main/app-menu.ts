@@ -74,6 +74,11 @@ export function createAppMenu(): Menu {
         },
         { type: 'separator' },
         { role: 'close' },
+        // On macOS the first menu is the app menu, and Cmd+Q is only a key
+        // because an item there carries it; without this item the chord did
+        // nothing and quitting took the Dock or the tray. The quit it raises
+        // goes through `before-quit`, so it is asked about like any other.
+        { role: 'quit' },
       ],
     },
     {
