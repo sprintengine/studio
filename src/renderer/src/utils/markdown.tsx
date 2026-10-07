@@ -395,13 +395,10 @@ function markAlert(quote: MarkdownSyntaxNode): void {
 
 const MARKDOWN_PLUGINS = [remarkGfm, remarkGithubAlerts]
 const USER_TEXT_PLUGINS = [...MARKDOWN_PLUGINS, remarkUserText]
-// A single dollar never opens math: in a reply it is a price or a shell
-// variable far more often than a formula (see markdownMath.tsx).
-const MATH_PLUGINS: NonNullable<Options['remarkPlugins']> = [
-  ...MARKDOWN_PLUGINS,
-  [remarkMath, { singleDollarTextMath: false }],
-  remarkMathDelimiters,
-]
+// remark-math builds the formulas' nodes; which delimiters open one is ours
+// (`markdownMath.tsx`), and a single dollar never does: in a reply it is a
+// price or a shell variable far more often than a formula.
+const MATH_PLUGINS: NonNullable<Options['remarkPlugins']> = [...MARKDOWN_PLUGINS, remarkMath, remarkMathDelimiters]
 
 // GitHub's five, each on a tone the app already speaks: a note is information
 // (accent), a tip a good outcome, a warning a degraded one, a caution a

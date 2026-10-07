@@ -144,3 +144,113 @@ test('a ```latex, ```tex or ```katex fence stays code, to read and copy, even wh
   expect(document).toContain('data-stub="latex"')
   expect(document).toContain('data-note=""')
 })
+
+// The block's TeX, as the drawing carries it.
+function displayTex(html: string): string[] {
+  return [...html.matchAll(/<div data-math="display" data-tex="([^"]*)"/gu)].map((match) =>
+    match[1]
+      .replace(/&amp;/gu, '&')
+      .replace(/&quot;/gu, '"')
+      .replace(/&lt;/gu, '<')
+      .replace(/&gt;/gu, '>'),
+  )
+}
+
+test('a display block is read whole: lines like a list, a blank line and \\\\ all stay TeX', async () => {
+  await loadTypesetter()
+  const aligned = ['\\begin{aligned}', 'a &= b \\\\', '- c &= d', '\\end{aligned}']
+  for (const [open, close] of [
+    ['\\[', '\\]'],
+    ['$$', '$$'],
+  ]) {
+    const html = renderReply([open, ...aligned, close].join('\n'))
+    expect(displayTex(html), open).toEqual([aligned.join('\n')])
+    expect(html, open).not.toMatch(/<ul|<ol|<p/u)
+
+    const lines = ['x = 1', '', '+ y', '1. z']
+    const spaced = renderReply(['Before.', open, ...lines, close, 'After.'].join('\n'))
+    expect(displayTex(spaced), open).toEqual([lines.join('\n')])
+    expect(spaced, open).not.toMatch(/<ul|<ol/u)
+    expect(spaced, open).toMatch(/<p[^>]*>Before\.<\/p>/u)
+    expect(spaced, open).toMatch(/<p[^>]*>After\.<\/p>/u)
+
+    // Not TeX, so it falls back to its source: but never to a heading.
+    const hashed = renderReply([open, '# w', close].join('\n'), { codeBlock: CodeStub })
+    expect(hashed, open).toMatch(/<pre data-stub="math"[^>]*># w<\/pre>/u)
+    expect(hashed, open).not.toContain('<h1')
+  }
+
+  // On one line of its own, under a sentence.
+  const single = renderReply('So:\n\\[ E = mc^2 \\]\nholds.')
+  expect(displayTex(single)).toEqual(['E = mc^2'])
+  expect(single).toMatch(/<p[^>]*>So:<\/p>/u)
+
+  // Inside a list item and a quote, the container's markers are not TeX.
+  expect(displayTex(renderReply('- Item:\n\n  $$\n  x^2\n  $$'))).toEqual(['x^2'])
+  expect(displayTex(renderReply('> \\[\n> y^2\n> \\]'))).toEqual(['y^2'])
+})
+
+test('a display block needs its closing line, so one still arriving is text', async () => {
+  await loadTypesetter()
+  for (const source of ['$$\n\\frac{a}{b}', '\\[\n\\frac{a}{b}', 'Then:\n\\[ x^2', '> \\[\n> x^2\n\nOutside.\n\\]']) {
+    const html = renderReply(source, { codeBlock: CodeStub })
+    expect(html, source).not.toContain('data-math')
+    expect(html, source).not.toContain('data-stub')
+    expect(html, source).toContain('\\frac{a}{b}'.slice(0, 0))
+  }
+  expect(renderReply('$$\n\\frac{a}{b}', { streaming: true })).toContain('\\frac{a}{b}')
+})
+
+test('brackets in a sentence stay a sentence: code spans, citations and tags', async () => {
+  await loadTypesetter()
+  const docs = renderReply('See \\[the `foo` docs\\] for more.')
+  expect(docs).not.toContain('data-math')
+  expect(docs).toMatch(/See \[the <code[^>]*>foo<\/code> docs\] for more\./u)
+
+  for (const source of [
+    'As shown \\[1\\], it holds.',
+    '\\[1\\]',
+    '\\[2, 3\\]',
+    '\\[WIP\\] for now',
+    '\\[a\\] and \\[b\\]',
+  ]) {
+    const html = renderReply(source)
+    expect(html, source).not.toContain('data-math')
+  }
+  expect(renderReply('\\[2, 3\\]')).toContain('[2, 3]')
+})
+
+test('inline math gives way to a code span or a link inside it', async () => {
+  await loadTypesetter()
+  const span = renderReply('Set $$a `b` c$$ here.')
+  expect(span).not.toContain('data-math')
+  expect(span).toMatch(/<code[^>]*>b<\/code>/u)
+
+  const link = renderReply('Read \\(see https://example.com/x\\) first.')
+  expect(link).not.toContain('data-math')
+
+  // A doubled dollar after an escaped one still opens.
+  expect(renderReply('Cost \\$ then $$x^2$$.')).toContain('data-math="inline"')
+})
+
+test('openers that never close are given up on, not rescanned to the end from each', async () => {
+  await loadTypesetter()
+  // Every `$$` here is followed by a digit, so none closes; every `\[` block
+  // runs on past its blank lines and never meets a `\]`.
+  const amounts = Array.from({ length: 6000 }, (_, index) => `$$${index}`).join(' ')
+  const blocks = Array.from({ length: 3000 }, (_, index) => `\\[ item ${index}`).join('\n\n')
+  for (const source of [amounts, blocks]) {
+    const started = performance.now()
+    const html = renderReply(source)
+    expect(performance.now() - started).toBeLessThan(1500)
+    expect(html).not.toContain('data-math')
+  }
+})
+
+test('an opener that gave up costs only the openers it passed over', async () => {
+  await loadTypesetter()
+  expect(renderReply('An unclosed $$ here.\n\nThen $$x^2$$ works.')).toContain('data-tex="x^2"')
+  expect(renderReply('Open \\( never closes.\nAnd \\(y\\) does.')).toContain('data-tex="y"')
+  // A `\[` still waiting for its `\]` does not stop a `$$` block after it.
+  expect(displayTex(renderReply('\\[\nnever closed\n\n$$\nx^2\n$$'))).toEqual(['x^2'])
+})
