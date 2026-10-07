@@ -27,6 +27,7 @@ import { ConversationPlanStore } from '../../main/conversation-plan-store'
 import { ConversationRuntime, type ConversationRuntimeOptions } from '../../main/conversation-runtime'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
 import { createGitWorktree, getGitRepoRoot } from '../../main/git'
+import { startedDependencyInstall } from '../../main/worktree-pool/dependency-install'
 import { installGitHostResolver, withGitHost } from '../../main/git-run'
 import { createHostRegistry, installHostRegistry } from '../../main/hosts/host-registry'
 import { createAgentLaunchSettingsStore } from '../../main/launch-settings-store'
@@ -330,16 +331,22 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
           copyIncludedFiles: true,
           // The chat is created after its worktree, so the branch names the owner.
           agentLockOwner: input.branchName,
+          // Every caller here is a client with a call timeout of its own (a
+          // paired device's New chat, `conversation.create`): the chat is
+          // made while the project's dependency install runs, and its first
+          // message waits for it instead.
+          dependencyInstall: 'start',
         }),
       )
-      return created.ok
-        ? {
-            ok: true,
-            path: created.data.path,
-            branch: created.data.branch ?? input.branchName,
-            baseRef: created.data.baseRef,
-          }
-        : { ok: false, message: created.message }
+      if (!created.ok) return { ok: false, message: created.message }
+      const installing = startedDependencyInstall(created.data.dependencyInstall)
+      return {
+        ok: true,
+        path: created.data.path,
+        branch: created.data.branch ?? input.branchName,
+        baseRef: created.data.baseRef,
+        ...(installing ? { dependencyInstall: installing } : {}),
+      }
     },
     // The same installer a terminal launch's skill-at-spawn uses, into the
     // folder the chat works in (a run's worktree when it has one).

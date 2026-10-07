@@ -36,6 +36,7 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import type { AgentLaunchRequest } from '../../shared/agent-launch'
 import type { LaunchedAgentLink } from '../agent-launch-notices'
+import type { WorktreeDependencyInstallView } from '../../shared/ipc/worktree-pool'
 import type { LoadedPlugin, PluginManifest } from '../../shared/plugin-manifest'
 import type { MarketplaceRegistryReadInput } from '../../shared/electron-api'
 import type { MarketplaceComponentKind } from '../../shared/marketplace/manifest'
@@ -929,6 +930,147 @@ test('automation', async () => {
       worktree: '/etc',
     })
     assert.equal((badWorktree.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  }
+
+  // A worktree whose project installs its dependencies first answers the
+  // gateway call at once: the agent's id, state installing_dependencies, and
+  // the install. The agent starts when the install ends, however it ends,
+  // under that id, and agent.status says where it is all along.
+  async function testAgentLaunchAnswersWhileItsWorktreeInstalls(): Promise<void> {
+    const view = (state: 'running' | 'failed'): WorktreeDependencyInstallView => ({
+      id: 'install-1',
+      repoRoot: '/tmp/project-a',
+      path: '/tmp/project-a/.sprintengine-worktrees/x',
+      branch: 'agent/x',
+      command: 'npm ci',
+      reason: 'changed',
+      state,
+      startedAt: 10,
+      endedAt: state === 'running' ? null : 20,
+      lastLine: state === 'running' ? 'added 12 packages' : 'npm error 403',
+      output: null,
+      exitCode: state === 'running' ? null : 1,
+    })
+    const harnessWith = (
+      settled: Promise<WorktreeDependencyInstallView | null>,
+      linkLaunchedAgent?: AutomationBackends['linkLaunchedAgent'],
+    ) => {
+      let current = view('running')
+      void settled.then((ended) => {
+        if (ended) current = ended
+      })
+      const workspace = testWorkspace('ws-1', { folderPath: '/tmp/project-a' })
+      const sessions: TerminalSessionSnapshot[] = []
+      const requests: AgentLaunchRequest[] = []
+      const backends: AutomationBackends = {
+        ...backendsOf({ workspaces: [workspace], sessions }),
+        getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
+        listTerminalSessions: () => sessions,
+        ...(linkLaunchedAgent ? { linkLaunchedAgent } : {}),
+        createAgentWorktree: async (input) => ({
+          worktreePath: `${input.workspaceRoot}/.sprintengine-worktrees/${input.name}`,
+          branch: `agent/${input.name}`,
+          dependencyInstall: { view: view('running'), current: () => current, settled },
+        }),
+        launchAgent: async (request) => {
+          requests.push(request)
+          const agentId = request.agentId!
+          workspace.agents[agentId] = { id: agentId, name: 'Scout', cli: 'claude-code' } as never
+          sessions.push({
+            sessionId: 'sess-9',
+            kind: 'agent',
+            workspaceId: 'ws-1',
+            agentId,
+            agentName: 'Scout',
+            cli: 'claude-code',
+            cwd: request.worktreePath,
+            processAlive: true,
+          } as never)
+          return {
+            ok: true,
+            workspaceId: 'ws-1',
+            agentId,
+            sessionId: 'sess-9',
+            cli: 'claude-code',
+            executionId: 'sess-9',
+          }
+        },
+      }
+      return { tools: createAutomationTools(backends), requests }
+    }
+    const settle = () => {
+      let resolve: (value: WorktreeDependencyInstallView | null) => void = () => {}
+      const promise = new Promise<WorktreeDependencyInstallView | null>((done) => (resolve = done))
+      return { promise, resolve }
+    }
+    const flush = async () => {
+      for (let pass = 0; pass < 20; pass += 1) await new Promise((resolve) => setImmediate(resolve))
+    }
+
+    const install = settle()
+    const links: LaunchedAgentLink[] = []
+    const h = harnessWith(install.promise, (link) => (links.push(link), { linked: true as const }))
+    const caller = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-lead' } }
+    const answered = await tool(h.tools, 'agent.launch').handler(
+      { workspaceId: 'ws-1', name: 'Scout', worktree: { name: 'x' } },
+      caller,
+    )
+    assert.equal(answered.isError, undefined, JSON.stringify(answered.structuredContent))
+    const first = answered.structuredContent as {
+      agent: { agentId: string; state: string; terminal: null; dependencyInstall: { state: string; command: string } }
+      notifyParent: boolean
+      notifyParentReason: string
+      worktreePath: string
+    }
+    assert.match(first.agent.agentId, /^agent-claude-code-/u, 'the id the launch would mint, minted now')
+    assert.equal(first.agent.state, 'installing_dependencies')
+    assert.equal(first.agent.terminal, null)
+    assert.deepEqual(
+      { state: first.agent.dependencyInstall.state, command: first.agent.dependencyInstall.command },
+      { state: 'running', command: 'npm ci' },
+    )
+    assert.equal(first.worktreePath, '/tmp/project-a/.sprintengine-worktrees/x')
+    assert.equal(first.notifyParent, false)
+    assert.match(first.notifyParentReason, /linked to it then/u)
+    assert.equal(h.requests.length, 0, 'nothing started while the install runs')
+
+    const waiting = await tool(h.tools, 'agent.status').handler({ workspaceId: 'ws-1', agentId: first.agent.agentId })
+    assert.equal(waiting.isError, undefined, 'an agent waiting on its install is known')
+    assert.equal((waiting.structuredContent as { agent: { state: string } }).agent.state, 'installing_dependencies')
+
+    // The install fails: the agent starts anyway, under the id it was given,
+    // in its worktree, and the caller is linked to it then.
+    install.resolve(view('failed'))
+    await flush()
+    assert.equal(h.requests.length, 1)
+    assert.equal(h.requests[0]!.agentId, first.agent.agentId)
+    assert.equal(h.requests[0]!.worktreePath, '/tmp/project-a/.sprintengine-worktrees/x')
+    assert.equal(links.length, 1)
+    assert.equal(links[0]!.child.agentId, first.agent.agentId)
+    const started = await tool(h.tools, 'agent.status').handler({ workspaceId: 'ws-1', agentId: first.agent.agentId })
+    const after = started.structuredContent as {
+      agent: {
+        state?: string
+        terminal: { processAlive: boolean }
+        dependencyInstall: { state: string; exitCode: number }
+      }
+      notifyParent: boolean
+    }
+    assert.equal(after.agent.state, undefined, 'started: no waiting state')
+    assert.equal(after.agent.terminal.processAlive, true)
+    assert.equal(after.agent.dependencyInstall.state, 'failed', 'and the caller can read that it runs without them')
+    assert.equal(after.notifyParent, true)
+
+    // The app quitting while it installs: nothing starts on the way out.
+    const quitting = settle()
+    const q = harnessWith(quitting.promise)
+    const asked = await tool(q.tools, 'agent.launch').handler({ workspaceId: 'ws-1', worktree: { name: 'x' } })
+    const agentId = (asked.structuredContent as { agent: { agentId: string } }).agent.agentId
+    quitting.resolve(null)
+    await flush()
+    assert.equal(q.requests.length, 0)
+    const gone = await tool(q.tools, 'agent.status').handler({ workspaceId: 'ws-1', agentId })
+    assert.equal((gone.structuredContent as { agent: { state: string } }).agent.state, 'launch_failed')
   }
 
   async function testCreateMintsInMainWithNoWindow(): Promise<void> {
@@ -3560,6 +3702,7 @@ test('automation', async () => {
     testScheduleToolsPassServiceFailuresThrough,
     testAgentLaunchWidensConfigAndIsolation,
     testAgentLaunchLinksItsCallerForNotices,
+    testAgentLaunchAnswersWhileItsWorktreeInstalls,
     testTerminalCreateSpawnsAndReturnsTheAttachableSession,
     testTerminalCreateTakesThisMachinesLaunchDefaults,
     testWorkspaceCheckoutReportsTheBackendsFacts,

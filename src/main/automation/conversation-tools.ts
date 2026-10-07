@@ -8,6 +8,7 @@ import type { WorkspaceRegistryActor } from '../../shared/workspace-registry'
 import type { ConversationLifecycle } from './conversation-lifecycle'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import type { ConversationLaunchService } from '../conversation-launch-service'
+import type { WorktreeDependencyInstallView } from '../../shared/ipc/worktree-pool'
 import {
   launchingAgentOf,
   NOT_TOLD_NOT_AN_AGENT,
@@ -61,6 +62,22 @@ function lifecycleActor(context: McpConnectionContext | undefined): WorkspaceReg
   return context?.metadata.kind === 'remote-tailnet' ? 'mobile' : 'gateway'
 }
 
+/**
+ * A worktree's dependency install as a caller is told about it: where it is,
+ * with no path on this machine (the caller may be a paired device).
+ */
+export function installProjection(view: WorktreeDependencyInstallView): Record<string, unknown> {
+  return {
+    state: view.state,
+    command: view.command,
+    reason: view.reason,
+    startedAt: view.startedAt,
+    endedAt: view.endedAt,
+    lastLine: view.lastLine,
+    exitCode: view.exitCode,
+  }
+}
+
 export function createConversationTools(deps: ConversationToolsDeps): McpToolRegistration[] {
   return [
     {
@@ -73,7 +90,10 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         'told when the chat finishes a turn (with the end of its reply, quoted), fails or closes: a short notice ' +
         'from Studio arrives as a new message once the caller is idle, never in the middle of its turn. That the ' +
         "chat waits on the person for an answer or an approval rides along with the next notice. The result's " +
-        '"notifyParent" says whether the caller will be told, and "notifyParentReason" why not.',
+        '"notifyParent" says whether the caller will be told, and "notifyParentReason" why not. A new worktree ' +
+        "whose project installs its dependencies first (an opt-in in this machine's Settings) answers while the " +
+        'install runs, with "dependencyInstall" saying so: the chat and its session are there, and `prompt` is ' +
+        'sent once the install ends, however it ends.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -210,6 +230,7 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           },
           notifyParent: linked?.linked === true,
           ...(linked && !linked.linked ? { notifyParentReason: linked.reason } : {}),
+          ...(launched.dependencyInstall ? { dependencyInstall: installProjection(launched.dependencyInstall) } : {}),
         })
       },
     },

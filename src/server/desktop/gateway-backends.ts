@@ -16,6 +16,7 @@ import {
 } from '../../main/backlog-service'
 import { ensureSkillInstalled } from '../../main/builtin-skills'
 import { createGitWorktree, getGitRepoRoot } from '../../main/git'
+import { startedDependencyInstall } from '../../main/worktree-pool/dependency-install'
 import { readBranchName, resolveTrunk } from '../../main/git-branch-span'
 import { getGitBranches } from '../../main/git-read-models'
 import { listGitWorktrees } from '../../main/git-worktree-list'
@@ -123,9 +124,18 @@ export function createServerGatewayBackends(deps: GatewayBackendDeps): Automatio
         // The agent's id is minted after this, by the launch; the branch
         // names the owner until then.
         agentLockOwner: paths.branchName,
+        // A gateway call answers while the project's dependency install
+        // runs, and the launch waits on it instead (`agent.launch`): the
+        // call's client would give up long before an install ends.
+        dependencyInstall: 'start',
       })
       if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
-      return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
+      const installing = startedDependencyInstall(created.data.dependencyInstall)
+      return {
+        worktreePath: created.data.path,
+        branch: created.data.branch ?? paths.branchName,
+        ...(installing ? { dependencyInstall: installing } : {}),
+      }
     },
     readRepositoryIdentity: (folderPath) => readRepositoryIdentity(folderPath),
     // The facts behind `workspace.checkout` (checkout-and-branch-on-remote-

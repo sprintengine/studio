@@ -78,6 +78,9 @@ import {
   type AgentPermissionResolver,
 } from './launch-permission-cap'
 import { normalizeExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
+import { newAgentIdSuffix } from '../../shared/agent-ids'
+import type { StartedDependencyInstall } from '../worktree-pool/dependency-install'
+import { installProjection } from './conversation-tools'
 
 // The automation tool surface. v1: workspace.create / workspace.list /
 // workspace.status / agent.launch / agent.status; the read expansion adds
@@ -91,6 +94,12 @@ import { normalizeExecutionHostId, type ExecutionHostId } from '../../shared/exe
 
 const LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const CONFIRM_POLL_INTERVAL_MS = 150
+/** The launches that waited on a dependency install, kept for `agent.status` to report. */
+const DEFERRED_LAUNCHES_KEPT = 128
+/** Why a launch answered before its agent started says nothing yet about telling the caller. */
+const DEFERRED_NOTIFY_REASON =
+  'The agent starts when its worktree finishes installing dependencies, and the caller is linked to it then if ' +
+  'it can be; agent.status says whether it was. Until it starts, read agent.status.'
 
 // All agents spawn on Auto unless someone chooses another preset (owner
 // request 2026-10-01; Bypass before then), and that holds on this surface too
@@ -164,7 +173,19 @@ export type AutomationBackends = {
     name: string
     /** The ref the worktree branches from; the checkout's HEAD when absent. */
     baseRef?: string
-  }): Promise<{ worktreePath: string; branch: string } | { error: string }>
+  }): Promise<
+    | {
+        worktreePath: string
+        branch: string
+        /**
+         * The project's dependency install, started in the new worktree and
+         * still running (worktree-pool/dependency-install.ts). The agent is
+         * started once it ends.
+         */
+        dependencyInstall?: StartedDependencyInstall
+      }
+    | { error: string }
+  >
   /**
    * Which repository a folder is a clone of (one-project-across-machines):
    * its primary remote, normalised. Null for a non-repo or a remote-less one.
@@ -291,6 +312,58 @@ type BacklogWriteBackends = {
   addOrUpdateLink(input: BacklogAddOrUpdateLinkInput): Promise<BacklogMutationResult>
   repairIntegrity(input: BacklogIntegrityRepairInput): Promise<BacklogIntegrityRepairResult>
 }
+
+/** What `launchConfiguredAgent` is asked to start. */
+type LaunchPlan = {
+  workspaceId: string
+  cli?: string
+  name?: string
+  prompt?: string
+  cliModel?: string
+  permissionPreset?: CliPermissionPreset
+  connectorId?: string
+  worktreeRequested: boolean
+  worktreeName?: string
+  worktreeBaseRef?: string
+  host?: ExecutionHostId
+  /** A bundled skill the prompt invokes; the launch carries it (see `launchSkills`). */
+  spawnSkillId?: string
+}
+
+type LaunchWorktree = { path: string; branch: string }
+
+/** An agent started and confirmed by its live terminal session. */
+type ConfirmedLaunch = {
+  workspace: Workspace
+  agentId: string
+  session: TerminalSessionSnapshot
+  worktreePath?: string
+  worktreeBranch?: string
+}
+
+type DeferredLaunchOptions = {
+  /**
+   * Run once the agent has started, after its install: what the caller does
+   * with a confirmed launch (link it to the calling agent, record it). Answers
+   * whether the caller will be told about the agent from then on.
+   */
+  afterStart?: (launched: ConfirmedLaunch) => LaunchLinkResult | null
+}
+
+type DeferredLaunchRecord = {
+  workspaceId: string
+  agentId: string
+  name: string | null
+  cli: string
+  worktree: LaunchWorktree
+  install: StartedDependencyInstall
+  /** Null while the install runs; how the start went once it has ended. */
+  outcome:
+    { started: true; notifyParent: LaunchLinkResult | null } | { started: false; code: string; message: string } | null
+}
+
+/** A launch answered before its agent exists: it starts when its worktree's install ends. */
+type DeferredLaunch = { deferred: true; workspace: Workspace; agentId: string; record: DeferredLaunchRecord }
 
 export function createAutomationTools(backends: AutomationBackends): McpToolRegistration[] {
   const now = backends.now ?? Date.now
@@ -552,36 +625,27 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // agent.launch and backlog.work. Returns the confirmed workspace + agent id
   // (and worktree path), or a failure McpToolResult. The caller is expected to
   // have validated args and confirmed the workspace exists.
-  async function launchConfiguredAgent(plan: {
-    workspaceId: string
-    cli?: string
-    name?: string
-    prompt?: string
-    cliModel?: string
-    permissionPreset?: CliPermissionPreset
-    connectorId?: string
-    worktreeRequested: boolean
-    worktreeName?: string
-    worktreeBaseRef?: string
-    host?: ExecutionHostId
-    /** A bundled skill the prompt invokes; the launch carries it (see `launchSkills`). */
-    spawnSkillId?: string
-  }): Promise<
-    | {
-        workspace: Workspace
-        agentId: string
-        session: TerminalSessionSnapshot
-        worktreePath?: string
-        worktreeBranch?: string
-      }
-    | McpToolResult
-  > {
+  //
+  // A caller that passes `deferred` takes a launch whose worktree is still
+  // installing its dependencies as an answer of its own: the agent's id is
+  // minted now, the call answers with it at once, and the agent starts when
+  // the install ends (`deferredLaunch`). A gateway call cannot wait out an
+  // install: its client gives up first, and a retry would be a second agent
+  // in a second worktree. Without it, the launch waits for the install.
+  function launchConfiguredAgent(plan: LaunchPlan): Promise<ConfirmedLaunch | McpToolResult>
+  function launchConfiguredAgent(
+    plan: LaunchPlan,
+    deferred: DeferredLaunchOptions,
+  ): Promise<ConfirmedLaunch | DeferredLaunch | McpToolResult>
+  async function launchConfiguredAgent(
+    plan: LaunchPlan,
+    deferred?: DeferredLaunchOptions,
+  ): Promise<ConfirmedLaunch | DeferredLaunch | McpToolResult> {
     // A connector launch forces a worktree even when none was requested — the
     // connector .mcp.json must never land in the user's checkout. Worktree
     // creation runs in main before delegating, and a failure here is fatal: the
     // caller asked for isolation, so we never silently fall back.
-    let worktreePath: string | undefined
-    let worktreeBranch: string | undefined
+    let worktree: LaunchWorktree | null = null
     if (plan.worktreeRequested || plan.connectorId) {
       const resolved = resolveWorkspaceRoot(plan.workspaceId)
       if (!('root' in resolved)) return resolved
@@ -597,10 +661,29 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           `Could not create an isolated worktree for the launch (${created.error}). The folder must be a git repository.`,
         )
       }
-      worktreePath = created.worktreePath
-      worktreeBranch = created.branch
+      worktree = { path: created.worktreePath, branch: created.branch }
+      const installing = created.dependencyInstall
+      if (installing) {
+        // The id the launch would mint, minted here so the answer can name the
+        // agent before it exists. A launch that names no CLI and has no
+        // last-selected one is refused by the launch itself, at once.
+        const cli = plan.cli?.trim() || backends.defaultChatCli()
+        if (deferred && cli) return deferLaunch({ ...plan, cli }, worktree, installing, deferred)
+        // Not deferred: the agent starts after the install, as a window's does,
+        // and not at all once the app is quitting.
+        if ((await installing.settled) === null) {
+          return failure('app_quitting', 'The app quit before the agent started.')
+        }
+      }
     }
+    return startConfiguredAgent(plan, worktree)
+  }
 
+  // Spawn the agent in main and confirm it by its live terminal session.
+  async function startConfiguredAgent(
+    plan: LaunchPlan & { agentId?: string },
+    worktree: LaunchWorktree | null,
+  ): Promise<ConfirmedLaunch | McpToolResult> {
     // Composed and spawned in main. Previously this delegated to the
     // primary window, which is why `agent.launch` and `backlog.work` failed
     // outright with no window open — the composition lived in a React hook, not
@@ -613,7 +696,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       cliModel: plan.cliModel,
       permissionPreset: plan.permissionPreset,
       connectorId: plan.connectorId,
-      worktreePath,
+      worktreePath: worktree?.path,
+      ...(plan.agentId ? { agentId: plan.agentId } : {}),
       ...(plan.host ? { host: plan.host } : {}),
       ...(plan.spawnSkillId ? { spawnSkillId: plan.spawnSkillId } : {}),
     })
@@ -649,8 +733,97 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       workspace,
       agentId,
       session: live,
-      ...(worktreePath ? { worktreePath } : {}),
-      ...(worktreeBranch ? { worktreeBranch } : {}),
+      ...(worktree ? { worktreePath: worktree.path, worktreeBranch: worktree.branch } : {}),
+    }
+  }
+
+  // Launches waiting on their worktree's dependency install, and the ones
+  // that waited, by workspace and agent: what `agent.status` reports for an
+  // agent that does not exist yet, and how its install ended once it does.
+  const deferredLaunches = new Map<string, DeferredLaunchRecord>()
+  const deferredKey = (workspaceId: string, agentId: string) => `${workspaceId}\0${agentId}`
+
+  function deferLaunch(
+    plan: LaunchPlan & { cli: string },
+    worktree: LaunchWorktree,
+    installing: StartedDependencyInstall,
+    options: DeferredLaunchOptions,
+  ): DeferredLaunch | McpToolResult {
+    const workspace = findWorkspace(plan.workspaceId)
+    if (!workspace) {
+      return failure('unknown_workspace', `Workspace "${plan.workspaceId}" is not known to the running app.`)
+    }
+    const agentId = `agent-${plan.cli}-${newAgentIdSuffix()}`
+    const record: DeferredLaunchRecord = {
+      workspaceId: plan.workspaceId,
+      agentId,
+      name: plan.name?.trim() || null,
+      cli: plan.cli,
+      worktree,
+      install: installing,
+      outcome: null,
+    }
+    deferredLaunches.set(deferredKey(plan.workspaceId, agentId), record)
+    while (deferredLaunches.size > DEFERRED_LAUNCHES_KEPT)
+      deferredLaunches.delete(deferredLaunches.keys().next().value!)
+    void (async () => {
+      const ended = await installing.settled.catch(() => installing.current())
+      // The app is quitting: nothing starts on the way out.
+      if (!ended) {
+        record.outcome = { started: false, code: 'app_quitting', message: 'The app quit before the agent started.' }
+        return
+      }
+      const launched = await startConfiguredAgent({ ...plan, agentId }, worktree).catch((error: unknown) =>
+        failure('launch_failed', error instanceof Error ? error.message : String(error)),
+      )
+      if ('content' in launched) {
+        const error = (launched.structuredContent as { error?: { code?: string; message?: string } } | undefined)?.error
+        record.outcome = {
+          started: false,
+          code: error?.code ?? 'launch_failed',
+          message: error?.message ?? 'The agent could not be started.',
+        }
+        return
+      }
+      let linked: LaunchLinkResult | null = null
+      try {
+        linked = options.afterStart?.(launched) ?? null
+      } catch {
+        linked = null
+      }
+      record.outcome = { started: true, notifyParent: linked }
+    })()
+    return { deferred: true, workspace, agentId, record }
+  }
+
+  // An agent waiting on its worktree's dependency install, as `agent.status`
+  // and the launch's answer describe it: the agent's fields as they will be,
+  // nothing running yet, and the install.
+  function deferredAgentProjection(record: DeferredLaunchRecord): Record<string, unknown> {
+    return {
+      workspaceId: record.workspaceId,
+      agentId: record.agentId,
+      name: record.name,
+      cli: record.cli,
+      cliStartRequested: false,
+      cliHasLaunched: false,
+      cliSessionId: null,
+      terminal: null,
+      ...deferredLaunchFields(record),
+    }
+  }
+
+  function deferredLaunchFields(record: DeferredLaunchRecord): Record<string, unknown> {
+    const install = record.install.current()
+    const outcome = record.outcome
+    return {
+      // Present only until the agent has started: what it waits on, or why it
+      // will not start.
+      ...(outcome?.started ? {} : { state: outcome ? 'launch_failed' : 'installing_dependencies' }),
+      ...(outcome && !outcome.started ? { launchError: { code: outcome.code, message: outcome.message } } : {}),
+      worktreePath: record.worktree.path,
+      worktreeBranch: record.worktree.branch,
+      dependencyInstall: installProjection(install),
     }
   }
 
@@ -874,7 +1047,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       'stops: a short notice from Studio arrives as a new message once the caller is idle (never in the ' +
       'middle of its turn), so there is no need to poll agent.status. That the agent waits on the person for ' +
       'an approval or an answer rides along with the next notice. The result\'s "notifyParent" says whether ' +
-      'the caller will be told, and "notifyParentReason" why not.',
+      'the caller will be told, and "notifyParentReason" why not. A worktree whose project installs its ' +
+      "dependencies first (an opt-in in this machine's Settings) answers while the install runs: the agent " +
+      'comes back with state "installing_dependencies" and its "dependencyInstall", and starts when the ' +
+      'install ends, however it ends; agent.status reports where it is.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -968,30 +1144,45 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         return failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
       }
 
-      const launched = await launchConfiguredAgent({
-        ...(host ? { host } : {}),
-        workspaceId,
-        cli: optionalString(args.cli),
-        name: optionalString(args.name),
-        prompt: optionalString(args.prompt),
-        cliModel: optionalString(args.cliModel),
-        permissionPreset: options.permissionPreset,
-        connectorId: optionalString(args.connectorId),
-        worktreeRequested: options.worktreeRequested,
-        worktreeName: options.worktreeName,
-        worktreeBaseRef: options.worktreeBaseRef,
-      })
-      if (!('agentId' in launched)) return launched
-      const linked =
+      const link = (started: ConfirmedLaunch): LaunchLinkResult | null =>
         args.notifyParent === false
           ? null
           : linkToCaller(context, {
-              workspaceId: launched.workspace.id,
-              agentId: launched.agentId,
-              sessionId: launched.session.sessionId,
+              workspaceId: started.workspace.id,
+              agentId: started.agentId,
+              sessionId: started.session.sessionId,
               transport: 'terminal',
-              ...(launched.session.agentName ? { name: launched.session.agentName } : {}),
+              ...(started.session.agentName ? { name: started.session.agentName } : {}),
             })
+      const launched = await launchConfiguredAgent(
+        {
+          ...(host ? { host } : {}),
+          workspaceId,
+          cli: optionalString(args.cli),
+          name: optionalString(args.name),
+          prompt: optionalString(args.prompt),
+          cliModel: optionalString(args.cliModel),
+          permissionPreset: options.permissionPreset,
+          connectorId: optionalString(args.connectorId),
+          worktreeRequested: options.worktreeRequested,
+          worktreeName: options.worktreeName,
+          worktreeBaseRef: options.worktreeBaseRef,
+        },
+        { afterStart: link },
+      )
+      if (!('agentId' in launched)) return launched
+      if ('deferred' in launched) {
+        // Answered now, the agent to come: the caller is linked to it when it
+        // starts, if it can be, and until then reads agent.status.
+        return success({
+          agent: deferredAgentProjection(launched.record),
+          worktreePath: launched.record.worktree.path,
+          worktreeBranch: launched.record.worktree.branch,
+          notifyParent: false,
+          notifyParentReason: args.notifyParent === false ? 'Not asked for.' : DEFERRED_NOTIFY_REASON,
+        })
+      }
+      const linked = link(launched)
       return success({
         agent: agentProjection(launched.workspace, launched.agentId),
         ...(launched.worktreePath ? { worktreePath: launched.worktreePath } : {}),
@@ -1094,7 +1285,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       "Read one agent's launch state from the main process store plus its terminal session from the terminal " +
       'runtime: whether its process is live, and its phase (starting, thinking, tool_use, idle, awaiting_input, ' +
       'stalled, exited, failed) when its CLI reports one. An agent launched with agent.launch tells its caller ' +
-      'when it finishes, fails, stops or waits for input, so read this when a notice says to, not in a loop.',
+      'when it finishes, fails, stops or waits for input, so read this when a notice says to, not in a loop. ' +
+      'An agent waiting on its worktree\'s dependency install has state "installing_dependencies" (or ' +
+      '"launch_failed", with "launchError", when it could not start after it), and an agent started after one ' +
+      'keeps "dependencyInstall", saying how the install ended.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1112,11 +1306,21 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const workspace = findWorkspace(workspaceId)
       if (!workspace) return failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
       // An agent is reportable if the bus knows it OR a terminal session exists
-      // for it (sessions can register before the launch-state event lands).
+      // for it (sessions can register before the launch-state event lands),
+      // or it is waiting on its worktree's dependency install to start.
+      const deferred = deferredLaunches.get(deferredKey(workspaceId, agentId))
       if (!workspace.agents[agentId] && !agentTerminalSession(workspaceId, agentId)) {
+        if (deferred) return success({ agent: deferredAgentProjection(deferred) })
         return failure('unknown_agent', `Agent "${agentId}" is not known in workspace "${workspaceId}".`)
       }
-      return success({ agent: agentProjection(workspace, agentId) })
+      // Started after an install: how the install ended stays on the answer,
+      // so a caller learns that the agent runs without its dependencies.
+      return success({
+        agent: { ...agentProjection(workspace, agentId), ...(deferred ? deferredLaunchFields(deferred) : {}) },
+        ...(deferred?.outcome?.started && deferred.outcome.notifyParent
+          ? { notifyParent: deferred.outcome.notifyParent.linked }
+          : {}),
+      })
     },
   }
 
@@ -1927,35 +2131,62 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         resolved.workspace.hostId ?? null,
       )
 
-      const launched = await launchConfiguredAgent({
-        workspaceId,
-        cli,
-        name: optionalString(args.name),
-        prompt,
-        cliModel: optionalString(args.cliModel),
-        permissionPreset: options.permissionPreset,
-        worktreeRequested: options.worktreeRequested,
-        worktreeName: options.worktreeName,
-        // The launch carries the skill its `/backlog` invocation names; the
-        // ensure above wrote nothing for a launch that does.
-        spawnSkillId: BACKLOG_SKILL_ID,
-      })
-      if (!('agentId' in launched)) return launched
-
       // Record the working-agent link after a confirmed launch. A link failure
       // here is NOT overall failure — the agent is already running, so faking
       // failure would invite a duplicate launch. Report assigned:false + warning.
-      const agent = launched.workspace.agents[launched.agentId]
-      const link = buildAgentBacklogLink({
-        workspaceId,
-        agentId: launched.agentId,
-        agentName: agent?.name || launched.agentId,
-      })
-      const written = await backends.backlogWrite.addOrUpdateLink({
-        workspaceRoot: resolved.root,
-        relativePath: read.item.relativePath,
-        link,
-      })
+      const assign = (started: ConfirmedLaunch) => {
+        const agent = findWorkspace(workspaceId)?.agents[started.agentId] ?? started.workspace.agents[started.agentId]
+        return backends.backlogWrite.addOrUpdateLink({
+          workspaceRoot: resolved.root,
+          relativePath: read.item.relativePath,
+          link: buildAgentBacklogLink({
+            workspaceId,
+            agentId: started.agentId,
+            agentName: agent?.name || started.agentId,
+          }),
+        })
+      }
+      const launched = await launchConfiguredAgent(
+        {
+          workspaceId,
+          cli,
+          name: optionalString(args.name),
+          prompt,
+          cliModel: optionalString(args.cliModel),
+          permissionPreset: options.permissionPreset,
+          worktreeRequested: options.worktreeRequested,
+          worktreeName: options.worktreeName,
+          // The launch carries the skill its `/backlog` invocation names; the
+          // ensure above wrote nothing for a launch that does.
+          spawnSkillId: BACKLOG_SKILL_ID,
+        },
+        {
+          // Assigned once the agent exists, after its worktree's install.
+          afterStart: (started) => {
+            void assign(started).catch(() => undefined)
+            return null
+          },
+        },
+      )
+      if (!('agentId' in launched)) return launched
+      if ('deferred' in launched) {
+        return success({
+          worked: {
+            relativePath: read.item.relativePath,
+            workspaceId,
+            agentId: launched.agentId,
+            invocation,
+            skillEnsured,
+            assigned: false,
+            warning:
+              'The agent starts when its worktree finishes installing dependencies, and the item is assigned to it ' +
+              'then. Read agent.status for where it is.',
+            ...deferredLaunchFields(launched.record),
+          },
+        })
+      }
+
+      const written = await assign(launched)
       return success({
         worked: {
           relativePath: read.item.relativePath,

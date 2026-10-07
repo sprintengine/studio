@@ -93,7 +93,12 @@ and three capabilities (2026-10-05) say what those take and answer:
 CLI with a `catalog`, the model picker's own rows). An argument needs its
 capability more than a route does: a handler skips an argument it does not
 know rather than refusing it, so a `worktree` sent to a desktop without the
-capability starts the chat in the checkout and says nothing. These names carry
+capability starts the chat in the checkout and says nothing. The answer to a
+`worktree` create may carry `dependencyInstall` (2026-10-07): the new
+worktree's project installs its dependencies first, the chat and its session
+already exist, and the first message goes once the install ends. It is an
+optional member with no capability: a client that does not read it sees the
+chat start a little later, and an older desktop never sends it. These names carry
 no `conversation-` prefix, which is kept for the conversation lane's own
 vocabulary: every `conversation-` capability this machine advertises must be
 one `@sprintengine/conversation-protocol` names
