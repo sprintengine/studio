@@ -1,7 +1,7 @@
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron'
 
 import { studioPlatform } from '../../server/platform/platform'
-import type { WorkspaceSyncEvent } from '../../shared/workspace-sync'
+import type { WorkspaceMarkUnreadResult, WorkspaceSyncEvent } from '../../shared/workspace-sync'
 import type { WorkspaceSyncService } from '../workspace-sync-service'
 import type { WorkspaceRegistryHydratePayload, WorkspaceRegistryService } from '../workspace-registry-service'
 
@@ -19,6 +19,13 @@ type RegisterWorkspaceSyncIpcOptions = {
    * channel. Omitted in tests that only exercise the bus.
    */
   registry?: WorkspaceRegistryService
+  /**
+   * Mark unread from a window's row menu: the same write a paired device's
+   * `conversation.mark_unread` makes (conversation-lifecycle.ts). Its event
+   * reaches every window, the asking one included, through the subscription
+   * below. Omitted, the channel answers that it cannot.
+   */
+  markUnread?: (workspaceId: string) => WorkspaceMarkUnreadResult
 }
 
 export function registerWorkspaceSyncIpc(
@@ -52,6 +59,12 @@ export function registerWorkspaceSyncIpc(
     return result
   })
 
+  ipcMain.handle('workspace-sync:mark-unread', (_event, workspaceId: unknown): WorkspaceMarkUnreadResult => {
+    if (typeof workspaceId !== 'string' || !workspaceId.trim())
+      return { ok: false, code: 'invalid_arguments', message: 'Mark unread needs a chat.' }
+    if (!options.markUnread) return { ok: false, code: 'unavailable', message: 'Mark unread is not available here.' }
+    return options.markUnread(workspaceId.trim())
+  })
   ipcMain.handle('workspace-sync:get-snapshot', () => service.getSnapshot())
   ipcMain.handle('workspace-sync:get-events-after', (_event, sequence: unknown) => service.getEventsAfter(sequence))
 

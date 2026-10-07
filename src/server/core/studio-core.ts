@@ -472,6 +472,15 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
         })
       )
     },
+    latestChatTurnEnd: (workspaceId) => {
+      const listed = conversations.listSessions()
+      if (!listed.ok) return undefined
+      let latest: number | undefined
+      for (const session of listed.sessions)
+        if (session.workspaceId === workspaceId && (session.lastTurnEndedAt ?? -1) > (latest ?? -1))
+          latest = session.lastTurnEndedAt
+      return latest
+    },
   })
   const createConversationHost = () =>
     createConversationGatewayHost(

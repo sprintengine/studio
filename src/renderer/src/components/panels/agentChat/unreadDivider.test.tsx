@@ -3,14 +3,7 @@ import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, expect, test } from 'vitest'
 import type { ConversationTimelineRow } from './conversationTimeline'
-import {
-  type ChatOpening,
-  markChatUnread,
-  noteChatLeft,
-  noteChatOpened,
-  unreadDividerRowId,
-  useChatOpening,
-} from './unreadDivider'
+import { type ChatOpening, noteChatLeft, noteChatOpened, unreadDividerRowId, useChatOpening } from './unreadDivider'
 import { useVisitStamp, type VisitTarget } from '../../workspace/sidebar/useVisitStamp'
 
 // The "New" divider: which row it goes above, and the visit clock it is
@@ -133,23 +126,13 @@ test('a reply replayed with no clock counts as read', () => {
   expect(unreadDividerRowId(rows, openedAt(1_000, { kind: 'visit', at: 250 }))).toBe('assistant:b')
 })
 
-test('marked unread, the divider goes above the latest reply there was at opening', () => {
+test('marked unread, the clock just before the latest finish puts the divider above the latest reply', () => {
+  // `conversation.mark_unread` sets the visit clock to the latest finish less
+  // a millisecond; a reply that began after the opening is not the latest.
   const rows = [...SEEN_AND_NEW, you('c', 500), reply('c', 510, 600), you('d', 2_000), reply('d', 2_010, undefined)]
-  expect(unreadDividerRowId(rows, openedAt(1_000, { kind: 'latestReply' }))).toBe('assistant:c')
-})
-
-test('Mark unread applies to the next opening only, and not after a visit made since', () => {
-  markChatUnread('chat', 500)
-  noteChatOpened('chat', 400, 1_000)
-  expect(readOpening('chat')?.since).toEqual({ kind: 'latestReply' })
-  noteChatLeft('chat')
-  noteChatOpened('chat', 1_100, 2_000)
-  expect(readOpening('chat')?.since, 'the mark was spent on the opening before').toEqual({ kind: 'visit', at: 1_100 })
-  noteChatLeft('chat')
-  // Read on the phone after it was marked: the person has seen it.
-  markChatUnread('chat', 2_500)
-  noteChatOpened('chat', 2_600, 3_000)
-  expect(readOpening('chat')?.since).toEqual({ kind: 'visit', at: 2_600 })
+  expect(unreadDividerRowId(rows, openedAt(1_000, { kind: 'visit', at: 599 }))).toBe('assistant:c')
+  // Opened again after reading all of it, the clock has moved past it: no divider.
+  expect(unreadDividerRowId(rows, openedAt(3_000, { kind: 'visit', at: 2_500 }))).toBeNull()
 })
 
 test('an opening belongs to its chat while it is in front, and to no other', () => {

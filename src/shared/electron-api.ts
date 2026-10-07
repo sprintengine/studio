@@ -230,6 +230,7 @@ import type {
 } from './modules/manifest'
 import type { ModuleRegistrySnapshot, ModuleRegistrySnapshotWriteResult } from './modules/registry-snapshot'
 import type {
+  WorkspaceMarkUnreadResult,
   WorkspaceSyncCommand,
   WorkspaceSyncCommandResult,
   WorkspaceSyncEvent,
@@ -776,6 +777,12 @@ export type ElectronApi = {
   workspaceRegistryNeedsHydration: () => Promise<boolean>
   workspaceRegistryHydrate: (payload: unknown) => Promise<WorkspaceRegistryHydrateResult>
   onWorkspaceSyncEvent: (cb: (event: WorkspaceSyncEvent) => void) => () => void
+  /**
+   * Mark a chat here unread, as `conversation.mark_unread` does for a paired
+   * device: its visit clock goes back to just before its latest finish, so
+   * every device shows it unseen again. The change arrives as a sync event.
+   */
+  workspaceMarkUnread: (workspaceId: string) => Promise<WorkspaceMarkUnreadResult>
   automationGetStatus: () => Promise<AutomationServerStatus>
   /**
    * The applications on this machine paired with Studio's owner socket. Like

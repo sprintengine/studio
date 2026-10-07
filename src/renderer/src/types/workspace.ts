@@ -877,6 +877,13 @@ export type Workspace = {
   // comparison, so reading a chat anywhere clears the mark everywhere. Absent
   // until the first visit after this was kept.
   lastVisitedAt?: number | null
+  // When the visit clock was last moved back on purpose: Mark unread, on any
+  // device (`conversation.mark_unread`), sets `lastVisitedAt` to just before
+  // the chat's latest finish and stamps this beside it. It is the one way the
+  // visit clock moves back: a patch may lower `lastVisitedAt` only together
+  // with a newer stamp here (`applyWorkspaceFieldsPatch`), so a lagging
+  // window's older reading still cannot. Monotonic itself.
+  visitRewoundAt?: number | null
   // When set, the chat has come to rest: it renders as a compact row in its
   // folder's Settled shelf rather than in the active list. Set by the
   // sidebar's reconcile sweep after three idle days, or by hand from the row

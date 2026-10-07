@@ -621,6 +621,7 @@ const EDITABLE_FIELDS = [
   'lastUserMessageAt',
   'lastTurnEndedAt',
   'lastVisitedAt',
+  'visitRewoundAt',
 ] as const
 
 // The domain of each typed editable field. A wrong-shaped value would persist
@@ -636,6 +637,7 @@ const FIELD_VALUE_CHECKS: Partial<Record<(typeof EDITABLE_FIELDS)[number], (valu
   lastUserMessageAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
   lastTurnEndedAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
   lastVisitedAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
+  visitRewoundAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
 }
 
 function fieldValueIsWellFormed(key: string, value: unknown): boolean {

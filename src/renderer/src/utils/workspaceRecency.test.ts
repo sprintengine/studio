@@ -8,6 +8,7 @@ import {
   workspaceLastWorkedAt,
 } from './workspaceRecency'
 import { test } from 'vitest'
+import { applyWorkspaceFieldsPatch } from '../../../shared/workspace-sync'
 
 test('workspaceRecency', async () => {
   function run(name: string, body: () => void): void {
@@ -298,4 +299,31 @@ test('workspaceRecency', async () => {
   })
 
   console.log('workspaceRecency.test.ts: ok')
+})
+
+test('a snapshot carrying a Mark unread this window missed takes its earlier visit clock', () => {
+  const workspace = (fields: Record<string, unknown>) => ({ id: 'w', ...fields }) as unknown as Workspace
+  const seen = workspace({ lastVisitedAt: 9_000 })
+  const rewound = workspace({ lastVisitedAt: 4_999, visitRewoundAt: 10_000 })
+  assert.equal(keepLaterWorkspaceClocks(seen, rewound).lastVisitedAt, 4_999, 'the rewind is the newer truth')
+  // The same rewind again, or an older reading of the clock, rolls nothing back.
+  const afterRead = workspace({ lastVisitedAt: 12_000, visitRewoundAt: 10_000 })
+  assert.equal(keepLaterWorkspaceClocks(afterRead, rewound).lastVisitedAt, 12_000)
+  assert.equal(keepLaterWorkspaceClocks(seen, workspace({ lastVisitedAt: 4_999 })).lastVisitedAt, 9_000)
+})
+
+test('a field patch lowers the visit clock only beside a newer Mark unread stamp', () => {
+  const record: Record<string, unknown> = { lastVisitedAt: 9_000 }
+  applyWorkspaceFieldsPatch(record, { lastVisitedAt: 1_000 })
+  assert.equal(record.lastVisitedAt, 9_000, 'a lagging visit cannot roll it back')
+  applyWorkspaceFieldsPatch(record, { lastVisitedAt: 4_999, visitRewoundAt: 10_000 })
+  assert.equal(record.lastVisitedAt, 4_999)
+  assert.equal(record.visitRewoundAt, 10_000)
+  applyWorkspaceFieldsPatch(record, { lastVisitedAt: 2_000, visitRewoundAt: 10_000 })
+  assert.equal(record.lastVisitedAt, 4_999, 'the same rewind delivered twice moves nothing')
+  applyWorkspaceFieldsPatch(record, { lastVisitedAt: 2_000, visitRewoundAt: 9_500 })
+  assert.equal(record.lastVisitedAt, 4_999, 'nor does an older one')
+  assert.equal(record.visitRewoundAt, 10_000)
+  applyWorkspaceFieldsPatch(record, { lastVisitedAt: 11_000 })
+  assert.equal(record.lastVisitedAt, 11_000, 'and a visit moves it forward as ever')
 })

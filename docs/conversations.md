@@ -526,20 +526,37 @@ the desktop's own sidebar — agrees with it. A desktop that advertises
   desktop stamps its own windows' visits the same way: at once when the chat
   in front has an unseen finish, otherwise at most every ten seconds while it
   stays in front of a visible, focused window. A visit from elsewhere clears
-  the desktop's own "finished while you were away" mark too.
+  the desktop's own "finished while you were away" mark too. New chat
+  covering a window's chat counts as nobody looking at it, as a door does.
+- **`conversation.mark_unread`** `{ workspaceId }` (2026-10-07, on a desktop
+  that advertises `chat-mark-unread`) moves the chat's `lastVisitedAt`
+  **back**, to its latest finish less a millisecond, and answers
+  `{ ok: true, workspaceId, lastVisitedAt }`. Its finish reads as unseen again
+  on every device, and the next opening's "New" divider sits above its latest
+  reply. A chat already unread from further back keeps its clock; one whose
+  agent has finished nothing is refused as `nothing_finished`. It is the one
+  write that moves the visit clock back: the record stamps `visitRewoundAt`
+  beside it, and the desktop's windows and its registry take an earlier
+  `lastVisitedAt` only with a newer stamp, so a lagging visit still cannot
+  roll the clock back. The desktop's own row menu calls the same command; on
+  the chat in front it takes effect as the person leaves the chat, since
+  looking at it is what reads it. A desktop without the capability answers
+  "Unknown tool".
 
 The change feed says the conversation list moved when a chat is settled or
-brought back, renamed, or written to, and for a visit when it is the first
-since the chat's agent finished (the visits stamped while a chat stays on
-screen are not a push each).
+brought back, renamed, or written to, marked unread, and for a visit when it
+is the first since the chat's agent finished (the visits stamped while a chat
+stays on screen are not a push each).
 
-The desktop's own Mark unread (a row's menu) never moves `lastVisitedAt`: the
-clock only goes forward, so a chat marked unread there is still read on every
-other device. It puts the row's "finished while you were away" mark back up
-in that window, and the next time the chat is opened there its "New" divider
-sits above the latest reply.
+`lastVisitedAt` going back is new with `conversation.mark_unread`, and a
+client from before it reads it as it reads any visit clock: as of 2026-10-07
+the phone takes the later of the listed clock and its own opening of the chat
+(and of a visit it stamped itself this run), so it shows such a chat read
+until the list says otherwise, never anything wrong. A phone that offers Mark
+unread asks for `chat-mark-unread` first and drops its own later readings
+once the list carries an earlier clock.
 
-Both tools need `conversation:operate` and are audited, like
+All three tools need `conversation:operate` and are audited, like
 `conversation.create`. A paired desktop's Remote rows use all of it: they are
 titled with `chatTitle`, ordered by `lastUserMessageAt` (else `updatedAt`),
 offer Settle from their menu on a desktop with the capability, and say a chat

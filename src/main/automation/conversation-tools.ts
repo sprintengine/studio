@@ -18,14 +18,15 @@ import {
  * Starting a chat is a mutation: audited, and on the tailnet it needs
  * `conversation:operate` — the grant that already lets a paired device send
  * into, stop and approve this machine's chats (tailnet-scopes.ts maps the
- * `conversation.` family by this classification). Settling one and saying it
- * was looked at write the desktop's own record of the chat, so they need the
- * same grant.
+ * `conversation.` family by this classification). Settling one, saying it was
+ * looked at and marking it unread write the desktop's own record of the chat,
+ * so they need the same grant.
  */
 export const CONVERSATION_MUTATION_TOOL_NAMES: readonly string[] = [
   'conversation.create',
   'conversation.settle',
   'conversation.visit',
+  'conversation.mark_unread',
 ]
 
 const EFFORT_ID = /^[a-z0-9_-]{1,40}$/i
@@ -35,7 +36,7 @@ export type ConversationToolsDeps = {
   /** The calling agent's own preset, which a chat it starts may not exceed (launch-permission-cap.ts). */
   resolveAgentPermissionPreset: AgentPermissionResolver
   /** A chat's rest and visit clock, written to the desktop's own record (conversation-lifecycle.ts). */
-  lifecycle: Pick<ConversationLifecycle, 'settle' | 'visit'>
+  lifecycle: Pick<ConversationLifecycle, 'settle' | 'visit' | 'markUnread'>
 }
 
 /**
@@ -233,6 +234,31 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         )
         if (!visited.ok) return toolError(visited.code, visited.message)
         return toolSuccess(visited)
+      },
+    },
+    {
+      name: 'conversation.mark_unread',
+      description:
+        'Mark a chat on this machine unread, as its row menu\'s Mark unread does: its "finished, unseen" mark ' +
+        "comes back on every device, and the next opening's divider sits above its latest reply. Moves the " +
+        "chat's lastVisitedAt BACK, to its latest finish less a millisecond; the one call that moves it back. " +
+        'A chat already unread from further back is left as it is. Refused with "nothing_finished" when no ' +
+        'agent in the chat has finished anything.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          workspaceId: { type: 'string', description: "The chat's workspaceId, from the conversation list." },
+        },
+        required: ['workspaceId'],
+        additionalProperties: false,
+      },
+      handler: async (args, context) => {
+        if (typeof args.workspaceId !== 'string' || !args.workspaceId.trim()) {
+          return toolError('invalid_arguments', '"workspaceId" is required.')
+        }
+        const marked = deps.lifecycle.markUnread(args.workspaceId.trim(), lifecycleActor(context))
+        if (!marked.ok) return toolError(marked.code, marked.message)
+        return toolSuccess(marked)
       },
     },
   ]

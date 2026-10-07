@@ -140,6 +140,7 @@ function harness(
       lifecycle: {
         settle: () => assert.fail('no chat is settled here'),
         visit: () => assert.fail('no chat is visited here'),
+        markUnread: () => assert.fail('no chat is marked unread here'),
       },
       launch: async (request) => {
         h.chats.push(request)

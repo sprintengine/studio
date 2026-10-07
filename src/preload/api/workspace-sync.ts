@@ -1,6 +1,7 @@
 import type { IpcRendererEvent } from 'electron'
 import { ipc as ipcRenderer } from '../ipc-router'
 import type {
+  WorkspaceMarkUnreadResult,
   WorkspaceSyncCommand,
   WorkspaceSyncCommandResult,
   WorkspaceSyncEvent,
@@ -19,6 +20,7 @@ export function createWorkspaceSyncApi(
 ): Pick<
   ElectronApi,
   | 'workspaceSyncDispatch'
+  | 'workspaceMarkUnread'
   | 'workspaceSyncGetSnapshot'
   | 'workspaceSyncGetEventsAfter'
   | 'onWorkspaceSyncEvent'
@@ -35,6 +37,8 @@ export function createWorkspaceSyncApi(
       renderer.invoke('workspace-registry:hydrate', payload) as Promise<WorkspaceRegistryHydrateResult>,
     workspaceSyncDispatch: (command: WorkspaceSyncCommand): Promise<WorkspaceSyncCommandResult> =>
       renderer.invoke('workspace-sync:dispatch', command) as Promise<WorkspaceSyncCommandResult>,
+    workspaceMarkUnread: (workspaceId: string): Promise<WorkspaceMarkUnreadResult> =>
+      renderer.invoke('workspace-sync:mark-unread', workspaceId) as Promise<WorkspaceMarkUnreadResult>,
     workspaceSyncGetSnapshot: (): Promise<WorkspaceSyncSnapshot> =>
       renderer.invoke('workspace-sync:get-snapshot') as Promise<WorkspaceSyncSnapshot>,
     workspaceSyncGetEventsAfter: (sequence: number): Promise<WorkspaceSyncEvent[]> =>
@@ -51,6 +55,7 @@ export function createWorkspaceSyncApi(
 export const workspaceSyncApi = createWorkspaceSyncApi(ipcRenderer) satisfies Pick<
   ElectronApi,
   | 'workspaceSyncDispatch'
+  | 'workspaceMarkUnread'
   | 'workspaceSyncGetSnapshot'
   | 'workspaceSyncGetEventsAfter'
   | 'onWorkspaceSyncEvent'

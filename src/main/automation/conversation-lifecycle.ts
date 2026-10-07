@@ -25,18 +25,26 @@ export type ConversationLifecycleDeps = {
    * menu's Settle does.
    */
   isWorking(workspaceId: string): boolean
+  /**
+   * When a chat in the workspace last finished a turn, by the chats main
+   * holds now; undefined when none has. The record's own `lastTurnEndedAt`
+   * (its terminal agents') is read beside it.
+   */
+  latestChatTurnEnd?(workspaceId: string): number | undefined
   now?: () => number
 }
 
 export type ConversationLifecycleFailure = {
   ok: false
-  code: 'unknown_workspace' | 'working' | 'write_failed'
+  code: 'unknown_workspace' | 'working' | 'write_failed' | 'nothing_finished'
   message: string
 }
 
 export type ConversationSettleResult =
   { ok: true; workspaceId: string; settledAt: number | null } | ConversationLifecycleFailure
 export type ConversationVisitResult =
+  { ok: true; workspaceId: string; lastVisitedAt: number } | ConversationLifecycleFailure
+export type ConversationMarkUnreadResult =
   { ok: true; workspaceId: string; lastVisitedAt: number } | ConversationLifecycleFailure
 
 export type ConversationLifecycle = ReturnType<typeof createConversationLifecycle>
@@ -101,6 +109,36 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
   }
 
   /**
+   * Mark unread, from any device: the visit clock goes back to just before
+   * the chat's latest finish (that finish less a millisecond), so its
+   * "finished, unseen" mark comes back everywhere and the next opening's
+   * "New" divider sits above its latest reply. The one write that moves the
+   * clock back, and it says so: `visitRewoundAt` is stamped beside it
+   * (`visitRewindApplies`). A chat already unread from further back keeps its
+   * clock, and one whose agent has finished nothing is refused.
+   */
+  function markUnread(workspaceId: string, actor: WorkspaceRegistryActor): ConversationMarkUnreadResult {
+    const record = deps.getRecord(workspaceId)
+    if (!record) return unknown(workspaceId)
+    const recorded = typeof record.lastTurnEndedAt === 'number' ? record.lastTurnEndedAt : undefined
+    const chats = deps.latestChatTurnEnd?.(workspaceId)
+    const finishedAt = Math.max(recorded ?? Number.NEGATIVE_INFINITY, chats ?? Number.NEGATIVE_INFINITY)
+    if (!Number.isFinite(finishedAt))
+      return {
+        ok: false,
+        code: 'nothing_finished',
+        message: 'No agent in this chat has finished anything yet, so there is nothing to mark unread.',
+      }
+    const stored = typeof record.lastVisitedAt === 'number' ? record.lastVisitedAt : null
+    // Already unread from further back, the clock stays there; the stamp is
+    // still written, which is what every device reads a Mark unread from.
+    const at = stored !== null && stored < finishedAt - 1 ? stored : finishedAt - 1
+    const failed = write(workspaceId, { lastVisitedAt: at, visitRewoundAt: now() }, actor)
+    if (failed) return failed
+    return { ok: true, workspaceId, lastVisitedAt: at }
+  }
+
+  /**
    * A person sent one of the workspace's chats a message from a paired
    * device. The same as a message typed here (`recordWorkspaceUserMessage`):
    * the clock moves forward, and a resting chat wakes, with any hand decision
@@ -114,7 +152,7 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
     write(workspaceId, { ...(waking ? wakeWorkspacePatch(null) : {}), lastUserMessageAt: at }, actor)
   }
 
-  return { settle, visit, noteUserMessage }
+  return { settle, visit, markUnread, noteUserMessage }
 }
 
 /**
@@ -143,6 +181,11 @@ export function createConversationListChangeFilter(deps: {
     if (LIST_FIELDS.some((field) => patch[field] !== undefined)) return true
     if (typeof patch.lastVisitedAt !== 'number') return false
     const previous = lastVisit.get(workspaceId)
+    // Mark unread moves the clock back, which every device has to hear.
+    if (typeof patch.visitRewoundAt === 'number') {
+      lastVisit.set(workspaceId, patch.lastVisitedAt)
+      return true
+    }
     lastVisit.set(workspaceId, Math.max(previous ?? 0, patch.lastVisitedAt))
     if (previous === undefined) return true
     const turnEnd = deps.turnEndOf(workspaceId)

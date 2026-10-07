@@ -1,5 +1,5 @@
 import type { Workspace } from '../types/workspace'
-import { MONOTONIC_WORKSPACE_CLOCKS, workspaceFieldMayApply } from '../../../shared/workspace-sync'
+import { MONOTONIC_WORKSPACE_CLOCKS, visitRewindApplies, workspaceFieldMayApply } from '../../../shared/workspace-sync'
 import { workspaceLastUserMessageAt, workspaceLastWorkedAt } from '../../../shared/workspace-lifecycle'
 
 // "Last worked on" is the most recent of when the workspace was created and when
@@ -95,12 +95,21 @@ export function sortWorkspacesByUserMessage(workspaces: Workspace[]): Workspace[
 // an older stamp must not roll a row's clock back and let the rest sweep read
 // a chat that was active yesterday as idle, or deal the list a different order
 // than the one the person left.
+//
+// The visit clock is the one that can go back, by Mark unread: main's copy
+// carrying a newer `visitRewoundAt` than this window has seen is a rewind
+// this window missed, and its earlier `lastVisitedAt` is the truth.
 export function keepLaterWorkspaceClocks(
   existing: Pick<Workspace, (typeof MONOTONIC_WORKSPACE_CLOCKS)[number]>,
   incoming: Workspace,
 ): Workspace {
   let merged: Workspace | null = null
+  const rewound = visitRewindApplies(
+    existing as unknown as Record<string, unknown>,
+    incoming as unknown as Record<string, unknown>,
+  )
   for (const clock of MONOTONIC_WORKSPACE_CLOCKS) {
+    if (rewound && clock === 'lastVisitedAt') continue
     if (workspaceFieldMayApply(existing as unknown as Record<string, unknown>, clock, incoming[clock])) continue
     merged = merged ?? { ...incoming }
     merged[clock] = existing[clock]

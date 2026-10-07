@@ -223,7 +223,22 @@ gateway tools; `workspace.list` items carry `settledAt` beside it, with no
 capability of their own. The members are optional and the tools new, so no
 peer is refused over any of it: a client offers no Settle for a desktop that
 does not advertise it, and an older one answers either tool "Unknown tool"
-(`docs/conversations.md`, "Rest, order and read state in the list"). The Studio
+(`docs/conversations.md`, "Rest, order and read state in the list").
+Mark unread (2026-10-07) is a gateway tool beside them,
+`conversation.mark_unread`, advertised as `chat-mark-unread` (no
+`conversation-` prefix: it names a tool, not the conversation lane). It
+deliberately amends one rule: `lastVisitedAt` had only ever moved forward, and
+this tool moves it back, to just before the chat's latest finish. That is not
+a bump, because nothing a peer parses changed: the member keeps its type, may
+be absent exactly as before, and still means the clock every device reads
+"finished, unseen" against. A client from before the tool sees an earlier
+visit time and nothing else; the phone of that date takes the later of the
+listed clock and its own readings, so at worst it keeps showing the chat as
+read. On the desktop the rewind travels as `lastVisitedAt` with a newer
+`visitRewoundAt`, the only patch that may lower the clock, so a lagging
+window's visit still cannot. A phone that adds Mark unread checks for
+`chat-mark-unread`, and must stop keeping its own later visit readings over
+an earlier listed one. The Studio
 RPC does not advertise it, having no method for either tool. Breaking frame changes require a new
 negotiated capability or the tailnet version-window process above, not merely
 a package version change. Presentation-only fixes use a package patch.

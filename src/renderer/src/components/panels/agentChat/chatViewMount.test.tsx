@@ -513,7 +513,7 @@ function eventAt(createdAt: number, type: ConversationEventType, payload: Record
 }
 
 test('a chat opened with replies nobody has read opens at a New divider, which holds until the chat is left', async () => {
-  const { noteChatOpened, noteChatLeft, markChatUnread } = await import('./unreadDivider')
+  const { noteChatOpened, noteChatLeft } = await import('./unreadDivider')
   // Read up to the first reply; the second, which worked through two folded
   // steps, finished after the last visit.
   noteChatOpened('workspace', 2_500, 10_000)
@@ -572,10 +572,13 @@ test('a chat opened with replies nobody has read opens at a New divider, which h
     expect(dividers()).toHaveLength(0)
     await chat.act(async () => noteChatLeft('workspace'))
 
-    // Marked unread from the sidebar: the next opening puts it above the
-    // latest reply.
-    markChatUnread('workspace', 14_000)
-    await chat.act(async () => noteChatOpened('workspace', 12_000, 15_000))
+    // The last turn ends out of sight, and the chat is marked unread
+    // (`conversation.mark_unread`): its visit clock goes back to just before
+    // that finish, and the next opening puts the divider above that reply.
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: eventAt(13_500, 'turn_completed', { turnId: 'c' }) })
+    })
+    await chat.act(async () => noteChatOpened('workspace', 13_499, 15_000))
     expect(dividers()).toHaveLength(1)
     expect(belowDivider()).toContain('Lint is clean.')
   } finally {

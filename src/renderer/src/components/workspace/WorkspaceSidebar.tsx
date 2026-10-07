@@ -132,7 +132,7 @@ import {
   rowHasOpenTerminals,
 } from './sidebar/rowTerminals'
 import { useVisitStamp, type VisitTarget } from './sidebar/useVisitStamp'
-import { markChatUnread, noteChatLeft, noteChatOpened } from '../panels/agentChat/unreadDivider'
+import { noteChatLeft, noteChatOpened } from '../panels/agentChat/unreadDivider'
 import { onWorkspaceSettledElsewhere, takeWorkspacesSettledElsewhere } from '../../utils/settledElsewhere'
 import { useWindowActive } from '../../utils/windowActivity'
 import {
@@ -582,6 +582,38 @@ function WorkspaceSidebar({
       return next === previous ? previous : new Set(next)
     })
   }, [unseenVisits])
+  // Marked unread, here or on any other device: the chat's visit clock went
+  // back past its latest finish (`conversation.mark_unread`), and the mark
+  // goes up until someone looks at it. Read off the record, so it is still
+  // up after a restart. A finish since the rewind is the transitions' to
+  // mark, and a visit since it is the person having read it.
+  const rewoundVisits = useWorkspaceStore(
+    useCallback((state: { workspaces: Workspace[] }) => {
+      let rewound = ''
+      for (const workspace of state.workspaces) {
+        if (typeof workspace.visitRewoundAt === 'number')
+          rewound += `${workspace.id}=${workspace.visitRewoundAt}:${workspace.lastVisitedAt ?? ''};`
+      }
+      return rewound
+    }, []),
+  )
+  useEffect(() => {
+    if (!rewoundVisits) return
+    const marked: string[] = []
+    for (const workspace of useWorkspaceStore.getState().workspaces) {
+      const rewoundAt = workspace.visitRewoundAt
+      if (typeof rewoundAt !== 'number' || workspace.id === onScreenWorkspaceId || workspace.remoteOrigin) continue
+      const finishedAt = latestFinishOf(workspace, conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS)
+      const visitedAt = typeof workspace.lastVisitedAt === 'number' ? workspace.lastVisitedAt : null
+      if (finishedAt === null || finishedAt > rewoundAt) continue
+      if (visitedAt !== null && visitedAt >= finishedAt) continue
+      marked.push(workspace.id)
+    }
+    if (marked.length === 0) return
+    setUnseenDoneIds((previous) =>
+      marked.every((id) => previous.has(id)) ? previous : new Set([...previous, ...marked]),
+    )
+  }, [rewoundVisits, conversationsByWorkspaceId, onScreenWorkspaceId])
 
   // Module-contributed top-nav doors used to be resolved here and handed to
   // ExtensionsRail. They are resolved inside `useExtensionsDrawerRows` now: the
@@ -1216,6 +1248,25 @@ function WorkspaceSidebar({
     [refreshRemote],
   )
 
+  // Mark unread on the chat in front waits for the person to leave it
+  // (`canMarkWorkspaceUnread` below).
+  const unreadOnLeaveRef = useRef(new Set<string>())
+  const markWorkspaceUnread = useCallback((workspaceId: string) => {
+    const mark = window.api?.workspaceMarkUnread
+    if (typeof mark !== 'function') return
+    void mark(workspaceId)
+      .then((answer) => {
+        if (!answer.ok) showToast({ tone: 'error', title: 'Not marked unread', description: answer.message })
+      })
+      .catch((error: unknown) =>
+        showToast({
+          tone: 'error',
+          title: 'Not marked unread',
+          description: error instanceof Error ? error.message : String(error),
+        }),
+      )
+  }, [])
+
   // The chat in front in this window, stamped as seen while the window is
   // visible and focused (`useVisitStamp`). A chat here stamps this desktop's
   // own record; a chat followed from a paired machine stamps that machine's,
@@ -1245,11 +1296,7 @@ function WorkspaceSidebar({
     }
     // The chat's latest finish this window knows of: its agents' terminals
     // (the registry's clock) and its chat sessions.
-    let turnEndedAt = typeof workspace.lastTurnEndedAt === 'number' ? workspace.lastTurnEndedAt : null
-    for (const session of conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS) {
-      if (typeof session.lastTurnEndedAt === 'number' && session.lastTurnEndedAt > (turnEndedAt ?? -1))
-        turnEndedAt = session.lastTurnEndedAt
-    }
+    const turnEndedAt = latestFinishOf(workspace, conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS)
     return {
       key: `local:${workspace.id}`,
       turnEndedAt,
@@ -1261,24 +1308,36 @@ function WorkspaceSidebar({
         const live = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
         noteChatOpened(workspace.id, typeof live?.lastVisitedAt === 'number' ? live.lastVisitedAt : null, Date.now())
       },
-      left: () => noteChatLeft(workspace.id),
+      // Marked unread while it was in front: it takes effect now, as the
+      // person leaves it, or the stamp would have read it again at once.
+      left: () => {
+        noteChatLeft(workspace.id)
+        if (unreadOnLeaveRef.current.delete(workspace.id)) markWorkspaceUnread(workspace.id)
+      },
     }
-  }, [onScreenWorkspaceId, workspaces, remoteConversationByWorkspace, conversationsByWorkspaceId, recordWorkspaceVisit])
+  }, [
+    onScreenWorkspaceId,
+    workspaces,
+    remoteConversationByWorkspace,
+    conversationsByWorkspaceId,
+    recordWorkspaceVisit,
+    markWorkspaceUnread,
+  ])
   useVisitStamp(visitTarget, windowActive)
 
-  // Mark unread puts a row's "finished while you were away" mark back up and,
-  // the next time the chat is opened here, the "New" divider above its latest
-  // reply. Offered only where that means something: an agent in the chat has
-  // finished a turn, the row is not already marked, and the chat is not the
-  // one in front — opening is what clears the mark, so the chat being looked
-  // at would lose it at once. A chat followed from a paired machine keeps its
-  // read state there, so it is not offered for one.
+  // Mark unread moves the chat's visit clock back to just before its latest
+  // finish, in main (`conversation.mark_unread`, the phone's too): its
+  // "finished while you were away" mark comes back on every device, here by
+  // `rewoundVisits` above, and the next opening's "New" divider sits above
+  // its latest reply. Offered where that means something: an agent in the
+  // chat has finished a turn and the row is not already marked. The chat in
+  // front is marked as the person leaves it, since looking at it is what
+  // reads it. A chat followed from a paired machine keeps its read state
+  // there, so it is not offered for one.
   const canMarkWorkspaceUnread = (workspace: Workspace): boolean => {
-    if (workspace.remoteOrigin || workspace.id === activeWorkspaceId || unseenDoneIds.has(workspace.id)) return false
-    if (typeof workspace.lastTurnEndedAt === 'number') return true
-    return (conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS).some(
-      (session) => typeof session.lastTurnEndedAt === 'number',
-    )
+    if (workspace.remoteOrigin || unseenDoneIds.has(workspace.id) || unreadOnLeaveRef.current.has(workspace.id))
+      return false
+    return latestFinishOf(workspace, conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS) !== null
   }
 
   // A row opened from a paired machine's chat is settled by that machine,
@@ -3010,9 +3069,9 @@ function WorkspaceSidebar({
               return
             }
             if (action === 'mark-unread') {
-              markChatUnread(workspace.id, Date.now())
-              setUnseenDoneIds((previous) => new Set(previous).add(workspace.id))
               setContextMenu(null)
+              if (workspace.id === onScreenWorkspaceId) unreadOnLeaveRef.current.add(workspace.id)
+              else markWorkspaceUnread(workspace.id)
               return
             }
             if (action === 'rename') {
@@ -3296,6 +3355,18 @@ type WorkspaceRowOptions = {
 
 const NO_SESSIONS: TerminalSessionSnapshot[] = []
 const NO_CONVERSATIONS: readonly ConversationSessionSummary[] = []
+
+/** When an agent in the chat last finished a turn, as far as this window knows; null when none has. */
+function latestFinishOf(
+  workspace: Pick<Workspace, 'lastTurnEndedAt'>,
+  sessions: readonly ConversationSessionSummary[],
+): number | null {
+  let latest = typeof workspace.lastTurnEndedAt === 'number' ? workspace.lastTurnEndedAt : null
+  for (const session of sessions)
+    if (typeof session.lastTurnEndedAt === 'number' && session.lastTurnEndedAt > (latest ?? -1))
+      latest = session.lastTurnEndedAt
+  return latest
+}
 const EMPTY_PULL_REQUESTS: readonly BranchPullRequest[] = []
 
 // A row's options, as constants: a fresh `{ snoozed: true }` on every sidebar

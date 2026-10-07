@@ -163,6 +163,12 @@ export const TAILNET_CAPABILITIES = [
   'new-chat-worktree',
   'new-chat-effort',
   'cli-runtime-catalog',
+  // Mark unread from any device (2026-10-07), a gateway tool beside
+  // `conversation.visit`: `conversation.mark_unread` moves a chat's
+  // `lastVisitedAt` back to just before its latest finish, the one write
+  // that moves it back. A client offers no Mark unread for a machine that
+  // does not advertise it; an older one answers the tool "Unknown tool".
+  'chat-mark-unread',
 ] as const
 
 export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]

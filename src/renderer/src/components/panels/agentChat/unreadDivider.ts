@@ -11,19 +11,16 @@
 // stays where it was drawn while the agent keeps streaming and does not
 // vanish the instant the visit lands.
 //
-// Window-local, like the sidebar's "finished while you were away" mark: each
-// window has its own chat in front, and a mark set by hand is a thing said to
-// this window's sidebar.
+// Mark unread, on any device, moves that clock back to just before the
+// chat's latest finish (`conversation.mark_unread`), so the next opening
+// reads its latest reply as the first unseen one; nothing here keeps a mark
+// of its own. The opening is this window's: each has its own chat in front.
 
 import { useCallback, useSyncExternalStore } from 'react'
 import type { ConversationTimelineRow } from './conversationTimeline'
 
-/** What the person had seen of a chat when it was opened. */
-export type ChatUnreadSince =
-  /** Everything an agent finished by the chat's visit clock. */
-  | { kind: 'visit'; at: number }
-  /** Marked unread by hand: everything before its latest reply. */
-  | { kind: 'latestReply' }
+/** What the person had seen of a chat when it was opened: everything an agent finished by its visit clock. */
+export type ChatUnreadSince = { kind: 'visit'; at: number }
 
 /** A chat in front of this window, as it was when it came there. */
 export type ChatOpening = {
@@ -34,7 +31,6 @@ export type ChatOpening = {
 }
 
 let opening: ChatOpening | null = null
-const markedUnreadAt = new Map<string, number>()
 const listeners = new Set<() => void>()
 
 function publish(next: ChatOpening | null): void {
@@ -43,29 +39,11 @@ function publish(next: ChatOpening | null): void {
 }
 
 /**
- * Mark a chat unread in this window: the next time it is opened, the divider
- * goes above its latest reply. A visit made after `at` — on the phone, or in
- * another window — is the person having read it, and the mark no longer
- * applies.
- */
-export function markChatUnread(workspaceId: string, at: number): void {
-  markedUnreadAt.set(workspaceId, at)
-}
-
-/**
  * The chat came in front of this window. `visitedAt` is its visit clock as it
  * stands now, before this opening is stamped as a visit.
  */
 export function noteChatOpened(workspaceId: string, visitedAt: number | null, now: number): void {
-  const markedAt = markedUnreadAt.get(workspaceId)
-  markedUnreadAt.delete(workspaceId)
-  const since: ChatUnreadSince | null =
-    markedAt !== undefined && (visitedAt ?? Number.NEGATIVE_INFINITY) < markedAt
-      ? { kind: 'latestReply' }
-      : visitedAt === null
-        ? null
-        : { kind: 'visit', at: visitedAt }
-  publish({ workspaceId, openedAt: now, since })
+  publish({ workspaceId, openedAt: now, since: visitedAt === null ? null : { kind: 'visit', at: visitedAt } })
 }
 
 /** The chat left the front of this window. A later opening reads the clock afresh. */
@@ -115,10 +93,8 @@ function replyFinished(row: ReplyRow): number | undefined {
  * never moves on to it. With nothing seen from an agent above the first
  * unseen reply there is no divider at all: the whole chat is new — one started
  * and left before it answered, or never opened — and a "New" above all of it
- * says nothing.
- *
- * Marked unread by hand, the divider goes above the latest reply that was
- * there when the chat was opened, whatever the clock says.
+ * says nothing. Marked unread, the clock stands just before the latest
+ * finish, so that is the reply the divider goes above.
  *
  * A context compaction that happened inside the unseen reply's turn sits just
  * above it, and the divider goes above that too, so the two seams read in the
@@ -129,34 +105,24 @@ export function unreadDividerRowId(rows: readonly ConversationTimelineRow[], ope
   if (!since) return null
   const arrivedBeforeOpening = (row: ReplyRow) => (replyBegan(row) ?? Number.NEGATIVE_INFINITY) <= opened.openedAt
   let index = -1
-  if (since.kind === 'latestReply') {
-    for (let cursor = rows.length - 1; cursor >= 0; cursor -= 1) {
-      const row = rows[cursor]!
-      if (row.kind === 'assistant' && arrivedBeforeOpening(row)) {
-        index = cursor
-        break
-      }
+  let seenReply = false
+  for (let cursor = 0; cursor < rows.length; cursor += 1) {
+    const row = rows[cursor]!
+    if (row.kind !== 'assistant') continue
+    if (!arrivedBeforeOpening(row)) break
+    // A finish after the opening was watched, so the reply is read as it
+    // stood then: still streaming. Without this the divider would jump onto
+    // a reply the moment it finished in front of the reader.
+    const finishedAt = replyFinished(row)
+    const finished = finishedAt !== undefined && finishedAt <= opened.openedAt ? finishedAt : undefined
+    const unseen =
+      finished !== undefined ? finished > since.at : (replyBegan(row) ?? Number.NEGATIVE_INFINITY) > since.at
+    if (!unseen) {
+      seenReply = true
+      continue
     }
-  } else {
-    let seenReply = false
-    for (let cursor = 0; cursor < rows.length; cursor += 1) {
-      const row = rows[cursor]!
-      if (row.kind !== 'assistant') continue
-      if (!arrivedBeforeOpening(row)) break
-      // A finish after the opening was watched, so the reply is read as it
-      // stood then: still streaming. Without this the divider would jump onto
-      // a reply the moment it finished in front of the reader.
-      const finishedAt = replyFinished(row)
-      const finished = finishedAt !== undefined && finishedAt <= opened.openedAt ? finishedAt : undefined
-      const unseen =
-        finished !== undefined ? finished > since.at : (replyBegan(row) ?? Number.NEGATIVE_INFINITY) > since.at
-      if (!unseen) {
-        seenReply = true
-        continue
-      }
-      if (seenReply) index = cursor
-      break
-    }
+    if (seenReply) index = cursor
+    break
   }
   const target = rows[index]
   if (!target || target.kind !== 'assistant') return null
