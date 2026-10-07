@@ -357,6 +357,8 @@ type DeferredLaunchRecord = {
   cli: string
   worktree: LaunchWorktree
   install: StartedDependencyInstall
+  /** The install has ended and the agent is being started: its terminal may be live, its start not yet confirmed. */
+  starting: boolean
   /** Null while the install runs; how the start went once it has ended. */
   outcome:
     { started: true; notifyParent: LaunchLinkResult | null } | { started: false; code: string; message: string } | null
@@ -761,6 +763,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       cli: plan.cli,
       worktree,
       install: installing,
+      starting: false,
       outcome: null,
     }
     deferredLaunches.set(deferredKey(plan.workspaceId, agentId), record)
@@ -773,6 +776,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         record.outcome = { started: false, code: 'app_quitting', message: 'The app quit before the agent started.' }
         return
       }
+      record.starting = true
       const launched = await startConfiguredAgent({ ...plan, agentId }, worktree).catch((error: unknown) =>
         failure('launch_failed', error instanceof Error ? error.message : String(error)),
       )
@@ -819,7 +823,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     return {
       // Present only until the agent has started: what it waits on, or why it
       // will not start.
-      ...(outcome?.started ? {} : { state: outcome ? 'launch_failed' : 'installing_dependencies' }),
+      ...(outcome?.started
+        ? {}
+        : { state: outcome ? 'launch_failed' : record.starting ? 'starting' : 'installing_dependencies' }),
       ...(outcome && !outcome.started ? { launchError: { code: outcome.code, message: outcome.message } } : {}),
       worktreePath: record.worktree.path,
       worktreeBranch: record.worktree.branch,
@@ -1286,9 +1292,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       'runtime: whether its process is live, and its phase (starting, thinking, tool_use, idle, awaiting_input, ' +
       'stalled, exited, failed) when its CLI reports one. An agent launched with agent.launch tells its caller ' +
       'when it finishes, fails, stops or waits for input, so read this when a notice says to, not in a loop. ' +
-      'An agent waiting on its worktree\'s dependency install has state "installing_dependencies" (or ' +
-      '"launch_failed", with "launchError", when it could not start after it), and an agent started after one ' +
-      'keeps "dependencyInstall", saying how the install ended.',
+      'An agent waiting on its worktree\'s dependency install has state "installing_dependencies", then "starting" ' +
+      'while it is started after it (or "launch_failed", with "launchError", when it could not start), and an ' +
+      'agent started after one keeps "dependencyInstall", saying how the install ended.',
     inputSchema: {
       type: 'object',
       properties: {

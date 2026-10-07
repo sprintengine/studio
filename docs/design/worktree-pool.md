@@ -108,7 +108,8 @@ were settled:
     caller's client gives up on a call long before an install ends and a retry
     would be a second agent in a second worktree. `agent.launch` answers with
     the agent's id and state `installing_dependencies`, which `agent.status`
-    reports, and starts the agent when the install ends; `conversation.create`
+    reports (then `starting`, until the agent's start is confirmed), and starts
+    the agent when the install ends; `conversation.create`
     makes the chat and its session at once, says `dependencyInstall` in its
     answer and in the chat's composer tray, and sends the first message when
     the install ends. However it ends, the agent starts. A reclaimed settled

@@ -954,6 +954,8 @@ test('automation', async () => {
     const harnessWith = (
       settled: Promise<WorktreeDependencyInstallView | null>,
       linkLaunchedAgent?: AutomationBackends['linkLaunchedAgent'],
+      // Holds the launch after its terminal is live, before it answers.
+      launching?: Promise<void>,
     ) => {
       let current = view('running')
       void settled.then((ended) => {
@@ -986,6 +988,7 @@ test('automation', async () => {
             cwd: request.worktreePath,
             processAlive: true,
           } as never)
+          await launching
           return {
             ok: true,
             workspaceId: 'ws-1',
@@ -1008,8 +1011,10 @@ test('automation', async () => {
     }
 
     const install = settle()
+    let letLaunchAnswer: () => void = () => {}
+    const launching = new Promise<void>((resolve) => (letLaunchAnswer = resolve))
     const links: LaunchedAgentLink[] = []
-    const h = harnessWith(install.promise, (link) => (links.push(link), { linked: true as const }))
+    const h = harnessWith(install.promise, (link) => (links.push(link), { linked: true as const }), launching)
     const caller = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-lead' } }
     const answered = await tool(h.tools, 'agent.launch').handler(
       { workspaceId: 'ws-1', name: 'Scout', worktree: { name: 'x' } },
@@ -1043,6 +1048,14 @@ test('automation', async () => {
     install.resolve(view('failed'))
     await flush()
     assert.equal(h.requests.length, 1)
+    // Its terminal is live but the start is not confirmed yet: no longer
+    // installing, and not started either.
+    const starting = await tool(h.tools, 'agent.status').handler({ workspaceId: 'ws-1', agentId: first.agent.agentId })
+    const mid = starting.structuredContent as { agent: { state?: string; terminal: { processAlive: boolean } } }
+    assert.equal(mid.agent.state, 'starting')
+    assert.equal(mid.agent.terminal.processAlive, true)
+    letLaunchAnswer()
+    await flush()
     assert.equal(h.requests[0]!.agentId, first.agent.agentId)
     assert.equal(h.requests[0]!.worktreePath, '/tmp/project-a/.sprintengine-worktrees/x')
     assert.equal(links.length, 1)
