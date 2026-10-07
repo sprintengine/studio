@@ -135,6 +135,13 @@ export function createQuitConfirmation(deps: QuitConfirmationDeps) {
 export const QUIT_SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'] as const
 
 /**
+ * How long after the first signal another is the same quit. A logout sends
+ * SIGHUP and SIGTERM together; a second Ctrl+C seconds later, or a second
+ * `kill`, is someone saying the shutdown has taken too long.
+ */
+export const QUIT_SIGNAL_SAME_QUIT_MS = 2_000
+
+/**
  * Wire the quits the OS starts to `quitWithoutAsking()`, so none is asked
  * about and a question already up comes down:
  * - Windows' logout, restart or power-off, said on every window
@@ -143,8 +150,10 @@ export const QUIT_SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'] as const
  *   ready;
  * - a process signal, except on Windows, which has none to send. A signal is
  *   also the quit itself: `quit()` runs the app's one ordered shutdown, as a
- *   confirmed Cmd+Q does. Only the first signal quits; the ones after it
- *   (a logout sends SIGHUP and SIGTERM together) join the shutdown under way.
+ *   confirmed Cmd+Q does. The signals within `QUIT_SIGNAL_SAME_QUIT_MS` of
+ *   the first (a logout sends SIGHUP and SIGTERM together) join the shutdown
+ *   under way; one after that exits at once, so a shutdown that hangs can
+ *   still be stopped the way it was started.
  *
  * Electron is injected so this runs headless under test.
  */
@@ -152,6 +161,10 @@ export function registerUnaskedQuits(input: {
   platform: NodeJS.Platform
   quitConfirmation: Pick<QuitConfirmation, 'quitWithoutAsking'> | undefined
   quit(): void
+  /** Leave now, without the ordered shutdown: `app.exit(1)`. */
+  exit(): void
+  /** Test seam for the clock; `Date.now` otherwise. */
+  now?: () => number
   onWindowCreated(
     listener: (win: { on(event: 'query-session-end' | 'session-end', run: () => void): unknown }) => void,
   ): void
@@ -165,12 +178,16 @@ export function registerUnaskedQuits(input: {
   })
   input.onSystemShutdown(quitWithoutAsking)
   if (input.platform === 'win32') return
-  let signalled = false
+  const now = input.now ?? Date.now
+  let firstSignalAt: number | null = null
   const quitFromSignal = () => {
-    if (signalled) return
-    signalled = true
-    quitWithoutAsking()
-    input.quit()
+    if (firstSignalAt === null) {
+      firstSignalAt = now()
+      quitWithoutAsking()
+      input.quit()
+      return
+    }
+    if (now() - firstSignalAt > QUIT_SIGNAL_SAME_QUIT_MS) input.exit()
   }
   for (const signal of QUIT_SIGNALS) input.onSignal(signal, quitFromSignal)
 }

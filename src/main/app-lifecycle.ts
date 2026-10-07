@@ -318,11 +318,13 @@ export function registerAppLifecycle({
   // stop, Ctrl+C), is the OS's quit, never the person's: it is not asked
   // about, and a question already up is taken down so it cannot hold the OS
   // up. A signal quits through `before-quit` like any other quit, so the
-  // ordered shutdown below runs before the process goes.
+  // ordered shutdown below runs before the process goes; a signal sent again
+  // well after the first exits without waiting for it.
   registerUnaskedQuits({
     platform: process.platform,
     quitConfirmation,
     quit: () => app.quit(),
+    exit: () => app.exit(1),
     onWindowCreated: (listener) => {
       app.on('browser-window-created', (_event, win) => listener(win))
     },

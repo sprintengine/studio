@@ -7,6 +7,7 @@ import {
   QUIT_SIGNALS,
   QUIT_UNASKED_WINDOW_MS,
   quitConfirmationDetail,
+  QUIT_SIGNAL_SAME_QUIT_MS,
   registerUnaskedQuits,
   type QuitConfirmationAnswer,
   type QuitConfirmationDeps,
@@ -165,7 +166,8 @@ test('a quit nobody asked about that does not happen gives asking back', async (
 })
 
 function unaskedQuits(platform: NodeJS.Platform) {
-  const calls = { quitWithoutAsking: 0, quit: 0 }
+  const calls = { quitWithoutAsking: 0, quit: 0, exit: 0 }
+  const clock = { now: 1_000 }
   const windowListeners = new Map<string, () => void>()
   const signals = new Map<string, () => void>()
   let systemShutdown: (() => void) | null = null
@@ -179,13 +181,17 @@ function unaskedQuits(platform: NodeJS.Platform) {
     quit: () => {
       calls.quit += 1
     },
+    exit: () => {
+      calls.exit += 1
+    },
+    now: () => clock.now,
     onWindowCreated: (listener) => listener({ on: (event, run) => void windowListeners.set(event, run) }),
     onSystemShutdown: (listener) => {
       systemShutdown = listener
     },
     onSignal: (signal, listener) => void signals.set(signal, listener),
   })
-  return { calls, windowListeners, signals, systemShutdown: () => systemShutdown?.() }
+  return { calls, clock, windowListeners, signals, systemShutdown: () => systemShutdown?.() }
 }
 
 test("a power-off on macOS or Linux is the OS's quit: unasked, and the quit is left to the OS", () => {
@@ -195,16 +201,32 @@ test("a power-off on macOS or Linux is the OS's quit: unasked, and the quit is l
   assert.equal(quits.calls.quit, 0)
 })
 
-test('a signal quits at once, unasked, through the ordinary quit; later signals join it', () => {
+test('a signal quits at once, unasked, through the ordinary quit; signals right after it join it', () => {
   const quits = unaskedQuits('linux')
   assert.deepEqual([...quits.signals.keys()], [...QUIT_SIGNALS])
   quits.signals.get('SIGTERM')?.()
   assert.equal(quits.calls.quitWithoutAsking, 1)
   assert.equal(quits.calls.quit, 1)
   // A logout sends SIGHUP and SIGTERM together: one quit.
+  quits.clock.now += 50
   quits.signals.get('SIGHUP')?.()
+  quits.clock.now += QUIT_SIGNAL_SAME_QUIT_MS - 50
   quits.signals.get('SIGINT')?.()
   assert.equal(quits.calls.quit, 1)
+  assert.equal(quits.calls.exit, 0)
+})
+
+test('a signal sent again after the shutdown has had its moment exits at once', () => {
+  const quits = unaskedQuits('darwin')
+  quits.signals.get('SIGINT')?.()
+  assert.equal(quits.calls.quit, 1)
+  // The shutdown hangs, and Ctrl+C is pressed again.
+  quits.clock.now += QUIT_SIGNAL_SAME_QUIT_MS + 1
+  quits.signals.get('SIGINT')?.()
+  assert.equal(quits.calls.exit, 1)
+  assert.equal(quits.calls.quit, 1, 'not a second ordered shutdown')
+  quits.signals.get('SIGTERM')?.()
+  assert.equal(quits.calls.exit, 2)
 })
 
 test('Windows has no signals to listen for, and says a logout on every window', () => {
