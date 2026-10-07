@@ -1801,6 +1801,7 @@ export default function NewAgentPanel({
   // same install route either way, because installing a CLI is the answer to
   // both.
   const terminalUnavailable = (composer.noAgentCliInstalled && localHosts.length <= 1) || chatUnavailable
+  const boxHasContent = prompt.trim() !== '' || images.length > 0 || files.length > 0 || attachingCount > 0
 
   // The capture: this panel, untouched, in a window with no chats, is what
   // the next launch opens on. Taken after paint and again whenever the region
@@ -2452,7 +2453,10 @@ export default function NewAgentPanel({
         {editing && scheduled && onOpenScheduledRun ? (
           <ScheduledRuns runs={scheduledRuns} onOpen={onOpenScheduledRun} />
         ) : null}
-        {terminalUnavailable || isTerminalLaunch || scheduled || extensionMode ? null : (
+        {/* The cards are for an empty box: each starts its own prompt, so
+            beside words or attachments of the person's one would throw the
+            words away and send the attachments with a stranger's text. */}
+        {terminalUnavailable || isTerminalLaunch || scheduled || extensionMode || boxHasContent ? null : (
           <div className="mt-6 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
             {suggestions.map((entry) => (
               <SuggestionCard

@@ -1017,6 +1017,36 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
+    await check('the cards leave once the box holds words or attachments, and come back when it is empty', async () => {
+      seedStore()
+      const { SUGGESTION_BANK } = await import('./suggestionBank')
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      const cards = () =>
+        [...view.container.querySelectorAll('button')].filter((button) =>
+          SUGGESTION_BANK.some((entry) => (button.textContent ?? '').startsWith(entry.title)),
+        )
+      assert.ok(cards().length > 0, 'an empty box offers cards')
+      const field = composerField(view.container)
+      await act(async () => {
+        typeIntoComposer(field, 'my own task')
+      })
+      assert.equal(cards().length, 0, 'a card would throw the typed words away')
+      await act(async () => {
+        typeIntoComposer(field, '')
+      })
+      assert.ok(cards().length > 0, 'cleared, the box offers them again')
+      const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')!
+      const file = new dom.window.File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' })
+      Object.defineProperty(input, 'files', { value: [file], configurable: true })
+      await act(async () => {
+        input.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+      })
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 20)))
+      assert.equal(cards().length, 0, 'nor send a staged image with a card’s text')
+      assert.equal(view.launches.length, 0)
+      view.unmount()
+    })
+
     // 5. Skills are offered by the picker whatever the CLI can type; the
     //    inline `/` route stays but is no longer the placeholder's job.
     await check('the picker is there for every CLI and the placeholder stops advertising the trigger', async () => {
