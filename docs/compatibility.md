@@ -209,7 +209,12 @@ send them (`docs/conversations.md`, "Machines and pull requests in the list").
 The context a chat has spent (`contextWindow` and `contextUsed` on a
 `usage_updated` event) is the same kind of member: a phone that does not read
 them shows no context ring, and one that does draws none for a desktop that
-does not send them. A chat's rest and read state are the
+does not send them. The files a message attached by path (`files` on a
+`user_message`, each `{ path }`, a path on the desktop's disk) are the same
+kind of member: the message's `text` is the person's words alone, an older
+phone shows those and nothing more, and a phone that reads the member can
+name the files (it cannot open them). The phone's commands do not send
+`files`, so nothing it sends changed. A chat's rest and read state are the
 `conversation-lifecycle` capability: a desktop that advertises it leaves the
 chats it has settled out of the list, sends it in its sidebar's order, names
 each chat's `chatTitle`, `lastUserMessageAt`, `lastTurnEndedAt` and
@@ -270,7 +275,13 @@ conversation opened it first). `local-servers` adds the owner-only
 `localServers.*` methods and stream: the local servers a Studio's agents
 linked, as the Studio checks them, and running one's command again, stopping
 that run, or forgetting the link (`run` and `stop` refused as `conflict` when
-it is already running, or when the Studio did not start the run). A hello's `client.kind` and `client.instanceId` are
+it is already running, or when the Studio did not start the run). `session-files`
+adds `files` to `session.send`, a message's files attached by path: a Studio
+without it reads `session.send` with a validator that keeps only the members
+it knows, so it would drop the files without a word and send the words as if
+nothing were attached — which is why a client sends `files` only to a Studio
+that advertises it, and the desktop's own window refuses such a send in words
+otherwise. A hello's `client.kind` and `client.instanceId` are
 optional hints a Studio that does not know them ignores. Every method names its scope in `STUDIO_METHODS`,
 typed over the method map so a method without one does not compile.
 

@@ -13,6 +13,7 @@ import type {
   ConversationToolStatus,
 } from './protocol.js'
 import { parseConversationMentions, type ConversationMentionRef } from './mentions.js'
+import { parseConversationAttachedFiles, type ConversationAttachedFile } from './attachedFiles.js'
 import { normalizeApiKeySource } from './apiKeySource.js'
 import { applyPromptCacheEvent, type PromptCacheReading } from './promptCache.js'
 import { isBackgroundLaunchAck, readSubagentStatus } from './subagents.js'
@@ -107,6 +108,8 @@ export type TranscriptEntry =
       // attachment store, read back when the bubble is drawn.
       storedAttachments?: ConversationStoredImageAttachment[]
       mentions?: ConversationMentionRef[]
+      // Files attached by path, by the paths the send carried (attachedFiles.ts).
+      files?: ConversationAttachedFile[]
       skills?: string[]
     }
   | {
@@ -222,6 +225,7 @@ export type UserTurn = {
   createdAt?: number
   attachments?: ConversationImageAttachment[]
   mentions?: ConversationMentionRef[]
+  files?: ConversationAttachedFile[]
   skills?: string[]
 }
 
@@ -546,6 +550,7 @@ export function userEntryFromLocalTurn(userTurn: UserTurn): Extract<TranscriptEn
     ...(userTurn.createdAt !== undefined ? { createdAt: userTurn.createdAt } : {}),
     ...(userTurn.attachments?.length ? { attachments: userTurn.attachments } : {}),
     ...(userTurn.mentions?.length ? { mentions: userTurn.mentions } : {}),
+    ...(userTurn.files?.length ? { files: userTurn.files } : {}),
     ...(userTurn.skills?.length ? { skills: userTurn.skills } : {}),
   }
 }
@@ -727,6 +732,7 @@ export function projectConversation(
             ...(localTurnId ? { localTurnId } : {}),
             storedAttachments: parseStoredAttachments(event.payload?.attachments),
             mentions: parseConversationMentions(event.payload?.mentions) ?? undefined,
+            files: parseConversationAttachedFiles(event.payload?.files) ?? undefined,
             skills: Array.isArray(event.payload?.skills)
               ? event.payload.skills.filter((id): id is string => typeof id === 'string')
               : undefined,
@@ -1103,6 +1109,7 @@ export function projectConversation(
           text: eventUserTurn.text,
           createdAt: eventUserTurn.createdAt,
           mentions: eventUserTurn.mentions,
+          ...(eventUserTurn.files?.length ? { files: eventUserTurn.files } : {}),
           skills: eventUserTurn.skills,
           ...(attachments
             ? { attachments }

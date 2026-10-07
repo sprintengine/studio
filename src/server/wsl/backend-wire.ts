@@ -32,8 +32,9 @@ import type { SignIns, SignInDone, SignInStarted } from '../machine/machine-sign
  * newer desktop installed, one somebody started by hand), and a client
  * speaks to one only when this matches what its record says (phase 8 spec,
  * 5.6). Bump it whenever a forwarded member's arguments or answer change.
+ * 3: `sendTurn` takes `files`, a message's files attached by path.
  */
-export const BACKEND_WIRE_VERSION = 2
+export const BACKEND_WIRE_VERSION = 3
 
 /** Members answered over the wire. The synchronous ones are the router's to answer (from the mirror, or locally). */
 export const REMOTE_BACKEND_MEMBERS = [

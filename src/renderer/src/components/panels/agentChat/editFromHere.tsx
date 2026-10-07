@@ -12,6 +12,7 @@ import type {
   ConversationKey,
 } from '../../../../../shared/conversation-runtime'
 import type { ConversationMentionRef } from '../../../../../shared/conversation/mentions'
+import { attachedFilePaths } from '../../../utils/attachedFiles'
 import { Checkbox, GhostButton, Tooltip } from '../../ui'
 import { useConfirmDialog } from '../../ui/ConfirmDialog'
 import { showToast } from '../../../store/toastStore'
@@ -27,6 +28,8 @@ export type EditFromHereDraft = {
   attachments: ConversationImageAttachment[]
   mentions: ConversationMentionRef[]
   skills: string[]
+  /** The files it attached by path, as the composer's cards. */
+  files: string[]
 }
 
 type EditFromHereProps = {
@@ -214,5 +217,11 @@ export async function editFromHereDraft(
     )
     attachments = read.filter((attachment): attachment is ConversationImageAttachment => attachment !== null)
   }
-  return { text: entry.text, attachments, mentions: entry.mentions ?? [], skills: entry.skills ?? [] }
+  return {
+    text: entry.text,
+    attachments,
+    mentions: entry.mentions ?? [],
+    skills: entry.skills ?? [],
+    files: attachedFilePaths(entry.files),
+  }
 }

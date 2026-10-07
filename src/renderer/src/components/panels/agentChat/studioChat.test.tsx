@@ -263,3 +263,34 @@ test('a send resent after the connection dropped mid-send is carried out once, a
     restore()
   }
 })
+
+test('a send’s files attached by path reach the runtime over the protocol, beside the words', async () => {
+  const sends: Array<Record<string, unknown>> = []
+  const { restore } = await setup({
+    conversationSessionSendTurn: async (input: Record<string, unknown>) => {
+      sends.push(input)
+      return { ok: true, session: { sessionId: 'session', workspaceId: 'workspace', agentId: 'agent' } }
+    },
+  })
+  try {
+    const { useConversationTransport } = await import('./conversationTransport')
+    const { createElement } = await import('react')
+    const { renderToString } = await import('react-dom/server')
+    let transport!: ReturnType<typeof useConversationTransport>
+    renderToString(
+      createElement(() => {
+        transport = useConversationTransport()
+        return null
+      }),
+    )
+    const sent = await transport.send({
+      sessionId: 'session',
+      message: 'Summarise',
+      files: [{ path: '/Users/dev/Desktop/Q3 budget.xlsx' }],
+    })
+    expect(sent.ok).toBe(true)
+    expect(sends[0]).toMatchObject({ message: 'Summarise', files: [{ path: '/Users/dev/Desktop/Q3 budget.xlsx' }] })
+  } finally {
+    restore()
+  }
+})

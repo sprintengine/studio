@@ -4,6 +4,7 @@ import { test } from 'vitest'
 import {
   STUDIO_CHAT_METHODS,
   STUDIO_CHAT_TOPICS,
+  STUDIO_MAX_FILES_PER_SEND,
   STUDIO_MAX_UPLOAD_BYTES,
   STUDIO_UPLOAD_CHUNK_BYTES,
   parseStudioChatParams,
@@ -81,6 +82,7 @@ test('a send keeps what the composer sends and drops the rest', () => {
       message: 'look',
       localTurnId: 'turn-1',
       mentions: [{ path: 'src/a.ts', kind: 'file' }],
+      files: [{ path: '/Users/dev/Desktop/report.pdf', junk: true }],
       skills: [{ id: 'review', sourcePath: '/Users/dev/.skills/review/SKILL.md' }],
       reasoningEffort: 'high',
       mode: 'plan',
@@ -96,6 +98,7 @@ test('a send keeps what the composer sends and drops the rest', () => {
         message: 'look',
         localTurnId: 'turn-1',
         mentions: [{ path: 'src/a.ts', kind: 'file' }],
+        files: [{ path: '/Users/dev/Desktop/report.pdf' }],
         skills: [{ id: 'review', sourcePath: '/Users/dev/.skills/review/SKILL.md' }],
         reasoningEffort: 'high',
         mode: 'plan',
@@ -112,6 +115,14 @@ test('a send keeps what the composer sends and drops the rest', () => {
   assert.equal(refused({ steer: 'yes' }), 'invalid_params')
   assert.equal(refused({ reasoningEffort: 'very high!' }), 'invalid_params')
   assert.equal(refused({ mentions: ['src/a.ts'] }), 'invalid_params')
+  assert.equal(refused({ files: ['/Users/dev/a.pdf'] }), 'invalid_params')
+  assert.equal(refused({ files: [{ path: '' }] }), 'invalid_params')
+  assert.equal(
+    refused({
+      files: Array.from({ length: STUDIO_MAX_FILES_PER_SEND + 1 }, (_, i) => ({ path: `/Users/dev/${i}.pdf` })),
+    }),
+    'invalid_params',
+  )
   assert.equal(
     refused({ attachments: Array.from({ length: 17 }, (_, i) => ({ id: `i${i}`, uploadId: `u${i}` })) }),
     'invalid_params',

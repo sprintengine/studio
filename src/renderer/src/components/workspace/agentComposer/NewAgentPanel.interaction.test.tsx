@@ -62,6 +62,7 @@ test('NewAgentPanel interaction', async () => {
   // own argv renderer; here it stands in so the test can assert the surface SHOWS
   // what main said, verbatim, rather than composing a line of its own.
   const previewCalls: Array<Record<string, unknown>> = []
+  const registered: string[] = []
   const PREVIEW_DISPLAY = 'claude --model claude-opus-5'
 
   // The mesh the remote-machine tests drive (remote-sessions-ux /
@@ -121,10 +122,15 @@ test('NewAgentPanel interaction', async () => {
     getGitRepositoryIdentity: async (folderPath: string) => localIdentityAnswer(folderPath),
     onMeshEvent: () => () => {},
     defaultWorkspaceParentDir: async () => '/w',
-    getPathForFile: () => '/tmp/shot.png',
+    getPathForFile: (file: { name?: string }) =>
+      file?.name === 'Q3 budget.xlsx' ? '/Users/dev/Desktop/Q3 budget.xlsx' : '/tmp/shot.png',
     // A document from the system, by path; a picture or a paste has none here.
-    attachFile: (file: { name?: string }) =>
-      file?.name === 'Q3 budget.xlsx' ? '/Users/dev/Desktop/Q3 budget.xlsx' : '',
+    // Each call is main being told the person attached it.
+    attachFile: (file: { name?: string }) => {
+      const path = file?.name === 'Q3 budget.xlsx' ? '/Users/dev/Desktop/Q3 budget.xlsx' : ''
+      if (path) registered.push(path)
+      return path
+    },
     saveDroppedImage: async () => '/tmp/shot.png',
     agentLaunchPreview: async (input: Record<string, unknown>) => {
       previewCalls.push(input)
@@ -225,7 +231,7 @@ test('NewAgentPanel interaction', async () => {
       }
     }
 
-    const seedStore = (options: { plugins?: unknown[] } = {}): void => {
+    const seedStore = (options: { plugins?: unknown[]; workspace?: Record<string, unknown> } = {}): void => {
       // Permissions are remembered per CLI, in the store's launch-settings read
       // model, which would otherwise carry a preset from one check into the next.
       __resetCliPermissionPresetsForTest()
@@ -257,6 +263,7 @@ test('NewAgentPanel interaction', async () => {
             mode: 'standard',
             agents: {},
             layoutModel: undefined,
+            ...options.workspace,
           },
         ] as never,
         activeWorkspaceId: 'ws-1',
@@ -529,8 +536,37 @@ test('NewAgentPanel interaction', async () => {
       view.unmount()
     })
 
-    await check('a document picked through Attach files is a card, and its path follows the prompt', async () => {
-      seedStore()
+    await check(
+      'a document picked through Attach files is a card, and rides the launch beside the prompt',
+      async () => {
+        seedStore()
+        const view = await render({ initialSelection: { kind: 'conversation' } })
+        const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')!
+        const file = new dom.window.File(['a,b'], 'Q3 budget.xlsx', { type: 'application/vnd.ms-excel' })
+        Object.defineProperty(input, 'files', { value: [file], configurable: true })
+        await act(async () => {
+          input.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+        })
+        const card = view.container.querySelector('button[aria-label="Open Q3 budget.xlsx"]')
+        assert.ok(card, 'the file is a card on the box')
+        assert.ok(card!.textContent?.includes('XLSX'), 'the card names its type')
+        const field = await typeInto(view, 'summarise')
+        assert.equal(field.textContent?.includes('/Users/dev'), false, 'the path is not typed into the prompt')
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        assert.equal(view.launches[0]?.prompt, 'summarise', 'the words are the words alone')
+        assert.deepEqual(view.launches[0]?.files, ['/Users/dev/Desktop/Q3 budget.xlsx'], 'the file rides beside them')
+        assert.equal(view.launches[0]?.images, undefined, 'a document is not an image')
+        view.unmount()
+      },
+    )
+
+    await check('a file picked for a chat on another machine is typed as its path, and main is not told', async () => {
+      seedStore({ workspace: { environment: { kind: 'ssh', id: 'build-box', label: 'build-box' } } })
+      registered.length = 0
       const view = await render({ initialSelection: { kind: 'conversation' } })
       const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')!
       const file = new dom.window.File(['a,b'], 'Q3 budget.xlsx', { type: 'application/vnd.ms-excel' })
@@ -538,16 +574,9 @@ test('NewAgentPanel interaction', async () => {
       await act(async () => {
         input.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
       })
-      const card = view.container.querySelector('button[aria-label="Open Q3 budget.xlsx"]')
-      assert.ok(card, 'the file is a card on the box')
-      assert.ok(card!.textContent?.includes('XLSX'), 'the card names its type')
-      const field = await typeInto(view, 'summarise')
-      assert.equal(field.textContent?.includes('/Users/dev'), false, 'the path is not typed into the prompt')
-      await act(async () => {
-        field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
-      })
-      assert.equal(view.launches[0]?.prompt, "summarise\n\n'/Users/dev/Desktop/Q3 budget.xlsx'")
-      assert.equal(view.launches[0]?.images, undefined, 'a document is not an image')
+      assert.equal(view.container.querySelector('button[aria-label="Open Q3 budget.xlsx"]'), null, 'no card')
+      assert.ok(composerField(view.container).textContent?.includes('Q3 budget.xlsx'), 'its path is typed')
+      assert.deepEqual(registered, [], 'nothing was registered with main')
       view.unmount()
     })
 

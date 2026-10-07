@@ -2689,7 +2689,7 @@ export default function WorkspaceManager() {
       }),
       // The typed prompt is the chat's first message, sent as soon as the chat
       // is ready — the same promise a terminal agent's startup prompt makes.
-      ...conversationLaunchDraftPatch(skills, placement?.prompt, placement?.images),
+      ...conversationLaunchDraftPatch(skills, placement?.prompt, placement?.images, placement?.files),
     })
     placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
   }
@@ -2777,10 +2777,13 @@ export default function WorkspaceManager() {
     // and the marker files the chat under the project it was cut from.
     worktree?: WorkspaceWorktree,
     startupImages?: string[],
+    // Its files attached by path, sent as the first message's `files`.
+    startupFiles?: string[],
   ) => {
     const seed = conversationNewChatSeed(confirm, {
       prompt: startupPrompt,
       images: startupImages,
+      files: startupFiles,
       permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
       ...cliPermissionModeLaunch(confirm.cli),
     })
@@ -3569,11 +3572,13 @@ export default function WorkspaceManager() {
     extension?: { id: string },
     // A chat's staged images, sent as images with `startupPrompt`.
     startupImages?: string[],
+    // A chat's files attached by path, sent as its first message's `files`.
+    startupFiles?: string[],
   ) => {
     if (newChatConfirmInFlight.current) return
     newChatConfirmInFlight.current = true
     try {
-      await confirmNewChatNow(confirm, folderPathOverride, startupPrompt, extension, startupImages)
+      await confirmNewChatNow(confirm, folderPathOverride, startupPrompt, extension, startupImages, startupFiles)
     } finally {
       newChatConfirmInFlight.current = false
     }
@@ -3584,13 +3589,14 @@ export default function WorkspaceManager() {
     startupPrompt?: string,
     extension?: { id: string },
     startupImages?: string[],
+    startupFiles?: string[],
   ) => {
     const scopedFolder = folderPathOverride !== undefined ? folderPathOverride : (newChatPanelState?.folderPath ?? null)
     // The machine the door's dropdown stands on rides every creation below
     // (they all end in createSoloChatWorkspace), then lets go.
     newChatHostRef.current = confirm.hostId ?? null
     try {
-      await confirmNewChatOnHost(confirm, scopedFolder, startupPrompt, extension, startupImages)
+      await confirmNewChatOnHost(confirm, scopedFolder, startupPrompt, extension, startupImages, startupFiles)
     } finally {
       newChatHostRef.current = null
     }
@@ -3601,6 +3607,7 @@ export default function WorkspaceManager() {
     startupPrompt?: string,
     extension?: { id: string },
     startupImages?: string[],
+    startupFiles?: string[],
   ) => {
     // An agent asked for a worktree starts IN it: the folder becomes the
     // worktree and the marker rides along. A worktree that cannot be made
@@ -3655,7 +3662,7 @@ export default function WorkspaceManager() {
         break
       case 'conversation':
         setLastNewChatAgent({ kind: 'conversation' })
-        openConversationInNewChat(folderPath, confirm, startupPrompt, worktree, startupImages)
+        openConversationInNewChat(folderPath, confirm, startupPrompt, worktree, startupImages, startupFiles)
         break
     }
     // ⌘⏎ stays on New chat; the panel empties itself for the next one.
@@ -4358,8 +4365,8 @@ export default function WorkspaceManager() {
           conversationWorkspaceSupported={conversationSpawnEnabled}
           initialSelection={lastNewChatAgent}
           permissionPreset={agentSpawnPermissionPreset}
-          onLaunch={({ prompt, images, ...confirm }) =>
-            runComposerSpawnRef.current(confirm, { tabId, prompt, images, agentName })
+          onLaunch={({ prompt, images, files, ...confirm }) =>
+            runComposerSpawnRef.current(confirm, { tabId, prompt, images, files, agentName })
           }
           onClose={() => {
             if (windowActiveWorkspaceId) removeNewAgentTab(windowActiveWorkspaceId, tabId)
@@ -4923,12 +4930,19 @@ export default function WorkspaceManager() {
                               forceSelection={newChatPanelState.forcedSelection}
                               permissionPreset={agentSpawnPermissionPreset}
                               launchesInBackground
-                              onLaunch={({ prompt, images, extension, environment, stay, ...confirm }) => {
+                              onLaunch={({ prompt, images, files, extension, environment, stay, ...confirm }) => {
                                 // Each closes the panel (and forgets the draft) itself.
                                 const start = () =>
                                   environment
                                     ? confirmSshNewChat(confirm, environment, prompt, images)
-                                    : confirmNewChat(confirm, newChatPanelState.folderPath, prompt, extension, images)
+                                    : confirmNewChat(
+                                        confirm,
+                                        newChatPanelState.folderPath,
+                                        prompt,
+                                        extension,
+                                        images,
+                                        files,
+                                      )
                                 // ⌘⏎: the same launch, with the door kept up.
                                 if (stay) return startNewChatAndStay(start)
                                 void start()

@@ -4,6 +4,12 @@
 
 ### Added
 
+- A user entry carries `files`, the files the message attached by path, read
+  from a `user_message`'s `files` member (`{ path }` each), and a local turn
+  passes its own through. `parseConversationAttachedFiles` is the reader and
+  `attachedFileName` names one; a view draws a message's file cards from this
+  list, never from its text.
+
 - `ConversationUsage` carries `contextWindow` and `contextUsed` from
   `usage_updated`, each kept until a report moves it (a compaction resets
   `contextUsed` to what the summary left). `nextConversationUsage` is the fold,

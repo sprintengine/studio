@@ -1,54 +1,36 @@
 import { fileTypeKind, type FileTypeKind } from '../components/ui/FileTypeGlyph'
-import { quotePromptPath } from './imageFileTransfer'
+import type { ConversationAttachedFile } from '../../../shared/conversation/attachedFiles'
+import { LOCAL_HOST_ID } from '../../../shared/execution-host'
 
-// Files attached to a message by path. The composer holds each as a card, and
-// the agent receives each as its path: an agent reads a PDF or a spreadsheet
-// off the disk itself, so the path is the attachment. The paths go after the
-// words, in a paragraph of their own, quoted the way a drop onto a terminal
-// quotes them — which is what lets a sent bubble draw that paragraph as the
-// same cards again, without the transcript carrying anything new.
+export { attachedFileName } from '../../../shared/conversation/attachedFiles'
 
-/** The message as the agent receives it: the words, then the paths in a paragraph of their own. */
-export function composeMessageWithFiles(text: string, paths: readonly string[]): string {
-  const list = paths.map(quotePromptPath).join(' ')
-  if (!list) return text
-  return text ? `${text}\n\n${list}` : list
-}
+// Files attached to a message by path. The composer holds each as a card, the
+// send carries them as a list beside the words (`files`), and the bubble draws
+// that list as the same cards: the agent reads a PDF or a spreadsheet off the
+// disk itself, so the path is the attachment, but it is never spelled into the
+// person's words, and nothing is read back out of them.
 
-// An absolute path on this machine, and more than a word after a slash: a
-// message that is only `/review` is a command, not a file at the root.
-function isAttachedPathWord(word: string): boolean {
-  if (/^[A-Za-z]:[\\/]./.test(word) || /^\\\\[^\\]+\\./.test(word)) return true
-  return /^\/[^/]+\/./.test(word)
-}
-
-// The words of a paths paragraph, read the way `quotePromptPath` writes them:
-// bare, "double-quoted" (a Windows path, backslashes and all), or 'single-
-// quoted' with an apostrophe spliced in as '"'"'. A shell's own reading would
-// take a Windows path's backslashes for escapes.
-const QUOTED_PATH = /"[^"]*"|'[^']*'(?:"'"'[^']*')*|[^\s'"]+/g
-
-function unquotePath(word: string): string {
-  if (word.startsWith('"')) return word.slice(1, -1)
-  if (word.startsWith("'")) return word.slice(1, -1).replace(/'"'"'/g, "'")
-  return word
+/** A draft's file cards, as the send carries them. */
+export function attachedFilesOf(paths: readonly string[]): ConversationAttachedFile[] {
+  return paths.map((path) => ({ path }))
 }
 
 /**
- * A sent message split back into its words and the files attached to it: the
- * last paragraph, when it is nothing but paths spelled exactly as
- * `composeMessageWithFiles` spells them. Anything else is words, whole.
+ * Whether a chat's workspace runs on this computer, so a file attached from
+ * this computer's disk is one its agent can read by that path. A chat on an
+ * SSH machine, a WSL distribution or a paired machine cannot, and there a file
+ * is typed as its path, as it always was.
  */
-export function splitAttachedFiles(message: string): { text: string; paths: string[] } {
-  const whole = { text: message, paths: [] }
-  const trimmed = message.replace(/\s+$/u, '')
-  const cut = trimmed.lastIndexOf('\n\n')
-  const tail = cut < 0 ? trimmed : trimmed.slice(cut + 2)
-  if (!tail || tail.includes('\n')) return whole
-  const words = (tail.match(QUOTED_PATH) ?? []).map(unquotePath)
-  if (!words.length || !words.every(isAttachedPathWord)) return whole
-  if (words.map(quotePromptPath).join(' ') !== tail) return whole
-  return { text: cut < 0 ? '' : trimmed.slice(0, cut).replace(/\s+$/u, ''), paths: words }
+export function workspaceRunsHere(
+  workspace: { hostId?: string | null; environment?: unknown; remoteOrigin?: unknown } | null | undefined,
+): boolean {
+  if (!workspace) return true
+  return !workspace.environment && !workspace.remoteOrigin && (workspace.hostId ?? LOCAL_HOST_ID) === LOCAL_HOST_ID
+}
+
+/** A sent message's files, as a draft's cards again (edit from here, fork, retry). */
+export function attachedFilePaths(files: readonly ConversationAttachedFile[] | undefined): string[] {
+  return (files ?? []).map((file) => file.path)
 }
 
 // The extension a file with none in its name is drawn as, by the media type
@@ -108,9 +90,4 @@ export function middleTruncateFileName(name: string, max: number): string {
   if (room < 4) return `${name.slice(0, Math.max(1, max - 1))}…`
   const head = Math.ceil(room * 0.6)
   return `${stem.slice(0, head)}…${stem.slice(stem.length - (room - head))}${extension}`
-}
-
-/** The last segment of a path, whichever separator it uses. */
-export function attachedFileName(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path
 }

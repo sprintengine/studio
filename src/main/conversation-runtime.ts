@@ -68,6 +68,8 @@ import {
   type ResolvedConversationSkills,
 } from './conversation-skills'
 import { resolveConversationMentions } from './conversation-mentions'
+import { attachedFilesContext } from './conversation-attached-files'
+import { parseConversationAttachedFiles, type ConversationAttachedFile } from '../shared/conversation/attachedFiles'
 import { ConversationCheckpoints } from './conversation-checkpoints'
 import { ConversationIndex } from './conversation-index'
 import type {
@@ -800,8 +802,12 @@ export class ConversationRuntime {
     // One message, whatever separators the text that typed it used.
     const message = plainLineBreaks(input.message).trim()
     const attachments = input.attachments ?? []
-    // A turn needs some payload: either text or at least one image attachment.
-    if (!message && attachments.length === 0 && !input.mentions?.length && !input.skills?.length)
+    // Read again here: a send reaches this from the IPC, the Studio protocol
+    // and the backend wire, and only the first parses it on the way in.
+    const files = input.files === undefined ? [] : parseConversationAttachedFiles(input.files)
+    if (files === null) return { ok: false, message: 'Attached files must be absolute paths, at most 50.' }
+    // A turn needs some payload: text, an image, a mention, a skill or a file.
+    if (!message && attachments.length === 0 && !input.mentions?.length && !input.skills?.length && !files.length)
       return { ok: false, message: 'Conversation turn message is required.' }
 
     const adapter = this.getAdapterForProviderId(session.providerId)
@@ -866,11 +872,15 @@ export class ConversationRuntime {
     // history below as well. A command turn goes without the reverted-files
     // note for the reason above; the note stays with the session and rides
     // every later turn.
+    // The files attached by path go after the words, where they are, for the
+    // agent to read off the disk; the transcript keeps them as a list.
+    const filesContext = attachedFilesContext(files)
     const providerMessage = [
       session.stateful && !opensWithCommand ? skills.context : undefined,
       opensWithCommand ? undefined : session.revertedNote,
       message,
       mentions.context,
+      filesContext,
     ]
       .filter(Boolean)
       .join('\n\n')
@@ -883,6 +893,7 @@ export class ConversationRuntime {
         sourceCommandId: input.sourceCommandId,
         skillIds: skills.ids,
         mentionRefs: mentions.refs,
+        files,
       })
 
     const turnId = `turn_${this.randomId()}`
@@ -917,6 +928,7 @@ export class ConversationRuntime {
             ...(input.sourceCommandId ? { commandId: input.sourceCommandId } : {}),
             ...(skills.ids.length ? { skills: skills.ids } : {}),
             ...(mentions.refs.length ? { mentions: mentions.refs } : {}),
+            ...(files.length ? { files } : {}),
           }),
           { turnId },
         )
@@ -930,7 +942,7 @@ export class ConversationRuntime {
               ...(skills.context ? [{ role: 'system' as const, content: skills.context }] : []),
               ...(session.revertedNote ? [{ role: 'system' as const, content: session.revertedNote }] : []),
               ...(session.history ?? []),
-              { role: 'user', content: [message, mentions.context].filter(Boolean).join('\n\n') },
+              { role: 'user', content: [message, mentions.context, filesContext].filter(Boolean).join('\n\n') },
             ]
         // From here a steer can join this turn: the provider is being handed it.
         if (session.activeTurnId === turnId) session.providerTurn = providerTurn
@@ -1106,6 +1118,7 @@ export class ConversationRuntime {
       sourceCommandId?: string
       skillIds: string[]
       mentionRefs: Awaited<ReturnType<typeof resolveConversationMentions>>['refs']
+      files: ConversationAttachedFile[]
     },
   ): Promise<ConversationSessionActionResult> {
     const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
@@ -1156,6 +1169,7 @@ export class ConversationRuntime {
             ...(input.sourceCommandId ? { commandId: input.sourceCommandId } : {}),
             ...(input.skillIds.length ? { skills: input.skillIds } : {}),
             ...(input.mentionRefs.length ? { mentions: input.mentionRefs } : {}),
+            ...(input.files.length ? { files: input.files } : {}),
           }),
           { turnId },
         )
@@ -3899,7 +3913,14 @@ function completedHistory(events: ConversationEvent[]): ConversationMessage[] {
   let assistant = ''
   for (const event of events) {
     if (event.type === 'user_message') {
-      user = typeof event.payload?.text === 'string' ? event.payload.text : undefined
+      // The files a message attached ride beside its words in the transcript;
+      // the history hands them back to the model as it first read them.
+      user =
+        typeof event.payload?.text === 'string'
+          ? [event.payload.text, attachedFilesContext(parseConversationAttachedFiles(event.payload.files) ?? [])]
+              .filter(Boolean)
+              .join('\n\n')
+          : undefined
       assistant = ''
     } else if (event.type === 'content_delta' && typeof event.payload?.text === 'string')
       assistant += event.payload.text

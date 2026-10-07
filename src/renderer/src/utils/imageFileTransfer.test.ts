@@ -164,6 +164,7 @@ test('a file from the system is attached by path, an image attaches as an image 
         if (path) attached.push(path)
         return path
       },
+      getPathForFile: (file: unknown) => paths.get(file) ?? '',
     },
   }
   try {
@@ -172,20 +173,30 @@ test('a file from the system is attached by path, an image attaches as an image 
     const web = { name: 'from-a-page.pdf', type: 'application/pdf' } as File
     paths.set(sheet, '/Users/dev/Desktop/Q3 budget.xlsx')
     paths.set(shot, '/Users/dev/Desktop/shot.png')
-    assert.deepEqual(sortFiles([sheet, shot, web], true), {
+    assert.deepEqual(sortFiles([sheet, shot, web], { attachImages: true, attachByPath: true }), {
       paths: [],
       files: ['/Users/dev/Desktop/Q3 budget.xlsx'],
       images: [shot],
       pathless: [web],
     })
     // Where the provider reads no images, a picture is a file like any other.
-    assert.deepEqual(sortFiles([shot], false), {
+    assert.deepEqual(sortFiles([shot], { attachImages: false, attachByPath: true }), {
       paths: [],
       files: ['/Users/dev/Desktop/shot.png'],
       images: [],
       pathless: [],
     })
     assert.deepEqual(attached, ['/Users/dev/Desktop/Q3 budget.xlsx', '/Users/dev/Desktop/shot.png'])
+
+    // Where files are typed as paths (a chat on another machine), a file is its
+    // typed path, and main is not told about a file no card will show.
+    assert.deepEqual(sortFiles([sheet, shot, web], { attachImages: true, attachByPath: false }), {
+      paths: ['/Users/dev/Desktop/Q3 budget.xlsx'],
+      files: [],
+      images: [shot],
+      pathless: [web],
+    })
+    assert.equal(attached.length, 2, 'nothing more was registered')
 
     // A drag out of the studio's own Files pane is a reference into the project: typed, never a card.
     const payload = JSON.stringify({
@@ -200,7 +211,7 @@ test('a file from the system is attached by path, an image attaches as an image 
       files: [],
       getData: (type: string) => (type === 'application/x-sprintengine-file-drop' ? payload : ''),
     } as unknown as DataTransfer
-    assert.deepEqual(sortDroppedFiles(studioDrag, true), {
+    assert.deepEqual(sortDroppedFiles(studioDrag, { attachImages: true, attachByPath: true }), {
       paths: ['/Users/dev/project/src/app.ts'],
       files: [],
       images: [],

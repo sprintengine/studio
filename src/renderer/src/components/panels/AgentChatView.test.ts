@@ -1701,7 +1701,7 @@ test('AgentChatView', async () => {
   )
   assert.match(
     chatViewSource,
-    /takePickedFilesRef\.current = \(files\) =>\s+filesEnabled \? takeFiles\(sortFiles\(files, imagesEnabled\)\) : void attachFiles\(files\)/,
+    /takePickedFilesRef\.current = \(files\) =>\s+filesEnabled \? takeFiles\(sortFiles\(files, fileSorting\)\) : void attachFiles\(files\)/,
     'a picked file is taken as a drop of it is, and attaches through attachFiles where only images do',
   )
   assert.match(

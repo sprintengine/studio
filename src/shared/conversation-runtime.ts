@@ -215,6 +215,10 @@ export type ConversationSendTurnInput = {
   // than answered with the first one's result. Never sent by a window's IPC.
   commandFingerprint?: string
   mentions?: import('./conversation/mentions').ConversationMentionRef[]
+  // Files attached by path from this computer: the agent is told where each
+  // is, after the words, and the `user_message` keeps them beside the text
+  // so the bubble draws them as cards. The text stays the person's words.
+  files?: import('./conversation/attachedFiles').ConversationAttachedFile[]
   reasoningEffort?: string
   mode?: 'default' | 'plan' | 'ask'
   commandId?: string

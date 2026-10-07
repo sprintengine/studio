@@ -14,7 +14,7 @@ A removable piece of context staged on a composer, shared by the launcher and co
 
 Static label or inspectable label. Skills, @-mentioned files and folders use the same shape.
 
-**File card.** A file attached by path — dropped, picked or pasted from the system — is a card, not a chip: it has something to show and something to do. The card shows the file (a thumbnail where the system draws one, the type glyph until then and wherever it does not) and opens it in the app the system picks for it. Only a kind of file that is shown rather than run opens that way — a document, plain text or data, a picture, a recording; anything else (a program, a script, a shortcut, an archive, a file with no extension) is only revealed in its folder, so the same click shows it in Finder or Explorer instead. A sent message shows its files as the same cards, without the close button.
+**File card.** A file attached by path — dropped, picked or pasted from the system — is a card, not a chip: it has something to show and something to do. The card shows the file (a thumbnail where the system draws one, the type glyph until then and wherever it does not) and opens it in the app the system picks for it. Only a kind of file that is shown rather than run opens that way — a document, plain text or data, a picture, a recording; anything else (a program, a script, a shortcut, an archive, a file with no extension) is only revealed in its folder, so the same click shows it in Finder or Explorer instead. A sent message shows its files as the same cards, without the close button; in a chat on another machine, whose files this computer cannot open, they are badges with each file's name.
 
 ## States
 

@@ -1007,7 +1007,7 @@ function dropOn(chat: Awaited<ReturnType<typeof mountChat>>, target: EventTarget
   return drop
 }
 
-test('any file dropped from the OS is attached as its card, and goes to the agent as its path after the words', async () => {
+test('any file dropped from the OS is attached as its card, and goes to the agent beside the words, not in them', async () => {
   const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
   const chat = await mountChat({ sendTurn })
   try {
@@ -1042,13 +1042,14 @@ test('any file dropped from the OS is attached as its card, and goes to the agen
     expect(cards()).toHaveLength(2)
     await chat.act(async () => chat.enter())
     expect(sendTurn.mock.calls[0][0]).toMatchObject({
-      message: "Summarise\n\n'/Users/dev/Desktop/Q3 budget.xlsx' /Users/dev/Desktop/shot.png",
+      message: 'Summarise',
+      files: [{ path: '/Users/dev/Desktop/Q3 budget.xlsx' }, { path: '/Users/dev/Desktop/shot.png' }],
     })
     expect(
       chat.host.querySelectorAll('button[aria-label^="Remove "]'),
       'the composer lets the cards go with the message',
     ).toHaveLength(0)
-    // The sent bubble draws the paths paragraph as the same cards, not as paths.
+    // The sent bubble draws the message's files as the same cards, and its words as they were typed.
     expect(cards().map((card) => card.getAttribute('aria-label'))).toEqual(['Open Q3 budget.xlsx', 'Open shot.png'])
     expect(chat.host.textContent).not.toContain('/Users/dev/Desktop')
   } finally {

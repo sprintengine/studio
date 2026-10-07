@@ -203,6 +203,11 @@ export type AgentState = {
   // not as paths in its text. Paths, not bytes, because this record rides the
   // workspace registry. One-shot, cleared with the prompt.
   chatStartupImages?: string[]
+  // The files the launch surface attached by path, as their paths on this
+  // computer: they go with `chatStartupPrompt` as the first message's `files`,
+  // not as paths in its text, and its bubble draws them as cards. One-shot,
+  // cleared with the prompt.
+  chatStartupFiles?: string[]
   // The Backlog item this agent was last handed (drag-drop or send-to-agent).
   // Powers the top-right glyph on the agent terminal that navigates back to the
   // item. Latest-wins: one ref per agent, mirroring the most-recent-wins

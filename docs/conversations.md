@@ -11,7 +11,10 @@ Start a chat in a workspace, choose an installed provider and model, and send a
 prompt. Tool activity stays in the transcript with expandable input/output and
 file links. Older turns page in as needed; search can open a historical turn.
 Selecting a skill adds persistent context, while file mentions attach to one
-send. Failed sends keep the draft. Pending approvals and questions appear above
+send. A file dropped, picked or pasted from the computer into a chat that runs
+on it is a card: the send carries it beside the words (`files` on the send and
+on its `user_message`), the agent is told where it is, and the bubble draws the
+card from that list, never from the text. Failed sends keep the draft. Pending approvals and questions appear above
 the composer, with a counter and keyboard navigation when several are waiting.
 
 Remembered tool permissions are scoped to the conversation or workspace.
@@ -507,6 +510,7 @@ the desktop's own sidebar — agrees with it. A desktop that advertises
   this, so the first launch of a desktop that does counts every chat it
   already had as seen at that moment, once; a chat made since starts with its
   own creation as its visit.
+
 - **`conversation.settle`** `{ workspaceId, settled? }` (default `true`)
   writes the same patch as the row menu's Settle, or with `false` its
   Un-settle, and answers `{ ok: true, workspaceId, settledAt }` (`null` when

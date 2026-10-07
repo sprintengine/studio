@@ -74,6 +74,13 @@ export const STUDIO_PULL_REQUEST_LINK_CAPABILITY = 'pull-request-link' as const
 export const STUDIO_LOCAL_SERVERS_CAPABILITY = 'local-servers' as const
 
 /**
+ * `session.send` takes `files`, the files a message attaches by path, and the
+ * `user_message` it becomes carries them. A Studio without it drops the member
+ * unread, so a client sends it only where this is advertised.
+ */
+export const STUDIO_SESSION_FILES_CAPABILITY = 'session-files' as const
+
+/**
  * Every Studio capability this version of the package knows, in the order
  * they shipped. A Studio advertises the ones it serves; a client reads a name
  * it does not know as a feature it does not use.
@@ -96,6 +103,7 @@ export const STUDIO_CAPABILITIES = [
   STUDIO_PULL_REQUEST_TOOL_CALLS_CAPABILITY,
   STUDIO_PULL_REQUEST_LINK_CAPABILITY,
   STUDIO_LOCAL_SERVERS_CAPABILITY,
+  STUDIO_SESSION_FILES_CAPABILITY,
 ] as const
 
 /**
@@ -112,6 +120,7 @@ export const STUDIO_CHAT_CAPABILITIES = [
   STUDIO_PROVIDERS_CAPABILITY,
   STUDIO_FILES_CAPABILITY,
   STUDIO_WORKSPACES_CAPABILITY,
+  STUDIO_SESSION_FILES_CAPABILITY,
 ] as const
 
 export type StudioCapability = (typeof STUDIO_CAPABILITIES)[number]

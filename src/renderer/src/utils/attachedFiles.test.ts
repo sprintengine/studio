@@ -2,47 +2,20 @@ import { expect, test } from 'vitest'
 
 import {
   attachedFileName,
+  attachedFilePaths,
+  attachedFilesOf,
   attachedFileType,
-  composeMessageWithFiles,
   middleTruncateFileName,
-  splitAttachedFiles,
 } from './attachedFiles'
 
-test('the agent receives the words, then the attached paths in a paragraph of their own, quoted as a drop is', () => {
-  expect(
-    composeMessageWithFiles('Summarise these', ['/Users/dev/Desktop/Q3 budget.xlsx', '/Users/dev/notes.pdf']),
-  ).toBe("Summarise these\n\n'/Users/dev/Desktop/Q3 budget.xlsx' /Users/dev/notes.pdf")
-  expect(composeMessageWithFiles('', ['/Users/dev/notes.pdf']), 'a message of files alone is their paths').toBe(
-    '/Users/dev/notes.pdf',
-  )
-  expect(composeMessageWithFiles('Just words', []), 'no files, no change').toBe('Just words')
-})
-
-test('a sent message splits back into its words and its files, however the paths were quoted', () => {
-  const paths = [
-    '/Users/dev/Desktop/Q3 budget.xlsx',
-    "/Users/dev/John's Files/plan.docx",
-    '/Users/dev/notes.pdf',
-    'C:\\Users\\dev\\Documents\\Deck one.pptx',
-    'C:\\Users\\dev\\data.csv',
-    '\\\\build-box\\share\\report.pdf',
-  ]
-  const message = composeMessageWithFiles('Compare these.\n\nThen summarise.', paths)
-  expect(splitAttachedFiles(message)).toEqual({ text: 'Compare these.\n\nThen summarise.', paths })
-  expect(splitAttachedFiles(composeMessageWithFiles('', paths))).toEqual({ text: '', paths })
-})
-
-test('words that only look like paths stay words', () => {
-  for (const message of [
-    'Look at /Users/dev/notes.pdf please',
-    '/review',
-    '/model opus',
-    'Read this:\n\n/Users/dev/notes.pdf and then that',
-    'Two lines\n\n/Users/dev/a.pdf\n/Users/dev/b.pdf',
-    // Not spelled as the composer spells it: a hand-typed quote around a path with no space.
-    "Here\n\n'/Users/dev/notes.pdf'",
+test('a draft’s cards travel as a list of paths beside the words, and come back as the same cards', () => {
+  const paths = ['/Users/dev/Desktop/Q3 budget.xlsx', 'C:\\Users\\dev\\Deck one.pptx']
+  expect(attachedFilesOf(paths)).toEqual([
+    { path: '/Users/dev/Desktop/Q3 budget.xlsx' },
+    { path: 'C:\\Users\\dev\\Deck one.pptx' },
   ])
-    expect(splitAttachedFiles(message), message).toEqual({ text: message, paths: [] })
+  expect(attachedFilePaths(attachedFilesOf(paths))).toEqual(paths)
+  expect(attachedFilePaths(undefined)).toEqual([])
 })
 
 test('a file’s card names its type by extension, and by media type when the name has none', () => {

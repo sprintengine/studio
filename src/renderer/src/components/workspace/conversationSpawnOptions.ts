@@ -24,17 +24,20 @@ export function conversationAgentRuntimePatch(providerId: string, modelId: strin
  * the composer — Enter in the launcher starts the agent on what was typed, the
  * same as a terminal agent's startup prompt, so it must not need a second Enter.
  * The images staged beside it go with it as images, the way a later message's
- * do, rather than as paths typed into its text.
+ * do, rather than as paths typed into its text, and the files attached by path
+ * go with it as its `files`, the way a later message's do.
  */
 export function conversationLaunchDraftPatch(
   skills?: readonly Pick<WorkspaceSkill, 'id'>[],
   prompt?: string,
   images?: readonly string[],
+  files?: readonly string[],
 ): Partial<AgentState> {
   return {
     ...(skills?.length ? { conversationSkills: skills.map((skill) => skill.id) } : {}),
     ...(prompt?.trim() ? { chatStartupPrompt: prompt.trim() } : {}),
     ...(images?.length ? { chatStartupImages: [...images] } : {}),
+    ...(files?.length ? { chatStartupFiles: [...files] } : {}),
   }
 }
 
@@ -71,6 +74,7 @@ export function conversationNewChatSeed(
   launch: {
     prompt?: string
     images?: readonly string[]
+    files?: readonly string[]
     permissionPreset: CliPermissionPreset
     permissionMode?: string
   },
@@ -86,7 +90,7 @@ export function conversationNewChatSeed(
         ...(launch.permissionMode ? { permissionMode: launch.permissionMode } : {}),
         reasoning: confirm.reasoning,
       }),
-      ...conversationLaunchDraftPatch(confirm.skills, launch.prompt, launch.images),
+      ...conversationLaunchDraftPatch(confirm.skills, launch.prompt, launch.images, launch.files),
     },
   }
 }

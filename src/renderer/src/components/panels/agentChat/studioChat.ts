@@ -1,4 +1,5 @@
 import {
+  STUDIO_SESSION_FILES_CAPABILITY,
   StudioError,
   type ConversationFollowFrame,
   type ConversationRef,
@@ -281,6 +282,10 @@ type StudioTransportParts = Omit<ConversationTransport, 'kind' | 'capabilities' 
 export function createStudioConversationParts(client: ClientSource): StudioTransportParts {
   const send = async (input: ConversationSendTurnInput) => {
     const { attachments, commandId: given, ...rest } = input
+    // A Studio that does not read `files` would drop them without a word and
+    // send the message as if nothing were attached; better the send says so.
+    if (rest.files?.length && !(await client()).supports(STUDIO_SESSION_FILES_CAPABILITY))
+      throw new Error('This Studio cannot take attached files. Remove them, or update it, and send again.')
     // What this send staged, given back if the send cannot go: Studio would
     // otherwise hold it against this window's budget until it expires. One
     // that finishes staging after the send has failed is given back as it does.
