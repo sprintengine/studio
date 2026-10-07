@@ -205,6 +205,17 @@ test('a session that is already a chat is skipped, and the scan says so', async 
   assert.equal(sessions.find((session) => session.sessionId === 'codex-1')?.imported, false)
 })
 
+test('two imports racing for one session make one chat of it', async () => {
+  const { home } = await fixture()
+  const t = harness(home)
+  const asked = { sessions: [{ source: 'claude-code' as const, sessionId: 'claude-1' }] }
+  const [first, second] = await Promise.all([t.service.importSessions(asked), t.service.importSessions(asked)])
+  assert.ok(first.ok && second.ok)
+  assert.equal(first.imported.length + second.imported.length, 1)
+  assert.equal(first.skipped + second.skipped, 1)
+  assert.equal(t.created.length, 1)
+})
+
 test('a chat whose history could not be written is taken back out', async () => {
   const { home } = await fixture()
   const t = harness(home)

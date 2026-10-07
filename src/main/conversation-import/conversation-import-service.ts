@@ -77,6 +77,10 @@ export function createConversationImportService(deps: ConversationImportServiceD
   const env = () => deps.env?.() ?? process.env
   const now = deps.now ?? Date.now
   const newAgentSuffix = deps.newAgentSuffix ?? newAgentIdSuffix
+  // The sessions an import is making into chats right now, by `source:id`.
+  // A chat is only on record once its history is read, so without this two
+  // imports racing would each read the session and each make a chat of it.
+  const importing = new Set<string>()
 
   const sources: Array<{
     source: ConversationImportSource
@@ -180,7 +184,7 @@ export function createConversationImportService(deps: ConversationImportServiceD
       const key = `${source}:${sessionId}`
       // Read again for each session, so two imports racing, or a session
       // asked for twice, still make one chat.
-      if (knownSessions().imported.has(key)) {
+      if (knownSessions().imported.has(key) || importing.has(key)) {
         result.skipped += 1
         continue
       }
@@ -189,7 +193,13 @@ export function createConversationImportService(deps: ConversationImportServiceD
         result.failed.push({ source, sessionId, title: sessionId, message: 'The session is no longer on disk.' })
         continue
       }
-      const made = await importOne(session, settings)
+      importing.add(key)
+      let made: Awaited<ReturnType<typeof importOne>>
+      try {
+        made = await importOne(session, settings)
+      } finally {
+        importing.delete(key)
+      }
       if (made.ok) result.imported.push({ source, sessionId, workspaceId: made.workspaceId, agentId: made.agentId })
       else
         result.failed.push({
