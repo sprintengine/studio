@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX, type MouseEvent } from 'react'
+import { useMemo, useRef, useState, type JSX, type TransitionEvent } from 'react'
 import { IconButton } from '../../ui'
 import { OVERLAY_SURFACE_CLASS } from '../../ui/tokens'
 import {
@@ -12,7 +12,9 @@ import {
 // One tick per prompt, spaced evenly rather than by where the turn sits in the
 // scroll height: a virtualized list only knows the heights it has rendered, and
 // a tick that drifts as rows are measured is worse than one that stays put.
+// Under the pointer the strip opens out, so each turn has room to land on.
 const TICK_SPACING_PX = 8
+const TICK_SPACING_EXPANDED_PX = 20
 
 export function minimapTickTop(index: number, count: number): number {
   return count <= 1 ? 0 : (Math.max(0, Math.min(index, count - 1)) / (count - 1)) * 100
@@ -39,19 +41,27 @@ function TurnStepGlyph({ direction }: { direction: 'up' | 'down' }): JSX.Element
   )
 }
 
-// A tick is always 12px wide and scaled from its right edge (to 6px at rest,
-// 8px beside the hovered one), so the hover grows it with a transform the
-// compositor animates rather than a width that lays the strip out each frame.
+// A tick is always 24px wide and scaled from its right edge (to 6px at rest;
+// with the strip open, 12px, 16px beside the hovered one and the full 24px
+// under the pointer), so the hover grows it with a transform the compositor
+// animates rather than a width that lays the strip out each frame.
 function tickClass(index: number, current: number, hovered: number | null): string {
   const distance = hovered === null ? null : Math.abs(index - hovered)
-  const scale = distance === 0 ? 'scale-x-100' : distance === 1 ? 'scale-x-[0.6667]' : 'scale-x-50'
+  const scale =
+    distance === null
+      ? 'scale-x-25'
+      : distance === 0
+        ? 'scale-x-100'
+        : distance === 1
+          ? 'scale-x-[0.6667]'
+          : 'scale-x-50'
   const ink =
     distance === 0
       ? 'bg-[color:var(--text-default)]'
       : index === current
         ? 'bg-[color:var(--text-muted)]'
         : 'bg-[color:var(--border-strong)]'
-  return `pointer-events-none absolute right-0 h-0.5 w-3 origin-right -translate-y-1/2 rounded-full transition-[scale,background-color] duration-150 ${scale} ${ink}`
+  return `pointer-events-none absolute right-0 h-0.5 w-6 origin-right -translate-y-1/2 rounded-full transition-[scale,background-color] duration-150 ${scale} ${ink}`
 }
 
 function MinimapPreview({
@@ -96,6 +106,9 @@ export function TimelineMinimap({ navigation }: { navigation: TurnNavigation }):
   const { marks, jump, step, reply } = navigation
   const { current, hasPrevious, hasNext } = useTurnPosition(navigation)
   const [hovered, setHovered] = useState<number | null>(null)
+  // The strip opens out from under a still pointer, so the turn it rests on
+  // is read again once the strip has finished growing.
+  const pointerYRef = useRef<number | null>(null)
   // The minimap re-renders with every streamed token; its ticks only change
   // with the prompts, the reader's turn and the pointer.
   const ticks = useMemo(
@@ -114,10 +127,12 @@ export function TimelineMinimap({ navigation }: { navigation: TurnNavigation }):
   if (marks.length < TURN_MINIMAP_MIN_TURNS) return null
   const count = marks.length
   const hoveredMark = hovered !== null ? (marks[hovered] ?? null) : null
-  const indexAt = (event: MouseEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    return minimapIndexAtPointer(count, rect.top, rect.height, event.clientY)
+  const expanded = hovered !== null
+  const indexAt = (strip: HTMLDivElement, pointerY: number) => {
+    const rect = strip.getBoundingClientRect()
+    return minimapIndexAtPointer(count, rect.top, rect.height, pointerY)
   }
+  const spacing = expanded ? TICK_SPACING_EXPANDED_PX : TICK_SPACING_PX
   const stepClass =
     'pointer-events-auto opacity-0 transition-opacity duration-150 group-hover/minimap:opacity-100 group-focus-within/minimap:opacity-100'
   return (
@@ -139,11 +154,23 @@ export function TimelineMinimap({ navigation }: { navigation: TurnNavigation }):
       <div
         role="presentation"
         data-minimap-strip=""
-        className="pointer-events-auto relative w-3 cursor-pointer"
-        style={{ height: `min(${(count - 1) * TICK_SPACING_PX}px, calc(100% - 6rem))` }}
-        onMouseMove={(event) => setHovered(indexAt(event))}
-        onMouseLeave={() => setHovered(null)}
-        onClick={(event) => jump(indexAt(event))}
+        data-expanded={expanded || undefined}
+        className={`pointer-events-auto relative cursor-pointer transition-[height,width] duration-150 ease-out ${expanded ? 'w-8' : 'w-4'}`}
+        style={{ height: `min(${(count - 1) * spacing}px, calc(100% - 6rem))` }}
+        onMouseMove={(event) => {
+          pointerYRef.current = event.clientY
+          setHovered(indexAt(event.currentTarget, event.clientY))
+        }}
+        onMouseLeave={() => {
+          pointerYRef.current = null
+          setHovered(null)
+        }}
+        onTransitionEnd={(event: TransitionEvent<HTMLDivElement>) => {
+          if (event.target !== event.currentTarget || event.propertyName !== 'height') return
+          const pointerY = pointerYRef.current
+          if (pointerY !== null) setHovered(indexAt(event.currentTarget, pointerY))
+        }}
+        onClick={(event) => jump(indexAt(event.currentTarget, event.clientY))}
       >
         {ticks}
         {hoveredMark && hovered !== null ? (
