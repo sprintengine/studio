@@ -498,6 +498,13 @@ function WorkspaceSidebar({
   // New chat while the person types the next task: each is stamped as seen,
   // and loses its finished mark, only once it is uncovered.
   const onScreenWorkspaceId = newChatOpen || globalSurfaceActive ? null : activeWorkspaceId
+  // The chat in front of the window, covered or not by New chat: the one it
+  // comes back to when New chat closes. A look at New chat is not leaving it —
+  // its "New" divider holds, and a Mark unread asked of it waits for the
+  // person to actually move on — though while covered nobody is looking at
+  // it, so it is not stamped as seen. A door is leaving it. A chat started
+  // with ⌘⏎ is not the front chat at all, so neither applies to it.
+  const frontWorkspaceId = globalSurfaceActive ? null : activeWorkspaceId
   // The unseen-completion mark (the green row, `doneRowClass`). Session-only: the
   // store's recency slice persists when a workspace was last TYPED into, not
   // when it was last looked at, so "seen" has no honest home there yet and a
@@ -1271,12 +1278,13 @@ function WorkspaceSidebar({
   // visible and focused (`useVisitStamp`). A chat here stamps this desktop's
   // own record; a chat followed from a paired machine stamps that machine's,
   // which keeps its read state, when it keeps one. A full-page surface or New
-  // chat covering the chat means nobody is looking at it.
+  // chat covering the chat means nobody is looking at it; only a surface
+  // means it was left (`frontWorkspaceId`).
   const windowActive = useWindowActive()
   const recordWorkspaceVisit = useWorkspaceStore((s) => s.recordWorkspaceVisit)
   const visitTarget = useMemo((): VisitTarget | null => {
-    if (!onScreenWorkspaceId) return null
-    const workspace = workspaces.find((candidate) => candidate.id === onScreenWorkspaceId)
+    if (!frontWorkspaceId) return null
+    const workspace = workspaces.find((candidate) => candidate.id === frontWorkspaceId)
     if (!workspace) return null
     const origin = workspace.remoteOrigin
     if (origin) {
@@ -1316,14 +1324,14 @@ function WorkspaceSidebar({
       },
     }
   }, [
-    onScreenWorkspaceId,
+    frontWorkspaceId,
     workspaces,
     remoteConversationByWorkspace,
     conversationsByWorkspaceId,
     recordWorkspaceVisit,
     markWorkspaceUnread,
   ])
-  useVisitStamp(visitTarget, windowActive)
+  useVisitStamp(visitTarget, windowActive && !newChatOpen)
 
   // Mark unread moves the chat's visit clock back to just before its latest
   // finish, in main (`conversation.mark_unread`, the phone's too): its
@@ -3070,7 +3078,7 @@ function WorkspaceSidebar({
             }
             if (action === 'mark-unread') {
               setContextMenu(null)
-              if (workspace.id === onScreenWorkspaceId) unreadOnLeaveRef.current.add(workspace.id)
+              if (workspace.id === frontWorkspaceId) unreadOnLeaveRef.current.add(workspace.id)
               else markWorkspaceUnread(workspace.id)
               return
             }

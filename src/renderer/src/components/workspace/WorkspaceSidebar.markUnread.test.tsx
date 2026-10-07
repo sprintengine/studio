@@ -64,6 +64,7 @@ test('WorkspaceSidebar.markUnread', async () => {
   const { createRoot } = await import('react-dom/client')
   const { useWorkspaceStore } = await import('../../store/workspaceStore')
   const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
+  const { useChatOpening } = await import('../panels/agentChat/unreadDivider')
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   type Workspace = SidebarProps['workspaces'][number]
 
@@ -174,6 +175,30 @@ test('WorkspaceSidebar.markUnread', async () => {
     assert.deepEqual(marked, ['w2'], 'not while it is being looked at')
     await render({ ...base, activeWorkspaceId: 'w3' } as unknown as SidebarProps)
     assert.deepEqual(marked, ['w2', 'w1'], 'leaving it is when it takes effect')
+
+    // A look at New chat is not leaving the chat in front: its opening (where
+    // its "New" divider stands) holds, and a Mark unread asked of it waits.
+    const probeHost = dom.window.document.createElement('div')
+    dom.window.document.body.appendChild(probeHost)
+    const probeRoot = createRoot(probeHost)
+    function OpeningOf({ id }: { id: string }) {
+      const opening = useChatOpening(id)
+      return React.createElement('span', null, opening ? String(opening.openedAt) : 'none')
+    }
+    act(() => probeRoot.render(React.createElement(OpeningOf, { id: 'w3' })))
+    const opened = probeHost.textContent
+    assert.notEqual(opened, 'none', 'the chat in front has its opening')
+    await choose('Charlie', 'Mark unread')
+    await render({ ...base, activeWorkspaceId: 'w3', newChatOpen: true } as unknown as SidebarProps)
+    assert.deepEqual(marked, ['w2', 'w1'], 'New chat over it is not leaving it')
+    assert.equal(probeHost.textContent, opened, 'and its opening holds under New chat')
+    await render({ ...base, activeWorkspaceId: 'w3' } as unknown as SidebarProps)
+    assert.equal(probeHost.textContent, opened, 'back from New chat, it is the same opening')
+    assert.deepEqual(marked, ['w2', 'w1'])
+    await render({ ...base, activeWorkspaceId: 'w1' } as unknown as SidebarProps)
+    assert.deepEqual(marked, ['w2', 'w1', 'w3'], 'moving on to another chat is leaving it')
+    assert.equal(probeHost.textContent, 'none')
+    act(() => probeRoot.unmount())
   } finally {
     act(() => root.unmount())
   }

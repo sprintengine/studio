@@ -528,7 +528,9 @@ the desktop's own sidebar — agrees with it. A desktop that advertises
   in front has an unseen finish, otherwise at most every ten seconds while it
   stays in front of a visible, focused window. A visit from elsewhere clears
   the desktop's own "finished while you were away" mark too. New chat
-  covering a window's chat counts as nobody looking at it, as a door does.
+  covering a window's chat counts as nobody looking at it, as a door does,
+  so it is not stamped; unlike a door it is not leaving the chat, whose "New"
+  divider holds and whose Mark unread waits until the person moves on.
 - **`conversation.mark_unread`** `{ workspaceId }` (2026-10-07, on a desktop
   that advertises `chat-mark-unread`) moves the chat's `lastVisitedAt`
   **back**, to its latest finish less a millisecond, and answers
