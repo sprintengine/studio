@@ -10,6 +10,10 @@ import {
 } from './conversationTimeline'
 import { type ReasoningSegment, type TranscriptEntry, type TranscriptToolEntry } from './conversationProjection'
 import { AttachmentThumbnail } from '../ComposerAttachmentStrip'
+import { ComposerFileChip } from './ComposerFileChip'
+import { clientSupports } from '../../../clientCapabilities'
+import { splitAttachedFiles } from '../../../utils/attachedFiles'
+import { useConversationTransport } from './conversationTransport'
 import { StoredAttachmentThumbnail } from './storedAttachments'
 import {
   Badge,
@@ -161,6 +165,10 @@ export const TimelineRow = React.memo(function TimelineRow({
 // edge the composer and the assistant's text keep. Images sent with the turn sit
 // above the text; an image-only turn renders no empty text line. A bubble
 // replayed from the transcript reads its images back from the attachment store.
+// Files attached by path travel as a closing paragraph of their paths
+// (composeMessageWithFiles); a chat whose files are this computer's draws that
+// paragraph as the cards it was sent from, beside the images. Copy still takes
+// the message as the agent received it, paths and all.
 export function UserTimelineRow({
   entry,
   chrome,
@@ -170,17 +178,22 @@ export function UserTimelineRow({
 }) {
   const attachments = entry.attachments ?? []
   const stored = attachments.length ? [] : (entry.storedAttachments ?? [])
+  const localFiles = useConversationTransport().capabilities.localFiles && clientSupports('drag-paths')
+  const { text, paths: files } = localFiles ? splitAttachedFiles(entry.text) : { text: entry.text, paths: [] }
   return (
     <div className="flex flex-col items-end pb-6">
       <MessageAuthorHeading>You said</MessageAuthorHeading>
       <div className="max-w-[76%] rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--agent-inset)] px-3 py-1.5">
-        {attachments.length > 0 || stored.length > 0 ? (
-          <div data-copy-exclude="" className={`flex flex-wrap justify-end gap-1.5 ${entry.text ? 'mb-2' : ''}`}>
+        {attachments.length > 0 || stored.length > 0 || files.length > 0 ? (
+          <div data-copy-exclude="" className={`flex flex-wrap justify-end gap-1.5 ${text ? 'mb-2' : ''}`}>
             {attachments.map((attachment) => (
               <AttachmentThumbnail key={attachment.id} attachment={attachment} className="h-16 w-16" />
             ))}
             {stored.map((attachment) => (
               <StoredAttachmentThumbnail key={attachment.ref} attachment={attachment} className="h-16 w-16" />
+            ))}
+            {files.map((path) => (
+              <ComposerFileChip key={`file:${path}`} path={path} />
             ))}
           </div>
         ) : null}
@@ -207,7 +220,7 @@ export function UserTimelineRow({
             )}
           </div>
         ) : null}
-        {entry.text ? <UserMessageBody id={entry.id} text={entry.text} /> : null}
+        {text ? <UserMessageBody id={entry.id} text={text} /> : null}
       </div>
       <div data-copy-exclude="" className="mt-1 flex items-center justify-end gap-2">
         <MessageTimestamp at={entry.createdAt} />

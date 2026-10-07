@@ -44,13 +44,16 @@ import { ensureChatWorktree } from '../../utils/chatWorktreeRestore'
 import {
   dataTransferHasDroppableFiles,
   dataTransferHasFiles,
-  imageFilesFromDataTransfer,
+  filesFromDataTransfer,
   pastedImagePaths,
   pathsForPathlessFiles,
   quotePromptPath,
   readPastedImagePaths,
   sortDroppedFiles,
+  sortFiles,
+  type DroppedFiles,
 } from '../../utils/imageFileTransfer'
+import { attachedFileName, composeMessageWithFiles, splitAttachedFiles } from '../../utils/attachedFiles'
 import {
   attachmentCountLabel,
   attachmentPreviewUrl,
@@ -217,7 +220,7 @@ export type {
   TranscriptToolEntry,
   UserTurn,
 } from './agentChat/conversationProjection'
-import { hostPlatform } from '../../clientCapabilities'
+import { clientSupports, hostPlatform } from '../../clientCapabilities'
 
 // The DataTransfer plumbing lives in utils/imageFileTransfer (shared with the
 // new-chat launch surface); re-exported here because this module declared it
@@ -341,6 +344,7 @@ export function queueComposerDraft(
       metadata: {
         skillIds: [...new Set([...(previous?.metadata.skillIds ?? []), ...metadata.skillIds])],
         mentions: [...(previous?.metadata.mentions ?? []), ...metadata.mentions],
+        files: [...new Set([...(previous?.metadata.files ?? []), ...metadata.files])],
       },
     },
     dropped,
@@ -670,8 +674,15 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     () => ({
       mentions: storedDraftMetadata.mentions,
       skillIds: supportsSkills ? (agent?.conversationSkills ?? storedDraftMetadata.skillIds) : [],
+      files: storedDraftMetadata.files,
     }),
-    [storedDraftMetadata.mentions, storedDraftMetadata.skillIds, agent?.conversationSkills, supportsSkills],
+    [
+      storedDraftMetadata.mentions,
+      storedDraftMetadata.skillIds,
+      storedDraftMetadata.files,
+      agent?.conversationSkills,
+      supportsSkills,
+    ],
   )
   const [composerCaret, setComposerCaret] = useState(draft.length)
   const [pickedSkills, setPickedSkills] = useState<Record<string, WorkspaceSkill>>({})
@@ -694,6 +705,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // An image drag is over the composer; drives the drop-target affordance.
   const [dropActive, setDropActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  // The "+" row's two handlers, stable so the row does not redraw with every
+  // streamed token. The pick goes through a ref to `takePickedFiles`, set
+  // further down where what a pick does is known.
+  const openFilePicker = useCallback(() => fileInputRef.current?.click(), [])
+  const takePickedFilesRef = useRef<(files: File[]) => void>(() => undefined)
+  const onPickedFiles = useCallback((files: File[]) => takePickedFilesRef.current(files), [])
   const attachmentSeqRef = useRef(0)
   // Type-ahead queue (D6/1776): a message the user committed while the session
   // was busy. It holds until the turn unlocks, then auto-sends as a follow-up
@@ -1374,7 +1391,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     async (
       message: string,
       turnAttachments: ConversationImageAttachment[] = [],
-      requestedMetadata: ComposerDraftMetadata = { skillIds: [], mentions: [] },
+      requestedMetadata: ComposerDraftMetadata = { skillIds: [], mentions: [], files: [] },
       fromDraft = false,
       // A message the person already let go of (the queued turn, flushed when
       // the agent went idle) goes back ahead of whatever they typed since.
@@ -1384,9 +1401,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     ) => {
       const metadata = supportsSkills ? requestedMetadata : { ...requestedMetadata, skillIds: [] }
       const text = message.trim()
+      // What the agent receives: the files attached by path go after the
+      // words, as their paths. The words alone are what goes back into the
+      // composer when the send fails, with the files as their cards again.
+      const wireText = composeMessageWithFiles(text, metadata.files)
       const putBack = (current: string) => (restoreAhead ? restoreRefusedText(current, text) : current || text)
       if (
-        (!text && turnAttachments.length === 0 && metadata.mentions.length === 0 && metadata.skillIds.length === 0) ||
+        (!wireText &&
+          turnAttachments.length === 0 &&
+          metadata.mentions.length === 0 &&
+          metadata.skillIds.length === 0) ||
         pending ||
         sendInFlightRef.current
       )
@@ -1409,7 +1433,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           ...current,
           {
             id: localTurnId,
-            text,
+            text: wireText,
             createdAt: Date.now(),
             mentions: metadata.mentions,
             skills: metadata.skillIds,
@@ -1436,6 +1460,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           setDraftMetadata((current) => ({
             skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
             mentions: [...metadata.mentions, ...current.mentions],
+            files: [...new Set([...metadata.files, ...current.files])],
           }))
         }
         // The turn never left, so hand the staged images back rather than make
@@ -1454,7 +1479,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           send: (onSession) =>
             transport.send({
               sessionId: onSession,
-              message: text,
+              message: wireText,
               localTurnId,
               skills: metadata.skillIds.map((id) => ({ id })),
               mentions: metadata.mentions,
@@ -1481,6 +1506,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             setDraftMetadata((current) => ({
               skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
               mentions: [...metadata.mentions, ...current.mentions],
+              files: [...new Set([...metadata.files, ...current.files])],
             }))
           }
         }
@@ -1492,6 +1518,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           setDraftMetadata((current) => ({
             skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
             mentions: [...metadata.mentions, ...current.mentions],
+            files: [...new Set([...metadata.files, ...current.files])],
           }))
         }
         if (turnAttachments.length) setAttachments((current) => (current.length ? current : turnAttachments))
@@ -1534,10 +1561,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // them, so the queue is the default and a steer is always a choice.
   const submitComposer = useCallback(() => {
     const text = draft.trim()
-    if (!text && attachments.length === 0 && !draftMetadata.mentions.length && !draftMetadata.skillIds.length) return
+    if (
+      !text &&
+      attachments.length === 0 &&
+      !draftMetadata.mentions.length &&
+      !draftMetadata.skillIds.length &&
+      !draftMetadata.files.length
+    )
+      return
     // A command Studio answers itself, or one it will not send, is handled
     // here whatever the turn is doing: it never reaches the CLI or the queue.
-    if (runAppCommandRef.current(text, attachments.length)) return
+    if (runAppCommandRef.current(text, attachments.length + draftMetadata.files.length)) return
     if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) || steeringTurnId !== null) {
       // The cap is the IPC boundary's; trimming to it is right, hiding the trim
       // is not — the user must know which images did not make the queue.
@@ -1874,7 +1908,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       return
     }
     const metadata = supportsSkills ? turn.metadata : { ...turn.metadata, skillIds: [] }
-    const text = turn.text.trim()
+    const text = composeMessageWithFiles(turn.text.trim(), metadata.files)
     const localTurnId = `user-${userTurns.length}-${Date.now()}`
     setActionError(null)
     setSteeringTurnId(localTurnId)
@@ -1975,7 +2009,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       text.length > 0 ||
       attachments.length > 0 ||
       draftMetadata.mentions.length > 0 ||
-      draftMetadata.skillIds.length > 0
+      draftMetadata.skillIds.length > 0 ||
+      draftMetadata.files.length > 0
     if (!hasDraft) {
       if (queuedTurn) sendQueuedNow(queuedTurn)
       return
@@ -2016,6 +2051,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       void sendTurn(lastUser.text, lastUser.attachments, {
         skillIds: lastUser.skills ?? [],
         mentions: lastUser.mentions ?? [],
+        // The transcript's text already carries the files, as their paths.
+        files: [],
       })
   }
   const retry = useCallback(() => retryLatestRef.current(), [])
@@ -2074,8 +2111,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // composer ahead of anything already typed there, with what it carried.
   const restoreDraftRef = useRef<(draft: EditFromHereDraft) => void>(() => undefined)
   restoreDraftRef.current = (restored) => {
-    setDraft((current) => [restored.text, current].filter(Boolean).join('\n\n'))
+    // The files the message carried come back as their cards, not as paths.
+    const { text: restoredText, paths: restoredFiles } = splitAttachedFiles(restored.text)
+    setDraft((current) => [restoredText, current].filter(Boolean).join('\n\n'))
     setDraftMetadata({
+      files: [...new Set([...restoredFiles, ...draftMetadata.files])],
       skillIds: [...new Set([...restored.skills, ...draftMetadata.skillIds])],
       mentions: [
         ...restored.mentions,
@@ -2107,7 +2147,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     busy: composerBusy,
     sending: pending === 'starting' || pending === 'sending',
     hasText: draft.trim().length > 0 || draftMetadata.mentions.length > 0 || draftMetadata.skillIds.length > 0,
-    attachmentCount: attachments.length,
+    attachmentCount: attachments.length + draftMetadata.files.length,
   })
 
   // The runtime binds a session to one provider/model, so the model is editable
@@ -2360,6 +2400,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // turn's attachments, and only once the session can take a turn — a control
   // that stages images no one will receive is worse than no control.
   const imagesEnabled = ready && capabilities?.images === true && transport.capabilities.composerContext
+  // Files attached by path are cards only where the card can open them: a
+  // chat whose files are this computer's, in a window that reads a file's path.
+  const filesEnabled = ready && transport.capabilities.localFiles && clientSupports('drag-paths')
 
   const skillInventory = useWorkspaceSkills(workspaceRoot, null, supportsSkills)
   const attachedSkills = draftMetadata.skillIds.map(
@@ -2642,12 +2685,42 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     replaceComposerSelection({ selectionStart, selectionEnd }, `${lead}${spelled.map(quotePromptPath).join(' ')} `)
   }
 
+  // Files attached by path join the draft as cards, each once. The agent
+  // receives their paths after the words (composeMessageWithFiles), so a
+  // provider that reads no images or documents still reads them off the disk.
+  const attachFilePaths = (paths: string[]) =>
+    setDraftMetadata((current) => ({ ...current, files: [...new Set([...current.files, ...paths])] }))
+
+  // A drop, a pick or a paste, sorted (sortFiles): a file from the system is a
+  // card where this chat can open it — a chat on this computer, in a desktop
+  // window — and is typed as its path anywhere else, as it always was; one from
+  // the studio's own panes is typed; an image attaches where the provider reads
+  // images; a file with no path is uploaded where the shell can.
+  const takeFiles = ({ paths, files, images, pathless }: DroppedFiles) => {
+    const typed = [...paths, ...(filesEnabled ? [] : files)]
+    if (typed.length > 0) insertComposerPaths(typed)
+    if (filesEnabled && files.length > 0) attachFilePaths(files)
+    if (images.length > 0) void attachFiles(images)
+    else setActionError(null)
+    // No path here: a browser uploads them and types the server's paths.
+    if (pathless.length > 0)
+      void pathsForPathlessFiles(pathless).then(({ paths: uploaded, message }) => {
+        if (uploaded.length > 0) insertComposerPaths(uploaded)
+        if (message && images.length === 0) setActionError(message)
+      })
+    composerRef.current?.focus()
+  }
+
+  // A pick from the system's file dialog, sorted as a drop is where files
+  // attach by path; where only images do, the dialog offered images alone.
+  takePickedFilesRef.current = (files) =>
+    filesEnabled ? takeFiles(sortFiles(files, imagesEnabled)) : void attachFiles(files)
+
   // A file dropped anywhere on the chat lands in the composer — over the
   // transcript as much as on the composer. Aiming a drag at a field a few lines
   // tall is a needless target, and a drop that missed it used to do nothing at
-  // all. The composer still lights up as the drop's destination. Any file takes:
-  // one from the OS or the studio's own panes is typed as its path, and an image
-  // attaches instead where the provider reads images.
+  // all. The composer still lights up as the drop's destination. Any file takes,
+  // sorted as `takeFiles` sorts it.
   const fileDropHandlers: React.HTMLAttributes<HTMLDivElement> = {
     onDragEnter: (event) => {
       if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
@@ -2674,17 +2747,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       // a second time when it lands on the field itself.
       event.preventDefault()
       setDropActive(false)
-      const { paths, images, pathless } = sortDroppedFiles(event.dataTransfer, imagesEnabled)
-      if (paths.length > 0) insertComposerPaths(paths)
-      if (images.length > 0) void attachFiles(images)
-      else setActionError(null)
-      // No path here: a browser uploads them and types the server's paths.
-      if (pathless.length > 0)
-        void pathsForPathlessFiles(pathless).then(({ paths: uploaded, message }) => {
-          if (uploaded.length > 0) insertComposerPaths(uploaded)
-          if (message && images.length === 0) setActionError(message)
-        })
-      composerRef.current?.focus()
+      takeFiles(sortDroppedFiles(event.dataTransfer, imagesEnabled))
     },
   }
 
@@ -3061,7 +3124,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                */}
               {queuedTurn ? (
                 <QueuedTurnRow
-                  text={queuedTurn.text}
+                  // The files it carries are named after the words, as the line
+                  // has no room for their cards.
+                  text={[queuedTurn.text, ...queuedTurn.metadata.files.map(attachedFileName)].filter(Boolean).join(' ')}
                   attachments={queuedTurn.attachments}
                   sendNow={operate ? queuedSendNow : { ...queuedSendNow, disabled: true }}
                   shortcutLabel={sendNowShortcutLabel}
@@ -3071,6 +3136,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     setDraftMetadata({
                       skillIds: [...new Set([...queuedTurn.metadata.skillIds, ...draftMetadata.skillIds])],
                       mentions: [...queuedTurn.metadata.mentions, ...draftMetadata.mentions],
+                      files: [...new Set([...queuedTurn.metadata.files, ...draftMetadata.files])],
                     })
                     setAttachments((current) =>
                       [...queuedTurn.attachments, ...current].slice(0, MAX_ATTACHMENTS_PER_TURN),
@@ -3146,6 +3212,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 attachments={attachments}
                 reading={attachingCount}
                 onRemove={removeAttachment}
+                files={draftMetadata.files}
+                onRemoveFile={(path) =>
+                  setDraftMetadata((current) => ({
+                    ...current,
+                    files: current.files.filter((entry) => entry !== path),
+                  }))
+                }
                 className="px-5 pt-4"
               />
               {/* The files and folders @-mentioned into the draft. The skills
@@ -3169,17 +3242,23 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                   onBlur={flushDraft}
                   leavesDrop={dataTransferHasDroppableFiles}
                   onPaste={(event, field) => {
-                    // A pasted screenshot only exists as a clipboard item; a text
-                    // paste reports no image and falls through to the default —
-                    // unless the text is only paths to images outside the
-                    // workspace, which attach instead.
-                    if (!imagesEnabled) return
-                    const files = imageFilesFromDataTransfer(event.clipboardData)
-                    if (files.length > 0) {
+                    // A pasted screenshot only exists as a clipboard item, and a
+                    // file copied in Finder or Explorer pastes as the file: both
+                    // attach as a drop of them would. A text paste reports no
+                    // file and falls through to the default — unless the text
+                    // is only paths to images outside the workspace, which
+                    // attach instead.
+                    const pasted =
+                      imagesEnabled || filesEnabled
+                        ? sortFiles(filesFromDataTransfer(event.clipboardData), imagesEnabled)
+                        : null
+                    if (pasted && (pasted.images.length > 0 || (filesEnabled && pasted.files.length > 0))) {
                       event.preventDefault()
-                      void attachFiles(files)
+                      // A pasted file with no path is left to the paste, as it always was.
+                      takeFiles({ ...pasted, paths: [], pathless: [] })
                       return
                     }
+                    if (!imagesEnabled) return
                     const text = event.clipboardData?.getData('text/plain') ?? ''
                     const paths = pastedImagePaths(
                       text,
@@ -3207,6 +3286,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                       if (draftMetadata.mentions.length) {
                         event.preventDefault()
                         setDraftMetadata((current) => ({ ...current, mentions: current.mentions.slice(0, -1) }))
+                        return
+                      }
+                      if (draftMetadata.files.length) {
+                        event.preventDefault()
+                        setDraftMetadata((current) => ({ ...current, files: current.files.slice(0, -1) }))
                         return
                       }
                       if (supportsSkills && attachedSkills.length) {
@@ -3257,18 +3341,20 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                   even for it wraps it rather than hiding a control. */}
               <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2.5 pt-1.5">
                 {/* Outside the menu: the picker it serves opens from a row of
-                    the "+" menu, and the file arrives after that menu has gone. */}
-                {imagesEnabled ? (
+                    the "+" menu, and the file arrives after that menu has gone.
+                    Any file where files attach by path, images alone where
+                    only images do. */}
+                {imagesEnabled || filesEnabled ? (
                   <HiddenFileInput
                     ref={fileInputRef}
-                    accept={ATTACHABLE_IMAGE_TYPES.join(',')}
-                    onFiles={(files) => void attachFiles(files)}
+                    accept={filesEnabled ? undefined : ATTACHABLE_IMAGE_TYPES.join(',')}
+                    onFiles={onPickedFiles}
                   />
                 ) : null}
-                {imagesEnabled || supportsSkills ? (
+                {imagesEnabled || filesEnabled || supportsSkills ? (
                   <ComposerPlusMenu
                     placement="top-start"
-                    onAttach={imagesEnabled ? () => fileInputRef.current?.click() : undefined}
+                    onAttach={imagesEnabled || filesEnabled ? openFilePicker : undefined}
                     skills={
                       supportsSkills
                         ? {

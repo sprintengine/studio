@@ -989,7 +989,9 @@ function dropTransfer(
   }
   const files = source.files.map((file) => new File(['x'], file.name, { type: file.type }))
   const paths = new Map(files.map((file, index) => [file, source.files[index].path]))
-  ;(window as unknown as { api: Record<string, unknown> }).api.getPathForFile = (file: File) => paths.get(file) ?? ''
+  const api = (window as unknown as { api: Record<string, unknown> }).api
+  api.getPathForFile = (file: File) => paths.get(file) ?? ''
+  api.attachFile = (file: File) => paths.get(file) ?? ''
   return {
     types: ['Files'],
     items: files.map((file) => ({ kind: 'file', getAsFile: () => file })),
@@ -1005,8 +1007,9 @@ function dropOn(chat: Awaited<ReturnType<typeof mountChat>>, target: EventTarget
   return drop
 }
 
-test('any file dropped from the OS is typed as its path, whether or not the provider reads images', async () => {
-  const chat = await mountChat({})
+test('any file dropped from the OS is attached as its card, and goes to the agent as its path after the words', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn })
   try {
     await chat.act(async () => chat.type('Summarise'))
     const transcript = chat.host.querySelector('button')!
@@ -1021,8 +1024,33 @@ test('any file dropped from the OS is typed as its path, whether or not the prov
       event = dropOn(chat, transcript, drop)
     })
     expect(event!.defaultPrevented, 'the drop is claimed, not handed to the window').toBe(true)
-    expect(chat.draft()).toBe("Summarise '/Users/dev/Desktop/Q3 budget.xlsx' /Users/dev/Desktop/shot.png ")
+    expect(chat.draft(), 'the words are left as they were typed').toBe('Summarise')
+    const cards = () => Array.from(chat.host.querySelectorAll('button[aria-label^="Open "]'))
+    expect(cards().map((card) => card.getAttribute('aria-label'))).toEqual(['Open Q3 budget.xlsx', 'Open shot.png'])
+    expect(cards()[0].textContent).toContain('XLSX')
     expect(chat.host.textContent).not.toContain('can be attached')
+    // Removing a card takes its file out of the message.
+    const keep = dropTransfer(chat.dom.window as unknown as Window, {
+      files: [{ name: 'notes.pdf', type: 'application/pdf', path: '/Users/dev/Desktop/notes.pdf' }],
+    })
+    await chat.act(async () => {
+      dropOn(chat, transcript, keep)
+    })
+    await chat.act(async () => {
+      ;(chat.host.querySelector('button[aria-label="Remove notes.pdf"]') as HTMLElement).click()
+    })
+    expect(cards()).toHaveLength(2)
+    await chat.act(async () => chat.enter())
+    expect(sendTurn.mock.calls[0][0]).toMatchObject({
+      message: "Summarise\n\n'/Users/dev/Desktop/Q3 budget.xlsx' /Users/dev/Desktop/shot.png",
+    })
+    expect(
+      chat.host.querySelectorAll('button[aria-label^="Remove "]'),
+      'the composer lets the cards go with the message',
+    ).toHaveLength(0)
+    // The sent bubble draws the paths paragraph as the same cards, not as paths.
+    expect(cards().map((card) => card.getAttribute('aria-label'))).toEqual(['Open Q3 budget.xlsx', 'Open shot.png'])
+    expect(chat.host.textContent).not.toContain('/Users/dev/Desktop')
   } finally {
     await chat.unmount()
   }
@@ -1640,14 +1668,16 @@ test('the composer row is the New chat’s: the "+" opens attach and skills, wit
   }
 })
 
-test('a chat whose provider reads no images offers no Attach files under the "+"', async () => {
+test('a chat whose provider reads no images still attaches files of any kind under the "+", by path', async () => {
   const chat = await mountChat({ capabilities: { skills: 'workspace' } })
   try {
     const plus = chat.host.querySelector<HTMLButtonElement>('[data-composer-options]')
     await chat.act(async () => plus!.click())
     const menu = chat.dom.window.document.querySelector('[role="menu"][aria-label="Options"]')
-    expect(menu?.textContent).not.toContain('Attach files')
+    expect(menu?.textContent).toContain('Attach files')
     expect(menu?.textContent).toContain('Skills, plugins & MCPs')
+    const picker = chat.host.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(picker?.getAttribute('accept'), 'the dialog offers every kind of file').toBeNull()
   } finally {
     await chat.unmount()
   }

@@ -122,6 +122,9 @@ test('NewAgentPanel interaction', async () => {
     onMeshEvent: () => () => {},
     defaultWorkspaceParentDir: async () => '/w',
     getPathForFile: () => '/tmp/shot.png',
+    // A document from the system, by path; a picture or a paste has none here.
+    attachFile: (file: { name?: string }) =>
+      file?.name === 'Q3 budget.xlsx' ? '/Users/dev/Desktop/Q3 budget.xlsx' : '',
     saveDroppedImage: async () => '/tmp/shot.png',
     agentLaunchPreview: async (input: Record<string, unknown>) => {
       previewCalls.push(input)
@@ -523,6 +526,28 @@ test('NewAgentPanel interaction', async () => {
       assert.equal(view.launches.length, 1)
       assert.equal(view.launches[0]!.prompt, 'look', 'the prompt is only what was typed')
       assert.deepEqual(view.launches[0]!.images, ['/tmp/shot.png'], 'the image rides the launch as an image')
+      view.unmount()
+    })
+
+    await check('a document picked through Attach files is a card, and its path follows the prompt', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')!
+      const file = new dom.window.File(['a,b'], 'Q3 budget.xlsx', { type: 'application/vnd.ms-excel' })
+      Object.defineProperty(input, 'files', { value: [file], configurable: true })
+      await act(async () => {
+        input.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+      })
+      const card = view.container.querySelector('button[aria-label="Open Q3 budget.xlsx"]')
+      assert.ok(card, 'the file is a card on the box')
+      assert.ok(card!.textContent?.includes('XLSX'), 'the card names its type')
+      const field = await typeInto(view, 'summarise')
+      assert.equal(field.textContent?.includes('/Users/dev'), false, 'the path is not typed into the prompt')
+      await act(async () => {
+        field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      })
+      assert.equal(view.launches[0]?.prompt, "summarise\n\n'/Users/dev/Desktop/Q3 budget.xlsx'")
+      assert.equal(view.launches[0]?.images, undefined, 'a document is not an image')
       view.unmount()
     })
 

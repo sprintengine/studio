@@ -31,7 +31,7 @@ import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../sh
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import {
   dataTransferHasDroppableFiles,
-  imageFilesFromDataTransfer,
+  filesFromDataTransfer,
   pastedImagePaths,
   pathsForPathlessFiles,
   quotePromptPath as quotePath,
@@ -41,6 +41,7 @@ import {
   sortFiles,
   type DroppedFiles,
 } from '../../../utils/imageFileTransfer'
+import { composeMessageWithFiles } from '../../../utils/attachedFiles'
 import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
 import { ComposerField, type ComposerFieldHandle, type ComposerKeyEvent } from '../../panels/agentChat/ComposerField'
 import { basename } from '../../../utils/paths'
@@ -1014,6 +1015,9 @@ export default function NewAgentPanel({
   const dragDepthRef = React.useRef(0)
   const [attachNote, setAttachNote] = React.useState<string | null>(null)
   const [images, setImages] = React.useState<PromptImage[]>(() => draft?.images ?? [])
+  // Files attached by path: cards in the box, their paths after the prompt's
+  // words when the agent starts (composeMessageWithFiles).
+  const [files, setFiles] = React.useState<string[]>(() => draft?.files ?? [])
   const [attachingCount, setAttachingCount] = React.useState(0)
 
   // Write-through to the parked draft: every change the person makes is safe
@@ -1023,6 +1027,7 @@ export default function NewAgentPanel({
     writeNewChatDraft(draftKey, {
       prompt,
       images,
+      files,
       selection,
       // Written back as it stands, which is null from the moment the person
       // picks an engine of their own: parking a retired one would reinstate it
@@ -1031,7 +1036,7 @@ export default function NewAgentPanel({
       skills: composer.skills,
       mcpServers: composer.mcpServers,
     })
-  }, [draftKey, prompt, images, selection, composer.openingEngine, composer.skills, composer.mcpServers])
+  }, [draftKey, prompt, images, files, selection, composer.openingEngine, composer.skills, composer.mcpServers])
 
   const insertPromptPath = (dropped: string) => {
     // A file from the SSH machine this chat starts on is typed as that
@@ -1044,14 +1049,16 @@ export default function NewAgentPanel({
     promptRef.current?.focus()
   }
 
-  // A drop, whatever it carries: every file with a path is typed as its path,
-  // the way a drop onto a terminal would be; images attach; a file with no path
-  // is uploaded where the shell can (a browser) and typed as the server's path,
-  // and is otherwise refused with a message rather than swallowed. Files picked
-  // through "Attach files" are taken the same way.
+  // A drop, whatever it carries: a file from the system is a card, its path
+  // joining the prompt when the agent starts; one from the studio's own panes is
+  // typed as its path, the way a drop onto a terminal would be; images attach;
+  // a file with no path is uploaded where the shell can (a browser) and typed
+  // as the server's path, and is otherwise refused with a message rather than
+  // swallowed. Files picked through "Attach files" are taken the same way.
   const dropFiles = (data: DataTransfer) => takeFiles(sortDroppedFiles(data, true))
-  const takeFiles = ({ paths, images, pathless }: DroppedFiles) => {
+  const takeFiles = ({ paths, files: attached, images, pathless }: DroppedFiles) => {
     for (const path of paths) insertPromptPath(path)
+    if (attached.length > 0) setFiles((current) => [...new Set([...current, ...attached])])
     if (images.length > 0) void attachDroppedFiles(images)
     else setAttachNote(null)
     // No path here: a browser uploads them and types the server's paths.
@@ -1116,6 +1123,7 @@ export default function NewAgentPanel({
   }
 
   const removeImage = (id: string) => setImages((current) => current.filter((image) => image.id !== id))
+  const removeFile = (path: string) => setFiles((current) => current.filter((entry) => entry !== path))
 
   // A plain shell launches no CLI, so it wears no CLI chip. A chat agent is a
   // CLI too — the same one, driven as a chat — so it wears the same chip and
@@ -1387,7 +1395,10 @@ export default function NewAgentPanel({
       })
       return
     }
-    const body = [text.trim(), ...images.map((image) => quotePath(image.path))].filter(Boolean).join(' ')
+    const body = composeMessageWithFiles(
+      [text.trim(), ...images.map((image) => quotePath(image.path))].filter(Boolean).join(' '),
+      files,
+    )
     if (!body) {
       showToast({
         tone: 'warn',
@@ -1463,13 +1474,16 @@ export default function NewAgentPanel({
   // that could not be made, which says why itself), the prompt comes back,
   // unless the person has already typed the next one.
   const keepOnNewChat = (started: void | Promise<boolean>, sentPrompt: string, sentImages: PromptImage[]) => {
+    const sentFiles = files
     setPrompt('')
     setImages([])
+    setFiles([])
     window.requestAnimationFrame(() => promptRef.current?.focus())
     void Promise.resolve(started).then((ok) => {
       if (ok !== false) return
       setPrompt((current) => (current === '' ? sentPrompt : current))
       setImages((current) => (current.length === 0 ? sentImages : current))
+      setFiles((current) => (current.length === 0 ? sentFiles : current))
     })
   }
 
@@ -1506,7 +1520,7 @@ export default function NewAgentPanel({
       const sshImages = images.map((image) => image.path)
       const started = onLaunch({
         ...confirm,
-        prompt: text.trim(),
+        prompt: composeMessageWithFiles(text.trim(), files),
         ...(sshImages.length > 0 ? { images: sshImages } : {}),
         environment: { kind: 'ssh', id: pickedSsh.id, label: pickedSsh.label, folder },
         ...(stay ? { stay: true as const } : {}),
@@ -1539,7 +1553,7 @@ export default function NewAgentPanel({
         remoteWorkspaceId: remoteTarget.picked.workspaceId,
         remoteWorkspaceName: remoteTarget.picked.name,
         remoteWorkspaceRoot: remoteTarget.picked.folderPath,
-        prompt: text.trim(),
+        prompt: composeMessageWithFiles(text.trim(), files),
         cli: confirm.cli,
         cliModel: confirm.model ?? null,
         permissionPreset: effectivePreset,
@@ -1558,7 +1572,15 @@ export default function NewAgentPanel({
     // the path needs it — the terminal drop idiom.
     const imagePaths = images.map((image) => image.path)
     const asImages = confirm.kind === 'conversation' && imagePaths.length > 0
-    const prompt = [text.trim(), ...(asImages ? [] : imagePaths.map(quotePath))].filter(Boolean).join(' ')
+    const words = [text.trim(), ...(asImages ? [] : imagePaths.map(quotePath))].filter(Boolean).join(' ')
+    // A chat's files go in a paragraph of their own, which its first bubble
+    // draws as their cards again; a terminal agent's prompt is typed into its
+    // terminal, where a blank line could end it early, so there they follow
+    // the words on the same line, as a dropped path would.
+    const prompt =
+      confirm.kind === 'conversation'
+        ? composeMessageWithFiles(words, files)
+        : [words, ...files.map(quotePath)].filter(Boolean).join(' ')
     if (confirm.kind === 'conversation') {
       // The picker's CLI and model, mapped onto the conversation provider that
       // drives that CLI as a chat. The CLI's own default row asks for no model.
@@ -1738,6 +1760,7 @@ export default function NewAgentPanel({
     !editing &&
     prompt === '' &&
     images.length === 0 &&
+    files.length === 0 &&
     attachingCount === 0 &&
     scopeFolder === null &&
     composer.skills.length === 0 &&
@@ -2012,6 +2035,8 @@ export default function NewAgentPanel({
             attachments={images}
             reading={attachingCount}
             onRemove={removeImage}
+            files={files}
+            onRemoveFile={removeFile}
             className="px-5 pt-4"
           />
 
@@ -2032,10 +2057,13 @@ export default function NewAgentPanel({
                 // unless the text is only paths to images outside the project,
                 // which attach instead. A chat starting on another machine
                 // cannot open this one's project, so there every path attaches.
-                const files = imageFilesFromDataTransfer(event.clipboardData)
-                if (files.length > 0) {
+                // A file copied in Finder or Explorer pastes as the file, and
+                // is taken as a drop of it would be.
+                const pasted = sortFiles(filesFromDataTransfer(event.clipboardData), true)
+                if (pasted.images.length > 0 || pasted.files.length > 0) {
                   event.preventDefault()
-                  void attachDroppedFiles(files)
+                  // A pasted file with no path is left to the paste, as it always was.
+                  takeFiles({ ...pasted, paths: [], pathless: [] })
                   return
                 }
                 const text = event.clipboardData?.getData('text/plain') ?? ''

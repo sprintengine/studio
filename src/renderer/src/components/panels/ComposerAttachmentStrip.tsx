@@ -12,6 +12,7 @@ import { showToast } from '../../store/toastStore'
 // lazily-loaded launch surface's path and should pull in two primitives, not the
 // whole kit.
 import { IconButton, MediaButton } from '../ui/Buttons'
+import { ComposerFileChip } from './agentChat/ComposerFileChip'
 
 // A `data:` URL for rendering an attachment thumbnail. The base64 is already in
 // memory, so this avoids an object-URL lifecycle with nothing to revoke.
@@ -88,21 +89,28 @@ export const AttachmentThumbnail = memo(function AttachmentThumbnail({
 // Images staged for the next turn, inside the composer surface above the text
 // field so the message reads as one thing. The remove control is a trailing
 // action revealed on hover or keyboard focus — the thumbnail is the content,
-// not a card of chrome. Renders nothing when there is nothing staged.
+// not a card of chrome. Files attached by path follow the images as cards
+// (ComposerFileChip): the agent receives their paths, the person sees the
+// files. Renders nothing when there is nothing staged.
 export function ComposerAttachmentStrip({
   attachments,
   reading,
   onRemove,
+  files = [],
+  onRemoveFile,
   className = 'px-3 pt-2.5',
 }: {
   attachments: ConversationImageAttachment[]
   reading: number
   onRemove: (id: string) => void
+  /** Files attached by path, in the order they were added. */
+  files?: readonly string[]
+  onRemoveFile?: (path: string) => void
   // The strip's inset, owned by the surface that mounts it: the chat composer
   // sits it above a padded field, the launch surface inside a padded box.
   className?: string
 }) {
-  if (attachments.length === 0 && reading === 0) return null
+  if (attachments.length === 0 && files.length === 0 && reading === 0) return null
   return (
     <ul className={`flex flex-wrap items-center gap-2 ${className}`}>
       {attachments.map((attachment) => (
@@ -126,6 +134,11 @@ export function ComposerAttachmentStrip({
               </svg>
             </IconButton>
           </span>
+        </li>
+      ))}
+      {files.map((path) => (
+        <li key={`file:${path}`}>
+          <ComposerFileChip path={path} onRemove={onRemoveFile} />
         </li>
       ))}
       {reading > 0 ? (

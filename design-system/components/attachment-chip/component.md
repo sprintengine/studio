@@ -8,10 +8,13 @@ A removable piece of context staged on a composer, shared by the launcher and co
 - Optional leading glyph, followed by a truncating label.
 - A separate close button names the attachment it removes.
 - An inspectable label can contain a chip button opening a popover; removal remains a sibling control.
+- The file card (`.ds-attachment-chip--file`) is one button, `.ds-attachment-chip-file-open`: a preview square the height of an image thumbnail (`.ds-attachment-chip-file-preview`, the operating system's thumbnail of the file or its file-type glyph), then a caption of the name, cut in the middle so its extension survives, over the type in micro text (`.ds-attachment-chip-file-type`: PDF, DOCX, XLSX, Folder). The close button is pinned to the card's top-right corner.
 
 ## Variants
 
-Static label or inspectable label. Skills, files, folders and images use the same shape.
+Static label or inspectable label. Skills, @-mentioned files and folders use the same shape.
+
+**File card.** A file attached by path — dropped, picked or pasted from the system — is a card, not a chip: it has something to show and something to do. The card shows the file (a thumbnail where the system draws one, the type glyph until then and wherever it does not) and opens it in the app the system picks for it. A file that would run when opened (a program, an installer, a script, a shortcut) is only revealed in its folder, so the same click shows it in Finder or Explorer instead. A sent message shows its files as the same cards, without the close button.
 
 ## States
 
@@ -19,8 +22,8 @@ The wrapper does not hover or focus. The close button and optional inspect contr
 
 ## Usage
 
-Place attached context above the composer field. Use neutral selected ground: a staged attachment is a selection. The consuming implementation is `src/renderer/src/components/ui/AttachmentChip.tsx`.
+Place attached context above the composer field. File cards share the image thumbnails' strip and row height; the consuming implementation is `AttachmentFileCard` in the same file, wired to the file by `ComposerFileChip`. Use neutral selected ground: a staged attachment is a selection. The consuming implementation is `src/renderer/src/components/ui/AttachmentChip.tsx`.
 
 ## Accessibility
 
-Removal is a separately focusable button labelled `Remove <attachment name>`. Never nest it inside the inspect button. A truncated static label exposes the complete text through the shared truncated-text component.
+Removal is a separately focusable button labelled `Remove <attachment name>`. A file card's button is labelled with what it does — `Open <name>`, or `Show <name> in Finder` where the file would run — and its context menu (the pointer's secondary click, or the keyboard's menu key) offers Open and Reveal in Finder / Show in Explorer. Never nest it inside the inspect button. A truncated static label exposes the complete text through the shared truncated-text component.

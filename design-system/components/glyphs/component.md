@@ -341,9 +341,14 @@ is private to the component, applied through its `tone` prop.
 | `shell` | Prompt `>_` |
 | `java` | Cup |
 | `image` | Framed landscape |
+| `pdf` | Page with a P — `.pdf` |
+| `document` | Page with a W — `.docx` / `.doc` / `.odt` / `.rtf` / `.pages` |
+| `spreadsheet` | Ruled grid, header row and first column — `.xlsx` / `.xls` / `.ods` / `.numbers` / `.csv` / `.tsv` |
+| `presentation` | Slide on its stand — `.pptx` / `.ppt` / `.odp` / `.key` |
+| `archive` | Page zipped down the middle — `.zip` / `.tar` / `.gz` / `.7z` / `.rar` |
 | `lock` | Padlock — lockfiles (`package-lock.json`, `yarn.lock`, `Cargo.lock` …) |
 | `config` | Gear — dotfiles, `.env*`, `Dockerfile`, `.toml` / `.ini` / `.xml` |
-| `text` | Document with lines — `.txt`, `.csv`, `LICENSE`, `README` |
+| `text` | Document with lines — `.txt`, `.log`, `LICENSE`, `README` |
 | `generic` | Plain document — anything unrecognised |
 
 Colour is the `tone` axis, and the surface picks it (ruled 2026-09-06,
@@ -356,14 +361,14 @@ people know from their editors:
 
 | Hue | Kinds |
 |---|---|
-| `mark.blue` | `typescript` · `python` · `markdown` |
+| `mark.blue` | `typescript` · `python` · `markdown` · `document` |
 | `mark.yellow` | `javascript` · `json` · `lock` |
 | `mark.cyan` | `react` · `go` |
-| `mark.orange` | `html` · `rust` |
-| `mark.red` | `yaml` · `java` |
-| `mark.teal` | `shell` |
+| `mark.orange` | `html` · `rust` · `presentation` |
+| `mark.red` | `yaml` · `java` · `pdf` |
+| `mark.teal` | `shell` · `spreadsheet` — the ramp's nearest to a spreadsheet's usual green |
 | `mark.violet` | `css` · `image` |
-| *(row ink)* | `config` · `text` · `generic` — they name no language |
+| *(row ink)* | `config` · `text` · `archive` · `generic` — they name no language |
 
 A `*-test` kind takes its base language's hue: the notch says "test", the hue
 still says which language.

@@ -18,6 +18,7 @@ import type {
   VersionControlProviderProbe,
   WorkspaceFolderCheckResult,
 } from '../../shared/electron-api'
+import type { AttachedFilePreview } from '../../shared/attached-files'
 import type { HostGhStatus } from '../../shared/host-gh'
 
 export const filesystemApi = {
@@ -50,6 +51,21 @@ export const filesystemApi = {
       return ''
     }
   },
+  // The path is read here, off the person's own `File`, and only then told to
+  // main: a renderer cannot hand main a path of its choosing to open later.
+  attachFile: (file: unknown): string => {
+    let path = ''
+    try {
+      path = webUtils.getPathForFile(file as File)
+    } catch {
+      return ''
+    }
+    if (path) void ipcRenderer.invoke('attached-files:register', path).catch(() => undefined)
+    return path
+  },
+  previewAttachedFile: (path: string): Promise<AttachedFilePreview> =>
+    ipcRenderer.invoke('attached-files:preview', path),
+  openAttachedFile: (path: string): Promise<void> => ipcRenderer.invoke('attached-files:open', path),
   // A desktop window reads a dropped file's own path; only a browser uploads.
   uploadFiles: async (): Promise<string[]> => {
     throw new Error('Uploading is the web client’s; a desktop window reads a dropped file by its path.')
@@ -131,6 +147,9 @@ export const filesystemApi = {
   | 'pathExists'
   | 'statPath'
   | 'getPathForFile'
+  | 'attachFile'
+  | 'previewAttachedFile'
+  | 'openAttachedFile'
   | 'uploadFiles'
   | 'checkWorkspaceFolder'
   | 'detectProjectLogo'

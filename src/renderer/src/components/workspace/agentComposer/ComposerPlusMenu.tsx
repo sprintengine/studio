@@ -38,7 +38,15 @@ export type ComposerPlusMenuProps = {
   skills?: Omit<SkillsAndMcpsPickerProps, 'open' | 'onOpenChange' | 'renderTrigger' | 'placement'>
 }
 
-export function ComposerPlusMenu({ placement, startAs, onAttach, schedule, skills }: ComposerPlusMenuProps) {
+// Memoized: an open chat re-renders its composer row on every streamed token,
+// and the "+" has nothing to redraw until one of its own props changes.
+export const ComposerPlusMenu = React.memo(function ComposerPlusMenu({
+  placement,
+  startAs,
+  onAttach,
+  schedule,
+  skills,
+}: ComposerPlusMenuProps) {
   const [optionsOpen, setOptionsOpen] = React.useState(false)
   const [skillsOpen, setSkillsOpen] = React.useState(false)
   // The "+" itself, so a pick from its menu hands focus back to it: the row
@@ -117,4 +125,4 @@ export function ComposerPlusMenu({ placement, startAs, onAttach, schedule, skill
       />
     </Popover>
   )
-}
+})

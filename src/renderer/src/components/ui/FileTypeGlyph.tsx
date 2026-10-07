@@ -52,6 +52,11 @@ export type FileTypeKind =
   | 'go-test'
   | 'java'
   | 'image'
+  | 'pdf'
+  | 'document'
+  | 'spreadsheet'
+  | 'presentation'
+  | 'archive'
   | 'lock'
   | 'config'
   | 'text'
@@ -79,6 +84,11 @@ export const FILE_TYPE_LABEL: Record<FileTypeKind, string> = {
   'go-test': 'Go test',
   java: 'Java',
   image: 'Image',
+  pdf: 'PDF',
+  document: 'Document',
+  spreadsheet: 'Spreadsheet',
+  presentation: 'Presentation',
+  archive: 'Archive',
   lock: 'Lockfile',
   config: 'Configuration',
   text: 'Text',
@@ -121,7 +131,15 @@ const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', '
 
 const CONFIG_EXTENSIONS = new Set(['toml', 'ini', 'cfg', 'conf', 'properties', 'plist', 'xml', 'env'])
 
-const TEXT_EXTENSIONS = new Set(['txt', 'log', 'csv', 'tsv', 'rtf', 'pdf', 'doc', 'docx'])
+const TEXT_EXTENSIONS = new Set(['txt', 'log'])
+
+// The office kinds: what a file attached to a message usually is when it is
+// not code. Each names a kind of document rather than the app that wrote it,
+// so a Pages file and a Word file are both a document.
+const DOCUMENT_EXTENSIONS = new Set(['doc', 'docx', 'docm', 'dotx', 'odt', 'rtf', 'pages'])
+const SPREADSHEET_EXTENSIONS = new Set(['xls', 'xlsx', 'xlsm', 'ods', 'numbers', 'csv', 'tsv'])
+const PRESENTATION_EXTENSIONS = new Set(['ppt', 'pptx', 'pptm', 'odp', 'key'])
+const ARCHIVE_EXTENSIONS = new Set(['zip', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'zst', '7z', 'rar'])
 
 const SHELL_EXTENSIONS = new Set(['sh', 'bash', 'zsh', 'fish', 'ksh', 'bat', 'cmd', 'ps1'])
 
@@ -266,9 +284,15 @@ export function fileTypeKind(name: string): FileTypeKind {
       return 'java'
     case 'lock':
       return 'lock'
+    case 'pdf':
+      return 'pdf'
     default:
       if (SHELL_EXTENSIONS.has(ext)) return 'shell'
       if (IMAGE_EXTENSIONS.has(ext)) return 'image'
+      if (DOCUMENT_EXTENSIONS.has(ext)) return 'document'
+      if (SPREADSHEET_EXTENSIONS.has(ext)) return 'spreadsheet'
+      if (PRESENTATION_EXTENSIONS.has(ext)) return 'presentation'
+      if (ARCHIVE_EXTENSIONS.has(ext)) return 'archive'
       if (CONFIG_EXTENSIONS.has(ext)) return 'config'
       if (TEXT_EXTENSIONS.has(ext)) return 'text'
       return 'generic'
@@ -575,6 +599,66 @@ const BODY: Record<FileTypeKind, () => JSX.Element> = {
       <path d="M2.4 11.6 6 8.3l2.4 2.2 2-1.8 3.2 2.9" stroke="currentColor" strokeWidth={LINE} strokeLinejoin="round" />
     </>
   ),
+  // A page with a P on it: the page is what a PDF is, the letter which kind.
+  pdf: () => (
+    <>
+      <DocumentOutline />
+      <path
+        d="M6 12.5V7.25h1.75c.9 0 1.5.55 1.5 1.35s-.6 1.4-1.5 1.4H6"
+        stroke="currentColor"
+        strokeWidth={LINE}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </>
+  ),
+  // A page with a W on it: the word processor's page, as against `text`'s
+  // plain lines.
+  document: () => (
+    <>
+      <DocumentOutline />
+      <path
+        d="M4.9 7.5l.95 4.75 1.35-3.4 1.35 3.4.95-4.75"
+        stroke="currentColor"
+        strokeWidth={LINE}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </>
+  ),
+  // The grid: a header row and a first column ruled off from the cells.
+  spreadsheet: () => (
+    <>
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth={LINE} />
+      <path d="M2.25 6.25h11.5M2.25 9.85h11.5M6.25 2.75v10.5" stroke="currentColor" strokeWidth={LINE} />
+    </>
+  ),
+  // A slide on its stand.
+  presentation: () => (
+    <>
+      <rect x="2" y="2.5" width="12" height="8.25" rx="1.25" stroke="currentColor" strokeWidth={LINE} />
+      <path
+        d="M8 10.75v2.75M5.75 13.5h4.5M5 7.75l1.9-1.9 1.6 1.4L11 4.9"
+        stroke="currentColor"
+        strokeWidth={LINE}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </>
+  ),
+  // A page zipped down its middle, the pull at the foot of the teeth.
+  archive: () => (
+    <>
+      <DocumentOutline />
+      <path
+        d="M7.25 2.4v1.1M8.75 3.9v1.1M7.25 5.4v1.1M8.75 6.9v1.1"
+        stroke="currentColor"
+        strokeWidth={LINE}
+        strokeLinecap="round"
+      />
+      <rect x="6.6" y="9" width="2.8" height="3.25" rx="0.7" stroke="currentColor" strokeWidth={FRAME} />
+    </>
+  ),
   lock: () => (
     <>
       <rect x="3.5" y="7" width="9" height="6" rx="1.4" stroke="currentColor" strokeWidth={MARK} />
@@ -618,9 +702,12 @@ type FileTypeGlyphTone = 'ink' | 'kind'
 // Kind → identity hue. The pairings are the ones people already know from
 // their editors: TypeScript blue, JavaScript yellow, Python blue, HTML orange,
 // Rust orange, Go cyan, React cyan, YAML red, Java red, shell teal, CSS and
-// images violet, JSON and lockfiles yellow. Configuration, plain text and the
-// generic document stay in the row's ink: they name no language, and a gear or
-// a page in a colour would be colour saying nothing.
+// images violet, JSON and lockfiles yellow. The office kinds wear the colours
+// their documents are known by: PDF red, documents blue, spreadsheets teal (the
+// ramp's nearest to the green they usually wear), presentations orange.
+// Configuration, plain text, archives and the generic document stay in the
+// row's ink: they name no language, and a gear or a page in a colour would be
+// colour saying nothing.
 //
 // Literal class strings, never interpolated: Tailwind generates an arbitrary
 // colour utility only from a variant it can see in the source text.
@@ -645,6 +732,11 @@ const KIND_INK: Record<FileTypeKind, string | null> = {
   'go-test': 'text-[color:var(--sem-color-mark-cyan)]',
   java: 'text-[color:var(--sem-color-mark-red)]',
   image: 'text-[color:var(--sem-color-mark-violet)]',
+  pdf: 'text-[color:var(--sem-color-mark-red)]',
+  document: 'text-[color:var(--sem-color-mark-blue)]',
+  spreadsheet: 'text-[color:var(--sem-color-mark-teal)]',
+  presentation: 'text-[color:var(--sem-color-mark-orange)]',
+  archive: null,
   lock: 'text-[color:var(--sem-color-mark-yellow)]',
   config: null,
   text: null,

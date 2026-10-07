@@ -19,6 +19,7 @@ import { composerDraftStore, type ComposerDraft } from './draftStore'
 import type { TranscriptEntry } from './conversationProjection'
 import { useConversationTransport, type ConversationTransport } from './conversationTransport'
 import { editFromHereDraft } from './editFromHere'
+import { splitAttachedFiles } from '../../../utils/attachedFiles'
 
 type UserEntry = Extract<TranscriptEntry, { kind: 'user' }>
 
@@ -28,7 +29,8 @@ export type ForkFromHereTarget =
   | {
       side: 'user'
       turnSeq: number
-      draft: Omit<ComposerDraft, 'updatedAt'>
+      // `files`: the files it attached by path, as the fork composer's cards.
+      draft: Omit<ComposerDraft, 'updatedAt' | 'files'> & { files?: string[] }
       // The images the message carried, staged in the fork's composer with it.
       attachments?: ConversationImageAttachment[]
     }
@@ -72,10 +74,12 @@ export function ForkMessageAction({
         // The message goes back as it was sent, its images included, read from
         // the store when the send is no longer in memory.
         const { attachments } = await editFromHereDraft(entry, transport)
+        // Its files go back as their cards, not as the paths they were sent as.
+        const { text, paths } = splitAttachedFiles(entry.text)
         await onFork({
           side: 'user',
           turnSeq,
-          draft: { text: entry.text, skillIds: entry.skills ?? [], mentions: entry.mentions ?? [] },
+          draft: { text, skillIds: entry.skills ?? [], mentions: entry.mentions ?? [], files: paths },
           ...(attachments.length ? { attachments } : {}),
         })
       }}

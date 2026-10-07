@@ -1,4 +1,5 @@
 import type { ClientCapability } from './client-capabilities'
+import type { AttachedFilePreview } from './attached-files'
 import type { PreviewOpenAnswer, PreviewPort, PreviewSummary, WebDevicesStatus } from './web-client'
 import type {
   SshEnvironmentResult,
@@ -1025,6 +1026,19 @@ export type ElectronApi = {
   pathExists: (path: string) => Promise<boolean>
   statPath: (path: string) => Promise<FileSystemStat>
   getPathForFile: (file: unknown) => string
+  /**
+   * A dropped, picked or pasted file's path, as `getPathForFile` reads it, and
+   * that file remembered as attached: the paths `openAttachedFile` will open.
+   * '' for a file with no path on disk.
+   */
+  attachFile: (file: unknown) => string
+  /** What an attached path is now, the system's thumbnail of it, and whether a click may open it. */
+  previewAttachedFile: (path: string) => Promise<AttachedFilePreview>
+  /**
+   * Open an attached file in its default app. Refuses, with the reason, a path
+   * that was not attached and a file that would run as a program when opened.
+   */
+  openAttachedFile: (path: string) => Promise<void>
   /** Send dropped files that have no path to the server; answers a path there for each (`file-uploads`). */
   uploadFiles: (files: File[]) => Promise<string[]>
   checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>

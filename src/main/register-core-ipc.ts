@@ -1,5 +1,5 @@
 import { machineAwareIpc } from './environments/ssh/machine-ipc'
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, nativeImage, shell } from 'electron'
 import type { IpcMain } from 'electron'
 import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
 import { registerAppearanceIpc } from './ipc/appearance-ipc'
@@ -25,6 +25,8 @@ import { registerConversationPeekIpc } from './ipc/conversation-peek-ipc'
 import { registerAgentCompactIpc } from './ipc/agent-compact-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
+import { registerAttachedFilesIpc } from './ipc/attached-files-ipc'
+import { createAttachedFileRegistry, createAttachedFiles, createAttachedFileThumbnails } from './attached-files'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
 import { registerGitRepoWatchIpc } from './ipc/git-repo-watch-ipc'
@@ -194,6 +196,20 @@ export function registerCoreIpc(
   })
   registerUpdateIpc(ipcMain, { updateService: services.updateService })
   registerFilesystemMutationIpc(machineIpc, createFilesystemMutationHandlers())
+  // A file attached to a message by path opens in its default app, and only
+  // one the person attached here; on plain `ipcMain`, as it is this computer's.
+  registerAttachedFilesIpc(
+    ipcMain,
+    createAttachedFiles({
+      registry: createAttachedFileRegistry({ resolveUserDataDir: () => app.getPath('userData') }),
+      thumbnails: createAttachedFileThumbnails({
+        platform: process.platform,
+        createThumbnail: (path, size) => nativeImage.createThumbnailFromPath(path, size),
+      }),
+      platform: process.platform,
+      openPath: (path) => shell.openPath(path),
+    }),
+  )
   registerGitIpc(
     machineIpc,
     {

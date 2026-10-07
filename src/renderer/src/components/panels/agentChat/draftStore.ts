@@ -13,8 +13,18 @@ import {
   parseConversationMentions,
   type ConversationMentionRef as ComposerMentionRef,
 } from '../../../../../shared/conversation/mentions'
-export type ComposerDraft = { text: string; skillIds: string[]; mentions: ComposerMentionRef[]; updatedAt: number }
-export const EMPTY_DRAFT: ComposerDraft = { text: '', skillIds: [], mentions: [], updatedAt: 0 }
+// `files` are the files attached by path (the composer's file cards), local to
+// this device like the rest of the draft; the agent receives them as paths
+// after the words when the draft is sent.
+export type ComposerDraft = {
+  text: string
+  skillIds: string[]
+  mentions: ComposerMentionRef[]
+  files: string[]
+  updatedAt: number
+}
+export const EMPTY_DRAFT: ComposerDraft = { text: '', skillIds: [], mentions: [], files: [], updatedAt: 0 }
+const MAX_DRAFT_FILES = 50
 const keyOf = (workspaceId: string, agentId: string) => JSON.stringify([workspaceId, agentId])
 
 function normalizeDraft(value: unknown): ComposerDraft | null {
@@ -27,6 +37,13 @@ function normalizeDraft(value: unknown): ComposerDraft | null {
       ? raw.skillIds.filter((id): id is string => typeof id === 'string' && id.length <= 4096).slice(0, 32)
       : [],
     mentions: parseConversationMentions(raw.mentions) ?? [],
+    files: Array.isArray(raw.files)
+      ? raw.files
+          .filter(
+            (path): path is string => typeof path === 'string' && path.length <= 4096 && !/[\u0000-\u001f]/u.test(path),
+          )
+          .slice(0, MAX_DRAFT_FILES)
+      : [],
     updatedAt: raw.updatedAt,
   }
 }
@@ -43,7 +60,10 @@ function bounded(records: Record<string, ComposerDraft>): Record<string, Compose
   return Object.fromEntries(kept)
 }
 const draftChars = (draft: ComposerDraft) =>
-  draft.text.length + JSON.stringify(draft.skillIds).length + JSON.stringify(draft.mentions).length
+  draft.text.length +
+  JSON.stringify(draft.skillIds).length +
+  JSON.stringify(draft.mentions).length +
+  JSON.stringify(draft.files).length
 
 /**
  * Storage that coalesces writes, and when the quota refuses one keeps the most
@@ -152,7 +172,12 @@ function writeNewestThatFit(blob: string, tryWrite: (blob: string) => boolean): 
 type DraftState = {
   drafts: Record<string, ComposerDraft>
   read(workspaceId: string, agentId: string): ComposerDraft
-  put(workspaceId: string, agentId: string, draft: Omit<ComposerDraft, 'updatedAt'>): void
+  // `files` may be left out by a caller that seeds a draft with words alone (a fork, an opener).
+  put(
+    workspaceId: string,
+    agentId: string,
+    draft: Omit<ComposerDraft, 'updatedAt' | 'files'> & { files?: string[] },
+  ): void
   remove(workspaceId: string, agentId: string): void
 }
 
@@ -184,7 +209,7 @@ export function createComposerDraftStore(storage: StateStorage, now = Date.now) 
         },
         put: (workspaceId, agentId, draft) => {
           const value = normalizeDraft({ ...draft, updatedAt: nextAccess(get().drafts) })!
-          if (!value.text && !value.skillIds.length && !value.mentions.length) {
+          if (!value.text && !value.skillIds.length && !value.mentions.length && !value.files.length) {
             get().remove(workspaceId, agentId)
             return
           }

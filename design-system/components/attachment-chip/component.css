@@ -15,3 +15,67 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The file card: a file attached by path, with the system's own picture of it
+   (or its type glyph) in a square the height of an image thumbnail, and its
+   name over its type. The whole card opens the file; removal is a sibling
+   control pinned to its corner, as on an image thumbnail. */
+.ds-attachment-chip--file {
+  position: relative;
+  padding: 0;
+  gap: 0;
+  background: transparent;
+}
+.ds-attachment-chip-file-open {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  height: 48px; /* the image attachment thumbnail's edge, so the two share a row */
+  max-width: 220px;
+  padding: 0 var(--sem-space-xl) 0 0;
+  overflow: hidden;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ds-attachment-chip-file-open:hover {
+  border-color: var(--sem-color-border-strong);
+}
+.ds-attachment-chip-file-open:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+.ds-attachment-chip-file-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 48px;
+  background: var(--sem-color-bg-selected);
+  overflow: hidden;
+}
+.ds-attachment-chip-file-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ds-attachment-chip-file-caption {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ds-attachment-chip-file-type {
+  color: var(--sem-color-text-subtle);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-regular);
+}
+.ds-attachment-chip--file > .ds-button {
+  position: absolute;
+  top: var(--sem-space-3xs);
+  right: var(--sem-space-3xs);
+}
