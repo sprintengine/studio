@@ -163,6 +163,48 @@ test('built-in and reserved names are the shell’s, and a name Studio serves is
   assert.equal(store.binding('browser'), null)
 })
 
+test('an app may not offer a toolset whose tools flatten to one Studio serves itself', () => {
+  const ownTools = ['pull_request.link', 'workspace.mobile_command']
+  const scoped = createClientToolRegistry({
+    store: createClientToolsetStore({}),
+    servedFamilies: () => new Set(ownTools.map((name) => name.split('.')[0])),
+    servedTools: () => ownTools,
+  })
+  const connection: ClientToolConnection = {
+    connectionId: 'conn-flattened',
+    clientId: 'git-app',
+    clientName: 'App git-app',
+    kind: 'app',
+    instanceId: 'instance-git-app-0123456789',
+    owner: false,
+    shell: null,
+    audited: false,
+    send: () => {},
+  }
+  scoped.attach(connection)
+  // `pull` is `pull_request`'s head: every tool under it could read as Studio's.
+  const head = scoped.offer(connection.connectionId, toolset('pull', [tool('request_link')]))
+  assert.equal(head.ok ? null : head.code, 'reserved_name')
+  const other = scoped.offer(connection.connectionId, toolset('pulls', [tool('request_link')]))
+  assert.equal(other.ok, true)
+  scoped.close()
+
+  // The flattened spelling is checked on its own, whatever the families say.
+  const bare = createClientToolRegistry({
+    store: createClientToolsetStore({}),
+    servedFamilies: () => [],
+    servedTools: () => ownTools,
+  })
+  bare.attach(connection)
+  const clash = bare.offer(connection.connectionId, toolset('pull', [tool('screenshot'), tool('request_link')]))
+  assert.deepEqual(clash.ok ? null : [clash.code, clash.message], [
+    'reserved_name',
+    'Studio serves a tool agents may see as "pull_request_link" itself.',
+  ])
+  assert.equal(bare.offer(connection.connectionId, toolset('pull', [tool('screenshot')])).ok, true)
+  bare.close()
+})
+
 test('an app’s tools reach the conversations it started or was opened to, unless its reach is all', () => {
   const game = connect('game-app')
   registry.offer(game.connectionId, toolset('game'))

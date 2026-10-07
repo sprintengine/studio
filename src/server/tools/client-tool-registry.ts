@@ -114,6 +114,13 @@ export type ClientToolRegistryOptions = {
    * later is covered.
    */
   servedFamilies: () => Iterable<string>
+  /**
+   * Every tool name Studio serves itself (`pull_request.link`). An MCP client
+   * that takes no dot writes a tool `<toolset>_<tool>`, so an app's `pull` and
+   * `request_link` would read as Studio's own; such an offer is refused. Read
+   * on every offer.
+   */
+  servedTools?: () => Iterable<string>
   /** Names reserved beyond the protocol's floor (every module id). Read on every offer. */
   reservedNames?: () => Iterable<string>
   /** An app's reach, from its pairing. Owners name theirs on the offer. */
@@ -262,9 +269,23 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
 
   // ── Names and reach ───────────────────────────────────────────────────────
 
+  // A family's head before its first `_` is reserved with it: a toolset has
+  // no underscore, so `pull` is the only name whose flattened tools could
+  // read as `pull_request`'s.
   function servedHere(name: string): boolean {
-    for (const family of options.servedFamilies()) if (family === name) return true
+    for (const family of options.servedFamilies()) if (family === name || family.split('_')[0] === name) return true
     return false
+  }
+  /** The first of a toolset's tools whose flattened spelling is one Studio serves itself. */
+  function flattenedClash(toolset: StudioToolsetOffer): string | null {
+    if (!options.servedTools) return null
+    const served = new Set<string>()
+    for (const name of options.servedTools()) served.add(name.replaceAll('.', '_'))
+    for (const tool of toolset.tools) {
+      const flattened = `${toolset.name}_${tool.name}`
+      if (served.has(flattened)) return flattened
+    }
+    return null
   }
   function reserved(name: string): boolean {
     if (STUDIO_RESERVED_TOOLSET_NAMES.includes(name)) return true
@@ -517,6 +538,8 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     const name = toolset.name
     // A name Studio serves itself is no one's to shadow, its own shell's included.
     if (servedHere(name)) return refuse('reserved_name', `Studio serves "${name}" tools itself.`)
+    const clash = flattenedClash(toolset)
+    if (clash) return refuse('reserved_name', `Studio serves a tool agents may see as "${clash}" itself.`)
     const builtIn = reserved(name)
     if (builtIn && !mayOfferReserved(instance.shell, name))
       return refuse('reserved_name', `"${name}" is reserved for Studio's own tools.`)
