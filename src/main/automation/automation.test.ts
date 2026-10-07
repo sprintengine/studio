@@ -752,7 +752,7 @@ test('automation', async () => {
   // app's agents, or that asked not to be told, is not linked.
   async function testAgentLaunchLinksItsCallerForNotices(): Promise<void> {
     const links: LaunchedAgentLink[] = []
-    const linking = launchHarness({ linkLaunchedAgent: (link) => (links.push(link), true) })
+    const linking = launchHarness({ linkLaunchedAgent: (link) => (links.push(link), { linked: true as const }) })
     const caller = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-lead' } }
     const launched = await tool(linking.tools, 'agent.launch').handler({ workspaceId: 'ws-1' }, caller)
     assert.equal(launched.isError, undefined, JSON.stringify(launched.structuredContent))
@@ -770,20 +770,36 @@ test('automation', async () => {
       },
     ])
 
-    const declined = launchHarness({ linkLaunchedAgent: (link) => (links.push(link), true) })
+    const declined = launchHarness({ linkLaunchedAgent: (link) => (links.push(link), { linked: true as const }) })
     const quiet = await tool(declined.tools, 'agent.launch').handler(
       { workspaceId: 'ws-1', notifyParent: false },
       caller,
     )
     assert.equal((quiet.structuredContent as { notifyParent: boolean }).notifyParent, false)
 
-    const outsider = launchHarness({ linkLaunchedAgent: (link) => (links.push(link), true) })
+    const outsider = launchHarness({ linkLaunchedAgent: (link) => (links.push(link), { linked: true as const }) })
     const external = await tool(outsider.tools, 'agent.launch').handler(
       { workspaceId: 'ws-1' },
       { metadata: { kind: 'external-local' } },
     )
     assert.equal((external.structuredContent as { notifyParent: boolean }).notifyParent, false)
+    assert.match(
+      (external.structuredContent as { notifyParentReason: string }).notifyParentReason,
+      /not come from an agent of this app/u,
+    )
     assert.equal(links.length, 1, 'neither the declined launch nor the outsider was linked')
+    assert.equal('notifyParentReason' in (quiet.structuredContent as object), false, 'asked not to: nothing to explain')
+
+    // A parent the notices cannot tell says why, in the result.
+    const hookless = launchHarness({
+      linkLaunchedAgent: () => ({ linked: false, reason: "The calling agent's CLI does not report its turns." }),
+    })
+    const untold = await tool(hookless.tools, 'agent.launch').handler({ workspaceId: 'ws-1' }, caller)
+    assert.equal((untold.structuredContent as { notifyParent: boolean }).notifyParent, false)
+    assert.equal(
+      (untold.structuredContent as { notifyParentReason: string }).notifyParentReason,
+      "The calling agent's CLI does not report its turns.",
+    )
 
     const badFlag = await tool(launchHarness().tools, 'agent.launch').handler({
       workspaceId: 'ws-1',

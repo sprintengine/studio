@@ -1,4 +1,4 @@
-import type { AgentPhase, TerminalSessionSnapshot } from '../shared/electron-api'
+import type { AgentPhase, AgentStateSource, TerminalSessionSnapshot } from '../shared/electron-api'
 import type { ConversationMessageOrigin, ConversationSessionSummary } from '../shared/conversation-runtime'
 import { bracketedTerminalPaste } from '../shared/terminal-paste'
 
@@ -59,8 +59,21 @@ export type ControlPlaneSession = {
    * terminals, which have no agent to be idle or working.
    */
   phase?: AgentPhase
+  /**
+   * Where a terminal agent's phase came from: `hook` for the CLI's own
+   * lifecycle hooks, `lifecycle` for a stamp (`starting` at spawn, `stalled`
+   * from the watchdog). Only a hook-reported phase moves when a turn ends.
+   * Absent for a chat, whose phase is its runtime's, and a plain shell.
+   */
+  phaseSource?: AgentStateSource
   lastOutputAt?: number | null
   lastInputAt?: number | null
+  /** When something was last typed or pasted into a terminal (not a focus report). */
+  lastKeyInputAt?: number | null
+  /** When a terminal agent's last turn ended, by its hooks. */
+  lastTurnEndedAt?: number | null
+  /** A chat's conversation provider (`claude-agent`, `codex-agent`…). */
+  providerId?: string
 }
 
 /**
@@ -169,6 +182,14 @@ export type ControlPlaneSendOptions = {
    * agent reads the words alone.
    */
   origin?: ConversationMessageOrigin
+  /**
+   * A terminal send that must not land on a draft: refused as `user_typing`
+   * when anyone has typed into the session since its agent's last turn ended
+   * (this service's own writes aside), however long ago. The typing gate only
+   * looks back a moment, and a person who paused mid-sentence has a draft at
+   * the prompt that a submitted send would take with it.
+   */
+  holdForDraft?: boolean
 }
 
 export type ControlPlaneReadOptions = {
@@ -261,6 +282,8 @@ export class AgentControlPlane {
    * ours we would read every automated send as someone typing.
    */
   private readonly ownInputAt = new Map<string, number>()
+  /** The same for `lastKeyInputAt`, which this service's writes move too. */
+  private readonly ownKeyInputAt = new Map<string, number>()
 
   constructor(deps: AgentControlPlaneDeps) {
     this.deps = deps
@@ -627,6 +650,14 @@ export class AgentControlPlane {
     }
     const blocked = options.precondition?.()
     if (blocked) return { ok: false, sessionId, reason: 'unsupported', message: blocked }
+    if (options.holdForDraft && this.hasDraftSinceTurnEnd(before)) {
+      return {
+        ok: false,
+        sessionId,
+        reason: 'user_typing',
+        message: `Agent session ${sessionId} was typed into after its last turn ended; the automated send stood down.`,
+      }
+    }
 
     const pasted = this.writeTerminal(sessionId, bracketedTerminalPaste(text))
     if (!pasted.ok) return pasted
@@ -748,6 +779,13 @@ export class AgentControlPlane {
     }
   }
 
+  private hasDraftSinceTurnEnd(session: ControlPlaneSession): boolean {
+    const typed = session.lastKeyInputAt
+    if (typed == null) return false
+    if (this.ownKeyInputAt.get(session.sessionId) === typed) return false
+    return session.lastTurnEndedAt == null || typed > session.lastTurnEndedAt
+  }
+
   private isUserTyping(session: ControlPlaneSession): boolean {
     if (session.lastInputAt == null) return false
     if (this.ownInputAt.get(session.sessionId) === session.lastInputAt) return false
@@ -790,6 +828,7 @@ export class AgentControlPlane {
     // guard can tell this service's input apart from a person's.
     const after = this.findSession(sessionId)
     if (after?.lastInputAt != null) this.ownInputAt.set(sessionId, after.lastInputAt)
+    if (after?.lastKeyInputAt != null) this.ownKeyInputAt.set(sessionId, after.lastKeyInputAt)
     return { ok: true }
   }
 
@@ -954,8 +993,11 @@ function toTerminalSession(snapshot: TerminalSessionSnapshot): ControlPlaneSessi
     cwd: snapshot.cwd,
     cli: snapshot.cli,
     phase: snapshot.agentState?.phase,
+    ...(snapshot.agentState ? { phaseSource: snapshot.agentState.source } : {}),
     lastOutputAt: snapshot.lastOutputAt,
     lastInputAt: snapshot.lastInputAt,
+    lastKeyInputAt: snapshot.lastKeyInputAt ?? null,
+    lastTurnEndedAt: snapshot.lastTurnEndedAt ?? null,
   }
 }
 
@@ -963,9 +1005,12 @@ function toConversationSession(summary: ConversationSessionSummary): ControlPlan
   return {
     sessionId: summary.sessionId,
     transport: 'conversation',
-    alive: summary.status !== 'stopped' && summary.status !== 'failed',
+    // A chat whose last turn failed is still there and takes the next
+    // message, as it does from its own composer; only a stopped one is gone.
+    alive: summary.status !== 'stopped',
     workspaceId: summary.workspaceId,
     agentId: summary.agentId,
+    providerId: summary.providerId,
     phase: conversationPhase(summary.status),
     // A conversation session streams events, not pty bytes; `updatedAt` is the
     // nearest honest "last activity" stamp. Nothing routes on it — `wait` and

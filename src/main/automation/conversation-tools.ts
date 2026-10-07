@@ -8,7 +8,13 @@ import type { WorkspaceRegistryActor } from '../../shared/workspace-registry'
 import type { ConversationLifecycle } from './conversation-lifecycle'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import type { ConversationLaunchService } from '../conversation-launch-service'
-import { launchingAgentOf, type LaunchedAgentLink } from '../agent-launch-notices'
+import {
+  launchingAgentOf,
+  NOT_TOLD_NOT_AN_AGENT,
+  NOT_TOLD_UNAVAILABLE,
+  type LaunchedAgentLink,
+  type LaunchLinkResult,
+} from '../agent-launch-notices'
 import {
   capLaunchPermissionPreset,
   launchPermissionCeiling,
@@ -44,7 +50,7 @@ export type ConversationToolsDeps = {
    * type into the caller (a Studio server out of process), and the result says
    * so.
    */
-  linkLaunchedAgent?: (link: LaunchedAgentLink) => boolean
+  linkLaunchedAgent?: (link: LaunchedAgentLink) => LaunchLinkResult
 }
 
 /**
@@ -64,9 +70,10 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         'The chat is added to the workspace, its session is started, and `prompt` is sent as its first ' +
         'message; the call returns once the session is up, without waiting for the reply. Follow it with ' +
         'the conversation stream by its workspaceId and agentId. Called by an agent of this app, the caller is ' +
-        'told when the chat finishes a turn (with the end of its reply), fails, closes, or waits for an answer ' +
-        'or an approval: a short notice from Studio arrives as a new message once the caller is idle, never in ' +
-        'the middle of its turn. The result\'s "notifyParent" says whether the caller will be told.',
+        'told when the chat finishes a turn (with the end of its reply, quoted), fails or closes: a short notice ' +
+        'from Studio arrives as a new message once the caller is idle, never in the middle of its turn. That the ' +
+        "chat waits on the person for an answer or an approval rides along with the next notice. The result's " +
+        '"notifyParent" says whether the caller will be told, and "notifyParentReason" why not.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -119,8 +126,8 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           notifyParent: {
             type: 'boolean',
             description:
-              'Tell the calling agent when the chat finishes a turn, fails, closes, or waits for input, with a ' +
-              'short notice that arrives as a new message once the caller is idle. Defaults to true.',
+              'Tell the calling agent when the chat finishes a turn, fails or closes, with a short notice that ' +
+              'arrives as a new message once the caller is idle. Defaults to true.',
           },
         },
         required: ['workspaceId'],
@@ -174,20 +181,23 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         })
         if (!launched.ok) return toolError(launched.code, launched.message)
         const parent = launchingAgentOf(context)
-        const notifyParent =
-          args.notifyParent !== false &&
-          parent !== null &&
-          deps.linkLaunchedAgent !== undefined &&
-          deps.linkLaunchedAgent({
-            parent,
-            child: {
-              workspaceId: launched.workspaceId,
-              agentId: launched.agentId,
-              sessionId: launched.sessionId,
-              transport: 'conversation',
-              name: launched.name,
-            },
-          })
+        const linked: LaunchLinkResult | null =
+          args.notifyParent === false
+            ? null
+            : !parent
+              ? { linked: false, reason: NOT_TOLD_NOT_AN_AGENT }
+              : !deps.linkLaunchedAgent
+                ? { linked: false, reason: NOT_TOLD_UNAVAILABLE }
+                : deps.linkLaunchedAgent({
+                    parent,
+                    child: {
+                      workspaceId: launched.workspaceId,
+                      agentId: launched.agentId,
+                      sessionId: launched.sessionId,
+                      transport: 'conversation',
+                      name: launched.name,
+                    },
+                  })
         return toolSuccess({
           conversation: {
             workspaceId: launched.workspaceId,
@@ -198,7 +208,8 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
             modelId: launched.modelId,
             sessionId: launched.sessionId,
           },
-          notifyParent,
+          notifyParent: linked?.linked === true,
+          ...(linked && !linked.linked ? { notifyParentReason: linked.reason } : {}),
         })
       },
     },

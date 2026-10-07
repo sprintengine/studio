@@ -11,7 +11,13 @@ import { mergeCliModelCatalog, type DiscoveredCliModelCatalog } from '../../shar
 import { cliPickerModels } from '../../shared/cli-model-families'
 import { conversationProviderForCli } from '../../shared/conversation-harness'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
-import { launchingAgentOf, type LaunchedAgentLink } from '../agent-launch-notices'
+import {
+  launchingAgentOf,
+  NOT_TOLD_NOT_AN_AGENT,
+  NOT_TOLD_UNAVAILABLE,
+  type LaunchedAgentLink,
+  type LaunchLinkResult,
+} from '../agent-launch-notices'
 import { mobileSnapshotCollections, retiredMobileSnapshotCollections } from '../mobile/control/protocol'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import type {
@@ -113,7 +119,7 @@ export type AutomationBackends = {
    * whether the caller will be told. Absent, nobody is, and `agent.launch`
    * says so.
    */
-  linkLaunchedAgent?(link: LaunchedAgentLink): boolean
+  linkLaunchedAgent?(link: LaunchedAgentLink): LaunchLinkResult
   /**
    * The preset an agent of this app is running on now. A connection that
    * declares itself one of them launches no looser than this; see
@@ -349,10 +355,14 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   }
 
   // Link a launched agent to the agent that asked for it, so the caller hears
-  // back (agent-launch-notices.ts).
-  function linkToCaller(context: McpConnectionContext | undefined, child: LaunchedAgentLink['child']): boolean {
+  // back (agent-launch-notices.ts). Not linked, the caller is told why.
+  function linkToCaller(
+    context: McpConnectionContext | undefined,
+    child: LaunchedAgentLink['child'],
+  ): LaunchLinkResult {
     const parent = launchingAgentOf(context)
-    if (!parent || !backends.linkLaunchedAgent) return false
+    if (!parent) return { linked: false, reason: NOT_TOLD_NOT_AN_AGENT }
+    if (!backends.linkLaunchedAgent) return { linked: false, reason: NOT_TOLD_UNAVAILABLE }
     return backends.linkLaunchedAgent({ parent, child })
   }
 
@@ -860,10 +870,11 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       'Add a fully-configured agent to a workspace and start its CLI through the same renderer flow the UI uses. ' +
       'Optionally selects the model, permission preset and connector, and isolates the agent in a ' +
       'git worktree. Success is confirmed by the agent terminal session registering with the main process. ' +
-      'Called by an agent of this app, the caller is told when the launched agent finishes a turn, fails, ' +
-      'stops, or waits for input: a short notice from Studio arrives as a new message once the caller is ' +
-      "idle (never in the middle of its turn), so there is no need to poll agent.status. The result's " +
-      '"notifyParent" says whether the caller will be told.',
+      'Called by an agent of this app, the caller is told when the launched agent finishes a turn, fails or ' +
+      'stops: a short notice from Studio arrives as a new message once the caller is idle (never in the ' +
+      'middle of its turn), so there is no need to poll agent.status. That the agent waits on the person for ' +
+      'an approval or an answer rides along with the next notice. The result\'s "notifyParent" says whether ' +
+      'the caller will be told, and "notifyParentReason" why not.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -928,8 +939,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         notifyParent: {
           type: 'boolean',
           description:
-            'Tell the calling agent when the launched agent finishes a turn, fails, stops, or waits for input, ' +
-            'with a short notice that arrives as a new message once the caller is idle. Defaults to true. ' +
+            'Tell the calling agent when the launched agent finishes a turn, fails or stops, with a short ' +
+            'notice that arrives as a new message once the caller is idle. Defaults to true. ' +
             'Pass false to hear nothing and read agent.status instead.',
         },
       },
@@ -971,20 +982,22 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         worktreeBaseRef: options.worktreeBaseRef,
       })
       if (!('agentId' in launched)) return launched
-      const notifyParent =
-        args.notifyParent !== false &&
-        linkToCaller(context, {
-          workspaceId: launched.workspace.id,
-          agentId: launched.agentId,
-          sessionId: launched.session.sessionId,
-          transport: 'terminal',
-          ...(launched.session.agentName ? { name: launched.session.agentName } : {}),
-        })
+      const linked =
+        args.notifyParent === false
+          ? null
+          : linkToCaller(context, {
+              workspaceId: launched.workspace.id,
+              agentId: launched.agentId,
+              sessionId: launched.session.sessionId,
+              transport: 'terminal',
+              ...(launched.session.agentName ? { name: launched.session.agentName } : {}),
+            })
       return success({
         agent: agentProjection(launched.workspace, launched.agentId),
         ...(launched.worktreePath ? { worktreePath: launched.worktreePath } : {}),
         ...(launched.worktreeBranch ? { worktreeBranch: launched.worktreeBranch } : {}),
-        notifyParent,
+        notifyParent: linked?.linked === true,
+        ...(linked && !linked.linked ? { notifyParentReason: linked.reason } : {}),
       })
     },
   }

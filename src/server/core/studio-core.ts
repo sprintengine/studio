@@ -45,7 +45,7 @@ import {
 } from '../../main/usage-limits/resume'
 import { onUsageLimitHit, usageLimitsStore, usageRateLimit } from '../../main/usage-limits/store'
 import { conversationSummaryPhase } from '../../shared/conversation/phase'
-import type { ConversationMessageOrigin } from '../../shared/conversation-runtime'
+import type { ConversationMessageOrigin, ConversationSessionSummary } from '../../shared/conversation-runtime'
 import { usageLimitKindOf } from '../../shared/usage-limit-resume'
 import { isSettledWorkspace } from '../../shared/workspace-lifecycle'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
@@ -237,10 +237,13 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     process.platform === 'win32' && options.wslServers
       ? options.wslServers({ readHostSettings: () => agentLaunchSettings.get().hosts })
       : null
-  // What only the runtime's owner does with it: the idle threshold, and the
-  // flush and shutdown at the end. Everything else goes through the backend.
+  // What only the runtime's owner does with it: the idle threshold, hearing
+  // when one of this process's chats lets go of its turn, and the flush and
+  // shutdown at the end. Everything else goes through the backend.
   const conversationOwner = {
     setIdleThresholdMs: (value: unknown) => conversationRuntime.setIdleThresholdMs(value),
+    onSessionIdle: (listener: (summary: ConversationSessionSummary) => void) =>
+      conversationRuntime.onSessionIdle(listener),
     flushTranscripts: () => conversationRuntime.flushTranscripts(),
     // Each WSL server drains its own chats, within the quit's ten seconds,
     // beside this process's.

@@ -12,6 +12,22 @@ export type UsageLimitProvider = 'claude' | 'codex'
 
 export const USAGE_LIMIT_PROVIDERS: readonly UsageLimitProvider[] = ['claude', 'codex']
 
+/** The usage-limit provider a conversation provider reports as, or null for one with no plan limits here. */
+export function usageLimitProviderOfConversation(
+  conversationProviderId: string | null | undefined,
+): UsageLimitProvider | null {
+  if (conversationProviderId === 'claude-agent') return 'claude'
+  if (conversationProviderId === 'codex-agent') return 'codex'
+  return null
+}
+
+/** The same for a terminal agent's CLI. */
+export function usageLimitProviderOfCli(cli: string | null | undefined): UsageLimitProvider | null {
+  if (cli === 'claude-code') return 'claude'
+  if (cli === 'codex') return 'codex'
+  return null
+}
+
 /**
  * How the account pays. Limits exist only on a subscription: a provider whose
  * latest session billed an API key shows nothing, and one nothing has said

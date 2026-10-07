@@ -139,6 +139,9 @@ export type ConversationTerminalHandoffTarget = {
 }
 
 type RuntimeSession = ConversationSessionSummary & {
+  // The idle listeners were told this session came to rest, and it has not
+  // been busy since (noteSettled).
+  idleAnnounced?: boolean
   // Spawned agents still running, by spawning tool call.
   runningSubagents: Map<string, ConversationSubagentStatusPayload>
   workspaceRoot: string
@@ -402,6 +405,7 @@ export class ConversationRuntime {
   private readonly forkedMcpServers = new Map<string, ConversationMcpServer[]>()
   private readonly sequenceInitializations = new Map<string, Promise<void>>()
   private readonly listeners = new Set<ConversationRuntimeListener>()
+  private readonly idleListeners = new Set<(summary: ConversationSessionSummary) => void>()
   private readonly sequences = new Map<string, number>()
   // When each workspace's checkpoint refs were last expired this run.
   private readonly checkpointsExpiredAt = new Map<string, number>()
@@ -491,6 +495,44 @@ export class ConversationRuntime {
   onEvent(listener: ConversationRuntimeListener): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  /**
+   * A chat that has just let go of its turn: it runs none and waits on no
+   * card, so a message sent now is taken rather than refused as busy. Told
+   * once per settle, after the state the summary reads is in place. The
+   * turn's end event is not that moment: it is published while the turn still
+   * holds the session, so a send made on it is refused (main/agent-launch-
+   * notices.ts waits for this instead).
+   */
+  onSessionIdle(listener: (summary: ConversationSessionSummary) => void): () => void {
+    this.idleListeners.add(listener)
+    return () => this.idleListeners.delete(listener)
+  }
+
+  // Tell the idle listeners when `session` has just come to rest. Called after
+  // every event and at each place a turn lets go of the session; a check that
+  // finds it busy re-arms the announcement for its next rest.
+  private noteSettled(session: RuntimeSession): void {
+    const settled =
+      this.sessions.get(session.sessionId) === session &&
+      (session.status === 'ready' || session.status === 'failed') &&
+      !isSessionBusy(session)
+    if (!settled) {
+      session.idleAnnounced = false
+      return
+    }
+    if (session.idleAnnounced) return
+    session.idleAnnounced = true
+    if (this.idleListeners.size === 0) return
+    const summary = this.toSummary(session)
+    for (const listener of [...this.idleListeners]) {
+      try {
+        listener(summary)
+      } catch (error) {
+        console.warn('[conversation-runtime] an idle listener failed:', error instanceof Error ? error.message : error)
+      }
+    }
   }
   getProviderCapabilities(providerId: string) {
     return this.getAdapterForProviderId(providerId)?.capabilities
@@ -985,6 +1027,7 @@ export class ConversationRuntime {
     })()
     if (session.providerTurn === providerTurn) session.providerTurn = null
     providerTurn.settle(result)
+    this.noteSettled(session)
     return result
   }
 
@@ -1366,6 +1409,7 @@ export class ConversationRuntime {
       session.activeTurnAbort = null
       session.status = 'ready'
       session.updatedAt = this.now()
+      this.noteSettled(session)
       return { ok: true, session: this.toSummary(session) }
     }
     if (session.stateful) {
@@ -1385,6 +1429,7 @@ export class ConversationRuntime {
     session.pendingRequestId = null
     session.status = input.approved ? 'ready' : 'failed'
     session.updatedAt = this.now()
+    this.noteSettled(session)
     return { ok: true, session: this.toSummary(session) }
   }
 
@@ -1565,6 +1610,7 @@ export class ConversationRuntime {
     session.activeTurnAbort = null
     session.status = 'ready'
     session.updatedAt = this.now()
+    this.noteSettled(session)
     return { ok: true, session: this.toSummary(session) }
   }
 
@@ -2073,6 +2119,7 @@ export class ConversationRuntime {
     const result = (this.emissionTails.get(path) ?? Promise.resolve())
       .catch(() => undefined)
       .then(() => this.emitNow(session, event, options))
+      .finally(() => this.noteSettled(session))
     this.emissionTails.set(path, result)
     return result
   }
@@ -2566,6 +2613,7 @@ export class ConversationRuntime {
       session.pendingApprovalRequestIds.clear()
       session.status = event.type === 'turn_completed' ? 'ready' : 'failed'
       session.updatedAt = this.now()
+      this.noteSettled(session)
     }
   }
 

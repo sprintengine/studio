@@ -146,7 +146,7 @@
     },
     {
       "name": "conversation.create",
-      "sha256": "6b6527ea0a3b07781918b5b16f29f8211e23a95f644d87c5480b88887c0cc289"
+      "sha256": "b4e11b2ac44e8b865a2f8109255f2a7648911b2bd78a12ca4e236b28f2fb34c7"
     },
     {
       "name": "conversation.settle",
@@ -190,7 +190,7 @@
     },
     {
       "name": "agent.launch",
-      "sha256": "87f5c73da12b543bf2b5dbceaf3d5930f0b475397008fe3d51ebb49fbfc7c0c0"
+      "sha256": "552043817d06f5dfbf3e2282672357d24d036006ffa1c7d3ed0db63deaffc2a0"
     },
     {
       "name": "agent.status",
@@ -448,7 +448,7 @@
     },
     {
       "name": "conversation.create",
-      "sha256": "6b6527ea0a3b07781918b5b16f29f8211e23a95f644d87c5480b88887c0cc289"
+      "sha256": "b4e11b2ac44e8b865a2f8109255f2a7648911b2bd78a12ca4e236b28f2fb34c7"
     },
     {
       "name": "conversation.settle",
@@ -492,7 +492,7 @@
     },
     {
       "name": "agent.launch",
-      "sha256": "87f5c73da12b543bf2b5dbceaf3d5930f0b475397008fe3d51ebb49fbfc7c0c0"
+      "sha256": "552043817d06f5dfbf3e2282672357d24d036006ffa1c7d3ed0db63deaffc2a0"
     },
     {
       "name": "agent.status",

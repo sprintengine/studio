@@ -151,6 +151,7 @@ import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canv
 import { broadcastToWorkspaceWindows, isBrowserHostWebContents, listWorkspaceWindows } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchNotices } from './agent-launch-notices'
+import { usageRateLimit } from './usage-limits/store'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
@@ -1018,10 +1019,12 @@ export function createAppServices(
       },
     },
   })
-  // An agent that launched another hears when that one finishes or stops to
-  // ask, through the plane above, instead of polling agent.status. The chat
-  // half reads this process's chats; out of process they are the server's, and
-  // a chat there is not linked (`link` answers false and the caller polls).
+  // An agent that launched another hears when that one finishes or stops,
+  // through the plane above, instead of polling agent.status. The chat half
+  // reads this process's chats; out of process they are the server's, and a
+  // chat there is not linked (`link` says so and the caller polls). A notice
+  // waits out a usage limit on the parent's provider, as this process's store
+  // reads it: its own chats' readings and its terminals' status lines.
   const agentLaunchNotices = createAgentLaunchNotices({
     plane: agentControlPlane,
     readChatReply: (sessionId) => {
@@ -1030,6 +1033,7 @@ export function createAppServices(
         ? listed.sessions.find((session) => session.sessionId === sessionId)?.lastAssistantText
         : undefined
     },
+    usageLimit: (provider) => usageRateLimit(provider),
     log: (message) => {
       void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Launch notices', message })
     },
@@ -1037,6 +1041,9 @@ export function createAppServices(
   terminalRuntime.registerAgentPhaseListener((event) => agentLaunchNotices.onAgentPhase(event))
   terminalRuntime.registerAgentSessionExitListener((event) => agentLaunchNotices.onAgentSessionExit(event))
   conversations.onEvent((event) => agentLaunchNotices.onConversationEvent(event))
+  // A chat parent is told when its turn has let go of it, not on the turn's
+  // end event, which comes while the turn still holds the chat.
+  conversationOwner.onSessionIdle((summary) => agentLaunchNotices.onChatIdle(summary))
   // The saved update channel is main's: the updater is configured here, before
   // any renderer exists to ask.
   const updateChannelStore = createUpdateChannelStore({

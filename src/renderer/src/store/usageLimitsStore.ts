@@ -1,6 +1,11 @@
 import { create } from 'zustand'
 
-import type { UsageLimitProvider, UsageLimitSnapshot, UsageLimitsState } from '../../../shared/usage-limits'
+import {
+  usageLimitProviderOfConversation,
+  type UsageLimitProvider,
+  type UsageLimitSnapshot,
+  type UsageLimitsState,
+} from '../../../shared/usage-limits'
 
 // The subscription usage limits as main last reported them (`usage-limits:*`),
 // held once per window so the chat strips and the palette's dialog read one
@@ -71,11 +76,7 @@ export function retainUsageLimits(
 }
 
 /** The usage-limit provider a conversation provider reports as, or null for one with no plan limits here. */
-export function usageLimitProviderOf(conversationProviderId: string | null | undefined): UsageLimitProvider | null {
-  if (conversationProviderId === 'claude-agent') return 'claude'
-  if (conversationProviderId === 'codex-agent') return 'codex'
-  return null
-}
+export const usageLimitProviderOf = usageLimitProviderOfConversation
 
 /** One provider's reading, or null when it has none to show. */
 export function selectUsageLimitSnapshot(

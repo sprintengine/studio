@@ -125,7 +125,7 @@ test('conversation.create links the calling agent to the chat it started, unless
     }),
     resolveAgentPermissionPreset: () => 'bypass',
     lifecycle: noLifecycle,
-    linkLaunchedAgent: (link) => (links.push(link), true),
+    linkLaunchedAgent: (link) => (links.push(link), { linked: true as const }),
   })
   const caller = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-lead' } }
   const linked = await registration!.handler({ workspaceId: 'ws-1' }, caller)
@@ -161,4 +161,5 @@ test('conversation.create links the calling agent to the chat it started, unless
     sessionId: 'conv_1',
   })).handler({ workspaceId: 'ws-1' }, caller)
   assert.equal((unlinked.structuredContent as { notifyParent: boolean }).notifyParent, false)
+  assert.match((unlinked.structuredContent as { notifyParentReason: string }).notifyParentReason, /agent\.status/u)
 })
