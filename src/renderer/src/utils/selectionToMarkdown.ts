@@ -125,6 +125,15 @@ function codeBlockText(root: Element): string {
   return (pre?.textContent ?? '').replace(/\n$/u, '')
 }
 
+// A typeset formula is drawn twice over — MathML for a screen reader, HTML for
+// the eye — and neither reads back as what was written. The renderer keeps the
+// TeX on the formula's root (`markdownMath.tsx`).
+function typesetMath(element: Element): { tex: string; display: boolean } | null {
+  const kind = element.getAttribute('data-math')
+  const tex = element.getAttribute('data-tex')
+  return kind && tex !== null ? { tex, display: kind === 'display' } : null
+}
+
 function longestRun(text: string, char: string): number {
   let longest = 0
   let current = 0
@@ -308,6 +317,9 @@ function serialise(node: Node, parentTag: string): string {
     const code = codeBlockText(element)
     return code ? block(fencedCode(code, codeBlockLanguage(element))) : ''
   }
+
+  const math = typesetMath(element)
+  if (math) return math.display ? block(`$$\n${math.tex}\n$$`) : `$$${math.tex}$$`
 
   const heading = /^H([1-6])$/u.exec(element.tagName)?.[1]
   if (heading) {
@@ -517,6 +529,22 @@ function sanitisedHtml(root: Element): string {
       if (child.tagName === 'INPUT' && child.getAttribute('type') === 'checkbox') continue
       if (isChrome(child, element.tagName)) {
         child.remove()
+        continue
+      }
+      const math = typesetMath(child)
+      if (math) {
+        // As the source a rich editor can keep: a display formula as a math
+        // block, an inline one as the text it was written as.
+        if (!math.display) {
+          child.replaceWith(doc.createTextNode(`$$${math.tex}$$`))
+          continue
+        }
+        const pre = doc.createElement('pre')
+        const code = doc.createElement('code')
+        code.setAttribute('class', 'language-math')
+        code.textContent = math.tex
+        pre.appendChild(code)
+        child.replaceWith(pre)
         continue
       }
       if (isCodeBlockRoot(child)) {

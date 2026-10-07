@@ -279,6 +279,25 @@ function isModifierTapBinding(binding: ActiveBinding, key: string): boolean {
   )
 }
 
+/**
+ * Whether one keydown is any of `keybindings` (single strokes only), matched
+ * exactly as the dispatcher matches. For a surface that resolves a registry
+ * command's binding in its own key handler (the New chat composer's ⌘⏎), so
+ * a rebind in the Shortcuts tab reaches it unchanged.
+ */
+export function keydownMatchesKeybindings(
+  event: CommandDispatcherKeyEvent,
+  keybindings: readonly string[],
+  platform: KeybindingPlatform,
+): boolean {
+  const eventStroke = eventSignature(event, platform)
+  return keybindings.some((keybinding) => {
+    const parsed = parseKeybinding(keybinding)
+    if (!parsed.ok || parsed.chord.strokes.length !== 1) return false
+    return signaturesMatch(strokeSignature(parsed.chord.strokes[0], platform), eventStroke)
+  })
+}
+
 export class RendererCommandDispatcher {
   private pending: PendingChord | null = null
   // The lone modifier currently held with nothing pressed since — a tap in

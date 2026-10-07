@@ -118,12 +118,16 @@ export type WorkspaceSyncCommand =
  * desktop's windows, a phone, another desktop — and a visit stamped on a
  * clock running slightly behind must not undo one stamped a moment earlier
  * somewhere else, so it is monotonic for the same reason the others are.
+ * Mark unread is the one exception, and says so: it moves the visit clock
+ * back together with a newer `visitRewoundAt`, itself monotonic, and only a
+ * patch carrying one may lower it (`visitRewindApplies`).
  */
 export const MONOTONIC_WORKSPACE_CLOCKS = [
   'lastTerminalActivityAt',
   'lastUserMessageAt',
   'lastTurnEndedAt',
   'lastVisitedAt',
+  'visitRewoundAt',
 ] as const
 
 /** True unless writing `value` into `key` would roll an activity clock back. */
@@ -133,19 +137,50 @@ export function workspaceFieldMayApply(record: Record<string, unknown>, key: str
   return typeof current !== 'number' || (typeof value === 'number' && value >= current)
 }
 
+const finiteClock = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+
+/**
+ * Whether `incoming` moves the visit clock back on purpose: it carries a Mark
+ * unread (`visitRewoundAt`) newer than the one `record` has seen, and a
+ * `lastVisitedAt` that is a time, so that time is taken even when it is
+ * earlier. Never a clear: a rewind with no time to go back to (null, NaN, a
+ * string) rewinds nothing. The rewind is ordered by its own stamp, so a
+ * lagging reading — of the clock before the rewind, or of an older rewind —
+ * still cannot undo a later one. Only main's Mark unread writes the stamp
+ * (`workspace-sync-service.ts`'s `rewindVisit`); no window's patch may carry it.
+ */
+export function visitRewindApplies(
+  record: Readonly<Record<string, unknown>>,
+  incoming: Readonly<Record<string, unknown>>,
+): boolean {
+  const rewoundAt = incoming['visitRewoundAt']
+  if (!finiteClock(rewoundAt) || !finiteClock(incoming['lastVisitedAt'])) return false
+  const current = record['visitRewoundAt']
+  return typeof current !== 'number' || rewoundAt > current
+}
+
 /**
  * Apply a field patch in place. The one implementation of the patch contract
- * — absent key = no opinion, explicit null = cleared, a clock only advances —
- * shared by main's reducer and the renderer's inbound path, so the two can
- * never disagree about what a patch did.
+ * — absent key = no opinion, explicit null = cleared, a clock only advances,
+ * the visit clock goes back only by Mark unread — shared by main's reducer and
+ * the renderer's inbound path, so the two can never disagree about what a
+ * patch did.
  */
 export function applyWorkspaceFieldsPatch(record: Record<string, unknown>, patch: WorkspaceFieldsPatch): void {
+  const rewinds = visitRewindApplies(record, patch)
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue
-    if (!workspaceFieldMayApply(record, key, value)) continue
+    if (!(rewinds && key === 'lastVisitedAt') && !workspaceFieldMayApply(record, key, value)) continue
     record[key] = value
   }
 }
+
+/**
+ * Mark unread's answer (`conversation.mark_unread`, and a window's row menu):
+ * the visit clock as it now stands, or why nothing was marked.
+ */
+export type WorkspaceMarkUnreadResult =
+  { ok: true; workspaceId: string; lastVisitedAt: number } | { ok: false; code: string; message: string }
 
 /**
  * The registry fields a user edits through `workspace.update_fields`. An absent
@@ -166,6 +201,12 @@ export type WorkspaceFieldsPatch = {
   lastUserMessageAt?: number | null
   lastTurnEndedAt?: number | null
   lastVisitedAt?: number | null
+  /**
+   * Mark unread: written with the `lastVisitedAt` it lowers
+   * (`visitRewindApplies`), and only by main's own command for it; a window's
+   * `workspace.update_fields` carrying it is refused.
+   */
+  visitRewoundAt?: number
 }
 
 export type WorkspaceSyncEventType =

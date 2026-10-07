@@ -134,6 +134,7 @@ import {
   rowHasOpenTerminals,
 } from './sidebar/rowTerminals'
 import { useVisitStamp, type VisitTarget } from './sidebar/useVisitStamp'
+import { noteChatLeft, noteChatOpened } from '../panels/agentChat/unreadDivider'
 import { onWorkspaceSettledElsewhere, takeWorkspacesSettledElsewhere } from '../../utils/settledElsewhere'
 import { useWindowActive } from '../../utils/windowActivity'
 import {
@@ -481,6 +482,31 @@ function WorkspaceSidebar({
     rowGitSummariesRef.current = next
     return next
   }, [workspaces, sessionsByWorkspaceId, gitSummaries])
+  // A door-routed full-page surface owns the card region (global-surfaces epic
+  // 1704). While one is active no project row is "current" — the door row carries
+  // the selection instead, so the sidebar shows exactly one selected thing. This
+  // resolves + module-gates the active surface exactly as WorkspaceManager does
+  // for the mount, so the two agree: a stale id whose surface is unregistered or
+  // whose module was disabled falls back to the workspace (region shows it, and a
+  // project row re-selects) rather than leaving nothing selected.
+  const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
+  const globalSurfaceActive = useMemo(() => {
+    if (!activeGlobalSurface) return false
+    const entry = getRendererHost().getGlobalSurface(activeGlobalSurface)
+    return entry !== undefined && selectModuleEnabled(moduleOverrides, entry.moduleId)
+  }, [activeGlobalSurface, moduleOverrides])
+  // The chat a person can see: the window's own, unless New chat or a door
+  // covers it. A chat started with ⌘⏎ is not it, and neither is the one under
+  // New chat while the person types the next task: each is stamped as seen,
+  // and loses its finished mark, only once it is uncovered.
+  const onScreenWorkspaceId = newChatOpen || globalSurfaceActive ? null : activeWorkspaceId
+  // The chat in front of the window, covered or not by New chat: the one it
+  // comes back to when New chat closes. A look at New chat is not leaving it —
+  // its "New" divider holds, and a Mark unread asked of it waits for the
+  // person to actually move on — though while covered nobody is looking at
+  // it, so it is not stamped as seen. A door is leaving it. A chat started
+  // with ⌘⏎ is not the front chat at all, so neither applies to it.
+  const frontWorkspaceId = globalSurfaceActive ? null : activeWorkspaceId
   // The unseen-completion mark (the green row, `doneRowClass`). Session-only: the
   // store's recency slice persists when a workspace was last TYPED into, not
   // when it was last looked at, so "seen" has no honest home there yet and a
@@ -515,12 +541,12 @@ function WorkspaceSidebar({
         workingSinceBefore: before,
         workingSinceNow,
         settledWorkspaceIds,
-        activeWorkspaceId,
+        activeWorkspaceId: onScreenWorkspaceId,
       })
       if (next.size === previous.size && [...next].every((id) => previous.has(id))) return previous
       return next
     })
-  }, [terminalRecencyByWorkspaceId, terminalSessions, conversationSessions, activeWorkspaceId])
+  }, [terminalRecencyByWorkspaceId, terminalSessions, conversationSessions, onScreenWorkspaceId])
   useEffect(() => {
     onUnseenDoneChange?.(unseenDoneIds)
   }, [unseenDoneIds, onUnseenDoneChange])
@@ -565,20 +591,39 @@ function WorkspaceSidebar({
       return next === previous ? previous : new Set(next)
     })
   }, [unseenVisits])
+  // Marked unread, here or on any other device: the chat's visit clock went
+  // back past its latest finish (`conversation.mark_unread`), and the mark
+  // goes up until someone looks at it. Read off the record, so it is still
+  // up after a restart. A finish since the rewind is the transitions' to
+  // mark, and a visit since it is the person having read it.
+  const rewoundVisits = useWorkspaceStore(
+    useCallback((state: { workspaces: Workspace[] }) => {
+      let rewound = ''
+      for (const workspace of state.workspaces) {
+        if (typeof workspace.visitRewoundAt === 'number')
+          rewound += `${workspace.id}=${workspace.visitRewoundAt}:${workspace.lastVisitedAt ?? ''};`
+      }
+      return rewound
+    }, []),
+  )
+  useEffect(() => {
+    if (!rewoundVisits) return
+    const marked: string[] = []
+    for (const workspace of useWorkspaceStore.getState().workspaces) {
+      const rewoundAt = workspace.visitRewoundAt
+      if (typeof rewoundAt !== 'number' || workspace.id === onScreenWorkspaceId || workspace.remoteOrigin) continue
+      const finishedAt = latestFinishOf(workspace, conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS)
+      const visitedAt = typeof workspace.lastVisitedAt === 'number' ? workspace.lastVisitedAt : null
+      if (finishedAt === null || finishedAt > rewoundAt) continue
+      if (visitedAt !== null && visitedAt >= finishedAt) continue
+      marked.push(workspace.id)
+    }
+    if (marked.length === 0) return
+    setUnseenDoneIds((previous) =>
+      marked.every((id) => previous.has(id)) ? previous : new Set([...previous, ...marked]),
+    )
+  }, [rewoundVisits, conversationsByWorkspaceId, onScreenWorkspaceId])
 
-  // A door-routed full-page surface owns the card region (global-surfaces epic
-  // 1704). While one is active no project row is "current" — the door row carries
-  // the selection instead, so the sidebar shows exactly one selected thing. This
-  // resolves + module-gates the active surface exactly as WorkspaceManager does
-  // for the mount, so the two agree: a stale id whose surface is unregistered or
-  // whose module was disabled falls back to the workspace (region shows it, and a
-  // project row re-selects) rather than leaving nothing selected.
-  const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
-  const globalSurfaceActive = useMemo(() => {
-    if (!activeGlobalSurface) return false
-    const entry = getRendererHost().getGlobalSurface(activeGlobalSurface)
-    return entry !== undefined && selectModuleEnabled(moduleOverrides, entry.moduleId)
-  }, [activeGlobalSurface, moduleOverrides])
   // Module-contributed top-nav doors used to be resolved here and handed to
   // ExtensionsRail. They are resolved inside `useExtensionsDrawerRows` now: the
   // memo here was keyed on module enablement alone, so a third-party module
@@ -1212,16 +1257,36 @@ function WorkspaceSidebar({
     [refreshRemote],
   )
 
+  // Mark unread on the chat in front waits for the person to leave it
+  // (`canMarkWorkspaceUnread` below).
+  const unreadOnLeaveRef = useRef(new Set<string>())
+  const markWorkspaceUnread = useCallback((workspaceId: string) => {
+    const mark = window.api?.workspaceMarkUnread
+    if (typeof mark !== 'function') return
+    void mark(workspaceId)
+      .then((answer) => {
+        if (!answer.ok) showToast({ tone: 'error', title: 'Not marked unread', description: answer.message })
+      })
+      .catch((error: unknown) =>
+        showToast({
+          tone: 'error',
+          title: 'Not marked unread',
+          description: error instanceof Error ? error.message : String(error),
+        }),
+      )
+  }, [])
+
   // The chat in front in this window, stamped as seen while the window is
   // visible and focused (`useVisitStamp`). A chat here stamps this desktop's
   // own record; a chat followed from a paired machine stamps that machine's,
-  // which keeps its read state, when it keeps one. A full-page surface
-  // covering the chat means nobody is looking at it.
+  // which keeps its read state, when it keeps one. A full-page surface or New
+  // chat covering the chat means nobody is looking at it; only a surface
+  // means it was left (`frontWorkspaceId`).
   const windowActive = useWindowActive()
   const recordWorkspaceVisit = useWorkspaceStore((s) => s.recordWorkspaceVisit)
   const visitTarget = useMemo((): VisitTarget | null => {
-    if (globalSurfaceActive || !activeWorkspaceId) return null
-    const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId)
+    if (!frontWorkspaceId) return null
+    const workspace = workspaces.find((candidate) => candidate.id === frontWorkspaceId)
     if (!workspace) return null
     const origin = workspace.remoteOrigin
     if (origin) {
@@ -1241,26 +1306,49 @@ function WorkspaceSidebar({
     }
     // The chat's latest finish this window knows of: its agents' terminals
     // (the registry's clock) and its chat sessions.
-    let turnEndedAt = typeof workspace.lastTurnEndedAt === 'number' ? workspace.lastTurnEndedAt : null
-    for (const session of conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS) {
-      if (typeof session.lastTurnEndedAt === 'number' && session.lastTurnEndedAt > (turnEndedAt ?? -1))
-        turnEndedAt = session.lastTurnEndedAt
-    }
+    const turnEndedAt = latestFinishOf(workspace, conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS)
     return {
       key: `local:${workspace.id}`,
       turnEndedAt,
       visitedAt: typeof workspace.lastVisitedAt === 'number' ? workspace.lastVisitedAt : null,
       stamp: (at) => recordWorkspaceVisit(workspace.id, at),
+      // The clock is read off the live store: the rows here are not drawn
+      // again for a visit, so theirs can be a stamp behind.
+      opened: () => {
+        const live = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
+        noteChatOpened(workspace.id, typeof live?.lastVisitedAt === 'number' ? live.lastVisitedAt : null, Date.now())
+      },
+      // Marked unread while it was in front: it takes effect now, as the
+      // person leaves it, or the stamp would have read it again at once.
+      left: () => {
+        noteChatLeft(workspace.id)
+        if (unreadOnLeaveRef.current.delete(workspace.id)) markWorkspaceUnread(workspace.id)
+      },
     }
   }, [
-    globalSurfaceActive,
-    activeWorkspaceId,
+    frontWorkspaceId,
     workspaces,
     remoteConversationByWorkspace,
     conversationsByWorkspaceId,
     recordWorkspaceVisit,
+    markWorkspaceUnread,
   ])
-  useVisitStamp(visitTarget, windowActive)
+  useVisitStamp(visitTarget, windowActive && !newChatOpen)
+
+  // Mark unread moves the chat's visit clock back to just before its latest
+  // finish, in main (`conversation.mark_unread`, the phone's too): its
+  // "finished while you were away" mark comes back on every device, here by
+  // `rewoundVisits` above, and the next opening's "New" divider sits above
+  // its latest reply. Offered where that means something: an agent in the
+  // chat has finished a turn and the row is not already marked. The chat in
+  // front is marked as the person leaves it, since looking at it is what
+  // reads it. A chat followed from a paired machine keeps its read state
+  // there, so it is not offered for one.
+  const canMarkWorkspaceUnread = (workspace: Workspace): boolean => {
+    if (workspace.remoteOrigin || unseenDoneIds.has(workspace.id) || unreadOnLeaveRef.current.has(workspace.id))
+      return false
+    return latestFinishOf(workspace, conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS) !== null
+  }
 
   // A row opened from a paired machine's chat is settled by that machine,
   // which owns the chat; Settle from its menu asks it first, and only once it
@@ -2960,6 +3048,10 @@ function WorkspaceSidebar({
             const workspace = workspaceById.get(contextMenu.workspaceId)
             return workspace ? remoteKeepsRest(workspace) : false
           })()}
+          canMarkUnread={(() => {
+            const workspace = workspaceById.get(contextMenu.workspaceId)
+            return workspace ? canMarkWorkspaceUnread(workspace) : false
+          })()}
           onClose={() => setContextMenu(null)}
           onSelect={(action) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
@@ -2984,6 +3076,12 @@ function WorkspaceSidebar({
             if (action === 'open') {
               onSelectWorkspace(workspace.id)
               setContextMenu(null)
+              return
+            }
+            if (action === 'mark-unread') {
+              setContextMenu(null)
+              if (workspace.id === frontWorkspaceId) unreadOnLeaveRef.current.add(workspace.id)
+              else markWorkspaceUnread(workspace.id)
               return
             }
             if (action === 'rename') {
@@ -3273,6 +3371,18 @@ type WorkspaceRowOptions = {
 
 const NO_SESSIONS: TerminalSessionSnapshot[] = []
 const NO_CONVERSATIONS: readonly ConversationSessionSummary[] = []
+
+/** When an agent in the chat last finished a turn, as far as this window knows; null when none has. */
+function latestFinishOf(
+  workspace: Pick<Workspace, 'lastTurnEndedAt'>,
+  sessions: readonly ConversationSessionSummary[],
+): number | null {
+  let latest = typeof workspace.lastTurnEndedAt === 'number' ? workspace.lastTurnEndedAt : null
+  for (const session of sessions)
+    if (typeof session.lastTurnEndedAt === 'number' && session.lastTurnEndedAt > (latest ?? -1))
+      latest = session.lastTurnEndedAt
+  return latest
+}
 const EMPTY_PULL_REQUESTS: readonly BranchPullRequest[] = []
 
 // A row's options, as constants: a fresh `{ snoozed: true }` on every sidebar

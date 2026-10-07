@@ -99,6 +99,32 @@ test('each chat names its sidebar title and its clocks, and keeps the agent name
   assert.equal(thread?.lastVisitedAt, 250)
 })
 
+test('a chat marked unread says when, so a client closed at the time can tell its visit clock went back', async () => {
+  const host = hostFor({
+    threads: { marked: [indexed('agent-1', { lastTurnEndedAt: 300 })], plain: [indexed('agent-1')] },
+    records: {
+      marked: { name: 'Marked', createdAt: 1, lastVisitedAt: 299, visitRewoundAt: 5_000 },
+      plain: { name: 'Plain', createdAt: 1, lastVisitedAt: 250, visitRewoundAt: null },
+    },
+  })
+  const byWorkspace = new Map((await host.list()).map((thread) => [thread.workspaceId, thread]))
+  assert.equal(byWorkspace.get('marked')?.lastVisitedAt, 299)
+  assert.equal(byWorkspace.get('marked')?.visitRewoundAt, 5_000)
+  assert.equal('visitRewoundAt' in byWorkspace.get('plain')!, false, 'a chat never marked unread says nothing')
+
+  // The client validator keeps a readable one and drops the rest, never the row.
+  const listed = JSON.parse(JSON.stringify([byWorkspace.get('marked')])) as Array<Record<string, unknown>>
+  const parsed = parseConversationServerFrame({
+    type: 'sessions',
+    requestId: 'list',
+    sessions: [...listed, { ...listed[0], agentId: 'agent-2', visitRewoundAt: 'yesterday' }],
+  })
+  assert.ok(parsed?.type === 'sessions')
+  assert.equal(parsed.sessions[0]?.visitRewoundAt, 5_000)
+  assert.equal(parsed.sessions.length, 2)
+  assert.equal('visitRewoundAt' in parsed.sessions[1]!, false)
+})
+
 test('the turn end is the later of the transcript’s and a session’s, never `updatedAt`', async () => {
   const host = hostFor({
     threads: { a: [indexed('agent-1', { lastTurnEndedAt: 300, updatedAt: 9_000 })], b: [indexed('agent-1')] },

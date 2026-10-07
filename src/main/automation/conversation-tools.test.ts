@@ -11,6 +11,7 @@ import { requiredScopeForTool } from './tailnet/tailnet-scopes'
 const noLifecycle = {
   settle: () => assert.fail('conversation.create does not settle'),
   visit: () => assert.fail('conversation.create does not visit'),
+  markUnread: () => assert.fail('conversation.create does not mark anything unread'),
 }
 
 function tool(launch: (request: ConversationLaunchRequest) => Promise<ConversationLaunchResult>) {
@@ -23,10 +24,10 @@ function tool(launch: (request: ConversationLaunchRequest) => Promise<Conversati
   return registration!
 }
 
-test('starting, settling and visiting a chat are audited mutations needing conversation:operate', () => {
+test('starting, settling, visiting and marking a chat unread are audited mutations needing conversation:operate', () => {
   assert.deepEqual(
     [...CONVERSATION_MUTATION_TOOL_NAMES],
-    ['conversation.create', 'conversation.settle', 'conversation.visit'],
+    ['conversation.create', 'conversation.settle', 'conversation.visit', 'conversation.mark_unread'],
   )
   for (const name of CONVERSATION_MUTATION_TOOL_NAMES) {
     assert.equal(isStudioGatewayMutation(name), true, name)

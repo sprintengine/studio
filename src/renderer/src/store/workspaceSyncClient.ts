@@ -188,6 +188,8 @@ export type WorkspaceSyncClient = {
     workspace: Workspace,
     windowId: WorkspaceWindowId,
     folderPath: string | null,
+    /** `activate: false`: it joins the window without coming to the front. */
+    options?: { activate?: false },
   ) => Promise<void>
   /** Dispatch a verified terminal session assignment for an agent. */
   dispatchAssignTerminalSession: (
@@ -543,10 +545,16 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
     workspace: Workspace,
     windowId: WorkspaceWindowId,
     folderPath: string | null,
+    options: { activate?: false } = {},
   ): Promise<void> =>
     dispatchCommand({
       type: 'workspace.created',
-      payload: { workspace, windowId, insert: { kind: 'folder_head', folderPath } },
+      payload: {
+        workspace,
+        windowId,
+        insert: { kind: 'folder_head', folderPath },
+        ...(options.activate === false ? { activate: false as const } : {}),
+      },
     })
 
   const dispatchAssignTerminalSession = (

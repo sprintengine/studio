@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { composerDraftStore, MAX_DRAFT_CHARS, type ComposerDraft } from './draftStore'
 
 type DraftValue = Omit<ComposerDraft, 'updatedAt'>
-export type ComposerDraftMetadata = Pick<DraftValue, 'skillIds' | 'mentions'>
-const empty = (): DraftValue => ({ text: '', skillIds: [], mentions: [] })
-const isEmpty = (value: DraftValue) => !value.text && !value.skillIds.length && !value.mentions.length
+export type ComposerDraftMetadata = Pick<DraftValue, 'skillIds' | 'mentions' | 'files'>
+const empty = (): DraftValue => ({ text: '', skillIds: [], mentions: [], files: [] })
+const isEmpty = (value: DraftValue) =>
+  !value.text && !value.skillIds.length && !value.mentions.length && !value.files.length
 
 /** UI clears optimistically; persisted text remains recoverable until send is acknowledged. */
 export function useComposerDraft(workspaceId: string, agentId: string, prefill = '') {
@@ -16,6 +17,7 @@ export function useComposerDraft(workspaceId: string, agentId: string, prefill =
       text: saved.updatedAt ? saved.text : prefill.slice(0, MAX_DRAFT_CHARS),
       skillIds: saved.skillIds,
       mentions: saved.mentions,
+      files: saved.files,
     }
   }, [store, workspaceId, agentId, prefill])
   const [state, setState] = useState({ key, value: initial })
@@ -106,7 +108,8 @@ export function useComposerDraft(workspaceId: string, agentId: string, prefill =
           succeeded &&
           saved.text === attempt.snapshot.text &&
           JSON.stringify(saved.skillIds) === JSON.stringify(attempt.snapshot.skillIds) &&
-          JSON.stringify(saved.mentions) === JSON.stringify(attempt.snapshot.mentions)
+          JSON.stringify(saved.mentions) === JSON.stringify(attempt.snapshot.mentions) &&
+          JSON.stringify(saved.files) === JSON.stringify(attempt.snapshot.files)
         ) {
           store.getState().remove(workspaceId, agentId)
         }
@@ -125,7 +128,7 @@ export function useComposerDraft(workspaceId: string, agentId: string, prefill =
   return {
     draft: current.text,
     setDraft,
-    draftMetadata: { skillIds: current.skillIds, mentions: current.mentions },
+    draftMetadata: { skillIds: current.skillIds, mentions: current.mentions, files: current.files },
     setDraftMetadata,
     flushDraft,
     persistenceError,

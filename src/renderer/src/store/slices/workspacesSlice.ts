@@ -11,6 +11,7 @@ import {
 } from '../../utils/workspaceSettle'
 import { hasSnooze, snoozeWorkspacePatch, wakeSnoozedWorkspacePatch } from '../../utils/workspaceSnooze'
 import type { WorkspaceFieldsPatch } from '../../../../shared/workspace-sync'
+import { noteChatOpened } from '../../components/panels/agentChat/unreadDivider'
 import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { isRetiredWorkspaceMode } from '../../../../shared/workspace-mode'
 import { hostIdToRecord } from '../../../../shared/execution-host'
@@ -317,6 +318,9 @@ interface WorkspacesSliceActions {
       // clear that user-initiated creation does.
       // activeWorkspaceId assignment is unchanged either way.
       background?: boolean
+      // False: the workspace joins its window without coming to the front (a
+      // chat started with ⌘⏎ from New chat), and leaves the doors alone.
+      activate?: false
       windowId?: WorkspaceWindowId | null
       // Open-in-new-chat seed for the single-agent "solo chat" template. The UI
       // builds a data-only descriptor so this slice never imports prompt
@@ -1248,8 +1252,15 @@ export function createWorkspacesSlice(
       // Captured so creation is broadcast through main as a workspace.created
       // event. Local creation stays the functional path; storage-event sync is
       // the rollback. Fire-and-forget after the synchronous set().
-      let createdEventPayload: { workspace: Workspace; windowId: WorkspaceWindowId; folderPath: string | null } | null =
-        null
+      let createdEventPayload: {
+        workspace: Workspace
+        windowId: WorkspaceWindowId
+        folderPath: string | null
+        activate: boolean
+      } | null = null
+      // Started without being looked at (⌘⏎ from New chat): the window keeps
+      // what it shows, and main is told so, or its echo would bring it front.
+      const activate = options?.activate !== false
       // The agents that moved in from `moveLayoutAgentsFrom`, removed from that
       // workspace in main once the create that carries them has been sent.
       const movedInAgentIds: AgentId[] = []
@@ -1388,19 +1399,29 @@ export function createWorkspacesSlice(
             state.appSettings.recentWorkspaceFolders,
           )
         }
-        state.activeWorkspaceId = id
-        if (!options?.background) clearRoutedSurfaces(state)
+        if (activate) {
+          state.activeWorkspaceId = id
+          if (!options?.background) clearRoutedSurfaces(state)
+        }
         const targetWindow = ensureWorkspaceWindow(state, targetWindowId)
         targetWindow.workspaceIds = [id, ...targetWindow.workspaceIds.filter((workspaceId) => workspaceId !== id)]
-        targetWindow.activeWorkspaceId = id
+        // Not activated, a window that had nothing to show still comes to
+        // show it (normalizeWindowAssignments): a window never has workspaces
+        // and none active.
+        if (activate) targetWindow.activeWorkspaceId = id
         normalizeWindowAssignments(state)
         state.workspaceRegistryEmptyState = null
-        createdEventPayload = { workspace: newWorkspace, windowId: targetWindowId, folderPath }
+        createdEventPayload = { workspace: newWorkspace, windowId: targetWindowId, folderPath, activate }
       })
 
       if (createdEventPayload) {
-        const { workspace, windowId, folderPath } = createdEventPayload
-        void workspaceSyncClient.dispatchCreateWorkspace(workspace, windowId, folderPath)
+        const { workspace, windowId, folderPath, activate: activated } = createdEventPayload
+        void workspaceSyncClient.dispatchCreateWorkspace(
+          workspace,
+          windowId,
+          folderPath,
+          activated ? {} : { activate: false },
+        )
         // Sent after the create, so main holds the agent in one chat or the
         // other throughout, never in neither.
         for (const agentId of movedInAgentIds) {
@@ -1505,6 +1526,13 @@ export function createWorkspacesSlice(
       // because the Woke mark exists to get you to this exact click and has
       // nothing left to say once you have made it.
       let snoozePatch: WorkspaceFieldsPatch | null = null
+      // The opening, said before the chat is drawn so its view mounts at the
+      // "New" divider (`unreadDivider.ts`), with the visit clock as it stands
+      // before this opening is stamped. A chat followed from another machine
+      // keeps its clock there, and has no divider here.
+      const opened = getState().workspaces.find((w) => w.id === id)
+      if (opened && !opened.remoteOrigin)
+        noteChatOpened(id, typeof opened.lastVisitedAt === 'number' ? opened.lastVisitedAt : null, Date.now())
       set((state) => {
         state.activeWorkspaceId = id
         // Leaving a door-routed full-page surface for a workspace (epic 1704);

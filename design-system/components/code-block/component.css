@@ -81,6 +81,21 @@
   overflow-wrap: anywhere;
 }
 
+/* A drawing made from the source (a diagram), in the source's place. It sits
+ * centred at its own size and shrinks to the column, never past it; one wider
+ * than it can shrink to legibly scrolls sideways instead. */
+.ds-code-block__drawing {
+  display: flex;
+  justify-content: center;
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  overflow-x: auto;
+}
+.ds-code-block__drawing svg {
+  flex: none;
+  max-width: 100%;
+  height: auto;
+}
+
 /* Edge fades on an unwrapped block, set by the host on exactly the edges that
  * have code past them — an edge with nothing beyond it must not fade, or a
  * complete line looks clipped. A mask rather than an overlay, so there is no

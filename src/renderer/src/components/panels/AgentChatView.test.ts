@@ -1692,16 +1692,22 @@ test('AgentChatView', async () => {
     assert.ok(chatViewSource.includes(handler), `the composer wires ${handler}`)
   }
   // The "+" menu's Attach files row clicks the kit's hidden file input, whose
-  // pick stages images through the same attach path as paste and drop.
+  // pick is sorted as a drop of the same files is: images through attachFiles
+  // where the chat reads them, any other file as its card.
   assert.match(
     chatViewSource.slice(chatViewSource.indexOf('<HiddenFileInput')),
-    /^[\s\S]{0,300}?onFiles=\{\(files\) => void attachFiles\(files\)\}/,
-    'a picked file attaches through attachFiles',
+    /^[\s\S]{0,300}?onFiles=\{onPickedFiles\}/,
+    'the picker hands its pick on',
+  )
+  assert.match(
+    chatViewSource,
+    /takePickedFilesRef\.current = \(files\) =>\s+filesEnabled \? takeFiles\(sortFiles\(files, fileSorting\)\) : void attachFiles\(files\)/,
+    'a picked file is taken as a drop of it is, and attaches through attachFiles where only images do',
   )
   assert.match(
     chatViewSource.slice(chatViewSource.indexOf('<ComposerPlusMenu')),
-    /^[\s\S]{0,200}?onAttach=\{imagesEnabled \? \(\) => fileInputRef\.current\?\.click\(\) : undefined\}/,
-    'the "+" offers Attach files only where the chat reads images',
+    /^[\s\S]{0,200}?onAttach=\{imagesEnabled \|\| filesEnabled \? openFilePicker : undefined\}/,
+    'the "+" offers Attach files where the chat reads images or takes files by path',
   )
   assert.ok(
     chatViewSource.includes('dropHandlers={fileDropHandlers}'),
@@ -1979,20 +1985,34 @@ test('a draft folded into the queue keeps the queued message first and every att
     dataBase64: 'Zm9v',
     byteLength: 3,
   })
-  const first = queueComposerDraft(null, 'check the logs', [image('a')], { skillIds: ['review'], mentions: [] })
+  const first = queueComposerDraft(null, 'check the logs', [image('a')], {
+    skillIds: ['review'],
+    mentions: [],
+    files: ['/Users/dev/Desktop/crash.log'],
+  })
   assert.deepEqual(first, {
-    turn: { text: 'check the logs', attachments: [image('a')], metadata: { skillIds: ['review'], mentions: [] } },
+    turn: {
+      text: 'check the logs',
+      attachments: [image('a')],
+      metadata: { skillIds: ['review'], mentions: [], files: ['/Users/dev/Desktop/crash.log'] },
+    },
     dropped: 0,
   })
   const mention = { kind: 'file' as const, path: 'src/app.ts' }
   const second = queueComposerDraft(first.turn, 'then fix it', [image('b')], {
     skillIds: ['review', 'tests'],
     mentions: [mention],
+    // A file attached to both is sent once.
+    files: ['/Users/dev/Desktop/crash.log', '/Users/dev/Desktop/spec.pdf'],
   })
   assert.equal(second.turn.text, 'check the logs\nthen fix it')
   assert.deepEqual(
     second.turn.attachments.map((entry) => entry.id),
     ['a', 'b'],
   )
-  assert.deepEqual(second.turn.metadata, { skillIds: ['review', 'tests'], mentions: [mention] })
+  assert.deepEqual(second.turn.metadata, {
+    skillIds: ['review', 'tests'],
+    mentions: [mention],
+    files: ['/Users/dev/Desktop/crash.log', '/Users/dev/Desktop/spec.pdf'],
+  })
 })

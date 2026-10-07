@@ -103,6 +103,7 @@ const entry: UserEntry = {
   seq: 7,
   text: 'Rename the helper',
   mentions: [{ kind: 'file', path: 'src/app.ts' }],
+  files: [{ path: '/Users/dev/Desktop/spec.pdf' }],
   skills: ['review'],
 }
 
@@ -132,7 +133,14 @@ test('editing from a message restores the chosen files, goes back, and returns t
       { key: { workspaceRoot: '/workspace/app', workspaceId: 'edit-test', agentId: 'agent' }, turnSeq: 7 },
     ])
     expect(view.calls.drafts).toEqual([
-      { text: 'Rename the helper', attachments: [], mentions: entry.mentions, skills: ['review'] },
+      {
+        text: 'Rename the helper',
+        attachments: [],
+        mentions: entry.mentions,
+        skills: ['review'],
+        // Its files come back as the composer's cards.
+        files: ['/Users/dev/Desktop/spec.pdf'],
+      },
     ])
     expect(view.calls.order, 'files move only once the conversation has').toEqual(['rewind', 'restore files'])
   } finally {

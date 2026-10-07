@@ -1,11 +1,12 @@
 import React, { Component, memo, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { ChevronDownIcon } from '../AppIcons'
 import { GhostButton, IconButton } from './Buttons'
+import { LinkButton } from './LinkButton'
 import { CopyGlyphButton } from './CopyGlyphButton'
 import { FileTypeGlyph } from './FileTypeGlyph'
 import { Tooltip } from './Tooltip'
 import { TruncatedText } from './TruncatedText'
-import { TerminalPromptGlyph, WrapLinesGlyph } from './CodeBlockGlyphs'
+import { TerminalPromptGlyph, ViewSourceGlyph, WrapLinesGlyph } from './CodeBlockGlyphs'
 import { codeBlockTitle, countLines, pastableShellCommand } from './codeBlockModel'
 import {
   cachedCodeLines,
@@ -38,7 +39,20 @@ export type CodeBlockProps = {
    * the block does not grow a second disclosure.
    */
   collapsible?: boolean
+  /**
+   * A drawing made from the source — a diagram — shown in its place on a
+   * settled block, with a toggle back to the source. The source stays the
+   * block's text: Copy code copies it, and so does a selection across the
+   * block. Leave it unset while the drawing is not ready, and the source shows.
+   */
+  drawing?: ReactNode
+  /** A quiet line under the block saying something about it, such as why it shows as source. */
+  note?: string
+  /** An action the note offers, set after it as a link: "Retry" when a drawing failed to load. */
+  noteAction?: CodeBlockNoteAction
 }
+
+export type CodeBlockNoteAction = { label: string; onClick: () => void }
 
 /**
  * A settled block longer than this folds. Twenty lines is about a screenful of
@@ -162,13 +176,15 @@ export function CodeBlock(props: CodeBlockProps) {
   // then would pull the lines out from under someone reading them. One that
   // arrives settled — scrolled back to, reopened — starts folded.
   const [expanded, setExpanded] = useState(() => Boolean(streaming))
+  const [showSource, setShowSource] = useState(false)
   const bodyId = useId()
   const preRef = useRef<HTMLPreElement | null>(null)
   useOverflowEdges(preRef, code, wrap)
 
   const title = codeBlockTitle(props.language, props.filename)
   const lineCount = countLines(code)
-  const foldable = props.collapsible !== false && !streaming && lineCount > COLLAPSE_AFTER_LINES
+  const drawn = props.drawing != null && !streaming && !showSource
+  const foldable = props.collapsible !== false && !streaming && !drawn && lineCount > COLLAPSE_AFTER_LINES
   const folded = foldable && !expanded
   const command = props.onPasteInTerminal ? pastableShellCommand(code, props.language, streaming) : null
   const onPaste = props.onPasteInTerminal
@@ -200,23 +216,45 @@ export function CodeBlock(props: CodeBlockProps) {
               </IconButton>
             </Tooltip>
           ) : null}
-          <Tooltip content="Wrap lines">
-            <IconButton
-              size="xs"
-              tone="subtle"
-              aria-label="Wrap lines"
-              pressed={wrap}
-              onClick={() => setWrap((value) => !value)}
-            >
-              <WrapLinesGlyph className="size-icon-xs" />
-            </IconButton>
-          </Tooltip>
+          {props.drawing != null && !streaming ? (
+            <Tooltip content="Show source">
+              <IconButton
+                size="xs"
+                tone="subtle"
+                aria-label="Show source"
+                pressed={showSource}
+                onClick={() => setShowSource((value) => !value)}
+              >
+                <ViewSourceGlyph className="size-icon-xs" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+          {drawn ? null : (
+            <Tooltip content="Wrap lines">
+              <IconButton
+                size="xs"
+                tone="subtle"
+                aria-label="Wrap lines"
+                pressed={wrap}
+                onClick={() => setWrap((value) => !value)}
+              >
+                <WrapLinesGlyph className="size-icon-xs" />
+              </IconButton>
+            </Tooltip>
+          )}
           <CopyGlyphButton text={code} label="Copy code" size="xs" tone="subtle" />
         </div>
       </div>
       {/* Folding clips the box, never the source: every line stays in the DOM,
           so find-in-page, a selection and the copy glyph all still get it all. */}
-      <div id={bodyId} className="ds-code-block__body" data-folded={folded ? '' : undefined}>
+      {/* A drawing is chrome to a selection: the source under it, hidden, is
+          what a copy across the block takes. */}
+      {drawn ? (
+        <div className="ds-code-block__drawing" data-copy-exclude="">
+          {props.drawing}
+        </div>
+      ) : null}
+      <div id={bodyId} className="ds-code-block__body" data-folded={folded ? '' : undefined} hidden={drawn}>
         <pre ref={preRef}>
           <CodeBoundary code={code}>
             <HighlightedSource code={code} language={title.highlightLanguage} streaming={streaming} />
@@ -239,9 +277,20 @@ export function CodeBlock(props: CodeBlockProps) {
           </GhostButton>
         </div>
       ) : null}
-      {lineCount > HIGHLIGHT_LINE_LIMIT ? (
+      {lineCount > HIGHLIGHT_LINE_LIMIT && !drawn ? (
         <div className="ds-code-block__note" data-copy-exclude="">
           Highlighting stopped at {HIGHLIGHT_LINE_LIMIT} lines
+        </div>
+      ) : null}
+      {props.note ? (
+        <div className="ds-code-block__note" data-copy-exclude="">
+          {props.note}
+          {props.noteAction ? (
+            <>
+              {' · '}
+              <LinkButton onClick={props.noteAction.onClick}>{props.noteAction.label}</LinkButton>
+            </>
+          ) : null}
         </div>
       ) : null}
     </section>

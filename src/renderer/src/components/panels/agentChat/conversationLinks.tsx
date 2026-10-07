@@ -9,7 +9,7 @@ import { availableFolderOpenTargets, resolveFolderOpenPrimary } from '../../work
 import { resolveTerminalFileReferencePath } from '../../../utils/terminalFileLinks'
 import { showToast } from '../../../store/toastStore'
 import { StreamingMarkdown } from './StreamingMarkdown'
-import { ConversationCodeBlock } from './ConversationCodeBlock'
+import { ConversationCodeBlock, ConversationReplyCodeBlock } from './ConversationCodeBlock'
 import { ConversationImage } from './ConversationImage'
 import { renderMarkdown } from '../../../utils/markdown'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
@@ -402,9 +402,13 @@ export function ConversationMarkdown({
 }) {
   const streamed = useRef(streaming)
   if (streaming) streamed.current = true
+  // What a person typed shows as they typed it; an agent's reply typesets its
+  // math and draws its diagrams. A `$$` or a ```mermaid fence in a message is
+  // far more often a question about the syntax than a request to draw it.
   const options = useMemo(
     () => ({
-      codeBlock: ConversationCodeBlock,
+      codeBlock: userText ? ConversationCodeBlock : ConversationReplyCodeBlock,
+      math: !userText,
       streaming,
       density: size === 'compact' ? ('chat-compact' as const) : ('chat' as const),
       tone,

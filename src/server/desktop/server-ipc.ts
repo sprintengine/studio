@@ -62,6 +62,7 @@ export type ServerDomainIpcDeps = {
     | 'hosts'
     | 'conversations'
     | 'conversationImport'
+    | 'conversationLifecycle'
     | 'platform'
     | 'usageLimitResumes'
   > & { hosts: HostRegistry; agentLaunchSettings: AgentLaunchSettingsStore }
@@ -84,7 +85,10 @@ export function registerServerDomainIpc(registry: IpcRegistryLike, deps: ServerD
   const ipc = registry as IpcMain
   const { core } = deps
   const dataDir = () => core.platform.paths.dataDir()
-  registerWorkspaceSyncIpc(ipc, core.workspaceSyncService, { registry: core.workspaceRegistry })
+  registerWorkspaceSyncIpc(ipc, core.workspaceSyncService, {
+    registry: core.workspaceRegistry,
+    markUnread: (workspaceId) => core.conversationLifecycle.markUnread(workspaceId, 'ui'),
+  })
   registerAutomationIpc(ipc, deps.gateway)
   registerStudioLocalAppsIpc(ipc, deps.studioRpc, deps.assertAppSender)
   registerMeshIpc(ipc, deps.gateway)

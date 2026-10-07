@@ -52,3 +52,24 @@ test('paragraph-level segments render the same markup as a whole parse at every 
     }
   }
 })
+
+test('math reads the same segmented as parsed whole, at every point of a stream', async () => {
+  const { loadTypesetter } = await import('../../../lib/math/typesetMath')
+  await loadTypesetter()
+  const options = { math: true, density: 'chat' as const }
+  const fixtures = [
+    'The ratio is $$\\frac{a}{b}$$, roughly.\n\n$$\nE = mc^2\n$$\n\nThat costs $5, or $$10 with tax.',
+    'Rewrite it as:\n\\[\n\\sum_{i=1}^{n} i\n\\]\nwhere \\(n\\) is the count.\n\n```math\nx^2\n```\n\nDone.',
+  ]
+  for (const source of fixtures) {
+    for (let length = 1; length <= source.length; length += 3) {
+      const prefix = source.slice(0, length)
+      const whole = renderToStaticMarkup(<>{renderMarkdown(prefix, options)}</>).replace(/\s+/gu, ' ')
+      const segmented = renderToStaticMarkup(<StreamingMarkdown source={prefix} options={options} />).replace(
+        /\s+/gu,
+        ' ',
+      )
+      assert.equal(segmented, whole, JSON.stringify(prefix))
+    }
+  }
+})

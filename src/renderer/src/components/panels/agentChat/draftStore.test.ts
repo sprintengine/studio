@@ -38,6 +38,32 @@ test('drafts survive a store remount with metadata but never serialize image pay
   expect(createComposerDraftStore(memory).getState().read('workspace', 'agent').text).toBe('')
 })
 
+test('the files a draft attached by path survive a remount; a draft of files alone is kept, bad entries are not', () => {
+  const memory = storage(),
+    store = createComposerDraftStore(memory)
+  store.getState().put('workspace', 'agent', {
+    text: '',
+    skillIds: [],
+    mentions: [],
+    files: ['/Users/dev/Desktop/Q3 budget.xlsx', 'C:\\Users\\dev\\deck.pptx'],
+  })
+  store.flushDrafts()
+  expect(createComposerDraftStore(memory).getState().read('workspace', 'agent').files).toEqual([
+    '/Users/dev/Desktop/Q3 budget.xlsx',
+    'C:\\Users\\dev\\deck.pptx',
+  ])
+  // A seed of words alone (a fork, an opener) has no files to give.
+  store.getState().put('workspace', 'other', { text: 'Words', skillIds: [], mentions: [] })
+  expect(store.getState().read('workspace', 'other').files).toEqual([])
+  store.getState().put('workspace', 'odd', {
+    text: 'x',
+    skillIds: [],
+    mentions: [],
+    files: ['/Users/dev/ok.pdf', 'bad\npath', 7 as unknown as string],
+  })
+  expect(store.getState().read('workspace', 'odd').files).toEqual(['/Users/dev/ok.pdf'])
+})
+
 test('draft sizes and least-recently-used retention are bounded', () => {
   const memory = storage()
   let now = 0

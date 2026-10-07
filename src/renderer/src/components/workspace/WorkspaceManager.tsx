@@ -19,6 +19,7 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { generatedWorkspaceTitleRequester } from '../../store/generatedWorkspaceTitle'
 import { useWorkspaceStore, workspaceRegistryReady } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
+import { normalizeAgentRuntime } from '../../store/slices/agentsSlice'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import {
   isAgentCliAvailable,
@@ -163,7 +164,9 @@ import {
   writeNewChatDraft,
 } from './agentComposer/newChatDraft'
 import { bootComposerLive, dropBootComposerSnapshot, releaseBootComposer } from './agentComposer/bootComposer'
-import { showToast } from '../../store/toastStore'
+import { showToast, useToastStore } from '../../store/toastStore'
+import { chatsWaitingOnYou, nextWaitingChatId } from './nextWaitingChat'
+import { createNewChatStay, NEW_CHAT_STAY_WATCH_MS, type NewChatStay } from './newChatStay'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
 import { ModalSurfaceFrame } from './globalSurface/GlobalSurfaceShell'
@@ -219,6 +222,7 @@ import {
   WORKSPACE_LAYOUT_IDLE_UNLOAD_MS,
   WORKSPACE_LAYOUT_RETAINED_INACTIVE_LIMIT,
   WORKSPACE_LAYOUT_WARM_HIDDEN_LIMIT,
+  workspaceLayers,
   type WorkspaceLayoutRetentionReason,
 } from './workspaceLayoutRetention'
 import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowRestore'
@@ -369,6 +373,8 @@ const NO_MENUBAR_ITEMS: readonly (typeof MENU_BAR_ITEMS)[number][] = []
 
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const NO_CONVERSATION_SESSIONS: readonly ConversationSessionEntry[] = []
+const NO_STARTING_CHATS: readonly string[] = []
+const NEW_CHAT_STARTED_TOAST_ID = 'new-chat-started-in-background'
 const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
 const MENU_ACCELERATOR_COMMAND_IDS = [
   'app.settings.open',
@@ -701,6 +707,10 @@ export default function WorkspaceManager() {
   // session summaries feed the session manager alongside PTY snapshots.
   const conversationSessions = useConversationSessions()
   const [mountedWorkspaceIds, setMountedWorkspaceIds] = useState<string[]>([])
+  // Chats ⌘⏎ started from New chat that have not been seen under way yet
+  // (newChatStay.ts): never the window's active chat, so they are mounted as
+  // warm hidden layers for the agent their view starts to start.
+  const [startingInBackgroundIds, setStartingInBackgroundIds] = useState<readonly string[]>(NO_STARTING_CHATS)
   const [workspaceLayoutRetentionTick, setWorkspaceLayoutRetentionTick] = useState(0)
   const [windowState, setWindowState] = useState<WindowState>({
     isMaximized: false,
@@ -855,23 +865,25 @@ export default function WorkspaceManager() {
   useEffect(() => {
     if (windowActiveWorkspaceId) void ensureChatWorktree(windowActiveWorkspaceId)
   }, [windowActiveWorkspaceId, activeWorktreeReclaimedAt])
-  const renderedWorkspaceIds = visibleWorkspaces
-    .map((workspace) => workspace.id)
-    .filter((workspaceId) => workspaceId === windowActiveWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
-  // "Warm" layers stay fully composited behind the active one so switching back
-  // to a recently-used workspace is instant. Everything beyond the warm set is
-  // kept mounted but rendered with `content-visibility: hidden` (see the render
-  // map below), so the compositor skips its per-frame work — that is the
-  // scroll-jank fix. Warm = the most-recently-focused inactive layers, ranked by
-  // the same last-focused clock the retention policy uses.
-  const warmHiddenWorkspaceIdSet = useMemo(() => {
-    const lastFocusedAt = workspaceLayoutLastFocusedAtRef.current
-    const warm = renderedWorkspaceIds
-      .filter((workspaceId) => workspaceId !== windowActiveWorkspaceId)
-      .sort((a, b) => (lastFocusedAt[b] ?? 0) - (lastFocusedAt[a] ?? 0))
-      .slice(0, WORKSPACE_LAYOUT_WARM_HIDDEN_LIMIT)
-    return new Set(warm)
-  }, [renderedWorkspaceIds, windowActiveWorkspaceId])
+  // The layers drawn: the active one, the retained ones, and a chat starting
+  // in the background; and which hidden ones stay warm (workspaceLayers).
+  const { rendered: renderedWorkspaceIds, warm: warmHiddenWorkspaceIdSet } = workspaceLayers({
+    visibleWorkspaceIds: visibleWorkspaces.map((workspace) => workspace.id),
+    activeWorkspaceId: windowActiveWorkspaceId,
+    mountedWorkspaceIds,
+    startingWorkspaceIds: startingInBackgroundIds,
+    // Read off the live record: this projection does not follow a change of
+    // agents. A chat whose agents are not known yet is taken to start a
+    // terminal one: laid out for nothing costs some compositing, not laid out
+    // costs a terminal started at the wrong size.
+    startsTerminalAgent: (workspaceId) => {
+      const record = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)
+      const agents = Object.values(record?.agents ?? {})
+      return agents.length === 0 || agents.some((agent) => normalizeAgentRuntime(agent).runtimeKind === 'terminal')
+    },
+    lastFocusedAtByWorkspaceId: workspaceLayoutLastFocusedAtRef.current,
+    warmLimit: WORKSPACE_LAYOUT_WARM_HIDDEN_LIMIT,
+  })
   const workspaceTypeSupervisors = useMemo(
     () => collectWorkspaceTypeSupervisors(getRendererHost().getWorkspaceTypes(moduleEnabled), ownsGlobalSupervisors),
     [moduleEnabled, ownsGlobalSupervisors, moduleRegistryGeneration],
@@ -1306,6 +1318,12 @@ export default function WorkspaceManager() {
   // its launches is being made (set and cleared by confirmNewChatNow), null
   // at every other moment.
   const newChatHostRef = useRef<ExecutionHostId | null>(null)
+  // ⌘⏎ from New chat (`chat.new.launchInBackground`): the chats it creates
+  // out of sight, held mounted until their agent is under way and watched
+  // for a failure the person, still on New chat, would not see (newChatStay.ts).
+  const newChatStayRef = useRef<NewChatStay | null>(null)
+  newChatStayRef.current ??= createNewChatStay()
+  const newChatStay = newChatStayRef.current
   const createSoloChatWorkspace = useCallback(
     (opts: {
       folderPath?: string | null
@@ -1322,6 +1340,8 @@ export default function WorkspaceManager() {
       hostId?: ExecutionHostId | null
       // The SSH machine it is on (phase 8): its folder is that machine's path.
       environment?: WorkspaceEnvironmentRef | null
+      // ⌘⏎ from New chat: created without coming to the front (newChatStay.ts).
+      background?: boolean
     }): WorkspaceId | null => {
       if (!SOLO_CHAT_TEMPLATE) {
         publishDiagnosticSync({
@@ -1351,7 +1371,12 @@ export default function WorkspaceManager() {
         ...(opts.worktree ? { worktree: opts.worktree } : {}),
         ...(hostId ? { hostId } : {}),
         ...(opts.environment ? { environment: opts.environment } : {}),
+        ...(opts.background ? { activate: false as const } : {}),
       })
+      if (createdId && opts.background) {
+        newChatStay.started(createdId)
+        setStartingInBackgroundIds(newChatStay.starting())
+      }
       // A remote machine's folder is not this computer's: nothing here to adopt.
       if (opts.environment) {
         closeSettingsOverlay()
@@ -1372,6 +1397,7 @@ export default function WorkspaceManager() {
       activeWorkspace?.hostId,
       addWorkspace,
       closeSettingsOverlay,
+      newChatStay,
       pickNewChatName,
       runFirstRunAgentConfigAdoption,
       workspaceWindowId,
@@ -1400,6 +1426,8 @@ export default function WorkspaceManager() {
       // handoff's `/backlog <item>`): the launch carries it, and nothing is
       // parked at the prompt the way an attached skill's invocation is.
       promptSkillId?: string,
+      // ⌘⏎ from New chat: created without coming to the front.
+      background?: boolean,
     ): { workspaceId: WorkspaceId; agentId: AgentId } | null => {
       const chosenCli = cli && cli.trim() ? cli.trim() : null
       // A plain New chat rides the app's remembered CLI unless the caller named
@@ -1429,6 +1457,7 @@ export default function WorkspaceManager() {
         folderPath,
         templateAgentCli,
         ...(worktree ? { worktree } : {}),
+        ...(background ? { background } : {}),
         seedAgent: {
           agentPatch: {
             ...(cliModel ? { cliModel } : {}),
@@ -1884,11 +1913,17 @@ export default function WorkspaceManager() {
       }
     }
     addWorkingChatWorkspaces(busyWorkspaceIds, conversationSessions)
+    // A chat starting in the background is held like a busy one, and joins
+    // the mounted layers the first time round.
+    for (const workspaceId of startingInBackgroundIds) busyWorkspaceIds.add(workspaceId)
 
     const retention = computeRetainedWorkspaceLayoutIds({
       visibleWorkspaceIds,
       activeWorkspaceId: windowActiveWorkspaceId,
-      mountedWorkspaceIds,
+      mountedWorkspaceIds: [
+        ...mountedWorkspaceIds,
+        ...startingInBackgroundIds.filter((workspaceId) => !mountedWorkspaceIds.includes(workspaceId)),
+      ],
       busyWorkspaceIds,
       lastFocusedAtByWorkspaceId: workspaceLayoutLastFocusedAtRef.current,
       now,
@@ -1938,6 +1973,7 @@ export default function WorkspaceManager() {
   }, [
     conversationSessions,
     mountedWorkspaceIds,
+    startingInBackgroundIds,
     terminalSessions,
     visibleWorkspaces,
     windowActiveWorkspaceId,
@@ -1959,6 +1995,7 @@ export default function WorkspaceManager() {
       }
     }
     addWorkingChatWorkspaces(busyWorkspaceIds, conversationSessions)
+    for (const workspaceId of startingInBackgroundIds) busyWorkspaceIds.add(workspaceId)
 
     let nextDeadline = Number.POSITIVE_INFINITY
     for (const workspaceId of mountedWorkspaceIds) {
@@ -1979,6 +2016,7 @@ export default function WorkspaceManager() {
   }, [
     conversationSessions,
     mountedWorkspaceIds,
+    startingInBackgroundIds,
     terminalSessions,
     visibleWorkspaces,
     windowActiveWorkspaceId,
@@ -2465,9 +2503,51 @@ export default function WorkspaceManager() {
     activityByWorkspaceId,
     unseenDoneIds,
     snoozedWorkspaceIds,
-    onScreenWorkspaceId: activeGlobalSurface ? null : windowActiveWorkspaceId,
+    // New chat covers the window's chat as a door does.
+    onScreenWorkspaceId: activeGlobalSurface || newChatPanelOpen ? null : windowActiveWorkspaceId,
     activeGlobalSurface,
   })
+
+  // A chat ⌘⏎ started from New chat that fails in its first minute gets a
+  // toast: the person stayed on New chat and would not see it go wrong. The
+  // same reading lets go of the chats whose agent is now under way.
+  const [newChatStayReadAt, setNewChatStayReadAt] = useState(0)
+  useEffect(() => {
+    const { failed, starting } = newChatStay.review(
+      activityByWorkspaceId,
+      (workspaceId) => workspaceId === windowActiveWorkspaceId && !newChatPanelOpen && !activeGlobalSurface,
+    )
+    setStartingInBackgroundIds((current) =>
+      current.length === starting.length && current.every((workspaceId, index) => workspaceId === starting[index])
+        ? current
+        : starting.length === 0
+          ? NO_STARTING_CHATS
+          : starting,
+    )
+    for (const workspaceId of failed) {
+      const name = workspaces.find((workspace) => workspace.id === workspaceId)?.name
+      showToast({
+        tone: 'error',
+        title: name ? `${name} stopped with an error` : 'A chat you started stopped with an error',
+        description: 'It is in the sidebar, with what went wrong.',
+      })
+    }
+  }, [
+    newChatStay,
+    activityByWorkspaceId,
+    windowActiveWorkspaceId,
+    newChatPanelOpen,
+    activeGlobalSurface,
+    workspaces,
+    newChatStayReadAt,
+  ])
+  // A chat that never gets under way is let go when its first minute ends,
+  // which no activity announces: read again then.
+  useEffect(() => {
+    if (startingInBackgroundIds.length === 0) return
+    const timer = window.setTimeout(() => setNewChatStayReadAt(Date.now()), NEW_CHAT_STAY_WATCH_MS + 1_000)
+    return () => window.clearTimeout(timer)
+  }, [startingInBackgroundIds])
 
   // Create the git worktree an agent spawn requested ("+ Worktree" in the
   // agent composer): placed under the shared worktree container on branch
@@ -2681,7 +2761,7 @@ export default function WorkspaceManager() {
       }),
       // The typed prompt is the chat's first message, sent as soon as the chat
       // is ready — the same promise a terminal agent's startup prompt makes.
-      ...conversationLaunchDraftPatch(skills, placement?.prompt, placement?.images),
+      ...conversationLaunchDraftPatch(skills, placement?.prompt, placement?.images, placement?.files),
     })
     placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
   }
@@ -2711,14 +2791,26 @@ export default function WorkspaceManager() {
     // The rest of the row the composer is standing on (see `createNewChat`).
     selectedModel?: string | null,
     selectedReasoning?: string | null,
-  ) => createNewChat(folderPath, cli, skills, startupPrompt, worktree, selectedModel, selectedReasoning)
+    background?: boolean,
+  ) =>
+    createNewChat(
+      folderPath,
+      cli,
+      skills,
+      startupPrompt,
+      worktree,
+      selectedModel,
+      selectedReasoning,
+      undefined,
+      background,
+    )
 
-  const openTerminalInNewChat = (folderPath?: string | null) => {
+  const openTerminalInNewChat = (folderPath?: string | null, background?: boolean): WorkspaceId | null =>
     createSoloChatWorkspace({
       folderPath,
       seedAgent: { terminal: { terminalId: `terminal-${nanoid(6)}` }, tabName: 'Terminal' },
+      ...(background ? { background } : {}),
     })
-  }
 
   // A chat agent in a fresh chat: same seed mechanism as the CLI paths, with the
   // conversation runtime patch instead of a CLI. The seed names no tab, so the
@@ -2734,14 +2826,16 @@ export default function WorkspaceManager() {
     // The images staged beside the prompt, files on this computer: the chat
     // reads them here and sends their bytes, wherever it runs.
     startupImages?: string[],
-  ) => {
+    // ⌘⏎: started out of sight, and New chat stays up for the next one.
+    background?: boolean,
+  ): WorkspaceId | null => {
     if (confirm.kind !== 'conversation') {
       showToast({
         tone: 'warn',
         title: `Only a chat runs on ${environment.label}`,
         description: 'Terminals run on this computer. Pick a chat engine to start on that machine.',
       })
-      return
+      return null
     }
     const seed = conversationNewChatSeed(confirm, {
       prompt: startupPrompt,
@@ -2749,16 +2843,18 @@ export default function WorkspaceManager() {
       permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
       ...cliPermissionModeLaunch(confirm.cli),
     })
-    if (!seed) return
+    if (!seed) return null
     setLastNewChatAgent({ kind: 'conversation' })
-    createSoloChatWorkspace({
+    const workspaceId = createSoloChatWorkspace({
       // Spelled as that machine's (`ssh://<id>/…`): nothing on this computer
       // mistakes it for one of its own folders.
       folderPath: machinePath(environment.id, environment.folder),
       seedAgent: { agentPatch: seed.agentPatch },
       environment: { kind: 'ssh', id: environment.id, label: environment.label },
+      ...(background ? { background } : {}),
     })
-    closeNewChatPanel()
+    if (!background) closeNewChatPanel()
+    return workspaceId
   }
 
   const openConversationInNewChat = (
@@ -2769,18 +2865,23 @@ export default function WorkspaceManager() {
     // and the marker files the chat under the project it was cut from.
     worktree?: WorkspaceWorktree,
     startupImages?: string[],
-  ) => {
+    // Its files attached by path, sent as the first message's `files`.
+    startupFiles?: string[],
+    background?: boolean,
+  ): WorkspaceId | null => {
     const seed = conversationNewChatSeed(confirm, {
       prompt: startupPrompt,
       images: startupImages,
+      files: startupFiles,
       permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
       ...cliPermissionModeLaunch(confirm.cli),
     })
-    if (!seed) return
-    createSoloChatWorkspace({
+    if (!seed) return null
+    return createSoloChatWorkspace({
       folderPath,
       seedAgent: { agentPatch: seed.agentPatch },
       ...(worktree ? { worktree } : {}),
+      ...(background ? { background } : {}),
     })
   }
 
@@ -2788,9 +2889,9 @@ export default function WorkspaceManager() {
   // the choice as the default for a plain "New chat in project" click, so the
   // sidebar can show what will spawn and repeat it without reopening the picker.
   // Shared by the sidebar new-chat picker and the top bar's Open-in-new-chat.
-  const pickNewChatTerminal = (folderPath?: string | null) => {
+  const pickNewChatTerminal = (folderPath?: string | null, background?: boolean): WorkspaceId | null => {
     setLastNewChatAgent({ kind: 'terminal' })
-    openTerminalInNewChat(folderPath)
+    return openTerminalInNewChat(folderPath, background)
   }
   const pickNewChatGeneral = (
     cli?: AgentCli,
@@ -2800,9 +2901,21 @@ export default function WorkspaceManager() {
     worktree?: WorkspaceWorktree,
     selectedModel?: string | null,
     selectedReasoning?: string | null,
-  ) => {
+    background?: boolean,
+  ): WorkspaceId | null => {
     setLastNewChatAgent({ kind: 'general' })
-    openGeneralInNewChat(cli, folderPath, skills, startupPrompt, worktree, selectedModel, selectedReasoning)
+    return (
+      openGeneralInNewChat(
+        cli,
+        folderPath,
+        skills,
+        startupPrompt,
+        worktree,
+        selectedModel,
+        selectedReasoning,
+        background,
+      )?.workspaceId ?? null
+    )
   }
   // The worktree the New chat door asked for under ⋯ (found at the seam of
   // checkout-and-branch-on-remote-create: the door offered the option and
@@ -3550,6 +3663,9 @@ export default function WorkspaceManager() {
   // repo (copyIncludedFiles), and a second Enter during that window used to
   // mint a second worktree and a second chat.
   const newChatConfirmInFlight = useRef(false)
+  // Answers the chat it created, or null when it created none: a confirm
+  // already running, a worktree or an extension project that could not be
+  // made (each says why).
   const confirmNewChat = async (
     confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
     folderPathOverride?: string | null,
@@ -3557,11 +3673,23 @@ export default function WorkspaceManager() {
     extension?: { id: string },
     // A chat's staged images, sent as images with `startupPrompt`.
     startupImages?: string[],
-  ) => {
-    if (newChatConfirmInFlight.current) return
+    // A chat's files attached by path, sent as its first message's `files`.
+    startupFiles?: string[],
+    // ⌘⏎: the chat starts out of sight and New chat stays up for the next one.
+    background?: boolean,
+  ): Promise<WorkspaceId | null> => {
+    if (newChatConfirmInFlight.current) return null
     newChatConfirmInFlight.current = true
     try {
-      await confirmNewChatNow(confirm, folderPathOverride, startupPrompt, extension, startupImages)
+      return await confirmNewChatNow(
+        confirm,
+        folderPathOverride,
+        startupPrompt,
+        extension,
+        startupImages,
+        startupFiles,
+        background,
+      )
     } finally {
       newChatConfirmInFlight.current = false
     }
@@ -3572,13 +3700,23 @@ export default function WorkspaceManager() {
     startupPrompt?: string,
     extension?: { id: string },
     startupImages?: string[],
-  ) => {
+    startupFiles?: string[],
+    background?: boolean,
+  ): Promise<WorkspaceId | null> => {
     const scopedFolder = folderPathOverride !== undefined ? folderPathOverride : (newChatPanelState?.folderPath ?? null)
     // The machine the door's dropdown stands on rides every creation below
     // (they all end in createSoloChatWorkspace), then lets go.
     newChatHostRef.current = confirm.hostId ?? null
     try {
-      await confirmNewChatOnHost(confirm, scopedFolder, startupPrompt, extension, startupImages)
+      return await confirmNewChatOnHost(
+        confirm,
+        scopedFolder,
+        startupPrompt,
+        extension,
+        startupImages,
+        startupFiles,
+        background,
+      )
     } finally {
       newChatHostRef.current = null
     }
@@ -3589,7 +3727,9 @@ export default function WorkspaceManager() {
     startupPrompt?: string,
     extension?: { id: string },
     startupImages?: string[],
-  ) => {
+    startupFiles?: string[],
+    background?: boolean,
+  ): Promise<WorkspaceId | null> => {
     // An agent asked for a worktree starts IN it: the folder becomes the
     // worktree and the marker rides along. A worktree that cannot be made
     // leaves the door open with the diagnostic, never a chat in the checkout.
@@ -3600,7 +3740,7 @@ export default function WorkspaceManager() {
     // puts there). One already holding an extension is carried on as it is. A
     // project that cannot be made leaves the door open, with why.
     if (extension) {
-      if (!scopedFolder) return
+      if (!scopedFolder) return null
       const made = await window.api
         .extensionScaffoldCreate({
           parentDir: scopedFolder,
@@ -3613,25 +3753,26 @@ export default function WorkspaceManager() {
         }))
       if (!made.ok) {
         showToast({ tone: 'error', title: `${extension.id} was not created`, description: made.message })
-        return
+        return null
       }
       folderPath = made.folder
     } else if ((confirm.kind === 'general' || confirm.kind === 'conversation') && confirm.worktree) {
       const made = await createNewChatWorktree(scopedFolder, confirm.worktree.name)
-      if (!made) return
+      if (!made) return null
       folderPath = made.folderPath
       worktree = made.worktree
     }
+    let created: WorkspaceId | null = null
     switch (confirm.kind) {
       case 'terminal':
-        pickNewChatTerminal(folderPath)
+        created = pickNewChatTerminal(folderPath, background)
         break
       // MCP picks were synced into the workspace's CLI config on pick
       // (SkillsAndMcpsPicker), so the spawn has nothing to route: the agent
       // starts in the workspace and finds them there. The isolated connector
       // worktree runtime is no longer a New chat path.
       case 'general':
-        pickNewChatGeneral(
+        created = pickNewChatGeneral(
           confirm.cli,
           folderPath,
           confirm.skills,
@@ -3639,14 +3780,53 @@ export default function WorkspaceManager() {
           worktree,
           confirm.model,
           confirm.reasoning,
+          background,
         )
         break
       case 'conversation':
         setLastNewChatAgent({ kind: 'conversation' })
-        openConversationInNewChat(folderPath, confirm, startupPrompt, worktree, startupImages)
+        created = openConversationInNewChat(
+          folderPath,
+          confirm,
+          startupPrompt,
+          worktree,
+          startupImages,
+          startupFiles,
+          background,
+        )
         break
     }
-    closeNewChatPanel()
+    // ⌘⏎ stays on New chat; the panel empties itself for the next one.
+    if (!background) closeNewChatPanel()
+    return created
+  }
+
+  // ⌘⏎ from New chat started `workspaceId` out of sight (or did not, and has
+  // said why): the toast is the way to it for the person who wants to look
+  // after all, as a click on its row would be. Answers whether a chat was
+  // created, so the panel can hand the prompt back when none was.
+  const reportStartedInBackground = (workspaceId: WorkspaceId | null): boolean => {
+    if (!workspaceId) return false
+    const name = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.name
+    // One toast for the latest start: the next ⌘⏎ replaces it in place.
+    showToast({
+      id: NEW_CHAT_STARTED_TOAST_ID,
+      tone: 'good',
+      title: 'Started in the background',
+      ...(name ? { description: name } : {}),
+      actions: [
+        {
+          id: 'open',
+          label: 'Open',
+          primary: true,
+          run: () => {
+            useToastStore.getState().dismissToast(NEW_CHAT_STARTED_TOAST_ID)
+            sidebarSelectWorkspace(workspaceId)
+          },
+        },
+      ],
+    })
+    return true
   }
 
   // A chat on a paired machine, opened from the sidebar's Remote band
@@ -3937,6 +4117,28 @@ export default function WorkspaceManager() {
         }
         return true
       }
+      if (commandId === 'chat.nextWaiting') {
+        // The chat on screen, or none while New chat or a door covers it.
+        const onScreen = newChatPanelOpen || activeGlobalSurface ? null : windowActiveWorkspaceId
+        const waiting = chatsWaitingOnYou({
+          workspaceIds: railWorkspaces.map((workspace) => workspace.id),
+          activityByWorkspaceId,
+          terminalSessions,
+          conversationSessions,
+        })
+        const nextWorkspaceId = nextWaitingChatId(waiting, onScreen)
+        if (!nextWorkspaceId) {
+          showToast({
+            tone: 'neutral',
+            title: waiting.length > 0 ? 'No other chats are waiting on you' : 'No chats are waiting on you',
+          })
+          return true
+        }
+        // As a sidebar click on its row: New chat parks, a door gives way.
+        setNewChatPanelState(null)
+        setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)
+        return true
+      }
       if (commandId === 'workspace.switch.next' || commandId === 'workspace.switch.previous') {
         const nextWorkspaceId = getNextWorkspaceId(
           railWorkspaces,
@@ -4109,6 +4311,8 @@ export default function WorkspaceManager() {
       moduleEnablement,
       dispatchPanelCommand,
       extensionsDrawerRows,
+      activityByWorkspaceId,
+      conversationSessions,
     ],
   )
 
@@ -4317,8 +4521,8 @@ export default function WorkspaceManager() {
           conversationWorkspaceSupported={conversationSpawnEnabled}
           initialSelection={lastNewChatAgent}
           permissionPreset={agentSpawnPermissionPreset}
-          onLaunch={({ prompt, images, ...confirm }) =>
-            runComposerSpawnRef.current(confirm, { tabId, prompt, images, agentName })
+          onLaunch={({ prompt, images, files, ...confirm }) =>
+            runComposerSpawnRef.current(confirm, { tabId, prompt, images, files, agentName })
           }
           onClose={() => {
             if (windowActiveWorkspaceId) removeNewAgentTab(windowActiveWorkspaceId, tabId)
@@ -4917,13 +5121,31 @@ export default function WorkspaceManager() {
                               initialSelection={newChatPanelState.forcedSelection ?? lastNewChatAgent}
                               forceSelection={newChatPanelState.forcedSelection}
                               permissionPreset={agentSpawnPermissionPreset}
-                              onLaunch={({ prompt, images, extension, environment, ...confirm }) => {
-                                if (environment) {
-                                  confirmSshNewChat(confirm, environment, prompt, images)
-                                  return
-                                }
-                                // confirmNewChat closes the panel (and forgets the draft) itself.
-                                void confirmNewChat(confirm, newChatPanelState.folderPath, prompt, extension, images)
+                              launchesInBackground
+                              onLaunch={({ prompt, images, files, extension, environment, stay, ...confirm }) => {
+                                // Each closes the panel (and forgets the draft)
+                                // itself, unless ⌘⏎ started it out of sight.
+                                const background = stay === true
+                                const start = async () =>
+                                  environment
+                                    ? confirmSshNewChat(confirm, environment, prompt, images, background)
+                                    : confirmNewChat(
+                                        confirm,
+                                        newChatPanelState.folderPath,
+                                        prompt,
+                                        extension,
+                                        images,
+                                        files,
+                                        background,
+                                      )
+                                // One confirm at a time, as for ⏎: refused before it
+                                // starts, and the panel hands the prompt back.
+                                if (background)
+                                  return newChatConfirmInFlight.current
+                                    ? Promise.resolve(false)
+                                    : start().then(reportStartedInBackground)
+                                void start()
+                                return undefined
                               }}
                               // The promise itself, not a void wrapper: the panel's
                               // one-launch-at-a-time guard waits on it, and a wrapper

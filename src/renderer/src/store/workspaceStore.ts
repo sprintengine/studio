@@ -349,6 +349,10 @@ export interface WorkspaceStore
       mode?: Workspace['mode']
       // Executor-triggered creation: skip the door-surface clear.
       background?: boolean
+      // False: the workspace joins its window without coming to the front, as
+      // a chat started with ⌘⏎ from New chat does. Absent, it becomes the
+      // window's active workspace.
+      activate?: false
       windowId?: WorkspaceWindowId | null
     },
   ) => WorkspaceId

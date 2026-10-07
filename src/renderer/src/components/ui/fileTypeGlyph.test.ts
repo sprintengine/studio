@@ -71,10 +71,29 @@ test('prose without a language is text; anything unknown is the plain document',
   assert.equal(fileTypeKind('README'), 'text')
   assert.equal(fileTypeKind('README.md'), 'markdown')
   assert.equal(fileTypeKind('notes.txt'), 'text')
-  assert.equal(fileTypeKind('report.csv'), 'text')
+  assert.equal(fileTypeKind('server.log'), 'text')
   assert.equal(fileTypeKind('Makefile'), 'config')
   assert.equal(fileTypeKind('binary.wasm'), 'generic')
   assert.equal(fileTypeKind('noext'), 'generic')
+})
+
+test('office files resolve to the kind of document they are, not the app that wrote them', () => {
+  const cases: Array<[string, FileTypeKind]> = [
+    ['Quarterly report.pdf', 'pdf'],
+    ['brief.docx', 'document'],
+    ['brief.DOC', 'document'],
+    ['letter.pages', 'document'],
+    ['notes.rtf', 'document'],
+    ['budget.xlsx', 'spreadsheet'],
+    ['report.csv', 'spreadsheet'],
+    ['export.tsv', 'spreadsheet'],
+    ['plan.numbers', 'spreadsheet'],
+    ['deck.pptx', 'presentation'],
+    ['keynote.key', 'presentation'],
+    ['bundle.zip', 'archive'],
+    ['release.tar.gz', 'archive'],
+  ]
+  for (const [name, kind] of cases) assert.equal(fileTypeKind(name), kind, name)
 })
 
 test('a path resolves by its last segment, case-insensitively', () => {
@@ -105,6 +124,11 @@ test('every kind carries a label', () => {
     'go-test',
     'java',
     'image',
+    'pdf',
+    'document',
+    'spreadsheet',
+    'presentation',
+    'archive',
     'lock',
     'config',
     'text',

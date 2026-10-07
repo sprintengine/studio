@@ -347,6 +347,9 @@ markStartup('main.module-evaluated')
 // actions on it: registered in process too, where the toggle is all there is.
 const relaunchApp = (args: string[] = []): void => {
   app.relaunch({ args: [...process.argv.slice(1).filter((arg) => arg !== SERVER_FALLBACK_ARGUMENT), ...args] })
+  // A restart the person asked for in Settings, or the server's fallback: the
+  // app comes straight back, so it is not a quit to ask about.
+  services.quitConfirmation.quitWithoutAsking()
   app.quit()
 }
 // The SSH machines switch: answered whether or not this session has them.
@@ -457,6 +460,7 @@ registerAppLifecycle({
     isEnabled: () => services.backgroundModeStore.isEnabled(),
     readStatus: () => services.readBackgroundStatus(),
   },
+  quitConfirmation: services.quitConfirmation,
   handleAuthCallback: (argv) => {
     void parseAuthCallbackFromArgv(services.sprintengineAuth, argv)
   },

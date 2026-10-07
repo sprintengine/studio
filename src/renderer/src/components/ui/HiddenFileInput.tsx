@@ -9,26 +9,28 @@ import React from 'react'
  * (design-system/components/input → The file dialog).
  *
  * The value is cleared after every pick, so the same file can be picked twice
- * in a row.
+ * in a row. Memoized: it draws nothing, and the composer row it sits in
+ * re-renders on every streamed token of an open chat.
  */
-export const HiddenFileInput = React.forwardRef<
-  HTMLInputElement,
-  { accept?: string; multiple?: boolean; onFiles: (files: File[]) => void }
->(function HiddenFileInput({ accept, multiple = true, onFiles }, ref) {
-  return (
-    <input
-      ref={ref}
-      type="file"
-      accept={accept}
-      multiple={multiple}
-      tabIndex={-1}
-      aria-hidden="true"
-      className="hidden"
-      onChange={(event) => {
-        const files = Array.from(event.currentTarget.files ?? [])
-        event.currentTarget.value = ''
-        if (files.length > 0) onFiles(files)
-      }}
-    />
-  )
-})
+export const HiddenFileInput = React.memo(
+  React.forwardRef<HTMLInputElement, { accept?: string; multiple?: boolean; onFiles: (files: File[]) => void }>(
+    function HiddenFileInput({ accept, multiple = true, onFiles }, ref) {
+      return (
+        <input
+          ref={ref}
+          type="file"
+          accept={accept}
+          multiple={multiple}
+          tabIndex={-1}
+          aria-hidden="true"
+          className="hidden"
+          onChange={(event) => {
+            const files = Array.from(event.currentTarget.files ?? [])
+            event.currentTarget.value = ''
+            if (files.length > 0) onFiles(files)
+          }}
+        />
+      )
+    },
+  ),
+)

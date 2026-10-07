@@ -473,6 +473,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     getRecord: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
     updateWorkspaceFields: (workspaceId, patch, actor) =>
       workspaceSyncService.updateWorkspaceFields(workspaceId, patch, actor),
+    rewindVisit: (workspaceId, lastVisitedAt, actor) =>
+      workspaceSyncService.rewindVisit(workspaceId, lastVisitedAt, actor),
     isWorking: (workspaceId) => {
       const listed = conversations.listSessions()
       return (
@@ -483,6 +485,15 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
           return phase === 'running' || phase === 'starting'
         })
       )
+    },
+    latestChatTurnEnd: (workspaceId) => {
+      const listed = conversations.listSessions()
+      if (!listed.ok) return undefined
+      let latest: number | undefined
+      for (const session of listed.sessions)
+        if (session.workspaceId === workspaceId && (session.lastTurnEndedAt ?? -1) > (latest ?? -1))
+          latest = session.lastTurnEndedAt
+      return latest
     },
   })
   // `origin` is for Studio's own sends (a resume after a usage limit): they

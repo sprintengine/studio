@@ -35,6 +35,8 @@ export type NewChatDraft = {
   folderPath: string | null
   prompt: string
   images: NewChatDraftImage[]
+  /** Files attached by path, as their paths: the box's file cards. */
+  files: string[]
   /** The engine row picked, or null to fall back to the host's remembered choice. */
   selection: AgentComposerSelection | null
   /** The cli/model/effort that row runs on, when the picker stored none. */
@@ -47,6 +49,7 @@ const EMPTY_DRAFT: NewChatDraft = {
   folderPath: null,
   prompt: '',
   images: [],
+  files: [],
   selection: null,
   engine: null,
   skills: [],
@@ -89,7 +92,7 @@ export function rescopeNewChatDraft(key: string, folderPath: string | null): New
 
 /**
  * Whether the draft holds anything a person would miss: typed words, attached
- * images, or skills / MCP servers they picked. The engine row and the project
+ * images or files, or skills / MCP servers they picked. The engine row and the project
  * are not content — both default, and a draft that is nothing but defaults
  * must not pin them onto every New chat after it. The parked ENGINE is the same
  * kind of thing: it says how a chat would start, not that there is one to start.
@@ -97,7 +100,11 @@ export function rescopeNewChatDraft(key: string, folderPath: string | null): New
 export function newChatDraftHasContent(draft: NewChatDraft | null): boolean {
   if (!draft) return false
   return (
-    draft.prompt.trim().length > 0 || draft.images.length > 0 || draft.skills.length > 0 || draft.mcpServers.length > 0
+    draft.prompt.trim().length > 0 ||
+    draft.images.length > 0 ||
+    draft.files.length > 0 ||
+    draft.skills.length > 0 ||
+    draft.mcpServers.length > 0
   )
 }
 

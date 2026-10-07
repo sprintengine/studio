@@ -404,3 +404,17 @@ test('a loose task item keeps its own words and paragraphs in the rich flavour',
   expect(items[1].textContent?.trim()).toBe('b')
   expect(items[1].querySelector('input[checked]')).not.toBeNull()
 })
+
+test('typeset math copies back as the TeX it was written in, in both flavours', async () => {
+  const { loadTypesetter } = await import('../lib/math/typesetMath')
+  await loadTypesetter()
+  const source = ['Energy is $$E = mc^2$$ here.', '', '$$', '\\frac{a}{b}', '$$'].join('\n')
+  const view = page(renderToStaticMarkup(createElement('div', null, renderMarkdown(source, { math: true }))))
+  expect(view.log.querySelectorAll('[data-math]')).toHaveLength(2)
+  view.selectAll()
+  const copied = view.copy()
+  expect(copied?.text).toBe(source)
+  expect(copied?.html).toContain('Energy is $$E = mc^2$$ here.')
+  expect(copied?.html).toContain('<pre><code class="language-math">\\frac{a}{b}</code></pre>')
+  expect(copied?.html).not.toContain('katex')
+})

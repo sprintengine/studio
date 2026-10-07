@@ -20,6 +20,7 @@ import {
 } from '../shared/conversation-attachments'
 import { isRecord } from '../shared/records'
 import { parseConversationMentions } from '../shared/conversation/mentions'
+import { parseConversationAttachedFiles } from '../shared/conversation/attachedFiles'
 
 // What the conversation boundary accepts from a chat view, checked where it
 // arrives: the IPC from Studio's windows, and the Studio RPC's chat surface,
@@ -180,6 +181,8 @@ export function parseSendTurnInput(
   let attachments: ConversationImageAttachment[] | undefined
   const mentions = input.mentions === undefined ? undefined : parseConversationMentions(input.mentions)
   if (mentions === null) return { ok: false, message: 'Mention references are invalid.' }
+  const files = input.files === undefined ? undefined : parseConversationAttachedFiles(input.files)
+  if (files === null) return { ok: false, message: 'Attached files must be absolute paths, at most 50.' }
   if (
     input.skills !== undefined &&
     (!Array.isArray(input.skills) ||
@@ -205,6 +208,7 @@ export function parseSendTurnInput(
       ...(typeof input.localTurnId === 'string' ? { localTurnId: input.localTurnId } : {}),
       ...(attachments ? { attachments } : {}),
       ...(mentions ? { mentions } : {}),
+      ...(files?.length ? { files } : {}),
       ...(Array.isArray(input.skills) ? { skills: input.skills as ConversationSendTurnInput['skills'] } : {}),
       ...(typeof input.reasoningEffort === 'string' ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(input.mode ? { mode: input.mode as ConversationSendTurnInput['mode'] } : {}),

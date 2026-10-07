@@ -301,6 +301,22 @@ test('a message Studio sent the chat reads as Studio’s note, not the person’
   // None of the person's message actions: there is nothing of theirs to edit.
   expect(container.querySelectorAll('button')).toHaveLength(0)
 
+  // Files it attached by path are named under it, from its list.
+  await act(async () =>
+    root!.render(
+      <UserTimelineRow
+        entry={user({
+          text: '[SprintEngine Studio] The agent you started finished.',
+          origin: { kind: 'studio', reason: 'agent-notice' },
+          files: [{ path: '/repo/notes/report.md' }],
+        })}
+        chrome={chrome}
+      />,
+    ),
+  )
+  expect(container.querySelector('[data-studio-notice="agent-notice"]')?.textContent).toContain('report.md')
+  expect(container.textContent).not.toContain('You said')
+
   // The same words without an origin are the person's.
   await act(async () => root!.render(<UserTimelineRow entry={user({ text: 'Continue' })} chrome={chrome} />))
   expect(container.querySelector('[data-studio-notice]')).toBeNull()

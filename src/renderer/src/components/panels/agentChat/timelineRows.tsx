@@ -10,6 +10,10 @@ import {
 } from './conversationTimeline'
 import { type ReasoningSegment, type TranscriptEntry, type TranscriptToolEntry } from './conversationProjection'
 import { AttachmentThumbnail } from '../ComposerAttachmentStrip'
+import { ComposerFileChip } from './ComposerFileChip'
+import { clientSupports } from '../../../clientCapabilities'
+import { attachedFileName } from '../../../utils/attachedFiles'
+import { useConversationTransport } from './conversationTransport'
 import { StoredAttachmentThumbnail } from './storedAttachments'
 import {
   Badge,
@@ -163,6 +167,11 @@ export const TimelineRow = React.memo(function TimelineRow({
 // edge the composer and the assistant's text keep. Images sent with the turn sit
 // above the text; an image-only turn renders no empty text line. A bubble
 // replayed from the transcript reads its images back from the attachment store.
+// Files attached by path travel beside the words, as the message's `files`,
+// and are drawn from that list alone — never read out of the text, where a path
+// someone typed stays the words they typed. A chat whose files are this
+// computer's draws them as the cards they were sent from, beside the images;
+// one on another machine, whose files this computer cannot open, names them.
 export function UserTimelineRow({
   entry,
   chrome,
@@ -173,25 +182,39 @@ export function UserTimelineRow({
   if (entry.origin?.kind === 'studio') return <StudioNoticeRow entry={entry} />
   const attachments = entry.attachments ?? []
   const stored = attachments.length ? [] : (entry.storedAttachments ?? [])
+  const transport = useConversationTransport()
+  const files = entry.files ?? []
+  const fileCards = transport.kind === 'local' && transport.capabilities.localFiles && clientSupports('drag-paths')
+  const cards = fileCards ? files : []
+  const named = fileCards ? [] : files
+  const text = entry.text
   return (
     <div className="flex flex-col items-end pb-6">
       <MessageAuthorHeading>You said</MessageAuthorHeading>
       <div className="max-w-[76%] rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--agent-inset)] px-3 py-1.5">
-        {attachments.length > 0 || stored.length > 0 ? (
-          <div data-copy-exclude="" className={`flex flex-wrap justify-end gap-1.5 ${entry.text ? 'mb-2' : ''}`}>
+        {attachments.length > 0 || stored.length > 0 || cards.length > 0 ? (
+          <div data-copy-exclude="" className={`flex flex-wrap justify-end gap-1.5 ${text ? 'mb-2' : ''}`}>
             {attachments.map((attachment) => (
               <AttachmentThumbnail key={attachment.id} attachment={attachment} className="h-16 w-16" />
             ))}
             {stored.map((attachment) => (
               <StoredAttachmentThumbnail key={attachment.ref} attachment={attachment} className="h-16 w-16" />
             ))}
+            {cards.map((file) => (
+              <ComposerFileChip key={`file:${file.path}`} path={file.path} />
+            ))}
           </div>
         ) : null}
-        {entry.mentions?.length || entry.skills?.length ? (
+        {entry.mentions?.length || entry.skills?.length || named.length ? (
           <div data-copy-exclude="" className="mb-2 flex flex-wrap justify-end gap-1.5" aria-label="Attached context">
             {entry.skills?.map((skill) => (
               <Badge key={`skill:${skill}`} ariaLabel={`Skill: ${skill}`}>
                 {skill}
+              </Badge>
+            ))}
+            {named.map((file) => (
+              <Badge key={`file:${file.path}`} ariaLabel={`Attached file: ${file.path}`}>
+                {attachedFileName(file.path)}
               </Badge>
             ))}
             {entry.mentions?.map((mention) =>
@@ -210,7 +233,7 @@ export function UserTimelineRow({
             )}
           </div>
         ) : null}
-        {entry.text ? <UserMessageBody id={entry.id} text={entry.text} /> : null}
+        {text ? <UserMessageBody id={entry.id} text={text} /> : null}
       </div>
       <div data-copy-exclude="" className="mt-1 flex items-center justify-end gap-2">
         <MessageTimestamp at={entry.createdAt} />
@@ -259,8 +282,10 @@ export function UserTimelineRow({
 // of its actions (edit, fork, revert): it reads as the quiet line an adapter's
 // own note does (commandOutputRow), under Studio's name. The agent was sent the
 // words with a short name in front (shared/studio-notice.ts); the row says the
-// name itself and leaves that out.
+// name itself and leaves that out. Files such a message attached by path are
+// named under it, from its `files` as the person's are, never from its text.
 function StudioNoticeRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'user' }> }) {
+  const files = entry.files ?? []
   return (
     <div className="pb-6" data-studio-notice={entry.origin?.reason ?? ''}>
       <MessageAuthorHeading>{`${STUDIO_PRODUCT_NAME} said`}</MessageAuthorHeading>
@@ -269,6 +294,15 @@ function StudioNoticeRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'u
         {' · '}
         {withoutStudioNoticePrefix(entry.text)}
       </p>
+      {files.length ? (
+        <div data-copy-exclude="" className="mt-1.5 flex flex-wrap gap-1.5" aria-label="Attached files">
+          {files.map((file) => (
+            <Badge key={`file:${file.path}`} ariaLabel={`Attached file: ${file.path}`}>
+              {attachedFileName(file.path)}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

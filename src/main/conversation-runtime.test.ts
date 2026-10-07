@@ -323,6 +323,13 @@ test('conversation-runtime', async () => {
       const asking = runtime.listSessions({ workspaceId: 'workspace' })
       assert.equal(asking.ok && asking.sessions[0]?.resting, undefined)
       assert.equal(asking.ok && asking.sessions[0]?.lastUserMessageAt, clock)
+      const askedAt = clock
+      assert.equal(asking.ok && asking.sessions[0]?.waitingSince, askedAt, 'waiting since the card went up')
+      assert.equal(sent.ok && sent.sessions[0]?.waitingSince, undefined, 'nothing was asked before')
+      // Time passing while it waits does not move when it started waiting.
+      clock += 30_000
+      const stillAsking = runtime.listSessions({ workspaceId: 'workspace' })
+      assert.equal(stillAsking.ok && stillAsking.sessions[0]?.waitingSince, askedAt)
       assert.deepEqual(runtime.sweepIdleSessions(clock + 10_000_000), [])
       const requestEvent = await readLastEvent(workspaceRoot, 'workspace', 'agent')
       await runtime.respondToRequest({
@@ -331,6 +338,8 @@ test('conversation-runtime', async () => {
         approved: true,
       })
       await askPromise
+      const answered = runtime.listSessions({ workspaceId: 'workspace' })
+      assert.equal(answered.ok && answered.sessions[0]?.waitingSince, undefined, 'answered, it waits no more')
       // Answered and idle again → disposable.
       clock += 1
       assert.deepEqual(runtime.sweepIdleSessions(clock + 61_000), [sessionId])

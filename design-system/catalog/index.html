@@ -1260,6 +1260,70 @@ code {
   white-space: nowrap;
 }
 
+/* The file card: a file attached by path, with the system's own picture of it
+   (or its type glyph) in a square the height of an image thumbnail, and its
+   name over its type. The whole card opens the file; removal is a sibling
+   control pinned to its corner, as on an image thumbnail. */
+.ds-attachment-chip--file {
+  position: relative;
+  padding: 0;
+  gap: 0;
+  background: transparent;
+}
+.ds-attachment-chip-file-open {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  height: 48px; /* the image attachment thumbnail's edge, so the two share a row */
+  max-width: 220px;
+  padding: 0 var(--sem-space-xl) 0 0;
+  overflow: hidden;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ds-attachment-chip-file-open:hover {
+  border-color: var(--sem-color-border-strong);
+}
+.ds-attachment-chip-file-open:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+.ds-attachment-chip-file-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 48px;
+  background: var(--sem-color-bg-selected);
+  overflow: hidden;
+}
+.ds-attachment-chip-file-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ds-attachment-chip-file-caption {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ds-attachment-chip-file-type {
+  color: var(--sem-color-text-subtle);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-regular);
+}
+.ds-attachment-chip--file > .ds-button {
+  position: absolute;
+  top: var(--sem-space-3xs);
+  right: var(--sem-space-3xs);
+}
+
 /* components/badge/component.css */
 /* Badge — the small display-only mark: a count docked on a control, or a
  * tone-carrying word sitting on a row. Extracted from the shipped Badge
@@ -2822,6 +2886,21 @@ code {
 .ds-code-block--wrap pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* A drawing made from the source (a diagram), in the source's place. It sits
+ * centred at its own size and shrinks to the column, never past it; one wider
+ * than it can shrink to legibly scrolls sideways instead. */
+.ds-code-block__drawing {
+  display: flex;
+  justify-content: center;
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  overflow-x: auto;
+}
+.ds-code-block__drawing svg {
+  flex: none;
+  max-width: 100%;
+  height: auto;
 }
 
 /* Edge fades on an unwrapped block, set by the host on exactly the edges that
@@ -13539,6 +13618,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <rect x="2" y="2.5" width="12" height="11" rx="1.75" stroke="currentColor" stroke-width="1.3"/>
 </svg><figcaption>unified</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>view-source</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
   <path d="M1.75 4.75c0-.83.67-1.5 1.5-1.5h3.1l1.5 1.5h5.4c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5H3.25c-.83 0-1.5-.67-1.5-1.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
   <circle cx="8" cy="9.6" r="1.25" stroke="currentColor" stroke-width="1.2" fill="none"/>
   <path d="M4.25 9.6h2.5M9.25 9.6h2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
@@ -13582,7 +13664,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>Selection is neutral.</strong> A selected row uses <code>bg.selected</code> — a neutral fill — and lifts its title to <code>text.primary</code>. It does not use the accent, and it does not carry a left bar, a border box, or a glow. A row that is merely *chosen* must never outrank the one action worth taking. The Backlog rows' epic-colour left bar was retired on 2026-09-02 under this rule: the <code>EpicColorDot</code> carries epic identity, and the skeleton no longer reserves the bar.</p>
 <h4>Quantified restraint</h4>
 <p>Ceilings, not guidelines. Exceeding one signals missing hierarchy; when a view exceeds one, model the domain again rather than adding chrome.</p>
-<p>| Ceiling | Limit | |---|---| | Product accents visible per view | 1 | | Status idioms | 1 — the status mark or a lifecycle glyph, never both; never a dot | | Font families | 2 — <code>font.family.ui</code>, <code>font.family.mono</code> | | Font weights per view | 3 | | Font sizes per view | 3, repeating title / body / meta | | Border radii per view | 2 | | Controls above the first content row of a panel | 5 — but see the amendment below | | Visual elements per repeated row at rest | 4 — but see the amendment below | | Trailing actions a row may reveal on hover | 2 | | Motion treatments animating at any moment | 1 |</p>
+<p>| Ceiling | Limit | |---|---| | Product accents visible per view | 1 | | Status idioms | 1 — the status mark or a lifecycle glyph, never both; never a dot | | Font families | 2 — <code>font.family.ui</code>, <code>font.family.mono</code> (typeset content excepted; see Type) | | Font weights per view | 3 | | Font sizes per view | 3, repeating title / body / meta | | Border radii per view | 2 | | Controls above the first content row of a panel | 5 — but see the amendment below | | Visual elements per repeated row at rest | 4 — but see the amendment below | | Trailing actions a row may reveal on hover | 2 | | Motion treatments animating at any moment | 1 |</p>
 <p><strong>The four-element ceiling counts what a row SAYS, not what it lets you do</strong> (amended 2026-09-09, the Commit-window epic). <code>components/check-row</code> carries five at rest: the checkbox, the file glyph, the name, the directory, and the trailing status mark.</p>
 <p>The ceiling exists because a row with five things to *read* is a row carrying work that belongs in the detail pane — <code>list-row</code>'s entry says exactly that. That is a statement about how much a person has to take in before they can choose. A checkbox is not something taken in; it is the row's one control, and it answers in 16px a question the row would otherwise need a whole second surface to answer — the Staged / Unstaged split the Commit window deletes, or a right-click menu. A control is not work carried, it is work saved.</p>
 <p>Two conditions, both load-bearing:</p>
@@ -13608,6 +13690,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <ul><li>Every padding, gap, and margin comes from <code>sem.space.*</code> — a 2px grid at the dense end opening to 4px steps at panel scale. A raw pixel value in a component means the scale is missing a step; add it here rather than locally.</li><li>Controls come from <code>sem.size.control.*</code>: <code>xs</code> (26px) for icon buttons and in-row triggers, <code>sm</code> (30px) as the default for anything with a label, <code>md</code> (34px) for overlay primary actions. An input and a select side by side must share a height.</li><li>Nothing interactive is drawn below <code>sem.size.hit-target-min</code>. A small glyph pads out to it with a transparent hit area rather than shrinking its target.</li><li>An indent that aligns text to a reserved glyph slot (the 28px a leading 16px glyph plus its gap occupies) is structure, not rhythm: it keeps its computed value, off the space scale if need be, with a one-line comment saying what it lines up with. Moving it to the nearest step misaligns the column it exists to align.</li><li>At most 2 radii per view. <code>radius.control</code> (5px) is the default; larger radii belong to overlay and modal shells. Marketing radii (<code>rounded-2xl</code> and up) never appear on operational chrome.</li><li><strong>The composer is the one named exception to that ceiling</strong> (owner ruling 2026-10-04). Its box takes <code>radius.composer</code> (22px), and the context strip tucked under it takes <code>radius.composer-strip</code> (16px) on its two bottom corners only, so the two read as one piece. The cards set against it — the tiles under the New chat composer, and the top corners of the tray docked on an open conversation's composer — take <code>radius.composer-companion</code> (16px, owner ruling 2026-10-05), so a ramp corner beside the box does not read as a second family. The composer is the surface a person types into all day, and the soft corner is what sets it apart from the chrome around it. All three tokens are marked <code>offRamp</code>: they are not rungs of the shape scale, the conformance guard leaves them out of its ramp exactly as it does <code>pill</code>, and nothing else may borrow them — a card, popover or control inside the composer keeps the ramp.</li><li>A capped column is centred or it is a bug. When a <code>max-width</code> element IS the page's content — a wizard step, a settings body, a door canvas — it centres (<code>max-w-*</code> + <code>mx-auto</code>), and its footer actions cap to the same measure so they align with the content edges. A reading-measure cap *inside* a left-anchored composition (prose under an uncapped heading, beside a figure) stays anchored with its siblings; centring it alone would misalign the page.</li></ul>
 <h4>Type</h4>
 <p><strong>Two families, permanently.</strong> <code>font.family.ui</code> (Inter) for everything a person reads; <code>font.family.mono</code> (JetBrains Mono) for identifiers, paths, hashes, code, and <code>kbd</code>. There is no third family, and no serif anywhere in the product. Introducing one is a system change, not a styling choice.</p>
+<p>The two families are the interface's. Content the app typesets on a person's behalf carries the faces its notation needs, and only inside that content (owner ruling 2026-10-07):</p>
+<p>| Content | Faces | Why | |---|---|---| | Math in agent replies (KaTeX) | KaTeX's own families (<code>KaTeX_Main</code>, <code>KaTeX_Math</code>, <code>KaTeX_AMS</code>, …), serif included | Mathematical notation is defined by those glyphs; set in Inter, a formula stops reading as one. Bundled with the app and loaded with the first formula, so it costs nothing until a reply has math, and works offline. | | Canvas drawings | Excalifont, Nunito, Comic Shanns | They are the drawing's own lettering, chosen per element by the person who drew it. |</p>
+<p>Diagrams (Mermaid) are not on this list: they are drawn in <code>--sem-font-family-ui</code>. Any face a new kind of content brings is added to this table, with its reason, before it ships; nothing on the list may be used for chrome, labels, or prose around the content.</p>
 <ul><li>Sentence case everywhere except real keyboard shortcuts. No uppercase letter-spaced labels as hierarchy — not on section headers, metadata, breadcrumbs, or chips.</li><li>The scale repeats title / body / meta. Primary content does not go below <code>font.size.body</code> (13px).</li><li>Tracking is optical, not decorative: <code>tracking.tight</code> on titles at 14px and up, <code>tracking.wide</code> on mono identifiers and micro labels, <code>tracking.normal</code> everywhere else.</li><li>Line height by context: <code>line.tight</code> for display, <code>line.default</code> for UI, <code>line.relaxed</code> for prose. Not a single default applied everywhere.</li></ul>
 <p><strong>The micro-typography pass</strong> — run before any surface is called done:</p>
 <ul><li><code>tabular-nums</code> on every numeric column: counts, ids, timestamps, durations.</li><li>Mono for identifiers only, never for prose.</li><li>Numbers, ids, and percentages right-align in columns; titles left-align. Dense data is never centre-aligned.</li><li>Curly quotes and em-dashes in copy, no double spaces. Code is exempt.</li></ul>
@@ -13657,7 +13742,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <ul><li>Never hard-code a color, space, size, radius, duration, or z-index the system defines. Pick by the token's documented <code>role</code> and <code>use</code>, not by its looks.</li><li>The <code>--ref-*</code> tier is internal plumbing for the token file. Components and patterns consume <code>--sem-*</code> only.</li><li>Layering comes from <code>sem.z.*</code>. A surface that needs to sit between two defined layers is the wrong kind of surface. In-flow depth has its own three steps below <code>drawer</code> — <code>sticky</code> (10), <code>pane</code> (20, docked panes and in-canvas floating chrome) and <code>float</code> (30, panel-internal popovers and HUDs) — so a bare <code>z-20</code> / <code>z-30</code> is a hard-coded z-index like any other.</li></ul>
 <h4>Reject on sight</h4>
 <p>Each of these is a restart signal, not a fix-it-later note. Rebuild the surface rather than patching it.</p>
-<ul><li>Two or more accent hues competing for primary, or an accent used as a selection fill.</li><li>More than two radii or more than three font weights in one view.</li><li>A third font family, or a serif anywhere in the product.</li><li>A badge or tinted pill where a status mark carries the same meaning.</li><li>A status dot — a tone-filled disc standing for a state — on any surface.</li><li>A card inside a card with no containment reason.</li><li>A hero composition — oversized headline, decorative blob, three-up stat row — inside an operational panel.</li><li>A primary button with a gradient fill of any kind, a drop shadow, a coloured glow, or a blurred halo. The one faint lit top edge of <code>shadow.control-raised</code> is the system's own and is not this; anything past it is.</li><li>Depth on a control below tier 1: a lit lip, a drop or a sheen on an outline button, a chip, a tile or a trigger, or an inset shadow on press.</li><li>Decorative emoji as iconography, or celebration copy (&quot;✅&quot;, &quot;🎉&quot;, &quot;Awesome!&quot;).</li><li>Placeholder content: &quot;Lorem ipsum&quot;, &quot;Card title&quot;, &quot;Item 1 / 2 / 3&quot;.</li><li>Empty-state copy that explains an obvious interaction (&quot;Click here to start&quot;), or marketing copy in operational chrome.</li><li>A subtitle restating the title, a field label restating the dialog title, or helper text restating the placeholder.</li><li>The application naming itself in ordinary UI copy.</li><li>A success message that dumps the operation's metadata instead of its result.</li><li>A red &quot;Required&quot; or an asterisk on a field nobody has filled in yet.</li><li>A tone-coloured bar down the left edge of a notice, card, or callout.</li><li>Two stacked bands of chrome above one region of content.</li><li>Dividers separating the sections of a dialog.</li><li>The same count shown in two places where the values could appear to disagree.</li><li>Always-on row actions that should have been revealed on hover — or hover-revealed actions with no keyboard path.</li></ul>
+<ul><li>Two or more accent hues competing for primary, or an accent used as a selection fill.</li><li>More than two radii or more than three font weights in one view.</li><li>A third font family, or a serif anywhere in the product's interface (the typeset-content faces listed under Type are the only exception).</li><li>A badge or tinted pill where a status mark carries the same meaning.</li><li>A status dot — a tone-filled disc standing for a state — on any surface.</li><li>A card inside a card with no containment reason.</li><li>A hero composition — oversized headline, decorative blob, three-up stat row — inside an operational panel.</li><li>A primary button with a gradient fill of any kind, a drop shadow, a coloured glow, or a blurred halo. The one faint lit top edge of <code>shadow.control-raised</code> is the system's own and is not this; anything past it is.</li><li>Depth on a control below tier 1: a lit lip, a drop or a sheen on an outline button, a chip, a tile or a trigger, or an inset shadow on press.</li><li>Decorative emoji as iconography, or celebration copy (&quot;✅&quot;, &quot;🎉&quot;, &quot;Awesome!&quot;).</li><li>Placeholder content: &quot;Lorem ipsum&quot;, &quot;Card title&quot;, &quot;Item 1 / 2 / 3&quot;.</li><li>Empty-state copy that explains an obvious interaction (&quot;Click here to start&quot;), or marketing copy in operational chrome.</li><li>A subtitle restating the title, a field label restating the dialog title, or helper text restating the placeholder.</li><li>The application naming itself in ordinary UI copy.</li><li>A success message that dumps the operation's metadata instead of its result.</li><li>A red &quot;Required&quot; or an asterisk on a field nobody has filled in yet.</li><li>A tone-coloured bar down the left edge of a notice, card, or callout.</li><li>Two stacked bands of chrome above one region of content.</li><li>Dividers separating the sections of a dialog.</li><li>The same count shown in two places where the values could appear to disagree.</li><li>Always-on row actions that should have been revealed on hover — or hover-revealed actions with no keyboard path.</li></ul>
 </div>
 </section>
 <section id="components" class="catalog-group">
@@ -14211,6 +14296,26 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
         ><button class="ds-button ds-button--icon" disabled aria-label="Remove unavailable context">×</button></span
       >
     </div>
+    <div class="ds-demo-row">
+      <span class="ds-attachment-chip ds-attachment-chip--file"
+        ><button class="ds-attachment-chip-file-open" aria-label="Open Quarterly re…final.pdf"
+          ><span class="ds-attachment-chip-file-preview"><svg viewBox="0 0 16 16" width="18" height="18" fill="none" aria-hidden="true"><path d="M4.25 1.75h5.4l2.1 2.1v10.4H4.25a1.5 1.5 0 0 1-1.5-1.5v-9.5a1.5 1.5 0 0 1 1.5-1.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" /></svg></span
+          ><span class="ds-attachment-chip-file-caption"
+            ><span class="ds-attachment-chip-label">Quarterly re…final.pdf</span
+            ><span class="ds-attachment-chip-file-type">PDF</span></span
+          ></button
+        ><button class="ds-button ds-button--icon" aria-label="Remove Quarterly re…final.pdf">×</button></span
+      >
+      <span class="ds-attachment-chip ds-attachment-chip--file"
+        ><button class="ds-attachment-chip-file-open" aria-label="Open budget.xlsx"
+          ><span class="ds-attachment-chip-file-preview"><svg viewBox="0 0 16 16" width="18" height="18" fill="none" aria-hidden="true"><path d="M4.25 1.75h5.4l2.1 2.1v10.4H4.25a1.5 1.5 0 0 1-1.5-1.5v-9.5a1.5 1.5 0 0 1 1.5-1.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" /></svg></span
+          ><span class="ds-attachment-chip-file-caption"
+            ><span class="ds-attachment-chip-label">budget.xlsx</span
+            ><span class="ds-attachment-chip-file-type">XLSX</span></span
+          ></button
+        ><button class="ds-button ds-button--icon" aria-label="Remove budget.xlsx">×</button></span
+      >
+    </div>
     <div class="ds-demo-row" data-mode="dark">
       <span class="ds-attachment-chip"
         ><span class="ds-attachment-chip-label">src/app.ts</span
@@ -14221,19 +14326,31 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
         ><button class="ds-button ds-button--icon" aria-label="Remove inspected skill">×</button></span
       >
     </div>
+    <div class="ds-demo-row" data-mode="dark">
+      <span class="ds-attachment-chip ds-attachment-chip--file"
+        ><button class="ds-attachment-chip-file-open" aria-label="Open deck.pptx"
+          ><span class="ds-attachment-chip-file-preview"><svg viewBox="0 0 16 16" width="18" height="18" fill="none" aria-hidden="true"><path d="M4.25 1.75h5.4l2.1 2.1v10.4H4.25a1.5 1.5 0 0 1-1.5-1.5v-9.5a1.5 1.5 0 0 1 1.5-1.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" /></svg></span
+          ><span class="ds-attachment-chip-file-caption"
+            ><span class="ds-attachment-chip-label">deck.pptx</span
+            ><span class="ds-attachment-chip-file-type">PPTX</span></span
+          ></button
+        ><button class="ds-button ds-button--icon" aria-label="Remove deck.pptx">×</button></span
+      >
+    </div>
 </div>
 <div class="catalog-doc">
 <p>A removable piece of context staged on a composer, shared by the launcher and conversation. Its neutral selected ground marks attached content without spending the primary action accent.</p>
 <h4>Anatomy</h4>
-<ul><li><code>.ds-attachment-chip</code>: inline wrapper, selected ground, chip radius, meta type, medium weight.</li><li>Optional leading glyph, followed by a truncating label.</li><li>A separate close button names the attachment it removes.</li><li>An inspectable label can contain a chip button opening a popover; removal remains a sibling control.</li></ul>
+<ul><li><code>.ds-attachment-chip</code>: inline wrapper, selected ground, chip radius, meta type, medium weight.</li><li>Optional leading glyph, followed by a truncating label.</li><li>A separate close button names the attachment it removes.</li><li>An inspectable label can contain a chip button opening a popover; removal remains a sibling control.</li><li>The file card (<code>.ds-attachment-chip--file</code>) is one button, <code>.ds-attachment-chip-file-open</code>: a preview square the height of an image thumbnail (<code>.ds-attachment-chip-file-preview</code>, the operating system's thumbnail of the file or its file-type glyph), then a caption of the name, cut in the middle so its extension survives, over the type in micro text (<code>.ds-attachment-chip-file-type</code>: PDF, DOCX, XLSX, Folder). The close button is pinned to the card's top-right corner.</li></ul>
 <h4>Variants</h4>
-<p>Static label or inspectable label. Skills, files, folders and images use the same shape.</p>
+<p>Static label or inspectable label. Skills, @-mentioned files and folders use the same shape.</p>
+<p><strong>File card.</strong> A file attached by path — dropped, picked or pasted from the system — is a card, not a chip: it has something to show and something to do. The card shows the file (a thumbnail where the system draws one, the type glyph until then and wherever it does not) and opens it in the app the system picks for it. Only a kind of file that is shown rather than run opens that way — a document, plain text or data, a picture, a recording; anything else (a program, a script, a shortcut, an archive, a file with no extension) is only revealed in its folder, so the same click shows it in Finder or Explorer instead. A sent message shows its files as the same cards, without the close button; in a chat on another machine, whose files this computer cannot open, they are badges with each file's name.</p>
 <h4>States</h4>
 <p>The wrapper does not hover or focus. The close button and optional inspect control inherit the button and chip-button states, including focus-visible and disabled behavior.</p>
 <h4>Usage</h4>
-<p>Place attached context above the composer field. Use neutral selected ground: a staged attachment is a selection. The consuming implementation is <code>src/renderer/src/components/ui/AttachmentChip.tsx</code>.</p>
+<p>Place attached context above the composer field. File cards share the image thumbnails' strip and row height; the consuming implementation is <code>AttachmentFileCard</code> in the same file, wired to the file by <code>ComposerFileChip</code>. Use neutral selected ground: a staged attachment is a selection. The consuming implementation is <code>src/renderer/src/components/ui/AttachmentChip.tsx</code>.</p>
 <h4>Accessibility</h4>
-<p>Removal is a separately focusable button labelled <code>Remove &lt;attachment name&gt;</code>. Never nest it inside the inspect button. A truncated static label exposes the complete text through the shared truncated-text component.</p>
+<p>Removal is a separately focusable button labelled <code>Remove &lt;attachment name&gt;</code>. A file card's button is labelled with what it does — <code>Open &lt;name&gt;</code>, or <code>Reveal in Finder: &lt;name&gt;</code> where the file is only revealed — and its context menu (the pointer's secondary click, or the keyboard's menu key) offers Open and Reveal in Finder / Show in Explorer. Never nest it inside the inspect button. A truncated static label exposes the complete text through the shared truncated-text component.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/attachment-chip/component.css</summary><pre><code>.ds-attachment-chip {
@@ -14252,6 +14369,70 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The file card: a file attached by path, with the system's own picture of it
+   (or its type glyph) in a square the height of an image thumbnail, and its
+   name over its type. The whole card opens the file; removal is a sibling
+   control pinned to its corner, as on an image thumbnail. */
+.ds-attachment-chip--file {
+  position: relative;
+  padding: 0;
+  gap: 0;
+  background: transparent;
+}
+.ds-attachment-chip-file-open {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  height: 48px; /* the image attachment thumbnail's edge, so the two share a row */
+  max-width: 220px;
+  padding: 0 var(--sem-space-xl) 0 0;
+  overflow: hidden;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ds-attachment-chip-file-open:hover {
+  border-color: var(--sem-color-border-strong);
+}
+.ds-attachment-chip-file-open:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+.ds-attachment-chip-file-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 48px;
+  background: var(--sem-color-bg-selected);
+  overflow: hidden;
+}
+.ds-attachment-chip-file-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ds-attachment-chip-file-caption {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ds-attachment-chip-file-type {
+  color: var(--sem-color-text-subtle);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-regular);
+}
+.ds-attachment-chip--file &gt; .ds-button {
+  position: absolute;
+  top: var(--sem-space-3xs);
+  right: var(--sem-space-3xs);
 }
 </code></pre></details>
 <details class="catalog-source"><summary>components/attachment-chip/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
@@ -14279,6 +14460,26 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
         &gt;&lt;button class=&quot;ds-button ds-button--icon&quot; disabled aria-label=&quot;Remove unavailable context&quot;&gt;×&lt;/button&gt;&lt;/span
       &gt;
     &lt;/div&gt;
+    &lt;div class=&quot;ds-demo-row&quot;&gt;
+      &lt;span class=&quot;ds-attachment-chip ds-attachment-chip--file&quot;
+        &gt;&lt;button class=&quot;ds-attachment-chip-file-open&quot; aria-label=&quot;Open Quarterly re…final.pdf&quot;
+          &gt;&lt;span class=&quot;ds-attachment-chip-file-preview&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;18&quot; height=&quot;18&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.25 1.75h5.4l2.1 2.1v10.4H4.25a1.5 1.5 0 0 1-1.5-1.5v-9.5a1.5 1.5 0 0 1 1.5-1.5Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/span
+          &gt;&lt;span class=&quot;ds-attachment-chip-file-caption&quot;
+            &gt;&lt;span class=&quot;ds-attachment-chip-label&quot;&gt;Quarterly re…final.pdf&lt;/span
+            &gt;&lt;span class=&quot;ds-attachment-chip-file-type&quot;&gt;PDF&lt;/span&gt;&lt;/span
+          &gt;&lt;/button
+        &gt;&lt;button class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Remove Quarterly re…final.pdf&quot;&gt;×&lt;/button&gt;&lt;/span
+      &gt;
+      &lt;span class=&quot;ds-attachment-chip ds-attachment-chip--file&quot;
+        &gt;&lt;button class=&quot;ds-attachment-chip-file-open&quot; aria-label=&quot;Open budget.xlsx&quot;
+          &gt;&lt;span class=&quot;ds-attachment-chip-file-preview&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;18&quot; height=&quot;18&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.25 1.75h5.4l2.1 2.1v10.4H4.25a1.5 1.5 0 0 1-1.5-1.5v-9.5a1.5 1.5 0 0 1 1.5-1.5Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/span
+          &gt;&lt;span class=&quot;ds-attachment-chip-file-caption&quot;
+            &gt;&lt;span class=&quot;ds-attachment-chip-label&quot;&gt;budget.xlsx&lt;/span
+            &gt;&lt;span class=&quot;ds-attachment-chip-file-type&quot;&gt;XLSX&lt;/span&gt;&lt;/span
+          &gt;&lt;/button
+        &gt;&lt;button class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Remove budget.xlsx&quot;&gt;×&lt;/button&gt;&lt;/span
+      &gt;
+    &lt;/div&gt;
     &lt;div class=&quot;ds-demo-row&quot; data-mode=&quot;dark&quot;&gt;
       &lt;span class=&quot;ds-attachment-chip&quot;
         &gt;&lt;span class=&quot;ds-attachment-chip-label&quot;&gt;src/app.ts&lt;/span
@@ -14287,6 +14488,17 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       &lt;span class=&quot;ds-attachment-chip&quot;
         &gt;&lt;button class=&quot;ds-chip-button&quot;&gt;Inspect skill&lt;/button
         &gt;&lt;button class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Remove inspected skill&quot;&gt;×&lt;/button&gt;&lt;/span
+      &gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-demo-row&quot; data-mode=&quot;dark&quot;&gt;
+      &lt;span class=&quot;ds-attachment-chip ds-attachment-chip--file&quot;
+        &gt;&lt;button class=&quot;ds-attachment-chip-file-open&quot; aria-label=&quot;Open deck.pptx&quot;
+          &gt;&lt;span class=&quot;ds-attachment-chip-file-preview&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;18&quot; height=&quot;18&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.25 1.75h5.4l2.1 2.1v10.4H4.25a1.5 1.5 0 0 1-1.5-1.5v-9.5a1.5 1.5 0 0 1 1.5-1.5Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/span
+          &gt;&lt;span class=&quot;ds-attachment-chip-file-caption&quot;
+            &gt;&lt;span class=&quot;ds-attachment-chip-label&quot;&gt;deck.pptx&lt;/span
+            &gt;&lt;span class=&quot;ds-attachment-chip-file-type&quot;&gt;PPTX&lt;/span&gt;&lt;/span
+          &gt;&lt;/button
+        &gt;&lt;button class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Remove deck.pptx&quot;&gt;×&lt;/button&gt;&lt;/span
       &gt;
     &lt;/div&gt;
   &lt;/body&gt;
@@ -19504,13 +19716,13 @@ line 22</code></pre>
 <div class="catalog-doc">
 <h4>Anatomy</h4>
 <p>A card set into the reading flow: <code>bg.well</code> (a translucent tint of the ink, so it separates from the conversation canvas, a panel or a card alike in both modes), a <code>border.subtle</code> hairline and the control radius. Inside it, top to bottom:</p>
-<p>1. <strong>Header</strong> — one row, set off from the source by a <code>border.subtle</code> divider. - _Left:_ the label. A block with a known filename shows the filename in the mono face, led by its file-type glyph, truncated with the full path in a tooltip. Otherwise the language's name in the UI face — TypeScript, Bash, JSON, never the fence's <code>ts</code> / <code>sh</code> / <code>json</code> — led by the file-type glyph when the vocabulary has one for it. No language is &quot;Plain text&quot;; a language nobody has mapped is shown as the fence wrote it. - _Right:_ the actions, all glyphs at <code>icon-xs</code> inside <code>xs</code> icon buttons, in this order: a surface's own actions, Paste into terminal (shell blocks only, see Variants), Wrap lines, Copy code. 2. <strong>Source</strong> — a real <code>&lt;pre&gt;&lt;code&gt;</code>, mono at <code>font.size.body</code>, leading <code>font.line.code</code> (1.6), padded <code>space.md</code> × <code>space.lg</code>. 3. <strong>Fold control</strong> (long blocks only) — a ghost button with the chevron, &quot;Show all N lines&quot; / &quot;Show less&quot;. 4. <strong>Note</strong> (past 2000 lines only) — &quot;Highlighting stopped at 2000 lines&quot;.</p>
+<p>1. <strong>Header</strong> — one row, set off from the source by a <code>border.subtle</code> divider. - _Left:_ the label. A block with a known filename shows the filename in the mono face, led by its file-type glyph, truncated with the full path in a tooltip. Otherwise the language's name in the UI face — TypeScript, Bash, JSON, never the fence's <code>ts</code> / <code>sh</code> / <code>json</code> — led by the file-type glyph when the vocabulary has one for it. No language is &quot;Plain text&quot;; a language nobody has mapped is shown as the fence wrote it. - _Right:_ the actions, all glyphs at <code>icon-xs</code> inside <code>xs</code> icon buttons, in this order: a surface's own actions, Paste into terminal (shell blocks only, see Variants), Show source (drawn blocks only), Wrap lines, Copy code. 2. <strong>Source</strong> — a real <code>&lt;pre&gt;&lt;code&gt;</code>, mono at <code>font.size.body</code>, leading <code>font.line.code</code> (1.6), padded <code>space.md</code> × <code>space.lg</code>. 3. <strong>Fold control</strong> (long blocks only) — a ghost button with the chevron, &quot;Show all N lines&quot; / &quot;Show less&quot;. 4. <strong>Note</strong> — a quiet line under the block: &quot;Highlighting stopped at 2000 lines&quot; past 2000 lines, or the surface's own word on the block, such as why a diagram shows as its source. A surface may give it one action, set after it as a link button behind <code> · </code> (&quot;Retry&quot; when a diagram's renderer did not load).</p>
 <p>A filename comes from the fence info: <code>title=&quot;src/app.ts&quot;</code>, <code>file=</code> / <code>filename=</code> / <code>path=</code>, or a bare path after the language (<code> </code>`<code>ts src/app.ts </code>). A fence tag that is itself a path (<code> </code>`<code>src/app.ts </code>) is read as the filename, and the language comes from its extension.</p>
 <p><strong>For code that reads the rendered block</strong> (the selection-to-markdown copy): the root carries <code>data-code-block</code> and <code>data-code-language</code> — the highlighter's id when it knows the language, else the fence's own tag lowercased, else empty. The header, the fold control and the note carry <code>data-copy-exclude</code>. The edge fades are masks on the source, not elements, so there is nothing else to exclude.</p>
 <h4>Variants</h4>
-<ul><li><strong>Unwrapped</strong> (default): long lines scroll horizontally. When they overflow, the edges with code past them fade (<code>space.3xl</code>), and only those edges.</li><li><strong>Wrapped</strong>: the Wrap lines toggle is pressed; whitespace is preserved and long lines wrap anywhere. No edge fades.</li><li><strong>Shell</strong> (<code>bash</code>, <code>sh</code>, <code>zsh</code>, <code>shell</code>, <code>console</code>): a surface that can reach a terminal adds Paste into terminal (<code>TerminalPromptGlyph</code>). It puts the command at a prompt and never presses Enter. A <code>$ </code> or <code>% </code> prompt at the start of a line comes off it (an indented one is output, as in curl's progress table); when some lines carry a prompt, only those lines, the lines a trailing <code>\</code> continues onto and the body of a here-document they open are the command, and the rest is output. A <code>console</code> block is a session, so it is offered only when its prompts mark the commands. <code>fish</code> and PowerShell are not offered — their syntax is not the login shell's.</li><li><strong>Unknown language</strong>: the same card with plain source.</li></ul>
+<ul><li><strong>Unwrapped</strong> (default): long lines scroll horizontally. When they overflow, the edges with code past them fade (<code>space.3xl</code>), and only those edges.</li><li><strong>Wrapped</strong>: the Wrap lines toggle is pressed; whitespace is preserved and long lines wrap anywhere. No edge fades.</li><li><strong>Shell</strong> (<code>bash</code>, <code>sh</code>, <code>zsh</code>, <code>shell</code>, <code>console</code>): a surface that can reach a terminal adds Paste into terminal (<code>TerminalPromptGlyph</code>). It puts the command at a prompt and never presses Enter. A <code>$ </code> or <code>% </code> prompt at the start of a line comes off it (an indented one is output, as in curl's progress table); when some lines carry a prompt, only those lines, the lines a trailing <code>\</code> continues onto and the body of a here-document they open are the command, and the rest is output. A <code>console</code> block is a session, so it is offered only when its prompts mark the commands. <code>fish</code> and PowerShell are not offered — their syntax is not the login shell's.</li><li><strong>Drawn</strong> (a reply's <code> </code>`<code>mermaid </code> block): a surface hands the block a drawing made from its source, and the drawing takes the source's place, centred at its own size and shrunk to the column, padded like the source. Show source (<code>ViewSourceGlyph</code>, an <code>aria-pressed</code> toggle) switches to the source and back; Wrap lines is offered only while the source shows, and the fold never applies to a drawing. The source stays in the DOM, hidden, so Copy code and a selection across the block both take the source. A drawing is never shown while the block streams.</li><li><strong>Unknown language</strong>: the same card with plain source.</li></ul>
 <h4>States</h4>
-<ul><li><strong>Loading</strong>: the source reserves its height, hidden, until the grammar is in — plain code never flashes before its colour.</li><li><strong>Streaming</strong>: completed lines are highlighted once and stay stable; the open line is plain. Wrap and copy work (copy takes what has arrived). Paste into terminal and the fold control are absent until the block settles.</li><li><strong>Folded</strong>: a settled block over 20 lines shows its first 12, the last few fading out, and &quot;Show all N lines&quot; below. &quot;Show less&quot; folds it again. A block first seen while streaming stays open when it settles, so it never pulls lines away from someone reading them. Every line is in the DOM either way.</li><li><strong>Actions</strong>: at rest <code>text.subtle</code>; <code>text.default</code> under the pointer and under keyboard focus. Wrap lines pressed takes the neutral pressed fill. Copy swaps to the check for 1.2 s on success ([button → The copy glyph](../button/component.md#the-copy-glyph)).</li><li><strong>Failed grammar</strong>: plain source. <strong>Over 2000 lines</strong>: highlighting stops and the note says so.</li></ul>
+<ul><li><strong>Loading</strong>: the source reserves its height, hidden, until the grammar is in — plain code never flashes before its colour.</li><li><strong>Streaming</strong>: completed lines are highlighted once and stay stable; the open line is plain. Wrap and copy work (copy takes what has arrived). Paste into terminal and the fold control are absent until the block settles.</li><li><strong>Folded</strong>: a settled block over 20 lines shows its first 12, the last few fading out, and &quot;Show all N lines&quot; below. &quot;Show less&quot; folds it again. A block first seen while streaming stays open when it settles, so it never pulls lines away from someone reading them. Every line is in the DOM either way.</li><li><strong>Actions</strong>: at rest <code>text.subtle</code>; <code>text.default</code> under the pointer and under keyboard focus. Wrap lines pressed takes the neutral pressed fill. Copy swaps to the check for 1.2 s on success ([button → The copy glyph](../button/component.md#the-copy-glyph)).</li><li><strong>Failed grammar</strong>: plain source. <strong>Over 2000 lines</strong>: highlighting stops and the note says so.</li><li><strong>Not drawn</strong>: a drawn block whose source does not parse keeps its source, and the note says why (&quot;Shown as source: Parse error on line 2&quot;). A renderer that did not load is the network's failure rather than the source's, so its note ends in a Retry. Until a drawing is ready the source shows, so a block never renders empty.</li></ul>
 <p>Light and dark come from the same semantic tokens.</p>
 <h4>Usage</h4>
 <p>Syntax colours identify grammatical roles inside code only (2026-09-26). They are content, never control accents. Use sem.syntax tokens and do not load the highlighter in the application's initial bundle.</p>
@@ -19601,6 +19813,21 @@ line 22</code></pre>
 .ds-code-block--wrap pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* A drawing made from the source (a diagram), in the source's place. It sits
+ * centred at its own size and shrinks to the column, never past it; one wider
+ * than it can shrink to legibly scrolls sideways instead. */
+.ds-code-block__drawing {
+  display: flex;
+  justify-content: center;
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  overflow-x: auto;
+}
+.ds-code-block__drawing svg {
+  flex: none;
+  max-width: 100%;
+  height: auto;
 }
 
 /* Edge fades on an unwrapped block, set by the host on exactly the edges that
@@ -26503,7 +26730,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 </div>
 </div>
 <div class="catalog-doc">
-<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The seventy-two SVGs in <code>glyphs/</code> (close, search, spinner, sprintengine-mark, git-branch, remote-machine, schedule, wsl-machine, the four <code>device-*</code> marks, the six <code>machine-*</code> kinds, the composer's six — plus, conversation, terminal-agent, attach, plugins, send — commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab — and the diff tour's four — tour, play, pause, step-list — and the copy affordance's pair — copy, and the check it confirms with — and the code block's two — wrap-lines, terminal-prompt — the chat's ten tool-step marks, <code>tool-*</code>, the quote mark — quote — and open-in-window) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
+<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The seventy-three SVGs in <code>glyphs/</code> (close, search, spinner, sprintengine-mark, git-branch, remote-machine, schedule, wsl-machine, the four <code>device-*</code> marks, the six <code>machine-*</code> kinds, the composer's six — plus, conversation, terminal-agent, attach, plugins, send — commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab — and the diff tour's four — tour, play, pause, step-list — and the copy affordance's pair — copy, and the check it confirms with — and the code block's three — wrap-lines, terminal-prompt, view-source — the chat's ten tool-step marks, <code>tool-*</code>, the quote mark — quote — and open-in-window) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
 <p>A glyph is not decoration and not a status pill. It answers exactly one question — *which thing is this* (identity), *where is it in its pipeline* (lifecycle), *which machine is it on* (device), *what kind of capability* (capability), *which runtime* (CLI), or *what will this control do* (action) — and each question has its own family below. A surface that reaches for two families to answer one question has the wrong hierarchy, not the wrong icon.</p>
 <h4>Anatomy</h4>
 <p>Two drawing grids, each with its own stroke discipline:</p>
@@ -26562,9 +26789,9 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p><code>CliIcon(cli)</code> resolves an agent CLI to one of eight marks: <code>claude-code</code> (the brand starburst — the one glyph with its own fill), <code>codex</code> (the knot mark, <code>currentColor</code>), <code>opencode</code>, and five original rounded-square tile marks (<code>zai</code>, <code>grok</code>, <code>kimi</code>, <code>cursor</code>, <code>muse</code> — placeholders until official brand SVGs are bundled; both Kimi runtimes share one mark so they read as one provider), with <code>terminal</code> as the fallback. Tile marks keep the 24-grid discipline: 1.7 frame, 1.9 letterform.</p>
 <h5>File type (16-grid — <code>ui/FileTypeGlyph.tsx</code>)</h5>
 <p>*Which kind of file is this row about*, answered by shape first. One drawing per kind in the 16 px leading slot every tree and list row reserves — the File Explorer and the Git changes list wear the same mark for the same file, so a <code>.ts</code> reads as a <code>.ts</code> on both (owner 2026-09-05). <code>fileTypeKind(name)</code> is the pure resolver and <code>FILE_TYPE_LABEL</code> names each kind for a tooltip or <code>aria-label</code>; the identity hue a kind wears when coloured is private to the component, applied through its <code>tone</code> prop.</p>
-<p>| Kind | Shape | |---|---| | <code>typescript</code> · <code>javascript</code> · <code>python</code> · <code>rust</code> · <code>go</code> | Letter tile: rounded frame at 1.2, letterform at 1.45 (TS / JS / PY / RS / GO) — the 16-grid cousin of the <code>CliIcon</code> placeholder tile | | <code>typescript-test</code> · <code>javascript-test</code> · <code>python-test</code> · <code>rust-test</code> · <code>go-test</code> · <code>react-test</code> | The same drawing with its bottom-right corner notched for a tick — <code>*.test.*</code> and <code>*.spec.*</code> | | <code>react</code> | The atom — <code>.tsx</code> / <code>.jsx</code> | | <code>json</code> | Braces <code>{ }</code> | | <code>markdown</code> | M with a down arrow | | <code>yaml</code> | Indented list lines | | <code>html</code> | Angle brackets <code>&lt; &gt;</code> | | <code>css</code> | Hash <code>#</code> | | <code>shell</code> | Prompt <code>&gt;_</code> | | <code>java</code> | Cup | | <code>image</code> | Framed landscape | | <code>lock</code> | Padlock — lockfiles (<code>package-lock.json</code>, <code>yarn.lock</code>, <code>Cargo.lock</code> …) | | <code>config</code> | Gear — dotfiles, <code>.env*</code>, <code>Dockerfile</code>, <code>.toml</code> / <code>.ini</code> / <code>.xml</code> | | <code>text</code> | Document with lines — <code>.txt</code>, <code>.csv</code>, <code>LICENSE</code>, <code>README</code> | | <code>generic</code> | Plain document — anything unrecognised |</p>
+<p>| Kind | Shape | |---|---| | <code>typescript</code> · <code>javascript</code> · <code>python</code> · <code>rust</code> · <code>go</code> | Letter tile: rounded frame at 1.2, letterform at 1.45 (TS / JS / PY / RS / GO) — the 16-grid cousin of the <code>CliIcon</code> placeholder tile | | <code>typescript-test</code> · <code>javascript-test</code> · <code>python-test</code> · <code>rust-test</code> · <code>go-test</code> · <code>react-test</code> | The same drawing with its bottom-right corner notched for a tick — <code>*.test.*</code> and <code>*.spec.*</code> | | <code>react</code> | The atom — <code>.tsx</code> / <code>.jsx</code> | | <code>json</code> | Braces <code>{ }</code> | | <code>markdown</code> | M with a down arrow | | <code>yaml</code> | Indented list lines | | <code>html</code> | Angle brackets <code>&lt; &gt;</code> | | <code>css</code> | Hash <code>#</code> | | <code>shell</code> | Prompt <code>&gt;_</code> | | <code>java</code> | Cup | | <code>image</code> | Framed landscape | | <code>pdf</code> | Page with a P — <code>.pdf</code> | | <code>document</code> | Page with a W — <code>.docx</code> / <code>.doc</code> / <code>.odt</code> / <code>.rtf</code> / <code>.pages</code> | | <code>spreadsheet</code> | Ruled grid, header row and first column — <code>.xlsx</code> / <code>.xls</code> / <code>.ods</code> / <code>.numbers</code> / <code>.csv</code> / <code>.tsv</code> | | <code>presentation</code> | Slide on its stand — <code>.pptx</code> / <code>.ppt</code> / <code>.odp</code> / <code>.key</code> | | <code>archive</code> | Page zipped down the middle — <code>.zip</code> / <code>.tar</code> / <code>.gz</code> / <code>.7z</code> / <code>.rar</code> | | <code>lock</code> | Padlock — lockfiles (<code>package-lock.json</code>, <code>yarn.lock</code>, <code>Cargo.lock</code> …) | | <code>config</code> | Gear — dotfiles, <code>.env*</code>, <code>Dockerfile</code>, <code>.toml</code> / <code>.ini</code> / <code>.xml</code> | | <code>text</code> | Document with lines — <code>.txt</code>, <code>.log</code>, <code>LICENSE</code>, <code>README</code> | | <code>generic</code> | Plain document — anything unrecognised |</p>
 <p>Colour is the <code>tone</code> axis, and the surface picks it (ruled 2026-09-06, amended 2026-09-09, principles.md → &quot;Identity colour&quot;). <code>tone=&quot;ink&quot;</code>, the default, is the monochrome glyph the 2026-09-02 ruling left: it takes the row's ink, and it is what a row uses when its glyph names no language or when the surface wants no identity channel at all. <code>tone=&quot;kind&quot;</code> inks the glyph in its language's identity hue from the <code>--sem-color-mark-*</code> ramp, the pairings people know from their editors:</p>
-<p>| Hue | Kinds | |---|---| | <code>mark.blue</code> | <code>typescript</code> · <code>python</code> · <code>markdown</code> | | <code>mark.yellow</code> | <code>javascript</code> · <code>json</code> · <code>lock</code> | | <code>mark.cyan</code> | <code>react</code> · <code>go</code> | | <code>mark.orange</code> | <code>html</code> · <code>rust</code> | | <code>mark.red</code> | <code>yaml</code> · <code>java</code> | | <code>mark.teal</code> | <code>shell</code> | | <code>mark.violet</code> | <code>css</code> · <code>image</code> | | *(row ink)* | <code>config</code> · <code>text</code> · <code>generic</code> — they name no language |</p>
+<p>| Hue | Kinds | |---|---| | <code>mark.blue</code> | <code>typescript</code> · <code>python</code> · <code>markdown</code> · <code>document</code> | | <code>mark.yellow</code> | <code>javascript</code> · <code>json</code> · <code>lock</code> | | <code>mark.cyan</code> | <code>react</code> · <code>go</code> | | <code>mark.orange</code> | <code>html</code> · <code>rust</code> · <code>presentation</code> | | <code>mark.red</code> | <code>yaml</code> · <code>java</code> · <code>pdf</code> | | <code>mark.teal</code> | <code>shell</code> · <code>spreadsheet</code> — the ramp's nearest to a spreadsheet's usual green | | <code>mark.violet</code> | <code>css</code> · <code>image</code> | | *(row ink)* | <code>config</code> · <code>text</code> · <code>archive</code> · <code>generic</code> — they name no language |</p>
 <p>A <code>*-test</code> kind takes its base language's hue: the notch says &quot;test&quot;, the hue still says which language.</p>
 <p><strong>Both file surfaces wear <code>tone=&quot;kind&quot;</code> (amended 2026-09-09).</strong> The 2026-09-06 ruling let the hue on only where nothing else in the row was coloured, which admitted the File Explorer and excluded the Git changes list. The owner reversed the exclusion for the Commit window: a Git row carries the kind hue on its glyph <strong>and</strong> the status tint on its name, because the hue identifies and the tint grades. The glyph is the same blue on a modified, added and deleted <code>.ts</code> row — it never moves with state — so the only thing grading in the row is still the name.</p>
 <p>The hue identifies and never grades: it is not a status ramp, and a <code>.ts</code> row is not &quot;more&quot; than a <code>.md</code> row for being bluer. A row still spends at most two colour channels, and the second one is the name's. <code>glyphs/file- typescript.svg</code> and <code>glyphs/file-generic.svg</code> are the framework-neutral samples of the tile and document idioms, in <code>currentColor</code>.</p>
@@ -26579,8 +26806,8 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <h5>Utility marks (16-grid)</h5>
 <p>| Export | Meaning | |---|---| | <code>StarGlyph(filled, stroked)</code> | The one star path for starred/favorite — solid when earned, outlined for menu unstarred states. Caller owns size and ink | | <code>RefreshIcon</code> | The canonical two-arrow refresh, shared by every panel that offers a manual re-read (Git status, Backlog scan) | | <code>GitBranchGlyph</code> | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. <code>glyphs/git-branch.svg</code> | | <code>PresetDialGlyph</code> · <code>LockGlyph</code> · <code>UnlockedGlyph</code> · <code>SparkGlyph</code> | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in <code>AppIcons.tsx</code>; no standalone asset. | | <code>RemoteMachineGlyph</code> | <strong>The Beam</strong> (redrawn 2026-10-04, owner ruling; it was a stack of two server units): a screen on its stand with two arcs of signal off its corner — a machine reached over the air. The one mark for &quot;another machine&quot; in general, where a surface does not say which: the paired-devices list, the &quot;Other machines&quot; group of the machine picker, the tailnet UI, a remote group header (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Also the Device identity family's fallback (above). A surface that names one machine wears that machine's own mark instead (Machine kinds). Stroke 1.4. <code>glyphs/remote-machine.svg</code> | | <code>ScheduleGlyph</code> | A scheduled agent: a prompt that starts a new chat each time its schedule comes round. The plain clock face — hands at the hour, nothing else — on the New chat panel's Scheduled agent switch, its schedule row, the entry beside New chat, each scheduled agent's row in the sidebar's Scheduled section, and beside the title of every chat a scheduled run started, where it is named &quot;Started by a schedule&quot; (accessible name and tooltip) and says where the chat came from, never that it is working. <strong>Not</strong> <code>glyphs/history.svg</code>, whose clock carries a rewind arrow and means *the past* (the Git log); this one means *a time that is coming*. Stroke 1.4. <code>glyphs/schedule.svg</code> | | <code>WslMachineGlyph</code> | A WSL distribution on this computer, which is a machine of its own (&quot;WSL: Ubuntu&quot;): a window with a title bar and a prompt, because the distribution is reached as a shell. The title bar (redrawn 2026-10-04) is what keeps it apart from the plain terminal's frame, <code>TerminalPromptGlyph</code>, which the composer's &quot;Start as&quot; choice draws beside it. It is also the <code>wsl</code> machine kind (Machine kinds, above). Stroke 1.4. <code>glyphs/wsl-machine.svg</code> | | <code>OpenInWindowGlyph</code> | *In a window of its own*: a box with an arrow leaving it by the top-right corner. One drawing for every way a surface leaves for its own OS window — the Diff tab's &quot;Open in separate window&quot;, the workspace pane's &quot;Pop out pane&quot; — and, in a pane tab's glyph slot, for a tab that is showing in a pop-out window right now: the mark the person clicked to send it there is the one that says where it went (the tab's accessible name says it in words). Extracted from the diff band in 2026-10, when the pane's pop-out reached for the same idea. Stroke 1.5. <code>glyphs/open-in-window.svg</code> |</p>
 <h5>Code block actions (16-grid — <code>ui/CodeBlockGlyphs.tsx</code>)</h5>
-<p>The two header actions a code block has beside its copy glyph ([code-block](../code-block/component.md)). Stroke 1.4, <code>currentColor</code>, drawn at <code>icon-xs</code> inside an <code>xs</code> icon button.</p>
-<p>| Export | Asset | Drawing | |---|---|---| | <code>WrapLinesGlyph</code> | <code>glyphs/wrap-lines.svg</code> | A full line, a line that runs to the edge and turns back under itself with an arrowhead, and the short line it continues on. The turn is the meaning; without it the mark is a paragraph icon. A toggle, so it takes the pressed fill when on | | <code>TerminalPromptGlyph</code> | <code>glyphs/terminal-prompt.svg</code> | A terminal frame with a <code>&gt;</code> prompt and the cursor after it: &quot;put this at a terminal's prompt&quot;. Deliberately not the play triangle — nothing runs until the person presses Enter, and a play mark would promise that it does. The same drawing as the terminal pane kind's private glyph (<code>workspace/pane/paneKinds.tsx</code>); see Known drift |</p>
+<p>The three header actions a code block has beside its copy glyph ([code-block](../code-block/component.md)). Stroke 1.4, <code>currentColor</code>, drawn at <code>icon-xs</code> inside an <code>xs</code> icon button.</p>
+<p>| Export | Asset | Drawing | |---|---|---| | <code>WrapLinesGlyph</code> | <code>glyphs/wrap-lines.svg</code> | A full line, a line that runs to the edge and turns back under itself with an arrowhead, and the short line it continues on. The turn is the meaning; without it the mark is a paragraph icon. A toggle, so it takes the pressed fill when on | | <code>TerminalPromptGlyph</code> | <code>glyphs/terminal-prompt.svg</code> | A terminal frame with a <code>&gt;</code> prompt and the cursor after it: &quot;put this at a terminal's prompt&quot;. Deliberately not the play triangle — nothing runs until the person presses Enter, and a play mark would promise that it does. The same drawing as the terminal pane kind's private glyph (<code>workspace/pane/paneKinds.tsx</code>); see Known drift | | <code>ViewSourceGlyph</code> | <code>glyphs/view-source.svg</code> | A pair of angle brackets: &quot;the code behind this&quot;. On a block that draws its source (a diagram), it switches to the text the drawing was made from. A toggle, so it takes the pressed fill while the source shows |</p>
 <h5>Tool step (16-grid — <code>ui/ToolKindGlyph.tsx</code>)</h5>
 <p>*What kind of step did the agent take* — the mark that leads each tool row in a conversation's work log, and the summary row over a group of them. A column of steps is read by shape before it is read by label (&quot;read, read, ran, edited&quot;), so each kind gets one drawing and the label beside it never has to start with the kind. 16-grid, stroke 1.4, <code>currentColor</code>, <code>fill=&quot;none&quot;</code>, decorative (<code>aria-hidden</code>; the row's label says what happened). The glyph carries its kind as <code>data-tool-glyph</code>.</p>
 <p><code>ToolKindGlyph({ kind })</code> takes a <code>ConversationToolKind</code> and falls back to the wrench for anything it does not know. The row owns the ink: the quietest text ink at rest, the accent (pulsing) while the step runs, the error tone when it failed — so the mark doubles as the step's status and the row needs no second status mark.</p>
@@ -42982,11 +43209,12 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <p>Five tones, each deciding color, politeness, and persistence:</p>
 <p>| Tone        | Mark                                 | Role / live           | Auto-dismiss | | ----------- | ------------------------------------ | --------------------- | ------------ | | <code>--neutral</code> | ring with a bar, <code>status.neutral</code>    | <code>status</code> / <code>polite</code>   | 5 s          | | <code>--good</code>    | check disc, <code>status.good</code>            | <code>status</code> / <code>polite</code>   | 5 s          | | <code>--accent</code>  | held quarter arc, <code>accent.primary</code>   | <code>status</code> / <code>polite</code>   | 5 s          | | <code>--warn</code>    | ring with &quot;!&quot;, <code>status.warn</code>         | <code>alert</code> / <code>assertive</code> | 10 s         | | <code>--danger</code>  | ring with &quot;×&quot;, <code>status.danger</code>       | <code>alert</code> / <code>assertive</code> | 10 s         |</p>
 <p><strong>Every tone leaves on its own</strong> (owner ruling 2026-09-28, amending the earlier never-for-warn-and-danger). A toast is not the state: the notification bell and the surface behind each report keep what it said, so a corner of stale cards is furniture, not safety. Warn and danger stay twice as long as a success, and hovering or focusing any toast holds its clock, restarting the full duration on leave, so nobody is raced while reading. A producer that needs a toast to stay says so with <code>autoDismissMs: false</code> (the app-update steps). (The shipped kit names the danger tone <code>error</code>; the class here follows the token grammar, <code>status.danger</code>.)</p>
-<p><strong>The action row, two consumers.</strong> Owner ruling 2026-09-04: the CLI-update toast (&quot;Update available: Codex 0.153.3&quot;) carries <code>.ds-toast-actions</code> with <strong>Settings</strong> (ghost) and <strong>Update</strong> (primary), and <code>.ds-toast-glyph</code> — the agent CLI's icon — in place of the tone's mark. It stays for one minute, not five seconds and not forever (owner ruling 2026-09-18): long enough to reach for Update, short enough that an unasked-for notice does not sit in the corner until clicked. Missing it loses nothing — the bell and the Settings row carry the same news. Once Update is pressed the toast becomes that update's report, and its buttons go with the question they answered. &quot;Undo&quot; in a toast is still an action on a timer racing its own dismissal and still belongs where the change is visible; a further consumer of the action row is a design decision to record here, not a styling choice.</p>
+<p><strong>The action row, three consumers.</strong> Owner ruling 2026-09-04: the CLI-update toast (&quot;Update available: Codex 0.153.3&quot;) carries <code>.ds-toast-actions</code> with <strong>Settings</strong> (ghost) and <strong>Update</strong> (primary), and <code>.ds-toast-glyph</code> — the agent CLI's icon — in place of the tone's mark. It stays for one minute, not five seconds and not forever (owner ruling 2026-09-18): long enough to reach for Update, short enough that an unasked-for notice does not sit in the corner until clicked. Missing it loses nothing — the bell and the Settings row carry the same news. Once Update is pressed the toast becomes that update's report, and its buttons go with the question they answered. &quot;Undo&quot; in a toast is still an action on a timer racing its own dismissal and still belongs where the change is visible; a further consumer of the action row is a design decision to record here, not a styling choice.</p>
 <p><strong>The action row's second consumer (owner ruling 2026-09-23, amended 2026-09-24).</strong> The app-update toast is one toast, shown again in place at each step of the update, so the corner always says where the update is:</p>
 <p>| Step        | Title                                                                      | Actions                                            | | ----------- | -------------------------------------------------------------------------- | -------------------------------------------------- | | Found       | &quot;SprintEngine Studio 0.7.0 is available&quot; (accent mark)                     | <strong>Later</strong> (ghost), <strong>Download</strong> (primary)          | | Downloading | &quot;Downloading SprintEngine Studio 0.7.0&quot;, the percentage as its description | none                                               | | Ready       | &quot;SprintEngine Studio 0.7.0 is ready&quot; (good mark)                           | <strong>Later</strong> (ghost), <strong>Restart to update</strong> (primary) | | Installing  | &quot;Installing update&quot;                                                        | <strong>Restarting…</strong>, busy                              | | Refused     | &quot;Update not installed&quot;, and why (warn mark)                                | <strong>Later</strong> (ghost), <strong>Restart to update</strong> (primary) |</p>
 <p>Nothing downloads until the person presses Download (2026-09-24), unless they turned automatic download on in Settings; then the Found and Downloading steps are skipped and the toast first appears at Ready. The question is asked where the person is working rather than behind a trip to Settings. Unlike the CLI-update toast it stays until answered: it appears once per version, and a prompt that times out while the person looks away is how an update ends up found by accident. Later is the dismissal, and loses nothing — a downloaded update installs at the next quit (except one that needs an administrator, which says so), and the bell row and the Settings version row still say it is ready.</p>
-<p><strong>The busy action (2026-09-24).</strong> When Restart to update is pressed, the toast turns into the Installing step before the app does anything else, and its one button stays: disabled, <code>aria-busy</code>, with the [spinner](../spinner/component.md) beside its label. It is the answer to &quot;did the press go through?&quot; for the few seconds before the update's progress window takes over, and the one place in a toast a spinner may appear: the process it marks is live, named, and the one the person just started. At the start after an update the toast reports how it went — &quot;Updated to SprintEngine Studio 0.7.0&quot; (good) or &quot;Update to 0.7.0 did not install&quot; (warn, with the reason) — without buttons. These two are the only toasts in the system with buttons.</p>
+<p><strong>The busy action (2026-09-24).</strong> When Restart to update is pressed, the toast turns into the Installing step before the app does anything else, and its one button stays: disabled, <code>aria-busy</code>, with the [spinner](../spinner/component.md) beside its label. It is the answer to &quot;did the press go through?&quot; for the few seconds before the update's progress window takes over, and the one place in a toast a spinner may appear: the process it marks is live, named, and the one the person just started. At the start after an update the toast reports how it went — &quot;Updated to SprintEngine Studio 0.7.0&quot; (good) or &quot;Update to 0.7.0 did not install&quot; (warn, with the reason) — without buttons. These two were the only toasts with buttons until the third below.</p>
+<p><strong>The action row's third consumer (2026-10-07).</strong> ⌘⏎ in New chat starts the chat without opening it, and says so: &quot;Started in the background&quot; (good mark), the chat's name as its description, and one <strong>Open</strong> (primary). It is a polite report on the tone's own timer; a second ⌘⏎ replaces it in place, so Open always means the latest. Open is not the only way there — the chat's row is in the sidebar the moment it starts — and missing the toast loses nothing, which is what lets an action ride a timer here. Pressing it takes the toast down and goes to the chat as a click on its row does. These three are the only toasts in the system with buttons.</p>
 <p><strong>In a browser tab (2026-10-03).</strong> A web tab has no installer: the server it talks to is updated, and the tab is a reload away from the new version. So the app-update toast there has one step, shown when the tab finds the server serving a newer bundle than the one it loaded: &quot;Studio was updated&quot; (good mark), &quot;Reload this tab to use the new version. Until then it keeps working as it is.&quot; with <strong>Later</strong> (ghost) and <strong>Reload</strong> (primary). It is the same consumer in its browser form, not a third, and like the desktop's it stays until answered, once per new bundle.</p>
 <p><strong>Dismissing an update is &quot;not now&quot; (owner ruling 2026-09-25).</strong> Each outstanding update also wears a count on the Settings gear and inside Settings (the [badge](../badge/component.md) entry, &quot;In Settings&quot;). Later, and the dismiss button on either update toast, are the person saying &quot;not now&quot; to that version, so they clear its badges; the toast's producer hears the press (<code>onDismissPressed</code> in the kit's store) and records the dismissal. For the app update the dismissal names the step as well: waving off Found does not silence Ready when the download lands, which is news of its own; and closing the Downloading step only hides it, since the person asked for that download. The CLI toast's one-minute timer is <strong>not</strong> a dismissal — nobody pressed anything, and the badges stay until the update is installed or dismissed. Going to Settings from the toast is not one either: it is going to look.</p>
 <p><strong>The answer-in-place row, one consumer.</strong> Owner ruling 2026-09-05: the incoming pair-request toast carries <code>.ds-toast-answer</code> — a six-digit <code>.ds-input</code>, then Decline (ghost) and Allow (primary) — with <code>.ds-toast-help</code> under it holding the instruction, or the refusal in <code>status.danger</code> ink. It is the one toast in the system with a field, and it earns it: the answer IS six digits, read off the screen of the machine asking to pair, and every other route to typing them (a popover, a settings tab) walks the person away from the screen they are reading. The toast times out like any warn, but focus in the code field holds its clock — a surface holding a half-typed code that vanishes on a timer is worse than no surface — and the request stays answerable on its own persistent card, so a toast that left loses nothing. Everything the field cannot express stays on that card: this variant grants the request's DEFAULT authority and nothing a checkbox would have chosen. A second consumer, or a second field, is a modal.</p>

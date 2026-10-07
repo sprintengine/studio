@@ -1,10 +1,11 @@
 import { machineAwareIpc } from './environments/ssh/machine-ipc'
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, nativeImage, shell } from 'electron'
 import type { IpcMain } from 'electron'
 import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
 import { registerAppearanceIpc } from './ipc/appearance-ipc'
 import { registerBackgroundModeIpc } from './ipc/background-mode-ipc'
 import { registerTelemetryIpc } from './ipc/telemetry-ipc'
+import { registerQuitConfirmationIpc } from './ipc/quit-confirmation-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import {
   registerRemoteStudioConnectionIpc,
@@ -24,6 +25,8 @@ import { registerConversationPeekIpc } from './ipc/conversation-peek-ipc'
 import { registerAgentCompactIpc } from './ipc/agent-compact-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
+import { registerAttachedFilesIpc } from './ipc/attached-files-ipc'
+import { createAttachedFileRegistry, createAttachedFiles, createAttachedFileThumbnails } from './attached-files'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
 import { registerGitRepoWatchIpc } from './ipc/git-repo-watch-ipc'
@@ -193,6 +196,24 @@ export function registerCoreIpc(
   })
   registerUpdateIpc(ipcMain, { updateService: services.updateService })
   registerFilesystemMutationIpc(machineIpc, createFilesystemMutationHandlers())
+  // A file attached to a message by path opens in its default app, and only
+  // one the person attached here; on plain `ipcMain`, as it is this computer's.
+  const attachedFileRegistry = createAttachedFileRegistry({ resolveUserDataDir: () => app.getPath('userData') })
+  // Its writes wait a moment so a drop of many files is one; one still
+  // waiting is written as the app goes.
+  app.on('will-quit', () => attachedFileRegistry.flush())
+  registerAttachedFilesIpc(
+    ipcMain,
+    createAttachedFiles({
+      registry: attachedFileRegistry,
+      thumbnails: createAttachedFileThumbnails({
+        platform: process.platform,
+        createThumbnail: (path, size) => nativeImage.createThumbnailFromPath(path, size),
+      }),
+      platform: process.platform,
+      openPath: (path) => shell.openPath(path),
+    }),
+  )
   registerGitIpc(
     machineIpc,
     {
@@ -228,6 +249,7 @@ export function registerCoreIpc(
   registerAppearanceIpc(ipcMain)
   registerBackgroundModeIpc(ipcMain, services.backgroundModeStore)
   registerTelemetryIpc(ipcMain, services.telemetryConsentStore)
+  registerQuitConfirmationIpc(ipcMain, services.quitConfirmationStore)
   registerMarketplaceRegistryIpc(ipcMain)
   registerHostedSourcesFeedIpc(ipcMain)
   registerHostedCardFeedIpc(ipcMain)

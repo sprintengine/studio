@@ -33,7 +33,10 @@ node scripts/build-catalog.mjs  # regenerate catalog/index.html after component/
   than writing a local pixel value.
 - The system ships **two font families, permanently** — `--sem-font-family-ui`
   and `--sem-font-family-mono`. There is no third family and no serif; adding
-  one is a system change, not a styling choice.
+  one is a system change, not a styling choice. The one exception is content
+  the app typesets — math in replies (KaTeX's faces) and canvas drawings —
+  which uses its own faces inside that content only; the list and its reasons
+  are under Type in `foundations/principles.md`.
 - Dark mode: set `data-mode="dark"` on the document element or any container.
   Light is the default (`:root`). Never write per-mode style overrides —
   consume the semantic variables and both modes come for free.

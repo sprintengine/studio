@@ -1,5 +1,5 @@
 import { JSDOM } from 'jsdom'
-import { forwardRef, memo, useImperativeHandle, useRef, type ReactNode } from 'react'
+import { forwardRef, memo, useImperativeHandle, useRef, useState, type ReactNode } from 'react'
 import { expect, test, vi } from 'vitest'
 import type {
   ConversationEvent,
@@ -12,7 +12,12 @@ import { installStudioLoopback } from '../../../../../../tests/studio-chat-loopb
 // The virtual list measures a real viewport, which jsdom does not have; this
 // stand-in renders every row so the rows themselves can be driven. Like the
 // real list, a row on screen renders again only when its item or the list's
-// `extraData` changes: a new `renderItem` alone does not reach it.
+// `extraData` changes: a new `renderItem` alone does not reach it. Where it
+// was asked to scroll to is kept, for what lands the view on a row, and where
+// it was told to start when it mounted.
+const scrolledToIndex = vi.hoisted(() => [] as { index: number; viewPosition?: number }[])
+const mountedAt = vi.hoisted(() => [] as { initialScrollIndex?: number; initialScrollAtEnd?: boolean }[])
+const listedKeys = vi.hoisted(() => ({ current: [] as string[] }))
 const ListRow = memo(
   function ListRow({
     item,
@@ -37,6 +42,8 @@ vi.mock('@legendapp/list/react', () => ({
       ListHeaderComponent,
       className,
       extraData,
+      initialScrollIndex,
+      initialScrollAtEnd,
     }: {
       data: unknown[]
       renderItem: (props: { item: unknown; index: number }) => ReactNode
@@ -44,13 +51,20 @@ vi.mock('@legendapp/list/react', () => ({
       ListHeaderComponent?: ReactNode
       className?: string
       extraData?: unknown
+      initialScrollIndex?: number
+      initialScrollAtEnd?: boolean
     },
     ref,
   ) {
     const scroller = useRef<HTMLDivElement>(null)
+    // Read once, as the real list reads them.
+    useState(() => mountedAt.push({ initialScrollIndex, initialScrollAtEnd }))
+    listedKeys.current = data.map(keyExtractor)
     useImperativeHandle(ref, () => ({
       scrollToEnd: async () => undefined,
-      scrollToIndex: async () => undefined,
+      scrollToIndex: async (target: { index: number; viewPosition?: number }) => {
+        scrolledToIndex.push({ index: target.index, viewPosition: target.viewPosition })
+      },
       scrollToOffset: async () => undefined,
       getScrollableNode: () => scroller.current,
       getState: () => ({ positionAtIndex: () => 0, positionByKey: () => 0 }),
@@ -100,6 +114,8 @@ async function mountChat({
   plugins,
   api: extraApi = {},
   cliModelCatalog,
+  whenActive = false,
+  folderPath = '/Users/dev/project',
 }: {
   events?: ConversationEvent[]
   capabilities?: Record<string, unknown>
@@ -113,6 +129,10 @@ async function mountChat({
   /** More of the window's api: git reads for the strip, say. */
   api?: Record<string, unknown>
   cliModelCatalog?: Record<string, unknown>
+  /** Draw the chat only while it is the window's active one, as the window does. */
+  whenActive?: boolean
+  /** The chat's folder, which keys the transcript the window keeps for it. */
+  folderPath?: string
 }) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
@@ -194,7 +214,7 @@ async function mountChat({
       {
         id: 'workspace',
         name: 'Project',
-        folderPath: '/Users/dev/project',
+        folderPath,
         agents: {
           agent: {
             id: 'agent',
@@ -210,7 +230,12 @@ async function mountChat({
   const host = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(host)
   const root = createRoot(host)
-  await act(async () => root.render(createElement(AgentChatView, { workspaceId: 'workspace', agentId: 'agent' })))
+  const chatView = () => createElement(AgentChatView, { workspaceId: 'workspace', agentId: 'agent' })
+  function FrontChat() {
+    return useWorkspaceStore((state) => state.activeWorkspaceId) === 'workspace' ? chatView() : null
+  }
+  if (whenActive) useWorkspaceStore.setState({ activeWorkspaceId: null } as never)
+  await act(async () => root.render(whenActive ? createElement(FrontChat) : chatView()))
   await act(async () => {
     frames.at(-1)?.({ type: 'snapshot', page: { events, hasMore: false, beforeCursor: null } })
     frames.at(-1)?.({ type: 'synchronized', seq: events.at(-1)?.seq ?? 0 })
@@ -498,6 +523,179 @@ test('opening a folded turn does not flash the jump-to-latest pill', async () =>
     await chat.act(async () => fold!.click())
     expect(chat.host.textContent).not.toContain('Jump to latest')
   } finally {
+    await chat.unmount()
+  }
+})
+
+// A reply event at a set time: the divider is placed by when replies began
+// and finished against the chat's visit clock.
+function eventAt(createdAt: number, type: ConversationEventType, payload: Record<string, unknown>): ConversationEvent {
+  return { ...event(type, payload), createdAt }
+}
+
+test('a chat opened with replies nobody has read opens at a New divider, which holds until the chat is left', async () => {
+  const { noteChatOpened, noteChatLeft } = await import('./unreadDivider')
+  // Read up to the first reply; the second, which worked through two folded
+  // steps, finished after the last visit.
+  noteChatOpened('workspace', 2_500, 10_000)
+  scrolledToIndex.length = 0
+  mountedAt.length = 0
+  const chat = await mountChat({
+    events: [
+      eventAt(1_000, 'user_message', { turnId: 'a', text: 'Check the build' }),
+      eventAt(1_100, 'turn_started', { turnId: 'a' }),
+      eventAt(1_200, 'content_delta', { turnId: 'a', text: 'It builds.' }),
+      eventAt(2_000, 'turn_completed', { turnId: 'a' }),
+      eventAt(3_000, 'user_message', { turnId: 'b', text: 'Now the tests' }),
+      eventAt(3_100, 'turn_started', { turnId: 'b' }),
+      eventAt(3_200, 'tool_started', { turnId: 'b', toolUseId: 'one', name: 'Read', input: { path: 'a.ts' } }),
+      eventAt(3_300, 'tool_output', { turnId: 'b', toolUseId: 'one', output: 'a', status: 'ok' }),
+      eventAt(3_400, 'tool_started', { turnId: 'b', toolUseId: 'two', name: 'Read', input: { path: 'b.ts' } }),
+      eventAt(3_500, 'tool_output', { turnId: 'b', toolUseId: 'two', output: 'b', status: 'ok' }),
+      eventAt(3_600, 'content_delta', { turnId: 'b', text: 'They pass.' }),
+      eventAt(4_000, 'turn_completed', { turnId: 'b' }),
+    ],
+  })
+  const dividers = () =>
+    Array.from(chat.host.querySelectorAll('[role="separator"][aria-label="New since you last looked"]'))
+  // The row the divider stands above, by what it says.
+  const belowDivider = () => {
+    const [divider] = dividers()
+    return divider?.nextElementSibling?.textContent ?? null
+  }
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 50)))
+    expect(dividers()).toHaveLength(1)
+    expect(belowDivider(), 'above the unread reply, steps and all, not inside its work').toContain('They pass.')
+    expect(belowDivider()).not.toContain('Now the tests')
+    expect(mountedAt.at(-1), 'the list starts at the divider, not at the end and a frame later there').toEqual({
+      initialScrollIndex: 3,
+      initialScrollAtEnd: false,
+    })
+
+    // The agent goes on: a new turn streams in while the chat is in front.
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: eventAt(11_000, 'user_message', { turnId: 'c', text: 'And lint' }) })
+      chat.emit({ type: 'event', event: eventAt(11_100, 'turn_started', { turnId: 'c' }) })
+      chat.emit({ type: 'event', event: eventAt(11_200, 'content_delta', { turnId: 'c', text: 'Lint is clean.' }) })
+    })
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 50)))
+    expect(dividers(), 'one divider, where it was').toHaveLength(1)
+    expect(belowDivider()).toContain('They pass.')
+    expect(
+      scrolledToIndex.filter((target) => target.index === 3),
+      'landed once per opening',
+    ).toHaveLength(1)
+
+    await chat.act(async () => noteChatLeft('workspace'))
+    expect(dividers(), 'gone once the chat is left').toHaveLength(0)
+    // Back again with everything seen: nothing new, no divider.
+    await chat.act(async () => noteChatOpened('workspace', 12_000, 13_000))
+    expect(dividers()).toHaveLength(0)
+    await chat.act(async () => noteChatLeft('workspace'))
+
+    // The last turn ends out of sight, and the chat is marked unread
+    // (`conversation.mark_unread`): its visit clock goes back to just before
+    // that finish, and the next opening puts the divider above that reply.
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: eventAt(13_500, 'turn_completed', { turnId: 'c' }) })
+    })
+    await chat.act(async () => noteChatOpened('workspace', 13_499, 15_000))
+    expect(dividers()).toHaveLength(1)
+    expect(belowDivider()).toContain('Lint is clean.')
+  } finally {
+    noteChatLeft('workspace')
+    await chat.unmount()
+  }
+})
+
+test('a chat left mid-history still opens at its New divider, not at the place it was left', async () => {
+  const { noteChatOpened, noteChatLeft } = await import('./unreadDivider')
+  const { rememberConversationScroll } = await import('./conversationViewState')
+  const events = [
+    eventAt(1_000, 'user_message', { turnId: 'a', text: 'Check the build' }),
+    eventAt(1_100, 'turn_started', { turnId: 'a' }),
+    eventAt(1_200, 'content_delta', { turnId: 'a', text: 'It builds.' }),
+    eventAt(2_000, 'turn_completed', { turnId: 'a' }),
+    eventAt(3_000, 'user_message', { turnId: 'b', text: 'Now the tests' }),
+    eventAt(3_100, 'turn_started', { turnId: 'b' }),
+    eventAt(3_600, 'content_delta', { turnId: 'b', text: 'They pass.' }),
+    eventAt(4_000, 'turn_completed', { turnId: 'b' }),
+  ]
+  // Left reading the first message, above everything new.
+  const first = await mountChat({ events })
+  const [firstRow] = listedKeys.current
+  await first.unmount()
+  expect(firstRow).toBeDefined()
+  rememberConversationScroll('workspace:agent', { atEnd: false, rowId: firstRow!, offset: 0 })
+  noteChatOpened('workspace', 2_500, 10_000)
+  scrolledToIndex.length = 0
+  mountedAt.length = 0
+  const chat = await mountChat({ events })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 50)))
+    const divider = listedKeys.current.indexOf('assistant:b')
+    expect(divider).toBeGreaterThan(0)
+    expect(mountedAt.at(-1), 'the divider, not the remembered place').toEqual({
+      initialScrollIndex: divider,
+      initialScrollAtEnd: false,
+    })
+    expect(
+      scrolledToIndex.some((target) => target.index === 0),
+      'the remembered place is not restored over it',
+    ).toBe(false)
+  } finally {
+    noteChatLeft('workspace')
+    await chat.unmount()
+  }
+})
+
+test('a chat already loaded opens at its New divider on its first frame when it is made active', async () => {
+  const { noteChatLeft } = await import('./unreadDivider')
+  const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+  const events = [
+    eventAt(1_000, 'user_message', { turnId: 'a', text: 'Check the build' }),
+    eventAt(1_100, 'turn_started', { turnId: 'a' }),
+    eventAt(1_200, 'content_delta', { turnId: 'a', text: 'It builds.' }),
+    eventAt(2_000, 'turn_completed', { turnId: 'a' }),
+    eventAt(3_000, 'user_message', { turnId: 'b', text: 'Now the tests' }),
+    eventAt(3_100, 'turn_started', { turnId: 'b' }),
+    eventAt(3_600, 'content_delta', { turnId: 'b', text: 'They pass.' }),
+    eventAt(4_000, 'turn_completed', { turnId: 'b' }),
+  ]
+  // Read once and left: the window keeps its transcript, so the next time it
+  // is drawn it is drawn whole, at once, with no load to wait for. A folder of
+  // its own, so no other test is handed this transcript.
+  const folderPath = '/Users/dev/kept'
+  const first = await mountChat({ events, folderPath })
+  await first.act(async () =>
+    first.emit({ type: 'synchronized', seq: events.at(-1)!.seq!, generation: 'kept' } as ConversationSessionFrame),
+  )
+  await first.unmount()
+  scrolledToIndex.length = 0
+  mountedAt.length = 0
+  // The window is up first, showing another chat; this one is opened after,
+  // by the click that makes it active.
+  const chat = await mountChat({ events, whenActive: true, folderPath })
+  try {
+    expect(mountedAt, 'not drawn while another chat is in front').toEqual([])
+    useWorkspaceStore.setState((state) => ({
+      workspaces: state.workspaces.map((workspace) => ({ ...workspace, lastVisitedAt: 2_500 })),
+    }))
+    await chat.act(async () => useWorkspaceStore.getState().setActiveWorkspace('workspace'))
+    const divider = listedKeys.current.indexOf('assistant:b')
+    expect(divider).toBeGreaterThan(0)
+    expect(mountedAt[0], 'its list starts at the divider, not at the end and a frame later there').toEqual({
+      initialScrollIndex: divider,
+      initialScrollAtEnd: false,
+    })
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 50)))
+    expect(
+      scrolledToIndex.every((target) => target.index === divider),
+      'nothing takes it anywhere else first',
+    ).toBe(true)
+  } finally {
+    noteChatLeft('workspace')
     await chat.unmount()
   }
 })
@@ -907,7 +1105,9 @@ function dropTransfer(
   }
   const files = source.files.map((file) => new File(['x'], file.name, { type: file.type }))
   const paths = new Map(files.map((file, index) => [file, source.files[index].path]))
-  ;(window as unknown as { api: Record<string, unknown> }).api.getPathForFile = (file: File) => paths.get(file) ?? ''
+  const api = (window as unknown as { api: Record<string, unknown> }).api
+  api.getPathForFile = (file: File) => paths.get(file) ?? ''
+  api.attachFile = (file: File) => paths.get(file) ?? ''
   return {
     types: ['Files'],
     items: files.map((file) => ({ kind: 'file', getAsFile: () => file })),
@@ -923,8 +1123,9 @@ function dropOn(chat: Awaited<ReturnType<typeof mountChat>>, target: EventTarget
   return drop
 }
 
-test('any file dropped from the OS is typed as its path, whether or not the provider reads images', async () => {
-  const chat = await mountChat({})
+test('any file dropped from the OS is attached as its card, and goes to the agent beside the words, not in them', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn })
   try {
     await chat.act(async () => chat.type('Summarise'))
     const transcript = chat.host.querySelector('button')!
@@ -939,8 +1140,34 @@ test('any file dropped from the OS is typed as its path, whether or not the prov
       event = dropOn(chat, transcript, drop)
     })
     expect(event!.defaultPrevented, 'the drop is claimed, not handed to the window').toBe(true)
-    expect(chat.draft()).toBe("Summarise '/Users/dev/Desktop/Q3 budget.xlsx' /Users/dev/Desktop/shot.png ")
+    expect(chat.draft(), 'the words are left as they were typed').toBe('Summarise')
+    const cards = () => Array.from(chat.host.querySelectorAll('button[aria-label^="Open "]'))
+    expect(cards().map((card) => card.getAttribute('aria-label'))).toEqual(['Open Q3 budget.xlsx', 'Open shot.png'])
+    expect(cards()[0].textContent).toContain('XLSX')
     expect(chat.host.textContent).not.toContain('can be attached')
+    // Removing a card takes its file out of the message.
+    const keep = dropTransfer(chat.dom.window as unknown as Window, {
+      files: [{ name: 'notes.pdf', type: 'application/pdf', path: '/Users/dev/Desktop/notes.pdf' }],
+    })
+    await chat.act(async () => {
+      dropOn(chat, transcript, keep)
+    })
+    await chat.act(async () => {
+      ;(chat.host.querySelector('button[aria-label="Remove notes.pdf"]') as HTMLElement).click()
+    })
+    expect(cards()).toHaveLength(2)
+    await chat.act(async () => chat.enter())
+    expect(sendTurn.mock.calls[0][0]).toMatchObject({
+      message: 'Summarise',
+      files: [{ path: '/Users/dev/Desktop/Q3 budget.xlsx' }, { path: '/Users/dev/Desktop/shot.png' }],
+    })
+    expect(
+      chat.host.querySelectorAll('button[aria-label^="Remove "]'),
+      'the composer lets the cards go with the message',
+    ).toHaveLength(0)
+    // The sent bubble draws the message's files as the same cards, and its words as they were typed.
+    expect(cards().map((card) => card.getAttribute('aria-label'))).toEqual(['Open Q3 budget.xlsx', 'Open shot.png'])
+    expect(chat.host.textContent).not.toContain('/Users/dev/Desktop')
   } finally {
     await chat.unmount()
   }
@@ -1558,14 +1785,16 @@ test('the composer row is the New chat’s: the "+" opens attach and skills, wit
   }
 })
 
-test('a chat whose provider reads no images offers no Attach files under the "+"', async () => {
+test('a chat whose provider reads no images still attaches files of any kind under the "+", by path', async () => {
   const chat = await mountChat({ capabilities: { skills: 'workspace' } })
   try {
     const plus = chat.host.querySelector<HTMLButtonElement>('[data-composer-options]')
     await chat.act(async () => plus!.click())
     const menu = chat.dom.window.document.querySelector('[role="menu"][aria-label="Options"]')
-    expect(menu?.textContent).not.toContain('Attach files')
+    expect(menu?.textContent).toContain('Attach files')
     expect(menu?.textContent).toContain('Skills, plugins & MCPs')
+    const picker = chat.host.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(picker?.getAttribute('accept'), 'the dialog offers every kind of file').toBeNull()
   } finally {
     await chat.unmount()
   }
@@ -1694,5 +1923,32 @@ test('the strip’s diff counts are a split pill that opens the Git panel, and a
     expect(clean.host.querySelector('[data-diff-stat-pill]')).toBeNull()
   } finally {
     await clean.unmount()
+  }
+})
+
+test('Retry after a failed resume from Studio asks again as the person, without Studio’s name', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({
+    events: [
+      event('user_message', {
+        turnId: 't1',
+        text: '[SprintEngine Studio] Continue where you left off — your usage limit has reset.',
+        origin: { kind: 'studio', reason: 'usage-resume' },
+      }),
+      event('turn_started', { turnId: 't1' }),
+      event('turn_failed', { turnId: 't1', reason: 'runtime' }),
+    ],
+    sendTurn,
+  })
+  try {
+    const retry = chat.button('Retry')
+    expect(retry, 'the failed turn offers Retry').toBeDefined()
+    await chat.act(async () => retry!.click())
+    expect(sendTurn).toHaveBeenCalledTimes(1)
+    expect(sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      message: 'Continue where you left off — your usage limit has reset.',
+    })
+  } finally {
+    await chat.unmount()
   }
 })

@@ -40,7 +40,21 @@ desktop installed it); the desktop then speaks to it only when it is this
 version, upgrades an older managed one, and otherwise refuses in words
 (`locateServer` in `src/main/environments/ssh/ssh-connect-script.ts`). Bump
 `BACKEND_WIRE_VERSION` whenever a forwarded member's arguments or answer
-change, and `MUX_VERSION` whenever a frame does.
+change, and `MUX_VERSION` whenever a frame does. A number once on `main` is
+spent, even before a release, since a nightly may already carry it: two changes
+made side by side take one each. The backend wire went from 2 to 3 when
+`sendTurn` took `origin` (a message Studio sends a chat itself), and to 4 when
+it took `files` (a message's files attached by path), both on 2026-10-07.
+
+A session's summary, which that wire pushes with every chat event, carries
+three optional clocks a reader must not count on: `lastTurnEndedAt` (when
+the agent last finished a turn), `turnStartedAt` (when the turn now running
+began) and `waitingSince` (when the chat began waiting on the person, by the
+time of the approval or question that stopped it; absent while nothing is
+asked). Each is additive, with no bump: a server of the same wire version
+built before one existed leaves it out, and the desktop reads that absence
+as it did before the member: a "working for" count and the next chat that
+needs you (`nextWaitingChat.ts`) both fall back to `updatedAt`.
 
 ## The support window
 
@@ -214,20 +228,44 @@ send them (`docs/conversations.md`, "Machines and pull requests in the list").
 The context a chat has spent (`contextWindow` and `contextUsed` on a
 `usage_updated` event) is the same kind of member: a phone that does not read
 them shows no context ring, and one that does draws none for a desktop that
-does not send them. So is `origin` on a `user_message` payload
-(`ConversationMessageOrigin`, 2026-10-07), which marks a message the desktop
-sent a chat itself — a launched agent's notice, a resume after a usage limit —
+does not send them. The files a message attached by path (`files` on a
+`user_message`, each `{ path }`, a path on the desktop's disk) are the same
+kind of member: the message's `text` is the person's words alone, an older
+phone shows those and nothing more, and a phone that reads the member can
+name the files (it cannot open them). The phone's commands do not send
+`files`, so nothing it sends changed. So is `origin` on a `user_message`
+payload (`ConversationMessageOrigin`, 2026-10-07), which marks a message the
+desktop sent a chat itself — a launched agent's notice, a resume after a usage limit —
 as Studio's: a reader that does not know it shows the message as the person's,
-as every reader did before, and a message without one is the person's. A chat's rest and read state are the
-`conversation-lifecycle` capability: a desktop that advertises it leaves the
-chats it has settled out of the list, sends it in its sidebar's order, names
+as every reader did before, and a message without one is the person's.
+A chat's rest and read state are the `conversation-lifecycle` capability: a
+desktop that advertises it leaves the chats it has settled out of the list, sends it in its sidebar's order, names
 each chat's `chatTitle`, `lastUserMessageAt`, `lastTurnEndedAt` and
 `lastVisitedAt`, and serves the `conversation.settle` and `conversation.visit`
 gateway tools; `workspace.list` items carry `settledAt` beside it, with no
 capability of their own. The members are optional and the tools new, so no
 peer is refused over any of it: a client offers no Settle for a desktop that
 does not advertise it, and an older one answers either tool "Unknown tool"
-(`docs/conversations.md`, "Rest, order and read state in the list"). The Studio
+(`docs/conversations.md`, "Rest, order and read state in the list").
+Mark unread (2026-10-07) is a gateway tool beside them,
+`conversation.mark_unread`, advertised as `chat-mark-unread` (no
+`conversation-` prefix: it names a tool, not the conversation lane). It
+deliberately amends one rule: `lastVisitedAt` had only ever moved forward, and
+this tool moves it back, to just before the chat's latest finish. That is not
+a bump, because nothing a peer parses changed: the member keeps its type, may
+be absent exactly as before, and still means the clock every device reads
+"finished, unseen" against. A client from before the tool sees an earlier
+visit time and nothing else; the phone of that date takes the later of the
+listed clock and its own readings, so at worst it keeps showing the chat as
+read. On the desktop the rewind travels as `lastVisitedAt` with a newer
+`visitRewoundAt`, the only patch that may lower the clock, so a lagging
+window's visit still cannot. A phone that adds Mark unread checks for
+`chat-mark-unread`, and must stop keeping its own later visit readings over
+an earlier listed one. Each listed chat names that stamp as `visitRewoundAt`
+beside `lastVisitedAt`, an optional member with no capability of its own: a
+phone drops only the readings it took before the stamp, so a chat marked
+unread while the phone was closed reads unread there, and an older phone
+ignores the member. The Studio
 RPC does not advertise it, having no method for either tool. Breaking frame changes require a new
 negotiated capability or the tailnet version-window process above, not merely
 a package version change. Presentation-only fixes use a package patch.
@@ -279,7 +317,13 @@ conversation opened it first). `local-servers` adds the owner-only
 `localServers.*` methods and stream: the local servers a Studio's agents
 linked, as the Studio checks them, and running one's command again, stopping
 that run, or forgetting the link (`run` and `stop` refused as `conflict` when
-it is already running, or when the Studio did not start the run). A hello's `client.kind` and `client.instanceId` are
+it is already running, or when the Studio did not start the run). `session-files`
+adds `files` to `session.send`, a message's files attached by path: a Studio
+without it reads `session.send` with a validator that keeps only the members
+it knows, so it would drop the files without a word and send the words as if
+nothing were attached — which is why a client sends `files` only to a Studio
+that advertises it, and the desktop's own window refuses such a send in words
+otherwise. A hello's `client.kind` and `client.instanceId` are
 optional hints a Studio that does not know them ignores. Every method names its scope in `STUDIO_METHODS`,
 typed over the method map so a method without one does not compile.
 

@@ -1,7 +1,9 @@
 // What a finished turn says about itself under its reply — the model it ran
 // on, the tokens it used, what it cost when that means anything — and the
-// divider a context compaction leaves in the transcript.
+// seams drawn across the transcript: the divider a context compaction leaves,
+// and the one above the replies not read yet.
 
+import type { ReactNode } from 'react'
 import type { TranscriptEntry } from './conversationProjection'
 import { apiKeyBillingNotice } from '../../../../../shared/conversation/apiKeySource'
 import { CONVERSATION_DEFAULT_MODEL_ID } from '../../../../../shared/conversation-harness'
@@ -93,23 +95,43 @@ export function compactionLabel(entry: CompactionEntry): string {
   return ['Context compacted', trigger, tokens].filter(Boolean).join(' · ')
 }
 
+// A seam across the transcript column: a hairline either side of a quiet
+// label. The view's own furniture, never something said in the chat.
+function TimelineSeam({ label, ariaLabel, glyph }: { label: string; ariaLabel: string; glyph?: ReactNode }) {
+  return (
+    <div
+      role="separator"
+      aria-label={ariaLabel}
+      className="flex items-center gap-3 pb-6 text-micro text-[color:var(--text-subtle)]"
+    >
+      <span className="flex-1 border-t border-[color:var(--border-subtle)]" />
+      <span className="flex shrink-0 items-center gap-1.5">
+        {glyph}
+        {label}
+      </span>
+      <span className="flex-1 border-t border-[color:var(--border-subtle)]" />
+    </div>
+  )
+}
+
 // Past this line the model works from a summary of the conversation, not the
 // conversation itself, so the seam is drawn across the column rather than
 // tucked into a turn.
 export function CompactionDivider({ entry }: { entry: CompactionEntry }) {
   const label = compactionLabel(entry)
   return (
-    <div
-      role="separator"
-      aria-label={label}
-      className="flex items-center gap-3 pb-6 text-micro text-[color:var(--text-subtle)]"
-    >
-      <span className="flex-1 border-t border-[color:var(--border-subtle)]" />
-      <span className="flex shrink-0 items-center gap-1.5">
-        <CompactGlyph className="icon-xs shrink-0 text-[color:var(--text-disabled)]" />
-        {label}
-      </span>
-      <span className="flex-1 border-t border-[color:var(--border-subtle)]" />
-    </div>
+    <TimelineSeam
+      label={label}
+      ariaLabel={label}
+      glyph={<CompactGlyph className="icon-xs shrink-0 text-[color:var(--text-disabled)]" />}
+    />
   )
+}
+
+// Where the replies the person has not read yet begin (`unreadDivider.ts`).
+// The same seam as a compaction's, so it reads as the transcript's own
+// furniture rather than a banner; the word is short because the place says
+// the rest.
+export function UnreadDivider() {
+  return <TimelineSeam label="New" ariaLabel="New since you last looked" />
 }

@@ -1,10 +1,10 @@
 import React from 'react'
 
-// The code block's two header marks that the vocabulary did not have yet. Both
+// The code block's three header marks that the vocabulary did not have yet. All
 // sit on the 16-grid at the ui/ primitives' stroke (1.4), in `currentColor`, so
 // they ink and size exactly like the copy glyph beside them
-// (design-system/glyphs/wrap-lines.svg and terminal-prompt.svg are the
-// framework-neutral samples).
+// (design-system/glyphs/wrap-lines.svg, terminal-prompt.svg and view-source.svg
+// are the framework-neutral samples).
 
 type GlyphProps = { className?: string }
 
@@ -39,6 +39,25 @@ export function TerminalPromptGlyph({ className }: GlyphProps): React.JSX.Elemen
       <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
       <path
         d="M5 6.5 7 8.5 5 10.5M8.5 10.5h3"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/**
+ * Show the source: a pair of angle brackets, the mark for "the code behind
+ * this". It switches a block that draws its source — a diagram — to the text
+ * it was drawn from, so it is a toggle, pressed while the source shows.
+ */
+export function ViewSourceGlyph({ className }: GlyphProps): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5"
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinecap="round"

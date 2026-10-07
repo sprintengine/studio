@@ -334,3 +334,76 @@ test('workspace-sync-service', async () => {
 
   await suiteRun
 })
+
+test('only Mark unread’s own command may move the visit clock back', () => {
+  const record: Workspace = {
+    id: 'ws-one',
+    name: 'ws-one',
+    mode: 'standard',
+    folderPath: null,
+    templateId: 'standard-test',
+    layoutModel: { global: {}, borders: [], layout: { type: 'row', children: [] } },
+    agents: {},
+    worktreeState: { containerPath: null, entries: {}, updatedAt: null },
+    memory: { relativeRoot: null },
+    editorState: { openFiles: [], activeFilePath: null },
+    createdAt: 1,
+    lastVisitedAt: 9_000,
+  }
+  let clock = 20_000
+  const registry = createWorkspaceRegistryService({
+    store: createInMemoryWorkspaceRegistryStore({
+      ...emptyWorkspaceRegistryFile(1),
+      revision: 1,
+      workspaces: [toWorkspaceRegistryRecord(record, 1)],
+      workspaceWindows: [
+        {
+          id: 'primary',
+          kind: 'primary',
+          workspaceIds: ['ws-one'],
+          activeWorkspaceId: 'ws-one',
+          bounds: null,
+          isMaximized: false,
+          displayId: null,
+          createdAt: 1,
+          lastFocusedAt: 1,
+        },
+      ],
+      primaryWorkspaceWindowId: 'primary',
+      activeWorkspaceId: 'ws-one',
+    }),
+    now: () => clock,
+  })
+  const service = createWorkspaceSyncService({ registry, now: () => clock })
+  const visitClock = () => registry.getRecord('ws-one')?.lastVisitedAt
+
+  // A window cannot send the stamp, however well formed.
+  const fromWindow = service.dispatch({
+    sourceWindowId: 'primary',
+    command: {
+      type: 'workspace.update_fields',
+      payload: { workspaceId: 'ws-one', patch: { lastVisitedAt: 1_000, visitRewoundAt: 30_000 }, editedAt: 1 },
+    },
+  })
+  assert.equal(fromWindow.ok, false)
+  assert.equal(fromWindow.reason, 'field_not_editable')
+  // Nor can main's general field write.
+  const fromMain = service.updateWorkspaceFields('ws-one', { lastVisitedAt: 1_000, visitRewoundAt: 30_000 }, 'ui')
+  assert.equal(fromMain.ok, false)
+  assert.equal(visitClock(), 9_000)
+
+  // A rewind goes to a time, never to nothing.
+  assert.equal(service.rewindVisit('ws-one', Number.NaN, 'ui').ok, false)
+  assert.equal(visitClock(), 9_000)
+
+  const rewound = service.rewindVisit('ws-one', 4_999, 'mobile')
+  assert.equal(rewound.ok, true)
+  assert.equal(visitClock(), 4_999)
+  assert.equal(registry.getRecord('ws-one')?.visitRewoundAt, 20_000)
+  // A lagging visit from before it still cannot undo it, and a later one moves on.
+  service.updateWorkspaceFields('ws-one', { lastVisitedAt: 1_000 }, 'ui')
+  assert.equal(visitClock(), 4_999)
+  clock += 1
+  service.updateWorkspaceFields('ws-one', { lastVisitedAt: 21_000 }, 'ui')
+  assert.equal(visitClock(), 21_000)
+})

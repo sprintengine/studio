@@ -16,6 +16,8 @@ export type AgentSpawnPlacement = {
   prompt?: string
   /** A chat's staged images, sent as images with `prompt`. */
   images?: string[]
+  /** A chat's files attached by path, sent as the `files` of its first message. */
+  files?: string[]
   /**
    * The name the tab already wears. The new-agent tab is named when it opens,
    * like every other terminal in the strip, so the agent adopts that name

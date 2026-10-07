@@ -84,6 +84,18 @@ export type StudioCliRuntimeOverride = { command?: string; hostId?: string; mode
 /** A file an @-mention names: the path as the composer resolved it, and what it is. */
 export type StudioMention = Record<string, unknown>
 
+/**
+ * A file a send attaches by path: an absolute path on the Studio's own
+ * machine. The agent is told where it is after the words, and the
+ * `user_message` the send becomes keeps it in its `files` beside the text.
+ * Sent only to a Studio that advertises `session-files`; one that does not
+ * would drop it without a word.
+ */
+export type StudioAttachedFile = { path: string }
+
+/** The most files one send may attach. */
+export const STUDIO_MAX_FILES_PER_SEND = 50
+
 /** A skill a send carries: its id, and the file it was read from when it is not the CLI's own. */
 export type StudioSkillRef = { id: string; sourcePath?: string }
 
@@ -110,6 +122,8 @@ export type StudioSessionSendParams = {
   /** The client's id for the optimistic bubble; echoed on the `user_message` it becomes. */
   localTurnId?: string
   mentions?: StudioMention[]
+  /** Files attached by path, where the Studio advertises `session-files`. */
+  files?: StudioAttachedFile[]
   skills?: StudioSkillRef[]
   reasoningEffort?: string
   mode?: 'default' | 'plan' | 'ask'
@@ -413,6 +427,15 @@ export function parseStudioChatParams<M extends StudioChatMethod>(method: M, par
       if (value.mentions !== undefined && !(value.mentions as unknown[]).every(record))
         return refuse('Each mention is an object.')
       if (
+        value.files !== undefined &&
+        !(
+          Array.isArray(value.files) &&
+          value.files.length <= STUDIO_MAX_FILES_PER_SEND &&
+          value.files.every((file) => record(file) && isStudioPath(file.path))
+        )
+      )
+        return refuse(`"files" is a list of at most ${STUDIO_MAX_FILES_PER_SEND} { path }.`)
+      if (
         value.skills !== undefined &&
         !(
           Array.isArray(value.skills) &&
@@ -436,6 +459,9 @@ export function parseStudioChatParams<M extends StudioChatMethod>(method: M, par
         message: value.message,
         ...(value.localTurnId === undefined ? {} : { localTurnId: value.localTurnId }),
         ...(value.mentions === undefined ? {} : { mentions: value.mentions }),
+        ...(value.files === undefined
+          ? {}
+          : { files: (value.files as StudioAttachedFile[]).map((file) => ({ path: file.path })) }),
         ...(value.skills === undefined
           ? {}
           : {

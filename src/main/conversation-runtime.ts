@@ -68,6 +68,8 @@ import {
   type ResolvedConversationSkills,
 } from './conversation-skills'
 import { resolveConversationMentions } from './conversation-mentions'
+import { attachedFilesContext } from './conversation-attached-files'
+import { parseConversationAttachedFiles, type ConversationAttachedFile } from '../shared/conversation/attachedFiles'
 import { ConversationCheckpoints } from './conversation-checkpoints'
 import { ConversationIndex } from './conversation-index'
 import type {
@@ -848,8 +850,12 @@ export class ConversationRuntime {
     // One message, whatever separators the text that typed it used.
     const message = plainLineBreaks(input.message).trim()
     const attachments = input.attachments ?? []
-    // A turn needs some payload: either text or at least one image attachment.
-    if (!message && attachments.length === 0 && !input.mentions?.length && !input.skills?.length)
+    // Read again here: a send reaches this from the IPC, the Studio protocol
+    // and the backend wire, and only the first parses it on the way in.
+    const files = input.files === undefined ? [] : parseConversationAttachedFiles(input.files)
+    if (files === null) return { ok: false, message: 'Attached files must be absolute paths, at most 50.' }
+    // A turn needs some payload: text, an image, a mention, a skill or a file.
+    if (!message && attachments.length === 0 && !input.mentions?.length && !input.skills?.length && !files.length)
       return { ok: false, message: 'Conversation turn message is required.' }
 
     const adapter = this.getAdapterForProviderId(session.providerId)
@@ -914,11 +920,15 @@ export class ConversationRuntime {
     // history below as well. A command turn goes without the reverted-files
     // note for the reason above; the note stays with the session and rides
     // every later turn.
+    // The files attached by path go after the words, where they are, for the
+    // agent to read off the disk; the transcript keeps them as a list.
+    const filesContext = attachedFilesContext(files)
     const providerMessage = [
       session.stateful && !opensWithCommand ? skills.context : undefined,
       opensWithCommand ? undefined : session.revertedNote,
       message,
       mentions.context,
+      filesContext,
     ]
       .filter(Boolean)
       .join('\n\n')
@@ -931,6 +941,7 @@ export class ConversationRuntime {
         sourceCommandId: input.sourceCommandId,
         skillIds: skills.ids,
         mentionRefs: mentions.refs,
+        files,
         ...(input.origin ? { origin: input.origin } : {}),
       })
 
@@ -966,6 +977,7 @@ export class ConversationRuntime {
             ...(input.sourceCommandId ? { commandId: input.sourceCommandId } : {}),
             ...(skills.ids.length ? { skills: skills.ids } : {}),
             ...(mentions.refs.length ? { mentions: mentions.refs } : {}),
+            ...(files.length ? { files } : {}),
             ...(input.origin ? { origin: input.origin } : {}),
           }),
           { turnId },
@@ -980,7 +992,7 @@ export class ConversationRuntime {
               ...(skills.context ? [{ role: 'system' as const, content: skills.context }] : []),
               ...(session.revertedNote ? [{ role: 'system' as const, content: session.revertedNote }] : []),
               ...(session.history ?? []),
-              { role: 'user', content: [message, mentions.context].filter(Boolean).join('\n\n') },
+              { role: 'user', content: [message, mentions.context, filesContext].filter(Boolean).join('\n\n') },
             ]
         // From here a steer can join this turn: the provider is being handed it.
         if (session.activeTurnId === turnId) session.providerTurn = providerTurn
@@ -1157,6 +1169,7 @@ export class ConversationRuntime {
       sourceCommandId?: string
       skillIds: string[]
       mentionRefs: Awaited<ReturnType<typeof resolveConversationMentions>>['refs']
+      files: ConversationAttachedFile[]
       origin?: ConversationSendTurnInput['origin']
     },
   ): Promise<ConversationSessionActionResult> {
@@ -1208,6 +1221,7 @@ export class ConversationRuntime {
             ...(input.sourceCommandId ? { commandId: input.sourceCommandId } : {}),
             ...(input.skillIds.length ? { skills: input.skillIds } : {}),
             ...(input.mentionRefs.length ? { mentions: input.mentionRefs } : {}),
+            ...(input.files.length ? { files: input.files } : {}),
             ...(input.origin ? { origin: input.origin } : {}),
           }),
           { turnId },
@@ -2324,6 +2338,7 @@ export class ConversationRuntime {
     // When the last turn ended, read off the event rather than the clock so
     // the transcript replay on resume restores the true time, not the resume.
     if (event.type === 'turn_completed' || event.type === 'turn_failed') session.lastTurnEndedAt = event.createdAt
+    const wasWaiting = isWaitingPhase(session.phase)
     // A turn the person stopped ended where they asked it to: the chat reads as
     // done, as its own transcript does, not as failed and needing a look.
     if (event.type === 'turn_completed' || (event.type === 'turn_failed' && isInterruptedTurn(event)))
@@ -2337,6 +2352,11 @@ export class ConversationRuntime {
       session.phase = 'running'
     else if (event.type === 'approval_requested')
       session.phase = event.payload?.kind === 'question' ? 'waiting_for_input' : 'waiting_for_approval'
+    // When it started waiting on the person, for "the next chat that needs
+    // you" to visit the longest-waiting first.
+    if (!isWaitingPhase(session.phase)) session.waitingSince = undefined
+    else if (!wasWaiting || session.waitingSince === undefined)
+      session.waitingSince = event.createdAt > 0 ? event.createdAt : this.now()
     if (event.type === 'subagent_status') {
       const status = readSubagentStatus(event.payload)
       if (status?.status === 'running')
@@ -3946,6 +3966,11 @@ export class ConversationRuntime {
       ...(session.backgroundAgents ? { backgroundAgents: session.backgroundAgents } : {}),
       ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
       ...(session.lastUserMessageAt !== undefined ? { lastUserMessageAt: session.lastUserMessageAt } : {}),
+      // Only while it is waiting: a turn can also leave the wait by a path
+      // that sets the phase without an event (a send, a stop).
+      ...(isWaitingPhase(session.phase) && session.waitingSince !== undefined
+        ? { waitingSince: session.waitingSince }
+        : {}),
       ...(session.resting && status !== 'stopped' ? { resting: true as const } : {}),
       // Only while a turn is open: every way a turn closes clears `activeTurnId`.
       ...(session.activeTurnId !== null && session.turnStartedAt !== undefined
@@ -3961,6 +3986,10 @@ export class ConversationRuntime {
   }
 }
 
+function isWaitingPhase(phase: ConversationSessionSummary['phase']): boolean {
+  return phase === 'waiting_for_approval' || phase === 'waiting_for_input'
+}
+
 // The one busy predicate: a session is busy while any turn is open, whether it
 // came from `sendTurn` or from the adapter's continuation channel. A
 // continuation turn clears `pendingRequestId`, so that field alone would report
@@ -3971,7 +4000,14 @@ function completedHistory(events: ConversationEvent[]): ConversationMessage[] {
   let assistant = ''
   for (const event of events) {
     if (event.type === 'user_message') {
-      user = typeof event.payload?.text === 'string' ? event.payload.text : undefined
+      // The files a message attached ride beside its words in the transcript;
+      // the history hands them back to the model as it first read them.
+      user =
+        typeof event.payload?.text === 'string'
+          ? [event.payload.text, attachedFilesContext(parseConversationAttachedFiles(event.payload.files) ?? [])]
+              .filter(Boolean)
+              .join('\n\n')
+          : undefined
       assistant = ''
     } else if (event.type === 'content_delta' && typeof event.payload?.text === 'string')
       assistant += event.payload.text

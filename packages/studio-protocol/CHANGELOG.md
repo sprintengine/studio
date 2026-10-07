@@ -27,6 +27,11 @@
   owner's only (`StudioMethodSpec.owner`, refused `owner_required`).
 - **Folder keys.** A conversation key may carry `workspaceRoot`, an owner's
   only, behind `conversation-folders` (`key.ts`).
+- **Files attached by path** (`session-files`): `session.send` takes `files`,
+  a list of at most `STUDIO_MAX_FILES_PER_SEND` `{ path }` (`StudioAttachedFile`),
+  and the `user_message` the send becomes carries them as `files`. Additive: a
+  Studio without the capability drops the member unread, so a client sends it
+  only where the capability is advertised.
 - **Push streams.** `{ t: 'push', sub, payload }` for a stream with no cursor.
 - **`server.ping`**, answered at once, for a client's liveness check.
 - **Error ids.** A refusal's error and a `subFailed` frame may carry `errorId`.

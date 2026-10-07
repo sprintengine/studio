@@ -246,13 +246,18 @@ function turnEndOf(
 function lifecycleOf(
   record: ConversationListWorkspace | null,
   lastTurnEndedAt: number | undefined,
-): Pick<ConversationThread, 'chatTitle' | 'lastUserMessageAt' | 'lastTurnEndedAt' | 'lastVisitedAt'> {
+): Pick<
+  ConversationThread,
+  'chatTitle' | 'lastUserMessageAt' | 'lastTurnEndedAt' | 'lastVisitedAt' | 'visitRewoundAt'
+> {
   const chatTitle = record?.name.trim()
   return {
     ...(chatTitle ? { chatTitle } : {}),
     ...(epoch(record?.lastUserMessageAt) ? { lastUserMessageAt: record.lastUserMessageAt } : {}),
     ...(lastTurnEndedAt !== undefined ? { lastTurnEndedAt } : {}),
     ...(epoch(record?.lastVisitedAt) ? { lastVisitedAt: record.lastVisitedAt } : {}),
+    // Read only from the record, which only Mark unread's own command stamps.
+    ...(epoch(record?.visitRewoundAt) ? { visitRewoundAt: record.visitRewoundAt } : {}),
   }
 }
 
@@ -268,6 +273,8 @@ export type ConversationListWorkspace = {
   lastUserMessageAt?: number | null
   lastTerminalActivityAt?: number | null
   lastVisitedAt?: number | null
+  /** When Mark unread last moved `lastVisitedAt` back. */
+  visitRewoundAt?: number | null
 }
 
 /**

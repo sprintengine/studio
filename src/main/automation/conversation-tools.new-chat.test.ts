@@ -8,6 +8,7 @@ import { createConversationTools } from './conversation-tools'
 const noLifecycle = {
   settle: () => assert.fail('conversation.create does not settle'),
   visit: () => assert.fail('conversation.create does not visit'),
+  markUnread: () => assert.fail('conversation.create does not mark anything unread'),
 }
 
 // A phone's New chat: `worktree` and `effort` on conversation.create, checked

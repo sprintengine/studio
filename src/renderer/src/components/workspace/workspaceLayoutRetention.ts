@@ -178,3 +178,48 @@ export function computeRetainedWorkspaceLayoutIds(
     evicted,
   }
 }
+
+/**
+ * The workspace layers a window draws, and which of the hidden ones are warm.
+ *
+ * Drawn: the active layer, every retained one, and every chat starting in the
+ * background (⌘⏎ from New chat, `newChatStay.ts`), which is never the active
+ * layer and has to be mounted for the agent its view starts to start.
+ *
+ * Warm layers stay fully composited behind the active one so switching back
+ * to a recently-used workspace is instant. Everything beyond the warm set is
+ * kept mounted but rendered with `content-visibility: hidden`, so the
+ * compositor skips its per-frame work (the scroll-jank fix). Warm = the
+ * most-recently-focused inactive layers, ranked by the same last-focused clock
+ * the retention policy uses, and on top of those every chat starting a
+ * terminal agent in the background: laid out, so the agent measures the size
+ * it starts at. A chat starting a conversation agent needs only to be mounted
+ * (its view starts the agent) and is not warm, so ⌘⏎ pressed many times over
+ * does not add as many composited layers.
+ */
+export function workspaceLayers(input: {
+  visibleWorkspaceIds: readonly string[]
+  activeWorkspaceId: string | null
+  mountedWorkspaceIds: readonly string[]
+  startingWorkspaceIds: readonly string[]
+  /** Whether a chat starting in the background starts a terminal agent, which has to be laid out to size itself. */
+  startsTerminalAgent: (workspaceId: string) => boolean
+  lastFocusedAtByWorkspaceId: Readonly<Record<string, number>>
+  warmLimit: number
+}): { rendered: string[]; warm: Set<string> } {
+  const rendered = input.visibleWorkspaceIds.filter(
+    (workspaceId) =>
+      workspaceId === input.activeWorkspaceId ||
+      input.mountedWorkspaceIds.includes(workspaceId) ||
+      input.startingWorkspaceIds.includes(workspaceId),
+  )
+  const hidden = rendered.filter((workspaceId) => workspaceId !== input.activeWorkspaceId)
+  const lastFocusedAt = input.lastFocusedAtByWorkspaceId
+  const recent = [...hidden]
+    .sort((a, b) => (lastFocusedAt[b] ?? 0) - (lastFocusedAt[a] ?? 0))
+    .slice(0, Math.max(0, input.warmLimit))
+  const starting = hidden.filter(
+    (workspaceId) => input.startingWorkspaceIds.includes(workspaceId) && input.startsTerminalAgent(workspaceId),
+  )
+  return { rendered, warm: new Set([...recent, ...starting]) }
+}

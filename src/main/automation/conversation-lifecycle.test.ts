@@ -14,7 +14,10 @@ import { createConversationTools } from './conversation-tools'
 
 const NOW = 1_000_000
 
-function fixture(record: Partial<WorkspaceRegistryRecord> | null, options: { working?: boolean } = {}) {
+function fixture(
+  record: Partial<WorkspaceRegistryRecord> | null,
+  options: { working?: boolean; chatTurnEnd?: number } = {},
+) {
   const stored = record
     ? ({ id: 'ws-1', name: 'Fix the login', createdAt: 10, ...record } as WorkspaceRegistryRecord)
     : null
@@ -27,7 +30,15 @@ function fixture(record: Partial<WorkspaceRegistryRecord> | null, options: { wor
       if (stored) applyWorkspaceFieldsPatch(stored as unknown as Record<string, unknown>, patch)
       return { ok: true, event: {} as never }
     },
+    rewindVisit: (workspaceId, lastVisitedAt, actor) => {
+      // The service's own command: it stamps the rewind, nobody else may.
+      const patch = { lastVisitedAt, visitRewoundAt: NOW }
+      writes.push({ workspaceId, patch, actor })
+      if (stored) applyWorkspaceFieldsPatch(stored as unknown as Record<string, unknown>, patch)
+      return { ok: true, event: {} as never }
+    },
     isWorking: () => options.working === true,
+    latestChatTurnEnd: () => options.chatTurnEnd,
     now: () => NOW,
   })
   const tools = createConversationTools({
@@ -36,7 +47,14 @@ function fixture(record: Partial<WorkspaceRegistryRecord> | null, options: { wor
     lifecycle,
   })
   const toolNamed = (name: string) => tools.find((candidate) => candidate.name === name)!
-  return { stored, writes, lifecycle, settle: toolNamed('conversation.settle'), visit: toolNamed('conversation.visit') }
+  return {
+    stored,
+    writes,
+    lifecycle,
+    settle: toolNamed('conversation.settle'),
+    visit: toolNamed('conversation.visit'),
+    markUnread: toolNamed('conversation.mark_unread'),
+  }
 }
 
 const TAILNET: McpConnectionContext = { metadata: { kind: 'remote-tailnet', deviceId: 'device-1' } }
@@ -127,6 +145,49 @@ test('a visit is never later than this machine’s own now, and defaults to it',
   assert.equal(omitted.stored?.lastVisitedAt, NOW)
 })
 
+test('Mark unread moves the visit clock back to just before the latest finish, and stamps that it did', async () => {
+  const f = fixture({ lastVisitedAt: 9_000, lastTurnEndedAt: 4_000 }, { chatTurnEnd: 5_000 })
+  const result = await f.markUnread.handler({ workspaceId: 'ws-1' }, TAILNET)
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(result.structuredContent, { ok: true, workspaceId: 'ws-1', lastVisitedAt: 4_999 })
+  assert.deepEqual(f.writes, [
+    { workspaceId: 'ws-1', patch: { lastVisitedAt: 4_999, visitRewoundAt: NOW }, actor: 'mobile' },
+  ])
+  // Main's reducer takes the earlier clock: the rewind stamp is what allows it.
+  assert.equal(f.stored?.lastVisitedAt, 4_999)
+  assert.equal(f.stored?.visitRewoundAt, NOW)
+})
+
+test("a chat's terminal agents' finish counts as well as its chats'", () => {
+  const f = fixture({ lastVisitedAt: 9_000, lastTurnEndedAt: 6_000 }, { chatTurnEnd: 5_000 })
+  assert.deepEqual(f.lifecycle.markUnread('ws-1', 'ui'), { ok: true, workspaceId: 'ws-1', lastVisitedAt: 5_999 })
+})
+
+test('a chat already unread from further back keeps its clock, and still says it was marked', () => {
+  const f = fixture({ lastVisitedAt: 1_000 }, { chatTurnEnd: 5_000 })
+  assert.deepEqual(f.lifecycle.markUnread('ws-1', 'ui'), { ok: true, workspaceId: 'ws-1', lastVisitedAt: 1_000 })
+  assert.deepEqual(f.writes[0]?.patch, { lastVisitedAt: 1_000, visitRewoundAt: NOW })
+})
+
+test('a chat whose agent has finished nothing is not marked, and an unknown one is refused by name', async () => {
+  const nothing = fixture({ lastVisitedAt: 1_000 })
+  const refused = await nothing.markUnread.handler({ workspaceId: 'ws-1' })
+  assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'nothing_finished')
+  assert.deepEqual(nothing.writes, [])
+  const unknown = fixture(null)
+  const missing = await unknown.markUnread.handler({ workspaceId: 'ws-9' })
+  assert.equal((missing.structuredContent as { error: { code: string } }).error.code, 'unknown_workspace')
+  const bad = await unknown.markUnread.handler({})
+  assert.equal((bad.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+})
+
+test('a visit after Mark unread moves the clock forward again, as reading it does', async () => {
+  const f = fixture({ lastVisitedAt: 9_000 }, { chatTurnEnd: 5_000 })
+  f.lifecycle.markUnread('ws-1', 'ui')
+  await f.visit.handler({ workspaceId: 'ws-1', visitedAt: 6_000 })
+  assert.equal(f.stored?.lastVisitedAt, 6_000)
+})
+
 test('a message from a paired device moves the message clock and wakes a resting chat', () => {
   const f = fixture({ settledAt: 900, settledOverride: 'settled', lastUserMessageAt: 100 })
   f.lifecycle.noteUserMessage('ws-1', 2_000, 'gateway')
@@ -183,4 +244,13 @@ test('a visit moves the list the first time, and again only once a turn has ende
   turnEnd = 215
   assert.equal(changed(fieldsEvent('ws-1', { lastVisitedAt: 220 })), true, 'the first visit since a finish')
   assert.equal(changed(fieldsEvent('ws-1', { lastVisitedAt: 230 })), false)
+})
+
+test('Mark unread moves the list every time: the clock went back, which every device has to hear', () => {
+  const changed = createConversationListChangeFilter({ turnEndOf: () => 100 })
+  assert.equal(changed(fieldsEvent('ws-1', { lastVisitedAt: 200 })), true)
+  assert.equal(changed(fieldsEvent('ws-1', { lastVisitedAt: 99, visitRewoundAt: 300 })), true)
+  // Read again: the first visit since the rewind is news too.
+  assert.equal(changed(fieldsEvent('ws-1', { lastVisitedAt: 400 })), true)
+  assert.equal(changed(fieldsEvent('ws-1', { lastVisitedAt: 410 })), false)
 })

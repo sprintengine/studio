@@ -54,44 +54,66 @@ export function dataTransferHasDroppableFiles(data: DataTransfer | null): boolea
 }
 
 export type DroppedFiles = {
-  /** Paths to type into the prompt: every file the agent reads by path. */
+  /** Paths to type into the prompt: files from the studio's own panes, and every file where files do not attach by path. */
   paths: string[]
+  /** Files from the system, by path: attached as cards, sent beside the words. */
+  files: string[]
   /** Images to attach as images, when the surface attaches them. */
   images: File[]
   /** Files with no path on disk (an image dragged out of a web page). */
   pathless: File[]
 }
 
-/**
- * A drop, sorted by what a composer does with each file. Any file with a path
- * becomes its path, whatever its type — a spreadsheet or a folder is as much the
- * agent's to read as a source file. Images attach instead where `attachImages`
- * says the surface can send them; one from the studio's own panes stays a path,
- * as a pasted path into the workspace does.
- */
-export function sortDroppedFiles(data: DataTransfer, attachImages: boolean): DroppedFiles {
-  const studioDrop = Array.from(data.types ?? []).includes(SPRINTENGINE_FILE_DROP_MIME)
-    ? readFileDropPayload(data)
-    : null
-  if (studioDrop) return { paths: studioDrop.files.map((file) => file.path), images: [], pathless: [] }
-  return sortFiles(filesFromDataTransfer(data), attachImages)
+/** What a composer does with a file it is given: attach images, attach other files by path as cards. */
+export type FileSorting = {
+  /** The surface sends images as images. */
+  attachImages: boolean
+  /**
+   * The surface holds files by path as cards: a chat on this computer, in a
+   * desktop window. Elsewhere a file is typed as its path, as it always was.
+   */
+  attachByPath: boolean
 }
 
 /**
- * Files picked from the system's file dialog, sorted the way a drop of the
- * same files is: images attach where the surface can send them, everything
- * else is its path, and a file with no path is uploaded where the shell can.
+ * A drop, sorted by what a composer does with each file. A file from the
+ * system with a path is attached by that path where the surface takes cards,
+ * whatever its type — a spreadsheet or a folder is as much the agent's to read
+ * as a source file, and the composer shows it as a card rather than a string —
+ * and is typed as its path where it does not. Images attach as images instead
+ * where the surface can send them. One from the studio's own panes (the Files
+ * pane, the Backlog) is typed as its path, as a pasted path into the workspace
+ * is: it is a reference into the project, not a file brought in from outside.
  */
-export function sortFiles(files: Iterable<File>, attachImages: boolean): DroppedFiles {
-  const sorted: DroppedFiles = { paths: [], images: [], pathless: [] }
+export function sortDroppedFiles(data: DataTransfer, sorting: FileSorting): DroppedFiles {
+  const studioDrop = Array.from(data.types ?? []).includes(SPRINTENGINE_FILE_DROP_MIME)
+    ? readFileDropPayload(data)
+    : null
+  if (studioDrop) return { paths: studioDrop.files.map((file) => file.path), files: [], images: [], pathless: [] }
+  return sortFiles(filesFromDataTransfer(data), sorting)
+}
+
+/**
+ * Files picked from the system's file dialog, pasted from the clipboard, or
+ * dropped, sorted the same way: images attach where the surface can send them,
+ * everything else is attached by its path where the surface takes cards and
+ * typed as its path where it does not, and a file with no path is uploaded
+ * where the shell can. Reading the path through `attachFile` is what lets a
+ * card open the file later — main opens only a path read off the person's own
+ * file this way — so a path that will only be typed is read without it, and
+ * main is not told about a file no card will show.
+ */
+export function sortFiles(files: Iterable<File>, { attachImages, attachByPath }: FileSorting): DroppedFiles {
+  const sorted: DroppedFiles = { paths: [], files: [], images: [], pathless: [] }
   for (const file of files) {
     if (attachImages && (ATTACHABLE_IMAGE_TYPES as readonly string[]).includes(file.type)) {
       sorted.images.push(file)
       continue
     }
-    const path = window.api.getPathForFile(file)
-    if (path) sorted.paths.push(path)
-    else sorted.pathless.push(file)
+    const path = attachByPath ? window.api.attachFile(file) : window.api.getPathForFile(file)
+    if (!path) sorted.pathless.push(file)
+    else if (attachByPath) sorted.files.push(path)
+    else sorted.paths.push(path)
   }
   return sorted
 }

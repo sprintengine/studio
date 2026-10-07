@@ -44,6 +44,7 @@ test('newChatDraft', async () => {
       folderPath: '/w/app',
       prompt: 'fix the flaky test',
       images: [image],
+      files: [],
       selection: null,
       // The parked engine an ordinary draft has none of: it is written only by a
       // picker that stored nothing (a card's `Go`, item 2473).
@@ -55,12 +56,14 @@ test('newChatDraft', async () => {
     assert.equal(newChatDraftHasContent(draft), true)
   })
 
-  run('an empty prompt with an attached image or a pick still counts as content; defaults alone do not', () => {
+  run('an empty prompt with an attached image, file or pick still counts as content; defaults alone do not', () => {
     writeNewChatDraft('w1', { prompt: '   ', images: [image] })
     assert.equal(newChatDraftHasContent(readNewChatDraft('w1')), true)
     writeNewChatDraft('w1', { images: [] })
     assert.equal(newChatDraftHasContent(readNewChatDraft('w1')), false, 'whitespace alone is not content')
-    writeNewChatDraft('w1', { skills: [skill] })
+    writeNewChatDraft('w1', { files: ['/Users/dev/Desktop/Q3 budget.xlsx'] })
+    assert.equal(newChatDraftHasContent(readNewChatDraft('w1')), true, 'a file attached by path is')
+    writeNewChatDraft('w1', { files: [], skills: [skill] })
     assert.equal(newChatDraftHasContent(readNewChatDraft('w1')), true, 'a picked skill is')
     writeNewChatDraft('w1', { skills: [], mcpServers: [connector('railway')] })
     assert.equal(newChatDraftHasContent(readNewChatDraft('w1')), true, 'so is a picked MCP server')

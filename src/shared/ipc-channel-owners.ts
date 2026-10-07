@@ -157,4 +157,5 @@ export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   'workspace-sync:dispatch': {},
   'workspace-sync:get-events-after': { retry: 'once' },
   'workspace-sync:get-snapshot': { retry: 'once' },
+  'workspace-sync:mark-unread': {},
 }

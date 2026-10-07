@@ -23,6 +23,7 @@ export type ChatAgentFields = Pick<
   | 'conversationSkills'
   | 'chatStartupPrompt'
   | 'chatStartupImages'
+  | 'chatStartupFiles'
 > & { conversation: NonNullable<AgentState['conversation']> }
 
 export type ChatBinding = {

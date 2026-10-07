@@ -7,6 +7,8 @@ import {
   pathsForPathlessFiles,
   quotePromptPath,
   readPastedImagePaths,
+  sortDroppedFiles,
+  sortFiles,
   splitShellWords,
 } from './imageFileTransfer'
 
@@ -146,4 +148,76 @@ test('a file with no path is uploaded where the shell can, and refused by name w
     assert.deepEqual(answer.paths, [])
     assert.match(answer.message ?? '', /report\.pdf has no path on disk/u)
   })
+})
+
+test('a file from the system is attached by path, an image attaches as an image where it can, and a pathless one waits for upload', () => {
+  const holder = globalThis as { window?: unknown }
+  const before = holder.window
+  const attached: string[] = []
+  const paths = new Map<unknown, string>()
+  holder.window = {
+    api: {
+      // The path is read through `attachFile`, which is what tells main the
+      // person attached it: only such a path opens from its card.
+      attachFile: (file: unknown) => {
+        const path = paths.get(file) ?? ''
+        if (path) attached.push(path)
+        return path
+      },
+      getPathForFile: (file: unknown) => paths.get(file) ?? '',
+    },
+  }
+  try {
+    const sheet = { name: 'Q3 budget.xlsx', type: 'application/vnd.ms-excel' } as File
+    const shot = { name: 'shot.png', type: 'image/png' } as File
+    const web = { name: 'from-a-page.pdf', type: 'application/pdf' } as File
+    paths.set(sheet, '/Users/dev/Desktop/Q3 budget.xlsx')
+    paths.set(shot, '/Users/dev/Desktop/shot.png')
+    assert.deepEqual(sortFiles([sheet, shot, web], { attachImages: true, attachByPath: true }), {
+      paths: [],
+      files: ['/Users/dev/Desktop/Q3 budget.xlsx'],
+      images: [shot],
+      pathless: [web],
+    })
+    // Where the provider reads no images, a picture is a file like any other.
+    assert.deepEqual(sortFiles([shot], { attachImages: false, attachByPath: true }), {
+      paths: [],
+      files: ['/Users/dev/Desktop/shot.png'],
+      images: [],
+      pathless: [],
+    })
+    assert.deepEqual(attached, ['/Users/dev/Desktop/Q3 budget.xlsx', '/Users/dev/Desktop/shot.png'])
+
+    // Where files are typed as paths (a chat on another machine), a file is its
+    // typed path, and main is not told about a file no card will show.
+    assert.deepEqual(sortFiles([sheet, shot, web], { attachImages: true, attachByPath: false }), {
+      paths: ['/Users/dev/Desktop/Q3 budget.xlsx'],
+      files: [],
+      images: [shot],
+      pathless: [web],
+    })
+    assert.equal(attached.length, 2, 'nothing more was registered')
+
+    // A drag out of the studio's own Files pane is a reference into the project: typed, never a card.
+    const payload = JSON.stringify({
+      version: 1,
+      workspaceId: 'workspace',
+      rootPath: '/Users/dev/project',
+      files: [{ path: '/Users/dev/project/src/app.ts', name: 'app.ts' }],
+    })
+    const studioDrag = {
+      types: ['application/x-sprintengine-file-drop'],
+      items: [],
+      files: [],
+      getData: (type: string) => (type === 'application/x-sprintengine-file-drop' ? payload : ''),
+    } as unknown as DataTransfer
+    assert.deepEqual(sortDroppedFiles(studioDrag, { attachImages: true, attachByPath: true }), {
+      paths: ['/Users/dev/project/src/app.ts'],
+      files: [],
+      images: [],
+      pathless: [],
+    })
+  } finally {
+    holder.window = before
+  }
 })

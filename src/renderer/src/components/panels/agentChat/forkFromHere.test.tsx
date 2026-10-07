@@ -87,7 +87,11 @@ test('a fork opens beside the chat it came from, as its twin, with the message f
   await forkChat({
     transport: t.transport,
     key: t.key,
-    target: { side: 'user', turnSeq: 4, draft: { text: 'try again', skillIds: ['review'], mentions: [] } },
+    target: {
+      side: 'user',
+      turnSeq: 4,
+      draft: { text: 'try again', skillIds: ['review'], mentions: [], files: ['/Users/dev/Desktop/spec.pdf'] },
+    },
   })
   expect(t.forks).toHaveLength(1)
   const [asked] = t.forks
@@ -105,7 +109,11 @@ test('a fork opens beside the chat it came from, as its twin, with the message f
     conversationSkills: ['review'],
     execution: { mode: 'worktree', cwd: root },
   })
-  expect(composerDraftStore().getState().read(WS, asked.newAgentId).text).toBe('try again')
+  expect(composerDraftStore().getState().read(WS, asked.newAgentId)).toMatchObject({
+    text: 'try again',
+    // The files it attached by path come back as the fork composer's cards.
+    files: ['/Users/dev/Desktop/spec.pdf'],
+  })
 
   // Right after the parent's tab, in its strip, and in front.
   const tabs = tabsOf(t.model)

@@ -27,6 +27,7 @@ import { createMainThreadStallMonitor } from './main-thread-stall-monitor'
 import { bindPollerToActivity, gateStallMonitorOnActivity, powerActivity } from './power-activity'
 import { sendWindowHidden } from './ipc/window-ipc'
 import type { SprintEngineUpdateService } from './update-service'
+import { registerUnaskedQuits, type QuitConfirmation } from './quit-confirmation'
 import type { ShutdownLegReport } from './update-install-progress'
 import type { AgentPhaseEvent, AgentPhaseListener } from '../shared/agent-runtime'
 import type { DesktopServerHost } from './server-supervisor/desktop-server-host'
@@ -184,6 +185,12 @@ type RegisterAppLifecycleOptions = {
     isEnabled(): boolean
     readStatus(): BackgroundStatus
   }
+  /**
+   * The question a person's own quit is asked while agents are working
+   * (quit-confirmation.ts). Absent, every quit goes straight through, as it
+   * did before it asked.
+   */
+  quitConfirmation?: Pick<QuitConfirmation, 'confirm' | 'quitWithoutAsking'>
   /** The plugin-source update check (skills service); rides the hourly feed leg. */
   checkPluginSourceUpdates?: () => Promise<unknown>
   /**
@@ -241,6 +248,7 @@ export function registerAppLifecycle({
   handleAuthCallback,
   chatWindows,
   backgroundMode,
+  quitConfirmation,
   checkPluginSourceUpdates,
   startDeferredBootJobs,
   prepareWorkspacesAtBoot,
@@ -370,6 +378,28 @@ export function registerAppLifecycle({
           rssBytes: process.memoryUsage().rss,
         }),
       }).catch(() => undefined)
+    },
+  })
+
+  // A logout, restart or power-off, or a process signal (`pkill`, a systemd
+  // stop, Ctrl+C), is the OS's quit, never the person's: it is not asked
+  // about, and a question already up is taken down so it cannot hold the OS
+  // up. A signal quits through `before-quit` like any other quit, so the
+  // ordered shutdown below runs before the process goes; a signal sent again
+  // well after the first exits without waiting for it.
+  registerUnaskedQuits({
+    platform: process.platform,
+    quitConfirmation,
+    quit: () => app.quit(),
+    exit: () => app.exit(1),
+    onWindowCreated: (listener) => {
+      app.on('browser-window-created', (_event, win) => listener(win))
+    },
+    onSystemShutdown: (listener) => {
+      void app.whenReady().then(() => powerMonitor.on('shutdown', listener))
+    },
+    onSignal: (signal, listener) => {
+      process.on(signal, listener)
     },
   })
 
@@ -618,7 +648,19 @@ export function registerAppLifecycle({
   })
 
   app.on('window-all-closed', () => {
-    if (backgroundPresence.onWindowAllClosed() === 'quit') app.quit()
+    if (backgroundPresence.onWindowAllClosed() !== 'quit') return
+    // Closing the last window ends the process here (Windows and Linux with
+    // background mode off), so it is a quit like Cmd+Q and asks the same
+    // question. The window is already gone by now; Cancel brings one back
+    // rather than leave a process running with nothing on screen.
+    if (!quitConfirmation) {
+      app.quit()
+      return
+    }
+    void quitConfirmation.confirm().then((decision) => {
+      if (decision === 'quit') app.quit()
+      else if (decision === 'stay') openWindowFromBackground()
+    })
   })
 
   // The app's ordered shutdown, run once whichever way the app is leaving: a
@@ -809,15 +851,32 @@ export function registerAppLifecycle({
     installFallback = null
     if (exitScheduled) return
     event.preventDefault()
+    // A shutdown already running is "Restart to update" handing over: the
+    // updater's own quit, never asked about.
+    if (shutdownRun || !quitConfirmation) {
+      exitAfterShutdown()
+      return
+    }
+    // `pending`: the question is already up for an earlier quit, and its
+    // answer decides this one too.
+    void quitConfirmation.confirm().then((decision) => {
+      if (decision === 'quit') exitAfterShutdown()
+    })
+  })
+  function exitAfterShutdown(): void {
+    if (exitScheduled) return
     exitScheduled = true
     // Joins a shutdown "Restart to update" already ran, so the updater's own
     // quit exits at once instead of running the legs a second time.
     void runShutdown().finally(() => {
       app.exit(0)
     })
-  })
+  }
 
   updateService.setPrepareForInstall(async (report) => {
+    // The person pressed "Restart to update"; the quit that hands over to the
+    // installer is the app's.
+    quitConfirmation?.quitWithoutAsking()
     if (!shutdownRun) leavingForUpdate = true
     const run = runShutdown(report)
     let bounded: NodeJS.Timeout | undefined

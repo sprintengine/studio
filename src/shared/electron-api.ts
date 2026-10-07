@@ -1,4 +1,5 @@
 import type { ClientCapability } from './client-capabilities'
+import type { AttachedFilePreview } from './attached-files'
 import type { ChatLink } from './deep-link'
 import type { PreviewOpenAnswer, PreviewPort, PreviewSummary, WebDevicesStatus } from './web-client'
 import type {
@@ -230,6 +231,7 @@ import type {
 } from './modules/manifest'
 import type { ModuleRegistrySnapshot, ModuleRegistrySnapshotWriteResult } from './modules/registry-snapshot'
 import type {
+  WorkspaceMarkUnreadResult,
   WorkspaceSyncCommand,
   WorkspaceSyncCommandResult,
   WorkspaceSyncEvent,
@@ -785,6 +787,12 @@ export type ElectronApi = {
   workspaceRegistryNeedsHydration: () => Promise<boolean>
   workspaceRegistryHydrate: (payload: unknown) => Promise<WorkspaceRegistryHydrateResult>
   onWorkspaceSyncEvent: (cb: (event: WorkspaceSyncEvent) => void) => () => void
+  /**
+   * Mark a chat here unread, as `conversation.mark_unread` does for a paired
+   * device: its visit clock goes back to just before its latest finish, so
+   * every device shows it unseen again. The change arrives as a sync event.
+   */
+  workspaceMarkUnread: (workspaceId: string) => Promise<WorkspaceMarkUnreadResult>
   automationGetStatus: () => Promise<AutomationServerStatus>
   /**
    * The applications on this machine paired with Studio's owner socket. Like
@@ -1035,6 +1043,19 @@ export type ElectronApi = {
   pathExists: (path: string) => Promise<boolean>
   statPath: (path: string) => Promise<FileSystemStat>
   getPathForFile: (file: unknown) => string
+  /**
+   * A dropped, picked or pasted file's path, as `getPathForFile` reads it, and
+   * that file remembered as attached: the paths `openAttachedFile` will open.
+   * '' for a file with no path on disk.
+   */
+  attachFile: (file: unknown) => string
+  /** What an attached path is now, the system's thumbnail of it, and whether a click may open it. */
+  previewAttachedFile: (path: string) => Promise<AttachedFilePreview>
+  /**
+   * Open an attached file in its default app. Refuses, with the reason, a path
+   * that was not attached and a file that would run as a program when opened.
+   */
+  openAttachedFile: (path: string) => Promise<void>
   /** Send dropped files that have no path to the server; answers a path there for each (`file-uploads`). */
   uploadFiles: (files: File[]) => Promise<string[]>
   checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>
@@ -1719,6 +1740,12 @@ export type ElectronApi = {
   // the whole renderer-facing telemetry surface — there is no channel for the
   // renderer to send an event, only this one to stop main sending them.
   setTelemetryEnabled: (enabled: boolean) => Promise<void>
+  // "Ask before quitting while agents are working", which main owns: the quit
+  // dialog's "Don't ask again" turns it off with no renderer involved. Both
+  // answer with the value main now holds; null from a client with no quit of
+  // its own to ask about (a browser tab).
+  getQuitConfirmation: () => Promise<boolean | null>
+  setQuitConfirmation: (enabled: boolean) => Promise<boolean | null>
   resolveBacklogLocation: (workspaceRoot: string) => Promise<BacklogLocationResult>
   setBacklogRoot: (input: BacklogSetRootInput) => Promise<BacklogLocationResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>
