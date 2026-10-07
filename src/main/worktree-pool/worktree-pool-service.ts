@@ -1554,7 +1554,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           return `Git could not remove it: ${tail(removed.message, 200) ?? 'unknown error'}`
         }
       } else {
-        await withWorktreeRegistryLock(pool.record.repoRoot, () => git(pool.record.repoRoot, ['worktree', 'prune']))
+        await forgetRegistration(pool, slot.path)
       }
       await withPool(pool, async () => {
         pool.record.slots = pool.record.slots.filter((candidate) => candidate !== slot)
@@ -1686,9 +1686,22 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   }
 
   /**
+   * Clear git's record of one slot whose folder is gone. `remove --force`
+   * takes a registered worktree with no folder, and only that one: a `prune`
+   * would forget every missing worktree of the repository, a person's own
+   * on an unmounted volume included. A locked entry is refused, as `prune`
+   * refuses it.
+   */
+  function forgetRegistration(pool: PoolRuntime, path: string): Promise<unknown> {
+    return withWorktreeRegistryLock(pool.record.repoRoot, () =>
+      git(pool.record.repoRoot, ['worktree', 'remove', '--force', path]),
+    )
+  }
+
+  /**
    * Forget idle and held slots someone deleted from outside (a file manager,
-   * `git worktree remove` in a terminal), and prune git's record of them. A
-   * leased one's absence is its owner's business.
+   * `git worktree remove` in a terminal), and git's record of them. A leased
+   * one's absence is its owner's business.
    */
   async function forgetSlotsGoneFromDisk(pool: PoolRuntime): Promise<void> {
     const gone: SlotRecord[] = []
@@ -1698,11 +1711,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       }
     }
     if (gone.length === 0) return
-    // A held slot is locked, and git never prunes a locked worktree.
     for (const slot of gone) {
+      // A held slot is locked by the pool itself, and git never removes a locked worktree.
       if (slot.state === 'held') await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
+      await forgetRegistration(pool, slot.path)
     }
-    await withWorktreeRegistryLock(pool.record.repoRoot, () => git(pool.record.repoRoot, ['worktree', 'prune']))
     await withPool(pool, async () => {
       pool.record.slots = pool.record.slots.filter((slot) => !gone.includes(slot))
       await persist(pool)
@@ -1736,7 +1749,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       }
     }
 
-    let pruneNeeded = false
+    const goneFromDisk: string[] = []
     const survivors: SlotRecord[] = []
     const toReturn: SlotRecord[] = []
     const toEvict: SlotRecord[] = []
@@ -1755,7 +1768,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         if (slot.op?.kind === 'create' && onDisk && !entry && isInside(slot.path, pool.containerPath)) {
           await rm(slot.path, { recursive: true, force: true }).catch(() => {})
         }
-        if (entry && !onDisk) pruneNeeded = true
+        if (entry && !onDisk) goneFromDisk.push(slot.path)
         log(`${slot.path}: dropped from the pool (${entry ? 'missing on disk' : 'not a registered worktree'})`)
         continue
       }
@@ -1815,9 +1828,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         toEvict.push(slot)
       }
     }
-    if (pruneNeeded) {
-      await withWorktreeRegistryLock(record.repoRoot, () => git(record.repoRoot, ['worktree', 'prune']))
-    }
+    for (const path of goneFromDisk) await forgetRegistration(pool, path)
 
     // `pool-NN` worktrees in our container with no record: the record was lost.
     // A leased-looking one is adopted as leased (the next sweep decides), and

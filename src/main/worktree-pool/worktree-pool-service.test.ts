@@ -719,13 +719,21 @@ test('a second Studio holding the container gets no slot; a dead holder is taken
 
 test('a slot deleted from outside is forgotten and pruned, never leased', async () => {
   const harness = makeService()
+  // A person's own worktree whose folder is missing (on a volume not mounted
+  // now) is theirs: forgetting the slot must not prune it too.
+  const own = join(caseDir, 'elsewhere', 'mine')
+  await git(repo, 'worktree', 'add', '-q', '--detach', own)
+  await rm(own, { recursive: true, force: true })
   const first = await lease(harness, 'first')
   await returnAll(harness)
   await rm(first.path, { recursive: true, force: true })
   const second = await lease(harness, 'second')
   assert.equal(second.created, true)
   assert.equal((await snapshot(harness)).slots.length, 1)
-  assert.doesNotMatch(await git(repo, 'worktree', 'list', '--porcelain'), /prunable/)
+  const listed = await git(repo, 'worktree', 'list', '--porcelain')
+  // The new slot took the old one's name; the old registration is gone.
+  assert.equal(listed.split(`${basename(first.path)}\n`).length - 1, 1)
+  assert.match(listed, /elsewhere\/mine\n/, 'the person’s missing worktree is still registered')
 })
 
 test('recovery removes a half-made slot, returns an interrupted lease, and resumes its own reset', async () => {
