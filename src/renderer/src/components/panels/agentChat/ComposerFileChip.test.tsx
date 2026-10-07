@@ -105,7 +105,7 @@ test('a click opens the file in its app, and a refusal is said in a toast', asyn
   })
 })
 
-test('a file that would run is only revealed, by its card and by its menu', async () => {
+test('a file not of a kind a click opens is only revealed, by its card and by its menu', async () => {
   await mount(['/Users/dev/Desktop/deploy.sh'])
   const script = card('Reveal in Finder: deploy.sh')
   expect(script, 'the card says what its click does').not.toBeNull()
@@ -143,4 +143,40 @@ test('a folder is a card that shows the folder rather than opening it', async ()
   expect(folder?.textContent).toContain('Folder')
   await act(async () => folder!.click())
   expect(showItemInFolder).toHaveBeenCalledWith('/Users/dev/Reports')
+})
+
+test('a kept answer is drawn at once on a re-mount, and main is asked again once it is a few seconds old', async () => {
+  const path = '/Users/dev/Desktop/plan.pdf'
+  answers[path] = { kind: 'file', thumbnailDataUrl: 'data:image/png;base64,FIRST', openable: true }
+  await mount([path])
+  await act(async () => release())
+  expect(card('Open plan.pdf')?.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,FIRST')
+  await act(async () => root?.unmount())
+  host?.remove()
+  // The file was edited: main, which keys by size and modification time, draws it again.
+  answers[path] = { kind: 'file', thumbnailDataUrl: 'data:image/png;base64,SECOND', openable: true }
+  const now = Date.now()
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 10_000)
+  try {
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    root = createRoot(host)
+    // Rendered and read before main's new answer can land.
+    act(() =>
+      root!.render(<ComposerAttachmentStrip attachments={[]} reading={0} onRemove={() => undefined} files={[path]} />),
+    )
+    const shown = card('Open plan.pdf')?.querySelector('img')?.getAttribute('src')
+    expect(shown, 'the kept picture, with no glyph flash').toBe('data:image/png;base64,FIRST')
+    await act(async () => undefined)
+    expect(card('Open plan.pdf')?.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,SECOND')
+  } finally {
+    clock.mockRestore()
+  }
+})
+
+test('a path this computer did not attach is a card that only reveals', async () => {
+  answers['/Users/dev/Desktop/brief.pdf'] = { kind: 'unknown', thumbnailDataUrl: null, openable: false }
+  await mount(['/Users/dev/Desktop/brief.pdf'])
+  await act(async () => release())
+  expect(card('Reveal in Finder: brief.pdf')).not.toBeNull()
 })

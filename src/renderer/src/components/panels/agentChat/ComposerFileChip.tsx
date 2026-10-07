@@ -1,14 +1,14 @@
 // A file attached by path, as the card the composer and a sent message show it
 // as: what it is (the system's thumbnail, or its type glyph until one arrives),
-// and a click that opens it in the app the system picks — or, for a file that
-// would run when opened, shows it in its folder instead (attached-files.ts in
+// and a click that opens it in the app the system picks — or, for any file not
+// of a kind a click may open, shows it in its folder instead (attached-files.ts in
 // main holds that line, this only labels it). Its own module, imported by the
 // composer strip and the sent bubble alike, so the lazily-loaded launch surface
 // pulls in the card and not the chat panel.
 
 import { memo, useEffect, useState } from 'react'
 
-import { launchesWhenOpened, type AttachedFilePreview } from '../../../../../shared/attached-files'
+import { opensInDefaultApp, type AttachedFilePreview } from '../../../../../shared/attached-files'
 import { clientSupports, hostPlatform } from '../../../clientCapabilities'
 import { showToast } from '../../../store/toastStore'
 import { attachedFileName, attachedFileType, middleTruncateFileName } from '../../../utils/attachedFiles'
@@ -17,13 +17,16 @@ import { AttachmentFileCard } from '../../ui/AttachmentChip'
 import { ContextMenu, MenuItem } from '../../ui/ContextMenu'
 import { FileTypeGlyph, FolderGlyph } from '../../ui/FileTypeGlyph'
 
-// What main said about each path, kept for the window's life: a card re-mounts
-// on every chat switch and under the transcript's virtual list, and the answer
-// (a thumbnail Quick Look took a second to draw) has not changed. A path that
-// was missing is asked again next time, in case it has come back. Bounded,
-// oldest out.
+// What main said about each path, kept for the window's life so a card that
+// re-mounts (every chat switch, the transcript's virtual list) draws at once
+// rather than flashing its glyph. Main is the authority on whether the file
+// changed — it keys its thumbnails by path, size and modification time — so a
+// kept answer older than a few seconds is drawn and asked again, and a file
+// edited since shows its new picture. A path that was missing is asked again
+// next time, in case it has come back. Bounded, oldest out.
 const MAX_PREVIEWS = 200
-const previews = new Map<string, AttachedFilePreview>()
+const PREVIEW_FRESH_MS = 5_000
+const previews = new Map<string, { preview: AttachedFilePreview; at: number }>()
 const asking = new Map<string, Promise<AttachedFilePreview | null>>()
 
 function askPreview(path: string): Promise<AttachedFilePreview | null> {
@@ -36,8 +39,9 @@ function askPreview(path: string): Promise<AttachedFilePreview | null> {
     .catch(() => null)
     .then((preview) => {
       asking.delete(path)
+      previews.delete(path)
       if (preview && preview.kind !== 'missing') {
-        previews.set(path, preview)
+        previews.set(path, { preview, at: Date.now() })
         while (previews.size > MAX_PREVIEWS) previews.delete(previews.keys().next().value as string)
       }
       return preview
@@ -56,7 +60,8 @@ export function resetAttachedFilePreviewsForTests(): void {
 function useAttachedFilePreview(path: string): AttachedFilePreview | null {
   const [answer, setAnswer] = useState<{ path: string; preview: AttachedFilePreview | null } | null>(null)
   useEffect(() => {
-    if (previews.has(path)) return
+    const kept = previews.get(path)
+    if (kept && Date.now() - kept.at < PREVIEW_FRESH_MS) return
     let live = true
     void askPreview(path).then((preview) => {
       if (live) setAnswer({ path, preview })
@@ -65,16 +70,17 @@ function useAttachedFilePreview(path: string): AttachedFilePreview | null {
       live = false
     }
   }, [path])
-  return previews.get(path) ?? (answer?.path === path ? answer.preview : null)
+  if (answer?.path === path) return answer.preview
+  return previews.get(path)?.preview ?? null
 }
 
 // The click's action: main's answer once it has one, and until then (or for a
-// file that has gone, whose open says so) the name's — a file that would run
-// is shown in its folder rather than opened.
+// file that has gone, whose open says so) the name's — only a kind a click
+// may open is opened, and anything else is shown in its folder.
 function revealsOnly(path: string, preview: AttachedFilePreview | null): boolean {
-  if (preview?.kind === 'folder') return true
+  if (preview?.kind === 'folder' || preview?.kind === 'unknown') return true
   if (preview?.kind === 'file') return !preview.openable
-  return launchesWhenOpened(path, hostPlatform())
+  return !opensInDefaultApp(path, hostPlatform())
 }
 
 async function revealAttachedFile(path: string): Promise<void> {

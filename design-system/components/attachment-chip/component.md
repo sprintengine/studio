@@ -14,7 +14,7 @@ A removable piece of context staged on a composer, shared by the launcher and co
 
 Static label or inspectable label. Skills, @-mentioned files and folders use the same shape.
 
-**File card.** A file attached by path — dropped, picked or pasted from the system — is a card, not a chip: it has something to show and something to do. The card shows the file (a thumbnail where the system draws one, the type glyph until then and wherever it does not) and opens it in the app the system picks for it. A file that would run when opened (a program, an installer, a script, a shortcut) is only revealed in its folder, so the same click shows it in Finder or Explorer instead. A sent message shows its files as the same cards, without the close button.
+**File card.** A file attached by path — dropped, picked or pasted from the system — is a card, not a chip: it has something to show and something to do. The card shows the file (a thumbnail where the system draws one, the type glyph until then and wherever it does not) and opens it in the app the system picks for it. Only a kind of file that is shown rather than run opens that way — a document, plain text or data, a picture, a recording; anything else (a program, a script, a shortcut, an archive, a file with no extension) is only revealed in its folder, so the same click shows it in Finder or Explorer instead. A sent message shows its files as the same cards, without the close button.
 
 ## States
 
@@ -26,4 +26,4 @@ Place attached context above the composer field. File cards share the image thum
 
 ## Accessibility
 
-Removal is a separately focusable button labelled `Remove <attachment name>`. A file card's button is labelled with what it does — `Open <name>`, or `Show <name> in Finder` where the file would run — and its context menu (the pointer's secondary click, or the keyboard's menu key) offers Open and Reveal in Finder / Show in Explorer. Never nest it inside the inspect button. A truncated static label exposes the complete text through the shared truncated-text component.
+Removal is a separately focusable button labelled `Remove <attachment name>`. A file card's button is labelled with what it does — `Open <name>`, or `Reveal in Finder: <name>` where the file is only revealed — and its context menu (the pointer's secondary click, or the keyboard's menu key) offers Open and Reveal in Finder / Show in Explorer. Never nest it inside the inspect button. A truncated static label exposes the complete text through the shared truncated-text component.

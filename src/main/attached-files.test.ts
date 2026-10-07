@@ -3,6 +3,20 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
+// Every look at the disk goes through this spy, so a test can say a path was
+// never looked at.
+const statCalls = vi.hoisted(() => [] as string[])
+vi.mock('fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs/promises')>()
+  return {
+    ...actual,
+    stat: (path: string, ...rest: unknown[]) => {
+      statCalls.push(path)
+      return (actual.stat as (...args: unknown[]) => unknown)(path, ...rest)
+    },
+  }
+})
+
 import {
   createAttachedFileRegistry,
   createAttachedFiles,
@@ -10,6 +24,7 @@ import {
   isAttachablePath,
   MAX_CACHED_THUMBNAILS,
   MAX_THUMBNAIL_SOURCE_BYTES,
+  THUMBNAIL_CONCURRENCY,
   THUMBNAIL_SIZE,
 } from './attached-files'
 
@@ -17,6 +32,7 @@ let root = ''
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'sprintengine-attached-files-'))
+  statCalls.length = 0
 })
 
 afterEach(async () => {
@@ -28,7 +44,7 @@ const image = (url: string) => ({ isEmpty: () => false, toDataURL: () => url })
 
 function setup(options: { platform?: NodeJS.Platform; openPath?: (path: string) => Promise<string> } = {}) {
   const platform = options.platform ?? 'darwin'
-  const registry = createAttachedFileRegistry({ resolveUserDataDir: () => root })
+  const registry = createAttachedFileRegistry({ resolveUserDataDir: () => root, writeDelayMs: 0 })
   const createThumbnail = vi.fn(async (path: string) => image(`data:image/png;base64,${path.length}`))
   const openPath = vi.fn(options.openPath ?? (async () => ''))
   const files = createAttachedFiles({
@@ -65,6 +81,7 @@ test('the attached list outlives a restart, newest kept, and only remembers real
   first.register('/Users/dev/a.pdf')
   first.register('/Users/dev/c.pdf')
   expect(first.has('/Users/dev/b.pdf'), 'the least recently attached is dropped at the cap').toBe(false)
+  first.flush()
   const restarted = createAttachedFileRegistry({ resolveUserDataDir: () => root, limit: 2 })
   expect(restarted.has('/Users/dev/a.pdf')).toBe(true)
   expect(restarted.has('/Users/dev/c.pdf')).toBe(true)
@@ -80,6 +97,20 @@ test('an unreadable list starts empty rather than failing', async () => {
   expect(registry.has('/Users/dev/a.pdf')).toBe(false)
   registry.register('/Users/dev/a.pdf')
   expect(registry.has('/Users/dev/a.pdf')).toBe(true)
+  registry.flush()
+})
+
+test('a drop of many files is one write, a moment later; flush writes what is waiting at once', async () => {
+  vi.useFakeTimers()
+  const registry = createAttachedFileRegistry({ resolveUserDataDir: () => root, writeDelayMs: 100 })
+  const stored = join(root, 'attached-files.json')
+  for (let index = 0; index < 30; index++) registry.register(`/Users/dev/${index}.pdf`)
+  await expect(readFile(stored, 'utf8'), 'nothing is written while the drop is still landing').rejects.toThrow()
+  vi.advanceTimersByTime(100)
+  expect(JSON.parse(await readFile(stored, 'utf8')).paths).toHaveLength(30)
+  registry.register('/Users/dev/late.pdf')
+  registry.flush()
+  expect(JSON.parse(await readFile(stored, 'utf8')).paths.at(-1)).toBe('/Users/dev/late.pdf')
 })
 
 test('an attached document opens in its default app', async () => {
@@ -99,39 +130,42 @@ test('a path nobody attached is not opened, whatever it is', async () => {
   expect(openPath).not.toHaveBeenCalled()
 })
 
-// POSIX links and modes; Windows decides by the name alone, which the test above covers.
-test.skipIf(process.platform === 'win32')(
-  'a file that would run is refused even when attached: by name, through a link, and by its executable bit',
-  async () => {
-    const { files, openPath } = setup()
-    const script = await file('deploy.sh', '#!/bin/sh\n')
-    files.register(script)
-    await expect(files.open(script)).rejects.toThrow('deploy.sh would run as a program, so it is only shown in Finder.')
+test('only a kind on the list opens; anything else is refused even when attached', async () => {
+  const { files, openPath } = setup()
+  const script = await file('deploy.sh', '#!/bin/sh\n')
+  files.register(script)
+  await expect(files.open(script)).rejects.toThrow(
+    'deploy.sh is not a kind of file this app opens, so it is only shown in Finder.',
+  )
+  const plain = await file('NOTES')
+  files.register(plain)
+  await expect(files.open(plain), 'a name that says nothing about what it is').rejects.toThrow(
+    'is not a kind of file this app opens',
+  )
+  expect(openPath).not.toHaveBeenCalled()
+})
 
-    // A link named like a document opens what it points at, so that is judged.
-    const disguised = join(root, 'notes.txt')
-    await symlink(script, disguised)
-    files.register(disguised)
-    await expect(files.open(disguised)).rejects.toThrow('would run as a program')
-
-    // With no extension the system decides by the executable bit: a terminal would run it.
-    const bare = await file('tool', '#!/bin/sh\n', 0o755)
-    files.register(bare)
-    await expect(files.open(bare)).rejects.toThrow('would run as a program')
-    expect(openPath).not.toHaveBeenCalled()
-  },
-)
+// POSIX links; Windows links need a privilege a test run does not have.
+test.skipIf(process.platform === 'win32')('a link named like a document is judged by what it points at', async () => {
+  const { files, openPath } = setup()
+  const script = await file('deploy.sh', '#!/bin/sh\n')
+  const disguised = join(root, 'notes.txt')
+  await symlink(script, disguised)
+  files.register(disguised)
+  await expect(files.open(disguised)).rejects.toThrow('is not a kind of file this app opens')
+  expect(openPath).not.toHaveBeenCalled()
+})
 
 test('a folder, a bundle and a file that has gone are refused, in words', async () => {
   const { files } = setup()
-  const folder = join(root, 'Reports')
+  const folder = join(root, 'Reports.pdf')
   await mkdir(folder)
   files.register(folder)
-  await expect(files.open(folder)).rejects.toThrow('Reports is not a file.')
+  await expect(files.open(folder)).rejects.toThrow('Reports.pdf is not a file.')
   const bundle = join(root, 'Calculator.app')
   await mkdir(bundle)
   files.register(bundle)
-  await expect(files.open(bundle)).rejects.toThrow('would run as a program')
+  await expect(files.open(bundle)).rejects.toThrow('is not a kind of file this app opens')
   const gone = join(root, 'gone.pdf')
   files.register(gone)
   await expect(files.open(gone)).rejects.toThrow('gone.pdf is no longer there.')
@@ -139,20 +173,14 @@ test('a folder, a bundle and a file that has gone are refused, in words', async 
 
 test('the system’s refusal to open a file is the error the card shows', async () => {
   const { files } = setup({ openPath: async () => 'No application knows how to open this file.' })
-  const path = await file('data.weird')
+  const path = await file('data.csv')
   files.register(path)
   await expect(files.open(path)).rejects.toThrow('No application knows how to open this file.')
 })
 
-test('a preview says what the path is, draws a thumbnail only for an attached file, and says whether it opens', async () => {
+test('a preview of an attached path says what it is, draws its thumbnail and says whether it opens', async () => {
   const { files, createThumbnail } = setup()
   const pdf = await file('report.pdf')
-  expect(await files.preview(pdf), 'a path merely named is not shown to the thumbnailer').toEqual({
-    kind: 'file',
-    thumbnailDataUrl: null,
-    openable: false,
-  })
-  expect(createThumbnail).not.toHaveBeenCalled()
   files.register(pdf)
   expect(await files.preview(pdf)).toEqual({
     kind: 'file',
@@ -165,12 +193,32 @@ test('a preview says what the path is, draws a thumbnail only for an attached fi
   expect((await files.preview(script)).openable).toBe(false)
   const folder = join(root, 'Docs')
   await mkdir(folder)
+  files.register(folder)
   expect(await files.preview(folder)).toEqual({ kind: 'folder', thumbnailDataUrl: null, openable: false })
-  expect(await files.preview(join(root, 'nothing.pdf'))).toEqual({
-    kind: 'missing',
-    thumbnailDataUrl: null,
-    openable: false,
-  })
+  const gone = join(root, 'nothing.pdf')
+  files.register(gone)
+  expect(await files.preview(gone)).toEqual({ kind: 'missing', thumbnailDataUrl: null, openable: false })
+})
+
+test('a path nobody attached is answered without the disk: not stat’ed, not drawn, not openable', async () => {
+  const { files, createThumbnail } = setup()
+  const pdf = await file('report.pdf')
+  const folder = join(root, 'Docs')
+  await mkdir(folder)
+  for (const path of [pdf, folder, join(root, 'nothing.pdf')])
+    expect(await files.preview(path), path).toEqual({ kind: 'unknown', thumbnailDataUrl: null, openable: false })
+  expect(statCalls, 'nothing a transcript merely names is looked at').toEqual([])
+  expect(createThumbnail).not.toHaveBeenCalled()
+})
+
+test('on Windows a UNC path a transcript names is never touched: no stat, no thumbnail, no open', async () => {
+  const { files, createThumbnail, openPath } = setup({ platform: 'win32' })
+  const unc = '\\\\attacker\\share\\x.pdf'
+  expect(await files.preview(unc)).toEqual({ kind: 'unknown', thumbnailDataUrl: null, openable: false })
+  await expect(files.open(unc)).rejects.toThrow('x.pdf was not attached here, so it can only be shown in File Explorer.')
+  expect(statCalls).toEqual([])
+  expect(createThumbnail).not.toHaveBeenCalled()
+  expect(openPath).not.toHaveBeenCalled()
 })
 
 test('thumbnails are cached by path, size and modification time; a changed file is drawn again', async () => {
@@ -228,6 +276,50 @@ test('a thumbnail that is slow, fails or comes back empty leaves the card on its
     createThumbnail: async () => ({ isEmpty: () => true, toDataURL: () => 'data:,' }),
   })
   expect(await empty.thumbnail('/Users/dev/blank.pdf', { size: 1, mtimeMs: 1 })).toBeNull()
+})
+
+test('a request keeps its place until the system answers it, not until the card stops waiting', async () => {
+  vi.useFakeTimers()
+  const answers: (() => void)[] = []
+  const createThumbnail = vi.fn(
+    () => new Promise<ReturnType<typeof image>>((resolve) => answers.push(() => resolve(image('data:,late')))),
+  )
+  const thumbnails = createAttachedFileThumbnails({ platform: 'darwin', createThumbnail, timeoutMs: 50 })
+  const stamp = { size: 1, mtimeMs: 1 }
+  const first = Array.from({ length: THUMBNAIL_CONCURRENCY }, (_, index) =>
+    thumbnails.thumbnail(`/Users/dev/slow-${index}.key`, stamp),
+  )
+  await vi.advanceTimersByTimeAsync(50)
+  expect(await Promise.all(first), 'the cards settle on their glyphs at the timeout').toEqual([null, null])
+  const next = thumbnails.thumbnail('/Users/dev/next.pdf', stamp)
+  await vi.advanceTimersByTimeAsync(10)
+  expect(createThumbnail, 'the readers still at work hold every place').toHaveBeenCalledTimes(THUMBNAIL_CONCURRENCY)
+  answers[0]()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(createThumbnail, 'one answered, so the next starts').toHaveBeenCalledTimes(THUMBNAIL_CONCURRENCY + 1)
+  answers[THUMBNAIL_CONCURRENCY]()
+  expect(await next).toBe('data:,late')
+})
+
+test('a thumbnailer that throws at once gives its place back', async () => {
+  const createThumbnail = vi.fn(() => {
+    throw new Error('no reader')
+  })
+  const thumbnails = createAttachedFileThumbnails({ platform: 'win32', createThumbnail })
+  for (let index = 0; index < THUMBNAIL_CONCURRENCY + 2; index++)
+    expect(await thumbnails.thumbnail(`C:\\Users\\dev\\${index}.pdf`, { size: 1, mtimeMs: 1 })).toBeNull()
+  expect(createThumbnail).toHaveBeenCalledTimes(THUMBNAIL_CONCURRENCY + 2)
+})
+
+test('Windows hands no network path to the thumbnailer', async () => {
+  const createThumbnail = vi.fn(async () => image('data:image/png;base64,AAAA'))
+  const windows = createAttachedFileThumbnails({ platform: 'win32', createThumbnail })
+  expect(await windows.thumbnail('\\\\fileserver\\team\\plan.pdf', { size: 1, mtimeMs: 1 })).toBeNull()
+  expect(await windows.thumbnail('//fileserver/team/plan.pdf', { size: 1, mtimeMs: 1 })).toBeNull()
+  expect(createThumbnail).not.toHaveBeenCalled()
+  expect(await windows.thumbnail('C:\\Users\\dev\\plan.pdf', { size: 1, mtimeMs: 1 })).toBe(
+    'data:image/png;base64,AAAA',
+  )
 })
 
 test('Linux draws no thumbnails, and a huge file is not handed to the thumbnailer', async () => {

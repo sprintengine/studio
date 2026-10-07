@@ -198,10 +198,14 @@ export function registerCoreIpc(
   registerFilesystemMutationIpc(machineIpc, createFilesystemMutationHandlers())
   // A file attached to a message by path opens in its default app, and only
   // one the person attached here; on plain `ipcMain`, as it is this computer's.
+  const attachedFileRegistry = createAttachedFileRegistry({ resolveUserDataDir: () => app.getPath('userData') })
+  // Its writes wait a moment so a drop of many files is one; one still
+  // waiting is written as the app goes.
+  app.once('will-quit', () => attachedFileRegistry.flush())
   registerAttachedFilesIpc(
     ipcMain,
     createAttachedFiles({
-      registry: createAttachedFileRegistry({ resolveUserDataDir: () => app.getPath('userData') }),
+      registry: attachedFileRegistry,
       thumbnails: createAttachedFileThumbnails({
         platform: process.platform,
         createThumbnail: (path, size) => nativeImage.createThumbnailFromPath(path, size),
