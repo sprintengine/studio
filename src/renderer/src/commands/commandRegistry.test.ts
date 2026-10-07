@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { COMMAND_REGISTRY, getCommandDefinition } from './commandRegistry'
+import { keydownMatchesKeybindings } from './commandDispatcher'
 import { findKeybindingConflicts, hasBlockingKeybindingConflict } from './conflicts'
 import { normalizeKeybinding } from './keybindings'
 import { test } from 'vitest'
@@ -107,4 +108,32 @@ test('the chat turn chords share the terminal prompt chords without a blocking c
   for (const command of [previous!, next!]) {
     assert.equal(hasBlockingKeybindingConflict(findKeybindingConflicts(command, COMMAND_REGISTRY)), false)
   }
+})
+
+test('the New chat chord and the waiting-chats chord ship free of conflicts on every platform', () => {
+  const stay = getCommandDefinition('chat.new.launchInBackground')
+  const waiting = getCommandDefinition('chat.nextWaiting')
+  assert.deepEqual(stay?.defaultKeybindings, ['primary+enter'])
+  assert.deepEqual(stay?.scopes, ['new-chat'], 'resolved by the composer, never by the window dispatcher')
+  assert.deepEqual(waiting?.defaultKeybindings, ['primary+shift+j'])
+  assert.deepEqual(waiting?.scopes, ['global'])
+  assert.equal(waiting?.allowInEditableTarget, true, 'a person reaches for it from a composer')
+  for (const command of [stay!, waiting!]) {
+    assert.deepEqual(findKeybindingConflicts(command, COMMAND_REGISTRY), [], `${command.id} collides with nothing`)
+  }
+})
+
+test('one keydown matches a binding exactly as the dispatcher would', () => {
+  const enter = { key: 'Enter', code: 'Enter' }
+  assert.equal(keydownMatchesKeybindings({ ...enter, metaKey: true }, ['Primary+Enter'], 'darwin'), true)
+  assert.equal(keydownMatchesKeybindings({ ...enter, ctrlKey: true }, ['Primary+Enter'], 'windows'), true)
+  assert.equal(keydownMatchesKeybindings({ ...enter, ctrlKey: true }, ['Primary+Enter'], 'darwin'), false)
+  assert.equal(keydownMatchesKeybindings(enter, ['Primary+Enter'], 'darwin'), false, 'plain Enter is not it')
+  assert.equal(
+    keydownMatchesKeybindings({ ...enter, metaKey: true, shiftKey: true }, ['Primary+Enter'], 'darwin'),
+    false,
+    'an extra modifier is another chord',
+  )
+  assert.equal(keydownMatchesKeybindings({ ...enter, metaKey: true }, [], 'darwin'), false, 'disabled: nothing')
+  assert.equal(keydownMatchesKeybindings({ ...enter, metaKey: true }, ['Primary+K Enter'], 'darwin'), false)
 })

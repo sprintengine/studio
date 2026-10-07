@@ -78,6 +78,42 @@ export const COMMAND_REGISTRY = [
     defaultKeybindings: ['Primary+N'],
     handlerPath: { kind: 'workspace-manager', handler: 'openNewChatPanel()' },
   }),
+  // Start the chat typed in New chat and stay there, on a fresh empty box with
+  // the same project and engine, to fire off the next task at once. ⌘⏎
+  // because it is ⏎ held a little harder: the same send, kept in place. The
+  // composer resolves it itself (see the `new-chat` scope); plain ⏎ still opens
+  // the chat it starts.
+  command({
+    id: 'chat.new.launchInBackground',
+    title: 'Start Chat and Stay on New Chat',
+    category: 'workspace',
+    scopes: ['new-chat'],
+    defaultKeybindings: ['Primary+Enter'],
+    allowInEditableTarget: true,
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'NewAgentPanel',
+      action: 'onPromptKeyDown -> launch(prompt, { stay: true })',
+    },
+  }),
+  // The chats waiting on the person, one press each: blocked on a question or
+  // an approval first, then a failed turn, longest-waiting first within each —
+  // the same chats the Home badge counts. J for "jump"; ⌘⇧J is spoken for
+  // nowhere in the app or its modules, and a person reaches for it from a
+  // composer, so it works there too.
+  command({
+    id: 'chat.nextWaiting',
+    title: 'Go to Next Chat That Needs You',
+    category: 'workspace',
+    scopes: ['global'],
+    defaultKeybindings: ['Primary+Shift+J'],
+    allowInEditableTarget: true,
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspaceManager',
+      action: 'nextWaitingChatId(...) -> sidebarSelectWorkspace(nextWorkspaceId) | toast',
+    },
+  }),
   command({
     id: 'chat.newConversation',
     title: 'New Conversation',

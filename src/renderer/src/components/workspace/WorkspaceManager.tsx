@@ -163,6 +163,8 @@ import {
 } from './agentComposer/newChatDraft'
 import { bootComposerLive, dropBootComposerSnapshot, releaseBootComposer } from './agentComposer/bootComposer'
 import { showToast } from '../../store/toastStore'
+import { chatsWaitingOnYou, nextWaitingChatId } from './nextWaitingChat'
+import { createNewChatStay, type NewChatStay } from './newChatStay'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
 import { ModalSurfaceFrame } from './globalSurface/GlobalSurfaceShell'
@@ -1300,6 +1302,12 @@ export default function WorkspaceManager() {
   // its launches is being made (set and cleared by confirmNewChatNow), null
   // at every other moment.
   const newChatHostRef = useRef<ExecutionHostId | null>(null)
+  // ⌘⏎ from New chat (`chat.new.launchInBackground`): the chats it creates,
+  // which open under the door without parking it, and are watched for a
+  // failure the person, still on New chat, would not see (newChatStay.ts).
+  const newChatStayRef = useRef<NewChatStay | null>(null)
+  newChatStayRef.current ??= createNewChatStay()
+  const newChatStay = newChatStayRef.current
   const createSoloChatWorkspace = useCallback(
     (opts: {
       folderPath?: string | null
@@ -1346,6 +1354,7 @@ export default function WorkspaceManager() {
         ...(hostId ? { hostId } : {}),
         ...(opts.environment ? { environment: opts.environment } : {}),
       })
+      if (createdId) newChatStay.noteCreated(createdId)
       // A remote machine's folder is not this computer's: nothing here to adopt.
       if (opts.environment) {
         closeSettingsOverlay()
@@ -1366,6 +1375,7 @@ export default function WorkspaceManager() {
       activeWorkspace?.hostId,
       addWorkspace,
       closeSettingsOverlay,
+      newChatStay,
       pickNewChatName,
       runFirstRunAgentConfigAdoption,
       workspaceWindowId,
@@ -2450,6 +2460,23 @@ export default function WorkspaceManager() {
     activeGlobalSurface,
   })
 
+  // A chat ⌘⏎ started from New chat that fails in its first minute gets a
+  // toast: the person stayed on New chat and would not see it go wrong.
+  useEffect(() => {
+    const failed = newChatStay.takeFailures(
+      activityByWorkspaceId,
+      (workspaceId) => workspaceId === windowActiveWorkspaceId && !newChatPanelOpen && !activeGlobalSurface,
+    )
+    for (const workspaceId of failed) {
+      const name = workspaces.find((workspace) => workspace.id === workspaceId)?.name
+      showToast({
+        tone: 'error',
+        title: name ? `${name} stopped with an error` : 'A chat you started stopped with an error',
+        description: 'It is in the sidebar, with what went wrong.',
+      })
+    }
+  }, [newChatStay, activityByWorkspaceId, windowActiveWorkspaceId, newChatPanelOpen, activeGlobalSurface, workspaces])
+
   // Create the git worktree an agent spawn requested ("+ Worktree" in the
   // agent composer): placed under the shared worktree container on branch
   // `agent/<slug>`, and registered in the workspace's worktree registry with
@@ -2739,7 +2766,7 @@ export default function WorkspaceManager() {
       seedAgent: { agentPatch: seed.agentPatch },
       environment: { kind: 'ssh', id: environment.id, label: environment.label },
     })
-    closeNewChatPanel()
+    if (!newChatStay.isRunning()) closeNewChatPanel()
   }
 
   const openConversationInNewChat = (
@@ -3513,9 +3540,13 @@ export default function WorkspaceManager() {
   useEffect(() => {
     const previous = previousWindowActiveWorkspaceIdRef.current
     previousWindowActiveWorkspaceIdRef.current = windowActiveWorkspaceId
+    // A chat ⌘⏎ just started under the door: the person is still on New chat.
+    // Asked first, so the first chat of an empty window is let through once too.
+    const startedUnderNewChat = newChatStay.keepsNewChatOver(windowActiveWorkspaceId)
     if (previous === null && windowActiveWorkspaceId !== null) return
+    if (startedUnderNewChat) return
     setNewChatPanelState(null)
-  }, [windowActiveWorkspaceId])
+  }, [windowActiveWorkspaceId, newChatStay])
   // So does opening a door. Left mounted under the door's inert canvas the
   // panel kept its window-level Escape listener, and Escape meant to leave the
   // door closed the panel ON PURPOSE instead — draft gone, door still up.
@@ -3627,8 +3658,17 @@ export default function WorkspaceManager() {
         openConversationInNewChat(folderPath, confirm, startupPrompt, worktree, startupImages)
         break
     }
-    closeNewChatPanel()
+    // ⌘⏎ stays on New chat; the panel empties itself for the next one.
+    if (!newChatStay.isRunning()) closeNewChatPanel()
   }
+
+  // ⌘⏎ from New chat: `launch` is the launch ⏎ would make, made with the
+  // door kept up. Answers whether a chat was created, so the panel can hand
+  // the prompt back when none was (a worktree that could not be made, which
+  // has said why). One confirm at a time, as for ⏎: refused before it starts,
+  // so it never stands in for the confirm that is running.
+  const startNewChatAndStay = (launch: () => unknown): Promise<boolean> =>
+    newChatConfirmInFlight.current ? Promise.resolve(false) : newChatStay.run(launch)
 
   // A chat on a paired machine, opened from the sidebar's Remote band
   // (remote-sessions-in-the-sidebar): the row that already is that chat is
@@ -3914,6 +3954,28 @@ export default function WorkspaceManager() {
         }
         return true
       }
+      if (commandId === 'chat.nextWaiting') {
+        // The chat on screen, or none while New chat or a door covers it.
+        const onScreen = newChatPanelOpen || activeGlobalSurface ? null : windowActiveWorkspaceId
+        const waiting = chatsWaitingOnYou({
+          workspaceIds: railWorkspaces.map((workspace) => workspace.id),
+          activityByWorkspaceId,
+          terminalSessions,
+          conversationSessions,
+        })
+        const nextWorkspaceId = nextWaitingChatId(waiting, onScreen)
+        if (!nextWorkspaceId) {
+          showToast({
+            tone: 'neutral',
+            title: waiting.length > 0 ? 'No other chats are waiting on you' : 'No chats are waiting on you',
+          })
+          return true
+        }
+        // As a sidebar click on its row: New chat parks, a door gives way.
+        setNewChatPanelState(null)
+        setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)
+        return true
+      }
       if (commandId === 'workspace.switch.next' || commandId === 'workspace.switch.previous') {
         const nextWorkspaceId = getNextWorkspaceId(
           railWorkspaces,
@@ -4086,6 +4148,8 @@ export default function WorkspaceManager() {
       moduleEnablement,
       dispatchPanelCommand,
       extensionsDrawerRows,
+      activityByWorkspaceId,
+      conversationSessions,
     ],
   )
 
@@ -4858,13 +4922,17 @@ export default function WorkspaceManager() {
                               initialSelection={newChatPanelState.forcedSelection ?? lastNewChatAgent}
                               forceSelection={newChatPanelState.forcedSelection}
                               permissionPreset={agentSpawnPermissionPreset}
-                              onLaunch={({ prompt, images, extension, environment, ...confirm }) => {
-                                if (environment) {
-                                  confirmSshNewChat(confirm, environment, prompt, images)
-                                  return
-                                }
-                                // confirmNewChat closes the panel (and forgets the draft) itself.
-                                void confirmNewChat(confirm, newChatPanelState.folderPath, prompt, extension, images)
+                              launchesInBackground
+                              onLaunch={({ prompt, images, extension, environment, stay, ...confirm }) => {
+                                // Each closes the panel (and forgets the draft) itself.
+                                const start = () =>
+                                  environment
+                                    ? confirmSshNewChat(confirm, environment, prompt, images)
+                                    : confirmNewChat(confirm, newChatPanelState.folderPath, prompt, extension, images)
+                                // ⌘⏎: the same launch, with the door kept up.
+                                if (stay) return startNewChatAndStay(start)
+                                void start()
+                                return undefined
                               }}
                               // The promise itself, not a void wrapper: the panel's
                               // one-launch-at-a-time guard waits on it, and a wrapper

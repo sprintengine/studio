@@ -648,6 +648,97 @@ test('NewAgentPanel launch paths', async () => {
       delete (dom.window as unknown as Record<string, unknown>).sprintengineBootComposer
     })
 
+    // ⌘⏎ (`chat.new.launchInBackground`): the launch ⏎ makes, marked to stay,
+    // and the box empty and ready for the next one with every choice kept.
+    const pressEnter = async (view: Harness, init: Record<string, unknown> = {}): Promise<void> => {
+      const field = composerField(view.container)
+      await act(async () => {
+        field.dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init }),
+        )
+      })
+    }
+
+    await check('⌘⏎ at the door starts the chat and stays, the box emptied with its choices kept', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' }, launchesInBackground: true })
+      await act(async () => typeIntoComposer(composerField(view.container), 'Fix the flaky test.'))
+      await pressEnter(view, { metaKey: true })
+      assert.equal(view.launches.length, 1, 'one press, one launch')
+      assert.equal(view.launches[0]?.stay, true, 'the host is told to keep the door up')
+      assert.equal(view.launches[0]?.prompt, 'Fix the flaky test.')
+      assert.equal(view.launches[0]?.cli, 'claude-code')
+      await settle()
+      assert.equal(composerText(composerField(view.container)), '', 'the box is empty for the next task')
+      assert.equal(view.closed(), 0, 'nothing closed the panel')
+      // The next one goes out on the same engine.
+      await act(async () => typeIntoComposer(composerField(view.container), 'Write the release notes.'))
+      await pressEnter(view, { metaKey: true })
+      assert.equal(view.launches.length, 2)
+      assert.equal(view.launches[1]?.cli, 'claude-code')
+      assert.equal(view.launches[1]?.kind, 'conversation')
+      view.unmount()
+    })
+
+    await check('plain ⏎ at the door still opens the chat it starts', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' }, launchesInBackground: true })
+      await act(async () => typeIntoComposer(composerField(view.container), 'hi'))
+      await pressEnter(view)
+      assert.equal(view.launches.length, 1)
+      assert.equal(view.launches[0]?.stay, undefined)
+      view.unmount()
+    })
+
+    await check('⌘⏎ where the panel cannot stay (a tab) is ⏎', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      await act(async () => typeIntoComposer(composerField(view.container), 'hi'))
+      await pressEnter(view, { metaKey: true })
+      assert.equal(view.launches.length, 1)
+      assert.equal(view.launches[0]?.stay, undefined)
+      view.unmount()
+    })
+
+    await check('⌘⏎ follows a rebind in the Shortcuts tab, and off it is ⏎', async () => {
+      seedStore()
+      const settings = useWorkspaceStore.getState().appSettings
+      useWorkspaceStore.setState({
+        appSettings: {
+          ...settings,
+          keybindings: { ...settings.keybindings, overrides: { 'chat.new.launchInBackground': ['Alt+Enter'] } },
+        },
+      } as never)
+      const view = await render({ initialSelection: { kind: 'conversation' }, launchesInBackground: true })
+      await act(async () => typeIntoComposer(composerField(view.container), 'one'))
+      await pressEnter(view, { altKey: true })
+      assert.equal(view.launches[0]?.stay, true, 'the rebound chord stays')
+      await act(async () => typeIntoComposer(composerField(view.container), 'two'))
+      await pressEnter(view, { metaKey: true })
+      assert.equal(view.launches[1]?.stay, undefined, 'the old chord is plain ⏎ now')
+      view.unmount()
+      useWorkspaceStore.setState({ appSettings: settings } as never)
+    })
+
+    await check('a ⌘⏎ launch that started nothing hands the prompt back', async () => {
+      seedStore()
+      const launches: Array<Record<string, unknown>> = []
+      const view = await render({
+        initialSelection: { kind: 'conversation' },
+        launchesInBackground: true,
+        onLaunch: (launch: Record<string, unknown>) => {
+          launches.push(launch)
+          return Promise.resolve(false)
+        },
+      })
+      await act(async () => typeIntoComposer(composerField(view.container), 'Cut a worktree for this.'))
+      await pressEnter(view, { metaKey: true })
+      await settle()
+      assert.equal(launches.length, 1)
+      assert.equal(composerText(composerField(view.container)), 'Cut a worktree for this.')
+      view.unmount()
+    })
+
     if (failures > 0) {
       console.error(`NewAgentPanel.launch.test.tsx: ${failures} failing check(s)`)
       process.exit(1)

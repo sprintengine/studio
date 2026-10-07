@@ -126,6 +126,9 @@ import {
   type AgentComposerSelection,
 } from './useAgentComposer'
 import { clientSupports } from '../../../clientCapabilities'
+import { keydownMatchesKeybindings } from '../../../commands/commandDispatcher'
+import { getEffectiveKeybindings, platformKeybindingsFromApiPlatform } from '../../../commands/effectiveKeybindings'
+import { renderKeybinding } from '../../../commands/keybindings'
 
 export type NewAgentLaunch = AgentComposerConfirm & {
   /** The agent's startup prompt. Empty means "start with nothing typed". */
@@ -154,6 +157,12 @@ export type NewAgentLaunch = AgentComposerConfirm & {
    * runs no terminals.
    */
   environment?: { kind: 'ssh'; id: string; label: string; folder: string }
+  /**
+   * Start it and stay on New chat (⌘⏎, `chat.new.launchInBackground`): the
+   * host starts the chat as it would for ⏎ but leaves the door up, and the
+   * panel empties for the next one. Only sent where `launchesInBackground`.
+   */
+  stay?: true
 }
 
 /**
@@ -209,8 +218,18 @@ export type NewAgentPanelProps = {
   /** The app-wide default a model row nobody has set still resolves to; the
    *  picker's footer writes per-row, so this is a fallback, never what it edits. */
   permissionPreset: CliPermissionPreset
-  /** Host performs the spawn and retypes this tab into the agent's terminal. */
-  onLaunch: (launch: NewAgentLaunch) => void
+  /**
+   * Host performs the spawn and retypes this tab into the agent's terminal.
+   * For a `stay` launch it may answer whether anything started: `false` hands
+   * the prompt back to the emptied box.
+   */
+  onLaunch: (launch: NewAgentLaunch) => void | Promise<boolean>
+  /**
+   * Door-only: ⌘⏎ starts the chat and keeps this surface up, emptied and
+   * focused, with the project and engine as they were. The tab strip's host
+   * has nowhere to stay: its tab becomes the agent's.
+   */
+  launchesInBackground?: boolean
   /** MCP servers picked before the panel opened (a connector's own "New chat"); still removable. */
   initialMcpServers?: AgentComposerConnector[] | null
   /** Cancel. Nothing was created, so there is nothing else to undo. */
@@ -439,6 +458,9 @@ function scheduledSkill(skill: { id: string; name: string }): WorkspaceSkill {
 // chip is how the door goes back to a plain New chat.
 const NO_SCHEDULED_RUNS: readonly ScheduledRunEntry[] = []
 
+/** ⌘⏎ in the prompt: start the chat and stay on New chat (see the registry). */
+const LAUNCH_IN_BACKGROUND_COMMAND = 'chat.new.launchInBackground'
+
 const EXTENSION_BUILDER_CHIP = scheduledSkill({ id: EXTENSION_BUILDER_SKILL_ID, name: 'extension-builder' })
 
 // `/schedule` at the end of the prompt, and whatever follows it on that line.
@@ -470,6 +492,7 @@ export default function NewAgentPanel({
   initialSelection,
   permissionPreset,
   onLaunch,
+  launchesInBackground = false,
   initialMcpServers,
   onClose,
   showCloseButton = false,
@@ -1434,8 +1457,28 @@ export default function NewAgentPanel({
     }
   }
 
-  const launch = (text: string) => {
+  // A ⌘⏎ launch went out: the box empties for the next task, keeping every
+  // choice around it, and takes focus back from whatever the started chat
+  // mounted under the door. Should the host say nothing started (a worktree
+  // that could not be made, which says why itself), the prompt comes back,
+  // unless the person has already typed the next one.
+  const keepOnNewChat = (started: void | Promise<boolean>, sentPrompt: string, sentImages: PromptImage[]) => {
+    setPrompt('')
+    setImages([])
+    window.requestAnimationFrame(() => promptRef.current?.focus())
+    void Promise.resolve(started).then((ok) => {
+      if (ok !== false) return
+      setPrompt((current) => (current === '' ? sentPrompt : current))
+      setImages((current) => (current.length === 0 ? sentImages : current))
+    })
+  }
+
+  const launch = (text: string, options: { stay?: boolean } = {}) => {
     if (!canLaunch || !extensionReady) return
+    // Staying applies to a chat or agent started now, here or over SSH; a
+    // scheduled agent, an extension and a paired machine's chat each close
+    // the door as ⏎ does.
+    const stay = options.stay === true && launchesInBackground && !extensionMode
     if (scheduled) {
       void schedule(text)
       return
@@ -1461,12 +1504,14 @@ export default function NewAgentPanel({
       // computer, which the chat reads here and sends as bytes, as it does
       // for an image pasted into an SSH chat.
       const sshImages = images.map((image) => image.path)
-      onLaunch({
+      const started = onLaunch({
         ...confirm,
         prompt: text.trim(),
         ...(sshImages.length > 0 ? { images: sshImages } : {}),
         environment: { kind: 'ssh', id: pickedSsh.id, label: pickedSsh.label, folder },
+        ...(stay ? { stay: true as const } : {}),
       })
+      if (stay) keepOnNewChat(started, text, images)
       return
     }
     if (remoteTarget) {
@@ -1525,13 +1570,15 @@ export default function NewAgentPanel({
         modelLabel: engineNames.modelLabel ?? engineNames.cliLabel,
       }
     }
-    onLaunch({
+    const started = onLaunch({
       ...confirm,
       prompt,
       ...(asImages ? { images: imagePaths } : {}),
       ...(hostChoosable ? { hostId } : {}),
       ...(extensionMode ? { extension: { id: extensionName } } : {}),
+      ...(stay ? { stay: true as const } : {}),
     })
+    if (stay) keepOnNewChat(started, text, images)
   }
 
   React.useEffect(() => {
@@ -1598,6 +1645,9 @@ export default function NewAgentPanel({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
+  const keyPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
+  const launchInBackgroundKeys = getEffectiveKeybindings(LAUNCH_IN_BACKGROUND_COMMAND, keybindingSettings)
   const onPromptKeyDown = (event: ComposerKeyEvent) => {
     // A key in the real field is the person carrying on: an Enter held from
     // the static box no longer speaks for what the field now says.
@@ -1639,6 +1689,15 @@ export default function NewAgentPanel({
         setMentionDismissed(true)
         return
       }
+    }
+    // ⌘⏎ (or whatever the Shortcuts tab bound it to) starts the chat and
+    // stays here. Resolved in this handler rather than by the window's
+    // dispatcher so the menus above and an input method keep the key first.
+    // Disabled, it falls through to ⏎, which is what it did before.
+    if (launchesInBackground && keydownMatchesKeybindings(event, launchInBackgroundKeys, keyPlatform)) {
+      event.preventDefault()
+      launch(prompt, { stay: true })
+      return
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
@@ -1814,6 +1873,15 @@ export default function NewAgentPanel({
   ) : null
   const stripShown = machinePickerShown || projectControl !== null || worktreeOffered || Boolean(stripBranch)
 
+  // The second line of the send's tooltip, where the door can stay: the chord
+  // as this platform spells it, for the person who starts several in a row.
+  const launchInBackgroundLabel =
+    launchesInBackground && !extensionMode && !remoteTarget && launchInBackgroundKeys[0]
+      ? renderKeybinding(launchInBackgroundKeys[0], keyPlatform)
+      : null
+  const launchInBackgroundHint = launchInBackgroundLabel
+    ? `${launchInBackgroundLabel} starts it and keeps New chat open for the next one`
+    : null
   const sendTip =
     selection.kind === 'terminal'
       ? 'Opens a shell in this folder'
@@ -2127,11 +2195,20 @@ export default function NewAgentPanel({
                 the one moment someone asks "what am I about to run?". */}
             <Tooltip
               content={
-                scheduled
-                  ? editing
-                    ? 'Save the prompt, schedule and settings'
-                    : `Starts a new ${engineNames.cliLabel} chat with this prompt each time the schedule comes round`
-                  : sendTip
+                scheduled ? (
+                  editing ? (
+                    'Save the prompt, schedule and settings'
+                  ) : (
+                    `Starts a new ${engineNames.cliLabel} chat with this prompt each time the schedule comes round`
+                  )
+                ) : launchInBackgroundHint ? (
+                  <>
+                    <span className="block">{sendTip}</span>
+                    <span className="block">{launchInBackgroundHint}</span>
+                  </>
+                ) : (
+                  sendTip
+                )
               }
               placement="top"
               multiline
