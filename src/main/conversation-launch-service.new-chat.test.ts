@@ -10,6 +10,7 @@ import type {
 import { emptyAgentLaunchSettings } from '../shared/launch-settings'
 import { emptyWorkspaceRegistryFile, toWorkspaceRegistryRecord } from '../shared/workspace-registry'
 import type { Workspace } from '../renderer/src/types/workspace'
+import type { WorktreeDependencyInstallView } from '../shared/ipc/worktree-pool'
 import { createConversationLaunchService, type ConversationLaunchServiceDeps } from './conversation-launch-service'
 import { createWorkspaceRegistryService } from './workspace-registry-service'
 import { createInMemoryWorkspaceRegistryStore } from './workspace-registry-store'
@@ -322,4 +323,74 @@ test('a chat joining a workspace, or a scheduled run, is not a use of the projec
   const run = await h.service.launch({ newChatIn: { folderPath: '/Users/dev/app' }, cli: 'codex' })
   assert.equal(run.ok, true, run.ok ? '' : run.message)
   assert.deepEqual(h.uses, [])
+})
+
+function installView(state: 'running' | 'succeeded' | 'failed'): WorktreeDependencyInstallView {
+  return {
+    id: 'install-1',
+    repoRoot: '/Users/dev/app',
+    path: '/Users/dev/.sprintengine-worktrees/app/chat-k7qz',
+    branch: 'agent/chat-k7qz',
+    command: 'pnpm install --frozen-lockfile',
+    reason: 'first',
+    state,
+    startedAt: 10,
+    endedAt: state === 'running' ? null : 20,
+    lastLine: null,
+    output: null,
+    exitCode: state === 'running' ? null : state === 'succeeded' ? 0 : 1,
+  }
+}
+
+function installingWorktree(settled: Promise<WorktreeDependencyInstallView | null>) {
+  return {
+    ok: true as const,
+    path: '/Users/dev/.sprintengine-worktrees/app/chat-k7qz',
+    branch: 'agent/chat-k7qz',
+    baseRef: 'origin/main',
+    dependencyInstall: { view: installView('running'), current: () => installView('running'), settled },
+  }
+}
+
+async function settleAll(): Promise<void> {
+  for (let pass = 0; pass < 10; pass += 1) await new Promise((resolve) => setImmediate(resolve))
+}
+
+test('a worktree still installing its dependencies answers at once, and the first message waits for the install', async () => {
+  let end: (view: WorktreeDependencyInstallView | null) => void = () => {}
+  const settled = new Promise<WorktreeDependencyInstallView | null>((resolve) => (end = resolve))
+  const h = harness({ worktree: installingWorktree(settled) })
+  const result = await h.service.launch({
+    workspaceId: 'ws-app',
+    newChat: true,
+    newWorktree: true,
+    cli: 'codex',
+    prompt: 'Fix the login form',
+  })
+  assert.ok(result.ok)
+  assert.equal(result.sessionId, 'conv_1', 'the chat and its session are there')
+  assert.equal(result.dependencyInstall?.state, 'running')
+  assert.equal(h.starts.length, 1)
+  await settleAll()
+  assert.equal(h.sends.length, 0, 'nothing is sent while the install runs')
+
+  // However it ends: a failed install still starts the chat's work.
+  end(installView('failed'))
+  await settleAll()
+  assert.equal(h.sends.length, 1)
+  assert.equal(h.sends[0]?.message, 'Fix the login form')
+})
+
+test('a chat whose install the quit stopped sends nothing on the way out', async () => {
+  const h = harness({ worktree: installingWorktree(Promise.resolve(null)) })
+  const result = await h.service.launch({
+    workspaceId: 'ws-app',
+    newChat: true,
+    newWorktree: true,
+    cli: 'codex',
+    prompt: 'Fix the login form',
+  })
+  assert.ok(result.ok)
+  await settleAll()
+  assert.deepEqual(h.sends, [])
 })

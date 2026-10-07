@@ -24,7 +24,9 @@ export const CONVERSATION_EVENT_TYPES = [
   // transcript to resume natively.
   'session_updated',
   // Recorded by the desktop at turn start with the person's message, so a
-  // replayed transcript has the user's side of the conversation too.
+  // replayed transcript has the user's side of the conversation too. A message
+  // the desktop itself sent carries an `origin` (`ConversationMessageOrigin`);
+  // one without it is the person's.
   'user_message',
   'turn_started',
   'content_delta',
@@ -90,6 +92,42 @@ export type ConversationEvent = {
   type: ConversationEventType
   createdAt: number
   payload?: Record<string, unknown>
+}
+
+/**
+ * Why the desktop sent a chat a message of its own: an agent the chat started
+ * finished or stopped (`agent-notice`), or a usage limit that stopped the chat
+ * has reset (`usage-resume`).
+ */
+export type ConversationStudioMessageReason = 'agent-notice' | 'usage-resume'
+
+/**
+ * Who a `user_message` came from when it was not the person: the payload's
+ * `origin`. Optional and additive: a message without one is the person's,
+ * which is every message recorded before the member existed, and a reader that
+ * does not know it shows the message as the person's, as it always did. The
+ * agent still receives the message as text; `origin` is for whoever draws or
+ * counts the conversation (a Studio notice is not the person writing).
+ */
+export type ConversationMessageOrigin = { kind: 'studio'; reason?: ConversationStudioMessageReason }
+
+const STUDIO_MESSAGE_REASONS: readonly string[] = [
+  'agent-notice',
+  'usage-resume',
+] satisfies ConversationStudioMessageReason[]
+
+/**
+ * A `user_message` payload's `origin`, or null for the person's. A `studio`
+ * origin with a reason this version does not know is still Studio's; the
+ * reason is left out.
+ */
+export function readConversationMessageOrigin(value: unknown): ConversationMessageOrigin | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const origin = value as { kind?: unknown; reason?: unknown }
+  if (origin.kind !== 'studio') return null
+  return typeof origin.reason === 'string' && STUDIO_MESSAGE_REASONS.includes(origin.reason)
+    ? { kind: 'studio', reason: origin.reason as ConversationStudioMessageReason }
+    : { kind: 'studio' }
 }
 
 /**

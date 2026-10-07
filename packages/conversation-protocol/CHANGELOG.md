@@ -10,6 +10,14 @@
   client keeping visit readings of its own takes the listed `lastVisitedAt`
   over any it took before this stamp. The pinned files are unchanged.
 
+- **A message the desktop sent a chat itself says so.** `origin` is an
+  optional member of the `user_message` payload,
+  `ConversationMessageOrigin` (`{ kind: 'studio', reason? }`, the reason
+  `agent-notice` or `usage-resume`), read by `readConversationMessageOrigin`.
+  A message without one is the person's, so every transcript written before
+  reads as it did, and a reader that does not know the member shows the
+  message as the person's. The pinned files are unchanged.
+
 - **A listed chat says where it stands in the desktop's own list.**
   `chatTitle` (the chat's title as the desktop's sidebar shows it),
   `lastUserMessageAt`, `lastTurnEndedAt` and `lastVisitedAt` are optional

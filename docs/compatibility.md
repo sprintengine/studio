@@ -40,7 +40,11 @@ desktop installed it); the desktop then speaks to it only when it is this
 version, upgrades an older managed one, and otherwise refuses in words
 (`locateServer` in `src/main/environments/ssh/ssh-connect-script.ts`). Bump
 `BACKEND_WIRE_VERSION` whenever a forwarded member's arguments or answer
-change, and `MUX_VERSION` whenever a frame does.
+change, and `MUX_VERSION` whenever a frame does. A number once on `main` is
+spent, even before a release, since a nightly may already carry it: two changes
+made side by side take one each. The backend wire went from 2 to 3 when
+`sendTurn` took `origin` (a message Studio sends a chat itself), and to 4 when
+it took `files` (a message's files attached by path), both on 2026-10-07.
 
 A session's summary, which that wire pushes with every chat event, carries
 three optional clocks a reader must not count on: `lastTurnEndedAt` (when
@@ -103,7 +107,12 @@ and three capabilities (2026-10-05) say what those take and answer:
 CLI with a `catalog`, the model picker's own rows). An argument needs its
 capability more than a route does: a handler skips an argument it does not
 know rather than refusing it, so a `worktree` sent to a desktop without the
-capability starts the chat in the checkout and says nothing. These names carry
+capability starts the chat in the checkout and says nothing. The answer to a
+`worktree` create may carry `dependencyInstall` (2026-10-07): the new
+worktree's project installs its dependencies first, the chat and its session
+already exist, and the first message goes once the install ends. It is an
+optional member with no capability: a client that does not read it sees the
+chat start a little later, and an older desktop never sends it. These names carry
 no `conversation-` prefix, which is kept for the conversation lane's own
 vocabulary: every `conversation-` capability this machine advertises must be
 one `@sprintengine/conversation-protocol` names
@@ -224,9 +233,13 @@ does not send them. The files a message attached by path (`files` on a
 kind of member: the message's `text` is the person's words alone, an older
 phone shows those and nothing more, and a phone that reads the member can
 name the files (it cannot open them). The phone's commands do not send
-`files`, so nothing it sends changed. A chat's rest and read state are the
-`conversation-lifecycle` capability: a desktop that advertises it leaves the
-chats it has settled out of the list, sends it in its sidebar's order, names
+`files`, so nothing it sends changed. So is `origin` on a `user_message`
+payload (`ConversationMessageOrigin`, 2026-10-07), which marks a message the
+desktop sent a chat itself — a launched agent's notice, a resume after a usage limit —
+as Studio's: a reader that does not know it shows the message as the person's,
+as every reader did before, and a message without one is the person's.
+A chat's rest and read state are the `conversation-lifecycle` capability: a
+desktop that advertises it leaves the chats it has settled out of the list, sends it in its sidebar's order, names
 each chat's `chatTitle`, `lastUserMessageAt`, `lastTurnEndedAt` and
 `lastVisitedAt`, and serves the `conversation.settle` and `conversation.visit`
 gateway tools; `workspace.list` items carry `settledAt` beside it, with no

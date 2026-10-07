@@ -17,7 +17,7 @@ import { Modal } from '../ui/Modal'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { generatedWorkspaceTitleRequester } from '../../store/generatedWorkspaceTitle'
-import { useWorkspaceStore } from '../../store/workspaceStore'
+import { useWorkspaceStore, workspaceRegistryReady } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { normalizeAgentRuntime } from '../../store/slices/agentsSlice'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../store/slices/settingsSlice'
@@ -132,6 +132,7 @@ import { composerDraftStore } from '../panels/agentChat/draftStore'
 import { setBuildExtensionOpener } from '../extensions/buildExtensionHost'
 import { extensionBriefMarkdown } from '../../../../shared/extension-scaffold'
 import { createWorkspaceChatOpener } from './manager/workspaceChatOpener'
+import { openChatLink } from './manager/chatLinkOpener'
 import {
   markLaunchedAgentProjected,
   retiredLaunchedAgents,
@@ -245,6 +246,7 @@ import { controlTabContextItemOf, controlTabContextOf, cycleFocusedControlTabSco
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { createAppUpdateToastDriver, showAppUpdateOutcomeToast } from './manager/appUpdateToast'
 import { showCliUpdateToast } from './manager/cliUpdateToast'
+import { showWorktreeInstallToast } from './manager/worktreeInstallToast'
 import { cardSurfaceRoute } from './manager/cardSurfaceRoute'
 import { subscribeAppUpdateState } from '../../store/appUpdateStore'
 import { useSettingsUpdateBadges } from '../settings/useSettingsUpdateBadges'
@@ -340,6 +342,9 @@ const WorkspacePaneColumn = React.lazy(() =>
 // the rest of the deferred shell rather than carried through it.
 const ToastHost = React.lazy(() => import('./ToastHost').then((m) => ({ default: m.ToastHost })))
 const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
+const UsageLimitsDialog = React.lazy(() =>
+  import('../panels/agentChat/usageLimits').then((module) => ({ default: module.UsageLimitsDialog })),
+)
 // First-run only: the CLI onboarding card (and the CliInstallControl subtree it
 // shares with the lazy Settings panel) mounts on machines with no CLI installed,
 // so the machines that never show it never evaluate it at boot.
@@ -684,6 +689,7 @@ export default function WorkspaceManager() {
   // sets it; every other way of opening the palette clears it.
   const [paletteTarget, setPaletteTarget] = useState<PaletteAgentTarget | null>(null)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  const [usageLimitsOpen, setUsageLimitsOpen] = useState(false)
   // The app-wide default preset, straight from settings. It used to be mirrored
   // into local state so a spawn surface could edit it; a preset is remembered
   // per CLI now (ui/cliPermissionPresets), so nothing on a spawn surface writes
@@ -1696,6 +1702,19 @@ export default function WorkspaceManager() {
       }),
     [],
   )
+
+  // A leased worktree's dependency install (main's worktree-pool/
+  // dependency-install.ts): a toast in every window while it runs and as it
+  // ends, and one bell row, from the primary window, for one that failed.
+  const reportsWorktreeInstalls = useRef(isPrimaryWorkspaceWindow)
+  reportsWorktreeInstalls.current = isPrimaryWorkspaceWindow
+  useEffect(() => {
+    const api = typeof window === 'undefined' ? null : window.api
+    if (!api || typeof api.onWorktreeInstallChanged !== 'function') return
+    return api.onWorktreeInstallChanged((view) =>
+      showWorktreeInstallToast(view, { report: reportsWorktreeInstalls.current }),
+    )
+  }, [])
 
   useEffect(
     () =>
@@ -3991,6 +4010,10 @@ export default function WorkspaceManager() {
         setDiagnosticsOpen(true)
         return true
       }
+      if (commandId === 'usage.limits.show') {
+        setUsageLimitsOpen(true)
+        return true
+      }
       if (commandId === 'chat.new' || commandId === 'chat.newConversation' || commandId === 'chat.newTerminalAgent') {
         openNewChatPanel(
           undefined,
@@ -4727,6 +4750,42 @@ export default function WorkspaceManager() {
     setSidebarSection('home')
     setNarrowSidebarShown(false)
   })
+  // A `sprintengine://chat/…` link main handed this window (chatLinkOpener.ts).
+  // Listening only once the registry has loaded: main holds a link that
+  // launched the app until then, and a store that has not loaded yet would
+  // answer that every chat is missing.
+  useEffect(() => {
+    if (!clientSupports('deep-links') || typeof window.api.onChatLinkOpen !== 'function') return
+    let unsubscribe: (() => void) | null = null
+    let disposed = false
+    void workspaceRegistryReady.then(() => {
+      if (disposed) return
+      unsubscribe = window.api.onChatLinkOpen((link) => {
+        const state = useWorkspaceStore.getState()
+        openChatLink(link, {
+          getChat: (chatId) => {
+            const workspace = state.workspaces.find((candidate) => candidate.id === chatId)
+            return workspace && !isHiddenFromRail(workspace, state.appSettings.modules) ? workspace : null
+          },
+          holderOf: (chatId) => state.workspaceWindows.find((entry) => entry.workspaceIds.includes(chatId))?.id ?? null,
+          windowId: workspaceWindowId,
+          moveHere: (chatId, fromWindowId) => moveWorkspaceToWindow(chatId, workspaceWindowId, fromWindowId),
+          select: sidebarSelectWorkspace,
+          revealAgent: (workspaceId, agentId, name) => revealAgentTerminalTab({ workspaceId, agentId, name }),
+          notOnThisMachine: () =>
+            showToast({
+              tone: 'warn',
+              title: "That chat isn't on this machine",
+              description: 'It was closed here, or it was started on another computer.',
+            }),
+        })
+      })
+    })
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [workspaceWindowId, moveWorkspaceToWindow, sidebarSelectWorkspace])
   const sidebarMoveToNewWindow = useStableCallback(
     (id: WorkspaceId, placement: Parameters<typeof moveWorkspaceToNewWindow>[1]) =>
       void moveWorkspaceToNewWindow(id, placement),
@@ -5279,6 +5338,12 @@ export default function WorkspaceManager() {
       {diagnosticsOpen && (
         <React.Suspense fallback={null}>
           <DiagnosticsOverlay onClose={() => setDiagnosticsOpen(false)} />
+        </React.Suspense>
+      )}
+
+      {usageLimitsOpen && (
+        <React.Suspense fallback={null}>
+          <UsageLimitsDialog onClose={() => setUsageLimitsOpen(false)} />
         </React.Suspense>
       )}
 

@@ -5,6 +5,8 @@ import { PromptCacheMark } from './PromptCacheMark'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
+import { chatLinkFor } from '../../../../shared/deep-link'
+import { copyToClipboardWithToast } from '../../utils/copyToClipboardWithToast'
 import {
   conversationFinishedAt,
   conversationLineMark,
@@ -3084,6 +3086,12 @@ function WorkspaceSidebar({
             }
             if (action === 'rename') {
               startRename(workspace)
+              setContextMenu(null)
+              return
+            }
+            if (action === 'copy-link') {
+              const link = chatLinkFor(workspace.id)
+              if (link) void copyToClipboardWithToast(link)
               setContextMenu(null)
               return
             }

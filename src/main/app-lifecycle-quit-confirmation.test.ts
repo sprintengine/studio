@@ -68,8 +68,11 @@ beforeAll(async () => {
   // the window factory's business, not this suite's.
   vi.doMock('./window-factory', () => ({
     createMainWindow: (options: unknown) => void windowsCreated.push(options),
+    isWorkspaceWindowWebContents: () => false,
+    listWorkspaceWindows: () => [],
     markAppQuitInProgressForWindowClose: () => undefined,
     revealMainWindow: () => undefined,
+    workspaceWindowIdOf: () => 'primary',
   }))
   ;({ registerAppLifecycle } = await import('./app-lifecycle'))
 })

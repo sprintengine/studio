@@ -108,8 +108,10 @@ import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { excludeMcpConfigFromWorktree, seedWorktreeIncludedFiles } from './git'
-import { broadcastWorktreePoolChanged } from './ipc/worktree-pool-ipc'
+import { broadcastWorktreePoolChanged, WORKTREE_INSTALL_CHANGED_CHANNEL } from './ipc/worktree-pool-ipc'
 import { installWorktreePool } from './worktree-pool/active-pool'
+import { createDependencyInstaller, installDependencyInstaller } from './worktree-pool/dependency-install'
+import { cachedDependencyInstallEnvironment } from './worktree-pool/install-environment'
 import { createPoolStore } from './worktree-pool/pool-store'
 import { chatIdsOnRecord } from './agent-worktree-keep-checks'
 import { createWorktreePoolService } from './worktree-pool/worktree-pool-service'
@@ -151,6 +153,8 @@ import { createCanvasWorkerHost } from './canvas/canvas-worker-host'
 import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { broadcastToWorkspaceWindows, isBrowserHostWebContents, listWorkspaceWindows } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
+import { createAgentLaunchNotices } from './agent-launch-notices'
+import { forwardStatusLineRateLimits, usageLimitsStore, usageRateLimit } from './usage-limits/store'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
@@ -1020,9 +1024,11 @@ export function createAppServices(
         const result = conversations.listSessions()
         return result.ok ? result.sessions : []
       },
-      sendTurn: async ({ sessionId, message }) => {
-        const result = await conversations.sendTurn({ sessionId, message })
-        return result.ok ? { ok: true } : { ok: false, message: result.message }
+      sendTurn: async ({ sessionId, message, origin }) => {
+        const result = await conversations.sendTurn({ sessionId, message, ...(origin ? { origin } : {}) })
+        return result.ok
+          ? { ok: true }
+          : { ok: false, message: result.message, ...(result.code ? { code: result.code } : {}) }
       },
       interrupt: async ({ sessionId }) => {
         const result = await conversations.interrupt({ sessionId })
@@ -1030,6 +1036,34 @@ export function createAppServices(
       },
     },
   })
+  // An agent that launched another hears when that one finishes or stops,
+  // through the plane above, instead of polling agent.status. The chat half
+  // reads this process's chats; out of process they are the server's, and a
+  // chat there is not linked (`link` says so and the caller polls). A notice
+  // waits out a usage limit on the parent's provider, as this process's store
+  // reads it: its own chats' readings and its terminals' status lines.
+  const agentLaunchNotices = createAgentLaunchNotices({
+    plane: agentControlPlane,
+    readChatReply: (sessionId) => {
+      const listed = conversations.listSessions()
+      return listed.ok
+        ? listed.sessions.find((session) => session.sessionId === sessionId)?.lastAssistantTail
+        : undefined
+    },
+    usageLimit: (provider) => usageRateLimit(provider),
+    onUsageLimitsChanged: (listener) => {
+      usageLimitsStore().onChanged(listener)
+    },
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Launch notices', message })
+    },
+  })
+  terminalRuntime.registerAgentPhaseListener((event) => agentLaunchNotices.onAgentPhase(event))
+  terminalRuntime.registerAgentSessionExitListener((event) => agentLaunchNotices.onAgentSessionExit(event))
+  conversations.onEvent((event) => agentLaunchNotices.onConversationEvent(event))
+  // A chat parent is told when its turn has let go of it, not on the turn's
+  // end event, which comes while the turn still holds the chat.
+  conversationOwner.onSessionIdle((summary) => agentLaunchNotices.onChatIdle(summary))
   // The saved update channel is main's: the updater is configured here, before
   // any renderer exists to ask.
   const updateChannelStore = createUpdateChannelStore({
@@ -1373,6 +1407,18 @@ export function createAppServices(
   })
   installWorktreePool(worktreePool)
   void worktreePool.load()
+  // The dependency install an agent worktree runs when its project opted in
+  // and its lockfile changed (worktree-pool/dependency-install.ts), with the
+  // environment the person's own terminal has and none of the app's own
+  // variables (worktree-pool/install-environment.ts): one login shell's,
+  // kept for the leases of the next few minutes.
+  const dependencyInstallEnv = cachedDependencyInstallEnvironment()
+  const dependencyInstaller = createDependencyInstaller({
+    env: () => dependencyInstallEnv.read(),
+    forgetEnv: () => dependencyInstallEnv.forget(),
+    onChange: (view) => broadcastToWorkspaceWindows(WORKTREE_INSTALL_CHANGED_CHANNEL, view),
+  })
+  installDependencyInstaller(dependencyInstaller)
   // `worktree.lease` and `worktree.release`: in process the gateway's own, out
   // of process the shell's `worktree` toolset.
   const worktreeTools = createWorktreePoolTools({
@@ -1548,6 +1594,9 @@ export function createAppServices(
         // (`desktopGatewayTools`).
         // This server's shell offers these, and an agent's first list waits for them.
         expectShellToolsets: clientToolsEnabled ? ['browser', 'canvas'] : [],
+        // An agent that starts a chat hears back from it, as one that launches
+        // a terminal agent does.
+        linkLaunchedAgent: (link) => agentLaunchNotices.link(link),
         appTools: desktopGatewayTools({
           browser: clientToolsEnabled ? [] : browserTools,
           canvas: clientToolsEnabled ? [] : canvasTools,
@@ -1558,6 +1607,7 @@ export function createAppServices(
               getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
               listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
               launchAgent: (request) => agentLaunchService.launch(request),
+              linkLaunchedAgent: (link) => agentLaunchNotices.link(link),
               resolveAgentPermissionPreset,
               createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
               getScheduledAgents: () => resolveScheduledAgents(),
@@ -1691,6 +1741,7 @@ export function createAppServices(
                 getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
                 listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
                 launchAgent: (request) => agentLaunchService.launch(request),
+                linkLaunchedAgent: (link) => agentLaunchNotices.link(link),
                 // An agent launches no looser than it runs: its terminal here,
                 // or the preset its record holds (a chat's live preset is the
                 // server's, and its record carries the one last chosen).
@@ -1757,6 +1808,10 @@ export function createAppServices(
     const sendTerminalSessions = () =>
       server.rpc.emit(SERVER_EVENTS.terminalSessions, terminalRuntime.ipcHandlers.listTerminals())
     terminalRuntime.subscribeSessionsChanged(sendTerminalSessions)
+    // A Claude terminal's status line is the only reading of the plan's usage
+    // a person who never opens a chat gives; the limits the windows draw and
+    // the resumes wait on are the server's store, so each reading goes there.
+    forwardStatusLineRateLimits((rateLimits, at) => server.rpc.emit(SERVER_EVENTS.usageStatusLine, { rateLimits, at }))
     onGatewayLaunchTokenChange((change) => server.rpc.emit(SERVER_EVENTS.launchTokens, { changes: [change] }))
     // Asked by a server as it starts, before its gateway listens.
     server.rpc.handle(SHELL_METHODS.liveLaunchTokens, () => liveGatewayLaunchTokens())
@@ -2028,6 +2083,7 @@ export function createAppServices(
     canvasService,
     canvasSubscribers,
     worktreePool,
+    dependencyInstaller,
     automationService,
     studioRpcService,
     backgroundModeStore,

@@ -1453,7 +1453,8 @@ test('agent-state-service', async () => {
       // --- status-line forwarder ---------------------------------------------
       // Executes the REAL bundled forwarder: the payload below is Claude Code's
       // documented status-line document, and what comes back over the socket must
-      // be the seven values and nothing else. Then the wrap path: the person's own
+      // be the seven values, the prompt cache's three and the usage windows' two
+      // each, and nothing else. Then the wrap path: the person's own
       // command runs with the same stdin bytes and its stdout is ours.
       const statusLineScript = join(process.cwd(), 'resources', 'hooks', 'sprintengine-status-line.mjs')
       const slSockPath = join(sockDir, 'status-line.sock')
@@ -1483,7 +1484,11 @@ test('agent-state-service', async () => {
           remaining_percentage: 91.6,
           current_usage: { input_tokens: 8500, output_tokens: 1200 },
         },
-        rate_limits: { five_hour: { used_percentage: 23.5, resets_at: 1_738_425_600 } },
+        rate_limits: {
+          five_hour: { used_percentage: 23.5, resets_at: 1_738_425_600 },
+          seven_day: { used_percentage: 41, resets_at: 1_738_771_200 },
+          spend_limit: { used_percentage: 12, resets_at: 1_738_771_200, used_usd: 6, limit_usd: 50, period: 'weekly' },
+        },
         prompt_cache: {
           warm: true,
           caching_observed: true,
@@ -1567,12 +1572,19 @@ test('agent-state-service', async () => {
           // The payload's epoch seconds arrive as milliseconds, like every
           // other time on the socket.
           promptCache: { ttl: '1h', expiresAt: 1_738_429_200_000, recacheTokens: 45_000 },
+          // The subscription's windows, two numbers each, resets in ms.
+          rateLimits: {
+            five_hour: { usedPercentage: 23.5, resetsAt: 1_738_425_600_000 },
+            seven_day: { usedPercentage: 41, resetsAt: 1_738_771_200_000 },
+          },
         },
-        'only the reading rides the socket — never the transcript path, the cwd or the rate limits',
+        "only the reading rides the socket — never the transcript path, the cwd or a gateway's spend limit",
       )
       assert.ok(
         !slFrames[0].includes('transcript') &&
           !slFrames[0].includes('rate_limits') &&
+          !slFrames[0].includes('spend_limit') &&
+          !slFrames[0].includes('used_usd') &&
           !slFrames[0].includes('/repo') &&
           !slFrames[0].includes('hit_ratio') &&
           !slFrames[0].includes('ttl_expired_5m'),

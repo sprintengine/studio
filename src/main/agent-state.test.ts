@@ -690,6 +690,28 @@ test('agent-state', async () => {
       'a bad field is unknown, not a reason to keep the last reading',
     )
     assert.deepEqual(statusOf({ usedPercentage: 4, promptCache: 'warm' }), { usedPercentage: 4 }, 'not a reading')
+    // The usage windows ride by window: a known id, a percentage that is one,
+    // a reset that is a time. A bad window drops alone; one with no reset keeps
+    // its share.
+    assert.deepEqual(
+      statusOf({
+        rateLimits: {
+          five_hour: { usedPercentage: 23.5, resetsAt: 1_738_425_600_000 },
+          seven_day: { usedPercentage: 41 },
+          seven_day_opus: { usedPercentage: 140, resetsAt: 1_738_425_600_000 },
+          spend_limit: { usedPercentage: 12, resetsAt: 1_738_425_600_000 },
+          seven_day_sonnet: { usedPercentage: 5, resetsAt: 'tomorrow' },
+        },
+      }),
+      {
+        rateLimits: {
+          five_hour: { usedPercentage: 23.5, resetsAt: 1_738_425_600_000 },
+          seven_day: { usedPercentage: 41 },
+          seven_day_sonnet: { usedPercentage: 5 },
+        },
+      },
+    )
+    assert.equal(statusOf({ rateLimits: { spend_limit: { usedPercentage: 1 } } }), undefined, 'no window, no reading')
     // Every `undefined` above is read off a frame, so each one would also pass if
     // the FRAME had been dropped. It is not: a bad field costs the field only.
     for (const bad of [{ sessionName: 'x'.repeat(9000) }, { usedPercentage: 900, model: 42 }]) {

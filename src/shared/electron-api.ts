@@ -1,5 +1,6 @@
 import type { ClientCapability } from './client-capabilities'
 import type { AttachedFilePreview } from './attached-files'
+import type { ChatLink } from './deep-link'
 import type { PreviewOpenAnswer, PreviewPort, PreviewSummary, WebDevicesStatus } from './web-client'
 import type {
   SshEnvironmentResult,
@@ -250,6 +251,8 @@ import type { SprintEngineAuthState } from './ipc/account'
 import type { CliModelDiscoveryInput, CliModelDiscoveryResult } from './ipc/cli-model-discovery'
 import type { ConversationCommandsRequest } from './ipc/conversation-commands'
 import type { ConversationCommandCatalog } from './conversation/commands'
+import type { UsageLimitsState } from './usage-limits'
+import type { UsageLimitResumeState, UsageLimitResumeUpdate } from './usage-limit-resume'
 import type {
   AgentLaunchPreviewInput,
   AgentLaunchPreviewResult,
@@ -369,6 +372,7 @@ import type {
   AgentWorktreeCleanupReport,
 } from './ipc/git'
 import type {
+  WorktreeDependencyInstallView,
   WorktreeInventory,
   WorktreeInventoryInput,
   WorktreePoolActionInput,
@@ -582,6 +586,12 @@ export type ElectronApi = {
   onWindowHiddenChanged: (cb: (hidden: boolean) => void) => () => void
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
   onWindowCloseRequested: (cb: () => void) => () => void
+  /**
+   * A `sprintengine://chat/…` link for this window to open. Subscribing tells
+   * main the window is listening, so call it once the registry has loaded: a
+   * link that launched the app waits in main until then (chat-link-router.ts).
+   */
+  onChatLinkOpen: (cb: (link: ChatLink) => void) => () => void
   // The pane, or one tab, in a window of its own (ipc/pane-popout.ts). The
   // first six are the owner window's half, the last three the pop-out's.
   panePopOutOpen: (input: PanePopOutOpenInput) => Promise<PanePopOutOpenResult>
@@ -1374,6 +1384,12 @@ export type ElectronApi = {
   setWorktreePoolSettings: (patch: Partial<WorktreePoolSettings>) => Promise<WorktreePoolSettings>
   /** Every worktree of these projects and of every pool, for Settings ▸ Worktrees. */
   getWorktreeInventory: (input: WorktreeInventoryInput) => Promise<WorktreeInventory>
+  /** The dependency installs leased worktrees are running now. */
+  listWorktreeInstalls: () => Promise<WorktreeDependencyInstallView[]>
+  /** A leased worktree's dependency install started, moved on, or ended. */
+  onWorktreeInstallChanged: (cb: (view: WorktreeDependencyInstallView) => void) => () => void
+  /** Stop a running install; its agent starts as after a failed one. False when it had already ended. */
+  cancelWorktreeInstall: (id: string) => Promise<boolean>
   /**
    * The branch's commits as steps, oldest first, for the changed-files surface.
    * Read live on every call — a rebase re-identifies commits, so a cached strip
@@ -1538,6 +1554,16 @@ export type ElectronApi = {
   // list main hears afterwards (src/main/conversation-commands).
   conversationCommands: (input: ConversationCommandsRequest) => Promise<ConversationCommandCatalog>
   onConversationCommandsChanged: (listener: (catalog: ConversationCommandCatalog) => void) => () => void
+  // The subscription usage limits (five-hour and weekly windows) the agents
+  // reported, per provider, and every change main hears afterwards
+  // (src/main/usage-limits).
+  usageLimits: () => Promise<UsageLimitsState>
+  onUsageLimitsChanged: (listener: (state: UsageLimitsState) => void) => () => void
+  // The chats a usage limit stopped, with the resume each has scheduled, and
+  // the setting that schedules one for every such chat (usage-limits/resume.ts).
+  usageLimitResumes: () => Promise<UsageLimitResumeState>
+  updateUsageLimitResume: (update: UsageLimitResumeUpdate) => Promise<UsageLimitResumeState>
+  onUsageLimitResumesChanged: (listener: (state: UsageLimitResumeState) => void) => () => void
   // One-shot text generation on the person's own agent CLI (their login, no
   // API key): today the chat title from a first prompt. Never rejects — a
   // failure is a typed `{ ok: false }` the caller answers by keeping what it

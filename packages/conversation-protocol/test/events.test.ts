@@ -2,7 +2,12 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import type { ConversationEvent as AppConversationEvent } from '../../../src/shared/conversation-runtime'
-import { CONVERSATION_EVENT_TYPES, isConversationEventType, type ConversationEvent } from '../src/events'
+import {
+  CONVERSATION_EVENT_TYPES,
+  isConversationEventType,
+  readConversationMessageOrigin,
+  type ConversationEvent,
+} from '../src/events'
 import { parseConversationServerFrame, parseConversationWireEvent } from '../src/serverFrames'
 
 const event = (type: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -54,4 +59,20 @@ test('a usage report keeps its context window reading across the wire', () => {
     payload: { turnId: 't1', inputTokens: 900, outputTokens: 40, contextWindow: 272_000, contextUsed: 41_000 },
   })
   assert.deepEqual(parseConversationWireEvent(JSON.parse(JSON.stringify(recorded))), recorded)
+})
+
+test('a user message names Studio as its origin, and one without an origin is the person’s', () => {
+  assert.deepEqual(readConversationMessageOrigin({ kind: 'studio', reason: 'usage-resume' }), {
+    kind: 'studio',
+    reason: 'usage-resume',
+  })
+  // A reason from a newer desktop is still Studio's message.
+  assert.deepEqual(readConversationMessageOrigin({ kind: 'studio', reason: 'scheduled' }), { kind: 'studio' })
+  for (const absent of [undefined, null, 'studio', ['studio'], { kind: 'person' }, {}])
+    assert.equal(readConversationMessageOrigin(absent), null, JSON.stringify(absent))
+  // It rides the payload, which the wire check passes through untouched.
+  const wire = parseConversationWireEvent(
+    event('user_message', { payload: { text: 'hi', origin: { kind: 'studio', reason: 'agent-notice' } } }),
+  )
+  assert.deepEqual(wire?.payload?.origin, { kind: 'studio', reason: 'agent-notice' })
 })

@@ -10,7 +10,11 @@ import {
   writeConversationStorage,
 } from './conversation-persistence'
 import { workspaceSidecarPath } from './workspace-sidecar'
-import type { ConversationEvent, ConversationKey } from '../shared/conversation-runtime'
+import {
+  readConversationMessageOrigin,
+  type ConversationEvent,
+  type ConversationKey,
+} from '../shared/conversation-runtime'
 import type {
   ConversationSearchHit,
   ConversationSearchInput,
@@ -471,7 +475,8 @@ function foldEvent(fold: ThreadFold, event: ConversationEvent): void {
   }
   if (event.type === 'user_message') {
     fold.turns.add(text(event.payload?.turnId) || event.id)
-    if (!thread.firstUserText) {
+    // A message Studio sent the chat is not what the person opened it with.
+    if (!thread.firstUserText && !readConversationMessageOrigin(event.payload?.origin)) {
       thread.firstUserText = text(event.payload?.text)
       if (thread.titleSource === 'first-message') thread.title = firstMessageTitle(thread.firstUserText)
     }

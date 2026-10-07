@@ -6,6 +6,8 @@
 // against a slot itself. Leases are not asked for here: an agent worktree
 // created with `fromPool` (GitWorktreeCreateInput) comes from the pool.
 
+import { comparablePath } from '../host-paths'
+
 /**
  * Where a slot is in its life:
  *
@@ -49,7 +51,23 @@ export type WorktreePoolSettings = {
    * when Settings ▸ Worktrees asks.
    */
   diskLimitGb: number | null
+  /**
+   * Per project, keyed by its main checkout's path as the pool names it: run
+   * the dependency install in a leased worktree when its lockfile changed
+   * since that worktree last installed (owner ruling 2026-10-06). A project
+   * with no entry is off: the install runs the repository's own scripts.
+   */
+  dependencyInstall: Record<string, WorktreeDependencyInstallSetting>
 }
+
+export type WorktreeDependencyInstallSetting = {
+  enabled: boolean
+  /** Run instead of the command the lockfile implies (`npm ci`, …); null to infer it. */
+  command: string | null
+}
+
+/** The longest install command kept; anything longer is a paste gone wrong. */
+export const WORKTREE_INSTALL_COMMAND_MAX = 1_000
 
 export const WORKTREE_POOL_KEEP_IDLE_MAX = 6
 export const WORKTREE_POOL_MAX_SLOTS_MIN = 2
@@ -61,6 +79,19 @@ export const DEFAULT_WORKTREE_POOL_SETTINGS: WorktreePoolSettings = {
   keepIdle: 3,
   maxSlots: 12,
   diskLimitGb: null,
+  dependencyInstall: {},
+}
+
+/** The entry `settings.dependencyInstall` holds for a project, however its path is spelled. */
+export function dependencyInstallSettingFor(
+  settings: Pick<WorktreePoolSettings, 'dependencyInstall'>,
+  repoRoot: string,
+): WorktreeDependencyInstallSetting | null {
+  const wanted = comparablePath(repoRoot)
+  for (const [root, setting] of Object.entries(settings.dependencyInstall ?? {})) {
+    if (comparablePath(root) === wanted) return setting
+  }
+  return null
 }
 
 /**
@@ -146,6 +177,41 @@ export type WorktreePoolActionInput =
   | { kind: 'clear-ignored'; repoRoot: string; slotId: string }
 
 export type WorktreePoolActionResult = { ok: true; message: string | null } | { ok: false; message: string }
+
+// ── Dependency installs ─────────────────────────────────────────────────────
+//
+// A leased worktree whose project opted in installs its dependencies before
+// its agent starts (worktree-pool/dependency-install.ts). Windows are sent
+// `worktree-install:changed` as one starts, now and then while it runs, and
+// as it ends; nothing else about it is kept.
+
+/**
+ * Why it runs: the worktree never installed (`first`), its lockfile or the
+ * command changed since it last did (`changed`), or its installed
+ * dependencies are gone (`missing`, after "Clear ignored files").
+ */
+export type WorktreeDependencyInstallReason = 'first' | 'changed' | 'missing'
+
+export type WorktreeDependencyInstallState = 'running' | 'succeeded' | 'failed' | 'timed-out' | 'cancelled'
+
+export type WorktreeDependencyInstallView = {
+  id: string
+  /** The project's main checkout, as the pool names it. */
+  repoRoot: string
+  /** The leased worktree it runs in. */
+  path: string
+  branch: string
+  command: string
+  reason: WorktreeDependencyInstallReason
+  state: WorktreeDependencyInstallState
+  startedAt: number
+  endedAt: number | null
+  /** The last line it printed. */
+  lastLine: string | null
+  /** The end of what it printed, once it did not succeed. */
+  output: string | null
+  exitCode: number | null
+}
 
 // ── Settings ▸ Worktrees ────────────────────────────────────────────────────
 

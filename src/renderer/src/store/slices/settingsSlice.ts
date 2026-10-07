@@ -97,6 +97,7 @@ export function defaultAppearanceSettings(): AppearanceSettings {
     chatContrast: DEFAULT_CHAT_CONTRAST,
     chatWidth: DEFAULT_CHAT_WIDTH,
     agentCharacters: true,
+    usageLimits: true,
   }
 }
 
@@ -115,6 +116,7 @@ export function normalizeAppearanceSettings(value: unknown): AppearanceSettings 
     chatWidth: isChatWidth(candidate.chatWidth) ? candidate.chatWidth : LEGACY_CHAT_WIDTH,
     agentCharacters:
       typeof candidate.agentCharacters === 'boolean' ? candidate.agentCharacters : defaults.agentCharacters,
+    usageLimits: typeof candidate.usageLimits === 'boolean' ? candidate.usageLimits : defaults.usageLimits,
   }
 }
 
@@ -1126,6 +1128,7 @@ export interface SettingsSliceActions {
   setAppearanceChatContrast: (contrast: number) => void
   setAppearanceChatWidth: (width: ChatWidth) => void
   setAppearanceAgentCharacters: (enabled: boolean) => void
+  setAppearanceUsageLimits: (enabled: boolean) => void
 }
 
 export type SettingsSlice = SettingsSliceState & SettingsSliceActions
@@ -1811,6 +1814,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.appearance = normalizeAppearanceSettings({
           ...state.appSettings.appearance,
           agentCharacters: enabled,
+        })
+      }),
+
+    setAppearanceUsageLimits: (enabled) =>
+      set((state) => {
+        state.appSettings.appearance = normalizeAppearanceSettings({
+          ...state.appSettings.appearance,
+          usageLimits: enabled,
         })
       }),
   }

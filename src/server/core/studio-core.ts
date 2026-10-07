@@ -27,6 +27,7 @@ import { ConversationPlanStore } from '../../main/conversation-plan-store'
 import { ConversationRuntime, type ConversationRuntimeOptions } from '../../main/conversation-runtime'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
 import { createGitWorktree, getGitRepoRoot } from '../../main/git'
+import { startedDependencyInstall } from '../../main/worktree-pool/dependency-install'
 import { installGitHostResolver, withGitHost } from '../../main/git-run'
 import { createHostRegistry, installHostRegistry } from '../../main/hosts/host-registry'
 import { createAgentLaunchSettingsStore } from '../../main/launch-settings-store'
@@ -39,6 +40,7 @@ import { createWorkspaceRegistryStore } from '../../main/workspace-registry-stor
 import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
 import { createConversationLifecycle } from '../../main/automation/conversation-lifecycle'
 import { conversationSummaryPhase } from '../../shared/conversation/phase'
+import type { ConversationMessageOrigin, ConversationSessionSummary } from '../../shared/conversation-runtime'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
 import { createPullRequestDomain } from '../pull-requests/pull-request-domain'
@@ -52,6 +54,7 @@ import {
 import type { WslServers } from '../wsl/desktop-wsl-servers'
 import type { StudioRole } from './data-dir'
 import { takeDataDir } from './take-data-dir'
+import { createStudioUsageLimitResumes } from './studio-usage-limit-resumes'
 
 // The Studio core: the services the server owns (studio-server design, section
 // 4.1), composed once. The desktop builds it inside Electron main, from
@@ -225,10 +228,13 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     process.platform === 'win32' && options.wslServers
       ? options.wslServers({ readHostSettings: () => agentLaunchSettings.get().hosts })
       : null
-  // What only the runtime's owner does with it: the idle threshold, and the
-  // flush and shutdown at the end. Everything else goes through the backend.
+  // What only the runtime's owner does with it: the idle threshold, hearing
+  // when one of this process's chats lets go of its turn, and the flush and
+  // shutdown at the end. Everything else goes through the backend.
   const conversationOwner = {
     setIdleThresholdMs: (value: unknown) => conversationRuntime.setIdleThresholdMs(value),
+    onSessionIdle: (listener: (summary: ConversationSessionSummary) => void) =>
+      conversationRuntime.onSessionIdle(listener),
     flushTranscripts: () => conversationRuntime.flushTranscripts(),
     // Each WSL server drains its own chats, within the quit's ten seconds,
     // beside this process's.
@@ -325,16 +331,22 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
           copyIncludedFiles: true,
           // The chat is created after its worktree, so the branch names the owner.
           agentLockOwner: input.branchName,
+          // Every caller here is a client with a call timeout of its own (a
+          // paired device's New chat, `conversation.create`): the chat is
+          // made while the project's dependency install runs, and its first
+          // message waits for it instead.
+          dependencyInstall: 'start',
         }),
       )
-      return created.ok
-        ? {
-            ok: true,
-            path: created.data.path,
-            branch: created.data.branch ?? input.branchName,
-            baseRef: created.data.baseRef,
-          }
-        : { ok: false, message: created.message }
+      if (!created.ok) return { ok: false, message: created.message }
+      const installing = startedDependencyInstall(created.data.dependencyInstall)
+      return {
+        ok: true,
+        path: created.data.path,
+        branch: created.data.branch ?? input.branchName,
+        baseRef: created.data.baseRef,
+        ...(installing ? { dependencyInstall: installing } : {}),
+      }
     },
     // The same installer a terminal launch's skill-at-spawn uses, into the
     // folder the chat works in (a run's worktree when it has one).
@@ -484,7 +496,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       return latest
     },
   })
-  const createConversationHost = () =>
+  // `origin` is for Studio's own sends (a resume after a usage limit): they
+  // are not the person writing, so each is recorded as Studio's and the chat
+  // keeps its place in the lists ordered by when the person last did.
+  const createConversationHost = (hostOptions: { origin?: ConversationMessageOrigin } = {}) =>
     createConversationGatewayHost(
       conversations,
       (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
@@ -513,7 +528,12 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       listMarks,
       {
         workspaceOf: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
-        noteUserMessage: (workspaceId, at) => conversationLifecycle.noteUserMessage(workspaceId, at, 'gateway'),
+        ...(hostOptions.origin
+          ? { sendOrigin: hostOptions.origin }
+          : {
+              noteUserMessage: (workspaceId: string, at: number) =>
+                conversationLifecycle.noteUserMessage(workspaceId, at, 'gateway'),
+            }),
         reasoningEffortOf: (key) =>
           workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.conversationReasoningEffort,
         // A phone's switch moves the chat's record as the chat view's own does,
@@ -524,6 +544,30 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
         },
       },
     )
+
+  // A chat a usage limit stopped picks up again when the limit resets
+  // (usage-limits/resume.ts, wired in studio-usage-limit-resumes.ts). The
+  // limits are reported in this process, by the chats it runs; the resume goes
+  // through the same send a paired device's does, marked as Studio's.
+  const usageLimitResumes = createStudioUsageLimitResumes({
+    dataDir,
+    conversations,
+    workspaceRecord: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
+    createHost: (hostOptions) => createConversationHost(hostOptions),
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Usage limits', message })
+    },
+  })
+  void usageLimitResumes.start()
+  const stopFollowingResumes = [
+    // A timer stands still while the computer sleeps; waking reads the clock again.
+    powerActivity.onResume(() => usageLimitResumes.wake()),
+    powerActivity.onScreenLockChange((locked) => {
+      if (!locked) usageLimitResumes.wake()
+    }),
+    // A deleted chat's resume goes with it.
+    workspaceRegistry.subscribe(() => usageLimitResumes.prune()),
+  ]
 
   /**
    * The core's own end, for a process that owns nothing else: the registry
@@ -547,6 +591,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       // The servers the Studio itself started stop with it: nothing would be
       // left to stop them from.
       () => localServers.dispose(),
+      () => {
+        for (const stop of stopFollowingResumes) stop()
+        return usageLimitResumes.dispose()
+      },
       () => workspaceSyncService.flush(),
       () => hosts.dispose(),
     ]
@@ -584,6 +632,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     conversationLifecycle,
     pullRequests,
     localServers,
+    usageLimitResumes,
     shutdown,
   }
 }

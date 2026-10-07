@@ -73,6 +73,7 @@ import { DesignSystemSettings } from './DesignSystemSettings'
 import { orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { AgentConfigAdoptionStatus } from '../onboarding/agentConfigAdoption'
 import { ConversationImportSettings } from './ConversationImportSettings'
+import { UsageLimitResumeSettings } from './UsageLimitResumeSettings'
 import {
   GeneralSettingsIcon,
   ProfileSettingsIcon,
@@ -700,6 +701,8 @@ export default function SettingsPanel({
   const setAppearanceWindowMaterial = useWorkspaceStore((s) => s.setAppearanceWindowMaterial)
   const agentCharacters = useWorkspaceStore((s) => s.appSettings.appearance.agentCharacters)
   const setAppearanceAgentCharacters = useWorkspaceStore((s) => s.setAppearanceAgentCharacters)
+  const usageLimits = useWorkspaceStore((s) => s.appSettings.appearance.usageLimits)
+  const setAppearanceUsageLimits = useWorkspaceStore((s) => s.setAppearanceUsageLimits)
   const isMac = window.api.platform === 'darwin'
   const chatListView = useWorkspaceStore((s) => s.chatListView)
   const openFilesInExternalWindow = useWorkspaceStore((s) => s.openFilesInExternalWindow)
@@ -1301,6 +1304,12 @@ export default function SettingsPanel({
                 enabled={agentCharacters}
                 onChange={setAppearanceAgentCharacters}
               />
+              <SettingToggle
+                label="Show subscription usage limits"
+                description="A small bar on a Claude or Codex chat's composer for how much of your plan's five-hour and weekly limits you have used, read from what the agent reports. Never shown for an API key."
+                enabled={usageLimits}
+                onChange={setAppearanceUsageLimits}
+              />
             </SettingCard>
           </section>
         </div>
@@ -1503,6 +1512,8 @@ export default function SettingsPanel({
               actually ran this session, and says so plainly when it failed. */}
           <AgentConfigAdoptionStatus adoption={agentConfigAdoptionResult} />
           <ConversationImportSettings />
+          {/* A chat a usage limit stopped, carried on when the limit resets. */}
+          <UsageLimitResumeSettings />
           <AgentClisSection
             runs={agentCliRuns}
             machine={agentsMachine}

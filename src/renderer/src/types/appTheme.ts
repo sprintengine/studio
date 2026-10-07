@@ -340,4 +340,7 @@ export type AppearanceSettings = {
   // Draw each spawned agent as a small character that moves while it works.
   // Off, an agent is a working mark while it runs and a lifecycle glyph after.
   agentCharacters: boolean
+  // Show a subscription's usage limits (the five-hour and weekly windows the
+  // agents report) on a Claude or Codex chat's composer strip.
+  usageLimits: boolean
 }

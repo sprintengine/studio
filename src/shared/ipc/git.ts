@@ -2,6 +2,7 @@
 // ../electron-api.ts re-exports everything here.
 
 import type { GitFileStatus } from './terminal'
+import type { WorktreeDependencyInstallView } from './worktree-pool'
 
 export type GitStatusEntry = {
   path: string
@@ -306,6 +307,8 @@ export type GitWorktreeCreated = GitWorktreeEntry & {
   baseRef: string
   /** Set when the worktree is a pool slot. */
   leaseId: string | null
+  /** The dependency install the lease ran before handing the slot out, when it ran one. */
+  dependencyInstall?: WorktreeDependencyInstallView | null
 }
 
 /**

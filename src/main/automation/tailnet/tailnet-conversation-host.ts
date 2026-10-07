@@ -12,6 +12,7 @@ import { isSettledWorkspace, workspaceLastUserMessageAt } from '../../../shared/
 import type {
   ConversationKey,
   ConversationImageAttachment,
+  ConversationMessageOrigin,
   ConversationPermissionPreset,
   ConversationSessionActionResult,
   ConversationSessionFrame,
@@ -287,6 +288,13 @@ export type ConversationRegistryLink = {
   workspaceOf?: (workspaceId: string) => ConversationListWorkspace | null
   /** A person sent one of the workspace's chats a message from a paired device. */
   noteUserMessage?: (workspaceId: string, at: number) => void
+  /**
+   * The sends through this host are Studio's own, not a person's (a resume
+   * after a usage limit): each turn's `user_message` carries this origin, so
+   * the chat draws it as Studio's and nothing counts it as the person writing.
+   * Absent, a send is the person's, from a paired device.
+   */
+  sendOrigin?: ConversationMessageOrigin
   /**
    * The effort the chat's agent record keeps (a New chat's pick, or one
    * changed in the chat since), which a window's chat view sends every turn
@@ -728,6 +736,7 @@ export function createConversationGatewayHost(
                 attachments: [],
                 ...turnEffort,
                 ...stamp,
+                ...(registry.sendOrigin ? { origin: registry.sendOrigin } : {}),
               })
             chatSessions.add(session.sessionId)
             const attachments: ConversationImageAttachment[] = []
@@ -769,6 +778,7 @@ export function createConversationGatewayHost(
               attachments,
               ...turnEffort,
               ...stamp,
+              ...(registry.sendOrigin ? { origin: registry.sendOrigin } : {}),
             })
             // Accepted: the images are in the turn now, so their staged files
             // are removed rather than left for the hour-long expiry. A refused

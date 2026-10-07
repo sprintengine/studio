@@ -87,6 +87,12 @@ export const SERVER_EVENTS = {
    * the list is every live one, sent to a server that has just started.
    */
   launchTokens: 'gateway.launch-tokens',
+  /**
+   * Shell → server: a Claude terminal's status-line usage windows
+   * `{ rateLimits, at }`. The shell runs the terminals; the server keeps the
+   * usage-limit store its IPC draws from and its resumes ask.
+   */
+  usageStatusLine: 'usage-limits.status-line',
   /** Shell → server: an SSH machine connected or reconnected `{ key }`; the server follows its chats (phase 8). */
   sshConnected: 'ssh.connected',
   /** Shell → server hints (6.3). */

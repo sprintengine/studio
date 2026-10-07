@@ -7,6 +7,7 @@ import type {
   ConversationApprovalKind,
   ConversationEvent,
   ConversationJsonValue,
+  ConversationMessageOrigin,
   ConversationPage,
   ConversationSessionStatus,
   ConversationToolKind,
@@ -22,6 +23,7 @@ export type {
   ConversationEvent,
   ConversationEventType,
   ConversationJsonValue,
+  ConversationMessageOrigin,
   ConversationPage,
   ConversationQuestion,
   ConversationQuestionOption,
@@ -36,6 +38,8 @@ export type {
   ConversationToolStatus,
   ConversationTurnRetryingPayload,
 } from '../../packages/conversation-protocol/src/public'
+// Who a `user_message` came from when it was not the person (`origin`).
+export { readConversationMessageOrigin } from '../../packages/conversation-protocol/src/public'
 
 export type ConversationSessionSummary = {
   sessionId: string
@@ -52,7 +56,11 @@ export type ConversationSessionSummary = {
   currentToolTitle?: string
   firstUserText?: string
   lastUserText?: string
+  // The opening of the agent's last reply (the sidebar's preview)…
   lastAssistantText?: string
+  // …and its end, where an agent puts its conclusion: what a launch notice
+  // quotes to the agent that started this one.
+  lastAssistantTail?: string
   // Background subagents still running. They keep the conversation working
   // after its turn has ended, so the sidebar and tab still show activity.
   backgroundAgents?: number
@@ -245,6 +253,12 @@ export type ConversationSendTurnInput = {
   // turn closes where the message lands, and the reply carries on as this
   // one's.
   steer?: boolean
+  // Studio sent this message itself (a launched agent's notice, a resume after
+  // a usage limit), not the person: recorded on the `user_message` so the chat
+  // draws it as Studio's and nothing counts it as the person writing. Set only
+  // by Studio's own senders in main; neither a window's IPC nor the Studio
+  // protocol's `session.send` passes one through.
+  origin?: ConversationMessageOrigin
 }
 
 export type ConversationInterruptInput = {

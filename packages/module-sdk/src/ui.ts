@@ -78,6 +78,7 @@ export type TooltipChildProps = {
   onFocus?: (event: React.FocusEvent) => void
   onBlur?: (event: React.FocusEvent) => void
   onKeyDown?: (event: React.KeyboardEvent) => void
+  onPointerDown?: (event: React.PointerEvent) => void
 }
 
 /** The one focus ring. Compose it onto any custom focusable a module draws. */

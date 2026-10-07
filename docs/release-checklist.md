@@ -282,6 +282,8 @@ GitHub settings.
 - Confirm Git panel reads status in a real repository.
 - Confirm the Backlog door lists items in a project that has a `backlog/`.
 - Confirm protocol registration for `sprintengine://` auth callbacks still works.
+- Confirm a chat's "Copy link to chat" link opens that chat from a browser or a
+  terminal, with the app quit, in the background, and in front.
 
 ## Update Validation
 
