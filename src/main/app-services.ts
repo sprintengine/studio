@@ -150,7 +150,7 @@ import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canv
 import { broadcastToWorkspaceWindows, isBrowserHostWebContents, listWorkspaceWindows } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchNotices } from './agent-launch-notices'
-import { forwardStatusLineRateLimits, usageRateLimit } from './usage-limits/store'
+import { forwardStatusLineRateLimits, usageLimitsStore, usageRateLimit } from './usage-limits/store'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
@@ -1029,10 +1029,13 @@ export function createAppServices(
     readChatReply: (sessionId) => {
       const listed = conversations.listSessions()
       return listed.ok
-        ? listed.sessions.find((session) => session.sessionId === sessionId)?.lastAssistantText
+        ? listed.sessions.find((session) => session.sessionId === sessionId)?.lastAssistantTail
         : undefined
     },
     usageLimit: (provider) => usageRateLimit(provider),
+    onUsageLimitsChanged: (listener) => {
+      usageLimitsStore().onChanged(listener)
+    },
     log: (message) => {
       void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Launch notices', message })
     },

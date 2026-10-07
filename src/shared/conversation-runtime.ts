@@ -56,7 +56,11 @@ export type ConversationSessionSummary = {
   currentToolTitle?: string
   firstUserText?: string
   lastUserText?: string
+  // The opening of the agent's last reply (the sidebar's preview)…
   lastAssistantText?: string
+  // …and its end, where an agent puts its conclusion: what a launch notice
+  // quotes to the agent that started this one.
+  lastAssistantTail?: string
   // Background subagents still running. They keep the conversation working
   // after its turn has ended, so the sidebar and tab still show activity.
   backgroundAgents?: number

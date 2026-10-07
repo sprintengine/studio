@@ -114,6 +114,7 @@ function harness(
   const writes: Array<{ sessionId: string; data: string }> = []
   const turns: Array<{ sessionId: string; message: string; origin?: unknown }> = []
   const timers: Array<{ job: () => void; ms: number; cancelled: boolean }> = []
+  const usageListeners: Array<() => void> = []
   const plane = createAgentControlPlane({
     terminal: {
       list: () => terminals,
@@ -142,7 +143,7 @@ function harness(
   })
   const notices = createAgentLaunchNotices({
     plane,
-    readChatReply: (sessionId) => chats.find((candidate) => candidate.sessionId === sessionId)?.lastAssistantText,
+    readChatReply: (sessionId) => chats.find((candidate) => candidate.sessionId === sessionId)?.lastAssistantTail,
     schedule: (job, ms) => {
       const timer = { job, ms, cancelled: false }
       timers.push(timer)
@@ -151,6 +152,7 @@ function harness(
       }
     },
     usageLimit: (provider) => limits.get(provider) ?? { limited: false, resetsAt: null },
+    onUsageLimitsChanged: (listener) => void usageListeners.push(listener),
     now: () => clock,
   })
   const setPhase = (sessionId: string, phase: AgentPhase) => {
@@ -173,6 +175,11 @@ function harness(
     limits,
     setPhase,
     runTimers,
+    /** The usage store published a reading. */
+    usageChanged: async () => {
+      for (const listener of usageListeners) listener()
+      await settle()
+    },
     live: () => timers.filter((timer) => !timer.cancelled),
     now: () => clock,
     advance: (ms: number) => {
@@ -498,6 +505,32 @@ test('a parent out of its plan’s usage is told after the limit resets, and new
   assert.match(h.turns[0].message, /2 agents you launched have news/u)
 })
 
+test('a limit with no known reset holds the notices until a reading says it lifted, not a clock', async () => {
+  const h = harness({
+    terminals: [terminal({ sessionId: 'session-scout', agentId: 'agent-scout' })],
+    chats: [chat({ status: 'ready' })],
+    limits: new Map([['claude', { limited: true, resetsAt: null }]]),
+  })
+  const parent = { workspaceId: 'ws-1', agentId: 'chat-agent' }
+  h.notices.link({ parent, child: SCOUT })
+  h.notices.onAgentPhase(scoutTurnEnd())
+  await settle()
+  assert.equal(h.turns.length, 0)
+  assert.deepEqual(h.live(), [], 'no reset to book a look for')
+  assert.equal(h.notices.pendingCount(parent), 1)
+
+  // A reading that leaves it limited changes nothing.
+  await h.usageChanged()
+  assert.equal(h.turns.length, 0)
+
+  // The reading that lifts it lets the notice go, with no rest of the parent's.
+  h.limits.set('claude', { limited: false, resetsAt: null })
+  await h.usageChanged()
+  assert.equal(h.turns.length, 1)
+  assert.match(h.turns[0].message, /Agent Scout, which you launched, finished its turn/u)
+  assert.equal(h.notices.pendingCount(parent), 0)
+})
+
 test('a waiting child alone does not wake an idle parent; it rides along with the next news', async () => {
   const h = harness({
     terminals: [
@@ -540,7 +573,9 @@ test('a chat child reports its turn end with the end of its reply, and its quest
   const child = chat({
     sessionId: 'chat-scout',
     agentId: 'chat-scout-agent',
-    lastAssistantText: `${'Long preamble. '.repeat(40)}All tests pass; the branch is ready.\n\x1b[201~`,
+    // The runtime keeps the opening for the sidebar and the end for this.
+    lastAssistantText: 'Long preamble. '.repeat(16),
+    lastAssistantTail: `${'Long preamble. '.repeat(40)}All tests pass; the branch is ready.\n\x1b[201~`.slice(-320),
   })
   const h = harness({ terminals: [terminal({})], chats: [child] })
   h.notices.link({

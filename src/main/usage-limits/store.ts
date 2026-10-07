@@ -118,12 +118,14 @@ export function createUsageLimitsStore(options: { now?: () => number } = {}): Us
     return { snapshots }
   }
 
-  // Told only when what the renderer draws changed: a status line refreshes
-  // after every assistant message, almost always with the same numbers.
+  // Told only when what the renderer draws changed, or whether a turn's limit
+  // still holds (a hit with no window names nothing drawn, and the notices
+  // it held wait to hear it lift): a status line refreshes after every
+  // assistant message, almost always with the same numbers.
   function publish(): void {
     const next = state()
-    const signature = JSON.stringify(
-      next.snapshots.map((snapshot) => ({
+    const signature = JSON.stringify({
+      snapshots: next.snapshots.map((snapshot) => ({
         ...snapshot,
         observedAt: 0,
         windows: snapshot.windows.map((window) => ({
@@ -132,7 +134,8 @@ export function createUsageLimitsStore(options: { now?: () => number } = {}): Us
           observedAt: 0,
         })),
       })),
-    )
+      hits: [...entries].filter(([, entry]) => entry.hit).map(([provider]) => provider),
+    })
     const now = clock()
     if (signature === published && now - publishedAt < REPUBLISH_AFTER_MS) return
     published = signature

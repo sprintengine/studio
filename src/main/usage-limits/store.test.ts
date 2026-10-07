@@ -129,6 +129,18 @@ test('a hit with no window known stays limited until a later reading allows the 
   expect(store.rateLimit('codex').limited).toBe(false)
 })
 
+test('a hit with no window lifting is pushed even when nothing drawn changed, so what it held can go', () => {
+  const { store, pushes, advance } = storeAt()
+  store.noteWindows('codex', [{ id: 'codex:primary', usedPercent: 40, resetsAt: T0 + HOUR, status: 'allowed' }])
+  store.noteLimitHit({ provider: 'codex', sessionId: 's2', resetsAt: null, windowId: null })
+  const before = pushes.length
+  advance(1000)
+  // The same reading as before the hit: only the limit it lifts changed.
+  store.noteWindows('codex', [{ id: 'codex:primary', usedPercent: 40, resetsAt: T0 + HOUR, status: 'allowed' }])
+  expect(store.rateLimit('codex').limited).toBe(false)
+  expect(pushes).toHaveLength(before + 1)
+})
+
 test('the window a hit names is marked refused, with the reset the turn gave', () => {
   const { store } = storeAt()
   store.noteWindows('claude', [{ id: 'seven_day', usedPercent: 97, resetsAt: T0 + 20 * HOUR }])

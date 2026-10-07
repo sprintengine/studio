@@ -43,7 +43,8 @@ import type { AgentControlPlane, ControlPlaneSendOptions, ControlPlaneSession } 
  * - **Not into a usage limit.** A parent whose provider is out of its plan's
  *   usage would fail the turn the notice starts, and a chat's own resume after
  *   the limit (usage-limits/resume.ts) would be the better first message. The
- *   notices wait until a little after the limit resets.
+ *   notices wait until a little after the limit resets, or, when nobody said
+ *   when it would, until a usage reading says it has lifted.
  * - **One message per wake.** Everything that happened while the parent was
  *   busy is folded into one notice, and each child counts once: its latest
  *   news replaces what was waiting for it. One turn end is one notice; a
@@ -104,8 +105,8 @@ export function launchingAgentOf(
 export type AgentLaunchNoticesDeps = {
   plane: Pick<AgentControlPlane, 'listSessions' | 'send'>
   /**
-   * The last thing a chat child said, read when its turn ends. A chat has no
-   * read tool the parent could call, so a few of its words ride the notice.
+   * The end of a chat child's last reply, read when its turn ends. A chat has
+   * no read tool the parent could call, so a few of its words ride the notice.
    * Absent, the notice goes without them.
    */
   readChatReply?: (sessionId: string) => string | undefined
@@ -114,6 +115,12 @@ export type AgentLaunchNoticesDeps = {
    * (usage-limits/store.ts). Absent, nothing is held for a limit.
    */
   usageLimit?: (provider: UsageLimitProvider) => { limited: boolean; resetsAt: number | null }
+  /**
+   * Hear the usage readings change (the store's `onChanged`). A limit with no
+   * known reset books no look, so this is what lets the notices it held go
+   * once a reading says it lifted.
+   */
+  onUsageLimitsChanged?: (listener: () => void) => void
   /** Run `job` after `ms`; returns the cancel. Injected so tests drive the clock. */
   schedule?: (job: () => void, ms: number) => () => void
   now?: () => number
@@ -163,6 +170,8 @@ type ParentState = {
   delivering: boolean
   /** The look booked for after a usage limit resets, and when it is; the cancel. */
   hold: { at: number; cancel: () => void } | null
+  /** The last look found the parent's provider out of its usage. */
+  limited: boolean
 }
 
 /**
@@ -263,6 +272,7 @@ export function createAgentLaunchNotices(deps: AgentLaunchNoticesDeps): AgentLau
         pending: new Map(),
         delivering: false,
         hold: null,
+        limited: false,
       })
     }
     children.set(input.child.sessionId, { identity: { ...input.child }, parentKey: key, reported: null })
@@ -406,8 +416,9 @@ export function createAgentLaunchNotices(deps: AgentLaunchNoticesDeps): AgentLau
   /**
    * Book one more look for when the parent's usage limit has reset. Kept
    * across every other look until it runs or the notices go: a child's news in
-   * between never takes it away. A limit with no known reset books none; the
-   * parent's next rest looks again.
+   * between never takes it away. A limit with no known reset books none: the
+   * next usage reading that changes looks again (`usageChanged`), as does the
+   * parent's next rest.
    */
   function holdUntilReset(parent: ParentState, resetsAt: number | null): void {
     if (resetsAt === null) return
@@ -444,6 +455,7 @@ export function createAgentLaunchNotices(deps: AgentLaunchNoticesDeps): AgentLau
     if (!readsIdle(session)) return
     const provider = usageProviderOf(session)
     const limit = provider ? deps.usageLimit?.(provider) : undefined
+    parent.limited = limit?.limited === true
     if (limit?.limited) {
       holdUntilReset(parent, limit.resetsAt)
       return
@@ -513,6 +525,20 @@ export function createAgentLaunchNotices(deps: AgentLaunchNoticesDeps): AgentLau
     if (parent && !options.keepParent) forgetIfDone(parent)
   }
 
+  /**
+   * The usage readings changed: a parent whose notices a limit held, with no
+   * look booked for a reset, looks again; `flush` reads whether the limit
+   * lifted. One with a look booked keeps it, so a chat's own resume after the
+   * reset still goes first.
+   */
+  function usageChanged(): void {
+    for (const parent of parents.values()) {
+      if (parent.limited && !parent.hold && parent.pending.size > 0) void flush(parent)
+    }
+  }
+  // For the app's life, as the notices themselves are.
+  deps.onUsageLimitsChanged?.(usageChanged)
+
   return {
     link,
     onAgentPhase,
@@ -568,10 +594,11 @@ function noticeSentence(notice: LaunchNotice): string {
 
 /**
  * Where to read more: `agent.status` for a terminal agent. A chat has no read
- * tool, so the end of its reply rides along — quoted, and said to be the child
- * agent's own output. It is text another agent wrote, which can say anything
- * ("ignore your instructions…"); the notice's own sentences are Studio's, and
- * the quote must not read as one of them.
+ * tool, so the end of its reply (the runtime's `lastAssistantTail`) rides
+ * along — quoted, and said to be the child agent's own output. It is text
+ * another agent wrote, which can say anything ("ignore your instructions…");
+ * the notice's own sentences are Studio's, and the quote must not read as one
+ * of them.
  */
 function nextStep(notice: LaunchNotice): string | null {
   const ids = `workspaceId "${cleanLine(notice.child.workspaceId, MAX_ID_CHARS)}", agentId "${cleanLine(notice.child.agentId, MAX_ID_CHARS)}"`

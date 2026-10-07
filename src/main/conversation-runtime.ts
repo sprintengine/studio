@@ -293,6 +293,12 @@ type EmittedSummary = {
 const DEFAULT_TOOL_PREVIEW_INTERVAL_MS = 5_000
 /** How long a send turned away by a running turn waits before it is sent again. */
 const TURN_BUSY_RETRY_MS = 1_000
+/**
+ * How much of the end of the last reply a session keeps: a little more than a
+ * launch notice quotes (agent-launch-notices.ts), so a reply cut short there
+ * is shown cut.
+ */
+const LAST_ASSISTANT_TAIL_CHARS = 320
 
 const UNSAVED_NOTICE =
   'This conversation could not be saved to disk. It carries on here, but messages from now on may be missing after the app restarts.'
@@ -2348,7 +2354,10 @@ export class ConversationRuntime {
     // launched agent's notice, a resume after a usage limit) is not, and
     // neither moves the clock nor becomes the chat's first or last words.
     const fromPerson = event.type === 'user_message' && !readConversationMessageOrigin(event.payload?.origin)
-    if (event.type === 'user_message' && !fromPerson) session.lastAssistantText = ''
+    if (event.type === 'user_message' && !fromPerson) {
+      session.lastAssistantText = ''
+      session.lastAssistantTail = ''
+    }
     if (fromPerson && event.createdAt > 0)
       session.lastUserMessageAt = Math.max(session.lastUserMessageAt ?? 0, event.createdAt)
     if (fromPerson && typeof event.payload?.text === 'string') {
@@ -2357,8 +2366,14 @@ export class ConversationRuntime {
       if (!session.firstUserText && event.payload.text.trim()) session.firstUserText = event.payload.text.slice(0, 240)
       session.lastUserText = event.payload.text.slice(0, 240)
       session.lastAssistantText = ''
+      session.lastAssistantTail = ''
     } else if (event.type === 'content_delta' && typeof event.payload?.text === 'string') {
+      // The opening is the sidebar's preview; the end is where an agent puts
+      // its conclusion, which a launch notice quotes.
       session.lastAssistantText = ((session.lastAssistantText ?? '') + event.payload.text).slice(0, 240)
+      session.lastAssistantTail = ((session.lastAssistantTail ?? '') + event.payload.text).slice(
+        -LAST_ASSISTANT_TAIL_CHARS,
+      )
     }
   }
 
@@ -3927,6 +3942,7 @@ export class ConversationRuntime {
       firstUserText: session.firstUserText,
       lastUserText: session.lastUserText,
       lastAssistantText: session.lastAssistantText,
+      lastAssistantTail: session.lastAssistantTail,
       ...(session.backgroundAgents ? { backgroundAgents: session.backgroundAgents } : {}),
       ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
       ...(session.lastUserMessageAt !== undefined ? { lastUserMessageAt: session.lastUserMessageAt } : {}),
