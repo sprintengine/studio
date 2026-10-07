@@ -114,6 +114,8 @@ async function mountChat({
   plugins,
   api: extraApi = {},
   cliModelCatalog,
+  whenActive = false,
+  folderPath = '/Users/dev/project',
 }: {
   events?: ConversationEvent[]
   capabilities?: Record<string, unknown>
@@ -127,6 +129,10 @@ async function mountChat({
   /** More of the window's api: git reads for the strip, say. */
   api?: Record<string, unknown>
   cliModelCatalog?: Record<string, unknown>
+  /** Draw the chat only while it is the window's active one, as the window does. */
+  whenActive?: boolean
+  /** The chat's folder, which keys the transcript the window keeps for it. */
+  folderPath?: string
 }) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
@@ -208,7 +214,7 @@ async function mountChat({
       {
         id: 'workspace',
         name: 'Project',
-        folderPath: '/Users/dev/project',
+        folderPath,
         agents: {
           agent: {
             id: 'agent',
@@ -224,7 +230,12 @@ async function mountChat({
   const host = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(host)
   const root = createRoot(host)
-  await act(async () => root.render(createElement(AgentChatView, { workspaceId: 'workspace', agentId: 'agent' })))
+  const chatView = () => createElement(AgentChatView, { workspaceId: 'workspace', agentId: 'agent' })
+  function FrontChat() {
+    return useWorkspaceStore((state) => state.activeWorkspaceId) === 'workspace' ? chatView() : null
+  }
+  if (whenActive) useWorkspaceStore.setState({ activeWorkspaceId: null } as never)
+  await act(async () => root.render(whenActive ? createElement(FrontChat) : chatView()))
   await act(async () => {
     frames.at(-1)?.({ type: 'snapshot', page: { events, hasMore: false, beforeCursor: null } })
     frames.at(-1)?.({ type: 'synchronized', seq: events.at(-1)?.seq ?? 0 })
@@ -633,6 +644,56 @@ test('a chat left mid-history still opens at its New divider, not at the place i
       scrolledToIndex.some((target) => target.index === 0),
       'the remembered place is not restored over it',
     ).toBe(false)
+  } finally {
+    noteChatLeft('workspace')
+    await chat.unmount()
+  }
+})
+
+test('a chat already loaded opens at its New divider on its first frame when it is made active', async () => {
+  const { noteChatLeft } = await import('./unreadDivider')
+  const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+  const events = [
+    eventAt(1_000, 'user_message', { turnId: 'a', text: 'Check the build' }),
+    eventAt(1_100, 'turn_started', { turnId: 'a' }),
+    eventAt(1_200, 'content_delta', { turnId: 'a', text: 'It builds.' }),
+    eventAt(2_000, 'turn_completed', { turnId: 'a' }),
+    eventAt(3_000, 'user_message', { turnId: 'b', text: 'Now the tests' }),
+    eventAt(3_100, 'turn_started', { turnId: 'b' }),
+    eventAt(3_600, 'content_delta', { turnId: 'b', text: 'They pass.' }),
+    eventAt(4_000, 'turn_completed', { turnId: 'b' }),
+  ]
+  // Read once and left: the window keeps its transcript, so the next time it
+  // is drawn it is drawn whole, at once, with no load to wait for. A folder of
+  // its own, so no other test is handed this transcript.
+  const folderPath = '/Users/dev/kept'
+  const first = await mountChat({ events, folderPath })
+  await first.act(async () =>
+    first.emit({ type: 'synchronized', seq: events.at(-1)!.seq!, generation: 'kept' } as ConversationSessionFrame),
+  )
+  await first.unmount()
+  scrolledToIndex.length = 0
+  mountedAt.length = 0
+  // The window is up first, showing another chat; this one is opened after,
+  // by the click that makes it active.
+  const chat = await mountChat({ events, whenActive: true, folderPath })
+  try {
+    expect(mountedAt, 'not drawn while another chat is in front').toEqual([])
+    useWorkspaceStore.setState((state) => ({
+      workspaces: state.workspaces.map((workspace) => ({ ...workspace, lastVisitedAt: 2_500 })),
+    }))
+    await chat.act(async () => useWorkspaceStore.getState().setActiveWorkspace('workspace'))
+    const divider = listedKeys.current.indexOf('assistant:b')
+    expect(divider).toBeGreaterThan(0)
+    expect(mountedAt[0], 'its list starts at the divider, not at the end and a frame later there').toEqual({
+      initialScrollIndex: divider,
+      initialScrollAtEnd: false,
+    })
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 50)))
+    expect(
+      scrolledToIndex.every((target) => target.index === divider),
+      'nothing takes it anywhere else first',
+    ).toBe(true)
   } finally {
     noteChatLeft('workspace')
     await chat.unmount()

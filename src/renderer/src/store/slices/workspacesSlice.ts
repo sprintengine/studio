@@ -11,6 +11,7 @@ import {
 } from '../../utils/workspaceSettle'
 import { hasSnooze, snoozeWorkspacePatch, wakeSnoozedWorkspacePatch } from '../../utils/workspaceSnooze'
 import type { WorkspaceFieldsPatch } from '../../../../shared/workspace-sync'
+import { noteChatOpened } from '../../components/panels/agentChat/unreadDivider'
 import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { isRetiredWorkspaceMode } from '../../../../shared/workspace-mode'
 import { hostIdToRecord } from '../../../../shared/execution-host'
@@ -1525,6 +1526,13 @@ export function createWorkspacesSlice(
       // because the Woke mark exists to get you to this exact click and has
       // nothing left to say once you have made it.
       let snoozePatch: WorkspaceFieldsPatch | null = null
+      // The opening, said before the chat is drawn so its view mounts at the
+      // "New" divider (`unreadDivider.ts`), with the visit clock as it stands
+      // before this opening is stamped. A chat followed from another machine
+      // keeps its clock there, and has no divider here.
+      const opened = getState().workspaces.find((w) => w.id === id)
+      if (opened && !opened.remoteOrigin)
+        noteChatOpened(id, typeof opened.lastVisitedAt === 'number' ? opened.lastVisitedAt : null, Date.now())
       set((state) => {
         state.activeWorkspaceId = id
         // Leaving a door-routed full-page surface for a workspace (epic 1704);

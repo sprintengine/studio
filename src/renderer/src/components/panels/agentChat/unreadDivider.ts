@@ -5,8 +5,11 @@
 // What was seen comes from the chat's visit clock (`lastVisitedAt`), which the
 // sidebar moves forward while the chat is in front (`useVisitStamp`). Opening
 // a chat moves it at once, so the clock as it stood just before is taken here
-// first (`noteChatOpened`, said by the visit stamp before its first stamp) and
-// held until the person leaves the chat. The divider is placed against that
+// first (`noteChatOpened`) and held until the person leaves the chat. It is
+// said as the chat is made active (`setActiveWorkspace`), before anything is
+// drawn, so a chat whose transcript is already loaded mounts its list at the
+// divider; the visit stamp says it again, to the same effect, for a chat that
+// came in front any other way. The divider is placed against that
 // reading and the moment of opening, never against the live clock, so it
 // stays where it was drawn while the agent keeps streaming and does not
 // vanish the instant the visit lands.
@@ -40,9 +43,12 @@ function publish(next: ChatOpening | null): void {
 
 /**
  * The chat came in front of this window. `visitedAt` is its visit clock as it
- * stands now, before this opening is stamped as a visit.
+ * stands now, before this opening is stamped as a visit. Said again for the
+ * chat already open, it changes nothing: that is the same opening, and the
+ * clock has moved since by the visit it began.
  */
 export function noteChatOpened(workspaceId: string, visitedAt: number | null, now: number): void {
+  if (opening?.workspaceId === workspaceId) return
   publish({ workspaceId, openedAt: now, since: visitedAt === null ? null : { kind: 'visit', at: visitedAt } })
 }
 

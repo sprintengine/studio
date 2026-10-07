@@ -918,8 +918,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // than at the end or a remembered place and moving a frame later, and
   // neither the end-follow nor the restore of a remembered place takes it
   // anywhere else first.
-  const landedOpeningRef = useRef<ChatOpening | null>(null)
-  const landsAtDivider = opening !== null && landedOpeningRef.current !== opening && unreadRowIndex >= 0
+  const [landedOpening, setLandedOpening] = useState<ChatOpening | null>(null)
+  const landsAtDivider = opening !== null && landedOpening !== opening && unreadRowIndex >= 0
   const { handleRecallKeyDown, detachRecall } = useComposerRecall(shape.promptHistory, draft, setDraft)
 
   // A model switch made from a paired device reaches this window as the
@@ -1150,10 +1150,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // end-follow below, which runs after it in the same commit and finds
   // `atBottomRef` already off.
   const openingRef = useRef(opening)
-  openingRef.current = opening
   useEffect(() => {
-    if (!opening || landedOpeningRef.current === opening || !hydrated) return
-    landedOpeningRef.current = opening
+    openingRef.current = opening
+  }, [opening])
+  useEffect(() => {
+    if (!opening || landedOpening === opening || !hydrated) return
+    setLandedOpening(opening)
     const index = unreadRowIndex
     if (index < 0 || searching) return
     atBottomRef.current = false
@@ -1168,7 +1170,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       if (openingRef.current !== opening) return
       void listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false })
     })
-  }, [opening, hydrated, unreadRowIndex, searching, atBottomRef, setAtBottom])
+  }, [opening, landedOpening, hydrated, unreadRowIndex, searching, atBottomRef, setAtBottom])
   const followedInitialSnapshot = useRef(false)
   useEffect(() => {
     if (!hydrated) return

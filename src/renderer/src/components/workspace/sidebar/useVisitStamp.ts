@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 
 // "A person has this chat on screen", said to whoever keeps the chat's visit
 // clock (`lastVisitedAt`): this desktop's registry for a chat here, the other
@@ -54,10 +54,12 @@ export function useVisitStamp(target: VisitTarget | null, onScreen: boolean): vo
   const key = target?.key ?? null
   const turnEndedAt = target?.turnEndedAt ?? null
   // Ahead of the stamping below, which runs after it in the same commit: the
-  // opening has to read the clock before the visit moves it. Not gated on the
-  // window being focused — the chat is the one in front either way, and the
-  // person coming back to the window is not opening it again.
-  useEffect(() => {
+  // opening has to read the clock before the visit moves it. Before the frame
+  // is painted, too, for a chat that came in front without being made active
+  // by hand (which says its opening itself). Not gated on the window being
+  // focused — the chat is the one in front either way, and the person coming
+  // back to the window is not opening it again.
+  useLayoutEffect(() => {
     if (key === null) return
     const current = targetRef.current
     current?.opened?.()
