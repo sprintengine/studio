@@ -76,3 +76,17 @@ test('nothing to go to: none waiting, or only the chat on screen', () => {
   assert.equal(nextWaitingChatId(['a'], 'a'), null)
   assert.equal(nextWaitingChatId(['a'], 'b'), 'a')
 })
+
+test('a chat waits from when it was asked, not from a later model or permission change', () => {
+  const waiting = chatsWaitingOnYou({
+    workspaceIds: ['changed-later', 'asked-later'],
+    activityByWorkspaceId: { 'changed-later': 'needs-input', 'asked-later': 'needs-input' },
+    terminalSessions: [],
+    conversationSessions: [
+      // Asked first, then its permission preset was changed: `updatedAt` moved.
+      chat('changed-later', { status: 'awaiting_approval', waitingSince: 100, updatedAt: 900 }),
+      chat('asked-later', { status: 'awaiting_approval', waitingSince: 300, updatedAt: 300 }),
+    ],
+  })
+  assert.deepEqual(waiting, ['changed-later', 'asked-later'])
+})

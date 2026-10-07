@@ -2281,6 +2281,7 @@ export class ConversationRuntime {
     // When the last turn ended, read off the event rather than the clock so
     // the transcript replay on resume restores the true time, not the resume.
     if (event.type === 'turn_completed' || event.type === 'turn_failed') session.lastTurnEndedAt = event.createdAt
+    const wasWaiting = isWaitingPhase(session.phase)
     // A turn the person stopped ended where they asked it to: the chat reads as
     // done, as its own transcript does, not as failed and needing a look.
     if (event.type === 'turn_completed' || (event.type === 'turn_failed' && isInterruptedTurn(event)))
@@ -2294,6 +2295,11 @@ export class ConversationRuntime {
       session.phase = 'running'
     else if (event.type === 'approval_requested')
       session.phase = event.payload?.kind === 'question' ? 'waiting_for_input' : 'waiting_for_approval'
+    // When it started waiting on the person, for "the next chat that needs
+    // you" to visit the longest-waiting first.
+    if (!isWaitingPhase(session.phase)) session.waitingSince = undefined
+    else if (!wasWaiting || session.waitingSince === undefined)
+      session.waitingSince = event.createdAt > 0 ? event.createdAt : this.now()
     if (event.type === 'subagent_status') {
       const status = readSubagentStatus(event.payload)
       if (status?.status === 'running')
@@ -3888,6 +3894,11 @@ export class ConversationRuntime {
       ...(session.backgroundAgents ? { backgroundAgents: session.backgroundAgents } : {}),
       ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
       ...(session.lastUserMessageAt !== undefined ? { lastUserMessageAt: session.lastUserMessageAt } : {}),
+      // Only while it is waiting: a turn can also leave the wait by a path
+      // that sets the phase without an event (a send, a stop).
+      ...(isWaitingPhase(session.phase) && session.waitingSince !== undefined
+        ? { waitingSince: session.waitingSince }
+        : {}),
       ...(session.resting && status !== 'stopped' ? { resting: true as const } : {}),
       // Only while a turn is open: every way a turn closes clears `activeTurnId`.
       ...(session.activeTurnId !== null && session.turnStartedAt !== undefined
@@ -3901,6 +3912,10 @@ export class ConversationRuntime {
       ...(session.allowedTools?.length ? { allowsUnaskedTools: true as const } : {}),
     }
   }
+}
+
+function isWaitingPhase(phase: ConversationSessionSummary['phase']): boolean {
+  return phase === 'waiting_for_approval' || phase === 'waiting_for_input'
 }
 
 // The one busy predicate: a session is busy while any turn is open, whether it

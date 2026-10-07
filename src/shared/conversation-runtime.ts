@@ -65,6 +65,12 @@ export type ConversationSessionSummary = {
   // carried on by itself. A message steered into a running turn does not move
   // it. Absent between turns, so a "working for" count needs no event stream.
   turnStartedAt?: number
+  // When the chat began waiting on the person: the request (an approval or a
+  // question) that stopped it, by the event's own time, so a resume restores
+  // it from the transcript. A second card while one is up does not move it.
+  // Absent while nothing is asked. `updatedAt` cannot stand in: it also moves
+  // on a model or permission change.
+  waitingSince?: number
   // When the person last sent the chat a message (the event's own time, so it
   // survives a resume). `updatedAt` also moves on a model or permission
   // change, which is not the person saying anything. Absent until one is sent.

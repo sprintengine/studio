@@ -32,8 +32,10 @@ function waitingSince(
   for (const summary of conversationSessions) {
     if (summary.workspaceId !== workspaceId) continue
     const phase = conversationSummaryPhase(summary)
+    // When the request that stopped it was made. `updatedAt` is only for a
+    // server too old to say: it also moves on a model or permission change.
     if (activity === 'needs-input' && (phase === 'waiting_for_approval' || phase === 'waiting_for_input')) {
-      since = Math.min(since, summary.updatedAt)
+      since = Math.min(since, summary.waitingSince ?? summary.updatedAt)
     }
     if (activity === 'failed' && phase === 'failed') {
       since = Math.min(since, summary.lastTurnEndedAt ?? summary.updatedAt)
