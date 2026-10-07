@@ -109,7 +109,9 @@ before you touch anything visual. In short:
   overrides.
 - Two font families exist permanently, `--sem-font-family-ui` and
   `--sem-font-family-mono`. Adding a third is a system change, not a styling
-  choice.
+  choice. Typeset content (math in replies, canvas drawings) brings its own
+  faces inside that content only; `design-system/foundations/principles.md`
+  lists them.
 
 This is enforced, not advisory. `npm run lint` runs
 `scripts/lint-design-tokens.mjs`, `scripts/lint-panel-composition.mjs`,

@@ -148,7 +148,7 @@ exceeds one, model the domain again rather than adding chrome.
 |---|---|
 | Product accents visible per view | 1 |
 | Status idioms | 1 — the status mark or a lifecycle glyph, never both; never a dot |
-| Font families | 2 — `font.family.ui`, `font.family.mono` |
+| Font families | 2 — `font.family.ui`, `font.family.mono` (typeset content excepted; see Type) |
 | Font weights per view | 3 |
 | Font sizes per view | 3, repeating title / body / meta |
 | Border radii per view | 2 |
@@ -396,6 +396,20 @@ person with everything at once.
 reads; `font.family.mono` (JetBrains Mono) for identifiers, paths, hashes,
 code, and `kbd`. There is no third family, and no serif anywhere in the
 product. Introducing one is a system change, not a styling choice.
+
+The two families are the interface's. Content the app typesets on a person's
+behalf carries the faces its notation needs, and only inside that content
+(owner ruling 2026-10-07):
+
+| Content | Faces | Why |
+|---|---|---|
+| Math in agent replies (KaTeX) | KaTeX's own families (`KaTeX_Main`, `KaTeX_Math`, `KaTeX_AMS`, …), serif included | Mathematical notation is defined by those glyphs; set in Inter, a formula stops reading as one. Bundled with the app and loaded with the first formula, so it costs nothing until a reply has math, and works offline. |
+| Canvas drawings | Excalifont, Nunito, Comic Shanns | They are the drawing's own lettering, chosen per element by the person who drew it. |
+
+Diagrams (Mermaid) are not on this list: they are drawn in
+`--sem-font-family-ui`. Any face a new kind of content brings is added to this
+table, with its reason, before it ships; nothing on the list may be used for
+chrome, labels, or prose around the content.
 
 - Sentence case everywhere except real keyboard shortcuts. No uppercase
   letter-spaced labels as hierarchy — not on section headers, metadata,
@@ -868,7 +882,8 @@ surface rather than patching it.
 - Two or more accent hues competing for primary, or an accent used as a
   selection fill.
 - More than two radii or more than three font weights in one view.
-- A third font family, or a serif anywhere in the product.
+- A third font family, or a serif anywhere in the product's interface (the
+  typeset-content faces listed under Type are the only exception).
 - A badge or tinted pill where a status mark carries the same meaning.
 - A status dot — a tone-filled disc standing for a state — on any surface.
 - A card inside a card with no containment reason.
