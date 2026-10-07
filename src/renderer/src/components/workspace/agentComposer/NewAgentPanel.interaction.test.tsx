@@ -496,6 +496,50 @@ test('NewAgentPanel interaction', async () => {
       view.unmount()
     })
 
+    await check('Escape in another pane leaves the "+" tab and its prompt alone', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      await typeInto(view, 'half a thought')
+      const elsewhere = dom.window.document.createElement('input')
+      dom.window.document.body.appendChild(elsewhere)
+      try {
+        await pressEscape(elsewhere)
+        assert.equal(view.closed(), 0, 'an Escape in a field outside the panel is not a cancel')
+        await pressEscape(dom.window.document.body)
+        assert.equal(view.closed(), 0, 'nor one with nothing focused, beside other panes')
+        await pressEscape(composerField(view.container))
+        assert.equal(view.closed(), 1, 'an Escape on the panel still cancels')
+      } finally {
+        elsewhere.remove()
+        view.unmount()
+      }
+    })
+
+    await check('the door closes on an Escape with nothing focused', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' }, showCloseButton: true })
+      view.container.setAttribute('data-new-chat-door', '')
+      await pressEscape(dom.window.document.body)
+      assert.equal(view.closed(), 1)
+      view.unmount()
+    })
+
+    await check('an Escape that drops an input method’s candidates keeps New chat and its draft', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      const field = await typeInto(view, 'にほん')
+      for (const init of [{ isComposing: true }, { keyCode: 229 }]) {
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, ...init }),
+          )
+        })
+      }
+      assert.equal(view.closed(), 0)
+      assert.equal(composerText(field), 'にほん')
+      view.unmount()
+    })
+
     await check('the skills picker opened from the "+" closes on Escape back to the "+"', async () => {
       seedStore()
       const view = await render({ initialSelection: { kind: 'conversation' } })

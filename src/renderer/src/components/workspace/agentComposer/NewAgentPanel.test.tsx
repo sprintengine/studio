@@ -817,7 +817,8 @@ test('NewAgentPanel', async () => {
       )
       await act(async () => {
         ;(chip as HTMLElement).focus()
-        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        // Where the browser sends a key: to whatever holds the focus.
+        chip!.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       })
       assert.equal(view.closed(), 1, 'Escape cancels from anywhere on the surface')
       view.unmount()

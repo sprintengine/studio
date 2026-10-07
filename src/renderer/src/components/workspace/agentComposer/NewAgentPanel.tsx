@@ -1695,11 +1695,23 @@ export default function NewAgentPanel({
   // opens, but a first-run auto-open can mount it UNDER a door that is already
   // up, inert. An Escape meant for that door must not close this on purpose
   // (and take its parked draft with it).
+  //
+  // Only an Escape pressed on this surface: the tab strip's "+" shares the
+  // window with other panes, and an Escape in one of them is theirs. The door
+  // covers the stage, so there an Escape with nothing focused is its too. An
+  // Escape that drops an input method's candidates belongs to the input method.
   const rootRef = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
-      if (rootRef.current?.closest('[inert], [aria-hidden="true"]')) return
+      if (event.key !== 'Escape' || event.defaultPrevented || isImeKey(event)) return
+      const root = rootRef.current
+      if (!root || root.closest('[inert], [aria-hidden="true"]')) return
+      const target = event.target instanceof Node ? event.target : null
+      const onSurface =
+        (target !== null && root.contains(target)) ||
+        (root.closest('[data-new-chat-door]') !== null &&
+          (target === null || target === document.body || target === document.documentElement || target === document))
+      if (!onSurface) return
       event.preventDefault()
       onClose()
     }
