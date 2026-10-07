@@ -18,8 +18,17 @@ import { searchDirectories } from '../login-shell-path'
  * be listed in advance, so nothing is picked: one login shell (interactive for
  * bash, zsh and the ksh family, where version managers and most exports live;
  * a plain login shell for fish and the rest) prints its environment, and all
- * of it is kept but the app's own variables. It is read once per install, when
- * one runs, so an export added to a profile counts at the next install.
+ * of it is kept but the app's own variables.
+ *
+ * A lease asks for it whenever the plan gets that far: a JavaScript project's
+ * fingerprint carries the Node version the install would run under, which is
+ * the login PATH's `node`. A login shell sourcing a profile that loads a
+ * version manager can take a second, so what it printed is kept for a few
+ * minutes (`cachedDependencyInstallEnvironment`): a burst of leases, almost
+ * all of which install nothing, starts one shell between them. An export added
+ * to a profile counts once that has run out. A shell that could not be read is
+ * not kept, and an install that failed drops what was (dependency-install.ts),
+ * so the next lease asks again: a missing token may have been added since.
  *
  * The login shell's PATH comes first and this process's follows, so a
  * directory only the app knows (a managed runtime) is still found. On Windows
@@ -77,10 +86,17 @@ function defaultShell(env: Record<string, string | undefined>): string {
 }
 
 export async function dependencyInstallEnvironment(deps: InstallEnvironmentDeps = {}): Promise<NodeJS.ProcessEnv> {
+  return (await readInstallEnvironment(deps)).env
+}
+
+/** The environment, and whether it is whole: false when the login shell could not be read. */
+async function readInstallEnvironment(
+  deps: InstallEnvironmentDeps,
+): Promise<{ env: NodeJS.ProcessEnv; whole: boolean }> {
   const platform = deps.platform ?? process.platform
   const processEnv = deps.processEnv ?? process.env
   const base = cleaned(processEnv)
-  if (platform === 'win32') return base
+  if (platform === 'win32') return { env: base, whole: true }
   const shell = deps.shell?.() ?? defaultShell(processEnv)
   // The shell starts from the cleaned environment, so nothing of the app's
   // reaches its profile, and what comes back is filtered again in case a
@@ -93,5 +109,46 @@ export async function dependencyInstallEnvironment(deps: InstallEnvironmentDeps 
   const merged = cleaned({ ...base, ...login })
   const path = searchDirectories(login?.PATH ?? null, base.PATH).join(delimiter)
   if (path) merged.PATH = path
-  return merged
+  return { env: merged, whole: login !== null }
+}
+
+/** How long a login shell's environment is kept before the next lease asks again. */
+export const INSTALL_ENVIRONMENT_FRESH_MS = 5 * 60_000
+
+export type CachedInstallEnvironment = {
+  /** The environment: the one kept while it is fresh (or still being read), else a new read. */
+  read(): Promise<NodeJS.ProcessEnv>
+  /** Drop what is kept, so the next read asks the login shell again. */
+  forget(): void
+}
+
+/**
+ * `dependencyInstallEnvironment`, kept for `freshMs` (one per process, made
+ * where the installer is). Leases that ask while a read is under way share
+ * it. A read whose login shell could not be read is not kept.
+ */
+export function cachedDependencyInstallEnvironment(
+  deps: InstallEnvironmentDeps & { freshMs?: number; now?: () => number } = {},
+): CachedInstallEnvironment {
+  const now = deps.now ?? Date.now
+  const freshMs = deps.freshMs ?? INSTALL_ENVIRONMENT_FRESH_MS
+  let kept: { at: number; env: Promise<NodeJS.ProcessEnv> } | null = null
+  return {
+    read() {
+      const at = now()
+      if (kept && at - kept.at < freshMs) return kept.env
+      const entry: { at: number; env: Promise<NodeJS.ProcessEnv> } = {
+        at,
+        env: readInstallEnvironment(deps).then(({ env, whole }) => {
+          if (!whole && kept === entry) kept = null
+          return env
+        }),
+      }
+      kept = entry
+      return entry.env
+    },
+    forget() {
+      kept = null
+    },
+  }
 }

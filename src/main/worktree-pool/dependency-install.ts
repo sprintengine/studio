@@ -378,16 +378,26 @@ export type DependencyInstallerDeps = {
   /**
    * The environment an install runs with: the person's login environment (so
    * a token or a proxy their shell profile exports reaches a private
-   * registry), none of the app's own variables. Read once per install, and
-   * only when one runs.
+   * registry), none of the app's own variables. Asked at most once a lease,
+   * and only when the plan needs it: a JavaScript project's Node version, or
+   * an install. The caller keeps a login shell's answer for a few minutes
+   * (`cachedDependencyInstallEnvironment`), so the leases that install
+   * nothing do not start a shell each.
    */
   env: () => Promise<NodeJS.ProcessEnv>
+  /**
+   * Drop the environment `env` kept: an install failed, and what it lacked (a
+   * token, a proxy) may be in the profile by the next lease.
+   */
+  forgetEnv?: () => void
   run?: InstallCommandRunner
   /** The Node version in that environment, for the fingerprint; `readNodeVersion` unless a test stands in. */
   nodeVersion?: (env: NodeJS.ProcessEnv) => Promise<string | null>
   /** Sent as an install starts, while it runs, and as it ends. */
   onChange?: (view: WorktreeDependencyInstallView) => void
   gitDir?: (worktreePath: string) => Promise<string | null>
+  /** Clears a slot's record before its install; `rm` unless a test stands in. */
+  clearRecord?: (recordPath: string) => Promise<void>
   now?: () => number
   timeoutMs?: number
   log?: (line: string) => void
@@ -412,6 +422,7 @@ export function createDependencyInstaller(deps: DependencyInstallerDeps) {
   const run = deps.run ?? runInstallCommand
   const nodeVersion = deps.nodeVersion ?? readNodeVersion
   const gitDir = deps.gitDir ?? worktreeGitDir
+  const clearRecord = deps.clearRecord ?? ((recordPath: string) => rm(recordPath, { force: true }))
   const now = deps.now ?? Date.now
   const timeoutMs = deps.timeoutMs ?? DEPENDENCY_INSTALL_TIMEOUT_MS
   const log = deps.log ?? ((line: string) => console.info(`[worktree-install] ${line}`))
@@ -432,8 +443,9 @@ export function createDependencyInstaller(deps: DependencyInstallerDeps) {
     if (quitting) return null
     const adminDir = await gitDir(input.path).catch(() => null)
     const recordPath = adminDir ? join(adminDir, DEPENDENCY_INSTALL_RECORD) : null
-    // Read once, and only when the plan gets as far as needing it: the
-    // environment is a login shell's, which costs a process start.
+    // Asked once, and only when the plan gets as far as needing it: the
+    // environment is a login shell's, which costs a process start unless
+    // `deps.env` still keeps one from a lease a moment ago.
     let env: Promise<NodeJS.ProcessEnv> | null = null
     const installEnv = () => (env ??= deps.env())
     const plan = await planDependencyInstall({
@@ -455,7 +467,7 @@ export function createDependencyInstaller(deps: DependencyInstallerDeps) {
     // A record that cannot be cleared would vouch for whatever half an install
     // left behind if this one is stopped, so then nothing runs at all.
     if (recordPath) {
-      const cleared = await rm(recordPath, { force: true }).then(
+      const cleared = await clearRecord(recordPath).then(
         () => true,
         (error: unknown) => {
           log(`${input.path}: not installing, the last install's record could not be cleared: ${String(error)}`)
@@ -463,6 +475,9 @@ export function createDependencyInstaller(deps: DependencyInstallerDeps) {
         },
       )
       if (!cleared) return null
+      // The quit began while the record was being cleared: nothing starts on
+      // the way out. The record is gone, so the next lease installs.
+      if (quitting) return null
     }
 
     const view: WorktreeDependencyInstallView = {
@@ -551,6 +566,7 @@ export function createDependencyInstaller(deps: DependencyInstallerDeps) {
       }
     } else {
       view.output = [ansiPlainText(output).trim(), outcome.error].filter(Boolean).join('\n') || null
+      if (view.state === 'failed' || view.state === 'timed-out') deps.forgetEnv?.()
     }
     running.delete(view.id)
     ended.set(view.id, { ...view })

@@ -107,7 +107,7 @@ import { excludeMcpConfigFromWorktree, seedWorktreeIncludedFiles } from './git'
 import { broadcastWorktreePoolChanged, WORKTREE_INSTALL_CHANGED_CHANNEL } from './ipc/worktree-pool-ipc'
 import { installWorktreePool } from './worktree-pool/active-pool'
 import { createDependencyInstaller, installDependencyInstaller } from './worktree-pool/dependency-install'
-import { dependencyInstallEnvironment } from './worktree-pool/install-environment'
+import { cachedDependencyInstallEnvironment } from './worktree-pool/install-environment'
 import { createPoolStore } from './worktree-pool/pool-store'
 import { chatIdsOnRecord } from './agent-worktree-keep-checks'
 import { createWorktreePoolService } from './worktree-pool/worktree-pool-service'
@@ -1392,9 +1392,12 @@ export function createAppServices(
   // The dependency install an agent worktree runs when its project opted in
   // and its lockfile changed (worktree-pool/dependency-install.ts), with the
   // environment the person's own terminal has and none of the app's own
-  // variables (worktree-pool/install-environment.ts).
+  // variables (worktree-pool/install-environment.ts): one login shell's,
+  // kept for the leases of the next few minutes.
+  const dependencyInstallEnv = cachedDependencyInstallEnvironment()
   const dependencyInstaller = createDependencyInstaller({
-    env: () => dependencyInstallEnvironment(),
+    env: () => dependencyInstallEnv.read(),
+    forgetEnv: () => dependencyInstallEnv.forget(),
     onChange: (view) => broadcastToWorkspaceWindows(WORKTREE_INSTALL_CHANGED_CHANNEL, view),
   })
   installDependencyInstaller(dependencyInstaller)

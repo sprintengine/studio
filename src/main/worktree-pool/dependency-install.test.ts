@@ -14,6 +14,7 @@ import {
   type InstallCommandRunner,
   type InstallRunOutcome,
 } from './dependency-install'
+import { cachedDependencyInstallEnvironment, type LoginEnvironmentCapture } from './install-environment'
 import { normalizePoolSettings } from './pool-store'
 
 let scratch = ''
@@ -343,6 +344,68 @@ test('the Node version is asked of the install’s own environment, and only whe
   assert.deepEqual(asked, [], 'off: no login shell, no node')
   await deps.prepare(lease())
   assert.deepEqual(asked, ['/Users/dev/.nvm/versions/node/v22.12.0/bin:/usr/bin'])
+})
+
+test('leases that install nothing start no login shell of their own, and a failed install asks again', async () => {
+  let captures = 0
+  const capture: LoginEnvironmentCapture = async () => {
+    captures += 1
+    return { PATH: '/Users/dev/.nvm/versions/node/v22.12.0/bin:/usr/bin' }
+  }
+  const env = cachedDependencyInstallEnvironment({ platform: 'darwin', processEnv: { PATH: '/usr/bin' }, capture })
+  let code = 0
+  const run: InstallCommandRunner = async ({ cwd }) => {
+    if (code === 0) await mkdir(join(cwd, 'node_modules'), { recursive: true })
+    return { code, timedOut: false, cancelled: false }
+  }
+  const asked: Array<string | undefined> = []
+  const deps = createDependencyInstaller({
+    env: () => env.read(),
+    forgetEnv: () => env.forget(),
+    nodeVersion: async (installEnv) => (asked.push(installEnv.PATH), 'v22.12.0'),
+    run,
+    log: () => {},
+  })
+  assert.equal((await deps.prepare(lease()))?.state, 'succeeded')
+  assert.equal(captures, 1)
+
+  // Two leases with nothing to install, as a burst of new chats makes.
+  assert.equal(await deps.prepare(lease()), null)
+  assert.equal(await deps.prepare(lease()), null)
+  assert.equal(captures, 1, 'the login shell is not asked again')
+  assert.equal(asked.length, 3, 'yet each fingerprint still reads the Node version the install would use')
+  assert.match(asked[2] ?? '', /\.nvm\/versions\/node\/v22\.12\.0\/bin/u)
+
+  // A failed install drops it: what it lacked may be in the profile next time.
+  await writeFile(join(slot, 'package-lock.json'), '{"lockfileVersion":3,"packages":{}}\n')
+  code = 1
+  assert.equal((await deps.prepare(lease()))?.state, 'failed')
+  assert.equal(captures, 1)
+  code = 0
+  assert.equal((await deps.prepare(lease()))?.state, 'succeeded')
+  assert.equal(captures, 2)
+})
+
+test('a quit that begins while the record is cleared starts nothing', async () => {
+  const { run, calls } = fakeRunner()
+  const views: WorktreeDependencyInstallView[] = []
+  let stopping: Promise<void> | null = null
+  const deps = createDependencyInstaller({
+    env: async () => ({ PATH: '/usr/bin:/bin' }),
+    nodeVersion: async () => node,
+    run,
+    onChange: (view) => views.push(view),
+    clearRecord: async (recordPath) => {
+      stopping = deps.shutdown({ waitMs: 100 })
+      await rm(recordPath, { force: true })
+    },
+    log: () => {},
+  })
+  assert.equal(await deps.start(lease()), null)
+  await stopping
+  assert.deepEqual(calls, [], 'no package manager starts on the way out')
+  assert.deepEqual(views, [], 'and the windows hear nothing of one')
+  assert.deepEqual(deps.list(), [])
 })
 
 test('a record that cannot be cleared stops the install, so a stopped one is never vouched for', async () => {

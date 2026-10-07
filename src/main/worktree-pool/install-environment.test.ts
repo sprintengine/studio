@@ -5,7 +5,13 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 
 import { captureLoginEnv } from '../../../resources/wsl-helper/lib/login-env.mjs'
-import { dependencyInstallEnvironment, isAppOwnVariable, type LoginEnvironmentCapture } from './install-environment'
+import {
+  cachedDependencyInstallEnvironment,
+  dependencyInstallEnvironment,
+  INSTALL_ENVIRONMENT_FRESH_MS,
+  isAppOwnVariable,
+  type LoginEnvironmentCapture,
+} from './install-environment'
 
 const APP_ENV = {
   PATH: '/usr/bin:/bin:/Applications/SprintEngine Studio.app/Contents/Resources/bin',
@@ -80,6 +86,48 @@ test('Windows asks no login shell and keeps the app’s environment, less its ow
   })
   assert.equal(asked, false)
   assert.deepEqual(env, { Path: 'C:\\Windows', USERPROFILE: 'C:\\Users\\dev' })
+})
+
+test('the login environment is kept a few minutes, shared by reads under way, and asked again once forgotten', async () => {
+  let clock = 0
+  let captures = 0
+  let fail = false
+  const capture: LoginEnvironmentCapture = async () => {
+    captures += 1
+    if (fail) throw new Error('profile timed out')
+    return { PATH: `/login/${captures}/bin`, NPM_TOKEN: 't' }
+  }
+  const cache = cachedDependencyInstallEnvironment({
+    platform: 'darwin',
+    processEnv: APP_ENV,
+    capture,
+    now: () => clock,
+  })
+
+  const [first, second] = await Promise.all([cache.read(), cache.read()])
+  assert.equal(captures, 1, 'two leases at once start one shell')
+  assert.equal(first, second)
+  clock += INSTALL_ENVIRONMENT_FRESH_MS - 1
+  assert.equal(await cache.read(), first, 'still fresh')
+  assert.equal(captures, 1)
+
+  clock += 1
+  const later = await cache.read()
+  assert.equal(captures, 2, 'run out: asked again, so a new export counts')
+  assert.match(later.PATH ?? '', /^\/login\/2\/bin/u)
+
+  cache.forget()
+  await cache.read()
+  assert.equal(captures, 3, 'forgotten: asked again')
+
+  fail = true
+  cache.forget()
+  const fallback = await cache.read()
+  assert.equal(captures, 4)
+  fail = false
+  assert.equal(fallback.NPM_TOKEN, undefined, 'a shell that could not be read leaves the app’s environment…')
+  await cache.read()
+  assert.equal(captures, 5, '…and is not kept: the next read asks again')
 })
 
 test('the app’s own variables are its SPRINTENGINE_ names and the process’s bookkeeping', () => {
