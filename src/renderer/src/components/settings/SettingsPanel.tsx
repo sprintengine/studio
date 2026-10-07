@@ -1206,11 +1206,18 @@ export default function SettingsPanel({
   )
 
   // Form tabs read in a capped measure; catalog/table tabs (tile grids, the
-  // shortcuts editor) keep the full panel width.
+  // shortcuts editor) keep the full panel width. Worktrees is a form over a
+  // table of five columns, which the form's measure cut to a word or two each:
+  // it takes a wider one, still capped so its settings rows stay readable.
   const fullWidthTab = activeTab.id === 'shortcuts'
+  const measure = fullWidthTab
+    ? undefined
+    : activeTab.id === 'worktrees'
+      ? 'mx-auto max-w-[960px]'
+      : 'mx-auto max-w-[720px]'
 
   const bodyContent = (
-    <div className={fullWidthTab ? undefined : 'mx-auto max-w-[720px]'}>
+    <div className={measure}>
       {/* Built-in tabs self-title via their own section headings and the rail
           orientation, so they take no page header. Module-contributed sections
           render a third-party component with no title of its own, so the host
