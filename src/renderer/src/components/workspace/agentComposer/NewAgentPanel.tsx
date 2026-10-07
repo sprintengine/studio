@@ -1526,17 +1526,25 @@ export default function NewAgentPanel({
   // Should the host say nothing started (a worktree that could not be made,
   // which says why itself), the prompt comes back, unless the person has
   // already typed the next one.
+  //
+  // A worktree NAME belongs to the chat it was typed for: the next one asking
+  // for the same name would collide with it. The chip stays on, made up at
+  // start, until the person names the next one.
   const keepOnNewChat = (started: void | Promise<boolean>, sentPrompt: string, sentImages: PromptImage[]) => {
     const sentFiles = files
+    const sentWorktreeName = composer.worktreeName
+    const setWorktreeName = composer.setWorktreeName
     setPrompt('')
     setImages([])
     setFiles([])
+    if (sentWorktreeName) setWorktreeName('')
     window.requestAnimationFrame(() => promptRef.current?.focus())
     void Promise.resolve(started).then((ok) => {
       if (ok !== false) return
       setPrompt((current) => (current === '' ? sentPrompt : current))
       setImages((current) => (current.length === 0 ? sentImages : current))
       setFiles((current) => (current.length === 0 ? sentFiles : current))
+      if (sentWorktreeName) setWorktreeName((current) => (current === '' ? sentWorktreeName : current))
     })
   }
 

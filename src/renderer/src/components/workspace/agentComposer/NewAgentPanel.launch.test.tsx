@@ -739,6 +739,53 @@ test('NewAgentPanel launch paths', async () => {
       view.unmount()
     })
 
+    const nameWorktree = async (view: Harness, name: string): Promise<HTMLInputElement> => {
+      const field = view.container.querySelector<HTMLInputElement>('input[aria-label^="Worktree name"]')
+      assert.ok(field, 'the door offers the worktree name')
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!.call(field, name)
+        field!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      return field!
+    }
+
+    await check('⌘⏎ with a named worktree leaves the next chat to make up its own', async () => {
+      seedStore()
+      const { resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      const view = await render({ initialSelection: { kind: 'conversation' }, launchesInBackground: true, draftKey: 'w' })
+      const name = await nameWorktree(view, 'fix-login')
+      await act(async () => typeIntoComposer(composerField(view.container), 'Fix the login.'))
+      await pressEnter(view, { metaKey: true })
+      await settle()
+      assert.deepEqual(view.launches[0]?.worktree, { name: 'fix-login' })
+      assert.equal(name.value, '', 'the name went with the chat it was typed for')
+      await act(async () => typeIntoComposer(composerField(view.container), 'Write the notes.'))
+      await pressEnter(view, { metaKey: true })
+      assert.deepEqual(view.launches[1]?.worktree, { name: '' }, 'the next one is still in a worktree, made up at start')
+      view.unmount()
+      resetNewChatDraftsForTests()
+    })
+
+    await check('a ⌘⏎ launch that started nothing hands the worktree name back too', async () => {
+      seedStore()
+      const { resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      const view = await render({
+        initialSelection: { kind: 'conversation' },
+        launchesInBackground: true,
+        draftKey: 'w',
+        onLaunch: () => Promise.resolve(false),
+      })
+      const name = await nameWorktree(view, 'fix-login')
+      await act(async () => typeIntoComposer(composerField(view.container), 'Fix the login.'))
+      await pressEnter(view, { metaKey: true })
+      await settle()
+      assert.equal(name.isConnected ? name.value : null, 'fix-login')
+      view.unmount()
+      resetNewChatDraftsForTests()
+    })
+
     if (failures > 0) {
       console.error(`NewAgentPanel.launch.test.tsx: ${failures} failing check(s)`)
       process.exit(1)
