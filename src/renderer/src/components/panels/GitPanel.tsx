@@ -49,6 +49,7 @@ import {
 import { applyChangelistHunks, changelistHunkTargets } from './git/changelistHunks'
 import { ChangelistDialog, type ChangelistDialogValue } from './git/ChangelistDialog'
 import { GitChangesList } from './git/GitChangesList'
+import { ProjectRepositoriesGitPanel, type GitPanelTarget } from './git/ProjectRepositories'
 import { GitChangesToolbar, type ShowDiffPlacement } from './git/GitChangesToolbar'
 import {
   buildGitChangeGroups,
@@ -311,9 +312,24 @@ function gitRepoCacheKey(repoRoot: string): string {
   return repoRoot.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
 }
 
-export default function GitPanel({ workspaceId }: { workspaceId: string }) {
+/**
+ * The panel opened on one repository: the workspace's own folder, or one
+ * member of a folder of several repositories (`GitPanelTarget`, in
+ * `git/ProjectRepositories.tsx`, says what each of the target's fields does).
+ */
+type GitPanelBodyProps = GitPanelTarget & { workspaceId: string }
+
+function GitPanelBody({
+  workspaceId,
+  repository,
+  draftPrefix = '',
+  switcher,
+  projectResolving = false,
+  onFetch,
+}: GitPanelBodyProps) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
-  const folderPath = workspace?.folderPath ?? null
+  const folderPath = repository ?? workspace?.folderPath ?? null
+  const draftKey = useCallback((scope: string) => `${draftPrefix}${scope}`, [draftPrefix])
   // For a worktree-backed workspace the Git view should resolve to the
   // worktree's branch, not the parent project. The worktree is a real
   // `git worktree`, so it already shows up as a scope below; this drives the
@@ -362,7 +378,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const [loadingMoreGraph, setLoadingMoreGraph] = useState(false)
   const [message, setMessage] = useState<GitPanelMessage | null>(null)
   const [commitMessage, setCommitMessage] = useState(() =>
-    initialGitPanelState ? (initialGitPanelState.commitDraftsByScopeId[initialGitPanelState.activeScopeId] ?? '') : '',
+    initialGitPanelState
+      ? (initialGitPanelState.commitDraftsByScopeId[draftKey(initialGitPanelState.activeScopeId)] ?? '')
+      : '',
   )
   const [busy, setBusy] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<GitPanelView>(() => initialGitPanelState?.activeView ?? 'changes')
@@ -508,10 +526,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       const scopeId = draftScopeRef.current
       if (commitDraftTimerRef.current) window.clearTimeout(commitDraftTimerRef.current)
       commitDraftTimerRef.current = window.setTimeout(() => {
-        setGitCommitDraft(workspaceId, scopeId, text)
+        setGitCommitDraft(workspaceId, draftKey(scopeId), text)
       }, 400)
     },
-    [workspaceId, setGitCommitDraft],
+    [workspaceId, setGitCommitDraft, draftKey],
   )
   useEffect(() => {
     if (draftScopeRef.current === activeScopeId) return
@@ -521,20 +539,20 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       window.clearTimeout(commitDraftTimerRef.current)
       commitDraftTimerRef.current = null
     }
-    setGitCommitDraft(workspaceId, draftScopeRef.current, commitMessageRef.current)
+    setGitCommitDraft(workspaceId, draftKey(draftScopeRef.current), commitMessageRef.current)
     const incoming =
       useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.gitPanelState?.commitDraftsByScopeId[
-        activeScopeId
+        draftKey(activeScopeId)
       ] ?? ''
     setCommitMessage(incoming)
     draftScopeRef.current = activeScopeId
-  }, [activeScopeId, workspaceId, setGitCommitDraft])
+  }, [activeScopeId, workspaceId, setGitCommitDraft, draftKey])
   useEffect(() => {
     return () => {
       if (commitDraftTimerRef.current) window.clearTimeout(commitDraftTimerRef.current)
-      setGitCommitDraft(workspaceId, draftScopeRef.current, commitMessageRef.current)
+      setGitCommitDraft(workspaceId, draftKey(draftScopeRef.current), commitMessageRef.current)
     }
-  }, [workspaceId, setGitCommitDraft])
+  }, [workspaceId, setGitCommitDraft, draftKey])
 
   const refreshBranches = useCallback(async () => {
     if (!repoRoot || typeof window.api.getGitBranches !== 'function') {
@@ -1490,7 +1508,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       commitDraftTimerRef.current = null
     }
     setCommitMessage('')
-    clearGitCommitDraft(workspaceId, activeScopeId)
+    clearGitCommitDraft(workspaceId, draftKey(activeScopeId))
     return true
   }
 
@@ -1506,6 +1524,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   }
 
   const handleFetch = async () => {
+    onFetch?.()
     if (!repoRoot) return
     if (typeof window.api.fetchGitRemotes !== 'function') {
       setMessage({ tone: 'error', text: 'Restart the app to enable Git fetch.' })
@@ -2170,19 +2189,32 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     )
   }
 
+  // A member that is loading, or will not load, keeps the Repository row above
+  // it, so another member is always one pick away.
+  const withSwitcher = (content: JSX.Element): JSX.Element =>
+    switcher ? (
+      <div className="flex h-full flex-col overflow-hidden bg-[color:var(--bg-surface)]">
+        <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-3 py-2">{switcher}</div>
+        <div className="min-h-0 flex-1">{content}</div>
+      </div>
+    ) : (
+      content
+    )
+
   // `repoRoot` is null both while we are still resolving the repository and when
   // the folder genuinely is not a repo. Only the resolved `not-git` state should
   // show the "not a Git repository" copy — during resolution we show the
-  // skeleton so the panel never flashes a misleading verdict on refresh.
-  if (repoState === 'idle' || repoState === 'loading') {
-    return <GitPanelSkeleton />
+  // skeleton so the panel never flashes a misleading verdict on refresh. The
+  // same holds while a folder is still being read for the repositories it holds.
+  if (repoState === 'idle' || repoState === 'loading' || (!repoRoot && projectResolving)) {
+    return withSwitcher(<GitPanelSkeleton />)
   }
 
   if (!repoRoot) {
-    return (
+    return withSwitcher(
       <div className="h-full bg-[color:var(--bg-surface)]">
         <EmptyState title="This folder is not a Git repository." />
-      </div>
+      </div>,
     )
   }
 
@@ -2335,6 +2367,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         </div>
       ) : null}
       <div className="space-y-1 border-b border-[color:var(--border-subtle)] px-3 pb-2 pt-2">
+        {switcher}
         <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2">
           <span className="text-micro text-[color:var(--text-subtle)]">Branch</span>
           <Select<string>
@@ -2588,7 +2621,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             // symlinked root would not match the parent workspace's folderPath.
             // For a worktree-backed workspace it resolves to ITS parent, which
             // is where a worktree cut from here belongs too.
-            projectRoot={(workspace ? workspaceProjectRoot(workspace) : null) ?? mainRepoRoot ?? repoRoot}
+            // A project member's worktrees file under the member, not the
+            // project folder that holds it.
+            projectRoot={repository ?? (workspace ? workspaceProjectRoot(workspace) : null) ?? mainRepoRoot ?? repoRoot}
             currentBranch={branches?.current ?? null}
             branchOptions={branchOptions.map((branch) => branch.name)}
             mode="tab"
@@ -2635,7 +2670,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             key={`${workspaceId}:${repoRoot}`}
             workspaceId={workspaceId}
             repoRoot={repoRoot}
-            terminalId={`git-${workspaceId}-${terminalIdPart(activeScope?.id ?? repoRoot)}`}
+            terminalId={`git-${workspaceId}-${terminalIdPart(draftKey(activeScope?.id ?? repoRoot))}`}
           />
         </TabPanel>
       </div>
@@ -2663,6 +2698,22 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         </div>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * The Git panel. A workspace on a repository gets the panel as it always has;
+ * one on a folder of several repositories gets a Repository row and the panel
+ * for the chosen member (`git/ProjectRepositories.tsx`).
+ */
+export default function GitPanel({ workspaceId }: { workspaceId: string }) {
+  const folderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
+  return (
+    <ProjectRepositoriesGitPanel
+      workspaceId={workspaceId}
+      folderPath={folderPath}
+      renderBody={(target) => <GitPanelBody workspaceId={workspaceId} {...target} />}
+    />
   )
 }
 

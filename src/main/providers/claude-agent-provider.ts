@@ -18,6 +18,7 @@ import { cp, lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openConfinedExistingFile, readBoundedConversationFile } from '../conversation-file-access'
+import { projectRepositoriesHostContext } from '../project-repositories'
 import { asRecord } from '../../shared/records'
 import { CONVERSATION_DEFAULT_MODEL_ID, conversationPermissionModes } from '../../shared/conversation-harness'
 import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
@@ -736,7 +737,15 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       sessionId: state.sessionId,
     })
     assertSpawnWanted(state, generation)
-    const instructions = await readWorkspaceInstructions(state.workspaceRoot)
+    // The project's CLAUDE.md, then, in a folder of several repositories, which
+    // ones and to run git in each. Not on WSL: the paths would be this
+    // computer's names for that machine's folders.
+    const instructions = [
+      await readWorkspaceInstructions(state.workspaceRoot),
+      wslTarget ? null : projectRepositoriesHostContext(state.workspaceRoot),
+    ]
+      .filter(Boolean)
+      .join('\n\n')
     // A WSL gateway entry names its channel token (`envVarNames`) and never
     // carries it: the SDK puts `mcpServers` on the child's command line. The
     // child is issued the token on stdin (spawnWslClaude) and the bridge it

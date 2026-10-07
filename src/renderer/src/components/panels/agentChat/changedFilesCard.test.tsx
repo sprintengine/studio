@@ -417,3 +417,58 @@ test('a changed file opens from the repository top level, not from a workspace i
     }),
   ).toBe('/Users/dev/app/src/app.ts')
 })
+
+test('a turn across several repositories lists each repository as a group of its own', () => {
+  const file = (path: string, addedLines: number, removedLines: number) => ({
+    path,
+    status: 'modified' as const,
+    addedLines,
+    removedLines,
+    binary: false,
+  })
+  const tree = changeTree([file('web/src/page.tsx', 3, 0), file('api/user.ts', 1, 1), file('api/routes.ts', 2, 2)])
+  expect(tree.map((node) => [node.name, node.addedLines, node.removedLines])).toEqual([
+    ['api', 3, 3],
+    ['web/src', 3, 0],
+  ])
+})
+
+test("a turn's diff opens on the repository its file is in, narrowed to that repository's files", async () => {
+  const { turnDiffTarget } = await import('./changedFilesCard')
+  const roots: Record<string, string> = {
+    '/Users/dev/acme/api': '/Users/dev/acme/api',
+    '/Users/dev/acme/services/billing': '/Users/dev/acme/services/billing',
+    '/Users/dev/app': '/Users/dev/app',
+  }
+  const asked: string[] = []
+  const repoRoot = async (folder: string) => {
+    asked.push(folder)
+    return roots[folder] ?? null
+  }
+  const paths = ['api/user.ts', 'api/src/routes.ts', 'services/billing/main.go', 'web/page.tsx']
+
+  expect(await turnDiffTarget('/Users/dev/acme', paths, 'api/src/routes.ts', repoRoot)).toEqual({
+    repoRoot: '/Users/dev/acme/api',
+    focusPath: '/Users/dev/acme/api/src/routes.ts',
+    paths: ['user.ts', 'src/routes.ts'],
+  })
+  expect(await turnDiffTarget('/Users/dev/acme', paths, 'services/billing/main.go', repoRoot)).toEqual({
+    repoRoot: '/Users/dev/acme/services/billing',
+    focusPath: '/Users/dev/acme/services/billing/main.go',
+    paths: ['main.go'],
+  })
+  // A repository's own chat is unchanged: its paths are already its own.
+  asked.length = 0
+  expect(await turnDiffTarget('/Users/dev/app', ['src/app.ts'], 'src/app.ts', repoRoot)).toEqual({
+    repoRoot: '/Users/dev/app',
+    focusPath: '/Users/dev/app/src/app.ts',
+    paths: ['src/app.ts'],
+  })
+  expect(asked).toEqual(['/Users/dev/app'])
+  // A file in no repository opens where the chat is, as before.
+  expect(await turnDiffTarget('/Users/dev/acme', paths, 'README.md', repoRoot)).toEqual({
+    repoRoot: '/Users/dev/acme',
+    focusPath: '/Users/dev/acme/README.md',
+    paths,
+  })
+})

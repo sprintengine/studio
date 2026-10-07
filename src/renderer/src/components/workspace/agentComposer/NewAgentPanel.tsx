@@ -94,6 +94,8 @@ import { showToast } from '../../../store/toastStore'
 import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
 import { WorktreeChip } from './WorktreeChip'
+import { useProjectRepositories } from '../../../hooks/useProjectRepositories'
+import { PROJECT_REPOSITORIES_WORKTREE_REASON } from '../../../../../shared/project-repositories'
 import { ScheduleFailureTray, ScheduleTag } from './schedule/SchedulePicker'
 import { StartAsGlyph, startAsLabel, type StartAs } from './ComposerOptionsMenu'
 import { ComposerPlusMenu } from './ComposerPlusMenu'
@@ -972,7 +974,10 @@ export default function NewAgentPanel({
   // The hidden file input the "+" menu's Attach files row clicks. The menu
   // and the skills picker it opens over the same "+" are `ComposerPlusMenu`.
   const fileInputRef = React.useRef<HTMLInputElement>(null)
-  const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
+  // What git said about the folder: a repository, not one, or no answer (a
+  // window that cannot ask). Only "not one" can be a folder of several.
+  const [workspaceGitAnswer, setWorkspaceGitAnswer] = React.useState<'repository' | 'none' | 'unknown'>('unknown')
+  const workspaceIsGitRepo = workspaceGitAnswer === 'repository'
   // Replacing the static box, the panel draws the cards the box was drawn
   // with: different cards under the same composer would be a visible swap.
   const [seed] = React.useState(() => (bootComposer ? bootComposerSeed() : null) ?? newSuggestionSeed())
@@ -1187,16 +1192,16 @@ export default function NewAgentPanel({
   React.useEffect(() => {
     let cancelled = false
     if (!workspaceRoot) {
-      setWorkspaceIsGitRepo(false)
+      setWorkspaceGitAnswer('unknown')
       return
     }
     void window.api
       .getGitRepoRoot(workspaceRoot)
       .then((root) => {
-        if (!cancelled) setWorkspaceIsGitRepo(Boolean(root))
+        if (!cancelled) setWorkspaceGitAnswer(root ? 'repository' : 'none')
       })
       .catch(() => {
-        if (!cancelled) setWorkspaceIsGitRepo(false)
+        if (!cancelled) setWorkspaceGitAnswer('unknown')
       })
     return () => {
       cancelled = true
@@ -1208,6 +1213,17 @@ export default function NewAgentPanel({
   // has no checkout here to fork, and an extension's folder is new.
   const worktreeOffered =
     !extensionMode && selection.kind !== 'terminal' && !remoteTarget && !pickedSsh && workspaceIsGitRepo
+  // A folder of several repositories looks as if it could have one, so there
+  // the chip stays, off and disabled, and says why: a worktree per repository
+  // is a later step (docs/design/multi-repo-projects.md).
+  const worktreeCouldApply = !extensionMode && selection.kind !== 'terminal' && !remoteTarget && !pickedSsh
+  const projectRepositories = useProjectRepositories(
+    worktreeCouldApply && workspaceGitAnswer === 'none' ? workspaceRoot : null,
+  )
+  const worktreeUnavailable =
+    worktreeCouldApply && workspaceGitAnswer === 'none' && projectRepositories.project
+      ? PROJECT_REPOSITORIES_WORKTREE_REASON
+      : undefined
   // The chip starts on at the door, so a launch it is not offered for drops
   // the worktree rather than carrying one nobody could see: a folder that is
   // not a git repository would fail to make it and keep the chat from
@@ -1812,7 +1828,12 @@ export default function NewAgentPanel({
       <span className="min-w-0 truncate">{projectLabel}</span>
     </span>
   ) : null
-  const stripShown = machinePickerShown || projectControl !== null || worktreeOffered || Boolean(stripBranch)
+  const stripShown =
+    machinePickerShown ||
+    projectControl !== null ||
+    worktreeOffered ||
+    Boolean(worktreeUnavailable) ||
+    Boolean(stripBranch)
 
   const sendTip =
     selection.kind === 'terminal'
@@ -2226,7 +2247,11 @@ export default function NewAgentPanel({
             {/* Worktree, then the branch it is cut from (or the launch runs
                 on): off until turned on or named. Set apart from the project
                 by the strip's spacing alone, with no rule between. */}
-            {worktreeOffered ? <WorktreeChip name={composer.worktreeName} onChange={composer.setWorktreeName} /> : null}
+            {worktreeOffered ? (
+              <WorktreeChip name={composer.worktreeName} onChange={composer.setWorktreeName} />
+            ) : worktreeUnavailable ? (
+              <WorktreeChip name={null} onChange={() => undefined} unavailable={worktreeUnavailable} />
+            ) : null}
             {stripBranch ? (
               // The one item on the strip that may shrink: it gives its front
               // away first, so the end of the name — the part that says what

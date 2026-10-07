@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'vitest'
 
 import type {
@@ -8,6 +11,7 @@ import type {
   ConversationStartSessionInput,
 } from '../shared/conversation-runtime'
 import { emptyAgentLaunchSettings } from '../shared/launch-settings'
+import { PROJECT_REPOSITORIES_WORKTREE_REASON } from '../shared/project-repositories'
 import { emptyWorkspaceRegistryFile, toWorkspaceRegistryRecord } from '../shared/workspace-registry'
 import type { Workspace } from '../renderer/src/types/workspace'
 import { createConversationLaunchService, type ConversationLaunchServiceDeps } from './conversation-launch-service'
@@ -51,6 +55,7 @@ function harness(
     worktree?: Awaited<ReturnType<NonNullable<ConversationLaunchServiceDeps['createWorktree']>>>
     reasoningEfforts?: string[] | null
     withoutGit?: boolean
+    workspaces?: Workspace[]
   } = {},
 ) {
   let ids = 0
@@ -67,6 +72,7 @@ function harness(
           1,
         ),
         toWorkspaceRegistryRecord(workspace('ws-ssh', 'ssh://build-box/home/dev/app'), 1),
+        ...(options.workspaces ?? []).map((extra) => toWorkspaceRegistryRecord(extra, 1)),
       ],
     }),
     now: () => 1000,
@@ -186,6 +192,25 @@ test('a new chat without a worktree works in the project folder and cuts nothing
   assert.equal(h.worktreeAsks.length, 0)
   assert.equal(h.registry.getRecord(result.workspaceId)?.folderPath, '/Users/dev/app')
   assert.equal(h.starts[0]?.workspaceRoot, '/Users/dev/app')
+})
+
+test('a project of several repositories refuses the worktree in the composer’s words, and nothing is created', async () => {
+  const acme = mkdtempSync(join(tmpdir(), 'launch-project-repositories-'))
+  try {
+    for (const name of ['api', 'web']) mkdirSync(join(acme, name, '.git'), { recursive: true })
+    const h = harness({ repoRoot: null, workspaces: [workspace('ws-acme', acme)] })
+    const before = h.registry.getRecords().length
+    const result = await h.service.launch({ workspaceId: 'ws-acme', newChat: true, newWorktree: true, cli: 'codex' })
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.code, 'worktree_unavailable')
+    assert.equal(result.message, PROJECT_REPOSITORIES_WORKTREE_REASON)
+    assert.equal(h.worktreeAsks.length, 0)
+    assert.equal(h.starts.length, 0)
+    assert.equal(h.registry.getRecords().length, before)
+  } finally {
+    rmSync(acme, { recursive: true, force: true })
+  }
 })
 
 test('a project that is not a git repository refuses the worktree, and nothing is created', async () => {

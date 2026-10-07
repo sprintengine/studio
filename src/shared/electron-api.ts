@@ -132,6 +132,7 @@ import type {
 import type { TailnetPeerScan } from './tailnet-peers'
 import type { TailnetShareResult, TailnetShareStatus } from './tailnet-share'
 import type { RepositoryIdentityRead } from './repository-identity'
+import type { ProjectRepositories } from './project-repositories'
 import type {
   MeshBrowse,
   MeshConnection,
@@ -1379,6 +1380,14 @@ export type ElectronApi = {
    * must not be written down as one. See `RepositoryIdentityRead`.
    */
   getGitRepositoryIdentity: (folderPath: string) => Promise<RepositoryIdentityRead>
+  /**
+   * The repositories a project folder holds when it is not one itself
+   * (`docs/design/multi-repo-projects.md`); null for every other folder.
+   * `refresh` reads the folder again rather than answering from the last
+   * read. This computer's folders only: a workspace on an SSH machine is
+   * refused, which a caller reads as "a single folder".
+   */
+  getProjectRepositories?: (folderPath: string, options?: { refresh?: boolean }) => Promise<ProjectRepositories | null>
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions) => Promise<GitGraphSnapshot>
   getGitConflictFile: (repoRoot: string, filePath: string) => Promise<GitConflictFileContent | null>
   resolveGitConflict: (repoRoot: string, filePath: string, content: string) => Promise<GitCommandResult>
