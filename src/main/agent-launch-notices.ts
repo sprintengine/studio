@@ -56,6 +56,10 @@ import type { AgentControlPlane, ControlPlaneSendOptions, ControlPlaneSession } 
  *   rides along with the parent's next notice, if the child is still waiting.
  * - **Gone is gone.** A parent whose session has exited or closed is dropped
  *   with everything queued for it, silently: there is nobody to tell.
+ * - **Not into a settled chat.** Settling only suspends a parent's session, so
+ *   it still reads alive; but the person put it away, and a notice would wake
+ *   its agent. Its notices wait for the person to bring it back and for its
+ *   next rest.
  *
  * A parent is linked only when it can be told: a chat, or a terminal agent
  * whose CLI reports its turns through hooks. A CLI without them never reads
@@ -121,6 +125,8 @@ export type AgentLaunchNoticesDeps = {
    * once a reading says it lifted.
    */
   onUsageLimitsChanged?: (listener: () => void) => void
+  /** Whether the parent's workspace is settled (put away). Absent, none is. */
+  isSettled?: (workspaceId: string) => boolean
   /** Run `job` after `ms`; returns the cancel. Injected so tests drive the clock. */
   schedule?: (job: () => void, ms: number) => () => void
   now?: () => number
@@ -140,6 +146,8 @@ export type AgentLaunchNotices = {
   onConversationEvent(event: ConversationEvent): void
   /** A chat let go of its turn and takes a message now (the runtime's `onSessionIdle`). */
   onChatIdle(summary: Pick<ConversationSessionSummary, 'sessionId' | 'workspaceId' | 'agentId'>): void
+  /** The computer woke or was unlocked: a timer stood still while it slept, so the holds read the clock again. */
+  wake(): void
   /** How many children are linked. Exposed for tests. */
   linkCount(): number
   /** How many notices are queued for a parent. Exposed for tests. */
@@ -180,6 +188,12 @@ type ParentState = {
  * the better first message for a chat a limit stopped.
  */
 const AFTER_RESET_MS = 2 * 60_000
+/**
+ * A hold's timer longer than this is armed again rather than trusted: a timer
+ * does not count the time a computer sleeps, and one past about 24.8 days
+ * overflows and fires at once.
+ */
+const MAX_TIMER_MS = 15 * 60_000
 /**
  * How long the plane's gate waits for the person to stop typing before it
  * stands down. A focus report counts as typing there, and a short wait lets
@@ -425,14 +439,31 @@ export function createAgentLaunchNotices(deps: AgentLaunchNoticesDeps): AgentLau
     const at = Math.max(resetsAt, now()) + AFTER_RESET_MS
     if (parent.hold && parent.hold.at === at) return
     parent.hold?.cancel()
-    const hold: ParentState['hold'] = {
-      at,
-      cancel: schedule(() => {
-        if (parent.hold === hold) parent.hold = null
-        void flush(parent)
-      }, at - now()),
-    }
+    const hold: NonNullable<ParentState['hold']> = { at, cancel: () => undefined }
     parent.hold = hold
+    armHold(parent, hold)
+  }
+
+  /** Arm `hold`'s timer for at most a quarter of an hour; early, it arms again. */
+  function armHold(parent: ParentState, hold: NonNullable<ParentState['hold']>): void {
+    hold.cancel = schedule(
+      () => {
+        if (parent.hold !== hold) return
+        if (now() < hold.at) return armHold(parent, hold)
+        parent.hold = null
+        void flush(parent)
+      },
+      Math.max(0, Math.min(hold.at - now(), MAX_TIMER_MS)),
+    )
+  }
+
+  function wake(): void {
+    for (const parent of parents.values()) {
+      const hold = parent.hold
+      if (!hold) continue
+      hold.cancel()
+      armHold(parent, hold)
+    }
   }
 
   function clearHold(parent: ParentState): void {
@@ -453,6 +484,8 @@ export function createAgentLaunchNotices(deps: AgentLaunchNoticesDeps): AgentLau
       return
     }
     if (!readsIdle(session)) return
+    // Put away: its next rest once the person brings it back looks again.
+    if (deps.isSettled?.(parent.workspaceId)) return
     const provider = usageProviderOf(session)
     const limit = provider ? deps.usageLimit?.(provider) : undefined
     parent.limited = limit?.limited === true
@@ -545,6 +578,7 @@ export function createAgentLaunchNotices(deps: AgentLaunchNoticesDeps): AgentLau
     onAgentSessionExit,
     onConversationEvent,
     onChatIdle,
+    wake,
     linkCount: () => children.size,
     pendingCount: (parent) => parents.get(parentKey(parent))?.pending.size ?? 0,
   }

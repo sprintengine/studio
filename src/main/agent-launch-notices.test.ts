@@ -102,6 +102,7 @@ function harness(
     terminals?: TerminalSessionSnapshot[]
     chats?: ConversationSessionSummary[]
     limits?: Map<string, { limited: boolean; resetsAt: number | null }>
+    settled?: Set<string>
   } = {},
 ) {
   let clock = 10_000
@@ -153,6 +154,7 @@ function harness(
     },
     usageLimit: (provider) => limits.get(provider) ?? { limited: false, resetsAt: null },
     onUsageLimitsChanged: (listener) => void usageListeners.push(listener),
+    isSettled: (workspaceId) => options.settled?.has(workspaceId) ?? false,
     now: () => clock,
   })
   const setPhase = (sessionId: string, phase: AgentPhase) => {
@@ -487,7 +489,9 @@ test('a parent out of its plan’s usage is told after the limit resets, and new
   assert.equal(h.turns.length, 0, 'a notice would only fail on the limit, and cancel the chat’s own resume')
   assert.equal(h.live().length, 1)
   const [hold] = h.live()
-  assert.equal(hold.ms, resetsAt + 2 * 60_000 - h.now(), 'after the reset, behind the chat’s own resume')
+  // After the reset, behind the chat's own resume; looked at again every
+  // quarter of an hour on the way, since a timer is not trusted for long.
+  assert.equal(hold.ms, 15 * 60_000)
 
   // More news before the reset: the look booked for the reset stands.
   h.notices.onAgentPhase(
@@ -499,10 +503,75 @@ test('a parent out of its plan’s usage is told after the limit resets, and new
   assert.deepEqual(h.live(), [hold])
 
   h.limits.set('claude', { limited: false, resetsAt: null })
-  h.advance(hold.ms)
-  await h.runTimers()
+  while (h.turns.length === 0 && h.live().length > 0) {
+    h.advance(h.live()[0].ms)
+    await h.runTimers()
+  }
+  assert.equal(h.now(), resetsAt + 2 * 60_000, 'not before the reset')
   assert.equal(h.turns.length, 1)
   assert.match(h.turns[0].message, /2 agents you launched have news/u)
+})
+
+test('a hold far ahead never arms an overflowing timer, and waking reads the clock again', async () => {
+  // Past the longest delay a timer takes (about 24.8 days), which would fire at once.
+  const resetsAt = 10_000 + 30 * 24 * 60 * 60_000
+  const h = harness({
+    terminals: [terminal({ sessionId: 'session-scout', agentId: 'agent-scout' })],
+    chats: [chat({ status: 'ready' })],
+    limits: new Map([['claude', { limited: true, resetsAt }]]),
+  })
+  const parent = { workspaceId: 'ws-1', agentId: 'chat-agent' }
+  h.notices.link({ parent, child: SCOUT })
+  h.notices.onAgentPhase(scoutTurnEnd())
+  await settle()
+  assert.deepEqual(
+    h.live().map((timer) => timer.ms),
+    [15 * 60_000],
+  )
+
+  // An early look finds the hold not yet due and arms again, sending nothing.
+  h.advance(15 * 60_000)
+  await h.runTimers()
+  assert.equal(h.turns.length, 0)
+  assert.deepEqual(
+    h.live().map((timer) => timer.ms),
+    [15 * 60_000],
+  )
+
+  // The computer slept past the reset: its timer stood still, and the wake goes now.
+  h.limits.set('claude', { limited: false, resetsAt: null })
+  h.advance(resetsAt + 2 * 60_000 - h.now())
+  h.notices.wake()
+  assert.deepEqual(
+    h.live().map((timer) => timer.ms),
+    [0],
+  )
+  await h.runTimers()
+  assert.equal(h.turns.length, 1)
+})
+
+test('a settled parent is not woken: its notices wait for it to be brought back', async () => {
+  const settled = new Set(['ws-1'])
+  const h = harness({
+    terminals: [terminal({ sessionId: 'session-scout', agentId: 'agent-scout' })],
+    // Settling suspends the chat's session; it still reads alive and idle.
+    chats: [chat({ status: 'ready' })],
+    settled,
+  })
+  const parent = { workspaceId: 'ws-1', agentId: 'chat-agent' }
+  assert.equal(h.notices.link({ parent, child: SCOUT }).linked, true)
+  h.notices.onAgentPhase(scoutTurnEnd())
+  await settle()
+  h.notices.onChatIdle({ sessionId: 'chat-lead', workspaceId: 'ws-1', agentId: 'chat-agent' })
+  await settle()
+  assert.equal(h.turns.length, 0)
+  assert.equal(h.notices.pendingCount(parent), 1)
+
+  // Brought back: its next rest delivers what waited.
+  settled.delete('ws-1')
+  h.notices.onChatIdle({ sessionId: 'chat-lead', workspaceId: 'ws-1', agentId: 'chat-agent' })
+  await settle()
+  assert.equal(h.turns.length, 1)
 })
 
 test('a limit with no known reset holds the notices until a reading says it lifted, not a clock', async () => {

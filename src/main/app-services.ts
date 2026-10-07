@@ -154,6 +154,8 @@ import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canv
 import { broadcastToWorkspaceWindows, isBrowserHostWebContents, listWorkspaceWindows } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchNotices } from './agent-launch-notices'
+import { powerActivity } from './power-activity'
+import { isSettledWorkspace } from '../shared/workspace-lifecycle'
 import { forwardStatusLineRateLimits, usageLimitsStore, usageRateLimit } from './usage-limits/store'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
@@ -1054,9 +1056,18 @@ export function createAppServices(
     onUsageLimitsChanged: (listener) => {
       usageLimitsStore().onChanged(listener)
     },
+    isSettled: (workspaceId) => {
+      const record = workspaceRegistry.getRecord(workspaceId)
+      return record ? isSettledWorkspace(record) : false
+    },
     log: (message) => {
       void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Launch notices', message })
     },
+  })
+  // A hold's timer stood still while the computer slept; waking reads the clock again.
+  powerActivity.onResume(() => agentLaunchNotices.wake())
+  powerActivity.onScreenLockChange((locked) => {
+    if (!locked) agentLaunchNotices.wake()
   })
   terminalRuntime.registerAgentPhaseListener((event) => agentLaunchNotices.onAgentPhase(event))
   terminalRuntime.registerAgentSessionExitListener((event) => agentLaunchNotices.onAgentSessionExit(event))
