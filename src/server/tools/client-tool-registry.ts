@@ -1038,6 +1038,20 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     finish(call, frame.result)
   }
 
+  /**
+   * A reply under a call's id whose body Studio could not read: the call is
+   * answered `invalid_result` rather than left to its deadline.
+   */
+  function unreadableReply(connectionId: string, id: string): void {
+    const instance = connectionOf(connectionId)
+    const call = calls.get(id)
+    if (!call || !instance || call.instance !== instance) return
+    finish(
+      call,
+      failure('invalid_result', `${instance.clientName} answered ${call.wireName} in a shape Studio cannot read.`),
+    )
+  }
+
   function progress(connectionId: string, frame: StudioProgressFrame): void {
     const instance = connectionOf(connectionId)
     const call = calls.get(frame.id)
@@ -1169,6 +1183,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     withdraw,
     focus,
     reply,
+    unreadableReply,
     progress,
     call,
     cancelCallsFor,

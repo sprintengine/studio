@@ -168,6 +168,21 @@ test('a call reaches its client and the reply reaches the agent', async () => {
   assert.equal(alive.t === 'res' && alive.ok, true)
 })
 
+test('a reply Studio cannot read settles its call invalid_result, not at the deadline', async () => {
+  const { open, auth, registry } = await setup()
+  const game = await open(pairFakeClient(auth, 'game-app', ['tools:offer']))
+  await request(game, 'r1', 'tools.offer', { toolset: toolset('game') })
+  const pending = registry.call({ caller, toolset: 'game', tool: 'spawn_enemy', args: {} })
+  const call = (await game.next((frame) => frame.t === 'call')) as StudioCallFrame
+  game.send({ t: 'reply', id: call.id, ok: true, result: { content: [{ type: 'text', text: 7 }] } })
+  const { result } = await pending
+  assert.equal(result.isError, true)
+  assert.equal((result.structuredContent?.error as { code?: string } | undefined)?.code, 'invalid_result')
+  assert.equal(registry.pendingCalls(), 0)
+  const alive = await request(game, 'r2', 'server.ping', {})
+  assert.equal(alive.t === 'res' && alive.ok, true)
+})
+
 test('a reply that comes after its toolset was withdrawn is dropped, and the connection stays', async () => {
   const { open, auth, registry } = await setup()
   const game = await open(pairFakeClient(auth, 'game-app', ['tools:offer']))

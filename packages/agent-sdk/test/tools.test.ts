@@ -178,6 +178,37 @@ test('an answer too large for an agent fails in the app', async () => {
   assert.equal(answer.result.content[0].type === 'text' && answer.result.content[0].text.startsWith('too_large'), true)
 })
 
+test('an answer that is not a tool result fails in the app, not at the call’s deadline', async () => {
+  const target = await studio()
+  const app = await client(target)
+  await app.tools.offer({
+    name: 'game',
+    reach: 'all',
+    tools: [
+      {
+        name: 'count',
+        description: 'Answers a number.',
+        inputSchema: { type: 'object' },
+        mutates: false,
+        handler: () => 42 as never,
+      },
+      {
+        name: 'label',
+        description: 'Answers a part with a number for text.',
+        inputSchema: { type: 'object' },
+        mutates: false,
+        handler: () => ({ content: [{ type: 'text', text: 7 }] }) as never,
+      },
+    ],
+  })
+  for (const tool of ['count', 'label']) {
+    const answer = await target.registry.call({ caller: caller(), toolset: 'game', tool, args: {} })
+    const first = answer.result.content[0]
+    assert.equal(first.type === 'text' && first.text.startsWith('invalid_result'), true, tool)
+    assert.equal(answer.result.isError, true)
+  }
+})
+
 test('a call cut off by a dropped connection is sent again, and its handler runs once', async () => {
   const target = await studio()
   const app = await client(target)
