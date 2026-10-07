@@ -401,6 +401,14 @@ test('NewAgentPanel interaction', async () => {
         )
       })
       assert.equal(view.launches.length, 0, 'Enter that commits an IME composition is not a send')
+      // WebKit's committing Enter: the composition has already ended, but the
+      // key is still the input method's.
+      await act(async () => {
+        field.dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true, cancelable: true }),
+        )
+      })
+      assert.equal(view.launches.length, 0, 'an Enter sent as keyCode 229 is not a send either')
       await act(async () => {
         field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       })

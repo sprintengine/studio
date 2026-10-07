@@ -43,7 +43,12 @@ import {
 } from '../../../utils/imageFileTransfer'
 import { workspaceRunsHere } from '../../../utils/attachedFiles'
 import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
-import { ComposerField, type ComposerFieldHandle, type ComposerKeyEvent } from '../../panels/agentChat/ComposerField'
+import {
+  ComposerField,
+  isImeKey,
+  type ComposerFieldHandle,
+  type ComposerKeyEvent,
+} from '../../panels/agentChat/ComposerField'
 import { basename } from '../../../utils/paths'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
@@ -1711,7 +1716,7 @@ export default function NewAgentPanel({
     bootLaunchPendingRef.current = null
     // The Enter that commits an input method's composition belongs to the
     // input method: it picks the characters, it does not send them half-typed.
-    if (event.nativeEvent.isComposing) return
+    if (isImeKey(event)) return
     if (slashQuery !== null) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         if (slashRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {

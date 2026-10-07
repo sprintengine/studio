@@ -98,3 +98,16 @@ test('a cleared draft starts the undo history again; a draft set from outside un
     dom.window.close()
   }
 })
+
+test('a key is the input method’s while it composes, and as the keyCode 229 that commits it', async () => {
+  const { isImeKey } = await import('./ComposerField')
+  const key = (init: { isComposing?: boolean; keyCode?: number }) =>
+    ({ isComposing: init.isComposing ?? false, keyCode: init.keyCode ?? 13 }) as KeyboardEvent
+  expect(isImeKey(key({}))).toBe(false)
+  expect(isImeKey(key({ isComposing: true }))).toBe(true)
+  // WebKit's committing Enter: composition already over, the key still 229.
+  expect(isImeKey(key({ keyCode: 229 }))).toBe(true)
+  // The composer's own key events carry the native one.
+  expect(isImeKey({ nativeEvent: key({ keyCode: 229 }) })).toBe(true)
+  expect(isImeKey({ nativeEvent: key({}) })).toBe(false)
+})
