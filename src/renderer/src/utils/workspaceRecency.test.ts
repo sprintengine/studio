@@ -8,7 +8,7 @@ import {
   workspaceLastWorkedAt,
 } from './workspaceRecency'
 import { test } from 'vitest'
-import { applyWorkspaceFieldsPatch } from '../../../shared/workspace-sync'
+import { applyWorkspaceFieldsPatch, type WorkspaceFieldsPatch } from '../../../shared/workspace-sync'
 
 test('workspaceRecency', async () => {
   function run(name: string, body: () => void): void {
@@ -326,4 +326,23 @@ test('a field patch lowers the visit clock only beside a newer Mark unread stamp
   assert.equal(record.visitRewoundAt, 10_000)
   applyWorkspaceFieldsPatch(record, { lastVisitedAt: 11_000 })
   assert.equal(record.lastVisitedAt, 11_000, 'and a visit moves it forward as ever')
+})
+
+test('a rewind takes only a time: never a clear, never a number that is not one', () => {
+  for (const lastVisitedAt of [null, Number.NaN, Number.NEGATIVE_INFINITY, '4999']) {
+    const record: Record<string, unknown> = { lastVisitedAt: 9_000, visitRewoundAt: 5_000 }
+    applyWorkspaceFieldsPatch(record, { lastVisitedAt, visitRewoundAt: 10_000 } as unknown as WorkspaceFieldsPatch)
+    assert.equal(record.lastVisitedAt, 9_000, String(lastVisitedAt))
+  }
+  const record: Record<string, unknown> = { lastVisitedAt: 9_000 }
+  applyWorkspaceFieldsPatch(record, { lastVisitedAt: 4_999, visitRewoundAt: Number.POSITIVE_INFINITY })
+  assert.equal(record.lastVisitedAt, 9_000, 'a stamp that is not a time rewinds nothing')
+
+  // A snapshot carrying such a rewind keeps the clock this window has.
+  const workspace = (fields: Record<string, unknown>) => ({ id: 'w', ...fields }) as unknown as Workspace
+  const merged = keepLaterWorkspaceClocks(
+    workspace({ lastVisitedAt: 9_000 }),
+    workspace({ lastVisitedAt: null, visitRewoundAt: 10_000 }),
+  )
+  assert.equal(merged.lastVisitedAt, 9_000)
 })

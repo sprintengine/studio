@@ -20,6 +20,12 @@ export type ConversationLifecycleDeps = {
     actor: WorkspaceRegistryActor,
   ): WorkspaceSyncCommandResult
   /**
+   * Mark unread's own write, the one that may move the visit clock back: the
+   * service stamps `visitRewoundAt` beside it (`rewindVisit`), and refuses
+   * that stamp in any other patch.
+   */
+  rewindVisit(workspaceId: string, lastVisitedAt: number, actor: WorkspaceRegistryActor): WorkspaceSyncCommandResult
+  /**
    * Whether an agent in the workspace's chats is working. Settling ends the
    * chat's agent processes, and the work with them, so it waits, as the row
    * menu's Settle does.
@@ -113,8 +119,9 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
    * the chat's latest finish (that finish less a millisecond), so its
    * "finished, unseen" mark comes back everywhere and the next opening's
    * "New" divider sits above its latest reply. The one write that moves the
-   * clock back, and it says so: `visitRewoundAt` is stamped beside it
-   * (`visitRewindApplies`). A chat already unread from further back keeps its
+   * clock back, and it says so: it goes through its own command, which
+   * stamps `visitRewoundAt` beside it (`rewindVisit`, `visitRewindApplies`).
+   * A chat already unread from further back keeps its
    * clock, and one whose agent has finished nothing is refused.
    */
   function markUnread(workspaceId: string, actor: WorkspaceRegistryActor): ConversationMarkUnreadResult {
@@ -133,8 +140,8 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
     // Already unread from further back, the clock stays there; the stamp is
     // still written, which is what every device reads a Mark unread from.
     const at = stored !== null && stored < finishedAt - 1 ? stored : finishedAt - 1
-    const failed = write(workspaceId, { lastVisitedAt: at, visitRewoundAt: now() }, actor)
-    if (failed) return failed
+    const written = deps.rewindVisit(workspaceId, at, actor)
+    if (!written.ok) return { ok: false, code: 'write_failed', message: written.message }
     return { ok: true, workspaceId, lastVisitedAt: at }
   }
 

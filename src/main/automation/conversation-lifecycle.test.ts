@@ -30,6 +30,13 @@ function fixture(
       if (stored) applyWorkspaceFieldsPatch(stored as unknown as Record<string, unknown>, patch)
       return { ok: true, event: {} as never }
     },
+    rewindVisit: (workspaceId, lastVisitedAt, actor) => {
+      // The service's own command: it stamps the rewind, nobody else may.
+      const patch = { lastVisitedAt, visitRewoundAt: NOW }
+      writes.push({ workspaceId, patch, actor })
+      if (stored) applyWorkspaceFieldsPatch(stored as unknown as Record<string, unknown>, patch)
+      return { ok: true, event: {} as never }
+    },
     isWorking: () => options.working === true,
     latestChatTurnEnd: () => options.chatTurnEnd,
     now: () => NOW,

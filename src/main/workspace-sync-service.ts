@@ -232,6 +232,35 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     patch: WorkspaceFieldsPatch,
     actor: WorkspaceMutationActor,
   ): WorkspaceSyncCommandResult {
+    if (patch.visitRewoundAt !== undefined) {
+      return failure('field_not_editable', 'The visit clock goes back only through Mark unread (rewindVisit).')
+    }
+    return emit(
+      { type: 'workspace.update_fields', payload: { workspaceId, patch, editedAt: now() } },
+      registry.getState().primaryWorkspaceWindowId,
+      actor,
+    )
+  }
+
+  /**
+   * Mark unread's write, and the only one that may move a chat's visit clock
+   * back: `lastVisitedAt` goes to `lastVisitedAt`, stamped with a
+   * `visitRewoundAt` of now, which is what lets every reducer take the
+   * earlier time (`visitRewindApplies`). It travels as an ordinary
+   * `workspace.fields_updated`, so a window applies it as it applies any.
+   */
+  function rewindVisit(
+    workspaceId: WorkspaceId,
+    lastVisitedAt: number,
+    actor: WorkspaceMutationActor,
+  ): WorkspaceSyncCommandResult {
+    if (!Number.isFinite(lastVisitedAt)) {
+      return failure('invalid_field_value', 'A visit clock goes back to a time, never to nothing.')
+    }
+    if (!registry.getRecord(workspaceId)) {
+      return failure('unknown_workspace', `Workspace "${workspaceId}" is not in the registry.`)
+    }
+    const patch: WorkspaceFieldsPatch = { lastVisitedAt, visitRewoundAt: now() }
     return emit(
       { type: 'workspace.update_fields', payload: { workspaceId, patch, editedAt: now() } },
       registry.getState().primaryWorkspaceWindowId,
@@ -278,6 +307,7 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     getEventsAfter,
     getSnapshot,
     removeWorkspace,
+    rewindVisit,
     subscribeEvents,
     updateWorkspaceAgent,
     updateWorkspaceFields,
@@ -621,7 +651,8 @@ const EDITABLE_FIELDS = [
   'lastUserMessageAt',
   'lastTurnEndedAt',
   'lastVisitedAt',
-  'visitRewoundAt',
+  // Not `visitRewoundAt`: it is the one stamp that lets a patch lower the
+  // visit clock, so only Mark unread's own command writes it (`rewindVisit`).
 ] as const
 
 // The domain of each typed editable field. A wrong-shaped value would persist
@@ -637,7 +668,6 @@ const FIELD_VALUE_CHECKS: Partial<Record<(typeof EDITABLE_FIELDS)[number], (valu
   lastUserMessageAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
   lastTurnEndedAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
   lastVisitedAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
-  visitRewoundAt: (value) => value === null || (typeof value === 'number' && Number.isFinite(value)),
 }
 
 function fieldValueIsWellFormed(key: string, value: unknown): boolean {

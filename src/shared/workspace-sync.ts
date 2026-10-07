@@ -137,19 +137,24 @@ export function workspaceFieldMayApply(record: Record<string, unknown>, key: str
   return typeof current !== 'number' || (typeof value === 'number' && value >= current)
 }
 
+const finiteClock = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+
 /**
  * Whether `incoming` moves the visit clock back on purpose: it carries a Mark
- * unread (`visitRewoundAt`) newer than the one `record` has seen, so its
- * `lastVisitedAt` is taken even when it is earlier. The rewind is ordered by
- * its own stamp, so a lagging reading — of the clock before the rewind, or
- * of an older rewind — still cannot undo a later one.
+ * unread (`visitRewoundAt`) newer than the one `record` has seen, and a
+ * `lastVisitedAt` that is a time, so that time is taken even when it is
+ * earlier. Never a clear: a rewind with no time to go back to (null, NaN, a
+ * string) rewinds nothing. The rewind is ordered by its own stamp, so a
+ * lagging reading — of the clock before the rewind, or of an older rewind —
+ * still cannot undo a later one. Only main's Mark unread writes the stamp
+ * (`workspace-sync-service.ts`'s `rewindVisit`); no window's patch may carry it.
  */
 export function visitRewindApplies(
   record: Readonly<Record<string, unknown>>,
   incoming: Readonly<Record<string, unknown>>,
 ): boolean {
   const rewoundAt = incoming['visitRewoundAt']
-  if (typeof rewoundAt !== 'number') return false
+  if (!finiteClock(rewoundAt) || !finiteClock(incoming['lastVisitedAt'])) return false
   const current = record['visitRewoundAt']
   return typeof current !== 'number' || rewoundAt > current
 }
@@ -196,8 +201,12 @@ export type WorkspaceFieldsPatch = {
   lastUserMessageAt?: number | null
   lastTurnEndedAt?: number | null
   lastVisitedAt?: number | null
-  /** Mark unread: written with the `lastVisitedAt` it lowers (`visitRewindApplies`). */
-  visitRewoundAt?: number | null
+  /**
+   * Mark unread: written with the `lastVisitedAt` it lowers
+   * (`visitRewindApplies`), and only by main's own command for it; a window's
+   * `workspace.update_fields` carrying it is refused.
+   */
+  visitRewoundAt?: number
 }
 
 export type WorkspaceSyncEventType =

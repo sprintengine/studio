@@ -461,6 +461,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     getRecord: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
     updateWorkspaceFields: (workspaceId, patch, actor) =>
       workspaceSyncService.updateWorkspaceFields(workspaceId, patch, actor),
+    rewindVisit: (workspaceId, lastVisitedAt, actor) =>
+      workspaceSyncService.rewindVisit(workspaceId, lastVisitedAt, actor),
     isWorking: (workspaceId) => {
       const listed = conversations.listSessions()
       return (
