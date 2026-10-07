@@ -26,12 +26,13 @@ function createEmptyWorktree(pathValue: string): GitWorktreeEntry {
   }
 }
 
-function parseGitWorktreePorcelain(output: string): GitWorktreeEntry[] {
-  const lines = output
-    .split('\0')
-    .flatMap((record) => record.split(/\r?\n/))
-    .map((line) => line.trimEnd())
-    .filter(Boolean)
+/**
+ * `git worktree list --porcelain`, with `-z` or without. With `-z` every
+ * attribute ends in a NUL and nothing else splits it, so a path holding a
+ * newline survives; without, each line is one.
+ */
+export function parseGitWorktreePorcelain(output: string): GitWorktreeEntry[] {
+  const lines = (output.includes('\0') ? output.split('\0') : output.split(/\r?\n/)).filter(Boolean)
   const worktrees: GitWorktreeEntry[] = []
   let current: GitWorktreeEntry | null = null
 

@@ -21,7 +21,9 @@ import {
   isChatTranscriptPath,
   pathSpellings,
 } from '../agent-worktree-keep-checks'
+import type { GitWorktreeEntry } from '../git'
 import { pathExists } from '../git-utils'
+import { parseGitWorktreePorcelain } from '../git-worktree-list'
 import { GIT_NETWORK_TIMEOUT_MS } from '../git-run'
 import { withWorktreeRegistryLock } from '../worktree-registry-lock'
 import { measureDiskUsage, type MeasureDiskUsage } from './disk-usage'
@@ -1739,20 +1741,10 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
    */
   async function recoverPool(pool: PoolRuntime): Promise<void> {
     const record = pool.record
-    const listed = await git(record.repoRoot, ['worktree', 'list', '--porcelain'])
+    const listed = await git(record.repoRoot, ['worktree', 'list', '--porcelain', '-z'])
     if (!listed.ok) throw new Error(`git worktree list failed: ${tail(listed.message, 200) ?? 'no reason given'}`)
-    const registered = new Map<string, { path: string; locked: string | null; branch: string | null }>()
-    let current: { path: string; locked: string | null; branch: string | null } | null = null
-    for (const line of listed.stdout.split(/\r?\n/u)) {
-      if (line.startsWith('worktree ')) {
-        current = { path: line.slice('worktree '.length), locked: null, branch: null }
-        registered.set(comparablePath(current.path), current)
-      } else if (current && line.startsWith('branch ')) {
-        current.branch = line.slice('branch '.length).replace(/^refs\/heads\//u, '')
-      } else if (current && (line === 'locked' || line.startsWith('locked '))) {
-        current.locked = line.slice('locked'.length).trim()
-      }
-    }
+    const registered = new Map<string, GitWorktreeEntry>()
+    for (const entry of parseGitWorktreePorcelain(listed.stdout)) registered.set(comparablePath(entry.path), entry)
 
     const goneFromDisk: string[] = []
     const survivors: SlotRecord[] = []
@@ -1848,7 +1840,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       // A worktree merely NAMED like a slot (an agent or a person called it
       // `pool-01`) is not the pool's to adopt: only one the pool marked is.
       if (!(await hasSlotMarker(git, entry.path))) continue
-      const leased = entry.branch !== null && entry.locked !== null && !entry.locked.startsWith('held: ')
+      const leased = entry.branch !== null && entry.locked && !(entry.lockedReason ?? '').startsWith('held: ')
       survivors.push({
         id: name,
         path: entry.path,
