@@ -16,6 +16,7 @@ import {
   type WorktreePoolSettings,
 } from '../../../../shared/ipc/worktree-pool'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { ChevronDownIcon } from '../AppIcons'
 import { samePath } from '../../utils/paths'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import {
@@ -24,6 +25,7 @@ import {
   Checkbox,
   DefinitionList,
   EmptyState,
+  FrontTruncatedText,
   IconButton,
   InlineNotice,
   Input,
@@ -617,7 +619,8 @@ export function WorktreesSettingsTab({
       <SettingsSectionTitle className="mb-2" count={totals.count}>
         Worktrees
       </SettingsSectionTitle>
-      <div className="mb-3 flex items-center gap-2">
+      {/* The field takes what the filter leaves, and drops under it when that is too little. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <SegmentedControl<WorktreeFilter>
           ariaLabel="Show"
           value={filter}
@@ -636,7 +639,8 @@ export function WorktreesSettingsTab({
           placeholder="Filter by branch, chat or path"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          className="w-64"
+          fullWidth={false}
+          className="min-w-48 flex-1"
         />
       </div>
 
@@ -776,25 +780,44 @@ function ProjectCard({
   const facts = [
     project.defaultRef ? `Forks from ${project.defaultRef}` : null,
     project.lastFetchAt ? `Fetched ${formatRelativeMsAgo(project.lastFetchAt, now)}` : null,
-    `${count} worktree${count === 1 ? '' : 's'}${project.bytes ? ` · ${formatBytes(project.bytes)}` : ''}`,
   ].filter(Boolean)
   const rowProps = { now, expanded, selected, busy, onToggleExpanded, onToggleSelected, installs, actions }
+  // Two lines, so neither has to squeeze: the name, its count and the folder
+  // button on the first, which never wrap; where it lives and what it forks
+  // from under them, the path giving way first and from its front. The second
+  // line starts under the name: the button's inset, the chevron and its gap.
   return (
     <SettingCard className="mb-4 overflow-hidden">
-      <div className="flex items-center gap-3 border-b border-[color:var(--border-subtle)] px-4 py-2.5">
-        <GhostButton size="xs" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-          <span className="font-semibold text-[color:var(--text-strong)]">{project.name}</span>
-        </GhostButton>
-        <span className="min-w-0 truncate font-mono text-meta text-[color:var(--text-subtle)]" title={project.repoRoot}>
-          {project.repoRoot}
-        </span>
-        <span className="ml-auto shrink-0 text-meta text-[color:var(--text-subtle)]">{facts.join(' · ')}</span>
-        <GhostButton
-          size="xs"
-          onClick={() => void window.api.showItemInFolder(project.containerPath ?? project.repoRoot)}
-        >
-          Show folder
-        </GhostButton>
+      <div className="border-b border-[color:var(--border-subtle)] py-2 pl-2 pr-3">
+        <div className="flex items-center gap-2">
+          <GhostButton
+            size="xs"
+            aria-expanded={open}
+            onClick={() => setOpen((value) => !value)}
+            className="min-w-0 whitespace-nowrap"
+          >
+            <ChevronDownIcon
+              className={`size-icon-xs shrink-0 text-[color:var(--text-subtle)] transition-transform ${open ? '' : '-rotate-90'}`}
+            />
+            <span className="truncate font-semibold text-[color:var(--text-strong)]">{project.name}</span>
+          </GhostButton>
+          <span className="shrink-0 whitespace-nowrap text-meta tabular-nums text-[color:var(--text-muted)]">
+            {count} worktree{count === 1 ? '' : 's'}
+            {project.bytes ? ` · ${formatBytes(project.bytes)}` : ''}
+          </span>
+          <span className="flex-1" />
+          <GhostButton
+            size="xs"
+            className="shrink-0 whitespace-nowrap"
+            onClick={() => void window.api.showItemInFolder(project.containerPath ?? project.repoRoot)}
+          >
+            Show folder
+          </GhostButton>
+        </div>
+        <div className="flex min-w-0 items-center gap-2 pl-[calc(var(--icon-xs)+--spacing(3.5))] text-meta text-[color:var(--text-subtle)]">
+          <FrontTruncatedText text={project.repoRoot} className="font-mono" />
+          {facts.length ? <span className="shrink-0 whitespace-nowrap">{facts.join(' · ')}</span> : null}
+        </div>
       </div>
       {project.heldByOtherInstance ? (
         <InlineNotice
@@ -820,14 +843,17 @@ function ProjectCard({
           className="w-full"
           colgroup={
             <colgroup>
-              {/* Sized for the Settings column (about 690px): the fixed tracks
-                  leave "Used by" the rest. */}
+              {/* Sized for the Settings column (about 920px, 680px at the
+                  narrowest window). Four text tracks there left a folder name
+                  120px and cut every agent's worktree to "agent-a1d…", so the
+                  branch rides under the name and the state badge leads what
+                  the worktree is doing: two tracks that share what the size
+                  and the actions leave. */}
               <col className="w-8" />
-              <col className="w-32" />
-              <col className="w-40" />
+              <col className="w-[36%]" />
               <col />
-              <col className="w-16" />
-              <col className="w-32" />
+              <col className="w-20" />
+              <col className="w-36" />
             </colgroup>
           }
         >
@@ -837,8 +863,7 @@ function ProjectCard({
                 <span className="sr-only">Select</span>
               </Table.Head>
               <Table.Head sticky={false}>Worktree</Table.Head>
-              <Table.Head sticky={false}>Branch</Table.Head>
-              <Table.Head sticky={false}>Used by</Table.Head>
+              <Table.Head sticky={false}>Status</Table.Head>
               <Table.Head sticky={false} numeric>
                 Size
               </Table.Head>
@@ -854,8 +879,8 @@ function ProjectCard({
             {otherRows.length > 0 ? (
               <tr>
                 <td
-                  colSpan={6}
-                  className="bg-[color:var(--bg-surface)] px-2 py-1 pl-8 text-meta text-[color:var(--text-subtle)]"
+                  colSpan={5}
+                  className="bg-[color:var(--bg-surface)] px-2 py-1.5 pl-8 text-meta text-[color:var(--text-subtle)]"
                 >
                   Not in the pool: other worktrees of this project
                 </td>
@@ -956,37 +981,42 @@ function WorktreeTableRow({
             />
           ) : null}
         </Table.Cell>
-        <Table.Cell>
+        <Table.Cell className="py-2">
           <div className="truncate text-body font-medium text-[color:var(--text-strong)]" title={row.path}>
             {row.name}
           </div>
-          <div className="mt-1 flex items-center gap-1.5">
-            <Badge tone={STATE_TONE[row.state]}>{row.stateLabel}</Badge>
-            {isBusy ? <Spinner size={12} label="Working" /> : null}
-          </div>
-        </Table.Cell>
-        <Table.Cell>
+          {/* A branch's end says what it is for; its head is a prefix many share. */}
           <div
-            className={`truncate font-mono text-meta ${row.branch ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'}`}
+            className={`flex min-w-0 font-mono text-meta ${row.branch ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-subtle)]'}`}
             title={row.branch ?? undefined}
           >
-            {row.branch ?? 'no branch'}
-          </div>
-          <div className="truncate text-meta text-[color:var(--text-subtle)]">{row.branchNote}</div>
-        </Table.Cell>
-        <Table.Cell>
-          <div className="truncate text-body text-[color:var(--text-default)]" title={row.usedBy}>
-            {row.usedBy}
-          </div>
-          <div className="truncate text-meta text-[color:var(--text-subtle)]" title={install?.lastLine ?? undefined}>
-            {install ? `installing dependencies · ${install.lastLine ?? install.command}` : usedBySub(row, now)}
+            <FrontTruncatedText text={row.branch ?? 'no branch'} />
           </div>
         </Table.Cell>
-        <Table.Cell numeric className="text-[color:var(--text-muted)]">
+        <Table.Cell className="py-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Badge tone={STATE_TONE[row.state]} className="shrink-0">
+              {row.stateLabel}
+            </Badge>
+            {isBusy ? <Spinner size={12} label="Working" /> : null}
+            <span className="truncate text-body text-[color:var(--text-default)]" title={row.usedBy}>
+              {row.usedBy}
+            </span>
+          </div>
+          <div
+            className="mt-0.5 truncate text-meta text-[color:var(--text-subtle)]"
+            title={install?.lastLine ?? undefined}
+          >
+            {install
+              ? `installing dependencies · ${install.lastLine ?? install.command}`
+              : [row.branchNote, usedBySub(row, now)].filter(Boolean).join(' · ')}
+          </div>
+        </Table.Cell>
+        <Table.Cell numeric className="whitespace-nowrap text-[color:var(--text-muted)]">
           {formatBytes(row.bytes)}
         </Table.Cell>
         <Table.Cell className="pr-3">
-          <div className="flex items-center justify-end gap-1">
+          <div className="flex items-center justify-end gap-1 whitespace-nowrap">
             {install ? (
               <OutlineButton size="xs" onClick={() => actions.cancelInstall(install)}>
                 Cancel install
@@ -1014,7 +1044,7 @@ function WorktreeTableRow({
       </Table.Row>
       {isOpen ? (
         <tr className="border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
-          <td colSpan={6} className="px-4 py-4 pl-8">
+          <td colSpan={5} className="px-4 py-4 pl-8">
             <RowDetail row={row} now={now} actions={actions} busy={isBusy} />
           </td>
         </tr>
