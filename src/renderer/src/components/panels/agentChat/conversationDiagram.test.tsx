@@ -15,6 +15,8 @@ const mermaid = vi.hoisted(() => {
         if (source.includes('-->>>')) throw new Error('Parse error on line 2:\n...\nExpecting NODE_STRING')
         return { diagramType: 'flowchart' }
       },
+      // The parsed diagram, read for what it would load: nothing here.
+      mermaidAPI: { getDiagramFromText: async () => ({ db: {} }) },
       render: async (id: string, source: string) => {
         drawn.push(source)
         return { svg: `<svg id="${id}" data-diagram=""><text>${source.split('\n')[1]?.trim()}</text></svg>` }
