@@ -168,6 +168,8 @@ export const TAILNET_CAPABILITIES = [
   // `lastVisitedAt` back to just before its latest finish, the one write
   // that moves it back. A client offers no Mark unread for a machine that
   // does not advertise it; an older one answers the tool "Unknown tool".
+  // The list names each chat's `visitRewoundAt` beside `lastVisitedAt`, when
+  // it was last marked unread, so a client closed at the time can tell.
   'chat-mark-unread',
 ] as const
 

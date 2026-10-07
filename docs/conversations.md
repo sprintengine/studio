@@ -491,7 +491,7 @@ the desktop's own sidebar — agrees with it. A desktop that advertises
   waiting agent recolours its row, it does not move it. A message a paired
   device sends moves the desktop's own clock, so the sidebar and every list
   agree.
-- **Four optional members on each row**, beside the agent's name in `title`,
+- **Five optional members on each row**, beside the agent's name in `title`,
   which older clients keep reading:
 
   ```ts
@@ -499,6 +499,7 @@ the desktop's own sidebar — agrees with it. A desktop that advertises
   lastUserMessageAt?: number  // when a person last sent it a message, from any device
   lastTurnEndedAt?: number    // when its agent last finished a turn, or failed one
   lastVisitedAt?: number      // when a person last had it on screen, on any device
+  visitRewoundAt?: number     // when it was last marked unread, on any device
   ```
 
   `lastTurnEndedAt` is read from the chat's transcript (the thread index keeps
@@ -554,7 +555,12 @@ the phone takes the later of the listed clock and its own opening of the chat
 (and of a visit it stamped itself this run), so it shows such a chat read
 until the list says otherwise, never anything wrong. A phone that offers Mark
 unread asks for `chat-mark-unread` first and drops its own later readings
-once the list carries an earlier clock.
+once the list carries an earlier clock. Which readings to drop is what
+`visitRewoundAt` says: a reading taken before it is older than the Mark
+unread, so the listed `lastVisitedAt` wins over it, and a reading taken after
+it (the person opened the chat since) still stands. A chat marked unread
+while the phone was closed is found that way on the next list. Only Mark
+unread writes the stamp; the desktop refuses it in any other patch.
 
 All three tools need `conversation:operate` and are audited, like
 `conversation.create`. A paired desktop's Remote rows use all of it: they are

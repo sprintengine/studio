@@ -238,7 +238,11 @@ read. On the desktop the rewind travels as `lastVisitedAt` with a newer
 `visitRewoundAt`, the only patch that may lower the clock, so a lagging
 window's visit still cannot. A phone that adds Mark unread checks for
 `chat-mark-unread`, and must stop keeping its own later visit readings over
-an earlier listed one. The Studio
+an earlier listed one. Each listed chat names that stamp as `visitRewoundAt`
+beside `lastVisitedAt`, an optional member with no capability of its own: a
+phone drops only the readings it took before the stamp, so a chat marked
+unread while the phone was closed reads unread there, and an older phone
+ignores the member. The Studio
 RPC does not advertise it, having no method for either tool. Breaking frame changes require a new
 negotiated capability or the tailnet version-window process above, not merely
 a package version change. Presentation-only fixes use a package patch.

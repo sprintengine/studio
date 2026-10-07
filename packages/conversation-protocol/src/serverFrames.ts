@@ -83,6 +83,16 @@ export type ConversationThread = Omit<ConversationWireThread, 'capabilities'> & 
    * recorded visits before this, so a client reads that absence as seen.
    */
   lastVisitedAt?: number
+  /**
+   * When the chat was last marked unread, on any device: the moment Mark
+   * unread (`conversation.mark_unread`) moved `lastVisitedAt` back. A client
+   * that keeps visit readings of its own takes the listed `lastVisitedAt`
+   * over a later one of them when this is newer than its reading, which is
+   * how a chat marked unread while the client was closed reads as unread
+   * there. Absent from a desktop built before it was listed, and for a chat
+   * never marked unread.
+   */
+  visitRewoundAt?: number
 }
 
 /**
@@ -327,6 +337,7 @@ function thread(value: unknown): ConversationThread | null {
     ...(clock(value.lastUserMessageAt) ? { lastUserMessageAt: value.lastUserMessageAt } : {}),
     ...(clock(value.lastTurnEndedAt) ? { lastTurnEndedAt: value.lastTurnEndedAt } : {}),
     ...(clock(value.lastVisitedAt) ? { lastVisitedAt: value.lastVisitedAt } : {}),
+    ...(clock(value.visitRewoundAt) ? { visitRewoundAt: value.visitRewoundAt } : {}),
     ...(flags
       ? {
           capabilities: {

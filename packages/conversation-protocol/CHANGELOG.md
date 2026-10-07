@@ -4,6 +4,12 @@
 
 ### Added
 
+- **A listed chat says when it was last marked unread.** `visitRewoundAt` is
+  an optional member of `ConversationThread`, beside `lastVisitedAt`, kept by
+  `parseConversationServerFrame` when it is a time and left out otherwise. A
+  client keeping visit readings of its own takes the listed `lastVisitedAt`
+  over any it took before this stamp. The pinned files are unchanged.
+
 - **A listed chat says where it stands in the desktop's own list.**
   `chatTitle` (the chat's title as the desktop's sidebar shows it),
   `lastUserMessageAt`, `lastTurnEndedAt` and `lastVisitedAt` are optional
