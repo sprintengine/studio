@@ -32,7 +32,8 @@ const mermaid = vi.hoisted(() => {
 })
 vi.mock('mermaid', () => ({ default: mermaid.api }))
 
-const { appearanceKey, cachedDiagram, drawDiagram, sanitizeDiagramSvg } = await import('./mermaidDiagram')
+const { appearanceKey, cachedDiagram, drawDiagram, LOADS_FROM_ELSEWHERE, loadsFromElsewhere, sanitizeDiagramSvg } =
+  await import('./mermaidDiagram')
 
 beforeEach(() => {
   mermaid.events.length = 0
@@ -53,6 +54,65 @@ test('diagrams are drawn one at a time, each under the configuration it was draw
   expect(second).toMatchObject({ svg: expect.stringContaining('graph TD; two') })
   for (const config of mermaid.configs) {
     expect(config).toMatchObject({ securityLevel: 'strict', theme: 'base', startOnLoad: false })
+  }
+})
+
+test('labels are SVG text, and a diagram cannot change what reaches the page unsanitized', async () => {
+  await drawDiagram('a', 'graph TD; configured')
+  const [config] = mermaid.configs
+  expect(config).toMatchObject({ htmlLabels: false, flowchart: { htmlLabels: false } })
+  // Mermaid's own list is replaced, not added to, so it is all still there.
+  expect(config.secure).toEqual(
+    expect.arrayContaining([
+      'secure',
+      'securityLevel',
+      'startOnLoad',
+      'maxTextSize',
+      'suppressErrorRendering',
+      'maxEdges',
+    ]),
+  )
+  expect(config.secure).toEqual(
+    expect.arrayContaining([
+      'htmlLabels',
+      'themeCSS',
+      'themeVariables',
+      'fontFamily',
+      'altFontFamily',
+      'dompurifyConfig',
+    ]),
+  )
+  expect(config.dompurifyConfig).toMatchObject({
+    FORBID_TAGS: expect.arrayContaining(['style', 'a', 'img', 'image', 'script']),
+    FORBID_ATTR: expect.arrayContaining(['href', 'xlink:href', 'src', 'srcset']),
+  })
+})
+
+test('a source that would load an image or a style from elsewhere is not drawn', async () => {
+  for (const source of [
+    '%%{init: {"themeCSS": ".node rect { fill: url(https://evil.example/a.svg) }"}}%%\ngraph TD; A',
+    '%%{init: {"themeCSS": "@import \'https://evil.example/b.css\';"}}%%\ngraph TD; A',
+    'classDiagram\n  class A\n  style A fill:url(https://evil.example/c.png)',
+    'stateDiagram-v2\n  A --> B\n  classDef bad fill:url(//evil.example/d.png)',
+    // CSS reads an escaped `url(` as the real one.
+    'stateDiagram-v2\n  A --> B\n  classDef bad fill:\\75 rl(https://evil.example/e.png)',
+    'stateDiagram-v2\n  A --> B\n  classDef bad background:image-set("https://evil.example/f.png" 1x)',
+    'flowchart TD\n  A@{ img: "https://evil.example/g.png", label: "A" }',
+    'sequenceDiagram\n  participant A\n  properties A: {"icon": "https://evil.example/h.png"}',
+  ]) {
+    expect(loadsFromElsewhere(source), source).toBe(true)
+    expect(await drawDiagram('a', source), source).toEqual({ error: LOADS_FROM_ELSEWHERE })
+  }
+  expect(mermaid.events).toEqual([])
+
+  // The diagram pointing at its own markers, a symbol of its own, and an
+  // address that is only a label's text are all fine.
+  for (const source of [
+    'graph TD\n  A --> B\n  style A fill:#f9f',
+    'graph TD\n  A["Fetch https://api.example.com/v1"] --> B',
+    'sequenceDiagram\n  participant A\n  properties A: {"icon": "@clock"}',
+  ]) {
+    expect(loadsFromElsewhere(source), source).toBe(false)
   }
 })
 
@@ -102,5 +162,37 @@ test('the SVG keeps its drawing and labels and loses anything that could run', (
   expect(clean).toContain('<style>')
   expect(clean).toContain('<foreignObject')
   expect(clean).toContain('<p>Start</p>')
+  // A link's drawing stays; the link does not.
+  expect(clean).toContain('<rect width="4" height="4"')
+  expect(clean).toContain('marker-end="url(#d_arrow)"')
+})
+
+test('the SVG loses everything that would load from elsewhere', () => {
+  const svg = [
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10">',
+    '<style>@import url(https://evil.example/a.css);',
+    '@import "https://evil.example/b.css";',
+    '#d .node rect{fill:url(https://evil.example/c.svg)}',
+    '#d .edge{stroke:url( "//evil.example/d.svg" )}',
+    '#d .cluster{background:image-set("https://evil.example/e.png" 1x)}',
+    '#d .note{background:\\75 rl(https://evil.example/f.png)}',
+    '#d .marker{fill:url(#d_gradient)}</style>',
+    '<image href="https://evil.example/g.png" width="4" height="4"/>',
+    '<image xlink:href="https://evil.example/h.png" width="4" height="4"/>',
+    '<a href="https://evil.example/i"><text>linked</text></a>',
+    '<rect width="4" height="4" style="fill:url(https://evil.example/j.png)" filter="url(https://evil.example/k.svg#f)"/>',
+    '<foreignObject width="40" height="20"><div xmlns="http://www.w3.org/1999/xhtml">',
+    '<img src="https://evil.example/l.png" srcset="https://evil.example/m.png 2x">',
+    '<span style="background-image:url(https://evil.example/n.png)">Label</span></div></foreignObject>',
+    '<path d="M0 0L10 10" marker-end="url(#d_arrow)"/>',
+    '</svg>',
+  ].join('')
+  const clean = sanitizeDiagramSvg(DOMPurify, svg)
+  expect(clean).not.toContain('evil.example')
+  expect(clean).not.toMatch(/<img|<image|<a\b|@import|image-set|\bsrc=|href=/u)
+  // What the diagram draws, and what it points at inside itself, stay.
+  expect(clean).toContain('<text>linked</text>')
+  expect(clean).toContain('Label</span>')
+  expect(clean).toContain('fill:url(#d_gradient)')
   expect(clean).toContain('marker-end="url(#d_arrow)"')
 })

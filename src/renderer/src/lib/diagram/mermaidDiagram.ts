@@ -7,9 +7,17 @@
 // diagram's SVG is kept per appearance and source, so a settled message that
 // re-renders, or scrolls back into view, does not draw it again.
 //
-// The source is an agent's text, so it is drawn at `securityLevel: 'strict'`
-// (labels are sanitized, click handlers and links are refused), and the SVG
-// that comes back is sanitized once more before it reaches the page.
+// The source is an agent's text, and a diagram must not run anything, link
+// anywhere or load anything from outside the reply: a fetched image or
+// stylesheet tells whoever serves it that the reply was read, and when. Mermaid
+// adds the SVG to the page to measure its labels before handing it back, so
+// sanitizing what comes back cannot stop a load that has already started.
+// Three layers, then: a source that names an image or stylesheet to load is
+// not drawn at all (`loadsFromElsewhere`); the drawing runs at
+// `securityLevel: 'strict'` with labels as SVG text and a diagram's own
+// configuration kept off every setting that reaches the page unsanitized
+// (`SECURE_KEYS`); and the SVG that comes back is sanitized once more before
+// the page keeps it (`sanitizeDiagramSvg`).
 
 type Mermaid = typeof import('mermaid').default
 type Purify = typeof import('dompurify').default
@@ -30,16 +38,110 @@ function loadEngine(): Promise<Engine> {
 
 export type DiagramResult = { svg: string } | { error: string }
 
+// ---- Nothing from outside the diagram -----------------------------------------
+
+// Elements and attributes that load, link or run, whatever a label holds.
+const LOADING_TAGS = ['a', 'img', 'image', 'script']
+const LOADING_ATTRIBUTES = ['href', 'xlink:href', 'src', 'srcset']
+
+// CSS that fetches: a `url()` to anything but an element of the diagram itself
+// (`url(#arrowhead)`, which markers and gradients use), `image-set()`, which
+// takes bare strings as URLs, and `@import`.
+const REMOTE_CSS = /\burl\s*\(\s*(?!['"]?\s*#)[^)]*\)?|(?:-webkit-)?image-set\s*\([^)]*\)?|@import\b[^;]*;?/giu
+
+// CSS reads `\75 rl(` and `u\rl(` as `url(`, so CSS is judged with its
+// escapes decoded.
+function decodeCssEscapes(text: string): string {
+  if (!text.includes('\\')) return text
+  return text.replace(/\\(?:([0-9a-f]{1,6})[ \t\n\r\f]?|(.))/gisu, (_match, hex: string | undefined, char: string) => {
+    if (!hex) return char
+    const point = parseInt(hex, 16)
+    return point && point <= 0x10ffff ? String.fromCodePoint(point) : '\ufffd'
+  })
+}
+
+function hasRemoteCss(text: string): boolean {
+  REMOTE_CSS.lastIndex = 0
+  return REMOTE_CSS.test(text)
+}
+
+/** CSS, or a value in an attribute, with every fetch in it made inert. */
+function withoutRemoteCss(css: string): string {
+  const decoded = decodeCssEscapes(css)
+  if (!hasRemoteCss(decoded)) return css
+  return decoded.replace(REMOTE_CSS, (found) => (found.startsWith('@') ? '' : 'none'))
+}
+
+// What makes Mermaid itself fetch while it lays a diagram out: CSS in a
+// `style`, `classDef` or init directive, a node's `img` (which it loads to
+// measure), and a sequence participant's icon given as an address rather than
+// an `@`-named symbol of the diagram's own.
+const LOADING_SYNTAX = [/@\{[^}]*\bimg\s*:/u, /["']icon["']\s*:\s*["']\s*(?!@)/u]
+
+/** Whether drawing this source would load something from outside it. */
+export function loadsFromElsewhere(source: string): boolean {
+  return hasRemoteCss(decodeCssEscapes(source)) || LOADING_SYNTAX.some((pattern) => pattern.test(source))
+}
+
+export const LOADS_FROM_ELSEWHERE = 'Diagrams in a reply do not load images or styles from elsewhere'
+
+// Settings a diagram's `%%{init}%%` or front matter may not change. Mermaid's
+// own list first: `secure` replaces it rather than adding to it.
+const SECURE_KEYS = [
+  'secure',
+  'securityLevel',
+  'startOnLoad',
+  'maxTextSize',
+  'suppressErrorRendering',
+  'maxEdges',
+  // HTML labels are added to the page to be measured, unsanitized by us.
+  'htmlLabels',
+  // Each is written into the diagram's <style>, which is on the page while it
+  // is measured: CSS of the diagram's own, and fonts and colours (a directive's
+  // font is copied into the theme's variables, so those are kept too).
+  'themeCSS',
+  'themeVariables',
+  'fontFamily',
+  'altFontFamily',
+  // How Mermaid sanitizes label text, which is set below, and markers drawn
+  // as absolute URLs.
+  'dompurifyConfig',
+  'arrowMarkerAbsolute',
+]
+
+let svgPurifier: ReturnType<Purify> | null = null
+
+// A sanitizer of our own rather than the shared one, which Mermaid also uses
+// and configures with hooks of its own.
+function purifier(purify: Purify): ReturnType<Purify> {
+  if (svgPurifier) return svgPurifier
+  const instance = purify(window)
+  instance.addHook('uponSanitizeElement', (node, data) => {
+    if (data.tagName === 'style' && node.textContent) node.textContent = withoutRemoteCss(node.textContent)
+  })
+  // Any attribute, not only `style`: SVG paints with `fill="url(…)"`, `filter`,
+  // `mask` and `clip-path` as well.
+  instance.addHook('uponSanitizeAttribute', (_node, data) => {
+    if (data.attrValue) data.attrValue = withoutRemoteCss(data.attrValue)
+  })
+  svgPurifier = instance
+  return instance
+}
+
 /**
- * The SVG as the page may hold it: SVG and the HTML Mermaid sets inside a
- * `foreignObject` for its labels, with every script, handler and `javascript:`
- * URL taken out.
+ * The SVG as the page may hold it: SVG, and the HTML Mermaid sets inside a
+ * `foreignObject` for the labels a few diagrams draw that way (Venn sets,
+ * architecture icons, typeset math), with every script, handler, link, image
+ * and CSS fetch taken out. `url(#id)`, the diagram pointing at its own markers
+ * and gradients, stays.
  */
 export function sanitizeDiagramSvg(purify: Purify, svg: string): string {
-  return purify.sanitize(svg, {
+  return purifier(purify).sanitize(svg, {
     USE_PROFILES: { svg: true, svgFilters: true, html: true },
     ADD_TAGS: ['foreignObject'],
     HTML_INTEGRATION_POINTS: { foreignobject: true },
+    FORBID_TAGS: LOADING_TAGS,
+    FORBID_ATTR: LOADING_ATTRIBUTES,
   })
 }
 
@@ -205,7 +307,12 @@ export function drawDiagram(appearance: string, source: string): Promise<Diagram
   if (hit) return Promise.resolve(hit)
   const pending = drawing.get(key)
   if (pending) return pending
-  const run = queue.then(async () => {
+  const run = queue.then(async (): Promise<DiagramResult> => {
+    if (loadsFromElsewhere(source)) {
+      const refused = { error: LOADS_FROM_ELSEWHERE }
+      remember(key, refused)
+      return refused
+    }
     const loaded = await loadEngine().catch(() => null)
     if (!loaded) return { error: 'The diagram renderer could not be loaded' }
     const result = await render(loaded, source)
@@ -224,6 +331,15 @@ async function render({ mermaid, purify }: Engine, source: string): Promise<Diag
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: 'strict',
+      secure: SECURE_KEYS,
+      // Labels as SVG text, which is never parsed as markup. The flowchart's
+      // own switch is the older spelling of the same setting, and some
+      // diagrams still read it.
+      htmlLabels: false,
+      flowchart: { htmlLabels: false },
+      // What Mermaid's own sanitizer keeps in the label text it still sets as
+      // markup — before the page is out of reach of anything that loads.
+      dompurifyConfig: { FORBID_TAGS: ['style', ...LOADING_TAGS], FORBID_ATTR: LOADING_ATTRIBUTES },
       theme: 'base',
       themeVariables: themeVariables(),
       // A diagram that does not parse is reported to the block, which shows
