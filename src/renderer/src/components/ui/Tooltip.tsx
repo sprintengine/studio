@@ -8,6 +8,7 @@ export type TooltipChildProps = {
   onFocus?: (event: React.FocusEvent) => void
   onBlur?: (event: React.FocusEvent) => void
   onKeyDown?: (event: React.KeyboardEvent) => void
+  onPointerDown?: (event: React.PointerEvent) => void
 }
 
 type TooltipPlacement = 'top' | 'bottom' | 'left' | 'right'
@@ -133,6 +134,21 @@ function computeTooltipCoords(
   }
 }
 
+// The spec shows a tooltip on `:focus-visible`, not on any focus: a click
+// focuses its control too, and so does the window giving focus back to the
+// control that last had it when the app is activated again. Those are not a
+// person asking what the control is. An engine that cannot answer the
+// selector (the test DOM) is treated as keyboard focus, the old behaviour.
+function isFocusVisible(target: EventTarget): boolean {
+  const matches = (target as Partial<Element>).matches
+  if (typeof matches !== 'function') return true
+  try {
+    return matches.call(target, ':focus-visible')
+  } catch {
+    return true
+  }
+}
+
 export function Tooltip({
   content,
   placement = 'top',
@@ -206,7 +222,14 @@ export function Tooltip({
       }
     }
     document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    // The app losing focus is a way out too. A click that opens the browser
+    // leaves the pointer resting on the trigger, so no mouseleave ever comes,
+    // and the tooltip would still be standing over the composer on return.
+    window.addEventListener('blur', close)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('blur', close)
+    }
   }, [open, close])
 
   useEffect(() => clearTimer, [clearTimer])
@@ -216,6 +239,11 @@ export function Tooltip({
   const handleMouseEnter = useCallback(
     (event: React.MouseEvent) => {
       childProps.onMouseEnter?.(event)
+      // React delivers enter and leave along its own tree, so a menu the
+      // trigger portals out (a split button's chevron menu) counts as inside
+      // it: entering its rows would summon the trigger's tooltip over them.
+      // Only the trigger's own DOM is the trigger.
+      if (!triggerWrapRef.current?.contains(event.target as Node)) return
       clearTimer()
       timer.current = window.setTimeout(() => setOpen(true), openDelayMs)
     },
@@ -233,10 +261,23 @@ export function Tooltip({
   const handleFocus = useCallback(
     (event: React.FocusEvent) => {
       childProps.onFocus?.(event)
+      if (!isFocusVisible(event.target)) return
       clearTimer()
       setOpen(true)
     },
     [childProps, clearTimer],
+  )
+
+  // Pressing the trigger answers the question the tooltip was for, and a
+  // press that opens a menu or the browser would otherwise leave it standing:
+  // the menu is portalled (so React never reports the pointer leaving) and the
+  // browser takes the app's focus (so nothing reports anything).
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent) => {
+      childProps.onPointerDown?.(event)
+      close()
+    },
+    [childProps, close],
   )
 
   const handleBlur = useCallback(
@@ -253,6 +294,7 @@ export function Tooltip({
     onMouseLeave: handleMouseLeave,
     onFocus: handleFocus,
     onBlur: handleBlur,
+    onPointerDown: handlePointerDown,
   })
 
   return (

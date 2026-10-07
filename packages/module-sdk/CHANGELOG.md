@@ -86,6 +86,11 @@ new chat. The app no longer has an automations engine for a module to extend.
 
 ### Fixed
 
+- **A kit tooltip goes away once its control has been used.** It opens on
+  `:focus-visible` rather than any focus, and pressing the trigger or the app
+  losing focus dismisses it. `TooltipChildProps` gains `onPointerDown`, which a
+  glyph that forwards the tooltip's handlers to its host element now forwards
+  too.
 - **`npm run keygen` on Windows.** The templates' `keygen` script wrote the key
   under `$HOME`, which `cmd.exe` (where npm runs scripts on Windows) does not
   expand. It passes `~/.sprintengine/keys/<id>.key`, and `keygen --out`
