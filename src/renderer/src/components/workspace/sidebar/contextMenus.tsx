@@ -23,6 +23,8 @@ import {
   SwitchGlyph,
 } from '../../ui'
 import { type ProjectColorSetting, type ProjectColor } from '../../../utils/projectColor'
+import { chatLinkFor } from '../../../../../shared/deep-link'
+import { clientSupports } from '../../../clientCapabilities'
 
 export function sidebarWorkspaceOf(workspace: Workspace): {
   id: string
@@ -52,6 +54,7 @@ export type ContextMenuAction =
   | 'rename'
   | 'new-chat'
   | 'reveal'
+  | 'copy-link'
   | 'move-to-new-window'
   | 'move-to-main-window'
   | 'close'
@@ -107,6 +110,9 @@ export function WorkspaceContextMenu({
   // does not touch — hence the two predicates rather than one.
   const folderPathExists = Boolean(workspace.folderPath) && !workspace.folderMissing
   const canNewChatInProject = newChatProjectTarget(workspace) !== null
+  // A `sprintengine://` link opens the desktop app, so a browser tab does not
+  // offer one; nor does a row whose id a link cannot carry.
+  const canCopyLink = clientSupports('deep-links') && chatLinkFor(workspace.id) !== null
   const starred = isStarred(workspace.highlight)
   const settled = isSettledWorkspace(workspace)
   const snoozed = isSnoozedWorkspace(workspace, now)
@@ -128,6 +134,7 @@ export function WorkspaceContextMenu({
       </MenuItem>
       {canNewChatInProject ? <MenuItem onClick={() => onSelect('new-chat')}>New chat in project</MenuItem> : null}
       {folderPathExists ? <MenuItem onClick={() => onSelect('reveal')}>Reveal folder</MenuItem> : null}
+      {canCopyLink ? <MenuItem onClick={() => onSelect('copy-link')}>Copy link to chat</MenuItem> : null}
       {isDetachedWindow ? (
         <MenuItem onClick={() => onSelect('move-to-main-window')}>Move to Main Window</MenuItem>
       ) : (

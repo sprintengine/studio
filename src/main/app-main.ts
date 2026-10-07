@@ -459,6 +459,13 @@ registerAppLifecycle({
   handleAuthCallback: (argv) => {
     void parseAuthCallbackFromArgv(services.sprintengineAuth, argv)
   },
+  chatWindows: {
+    holderOf: (chatId) =>
+      services.workspaceSyncService
+        .getSnapshot()
+        .state.workspaceWindows.find((windowState) => windowState.workspaceIds.includes(chatId))?.id ?? null,
+    primaryWindowId: () => services.workspaceSyncService.getSnapshot().state.primaryWorkspaceWindowId,
+  },
   // ── extension-platform additions ──
   ...(serverHost ? {} : { moduleLoadReady: moduleLoad.ready }),
 })

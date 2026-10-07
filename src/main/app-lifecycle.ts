@@ -1,12 +1,26 @@
-import { app, BrowserWindow, ipcMain, Menu, net, powerMonitor } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, net, powerMonitor, type WebContents } from 'electron'
 import { createAppMenu } from './app-menu'
 import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
-import { DEEP_LINK_SCHEMES } from './deep-link-scheme'
+import { DEEP_LINK_SCHEMES } from '../shared/deep-link-scheme'
+import {
+  CHAT_LINK_OPEN_CHANNEL,
+  CHAT_LINK_READY_CHANNEL,
+  CHAT_LINK_UNREADY_CHANNEL,
+  chatLinkFromArgv,
+} from '../shared/deep-link'
+import { createChatLinkRouter } from './chat-link-router'
 import { BOOT_WORKSPACE_SYNC_BUDGET_MS, runBootDiscovery, settleWithin } from './boot-discovery'
 import { discoverAndBroadcastCliModels } from './ipc/cli-model-discovery-ipc'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
-import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow } from './window-factory'
+import {
+  createMainWindow,
+  isWorkspaceWindowWebContents,
+  listWorkspaceWindows,
+  markAppQuitInProgressForWindowClose,
+  revealMainWindow,
+  workspaceWindowIdOf,
+} from './window-factory'
 import { markStartup } from './startup-timeline'
 import { createBackgroundPresence } from './background-presence'
 import { buildElectronBackgroundMenu, createElectronBackgroundTray } from './background-tray-electron'
@@ -153,6 +167,14 @@ type RegisterAppLifecycleOptions = {
   moduleLoadReady?: Promise<void>
   updateService: SprintEngineUpdateService
   handleAuthCallback(argv: string[]): void
+  /**
+   * The registry's windows, for a `sprintengine://chat/…` link: the one that
+   * holds the chat, and the primary. Absent, a link opens in the focused window.
+   */
+  chatWindows?: {
+    holderOf(chatId: string): string | null
+    primaryWindowId(): string
+  }
   // Background mode. Absent means the setting can never read on, so
   // the last-window-close rule collapses to exactly its form before background mode existed.
   backgroundMode?: {
@@ -213,6 +235,7 @@ export function registerAppLifecycle({
   moduleLoadReady,
   updateService,
   handleAuthCallback,
+  chatWindows,
   backgroundMode,
   checkPluginSourceUpdates,
   startDeferredBootJobs,
@@ -256,6 +279,43 @@ export function registerAppLifecycle({
     backgroundPresence.onWindowOpened()
   }
 
+  // A `sprintengine://chat/…` link (shared/deep-link.ts), held until the window
+  // it is for is listening, then opened there (chat-link-router.ts). It only
+  // ever selects a chat; the auth callback keeps its own path below.
+  const chatLinks = createChatLinkRouter<BrowserWindow>({
+    windows: listWorkspaceWindows,
+    windowIdOf: workspaceWindowIdOf,
+    primaryWindowId: () => chatWindows?.primaryWindowId() ?? 'primary',
+    holderOf: (chatId) => chatWindows?.holderOf(chatId) ?? null,
+    canOpenWindow: () => app.isReady(),
+    openWindow: openWindowFromBackground,
+    send: (win, link) => win.webContents.send(CHAT_LINK_OPEN_CHANNEL, link),
+  })
+  function openChatLinkFrom(argv: readonly string[]): void {
+    const link = chatLinkFromArgv(argv)
+    if (link) chatLinks.open(link)
+  }
+  // A window is listening once its registry has loaded, and stops when its page
+  // goes: a reload says so again from the new page, a crash or a close does not.
+  const watchedForChatLinks = new WeakSet<WebContents>()
+  ipcMain.on(CHAT_LINK_READY_CHANNEL, (event) => {
+    const contents = event.sender
+    const win = BrowserWindow.fromWebContents(contents)
+    if (!win || !isWorkspaceWindowWebContents(contents)) return
+    if (!watchedForChatLinks.has(contents)) {
+      watchedForChatLinks.add(contents)
+      const gone = () => chatLinks.windowGone(win)
+      contents.on('did-navigate', gone)
+      contents.on('render-process-gone', gone)
+      win.once('closed', gone)
+    }
+    chatLinks.windowReady(win)
+  })
+  ipcMain.on(CHAT_LINK_UNREADY_CHANNEL, (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win) chatLinks.windowGone(win)
+  })
+
   // The single-instance lock itself is taken by the entry (index.ts), before any
   // service is built, so a second launch exits without paying for the service
   // graph. This process holds it, and hears every later launch here.
@@ -271,12 +331,17 @@ export function registerAppLifecycle({
       // and Linux left the tray as the only way back in.
       openWindowFromBackground()
       handleAuthCallback(argv)
+      openChatLinkFrom(argv)
     })
   }
 
+  // macOS hands a link over here, to a running app and to one the link is
+  // launching alike; in the second case before `ready`, which the chat-link
+  // router waits out.
   app.on('open-url', (event, callbackUrl) => {
     event.preventDefault()
     handleAuthCallback([callbackUrl])
+    openChatLinkFrom([callbackUrl])
   })
 
   let hostedFeedPoller: HostedFeedPoller | null = null
@@ -537,6 +602,8 @@ export function registerAppLifecycle({
 
     void Promise.resolve(moduleLoadReady).then(() => moduleKernel?.runStartup())
     handleAuthCallback(process.argv)
+    // A link that launched the app on Windows or Linux is one of its arguments.
+    openChatLinkFrom(process.argv)
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().every((win) => isCanvasWorkerWindow(win))) {
@@ -853,9 +920,9 @@ function bindElectronPowerActivity(): void {
   syncFocus()
 }
 
-// Both schemes, current and legacy — see `deep-link-scheme.ts` for why the old
-// one is still claimed. Registering is cheap and idempotent; an unclaimed
-// scheme is a dead link with nowhere to report itself.
+// Every scheme in `DEEP_LINK_SCHEMES` (shared/deep-link-scheme.ts). Registering
+// is cheap and idempotent; an unclaimed scheme is a dead link with nowhere to
+// report itself.
 function registerDeepLinkProtocols(): void {
   for (const scheme of DEEP_LINK_SCHEMES) {
     if (!app.isPackaged) {

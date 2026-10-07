@@ -1,4 +1,5 @@
 import type { ClientCapability } from './client-capabilities'
+import type { ChatLink } from './deep-link'
 import type { PreviewOpenAnswer, PreviewPort, PreviewSummary, WebDevicesStatus } from './web-client'
 import type {
   SshEnvironmentResult,
@@ -581,6 +582,12 @@ export type ElectronApi = {
   onWindowHiddenChanged: (cb: (hidden: boolean) => void) => () => void
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
   onWindowCloseRequested: (cb: () => void) => () => void
+  /**
+   * A `sprintengine://chat/…` link for this window to open. Subscribing tells
+   * main the window is listening, so call it once the registry has loaded: a
+   * link that launched the app waits in main until then (chat-link-router.ts).
+   */
+  onChatLinkOpen: (cb: (link: ChatLink) => void) => () => void
   // The pane, or one tab, in a window of its own (ipc/pane-popout.ts). The
   // first six are the owner window's half, the last three the pop-out's.
   panePopOutOpen: (input: PanePopOutOpenInput) => Promise<PanePopOutOpenResult>

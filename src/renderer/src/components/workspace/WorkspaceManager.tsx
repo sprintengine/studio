@@ -17,7 +17,7 @@ import { Modal } from '../ui/Modal'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { generatedWorkspaceTitleRequester } from '../../store/generatedWorkspaceTitle'
-import { useWorkspaceStore } from '../../store/workspaceStore'
+import { useWorkspaceStore, workspaceRegistryReady } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import {
@@ -131,6 +131,7 @@ import { composerDraftStore } from '../panels/agentChat/draftStore'
 import { setBuildExtensionOpener } from '../extensions/buildExtensionHost'
 import { extensionBriefMarkdown } from '../../../../shared/extension-scaffold'
 import { createWorkspaceChatOpener } from './manager/workspaceChatOpener'
+import { openChatLink } from './manager/chatLinkOpener'
 import {
   markLaunchedAgentProjected,
   retiredLaunchedAgents,
@@ -4537,6 +4538,42 @@ export default function WorkspaceManager() {
     setSidebarSection('home')
     setNarrowSidebarShown(false)
   })
+  // A `sprintengine://chat/…` link main handed this window (chatLinkOpener.ts).
+  // Listening only once the registry has loaded: main holds a link that
+  // launched the app until then, and a store that has not loaded yet would
+  // answer that every chat is missing.
+  useEffect(() => {
+    if (!clientSupports('deep-links') || typeof window.api.onChatLinkOpen !== 'function') return
+    let unsubscribe: (() => void) | null = null
+    let disposed = false
+    void workspaceRegistryReady.then(() => {
+      if (disposed) return
+      unsubscribe = window.api.onChatLinkOpen((link) => {
+        const state = useWorkspaceStore.getState()
+        openChatLink(link, {
+          getChat: (chatId) => {
+            const workspace = state.workspaces.find((candidate) => candidate.id === chatId)
+            return workspace && !isHiddenFromRail(workspace, state.appSettings.modules) ? workspace : null
+          },
+          holderOf: (chatId) => state.workspaceWindows.find((entry) => entry.workspaceIds.includes(chatId))?.id ?? null,
+          windowId: workspaceWindowId,
+          moveHere: (chatId, fromWindowId) => moveWorkspaceToWindow(chatId, workspaceWindowId, fromWindowId),
+          select: sidebarSelectWorkspace,
+          revealAgent: (workspaceId, agentId, name) => revealAgentTerminalTab({ workspaceId, agentId, name }),
+          notOnThisMachine: () =>
+            showToast({
+              tone: 'warn',
+              title: "That chat isn't on this machine",
+              description: 'It was closed here, or it was started on another computer.',
+            }),
+        })
+      })
+    })
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [workspaceWindowId, moveWorkspaceToWindow, sidebarSelectWorkspace])
   const sidebarMoveToNewWindow = useStableCallback(
     (id: WorkspaceId, placement: Parameters<typeof moveWorkspaceToNewWindow>[1]) =>
       void moveWorkspaceToNewWindow(id, placement),
