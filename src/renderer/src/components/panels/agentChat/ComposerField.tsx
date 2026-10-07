@@ -1,4 +1,4 @@
-import React, { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from 'react'
+import React, { forwardRef, useImperativeHandle, useLayoutEffect, useReducer, useRef } from 'react'
 import { history, historyKeymap, insertNewline, isolateHistory, standardKeymap } from '@codemirror/commands'
 import {
   deleteMarkupBackward,
@@ -6,7 +6,7 @@ import {
   markdown,
   markdownLanguage,
 } from '@codemirror/lang-markdown'
-import { Annotation, Compartment, EditorSelection, EditorState, Prec } from '@codemirror/state'
+import { Annotation, Compartment, EditorSelection, EditorState, Prec, Transaction } from '@codemirror/state'
 import { EditorView, keymap, placeholder as placeholderExtension } from '@codemirror/view'
 import { markdownLivePreview } from './markdownLivePreview'
 
@@ -145,6 +145,10 @@ function attributesOf(attributes: Props['contentAttributes']): Record<string, st
 
 export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function ComposerField(props, ref) {
   const hostRef = useRef<HTMLDivElement | null>(null)
+  const [, recheck] = useReducer((count: number) => count + 1, 0)
+  // Set from an edit reported through `onChange` until the next render: the
+  // `value` that render carries is the host's answer to that edit.
+  const answeringRef = useRef(false)
   const viewRef = useRef<EditorView | null>(null)
   const propsRef = useRef(props)
   propsRef.current = props
@@ -289,7 +293,12 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
             if (update.docChanged && !update.transactions.some((tr) => tr.annotation(fromProps))) {
               const value = update.state.doc.toString()
               heldRef.current = value
+              answeringRef.current = true
               propsRef.current.onChange(value, caret)
+              // Rendered again whatever the host does, so the check below
+              // sees a host that kept less and handed back the value it had —
+              // which, set into state, renders nothing.
+              recheck()
             } else if (update.selectionSet) propsRef.current.onSelectionChange?.(caret)
           }),
         ],
@@ -320,14 +329,41 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
   // again: ⌘Z must not bring back a message that was already sent. The history
   // is taken out for the clearing and put back fresh after it, so neither the
   // edits before nor the clearing itself is there to undo.
+  //
+  // Checked on every render, not only when `value` changes: a host may keep
+  // less than was typed (a draft at its length cap), even handing back the
+  // value it already had, and the field must not go on showing words the
+  // draft does not hold. A host's answer to an edit is put right where it
+  // stands — the tail cut, the caret left where it was — and is no step of
+  // its own to undo back into.
   const { value, historyScope } = props
   useLayoutEffect(() => {
     const view = viewRef.current
     const superseded = supersededRef.current
     supersededRef.current = null
+    const answering = answeringRef.current
+    answeringRef.current = false
     if (!view || value === heldRef.current || value === superseded) return
     heldRef.current = value
-    if (view.state.doc.toString() === value) return
+    const doc = view.state.doc.toString()
+    if (doc === value) return
+    if (answering) {
+      const length = value.length
+      const kept = doc.startsWith(value)
+      view.dispatch({
+        changes: kept ? { from: length, to: doc.length } : { from: 0, to: doc.length, insert: value },
+        ...(kept
+          ? {}
+          : {
+              selection: EditorSelection.single(
+                Math.min(view.state.selection.main.anchor, length),
+                Math.min(view.state.selection.main.head, length),
+              ),
+            }),
+        annotations: [fromProps.of(true), Transaction.addToHistory.of(false)],
+      })
+      return
+    }
     const cleared = value === ''
     const { history: undoHistory } = compartments.current
     view.dispatch({
@@ -338,7 +374,7 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
       ...(cleared ? { effects: undoHistory.reconfigure([]) } : {}),
     })
     if (cleared) view.dispatch({ effects: undoHistory.reconfigure(history()) })
-  }, [value])
+  })
 
   // Another conversation's draft in the same field starts the history again
   // too, whatever the two drafts hold: one chat's edits are not the next's to

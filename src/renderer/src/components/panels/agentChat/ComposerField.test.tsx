@@ -111,3 +111,71 @@ test('a key is the input method’s while it composes, and as the keyCode 229 th
   expect(isImeKey({ nativeEvent: key({ keyCode: 229 }) })).toBe(true)
   expect(isImeKey({ nativeEvent: key({}) })).toBe(false)
 })
+
+test('a host that keeps less than was typed is what the field shows, caret where it stood', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    MutationObserver: dom.window.MutationObserver,
+    requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  try {
+    const { act, createElement, useState } = await import('react')
+    const { createRoot } = await import('react-dom/client')
+    const { undo } = await import('@codemirror/commands')
+    const { EditorView } = await import('@codemirror/view')
+    const { ComposerField } = await import('./ComposerField')
+
+    // The chat's draft keeps at most so many characters, as `useComposerDraft`
+    // does at its cap.
+    const CAP = 10
+    function Host() {
+      const [draft, setDraft] = useState('')
+      return createElement(ComposerField, {
+        value: draft,
+        onChange: (value: string) => setDraft(value.slice(0, CAP)),
+      })
+    }
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    await act(async () => root.render(createElement(Host)))
+    const view = EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!
+    const typeAt = (at: number, text: string) =>
+      act(async () => {
+        view.dispatch({
+          changes: { from: at, insert: text },
+          selection: { anchor: at + text.length },
+          userEvent: 'input.type',
+        })
+      })
+
+    await typeAt(0, 'fix the bug')
+    expect(view.state.doc.toString()).toBe('fix the bu')
+    // At the cap already: the draft hands back the value it had.
+    await typeAt(view.state.doc.length, 'g')
+    expect(view.state.doc.toString()).toBe('fix the bu')
+    // A word typed in the middle pushes the tail off; the caret stays after it.
+    await typeAt(4, 'a ')
+    expect(view.state.doc.toString()).toBe('fix a the ')
+    expect(view.state.selection.main.head).toBe(6)
+    // What the draft refused is not something ⌘Z brings back.
+    await act(async () => {
+      undo(view)
+    })
+    expect(view.state.doc.toString().length).toBeLessThanOrEqual(CAP)
+
+    await act(async () => root.unmount())
+  } finally {
+    for (const key of Object.keys(Object.getOwnPropertyDescriptors(globalThis)))
+      if (!(key in previous)) delete (globalThis as Record<string, unknown>)[key]
+    Object.defineProperties(globalThis, previous)
+    dom.window.close()
+  }
+})
