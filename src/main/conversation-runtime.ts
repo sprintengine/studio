@@ -820,6 +820,13 @@ export class ConversationRuntime {
         input.commandId,
         () => this.sendTurn({ ...input, sourceCommandId: input.commandId, commandId: undefined }),
         input.commandFingerprint,
+        // A send turned away busy runs nothing, so it is answered before an
+        // intent is written: a phone tries again every second while a turn
+        // runs, and each try was a receipts write and then its removal.
+        () => {
+          const session = this.sessions.get(input.sessionId)
+          return session && !input.steer && isSessionBusy(session) ? busyRefusal(session) : null
+        },
       )
     const session = this.sessions.get(input.sessionId)
     if (!session) return sessionNotFound()
@@ -835,18 +842,7 @@ export class ConversationRuntime {
     if (this.terminalHandoffs.has(session.sessionId))
       return { ok: false, message: 'This conversation is moving to a terminal, so the message was not sent.' }
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
-    // Busy, not failed: a send from another device (a phone, while a turn
-    // started here runs) is held there and sent again once the turn is over.
-    if (isSessionBusy(session) && !input.steer) {
-      return {
-        ok: false,
-        code: 'busy',
-        retryAfterMs: TURN_BUSY_RETRY_MS,
-        message: session.pendingRequestId
-          ? 'Conversation turn is awaiting approval.'
-          : 'Conversation turn is already in progress.',
-      }
-    }
+    if (isSessionBusy(session) && !input.steer) return busyRefusal(session)
     // One message, whatever separators the text that typed it used.
     const message = plainLineBreaks(input.message).trim()
     const attachments = input.attachments ?? []
@@ -2427,6 +2423,12 @@ export class ConversationRuntime {
     commandId: string,
     action: () => Promise<ConversationSessionActionResult>,
     fingerprint?: string,
+    /**
+     * A refusal known before anything runs, asked once a retry of a command
+     * already carried out has been answered from its receipt: a command it
+     * turns away is answered without an intent written for it.
+     */
+    refuseEarly?: () => ConversationSessionActionResult | null,
   ): Promise<ConversationSessionActionResult> {
     const session = this.sessions.get(sessionId)
     if (!session) return Promise.resolve(sessionNotFound())
@@ -2447,6 +2449,8 @@ export class ConversationRuntime {
       }
       const prior = receipts.get(commandId)
       if (prior) return conflict(receiptFingerprint(prior)) ? commandIdConflict() : withoutFingerprint(prior)
+      const refused = refuseEarly?.()
+      if (refused) return refused
       const persist = async () => {
         while (receipts.size > 256) receipts.delete(receipts.keys().next().value!)
         const serialized = JSON.stringify(Array.from(receipts))
@@ -4035,6 +4039,21 @@ function isWordedUserMessage(event: ConversationEvent): boolean {
 // cancelled mid-prompt) the bare word as its message.
 function isInterruptedTurn(event: ConversationEvent): boolean {
   return event.payload?.reason === 'interrupted' || event.payload?.message === 'interrupted'
+}
+
+/**
+ * Busy, not failed: a send from another device (a phone, while a turn started
+ * here runs) is held there and sent again once the turn is over.
+ */
+function busyRefusal(session: RuntimeSession): ConversationSessionActionResult {
+  return {
+    ok: false,
+    code: 'busy',
+    retryAfterMs: TURN_BUSY_RETRY_MS,
+    message: session.pendingRequestId
+      ? 'Conversation turn is awaiting approval.'
+      : 'Conversation turn is already in progress.',
+  }
 }
 
 function isSessionBusy(session: RuntimeSession): boolean {
