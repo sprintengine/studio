@@ -912,6 +912,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     () => (opening ? unreadDividerRowId(timelineRows, opening) : null),
     [timelineRows, opening],
   )
+  const unreadRowIndex = unreadRowId ? timelineRows.findIndex((row) => row.id === unreadRowId) : -1
+  // This opening has a divider the chat has not landed on yet (the landing
+  // below). A list mounting now starts there (`initialScrollIndex`) rather
+  // than at the end or a remembered place and moving a frame later, and
+  // neither the end-follow nor the restore of a remembered place takes it
+  // anywhere else first.
+  const landedOpeningRef = useRef<ChatOpening | null>(null)
+  const landsAtDivider = opening !== null && landedOpeningRef.current !== opening && unreadRowIndex >= 0
   const { handleRecallKeyDown, detachRecall } = useComposerRecall(shape.promptHistory, draft, setDraft)
 
   // A model switch made from a paired device reaches this window as the
@@ -1029,6 +1037,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     memory: scrollMemoryRef.current,
     hydrated,
     searching,
+    landsElsewhere: landsAtDivider,
     hasMore,
     loadingEarlier,
     rows: timelineRows,
@@ -1136,30 +1145,30 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // A chat opened with replies its reader has not seen opens at the divider,
   // with what is new below it to read down into, instead of at the end: from
   // the end the reader would have to find where they left off by scrolling
-  // back through it. Once per opening, and only where the chat would have
-  // opened at the end anyway — a place the reader left mid-history, or a
-  // search jump, keeps its own. Ahead of the end-follow below, which runs
-  // after it in the same commit and finds `atBottomRef` already off.
-  const landedOpeningRef = useRef<ChatOpening | null>(null)
+  // back through it, and a place they left further up is older than what is
+  // new. Once per opening; a search jump keeps its own. Ahead of the
+  // end-follow below, which runs after it in the same commit and finds
+  // `atBottomRef` already off.
   const openingRef = useRef(opening)
   openingRef.current = opening
   useEffect(() => {
     if (!opening || landedOpeningRef.current === opening || !hydrated) return
     landedOpeningRef.current = opening
-    const index = unreadRowId ? timelineRows.findIndex((row) => row.id === unreadRowId) : -1
-    if (index < 0 || searching || !atBottomRef.current) return
+    const index = unreadRowIndex
+    if (index < 0 || searching) return
     atBottomRef.current = false
     setAtBottom(false)
     setAnchoredUserId(null)
-    // A frame later, as a search jump lands, so a list mounted this commit
-    // has laid out its first rows before it is moved. Not cancelled when the
-    // rows move on — a streaming chat moves them every frame, and the landing
-    // happens once — only skipped if the chat was left in the meantime.
+    // A list that mounted with this opening started at the divider; one
+    // already mounted (a chat kept warm behind another) is moved there a
+    // frame later, as a search jump lands. Not cancelled when the rows move
+    // on — a streaming chat moves them every frame, and the landing happens
+    // once — only skipped if the chat was left in the meantime.
     requestAnimationFrame(() => {
       if (openingRef.current !== opening) return
       void listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false })
     })
-  }, [opening, hydrated, unreadRowId, timelineRows, searching, atBottomRef, setAtBottom])
+  }, [opening, hydrated, unreadRowIndex, searching, atBottomRef, setAtBottom])
   const followedInitialSnapshot = useRef(false)
   useEffect(() => {
     if (!hydrated) return
@@ -3023,11 +3032,15 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 onFirstVisibleItemChanged={({ key }) => {
                   firstVisibleRowRef.current = key
                 }}
-                initialScrollAtEnd={scrollMemoryRef.current?.atEnd ?? true}
-                initialScrollIndex={rememberedRowIndex >= 0 ? rememberedRowIndex : undefined}
+                initialScrollAtEnd={landsAtDivider ? false : (scrollMemoryRef.current?.atEnd ?? true)}
+                initialScrollIndex={
+                  landsAtDivider ? unreadRowIndex : rememberedRowIndex >= 0 ? rememberedRowIndex : undefined
+                }
                 maintainVisibleContentPosition={{ data: true, size: true }}
                 maintainScrollAtEnd={
-                  atBottom && !followPaused ? { animated: !prefersReducedMotion(), on: END_FOLLOW_TRIGGERS } : false
+                  atBottom && !followPaused && !landsAtDivider
+                    ? { animated: !prefersReducedMotion(), on: END_FOLLOW_TRIGGERS }
+                    : false
                 }
                 anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
               />

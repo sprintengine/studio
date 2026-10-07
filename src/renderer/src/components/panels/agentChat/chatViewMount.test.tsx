@@ -1,5 +1,5 @@
 import { JSDOM } from 'jsdom'
-import { forwardRef, memo, useImperativeHandle, useRef, type ReactNode } from 'react'
+import { forwardRef, memo, useImperativeHandle, useRef, useState, type ReactNode } from 'react'
 import { expect, test, vi } from 'vitest'
 import type {
   ConversationEvent,
@@ -13,8 +13,11 @@ import { installStudioLoopback } from '../../../../../../tests/studio-chat-loopb
 // stand-in renders every row so the rows themselves can be driven. Like the
 // real list, a row on screen renders again only when its item or the list's
 // `extraData` changes: a new `renderItem` alone does not reach it. Where it
-// was asked to scroll to is kept, for what lands the view on a row.
+// was asked to scroll to is kept, for what lands the view on a row, and where
+// it was told to start when it mounted.
 const scrolledToIndex = vi.hoisted(() => [] as { index: number; viewPosition?: number }[])
+const mountedAt = vi.hoisted(() => [] as { initialScrollIndex?: number; initialScrollAtEnd?: boolean }[])
+const listedKeys = vi.hoisted(() => ({ current: [] as string[] }))
 const ListRow = memo(
   function ListRow({
     item,
@@ -39,6 +42,8 @@ vi.mock('@legendapp/list/react', () => ({
       ListHeaderComponent,
       className,
       extraData,
+      initialScrollIndex,
+      initialScrollAtEnd,
     }: {
       data: unknown[]
       renderItem: (props: { item: unknown; index: number }) => ReactNode
@@ -46,10 +51,15 @@ vi.mock('@legendapp/list/react', () => ({
       ListHeaderComponent?: ReactNode
       className?: string
       extraData?: unknown
+      initialScrollIndex?: number
+      initialScrollAtEnd?: boolean
     },
     ref,
   ) {
     const scroller = useRef<HTMLDivElement>(null)
+    // Read once, as the real list reads them.
+    useState(() => mountedAt.push({ initialScrollIndex, initialScrollAtEnd }))
+    listedKeys.current = data.map(keyExtractor)
     useImperativeHandle(ref, () => ({
       scrollToEnd: async () => undefined,
       scrollToIndex: async (target: { index: number; viewPosition?: number }) => {
@@ -518,6 +528,7 @@ test('a chat opened with replies nobody has read opens at a New divider, which h
   // steps, finished after the last visit.
   noteChatOpened('workspace', 2_500, 10_000)
   scrolledToIndex.length = 0
+  mountedAt.length = 0
   const chat = await mountChat({
     events: [
       eventAt(1_000, 'user_message', { turnId: 'a', text: 'Check the build' }),
@@ -546,9 +557,9 @@ test('a chat opened with replies nobody has read opens at a New divider, which h
     expect(dividers()).toHaveLength(1)
     expect(belowDivider(), 'above the unread reply, steps and all, not inside its work').toContain('They pass.')
     expect(belowDivider()).not.toContain('Now the tests')
-    expect(scrolledToIndex, 'the chat opens at the divider rather than the end').toContainEqual({
-      index: 3,
-      viewPosition: 0,
+    expect(mountedAt.at(-1), 'the list starts at the divider, not at the end and a frame later there').toEqual({
+      initialScrollIndex: 3,
+      initialScrollAtEnd: false,
     })
 
     // The agent goes on: a new turn streams in while the chat is in front.
@@ -581,6 +592,47 @@ test('a chat opened with replies nobody has read opens at a New divider, which h
     await chat.act(async () => noteChatOpened('workspace', 13_499, 15_000))
     expect(dividers()).toHaveLength(1)
     expect(belowDivider()).toContain('Lint is clean.')
+  } finally {
+    noteChatLeft('workspace')
+    await chat.unmount()
+  }
+})
+
+test('a chat left mid-history still opens at its New divider, not at the place it was left', async () => {
+  const { noteChatOpened, noteChatLeft } = await import('./unreadDivider')
+  const { rememberConversationScroll } = await import('./conversationViewState')
+  const events = [
+    eventAt(1_000, 'user_message', { turnId: 'a', text: 'Check the build' }),
+    eventAt(1_100, 'turn_started', { turnId: 'a' }),
+    eventAt(1_200, 'content_delta', { turnId: 'a', text: 'It builds.' }),
+    eventAt(2_000, 'turn_completed', { turnId: 'a' }),
+    eventAt(3_000, 'user_message', { turnId: 'b', text: 'Now the tests' }),
+    eventAt(3_100, 'turn_started', { turnId: 'b' }),
+    eventAt(3_600, 'content_delta', { turnId: 'b', text: 'They pass.' }),
+    eventAt(4_000, 'turn_completed', { turnId: 'b' }),
+  ]
+  // Left reading the first message, above everything new.
+  const first = await mountChat({ events })
+  const [firstRow] = listedKeys.current
+  await first.unmount()
+  expect(firstRow).toBeDefined()
+  rememberConversationScroll('workspace:agent', { atEnd: false, rowId: firstRow!, offset: 0 })
+  noteChatOpened('workspace', 2_500, 10_000)
+  scrolledToIndex.length = 0
+  mountedAt.length = 0
+  const chat = await mountChat({ events })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 50)))
+    const divider = listedKeys.current.indexOf('assistant:b')
+    expect(divider).toBeGreaterThan(0)
+    expect(mountedAt.at(-1), 'the divider, not the remembered place').toEqual({
+      initialScrollIndex: divider,
+      initialScrollAtEnd: false,
+    })
+    expect(
+      scrolledToIndex.some((target) => target.index === 0),
+      'the remembered place is not restored over it',
+    ).toBe(false)
   } finally {
     noteChatLeft('workspace')
     await chat.unmount()

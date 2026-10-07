@@ -38,6 +38,8 @@ export function useConversationScrollRestore(input: {
   memory?: ConversationScrollMemory
   hydrated: boolean
   searching: boolean
+  /** Another landing owns this opening's position: the New divider (`unreadDivider.ts`). */
+  landsElsewhere?: boolean
   hasMore: boolean
   loadingEarlier: boolean
   rows: readonly { id: string }[]
@@ -77,8 +79,8 @@ export function useConversationScrollRestore(input: {
   useEffect(() => {
     const current = latest.current
     if (done.current || !current.hydrated) return
-    if (current.searching) {
-      // A search jump owns the scroll position now.
+    if (current.searching || current.landsElsewhere) {
+      // A search jump, or the divider, owns the scroll position now.
       done.current = true
       return
     }
@@ -105,7 +107,16 @@ export function useConversationScrollRestore(input: {
       .catch(() => giveUp(true))
       .finally(() => setFetching(false))
     return undefined
-  }, [input.hydrated, input.searching, input.loadingEarlier, input.hasMore, input.rows, fetching, giveUp])
+  }, [
+    input.hydrated,
+    input.searching,
+    input.landsElsewhere,
+    input.loadingEarlier,
+    input.hasMore,
+    input.rows,
+    fetching,
+    giveUp,
+  ])
 
   return { isRestoring: useCallback(() => !done.current, []) }
 }
