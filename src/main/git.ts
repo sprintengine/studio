@@ -528,13 +528,22 @@ async function createAgentWorktreeFromPool(
 ): Promise<GitWorktreeOperationResult<GitWorktreeCreated>> {
   const pool = activeWorktreePool()
   if (pool) {
-    const leased = await pool.lease({
-      repoRoot: input.repoRoot,
-      name: input.branchName.slice('agent/'.length),
-      owner: input.agentLockOwner ?? null,
-      hostId: input.hostId ?? null,
-      copyIncludedFiles: input.copyIncludedFiles === true,
-    })
+    // A pool that throws (a record it could not write, a git it could not
+    // start) is a pool declining like any other: the fresh worktree below is
+    // what the chat gets.
+    const leased = await pool
+      .lease({
+        repoRoot: input.repoRoot,
+        name: input.branchName.slice('agent/'.length),
+        owner: input.agentLockOwner ?? null,
+        hostId: input.hostId ?? null,
+        copyIncludedFiles: input.copyIncludedFiles === true,
+      })
+      .catch((error: unknown) => ({
+        ok: false as const,
+        reason: 'error' as const,
+        message: error instanceof Error ? error.message : String(error),
+      }))
     if (leased.ok) {
       const listed = await listGitWorktrees(leased.path)
       const entry = listed.ok

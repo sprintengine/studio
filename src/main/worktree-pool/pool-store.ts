@@ -349,9 +349,12 @@ export function createPoolStore(userDataDir: string): PoolStore {
         await writeFileAtomic(path, content)
       })
     chains.set(path, next)
-    void next.finally(() => {
+    // Dropped however the write ends: a failed one is the caller's to see,
+    // not an unhandled rejection of this bookkeeping.
+    const forget = (): void => {
       if (chains.get(path) === next) chains.delete(path)
-    })
+    }
+    void next.then(forget, forget)
     return next
   }
 

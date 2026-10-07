@@ -915,6 +915,36 @@ test('createGitWorktree with fromPool leases from the installed pool, and withou
   assert.equal(taken.ok, false, 'an existing branch is reported, not papered over with a fresh worktree')
 })
 
+test('a pool that throws on a lease is a pool declining: createGitWorktree makes a fresh worktree', async () => {
+  const throwing = {
+    lease: () => Promise.reject(new Error('record not writable')),
+  } as unknown as Parameters<typeof installWorktreePool>[0]
+  installWorktreePool(throwing)
+  const created = await createGitWorktree({
+    repoRoot: repo,
+    containerPath: container,
+    destinationPath: join(container, 'fallback'),
+    branchName: 'agent/fallback',
+    baseRef: 'HEAD',
+    fromPool: true,
+  })
+  assert.equal(created.ok, true, created.ok ? '' : created.message)
+  if (!created.ok) return
+  assert.equal(created.data.path.endsWith('fallback'), true)
+  assert.equal(created.data.leaseId, null)
+})
+
+test('a record that cannot be written fails its caller and nothing else (no unhandled rejection)', async () => {
+  // A file where the store's folder should be: every write fails.
+  await writeFile(join(caseDir, 'not-a-folder'), '')
+  const store = createPoolStore(join(caseDir, 'not-a-folder'))
+  const record = { poolId: '0123456789abcdef', slots: [] } as unknown as PoolRecord
+  await assert.rejects(store.write(record))
+  await assert.rejects(store.writeSettings({} as never))
+  // Give a stray rejection the turn it needs to be reported.
+  await new Promise((resolveWait) => setTimeout(resolveWait, 20))
+})
+
 test('a project that opted in installs in a leased slot once per lockfile, and records it in git’s admin directory', async () => {
   await pushToOrigin('package-lock.json', '{"lockfileVersion":3}\n')
   const input = (name: string) => ({

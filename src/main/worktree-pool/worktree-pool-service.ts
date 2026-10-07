@@ -546,6 +546,22 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     log(`${slot.path}: held (${reason}${detail ? `: ${detail}` : ''})`)
   }
 
+  /**
+   * {@link hold} from a `catch`: a step already failed, and a hold that fails
+   * too (its record could not be written) is logged rather than thrown over
+   * the failure being handled.
+   */
+  async function holdAfterFailure(
+    pool: PoolRuntime,
+    slot: SlotRecord,
+    detail: string,
+    extra: { branch?: string | null } = {},
+  ): Promise<void> {
+    await hold(pool, slot, 'error', detail, extra).catch((error: unknown) =>
+      log(`${slot.path}: could not hold after "${detail}": ${messageOf(error)}`),
+    )
+  }
+
   // ── Fetching the base ────────────────────────────────────────────────────
 
   /**
@@ -579,9 +595,12 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       return sha ? { ref, sha } : null
     })()
     pool.fetch = run
-    void run.finally(() => {
+    // Cleared however it ends; a failure is the caller's to see, not a second,
+    // unhandled rejection of its own.
+    const clear = (): void => {
       if (pool.fetch === run) pool.fetch = null
-    })
+    }
+    void run.then(clear, clear)
     return run
   }
 
@@ -951,7 +970,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           elapsedMs: now() - started,
         }
       } catch (error) {
-        await hold(pool, slot, 'error', messageOf(error))
+        await holdAfterFailure(pool, slot, messageOf(error))
         if (created) return { ok: false, reason: 'error', message: messageOf(error) }
       } finally {
         pool.busy.delete(slot.id)
@@ -1162,7 +1181,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       log(`${slot.path}: given back to its chat on ${branch}`)
       return { ok: true }
     } catch (error) {
-      await hold(pool, slot, 'error', messageOf(error))
+      await holdAfterFailure(pool, slot, messageOf(error))
       return { ok: false, message: messageOf(error) }
     } finally {
       pool.busy.delete(slot.id)
@@ -1289,7 +1308,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       })
       log(`${slot.path}: returned clean${branch ? ` (${branch} kept)` : ''}`)
     } catch (error) {
-      await hold(pool, slot, 'error', messageOf(error), { branch })
+      await holdAfterFailure(pool, slot, messageOf(error), { branch })
       return 'held'
     } finally {
       pool.busy.delete(slot.id)
