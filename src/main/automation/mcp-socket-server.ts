@@ -192,6 +192,10 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
   }
 
   async function handleLine(socket: Socket, line: string): Promise<void> {
+    // A line queued behind a slow call outlives its socket. Its context went
+    // with the socket, and running it under a fresh one would be a stranger's.
+    const context = connectionContexts.get(socket)
+    if (!context || socket.destroyed) return
     let parsed: unknown
     try {
       parsed = JSON.parse(line)
@@ -225,7 +229,6 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
     }
 
     try {
-      const context = connectionContexts.get(socket) ?? { metadata: { kind: 'external-local' as const } }
       const result = await dispatcher.dispatch(parsed.method, params, context, undefined, {
         requestId: id,
         notify: (message) => respond(socket, message),
