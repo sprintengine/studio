@@ -150,6 +150,11 @@ type RegisterAppLifecycleOptions = {
     flush(): Promise<void>
     dispose(): Promise<void>
   }
+  // What Studio sends into chats on its own clock, in process only: a resume
+  // once a usage limit resets, a message a person scheduled. Both stop before
+  // the chats do; one due during the quit would start an agent on the way out.
+  usageLimitResumes?: { dispose(): Promise<void> }
+  scheduledMessages?: { dispose(): Promise<void> }
   // Product telemetry. Given a shutdown leg of its own because everything above
   // it can emit a final event, and the buffer is in memory, so a quit that does
   // not drain it loses the whole session's tail.
@@ -241,6 +246,8 @@ export function registerAppLifecycle({
   conversationCommands,
   pullRequestRecord,
   localServers,
+  usageLimitResumes,
+  scheduledMessages,
   analytics,
   moduleKernel,
   moduleLoadReady,
@@ -745,6 +752,8 @@ export function registerAppLifecycle({
       ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
       ['local servers (flush)', () => localServers?.flush()],
       ['local servers (dispose)', () => localServers?.dispose()],
+      ['usage-limit resumes', () => usageLimitResumes?.dispose()],
+      ['scheduled messages', () => scheduledMessages?.dispose()],
       ['chats', () => conversationOwner?.shutdown()],
       ['browser recordings', () => browserRecorder?.stopAll('app_quit')],
       ['canvas', () => canvasService?.dispose()],

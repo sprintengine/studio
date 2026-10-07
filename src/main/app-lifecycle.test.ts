@@ -125,6 +125,18 @@ test('app-lifecycle', async () => {
           order.push('pullRequests.dispose')
         },
       },
+      // Studio's own sends stop before the chats: a resume or a scheduled
+      // message due during the quit must not start an agent on the way out.
+      usageLimitResumes: {
+        dispose: async () => {
+          order.push('usageLimitResumes.dispose')
+        },
+      },
+      scheduledMessages: {
+        dispose: async () => {
+          order.push('scheduledMessages.dispose')
+        },
+      },
       workspaceSyncService: {
         flush: async () => {
           order.push('workspaceSync.flush')
@@ -167,6 +179,8 @@ test('app-lifecycle', async () => {
       'terminal.shutdown',
       'pullRequests.flush',
       'pullRequests.dispose',
+      'usageLimitResumes.dispose',
+      'scheduledMessages.dispose',
       'conversation.shutdown',
       'browserRecorder.stopAll',
       'canvas.dispose',

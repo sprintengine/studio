@@ -184,3 +184,18 @@ test('a chat is the agent in its record: one removed from it, or a settled works
   assert.equal(w.commands.length, 0, 'the settled chat is put away, not woken')
   await w.resumer.dispose()
 })
+
+test('once disposed (the quit stops it before the chats), a resume due later sends nothing', async () => {
+  const w = wiring()
+  await w.resumer.start()
+  w.resumer.update({ kind: 'auto', enabled: true })
+  w.hit('agent-1')
+  await w.resumer.dispose()
+
+  await vi.advanceTimersByTimeAsync(HOUR + 2 * MINUTE)
+  assert.deepEqual(w.commands, [], 'no chat is resumed on the way out')
+  // And a limit hit the chats' own shutdown reports is not heard.
+  w.hit('agent-2')
+  await vi.advanceTimersByTimeAsync(2 * HOUR)
+  assert.deepEqual(w.commands, [])
+})

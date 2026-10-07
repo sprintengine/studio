@@ -2144,6 +2144,11 @@ export function createAppServices(
     localServers: server
       ? null
       : { flush: () => core.localServers.flush(), dispose: () => core.localServers.dispose() },
+    // In process, the core's resumes after a usage limit and the messages a
+    // person scheduled stop before the chats; out of process the server stops
+    // them in its own legs.
+    usageLimitResumes: server ? null : { dispose: () => core.stopUsageLimitResumes() },
+    scheduledMessages: server ? null : { dispose: () => core.stopScheduledMessages() },
     broadcastGitChangelistsChanged,
     updateService,
     withIpcDiagnostics,
