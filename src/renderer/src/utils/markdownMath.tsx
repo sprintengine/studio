@@ -287,34 +287,35 @@ export function InlineMath({ tex, codeClassName }: { tex: string; codeClassName:
  * A display formula. While its message streams it is the source, in the code
  * block it arrived in: a formula typed a token at a time parses, fails and
  * parses again, and would flicker between the two. Once settled it is drawn;
- * `fallback` is the block it falls back to, with a note when `explain` says
- * the fence asked for math outright.
+ * `fallback` is the block it falls back to, with a note saying why when the
+ * formula does not parse.
  */
 export function DisplayMath({
   tex,
   streaming,
-  explain,
   className,
   fallback,
 }: {
   tex: string
   streaming: boolean
-  explain: boolean
   className: string
   fallback: (note?: string) => ReactNode
 }): ReactNode {
   const engine = useTypesetter(!streaming)
   if (streaming || !engine) return fallback()
   const result = typesetMath(engine, tex, true)
-  if ('error' in result) return fallback(explain ? mathError(result.error) : undefined)
+  if ('error' in result) return fallback(mathError(result.error))
   return (
     <div data-math="display" data-tex={tex} className={className} dangerouslySetInnerHTML={{ __html: result.html }} />
   )
 }
 
-/** The fence tags a display formula comes in: remark-math's own and the ones agents write. */
-const MATH_LANGUAGES = new Set(['math', 'latex', 'tex', 'katex'])
-
+/**
+ * The fence tag a display formula comes in: a `$$` or `\[` block is built as
+ * one, and ```math asks for it outright. A ```latex, ```tex or ```katex fence
+ * stays code: it is as often a document, or TeX someone is meant to copy, as a
+ * formula, and a drawing would hide it behind one with nothing to copy.
+ */
 export function isMathLanguage(language: string | undefined): boolean {
-  return MATH_LANGUAGES.has((language ?? '').toLowerCase())
+  return (language ?? '').toLowerCase() === 'math'
 }

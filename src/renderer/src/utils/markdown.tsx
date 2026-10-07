@@ -734,13 +734,11 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
           plain
         )
       if (options.math && isMathLanguage(language)) {
-        // A `$$` block or a ```math fence asked for math, so a formula that
-        // does not parse says why; a ```latex fence is as often a whole
-        // document as a formula, and one that is not math is simply code.
+        // A `$$` or `\[` block or a ```math fence asked for math, so a formula
+        // that does not parse falls back to its source with a note saying why.
         return (
           <StreamingMath
             tex={code}
-            explain={language === 'math'}
             className={joinClasses(scale.math, changedBlockClass(node, lineChanges))}
             fallback={block}
           />

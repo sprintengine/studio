@@ -103,18 +103,11 @@ test('backslash delimiters: \\( inline, and \\[ on lines of its own as a block',
   expect(escaped).toContain('Tag it [WIP] for now.')
 })
 
-test('a formula that does not parse falls back to its source, saying why only where math was asked for', async () => {
+test('a formula that does not parse falls back to its source, saying why', async () => {
   await loadTypesetter()
   const broken = renderReply('$$\n\\frac{a}{\n$$', { codeBlock: CodeStub })
   expect(broken).toContain('data-stub="math"')
   expect(broken).toMatch(/data-note="Shown as source: [^"]+"/u)
-
-  // A ```latex fence is as often a whole document as a formula.
-  const document = renderReply('```latex\n\\documentclass{article}\n\\begin{document}\nHi\n\\end{document}\n```', {
-    codeBlock: CodeStub,
-  })
-  expect(document).toContain('data-stub="latex"')
-  expect(document).toContain('data-note=""')
 
   const inline = renderReply('Bad $$\\frac{a}{$$ here.')
   expect(inline).not.toContain('data-math')
@@ -135,4 +128,19 @@ test('without math, a document reads dollars as text', async () => {
   const html = renderToStaticMarkup(<>{renderMarkdown('Area is $$\\pi r^2$$.', { density: 'chat' })}</>)
   expect(html).not.toContain('data-math')
   expect(html).toContain('$$\\pi r^2$$')
+})
+
+test('a ```latex, ```tex or ```katex fence stays code, to read and copy, even when it is a formula', async () => {
+  await loadTypesetter()
+  for (const language of ['latex', 'tex', 'katex', 'LaTeX']) {
+    const html = renderReply(`\`\`\`${language}\n\\frac{a}{b}\n\`\`\``, { codeBlock: CodeStub })
+    expect(html, language).not.toContain('data-math')
+    expect(html, language).toContain(`data-stub="${language}"`)
+    expect(html, language).toContain('\\frac{a}{b}')
+  }
+  const document = renderReply('```latex\n\\documentclass{article}\n\\begin{document}\nHi\n\\end{document}\n```', {
+    codeBlock: CodeStub,
+  })
+  expect(document).toContain('data-stub="latex"')
+  expect(document).toContain('data-note=""')
 })
