@@ -1,11 +1,7 @@
 import type { IpcRendererEvent } from 'electron'
 import { ipc as ipcRenderer } from '../ipc-router'
-import {
-  CHAT_LINK_OPEN_CHANNEL,
-  CHAT_LINK_READY_CHANNEL,
-  CHAT_LINK_UNREADY_CHANNEL,
-  type ChatLink,
-} from '../../shared/deep-link'
+import type { ChatLink } from '../../shared/deep-link'
+import { subscribeToChatLinks } from './chat-link-subscription'
 import type {
   AuxWindowRetargetPayload,
   CreateWorkspaceWindowInput,
@@ -93,17 +89,9 @@ export const windowApi = {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
-  // The listener first, then the word to main, so a link main was holding
-  // cannot arrive before anyone hears it.
-  onChatLinkOpen: (cb: (link: ChatLink) => void): (() => void) => {
-    const handler = (_: IpcRendererEvent, link: ChatLink) => cb(link)
-    ipcRenderer.on(CHAT_LINK_OPEN_CHANNEL, handler)
-    ipcRenderer.send(CHAT_LINK_READY_CHANNEL)
-    return () => {
-      ipcRenderer.removeListener(CHAT_LINK_OPEN_CHANNEL, handler)
-      ipcRenderer.send(CHAT_LINK_UNREADY_CHANNEL)
-    }
-  },
+  // The handshake with main, and the acknowledgement that lets main stop
+  // holding a link, are in chat-link-subscription.ts.
+  onChatLinkOpen: (cb: (link: ChatLink) => void): (() => void) => subscribeToChatLinks(ipcRenderer, cb),
   panePopOutOpen: (input: PanePopOutOpenInput): Promise<PanePopOutOpenResult> =>
     ipcRenderer.invoke('pane-popout:open', input),
   // Sends rather than invokes: the owner pushes on every change to the tabs it

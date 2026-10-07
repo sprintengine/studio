@@ -31,8 +31,10 @@ export type DeepLink =
 
 export type ChatLink = Extract<DeepLink, { kind: 'chat' }>
 
-/** Main to a workspace window: open this chat. */
+/** Main to a workspace window: open this chat. Carries the link and its generation. */
 export const CHAT_LINK_OPEN_CHANNEL = 'chat-link:open'
+/** A workspace window to main: it opened the link of this generation, so main can let it go. */
+export const CHAT_LINK_ACK_CHANNEL = 'chat-link:ack'
 /** A workspace window to main: its registry is loaded and it is listening for chat links. */
 export const CHAT_LINK_READY_CHANNEL = 'chat-link:ready'
 /** A workspace window to main: it stopped listening. */

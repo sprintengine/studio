@@ -17,6 +17,13 @@ import type { ChatLink } from '../shared/deep-link'
 // none open — the app running in the background — one is opened, and the link
 // waits for it.
 //
+// Sending is not the end of it. The page can die between main sending a link
+// and its renderer opening the chat (a crash, a reload, the window closing),
+// and the link would be lost with it. So each link carries a generation, and
+// main keeps it until the window says it opened that generation. If the window
+// goes first, or comes back with a new page that never said so, the link goes
+// out again: to that window once it is listening, else to the next choice.
+//
 // Electron-free, so a test drives it with stand-ins.
 
 export type ChatLinkWindow = {
@@ -40,8 +47,8 @@ export type ChatLinkRouterDeps<W extends ChatLinkWindow> = {
   canOpenWindow: () => boolean
   /** Open a window, as the tray's Open does. Asked at most once per link. */
   openWindow: () => void
-  /** Hand the link to a window that is listening. */
-  send: (window: W, link: ChatLink) => void
+  /** Hand the link to a window that is listening, with the generation it acknowledges. */
+  send: (window: W, link: ChatLink, generation: number) => void
 }
 
 export type ChatLinkRouter<W extends ChatLinkWindow> = {
@@ -50,10 +57,15 @@ export type ChatLinkRouter<W extends ChatLinkWindow> = {
   windowReady(window: W): void
   /** A window stopped listening: it reloaded, closed or crashed. */
   windowGone(window: W): void
+  /** A window opened the link of this generation, so it need not be sent again. */
+  ack(window: W, generation: number): void
 }
 
 export function createChatLinkRouter<W extends ChatLinkWindow>(deps: ChatLinkRouterDeps<W>): ChatLinkRouter<W> {
-  let pending: ChatLink | null = null
+  // The latest link, until a window acknowledges it. `sentTo` is the window it
+  // went to and is waiting on; null while it still has to be sent.
+  let held: { link: ChatLink; generation: number; sentTo: W | null } | null = null
+  let generation = 0
   // Whether a window was already asked for this link: the flushes that follow
   // (a window going away, say) must not open one each.
   let windowAsked = false
@@ -66,10 +78,9 @@ export function createChatLinkRouter<W extends ChatLinkWindow>(deps: ChatLinkRou
   }
 
   function flush(): void {
-    const link = pending
-    if (!link) return
+    if (!held || held.sentTo) return
     const windows = deps.windows().filter((win) => !win.isDestroyed())
-    const win = target(link, windows)
+    const win = target(held.link, windows)
     if (!win) {
       if (!windowAsked && deps.canOpenWindow()) {
         windowAsked = true
@@ -80,29 +91,47 @@ export function createChatLinkRouter<W extends ChatLinkWindow>(deps: ChatLinkRou
     // The chosen window is still loading: it takes the link when it says it is
     // listening, and is raised then rather than shown half-built.
     if (!listening.has(win)) return
-    pending = null
+    held.sentTo = win
     // A window held hidden is mid-boot (the splash is up) or mid-update; the
     // boot reveal shows it, and showing it here would put both on screen.
     if (win.isVisible()) {
       if (win.isMinimized()) win.restore()
       win.focus()
     }
-    deps.send(win, link)
+    deps.send(win, held.link, held.generation)
+  }
+
+  // The window a link went to stopped, or started again, without opening it:
+  // the link is due again.
+  function unsend(win: W): void {
+    if (held?.sentTo === win) held.sentTo = null
   }
 
   return {
     open(link) {
-      pending = link
+      // A newer link replaces one still waiting for its window to answer, as
+      // it replaces one still waiting to be sent: only the latest is held.
+      generation += 1
+      held = { link, generation, sentTo: null }
       windowAsked = false
       flush()
     },
     windowReady(win) {
+      // A window saying it is listening while a link it was sent is still
+      // unanswered has, as a rule, a new page that never saw it. A page that
+      // did see it drops a generation it already opened, so sending it again
+      // is safe either way.
+      unsend(win)
       listening.add(win)
       flush()
     },
     windowGone(win) {
+      unsend(win)
       listening.delete(win)
       flush()
+    },
+    ack(win, acked) {
+      if (held?.sentTo === win && held.generation === acked) held = null
     },
   }
 }

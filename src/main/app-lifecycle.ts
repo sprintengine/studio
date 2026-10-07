@@ -1,15 +1,12 @@
-import { app, BrowserWindow, ipcMain, Menu, net, powerMonitor, type WebContents } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, net, powerMonitor } from 'electron'
 import { createAppMenu } from './app-menu'
 import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
 import { DEEP_LINK_SCHEMES } from '../shared/deep-link-scheme'
-import {
-  CHAT_LINK_OPEN_CHANNEL,
-  CHAT_LINK_READY_CHANNEL,
-  CHAT_LINK_UNREADY_CHANNEL,
-  chatLinkFromArgv,
-} from '../shared/deep-link'
+import { CHAT_LINK_OPEN_CHANNEL, chatLinkFromArgv } from '../shared/deep-link'
 import { createChatLinkRouter } from './chat-link-router'
+import { registerChatLinkIpc, routeSecondLaunch } from './chat-link-ipc'
+import { registerLinuxUrlHandler, systemLinuxUrlHandlerDeps } from './linux-url-handler'
 import { BOOT_WORKSPACE_SYNC_BUDGET_MS, runBootDiscovery, settleWithin } from './boot-discovery'
 import { discoverAndBroadcastCliModels } from './ipc/cli-model-discovery-ipc'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
@@ -294,33 +291,27 @@ export function registerAppLifecycle({
     windowIdOf: workspaceWindowIdOf,
     primaryWindowId: () => chatWindows?.primaryWindowId() ?? 'primary',
     holderOf: (chatId) => chatWindows?.holderOf(chatId) ?? null,
-    canOpenWindow: () => app.isReady(),
-    openWindow: openWindowFromBackground,
-    send: (win, link) => win.webContents.send(CHAT_LINK_OPEN_CHANNEL, link),
+    // Not once the app is quitting: a link still waiting when its last window
+    // closes for the quit must not open a new one.
+    canOpenWindow: () => app.isReady() && shutdownRun === null,
+    // Only ever asked with no workspace window open, so it makes one. Raising
+    // whatever window there is, as the tray's Open does, could raise an aux
+    // window, and the link would wait for a workspace window that never came.
+    openWindow: () => {
+      createMainWindow({ diagnosticsEnabled })
+      backgroundPresence.onWindowOpened()
+    },
+    send: (win, link, generation) => win.webContents.send(CHAT_LINK_OPEN_CHANNEL, link, generation),
   })
   function openChatLinkFrom(argv: readonly string[]): void {
     const link = chatLinkFromArgv(argv)
     if (link) chatLinks.open(link)
   }
-  // A window is listening once its registry has loaded, and stops when its page
-  // goes: a reload says so again from the new page, a crash or a close does not.
-  const watchedForChatLinks = new WeakSet<WebContents>()
-  ipcMain.on(CHAT_LINK_READY_CHANNEL, (event) => {
-    const contents = event.sender
-    const win = BrowserWindow.fromWebContents(contents)
-    if (!win || !isWorkspaceWindowWebContents(contents)) return
-    if (!watchedForChatLinks.has(contents)) {
-      watchedForChatLinks.add(contents)
-      const gone = () => chatLinks.windowGone(win)
-      contents.on('did-navigate', gone)
-      contents.on('render-process-gone', gone)
-      win.once('closed', gone)
-    }
-    chatLinks.windowReady(win)
-  })
-  ipcMain.on(CHAT_LINK_UNREADY_CHANNEL, (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (win) chatLinks.windowGone(win)
+  registerChatLinkIpc({
+    ipcMain,
+    router: chatLinks,
+    windowOf: (contents) => BrowserWindow.fromWebContents(contents),
+    isWorkspaceWindow: isWorkspaceWindowWebContents,
   })
 
   // The single-instance lock itself is taken by the entry (index.ts), before any
@@ -335,10 +326,14 @@ export function registerAppLifecycle({
       if (isScriptSecondLaunch(argv)) return
       // Relaunching the app while it is backgrounded must produce a window:
       // without this the second launch silently did nothing, which on Windows
-      // and Linux left the tray as the only way back in.
-      openWindowFromBackground()
+      // and Linux left the tray as the only way back in. A launch carrying a
+      // chat link gets its window from the link router, which raises the one
+      // the chat opens in, or opens one.
+      routeSecondLaunch(argv, {
+        openChatLink: (link) => chatLinks.open(link),
+        openWindow: openWindowFromBackground,
+      })
       handleAuthCallback(argv)
-      openChatLinkFrom(argv)
     })
   }
 
@@ -937,6 +932,40 @@ function bindElectronPowerActivity(): void {
 // is cheap and idempotent; an unclaimed scheme is a dead link with nowhere to
 // report itself.
 function registerDeepLinkProtocols(): void {
+  // A packaged AppImage answers for its schemes with a desktop entry it writes
+  // itself (linux-url-handler.ts). Electron's registration names a desktop file
+  // no AppImage installs: run beside it, it would hand the default to a file
+  // that is not there at every start, and the entry would take it back.
+  const appImageEntry = process.platform === 'linux' && app.isPackaged && Boolean(process.env.APPIMAGE)
+  if (appImageEntry) {
+    void registerLinuxUrlHandler(
+      {
+        ...systemLinuxUrlHandlerDeps(),
+        platform: process.platform,
+        isPackaged: app.isPackaged,
+        env: process.env,
+        log: (level, message, details) => {
+          void writeDiagnosticLog({
+            level,
+            source: 'workspace',
+            title: 'Link handler',
+            message,
+            ...(details ? { details: JSON.stringify(details) } : {}),
+          }).catch(() => undefined)
+        },
+        record: (path, scheme) =>
+          recordIntegrationWrite({
+            kind: 'protocol-handler',
+            path,
+            marker: scheme,
+            createdFile: true,
+            hostId: 'local',
+          }),
+      },
+      DEEP_LINK_SCHEMES,
+    )
+    return
+  }
   for (const scheme of DEEP_LINK_SCHEMES) {
     if (!app.isPackaged) {
       // A dev build is `electron <app-dir>`, so the OS has to be handed both
