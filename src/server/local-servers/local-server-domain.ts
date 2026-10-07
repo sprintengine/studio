@@ -87,6 +87,11 @@ export type LocalServerDomain = StudioLocalServers & {
   readonly record: LocalServerRecord
   /** An agent says it started this server: the gateway's `local_server.link`. Checked once before it answers. */
   linkForAgent(key: LocalServerConversationKey, input: LocalServerLinkInput): Promise<LocalServerLinkOutcome>
+  /**
+   * Workspaces may have been removed: forget their links, stopping any run of
+   * theirs first, so a removed workspace's servers are not checked for ever.
+   */
+  prune(): Promise<void>
   /** Settle what is in flight: a quit's leg. */
   flush(): Promise<void>
   /**
@@ -101,6 +106,8 @@ export type LocalServerDomainOptions = {
   dataDir: string
   /** The folder a conversation works in: where a command an agent gave without one runs. */
   conversationFolder(key: LocalServerConversationKey): string | null
+  /** Whether a workspace was removed; its links go with it (`prune`). */
+  workspaceRemoved?(workspaceId: string): boolean
   /** The record, built here unless given (tests). */
   record?: LocalServerRecord
   probe?: LocalServerProbe
@@ -301,11 +308,13 @@ export function createLocalServerDomain(options: LocalServerDomainOptions): Loca
     timer.unref?.()
   }
 
-  // At start: read the record, then check everything on it once. `list` waits
-  // for both.
+  // At start: read the record, forget what a workspace removed while the
+  // Studio was not running left behind, then check everything on it once.
+  // `list` waits for both.
   let readySettled = false
   const ready: Promise<void> = record
     .whenLoaded()
+    .then(() => prune())
     .then(() => checkDue(true))
     .catch((error) => log('could not start the local server checks', error))
     .finally(() => {
@@ -451,6 +460,32 @@ export function createLocalServerDomain(options: LocalServerDomainOptions): Loca
     return { ok: true }
   }
 
+  // ── Removed workspaces ────────────────────────────────────────────────────
+
+  async function prune(): Promise<void> {
+    if (disposed || !options.workspaceRemoved) return
+    const removed = [...new Set(record.all().map((server) => server.workspaceId))].filter((workspaceId) =>
+      options.workspaceRemoved!(workspaceId),
+    )
+    const stopping: Array<Promise<boolean>> = []
+    const gone: LinkedLocalServer[] = []
+    for (const workspaceId of removed) {
+      // A run is stopped before its link goes: the record never pushes out a
+      // link a run follows, and nothing would be left on screen to stop it.
+      for (const server of record.forWorkspace(workspaceId))
+        if (runs.has(server.id)) stopping.push(stopRun(server.id, timing.stopGraceMs))
+      for (const server of record.forgetWorkspace(workspaceId)) {
+        live.delete(server.id)
+        lastExits.delete(server.id)
+        gone.push(server)
+      }
+    }
+    if (gone.length === 0) return
+    publish(gone)
+    schedule()
+    await Promise.allSettled(stopping)
+  }
+
   // ── Linking ───────────────────────────────────────────────────────────────
 
   async function linkForAgent(
@@ -514,6 +549,7 @@ export function createLocalServerDomain(options: LocalServerDomainOptions): Loca
       return { workspaces, conversations }
     },
     run,
+    prune,
     async stop(input) {
       await settled()
       const server = owned(input.conversation, input.id)

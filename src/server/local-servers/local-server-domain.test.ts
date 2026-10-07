@@ -394,3 +394,83 @@ test('a server removed while Run again checks its port is not started', async ()
   assert.equal(result.ok ? 'started' : result.code, 'not_found')
   assert.deepEqual(started, [])
 })
+
+test('a removed workspace’s links are forgotten, its run stopped first, and no longer checked', async () => {
+  const removed = new Set<string>()
+  const signals: string[] = []
+  let end: (exit: { code: number | null }) => void = () => undefined
+  const exited = new Promise<{ code: number | null }>((resolve) => {
+    end = resolve
+  })
+  const probed: number[] = []
+  const C = { workspaceId: 'ws-2', agentId: 'agent-c' }
+  const { domain, changes } = await domainOver({
+    workspaceRemoved: (workspaceId) => removed.has(workspaceId),
+    probe: async (_host, port) => {
+      probed.push(port)
+      return false
+    },
+    startRun: () => ({
+      output: () => '',
+      exited,
+      alive: () => signals.length === 0,
+      terminate: () => {
+        signals.push('terminate')
+        end({ code: null })
+      },
+      kill: () => signals.push('kill'),
+    }),
+  })
+  const linked = await domain.linkForAgent(A, { url: 'http://localhost:4100/', command: 'npm run dev' })
+  await domain.linkForAgent(C, { url: 'http://localhost:4200/' })
+  assert.deepEqual(await domain.run({ conversation: A, id: linked.ok ? linked.server.id : '' }), { ok: true })
+  changes.length = 0
+
+  // Nothing removed: nothing goes.
+  await domain.prune()
+  assert.equal(domain.record.all().length, 2)
+
+  removed.add('ws-1')
+  await domain.prune()
+  assert.deepEqual(signals, ['terminate'])
+  assert.deepEqual(
+    domain.record.all().map((server) => server.workspaceId),
+    ['ws-2'],
+  )
+  assert.deepEqual(changes, [{ workspaceIds: ['ws-1'], conversations: [A] }])
+  const listed = await domain.list({ workspaceIds: ['ws-1', 'ws-2'] })
+  assert.equal(listed.workspaces['ws-1'], undefined)
+  assert.equal(listed.workspaces['ws-2']?.length, 1)
+  probed.length = 0
+  await sleep(120)
+  assert.ok(!probed.includes(4100), 'the removed workspace’s server is no longer checked')
+  assert.ok(probed.includes(4200))
+})
+
+test('links of a workspace removed while the Studio was not running are forgotten at start', async () => {
+  const dir = await tempDir()
+  const path = localServerStorePath(dir)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 1,
+      servers: [
+        { id: 'k1', workspaceId: 'ws-gone', agentId: 'agent-a', url: 'http://localhost:5173/', linkedAt: 5 },
+        { id: 'k2', workspaceId: 'ws-1', agentId: 'agent-a', url: 'http://localhost:5174/', linkedAt: 6 },
+      ],
+    }),
+  )
+  const probed: number[] = []
+  const { domain } = await domainOver({
+    dataDir: dir,
+    workspaceRemoved: (workspaceId) => workspaceId === 'ws-gone',
+    probe: async (_host, port) => {
+      probed.push(port)
+      return true
+    },
+  })
+  const listed = await domain.list({ workspaceIds: ['ws-gone', 'ws-1'] })
+  assert.deepEqual(Object.keys(listed.workspaces), ['ws-1'])
+  assert.ok(!probed.includes(5173))
+})
