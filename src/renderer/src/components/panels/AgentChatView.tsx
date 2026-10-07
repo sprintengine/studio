@@ -3503,7 +3503,8 @@ function transcriptShape(entries: readonly TranscriptEntry[]) {
     if (entry.kind === 'user') {
       hasUserMessage = true
       hasConversation = true
-      if (entry.text) promptHistory.push(entry.text)
+      // Up recalls what the person typed, not what Studio sent the chat.
+      if (entry.text && entry.origin?.kind !== 'studio') promptHistory.push(entry.text)
     }
     if (entry.kind !== 'assistant') continue
     hasConversation = true

@@ -249,3 +249,21 @@ test('a plan request keeps the file the agent holds it in, including one recorde
   )
   expect(planOf({})?.planFilePath).toBeUndefined()
 })
+
+test('a message Studio sent keeps its origin on the user entry, the full and the incremental fold alike', () => {
+  const events = [
+    event('user_message', 0, { turnId: 't1', text: 'Start the scout' }),
+    event('turn_completed', 5, { turnId: 't1' }),
+    event('user_message', 10, {
+      turnId: 't2',
+      text: '[SprintEngine Studio] Agent Scout, which you launched, finished its turn.',
+      origin: { kind: 'studio', reason: 'agent-notice' },
+    }),
+  ]
+  const users = (entries: TranscriptEntry[]) =>
+    entries.flatMap((entry) => (entry.kind === 'user' ? [entry.origin ?? null] : []))
+  expect(users(projectConversation(events).entries)).toEqual([null, { kind: 'studio', reason: 'agent-notice' }])
+  let state = createConversationProjectionState()
+  for (const next of events) state = applyEvent(state, next)
+  expect(users(state.projection.entries)).toEqual([null, { kind: 'studio', reason: 'agent-notice' }])
+})

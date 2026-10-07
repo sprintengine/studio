@@ -1006,8 +1006,8 @@ export function createAppServices(
         const result = conversations.listSessions()
         return result.ok ? result.sessions : []
       },
-      sendTurn: async ({ sessionId, message }) => {
-        const result = await conversations.sendTurn({ sessionId, message })
+      sendTurn: async ({ sessionId, message, origin }) => {
+        const result = await conversations.sendTurn({ sessionId, message, ...(origin ? { origin } : {}) })
         return result.ok
           ? { ok: true }
           : { ok: false, message: result.message, ...(result.code ? { code: result.code } : {}) }

@@ -1,7 +1,11 @@
 import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import type { ConversationEvent, ConversationSessionSummary } from '../../shared/conversation-runtime'
+import {
+  readConversationMessageOrigin,
+  type ConversationEvent,
+  type ConversationSessionSummary,
+} from '../../shared/conversation-runtime'
 import { conversationSummaryPhase } from '../../shared/conversation/phase'
 import { isRecord } from '../../shared/records'
 import type {
@@ -12,7 +16,7 @@ import type {
   UsageLimitResumeUpdate,
 } from '../../shared/usage-limit-resume'
 import { USAGE_LIMIT_PROVIDERS, type UsageLimitHit, type UsageLimitProvider } from '../../shared/usage-limits'
-import { STUDIO_NOTICE_PREFIX, STUDIO_NOTICE_SIGNATURE } from '../agent-launch-notices'
+import { STUDIO_NOTICE_PREFIX } from '../../shared/studio-notice'
 import { writeFileAtomically } from '../config-file-write'
 import type { UsageRateLimitAnswer } from './store'
 
@@ -76,8 +80,12 @@ const MAX_RESUMED = 100
 /** Ids are minted by the app and short; this only keeps a hand-edited file from carrying a strange one. */
 const MAX_ID_LENGTH = 200
 
-/** The turn a resume sends. Studio's own words, marked as Studio's like its other notices. */
-export const USAGE_LIMIT_RESUME_MESSAGE = `${STUDIO_NOTICE_PREFIX} Continue where you left off — your usage limit has reset. ${STUDIO_NOTICE_SIGNATURE}`
+/**
+ * The turn a resume sends. Studio's own words: the chat records it as Studio's
+ * (the send's origin), and the words open with Studio's name for the agent,
+ * which reads nothing else.
+ */
+export const USAGE_LIMIT_RESUME_MESSAGE = `${STUDIO_NOTICE_PREFIX} Continue where you left off — your usage limit has reset.`
 
 type PendingResume = UsageLimitResumeChat & {
   provider: UsageLimitProvider
@@ -154,8 +162,6 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
   let autoResume = false
   const pending = new Map<string, PendingResume>()
   let resumed: ResumedHit[] = []
-  // Chats whose resume is being sent: their next `user_message` is Studio's own.
-  const sending = new Set<string>()
   const listeners = new Set<(state: UsageLimitResumeState) => void>()
   const unsubscribers: Array<() => void> = []
   let timer: unknown = null
@@ -262,11 +268,11 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
 
   function onConversationEvent(event: ConversationEvent): void {
     if (event.type !== 'user_message') return
-    const key = chatKey(event)
-    // Studio's own resume going in.
-    if (sending.delete(key)) return
+    // Studio's own message (this resume going in, a launched agent's notice)
+    // is not the person taking the chat's next step.
+    if (readConversationMessageOrigin(event.payload?.origin)) return
     // The person said something: that is the chat's next step, not this.
-    if (pending.delete(key)) changed()
+    if (pending.delete(chatKey(event))) changed()
   }
 
   // ── When one comes due ───────────────────────────────────────────────────
@@ -345,7 +351,6 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
 
   async function send(entry: PendingResume): Promise<void> {
     const key = chatKey(entry)
-    sending.add(key)
     let result: UsageLimitResumeSendResult
     try {
       result = await deps.send(
@@ -356,7 +361,6 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
     } catch (error) {
       result = { ok: false, message: error instanceof Error ? error.message : String(error) }
     }
-    sending.delete(key)
     if (result.ok || !running) return
     // A turn that started between the look and the send: the same wait as a
     // busy chat, unless something newer has taken the chat's place meanwhile.

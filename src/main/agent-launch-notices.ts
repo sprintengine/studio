@@ -2,7 +2,7 @@ import type { AgentPhase } from '../shared/electron-api'
 import type { AgentPhaseEvent, AgentSessionExitEvent } from '../shared/agent-runtime'
 import type { ConversationEvent } from '../shared/conversation-runtime'
 import type { McpConnectionContext } from '../shared/modules/mcp-tools'
-import { STUDIO_PRODUCT_NAME } from '../shared/product-identity'
+import { STUDIO_NOTICE_PREFIX } from '../shared/studio-notice'
 import type { AgentControlPlane, ControlPlaneSendOptions, ControlPlaneSession } from './agent-control-plane'
 
 /**
@@ -36,11 +36,11 @@ import type { AgentControlPlane, ControlPlaneSendOptions, ControlPlaneSession } 
  * terminal does, and a chat's turn does), so a link that outlived a restart
  * would point at nothing.
  *
- * The notice is typed as a turn, so a chat's transcript shows it where the
- * person's messages go: the conversation protocol has no origin for a message
- * other than the person. It opens with the product's name in brackets and
- * closes saying who sent it, so neither the parent nor the person reading
- * along takes it for something the person typed.
+ * The notice is typed as a turn. A chat records it as Studio's (`origin` on
+ * its `user_message`), so the chat view draws it as Studio's row and nothing
+ * counts it as the person writing. The agent reads only words, so they open
+ * with the product's name in brackets (shared/studio-notice.ts): without it,
+ * the parent would take the notice for an instruction from the person.
  */
 
 /** Who launched which agent, as the gateway call that launched it knew them. */
@@ -352,7 +352,9 @@ export function createAgentLaunchNotices(deps: AgentLaunchNoticesDeps): AgentLau
       const sent = await deps.plane.send(
         { sessionId: session.sessionId },
         composeLaunchNotice(batch),
-        session.transport === 'terminal' ? terminalSendOptions(() => isIdle(session.sessionId)) : {},
+        session.transport === 'terminal'
+          ? terminalSendOptions(() => isIdle(session.sessionId))
+          : { origin: LAUNCH_NOTICE_ORIGIN },
       )
       if (!sent.ok) failure = sent
     } catch (error) {
@@ -425,33 +427,22 @@ function parentKey(parent: { workspaceId: string | null; agentId: string }): str
 
 // ── The notice's words (exported for tests) ────────────────────────────────
 
-/**
- * How a message Studio types into an agent's session opens and closes: the
- * conversation protocol has no origin for a message other than the person, so
- * the words say who sent it. Shared with the other notices Studio sends.
- */
-export const STUDIO_NOTICE_PREFIX = `[${STUDIO_PRODUCT_NAME}]`
-export const STUDIO_NOTICE_SIGNATURE = `(Sent by ${STUDIO_PRODUCT_NAME}, not typed by the person.)`
-const NOTICE_PREFIX = STUDIO_NOTICE_PREFIX
-const NOTICE_SIGNATURE = STUDIO_NOTICE_SIGNATURE
+/** How a chat records a launch notice: Studio's, about an agent the chat started. */
+export const LAUNCH_NOTICE_ORIGIN = { kind: 'studio', reason: 'agent-notice' } as const
 
 /** One message for everything a parent is told at once. */
 export function composeLaunchNotice(notices: readonly LaunchNotice[]): string {
   if (notices.length === 1) {
     const [notice] = notices
     const what = noticeSentence(notice)
-    return [
-      `${NOTICE_PREFIX} ${noticeSubject(notice)}, which you launched, ${what}`,
-      nextStep(notice),
-      NOTICE_SIGNATURE,
-    ]
+    return [`${STUDIO_NOTICE_PREFIX} ${noticeSubject(notice)}, which you launched, ${what}`, nextStep(notice)]
       .filter(Boolean)
       .join(' ')
   }
   const lines = notices.map((notice) =>
     `- ${noticeSubject(notice)} ${noticeSentence(notice)} ${nextStep(notice) ?? ''}`.trimEnd(),
   )
-  return [`${NOTICE_PREFIX} ${notices.length} agents you launched have news:`, ...lines, NOTICE_SIGNATURE].join('\n')
+  return [`${STUDIO_NOTICE_PREFIX} ${notices.length} agents you launched have news:`, ...lines].join('\n')
 }
 
 function noticeSubject(notice: LaunchNotice): string {

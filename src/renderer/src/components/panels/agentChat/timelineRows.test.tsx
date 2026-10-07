@@ -283,3 +283,26 @@ test('a selection across whole turns copies what was said, and none of the chrom
   for (const chromeText of ['42s', 'Thought', 'Check the fixture', 'Worked for', 'a.ts', 'review', 'Copy'])
     expect(copied.text).not.toContain(chromeText)
 })
+
+test('a message Studio sent the chat reads as Studio’s note, not the person’s bubble', async () => {
+  const container = await mount(
+    <UserTimelineRow
+      entry={user({
+        text: '[SprintEngine Studio] Continue where you left off — your usage limit has reset.',
+        origin: { kind: 'studio', reason: 'usage-resume' },
+      })}
+      chrome={{ ...chrome, rewindEnabled: true, onRestoreDraft: () => undefined }}
+    />,
+  )
+  const notice = container.querySelector('[data-studio-notice="usage-resume"]')
+  expect(notice?.textContent).toContain('SprintEngine Studio · Continue where you left off')
+  expect(notice?.textContent).not.toContain('[SprintEngine Studio]')
+  expect(container.textContent).not.toContain('You said')
+  // None of the person's message actions: there is nothing of theirs to edit.
+  expect(container.querySelectorAll('button')).toHaveLength(0)
+
+  // The same words without an origin are the person's.
+  await act(async () => root!.render(<UserTimelineRow entry={user({ text: 'Continue' })} chrome={chrome} />))
+  expect(container.querySelector('[data-studio-notice]')).toBeNull()
+  expect(container.textContent).toContain('You said')
+})

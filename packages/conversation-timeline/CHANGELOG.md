@@ -4,6 +4,10 @@
 
 ### Added
 
+- A user entry carries the `origin` its `user_message` recorded, for a message
+  the desktop sent the chat itself, so a view can draw it as Studio's rather
+  than as the person's.
+
 - `ConversationUsage` carries `contextWindow` and `contextUsed` from
   `usage_updated`, each kept until a report moves it (a compaction resets
   `contextUsed` to what the summary left). `nextConversationUsage` is the fold,

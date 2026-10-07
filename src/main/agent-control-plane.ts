@@ -1,5 +1,5 @@
 import type { AgentPhase, TerminalSessionSnapshot } from '../shared/electron-api'
-import type { ConversationSessionSummary } from '../shared/conversation-runtime'
+import type { ConversationMessageOrigin, ConversationSessionSummary } from '../shared/conversation-runtime'
 import { bracketedTerminalPaste } from '../shared/terminal-paste'
 
 /**
@@ -162,6 +162,13 @@ export type ControlPlaneSendOptions = {
    * time the send before it in the queue has finished.
    */
   precondition?: () => string | null
+  /**
+   * Who the message is from, for a chat: a chat records it on the turn's
+   * `user_message`, so a notice Studio sends is drawn as Studio's and never
+   * counted as the person writing. A terminal has no record to mark; its
+   * agent reads the words alone.
+   */
+  origin?: ConversationMessageOrigin
 }
 
 export type ControlPlaneReadOptions = {
@@ -194,7 +201,11 @@ type ControlPlaneTerminalPort = {
 export type ControlPlaneConversationPort = {
   list(): ConversationSessionSummary[]
   /** `code: 'busy'` is a turn already running (or awaiting approval): the message was not sent. */
-  sendTurn(input: { sessionId: string; message: string }): Promise<{ ok: boolean; message?: string; code?: string }>
+  sendTurn(input: {
+    sessionId: string
+    message: string
+    origin?: ConversationMessageOrigin
+  }): Promise<{ ok: boolean; message?: string; code?: string }>
   interrupt(input: { sessionId: string }): Promise<{ ok: boolean; message?: string }>
 }
 
@@ -349,7 +360,7 @@ export class AgentControlPlane {
           message: 'A conversation session cannot pre-fill text without sending it as a turn.',
         }
       }
-      return this.enqueue(session.sessionId, () => this.sendConversationTurn(session, text))
+      return this.enqueue(session.sessionId, () => this.sendConversationTurn(session, text, options.origin))
     }
 
     return this.enqueue(session.sessionId, () => this.sendTerminalPrompt(session.sessionId, text, submit, options))
@@ -638,10 +649,18 @@ export class AgentControlPlane {
     return { ok: true, sessionId, transport: 'terminal', submitted: true, confirmed }
   }
 
-  private async sendConversationTurn(session: ControlPlaneSession, text: string): Promise<ControlPlaneSendResult> {
+  private async sendConversationTurn(
+    session: ControlPlaneSession,
+    text: string,
+    origin: ConversationMessageOrigin | undefined,
+  ): Promise<ControlPlaneSendResult> {
     const conversation = this.deps.conversation
     if (!conversation) return this.conversationUnavailable(session.sessionId)
-    const result = await conversation.sendTurn({ sessionId: session.sessionId, message: text })
+    const result = await conversation.sendTurn({
+      sessionId: session.sessionId,
+      message: text,
+      ...(origin ? { origin } : {}),
+    })
     if (!result.ok) {
       return {
         ok: false,

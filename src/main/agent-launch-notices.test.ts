@@ -105,7 +105,7 @@ function harness(options: { terminals?: TerminalSessionSnapshot[]; chats?: Conve
   ]
   const chats = options.chats ?? []
   const writes: Array<{ sessionId: string; data: string }> = []
-  const turns: Array<{ sessionId: string; message: string }> = []
+  const turns: Array<{ sessionId: string; message: string; origin?: unknown }> = []
   const timers: Array<{ job: () => void; ms: number; cancelled: boolean }> = []
   const plane = createAgentControlPlane({
     terminal: {
@@ -117,11 +117,11 @@ function harness(options: { terminals?: TerminalSessionSnapshot[]; chats?: Conve
     },
     conversation: {
       list: () => chats,
-      sendTurn: async ({ sessionId, message }) => {
+      sendTurn: async ({ sessionId, message, origin }) => {
         const target = chats.find((candidate) => candidate.sessionId === sessionId)
         if (target?.status !== 'ready')
           return { ok: false, code: 'busy', message: 'Conversation turn is already in progress.' }
-        turns.push({ sessionId, message })
+        turns.push({ sessionId, message, origin })
         return { ok: true }
       },
       interrupt: async () => ({ ok: true }),
@@ -206,7 +206,6 @@ test('an idle parent is told at once, in its own terminal, as a submitted turn',
   assert.equal(pasted[0].sessionId, 'session-lead')
   assert.match(pasted[0].data, /\[SprintEngine Studio\] Agent Scout, which you launched, finished its turn\./u)
   assert.match(pasted[0].data, /agent\.status \(workspaceId "ws-1", agentId "agent-scout"\)/u)
-  assert.match(pasted[0].data, /not typed by the person/u)
   assert.equal(h.writes.at(-1)?.data, '\r', 'the notice is submitted, not left at the prompt')
   assert.equal(h.notices.pendingCount(LEAD), 0)
 })
@@ -383,6 +382,7 @@ test('a chat parent is sent a turn once its own turn has let go', async () => {
   assert.equal(h.turns.length, 1)
   assert.equal(h.turns[0].sessionId, 'chat-lead')
   assert.match(h.turns[0].message, /^\[SprintEngine Studio\] Agent Scout, which you launched, finished its turn\./u)
+  assert.deepEqual(h.turns[0].origin, { kind: 'studio', reason: 'agent-notice' }, 'the chat records it as Studio’s')
 })
 
 test('a chat child reports its turn end with the end of its reply, and its questions', async () => {

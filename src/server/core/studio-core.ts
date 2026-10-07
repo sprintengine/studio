@@ -45,6 +45,7 @@ import {
 } from '../../main/usage-limits/resume'
 import { onUsageLimitHit, usageLimitsStore, usageRateLimit } from '../../main/usage-limits/store'
 import { conversationSummaryPhase } from '../../shared/conversation/phase'
+import type { ConversationMessageOrigin } from '../../shared/conversation-runtime'
 import { usageLimitKindOf } from '../../shared/usage-limit-resume'
 import { isSettledWorkspace } from '../../shared/workspace-lifecycle'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
@@ -484,10 +485,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       )
     },
   })
-  // `asPerson: false` is for Studio's own sends (a resume after a usage
-  // limit): they are not the person writing, so the chat keeps its place in
-  // the lists ordered by when the person last did.
-  const createConversationHost = (hostOptions: { asPerson?: boolean } = {}) =>
+  // `origin` is for Studio's own sends (a resume after a usage limit): they
+  // are not the person writing, so each is recorded as Studio's and the chat
+  // keeps its place in the lists ordered by when the person last did.
+  const createConversationHost = (hostOptions: { origin?: ConversationMessageOrigin } = {}) =>
     createConversationGatewayHost(
       conversations,
       (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
@@ -516,8 +517,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       listMarks,
       {
         workspaceOf: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
-        ...(hostOptions.asPerson === false
-          ? {}
+        ...(hostOptions.origin
+          ? { sendOrigin: hostOptions.origin }
           : {
               noteUserMessage: (workspaceId: string, at: number) =>
                 conversationLifecycle.noteUserMessage(workspaceId, at, 'gateway'),
@@ -561,7 +562,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       return { settled: isSettledWorkspace(record), lastUserMessageAt: record.lastUserMessageAt ?? null }
     },
     send: async (chat, message, commandId) => {
-      resumeHost ??= createConversationHost({ asPerson: false })
+      resumeHost ??= createConversationHost({ origin: { kind: 'studio', reason: 'usage-resume' } })
       const key = resumeHost.resolveKey(chat.workspaceId, chat.agentId)
       if (!key) return { ok: false, message: 'The chat has no folder on this machine.' }
       return resumeHost.command(key, STUDIO_RESUME_CLIENT_ID, commandId, { kind: 'send', message })

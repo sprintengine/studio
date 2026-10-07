@@ -49,7 +49,7 @@ import type {
   ConversationImportTranscriptInput,
   ConversationImportTranscriptResult,
 } from '../shared/conversation-runtime'
-import { CONVERSATION_SESSION_NOT_FOUND } from '../shared/conversation-runtime'
+import { CONVERSATION_SESSION_NOT_FOUND, readConversationMessageOrigin } from '../shared/conversation-runtime'
 import { cliRuntimesOnPlatform, distroOfHostId, type ExecutionHostId } from '../shared/execution-host'
 import { wslInputInRootSpelling } from '../shared/host-paths'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
@@ -883,6 +883,7 @@ export class ConversationRuntime {
         sourceCommandId: input.sourceCommandId,
         skillIds: skills.ids,
         mentionRefs: mentions.refs,
+        ...(input.origin ? { origin: input.origin } : {}),
       })
 
     const turnId = `turn_${this.randomId()}`
@@ -917,6 +918,7 @@ export class ConversationRuntime {
             ...(input.sourceCommandId ? { commandId: input.sourceCommandId } : {}),
             ...(skills.ids.length ? { skills: skills.ids } : {}),
             ...(mentions.refs.length ? { mentions: mentions.refs } : {}),
+            ...(input.origin ? { origin: input.origin } : {}),
           }),
           { turnId },
         )
@@ -1106,6 +1108,7 @@ export class ConversationRuntime {
       sourceCommandId?: string
       skillIds: string[]
       mentionRefs: Awaited<ReturnType<typeof resolveConversationMentions>>['refs']
+      origin?: ConversationSendTurnInput['origin']
     },
   ): Promise<ConversationSessionActionResult> {
     const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
@@ -1156,6 +1159,7 @@ export class ConversationRuntime {
             ...(input.sourceCommandId ? { commandId: input.sourceCommandId } : {}),
             ...(input.skillIds.length ? { skills: input.skillIds } : {}),
             ...(input.mentionRefs.length ? { mentions: input.mentionRefs } : {}),
+            ...(input.origin ? { origin: input.origin } : {}),
           }),
           { turnId },
         )
@@ -2293,10 +2297,14 @@ export class ConversationRuntime {
       ).length
     }
     // Read off the event, as the turn's end is, so a resume restores it. An
-    // image-only message is the person's input too.
-    if (event.type === 'user_message' && event.createdAt > 0)
+    // image-only message is the person's input too; one Studio sent (a
+    // launched agent's notice, a resume after a usage limit) is not, and
+    // neither moves the clock nor becomes the chat's first or last words.
+    const fromPerson = event.type === 'user_message' && !readConversationMessageOrigin(event.payload?.origin)
+    if (event.type === 'user_message' && !fromPerson) session.lastAssistantText = ''
+    if (fromPerson && event.createdAt > 0)
       session.lastUserMessageAt = Math.max(session.lastUserMessageAt ?? 0, event.createdAt)
-    if (event.type === 'user_message' && typeof event.payload?.text === 'string') {
+    if (fromPerson && typeof event.payload?.text === 'string') {
       // An image-only turn carries no text, and an empty excerpt would pin the
       // chat's "first message" to nothing: the first turn with words keeps it.
       if (!session.firstUserText && event.payload.text.trim()) session.firstUserText = event.payload.text.slice(0, 240)

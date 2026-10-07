@@ -8,7 +8,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, test } from 'vitest'
 
-import type { ConversationEvent, ConversationSessionSummary } from '../../shared/conversation-runtime'
+import type {
+  ConversationEvent,
+  ConversationMessageOrigin,
+  ConversationSessionSummary,
+} from '../../shared/conversation-runtime'
 import type { UsageLimitHit, UsageLimitProvider } from '../../shared/usage-limits'
 import {
   createUsageLimitResumer,
@@ -71,8 +75,10 @@ function harness(options: { storage?: UsageLimitResumeStorage; now?: number } = 
     chat: (chat) => records.get(`${chat.workspaceId}/${chat.agentId}`) ?? null,
     send: async (chat, message, commandId) => {
       sent.push({ chat, message, commandId })
-      // The runtime records the message as it goes in, as a real send does.
-      for (const listener of eventListeners) listener(userMessage(chat, now))
+      // The runtime records the message as it goes in, as a real send does:
+      // marked as Studio's, which the send asks for.
+      for (const listener of eventListeners)
+        listener(userMessage(chat, now, { kind: 'studio', reason: 'usage-resume' }))
       return sendAnswer(chat)
     },
     now: () => now,
@@ -160,7 +166,7 @@ function harness(options: { storage?: UsageLimitResumeStorage; now?: number } = 
   }
 }
 
-function userMessage(chat: typeof CHAT, at: number): ConversationEvent {
+function userMessage(chat: typeof CHAT, at: number, origin?: ConversationMessageOrigin): ConversationEvent {
   return {
     id: `u-${at}`,
     sessionId: `s-${chat.agentId}`,
@@ -169,7 +175,7 @@ function userMessage(chat: typeof CHAT, at: number): ConversationEvent {
     modelId: 'default',
     type: 'user_message',
     createdAt: at,
-    payload: { text: 'hello' },
+    payload: { text: 'hello', ...(origin ? { origin } : {}) },
   }
 }
 
@@ -214,7 +220,6 @@ test('Resume at reset schedules the resume a minute and a bit after the reset, a
   await h.advance(2 * MINUTE)
   assert.deepEqual(h.sent, [{ chat: CHAT, message: USAGE_LIMIT_RESUME_MESSAGE, commandId: `usage-limit-resume:${T0}` }])
   assert.match(USAGE_LIMIT_RESUME_MESSAGE, /^\[SprintEngine Studio\] Continue where you left off/)
-  assert.match(USAGE_LIMIT_RESUME_MESSAGE, /not typed by the person/)
   // Sent: the notice is gone, and Studio's own message did not count as the person's.
   assert.equal(notice(h), null)
 })
@@ -252,6 +257,18 @@ test('the person writing to the chat takes the resume back', async () => {
   assert.equal(notice(h), null)
   await h.advance(3 * HOUR)
   assert.equal(h.sent.length, 0)
+})
+
+test('a message Studio sent the chat (a launched agent’s notice) does not take the resume back', async () => {
+  const h = await started()
+  h.resumer.update({ kind: 'auto', enabled: true })
+  h.addChat()
+  h.hit()
+  h.jump(10 * MINUTE)
+  h.emit(userMessage(CHAT, h.now(), { kind: 'studio', reason: 'agent-notice' }))
+  assert.notEqual(notice(h), null)
+  await h.advance(3 * HOUR)
+  assert.equal(h.sent.length, 1)
 })
 
 test('a message the person sent that the event stream missed still stops the resume when it comes due', async () => {
