@@ -68,7 +68,7 @@ import {
   type ResolvedConversationSkills,
 } from './conversation-skills'
 import { resolveConversationMentions } from './conversation-mentions'
-import { ConversationCheckpoints } from './conversation-checkpoints'
+import { ProjectCheckpoints } from './project-checkpoints'
 import { ConversationIndex } from './conversation-index'
 import type {
   ConversationWorkspaceKey,
@@ -383,7 +383,8 @@ export class ConversationRuntime {
   private readonly randomId: () => string
   private readonly platform: NodeJS.Platform
   private readonly resolveSkills: ConversationSkillsResolver
-  private readonly checkpoints = new ConversationCheckpoints()
+  // Per member in a folder of several repositories; as itself anywhere else.
+  private readonly checkpoints = new ProjectCheckpoints()
   private readonly approvalRules: ConversationApprovalRuleStore
   private readonly attachmentStore: ConversationAttachmentStore
   private readonly planStore: ConversationPlanStore

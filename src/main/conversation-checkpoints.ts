@@ -159,6 +159,22 @@ export class ConversationCheckpoints {
     }
   }
 
+  /**
+   * Whether a turn has what a revert of it would start from: its `pre`
+   * checkpoint, or for an undo a recovery point. False on any failure, a
+   * folder outside a work tree included. A project of several repositories
+   * asks each member before involving it (`project-checkpoints.ts`).
+   */
+  async has(key: ConversationKey, turnSeq: number, point: 'pre' | 'undo'): Promise<boolean> {
+    try {
+      const root = await this.root(key.workspaceRoot)
+      if (point === 'undo') return (await this.latestRecovery(root, key, turnSeq, 'undo')) !== null
+      return (await runGitCommand(root, ['rev-parse', '--verify', '--quiet', this.ref(key, turnSeq, point)])).ok
+    } catch {
+      return false
+    }
+  }
+
   async deleteConversation(key: ConversationKey): Promise<void> {
     if (!(await this.available(key.workspaceRoot))) return
     const prefix = `${PREFIX}${this.identity(key)}/`
