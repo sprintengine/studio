@@ -42,6 +42,16 @@ version, upgrades an older managed one, and otherwise refuses in words
 `BACKEND_WIRE_VERSION` whenever a forwarded member's arguments or answer
 change, and `MUX_VERSION` whenever a frame does.
 
+A session's summary, which that wire pushes with every chat event, carries
+three optional clocks a reader must not count on: `lastTurnEndedAt` (when
+the agent last finished a turn), `turnStartedAt` (when the turn now running
+began) and `waitingSince` (when the chat began waiting on the person, by the
+time of the approval or question that stopped it; absent while nothing is
+asked). Each is additive, with no bump: a server of the same wire version
+built before one existed leaves it out, and the desktop reads that absence
+as it did before the member: a "working for" count and the next chat that
+needs you (`nextWaitingChat.ts`) both fall back to `updatedAt`.
+
 ## The support window
 
 Both integer wires accept **one version of slack**: the current version and the
