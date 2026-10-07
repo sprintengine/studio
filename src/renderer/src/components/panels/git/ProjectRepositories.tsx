@@ -75,7 +75,7 @@ export function ProjectRepositoriesGitPanel({
 }
 
 /** The Repository row: the project's members, in the same label-and-select grid as Branch. */
-export function ProjectRepositoryRow({
+function ProjectRepositoryRow({
   project,
   value,
   onChange,

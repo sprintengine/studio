@@ -313,20 +313,9 @@ function gitRepoCacheKey(repoRoot: string): string {
 }
 
 /**
- * The panel opened on one repository. A workspace on a repository opens it on
- * its folder; a project of several repositories opens one per member
- * (`git/ProjectRepositories.tsx`), and then:
- *
- *  - `repository` is the member: the folder every read and every action runs
- *    in, in place of the workspace's own;
- *  - `draftPrefix` keeps each member's commit drafts apart, since every
- *    member has a scope called `main`;
- *  - `switcher` is the Repository row, drawn above Branch and above any empty
- *    state, so the person can always leave a member that will not load;
- *  - `projectResolving` holds the "not a repository" verdict while the
- *    project's members are still being read, so a project folder does not
- *    flash it before its first member opens;
- *  - `onFetch` is told when the person asks for a fresh read.
+ * The panel opened on one repository: the workspace's own folder, or one
+ * member of a folder of several repositories (`GitPanelTarget`, in
+ * `git/ProjectRepositories.tsx`, says what each of the target's fields does).
  */
 type GitPanelBodyProps = GitPanelTarget & { workspaceId: string }
 
@@ -2200,10 +2189,6 @@ function GitPanelBody({
     )
   }
 
-  // `repoRoot` is null both while we are still resolving the repository and when
-  // the folder genuinely is not a repo. Only the resolved `not-git` state should
-  // show the "not a Git repository" copy — during resolution we show the
-  // skeleton so the panel never flashes a misleading verdict on refresh.
   // A member that is loading, or will not load, keeps the Repository row above
   // it, so another member is always one pick away.
   const withSwitcher = (content: JSX.Element): JSX.Element =>
@@ -2216,6 +2201,11 @@ function GitPanelBody({
       content
     )
 
+  // `repoRoot` is null both while we are still resolving the repository and when
+  // the folder genuinely is not a repo. Only the resolved `not-git` state should
+  // show the "not a Git repository" copy — during resolution we show the
+  // skeleton so the panel never flashes a misleading verdict on refresh. The
+  // same holds while a folder is still being read for the repositories it holds.
   if (repoState === 'idle' || repoState === 'loading' || (!repoRoot && projectResolving)) {
     return withSwitcher(<GitPanelSkeleton />)
   }
