@@ -26,8 +26,9 @@ export async function askToQuitWhileWorking(input: {
     message: `Quit ${STUDIO_PRODUCT_NAME}?`,
     detail: quitConfirmationDetail(input.count),
     buttons: ['Quit', 'Cancel'],
-    // Return quits, as the quit the person just asked for; Escape cancels.
-    defaultId: QUIT_BUTTON,
+    // Return and Escape both cancel: a key pressed out of habit, or a second
+    // Cmd+Q's Return, must not stop agents mid-turn. Quitting takes a click.
+    defaultId: CANCEL_BUTTON,
     cancelId: CANCEL_BUTTON,
     checkboxLabel: "Don't ask again",
     checkboxChecked: false,
