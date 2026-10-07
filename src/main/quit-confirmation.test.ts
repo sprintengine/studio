@@ -4,7 +4,10 @@ import { test } from 'vitest'
 import {
   countWorkingTerminalAgents,
   createQuitConfirmation,
+  QUIT_SIGNALS,
+  QUIT_UNASKED_WINDOW_MS,
   quitConfirmationDetail,
+  registerUnaskedQuits,
   type QuitConfirmationAnswer,
   type QuitConfirmationDeps,
 } from './quit-confirmation'
@@ -130,6 +133,87 @@ test('the OS shutting down takes a question already up down, answered as Quit', 
   h.confirmation.quitWithoutAsking()
   assert.equal(h.asked[0]?.signal.aborted, true)
   assert.equal(await decision, 'quit')
+})
+
+test('a quit nobody asked about that does not happen gives asking back', async () => {
+  // A Windows logout another app cancels: `query-session-end` and nothing
+  // after it, with the process still running.
+  const timers: Array<{ run: () => void; ms: number; cleared: boolean; unref: () => void }> = []
+  const h = harness({
+    setTimer: (run, ms) => {
+      const timer = { run, ms, cleared: false, unref: () => undefined }
+      timers.push(timer)
+      return timer
+    },
+    clearTimer: (timer) => {
+      ;(timer as (typeof timers)[number]).cleared = true
+    },
+  })
+  h.confirmation.quitWithoutAsking()
+  assert.equal(await h.confirmation.confirm(), 'quit', 'unasked inside the window')
+  // A second unasked quit restarts the window rather than stacking two.
+  h.confirmation.quitWithoutAsking()
+  assert.equal(timers.length, 2)
+  assert.equal(timers[0]?.cleared, true)
+  assert.equal(timers[1]?.ms, QUIT_UNASKED_WINDOW_MS)
+  timers[1]?.run()
+  const decision = h.confirmation.confirm()
+  await settle()
+  assert.equal(h.asked.length, 1, "the person's next quit is asked again")
+  h.answer({ quit: false, dontAskAgain: false })
+  assert.equal(await decision, 'stay')
+})
+
+function unaskedQuits(platform: NodeJS.Platform) {
+  const calls = { quitWithoutAsking: 0, quit: 0 }
+  const windowListeners = new Map<string, () => void>()
+  const signals = new Map<string, () => void>()
+  let systemShutdown: (() => void) | null = null
+  registerUnaskedQuits({
+    platform,
+    quitConfirmation: {
+      quitWithoutAsking: () => {
+        calls.quitWithoutAsking += 1
+      },
+    },
+    quit: () => {
+      calls.quit += 1
+    },
+    onWindowCreated: (listener) => listener({ on: (event, run) => void windowListeners.set(event, run) }),
+    onSystemShutdown: (listener) => {
+      systemShutdown = listener
+    },
+    onSignal: (signal, listener) => void signals.set(signal, listener),
+  })
+  return { calls, windowListeners, signals, systemShutdown: () => systemShutdown?.() }
+}
+
+test("a power-off on macOS or Linux is the OS's quit: unasked, and the quit is left to the OS", () => {
+  const quits = unaskedQuits('darwin')
+  quits.systemShutdown()
+  assert.equal(quits.calls.quitWithoutAsking, 1)
+  assert.equal(quits.calls.quit, 0)
+})
+
+test('a signal quits at once, unasked, through the ordinary quit; later signals join it', () => {
+  const quits = unaskedQuits('linux')
+  assert.deepEqual([...quits.signals.keys()], [...QUIT_SIGNALS])
+  quits.signals.get('SIGTERM')?.()
+  assert.equal(quits.calls.quitWithoutAsking, 1)
+  assert.equal(quits.calls.quit, 1)
+  // A logout sends SIGHUP and SIGTERM together: one quit.
+  quits.signals.get('SIGHUP')?.()
+  quits.signals.get('SIGINT')?.()
+  assert.equal(quits.calls.quit, 1)
+})
+
+test('Windows has no signals to listen for, and says a logout on every window', () => {
+  const quits = unaskedQuits('win32')
+  assert.equal(quits.signals.size, 0)
+  quits.windowListeners.get('query-session-end')?.()
+  quits.windowListeners.get('session-end')?.()
+  assert.equal(quits.calls.quitWithoutAsking, 2)
+  assert.equal(quits.calls.quit, 0)
 })
 
 test('a count or a dialog that fails never keeps the person in the app', async () => {

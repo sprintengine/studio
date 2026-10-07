@@ -16,7 +16,7 @@ import { createMainThreadStallMonitor } from './main-thread-stall-monitor'
 import { bindPollerToActivity, gateStallMonitorOnActivity, powerActivity } from './power-activity'
 import { sendWindowHidden } from './ipc/window-ipc'
 import type { SprintEngineUpdateService } from './update-service'
-import type { QuitConfirmation } from './quit-confirmation'
+import { registerUnaskedQuits, type QuitConfirmation } from './quit-confirmation'
 import type { ShutdownLegReport } from './update-install-progress'
 import type { AgentPhaseEvent, AgentPhaseListener } from '../shared/agent-runtime'
 import type { DesktopServerHost } from './server-supervisor/desktop-server-host'
@@ -314,20 +314,30 @@ export function registerAppLifecycle({
     },
   })
 
-  // A logout, restart or power-off is the OS's quit, never the person's: it is
-  // not asked about, and a question already up is taken down so it cannot hold
-  // the OS up. Windows says so on every window (`query-session-end` first,
-  // then `session-end`), macOS and Linux through `powerMonitor` once ready.
-  app.on('browser-window-created', (_event, win) => {
-    win.on('query-session-end', () => quitConfirmation?.quitWithoutAsking())
-    win.on('session-end', () => quitConfirmation?.quitWithoutAsking())
+  // A logout, restart or power-off, or a process signal (`pkill`, a systemd
+  // stop, Ctrl+C), is the OS's quit, never the person's: it is not asked
+  // about, and a question already up is taken down so it cannot hold the OS
+  // up. A signal quits through `before-quit` like any other quit, so the
+  // ordered shutdown below runs before the process goes.
+  registerUnaskedQuits({
+    platform: process.platform,
+    quitConfirmation,
+    quit: () => app.quit(),
+    onWindowCreated: (listener) => {
+      app.on('browser-window-created', (_event, win) => listener(win))
+    },
+    onSystemShutdown: (listener) => {
+      void app.whenReady().then(() => powerMonitor.on('shutdown', listener))
+    },
+    onSignal: (signal, listener) => {
+      process.on(signal, listener)
+    },
   })
 
   app.whenReady().then(async () => {
     markStartup('main.app-ready')
     app.setAppLogsPath()
     bindElectronPowerActivity()
-    powerMonitor.on('shutdown', () => quitConfirmation?.quitWithoutAsking())
     releaseStallMonitorGate = gateStallMonitorOnActivity(powerActivity, stallMonitor)
 
     if (process.platform === 'win32') {

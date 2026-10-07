@@ -26,7 +26,19 @@ export type QuitConfirmationDeps = {
   countWorkingAgents(): Promise<number>
   /** Show the question. `signal` aborting takes it down unanswered. */
   ask(input: { count: number; signal: AbortSignal }): Promise<QuitConfirmationAnswer>
+  /** Test seam for the unasked window's timer; `setTimeout` otherwise. */
+  setTimer?: (run: () => void, ms: number) => { unref?(): unknown }
+  clearTimer?: (timer: { unref?(): unknown }) => void
 }
+
+/**
+ * How long a quit nobody is asked about stays unasked when the process
+ * outlives it. A logout the OS or another app cancels (Windows'
+ * `query-session-end` with no `session-end` after it, a macOS logout another
+ * app refused) leaves the app running, and the person's next Cmd+Q is theirs
+ * again. Long enough for the windows the OS closes after it to be closed.
+ */
+export const QUIT_UNASKED_WINDOW_MS = 15_000
 
 /**
  * - `quit`: go ahead.
@@ -39,15 +51,21 @@ export type QuitDecision = 'quit' | 'stay' | 'pending'
 export type QuitConfirmation = ReturnType<typeof createQuitConfirmation>
 
 export function createQuitConfirmation(deps: QuitConfirmationDeps) {
-  // Set by a quit nobody should be asked about, and by a Quit the person
-  // already answered: the `before-quit` that follows closing the last window
-  // is the same quit, not a second one to ask about.
-  let settled = false
+  // Set by a Quit the person answered: the `before-quit` that follows
+  // closing the last window is the same quit, not a second one to ask about.
+  // That quit exits, so it never needs to be unset.
+  let answered = false
+  // Set by a quit nobody should be asked about, for `QUIT_UNASKED_WINDOW_MS`.
+  let unasked = false
+  let unaskedTimer: { unref?(): unknown } | null = null
+  const setTimer = deps.setTimer ?? ((run: () => void, ms: number) => setTimeout(run, ms))
+  const clearTimer = deps.clearTimer ?? ((timer) => clearTimeout(timer as NodeJS.Timeout))
+  const settled = () => answered || unasked
   let inFlight: Promise<QuitDecision> | null = null
   let question: AbortController | null = null
 
   async function decide(): Promise<'quit' | 'stay'> {
-    if (settled || !deps.isEnabled()) return 'quit'
+    if (settled() || !deps.isEnabled()) return 'quit'
     let count: number
     try {
       count = await deps.countWorkingAgents()
@@ -55,7 +73,7 @@ export function createQuitConfirmation(deps: QuitConfirmationDeps) {
       // A count that cannot be had must not keep the person in the app.
       return 'quit'
     }
-    if (settled || !(count > 0)) return 'quit'
+    if (settled() || !(count > 0)) return 'quit'
     question = new AbortController()
     let answer: QuitConfirmationAnswer
     try {
@@ -67,8 +85,9 @@ export function createQuitConfirmation(deps: QuitConfirmationDeps) {
       question = null
     }
     // The OS's shutdown took the question down: it answered for the person.
-    if (settled) return 'quit'
+    if (settled()) return 'quit'
     if (!answer.quit) return 'stay'
+    answered = true
     if (answer.dontAskAgain) deps.stopAsking()
     return 'quit'
   }
@@ -81,7 +100,6 @@ export function createQuitConfirmation(deps: QuitConfirmationDeps) {
         .catch(() => 'quit' as const)
         .then((decision) => {
           inFlight = null
-          if (decision === 'quit') settled = true
           return decision
         })
       inFlight = run
@@ -89,13 +107,72 @@ export function createQuitConfirmation(deps: QuitConfirmationDeps) {
     },
     /**
      * The quit that follows is the app's or the OS's, not the person's: never
-     * ask, and take down a question already up (answered as Quit).
+     * ask, and take down a question already up (answered as Quit). Should the
+     * process still be here `QUIT_UNASKED_WINDOW_MS` later, the quit did not
+     * happen, and asking comes back on.
      */
     quitWithoutAsking(): void {
-      settled = true
+      unasked = true
       question?.abort()
+      if (unaskedTimer) clearTimer(unaskedTimer)
+      unaskedTimer = setTimer(() => {
+        unaskedTimer = null
+        unasked = false
+      }, QUIT_UNASKED_WINDOW_MS)
+      // A pending reset must not keep a quitting process alive.
+      unaskedTimer.unref?.()
     },
   }
+}
+
+/**
+ * The signals a POSIX system ends a process with: `kill`/`pkill` and a
+ * systemd stop (SIGTERM), Ctrl+C in the terminal that started the app
+ * (SIGINT), and the terminal or session going away (SIGHUP). Electron turns
+ * each into an ordinary quit, which would put the question up with nobody
+ * to answer it and leave the shutdown to the kill that follows.
+ */
+export const QUIT_SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'] as const
+
+/**
+ * Wire the quits the OS starts to `quitWithoutAsking()`, so none is asked
+ * about and a question already up comes down:
+ * - Windows' logout, restart or power-off, said on every window
+ *   (`query-session-end` first, then `session-end`);
+ * - macOS and Linux's, through `powerMonitor`'s `shutdown` once the app is
+ *   ready;
+ * - a process signal, except on Windows, which has none to send. A signal is
+ *   also the quit itself: `quit()` runs the app's one ordered shutdown, as a
+ *   confirmed Cmd+Q does. Only the first signal quits; the ones after it
+ *   (a logout sends SIGHUP and SIGTERM together) join the shutdown under way.
+ *
+ * Electron is injected so this runs headless under test.
+ */
+export function registerUnaskedQuits(input: {
+  platform: NodeJS.Platform
+  quitConfirmation: Pick<QuitConfirmation, 'quitWithoutAsking'> | undefined
+  quit(): void
+  onWindowCreated(
+    listener: (win: { on(event: 'query-session-end' | 'session-end', run: () => void): unknown }) => void,
+  ): void
+  onSystemShutdown(listener: () => void): void
+  onSignal(signal: (typeof QUIT_SIGNALS)[number], listener: () => void): void
+}): void {
+  const quitWithoutAsking = () => input.quitConfirmation?.quitWithoutAsking()
+  input.onWindowCreated((win) => {
+    win.on('query-session-end', quitWithoutAsking)
+    win.on('session-end', quitWithoutAsking)
+  })
+  input.onSystemShutdown(quitWithoutAsking)
+  if (input.platform === 'win32') return
+  let signalled = false
+  const quitFromSignal = () => {
+    if (signalled) return
+    signalled = true
+    quitWithoutAsking()
+    input.quit()
+  }
+  for (const signal of QUIT_SIGNALS) input.onSignal(signal, quitFromSignal)
 }
 
 // A terminal agent's phases in which a turn is under way. `stalled` is the
