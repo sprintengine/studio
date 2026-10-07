@@ -624,7 +624,10 @@ test('NewAgentPanel', async () => {
       const start = [...view.container.querySelectorAll('button')].find(
         (button) => button.getAttribute('aria-label') === 'Open terminal',
       )
+      // Tabbed to, as a keyboard user reaches it: a tooltip answers
+      // `:focus-visible`, and focus with no key behind it is not that.
       await act(async () => {
+        dom.window.document.body.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
         ;(start as HTMLElement).focus()
       })
       const tip = dom.window.document.querySelector('[role="tooltip"]')
