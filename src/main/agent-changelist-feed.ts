@@ -18,6 +18,12 @@
 // `cwd`) is the fallback while nothing has been observed yet, resolved through
 // git once per directory because a workspace folder is not always a repo root.
 //
+// A FOLDER OF SEVERAL REPOSITORIES. A session in a folder that is in no
+// repository but holds several (docs/design/multi-repo-projects.md) has no
+// checkout of its own, so each edit is filed under the repository the edited
+// file is in: the shallowest folder on its path, below the session's folder,
+// that git places in one. Only ever inside the session's folder.
+//
 // INSIDE THE CHECKOUT, OR NOWHERE. A subagent can run in an isolated worktree of
 // its own and its edits ride the parent session's frames (the reporter suppresses
 // a subagent's cwd, not its work). A path that is not inside the checkout is
@@ -40,7 +46,7 @@
 // disk that is full — all of it is logged and dropped. A changelist is a
 // convenience; a terminal is not.
 
-import { isAbsolute } from 'path'
+import { isAbsolute, join, relative as relativePath, sep } from 'path'
 
 import { changelistOwnerId, type ChangelistEdit, type ChangelistOwner } from '../shared/git/changelists'
 import {
@@ -194,6 +200,47 @@ export function createAgentChangelistFeed(options: AgentChangelistFeedOptions): 
     return resolved
   }
 
+  async function cachedRepoRoot(directory: string): Promise<string | null> {
+    const key = normalizeComparablePath(directory)
+    const cached = repoRoots.get(key)
+    if (cached !== undefined) return cached
+    let resolved: string | null = null
+    try {
+      resolved = await resolveRepoRoot(directory)
+    } catch {
+      // A folder that is not there (the file's own was deleted) has no
+      // repository to name; the caller looks one level up.
+      return null
+    }
+    if (repoRoots.size >= REPO_ROOT_CACHE_LIMIT) {
+      const oldest = repoRoots.keys().next().value
+      if (oldest !== undefined) repoRoots.delete(oldest)
+    }
+    repoRoots.set(key, resolved)
+    return resolved
+  }
+
+  /**
+   * The repository an edited file is in, and the file's absolute path, for a
+   * session whose own folder is in none. See the header.
+   */
+  async function resolveMemberCheckout(
+    session: AgentChangelistSession,
+    path: string,
+  ): Promise<{ repoRoot: string; path: string } | null> {
+    const folder = session.worktreePath?.trim() || session.cwd?.trim()
+    if (!folder || !isAbsolute(folder)) return null
+    const absolute = isAbsolute(path) ? path : join(folder, path)
+    const below = relativePath(folder, absolute)
+    if (!below || below === '..' || below.startsWith(`..${sep}`) || isAbsolute(below)) return null
+    const folders = below.split(sep).slice(0, -1)
+    for (let depth = 1; depth <= folders.length; depth++) {
+      const repoRoot = await cachedRepoRoot(join(folder, ...folders.slice(0, depth)))
+      if (repoRoot) return { repoRoot, path: absolute }
+    }
+    return null
+  }
+
   function rememberCheckout(owner: ChangelistOwner, repoRoot: string): void {
     const key = changelistOwnerId(owner)
     const known = checkoutsByAgent.get(key) ?? new Set<string>()
@@ -295,9 +342,15 @@ export function createAgentChangelistFeed(options: AgentChangelistFeedOptions): 
       const path = input.path?.trim()
       if (!path) return
       void run(async () => {
-        const repoRoot = await resolveCheckout(input.session)
+        let repoRoot = await resolveCheckout(input.session)
+        let edited = path
+        if (!repoRoot) {
+          const member = await resolveMemberCheckout(input.session, path)
+          repoRoot = member?.repoRoot ?? null
+          edited = member?.path ?? path
+        }
         if (!repoRoot || disposed) return
-        const relative = toStoredPath(repoRoot, path)
+        const relative = toStoredPath(repoRoot, edited)
         // Not this checkout's file: a subagent's own worktree, or a path the
         // agent edited outside the repository entirely. Dropped, never guessed.
         if (!relative || relative === '..' || relative.startsWith('../') || isAbsolute(relative)) return

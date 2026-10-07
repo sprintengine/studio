@@ -412,6 +412,38 @@ async function openChangedFile(files: ChatFileSource, context: ConversationLinkC
   }
 }
 
+/**
+ * Which repository the diff viewer opens on for a turn's file, and the turn's
+ * paths as that repository names them. A chat on a repository opens on it,
+ * paths as they are. A chat in a folder of several repositories has
+ * project-relative paths (`api/src/user.ts`, docs/design/multi-repo-projects.md):
+ * the viewer opens on the member the focused file is in, the shallowest folder
+ * on its path that git places in a repository, narrowed to that member's
+ * files. A path in no repository falls back to the chat's folder.
+ */
+export async function turnDiffTarget(
+  workspaceRoot: string,
+  paths: readonly string[],
+  focus: string,
+  repoRoot: (folder: string) => Promise<string | null>,
+): Promise<{ repoRoot: string; focusPath: string; paths: string[] }> {
+  const own = await repoRoot(workspaceRoot).catch(() => null)
+  if (own) return { repoRoot: own, focusPath: joinTreePath(own, focus), paths: [...paths] }
+  const folders = focus.split('/').slice(0, -1)
+  for (let depth = 1; depth <= folders.length; depth++) {
+    const member = folders.slice(0, depth).join('/')
+    const root = await repoRoot(joinTreePath(workspaceRoot, member)).catch(() => null)
+    if (!root) continue
+    const prefix = `${member}/`
+    return {
+      repoRoot: root,
+      focusPath: joinTreePath(root, focus.slice(prefix.length)),
+      paths: paths.filter((path) => path.startsWith(prefix)).map((path) => path.slice(prefix.length)),
+    }
+  }
+  return { repoRoot: workspaceRoot, focusPath: joinTreePath(workspaceRoot, focus), paths: [...paths] }
+}
+
 // Each open is a new narrowing, so the viewer narrows again to this turn's
 // files even when the person pressed "Show all" on the last one.
 let turnDiffReveals = 0
@@ -431,13 +463,13 @@ async function openTurnInDiffViewer(
   focus: string,
 ): Promise<void> {
   try {
-    const repoRoot = (await files.repoRoot(context.workspaceRoot).catch(() => null)) || context.workspaceRoot
+    const target = await turnDiffTarget(context.workspaceRoot, paths, focus, (folder) => files.repoRoot(folder))
     openGitDiff({
       workspaceId: context.workspaceId,
-      repoRoot,
-      focusPath: joinTreePath(repoRoot, focus),
+      repoRoot: target.repoRoot,
+      focusPath: target.focusPath,
       scope: 'unstaged',
-      reveal: { key: `turn-changes:${turnSeq}:${++turnDiffReveals}`, paths: [...paths] },
+      reveal: { key: `turn-changes:${turnSeq}:${++turnDiffReveals}`, paths: target.paths },
     })
   } catch (failure) {
     showToast({

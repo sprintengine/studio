@@ -444,3 +444,72 @@ test('agent-changelist-feed', async () => {
 
   await suiteRun
 })
+
+test('a session in a folder of several repositories files each edit under the repository the file is in', async () => {
+  const acme = '/Users/dev/acme'
+  const api = join(acme, 'api')
+  const billing = join(acme, 'services', 'billing')
+  const calls: Array<{ kind: string; repoRoot: string; paths?: string[] }> = []
+  const answer = Promise.resolve([] as Changelist[])
+  const store: AgentChangelistFeedStore = {
+    ensureOwnedChangelist: (_userData, repoRoot) => {
+      calls.push({ kind: 'ensure', repoRoot })
+      return answer
+    },
+    recordAgentEdits: (_userData, repoRoot, _owner, batch) => {
+      calls.push({ kind: 'record', repoRoot, paths: batch.map((item) => item.path) })
+      return answer
+    },
+    markOwnerExited: (_userData, repoRoot) => {
+      calls.push({ kind: 'exit', repoRoot })
+      return answer
+    },
+  }
+  const asked: string[] = []
+  const feed = createAgentChangelistFeed({
+    userDataDir: '/Users/dev/user-data',
+    store,
+    // Git places a folder inside a member in that member, and the project folder in none.
+    resolveRepoRoot: async (directory) => {
+      asked.push(directory)
+      if (directory === api || directory.startsWith(`${api}/`)) return api
+      if (directory === billing || directory.startsWith(`${billing}/`)) return billing
+      return null
+    },
+    coalesceMs: 5,
+  })
+  const session = { agentId: 'agent-a', agentName: 'Nadia', workspaceId: 'ws', cwd: acme }
+  const edit = (path: string) => feed.onAgentFileEdit({ session, path, ts: Date.now() })
+  feed.onAgentLaunched(session)
+  edit(join(api, 'src', 'user.ts'))
+  edit(join(billing, 'main.go'))
+  edit('api/routes.ts')
+  // Neither in a member nor inside the session's folder: dropped, as ever.
+  edit(join(acme, 'README.md'))
+  edit('/Users/dev/elsewhere/api/user.ts')
+  await feed.flush()
+  assert.deepEqual(
+    calls.filter((call) => call.kind === 'record'),
+    [
+      { kind: 'record', repoRoot: api, paths: ['src/user.ts', 'routes.ts'] },
+      { kind: 'record', repoRoot: billing, paths: ['main.go'] },
+    ],
+  )
+  assert.equal(
+    calls.some((call) => call.kind === 'ensure'),
+    false,
+    'at launch there is no one repository to open a list in',
+  )
+  assert.equal(asked.includes('/Users/dev/elsewhere'), false, 'nothing outside the folder is asked about')
+  feed.onAgentSessionExit(session)
+  await feed.flush()
+  assert.deepEqual(
+    calls
+      .filter((call) => call.kind === 'exit')
+      .map((call) => call.repoRoot)
+      .sort(),
+    [api, billing],
+    'the exit reaches every repository the agent wrote in',
+  )
+  feed.dispose()
+})
