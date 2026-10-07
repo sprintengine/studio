@@ -35,8 +35,12 @@ beforeEach(async () => {
   statCalls.length = 0
 })
 
+// Every registry a test made, so a write still waiting lands before its folder goes.
+const registries: { flush(): void }[] = []
+
 afterEach(async () => {
   vi.useRealTimers()
+  for (const registry of registries.splice(0)) registry.flush()
   await rm(root, { recursive: true, force: true })
 })
 
@@ -45,6 +49,7 @@ const image = (url: string) => ({ isEmpty: () => false, toDataURL: () => url })
 function setup(options: { platform?: NodeJS.Platform; openPath?: (path: string) => Promise<string> } = {}) {
   const platform = options.platform ?? 'darwin'
   const registry = createAttachedFileRegistry({ resolveUserDataDir: () => root, writeDelayMs: 0 })
+  registries.push(registry)
   const createThumbnail = vi.fn(async (path: string) => image(`data:image/png;base64,${path.length}`))
   const openPath = vi.fn(options.openPath ?? (async () => ''))
   const files = createAttachedFiles({

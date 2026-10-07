@@ -201,7 +201,7 @@ export function registerCoreIpc(
   const attachedFileRegistry = createAttachedFileRegistry({ resolveUserDataDir: () => app.getPath('userData') })
   // Its writes wait a moment so a drop of many files is one; one still
   // waiting is written as the app goes.
-  app.once('will-quit', () => attachedFileRegistry.flush())
+  app.on('will-quit', () => attachedFileRegistry.flush())
   registerAttachedFilesIpc(
     ipcMain,
     createAttachedFiles({
