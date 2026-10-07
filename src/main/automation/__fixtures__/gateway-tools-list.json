@@ -194,7 +194,7 @@
     },
     {
       "name": "agent.status",
-      "sha256": "c7b03a70fe9de5caa916ded2bd15a0b7252380713dc49f23259a9146bb170d1c"
+      "sha256": "5b945502be77364d361f23f39f156dc6eabda0029062a4b7937967540f756595"
     },
     {
       "name": "cli.runtime.list",
@@ -496,7 +496,7 @@
     },
     {
       "name": "agent.status",
-      "sha256": "c7b03a70fe9de5caa916ded2bd15a0b7252380713dc49f23259a9146bb170d1c"
+      "sha256": "5b945502be77364d361f23f39f156dc6eabda0029062a4b7937967540f756595"
     },
     {
       "name": "cli.runtime.list",
@@ -674,7 +674,7 @@
     },
     {
       "name": "agent.status",
-      "sha256": "c7b03a70fe9de5caa916ded2bd15a0b7252380713dc49f23259a9146bb170d1c"
+      "sha256": "5b945502be77364d361f23f39f156dc6eabda0029062a4b7937967540f756595"
     },
     {
       "name": "cli.runtime.list",
