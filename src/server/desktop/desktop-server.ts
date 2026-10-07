@@ -64,6 +64,7 @@ import { createDesktopWslServers } from '../wsl/desktop-wsl-servers'
 import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../wsl/wsl-tool-relay'
 import { createShellSshServers } from './shell-ssh-servers'
 import { readStudioEnv } from '../../shared/studio-env'
+import { noteStatusLineRateLimits } from '../../main/usage-limits/store'
 
 // The desktop's own Studio server, out of process (phase 6 spec): the core,
 // its gateway and owner socket, the tunnelled window.api domains, and the
@@ -134,6 +135,14 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
   let terminalSessions: TerminalSessionSnapshot[] = []
   rpc.on(SERVER_EVENTS.terminalSessions, (payload) => {
     if (Array.isArray(payload)) terminalSessions = payload as TerminalSessionSnapshot[]
+  })
+  // A Claude terminal's status-line usage, read in the shell: this process's
+  // store is the one the windows draw and the resumes ask.
+  rpc.on(SERVER_EVENTS.usageStatusLine, (payload) => {
+    const reading = payload as { rateLimits?: unknown; at?: unknown } | null
+    if (!reading || typeof reading !== 'object') return
+    const at = typeof reading.at === 'number' && Number.isFinite(reading.at) && reading.at > 0 ? reading.at : Date.now()
+    noteStatusLineRateLimits(reading.rateLimits, at)
   })
   rpc.on(SERVER_EVENTS.launchTokens, (payload) => {
     const update = payload as { reset?: boolean; changes?: LaunchTokenChange[] } | null

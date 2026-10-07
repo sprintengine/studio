@@ -3,6 +3,7 @@ import React, { useEffect, useId, useState, type JSX } from 'react'
 import {
   USAGE_LIMIT_STALE_AFTER_MS,
   formatUsageResetIn,
+  isProviderWideUsageWindow,
   usageProviderLabel,
   usageWindowHasReset,
   usageWindowIsWarning,
@@ -35,11 +36,16 @@ import { Modal, ModalBody, ModalHeader } from '../../ui/Modal'
 
 const RESET_TICK_MS = 60_000
 
-/** The window that says most about whether the next turn runs: the fullest of those not yet reset. */
+/**
+ * The window that says most about whether the next turn runs: the fullest of
+ * the account-wide ones not yet reset. A window that meters one model (Opus's
+ * weekly, a Codex model's own bucket) has its row in the list, but it says
+ * nothing about a chat on another model, so the strip never heads with it.
+ */
 export function headlineWindow(snapshot: UsageLimitSnapshot, now: number): UsageLimitWindow | null {
   let best: UsageLimitWindow | null = null
   for (const window of snapshot.windows) {
-    if (usageWindowHasReset(window, now)) continue
+    if (usageWindowHasReset(window, now) || !isProviderWideUsageWindow(window)) continue
     const rank = (candidate: UsageLimitWindow): number =>
       candidate.status === 'rejected' ? 1000 : (candidate.usedPercent ?? -1)
     if (!best || rank(window) > rank(best)) best = window
@@ -75,7 +81,9 @@ export function usageReadingAge(observedAt: number, now: number): string | null 
 export function usageStripLabel(snapshot: UsageLimitSnapshot, now: number): string {
   const window = headlineWindow(snapshot, now)
   const provider = `${usageProviderLabel(snapshot.provider)} usage limits`
-  return window ? `${provider}: ${window.label}, ${usageWindowWords(window, now)}` : `${provider}: all windows reset`
+  return window
+    ? `${provider}: ${window.label}, ${usageWindowWords(window, now)}`
+    : `${provider}: every account-wide window has reset`
 }
 
 const PACE_WORDS = { ahead: 'ahead of pace', on: 'on pace', under: 'under pace' } as const

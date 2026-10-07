@@ -30,8 +30,9 @@ export function usageLimitProviderOfCli(cli: string | null | undefined): UsageLi
 
 /**
  * How the account pays. Limits exist only on a subscription: a provider whose
- * latest session billed an API key shows nothing, and one nothing has said
- * anything about yet shows nothing either, rather than a guess.
+ * latest session billed by use (an API key, a cloud provider's or a
+ * gateway's credentials) shows nothing, and one nothing has said anything
+ * about yet shows nothing either, rather than a guess.
  */
 export type UsageLimitBilling = 'subscription' | 'api' | 'unknown'
 
@@ -48,6 +49,13 @@ export type UsageLimitWindow = {
   resetsAt: number | null
   /** How long the window is, for the pace marker; absent when unknown. */
   durationMs?: number
+  /**
+   * `model` for a window that meters one model's use (Claude's model
+   * weeklies, a Codex bucket under its own limit id): it holds back a chat on
+   * that model, not the provider. Absent for an account-wide window, which
+   * holds back every turn.
+   */
+  scope?: 'model'
   status: UsageLimitStatus
   /** When this window was last reported (epoch ms). */
   observedAt: number
@@ -89,20 +97,59 @@ export const USAGE_LIMIT_STALE_AFTER_MS = 15 * 60 * 1000
 
 // Claude's window kinds. The SDK's `rateLimitType` and the status line's keys
 // share these names, so a window from either source merges into the same row.
-const CLAUDE_WINDOWS: Record<string, { label: string; durationMs: number }> = {
+// The session and weekly windows are the account's; the rest each meter one
+// model's use. `seven_day_overage_included` is the weekly of the model the
+// plan's extra usage covers, which the SDK names only by kind: it is labelled
+// by the model of the session that reported it (`claudeUsageWindowLabel`).
+const CLAUDE_WINDOWS: Record<string, { label: string; durationMs: number; scope?: 'model' }> = {
   five_hour: { label: 'Session (5h)', durationMs: 5 * HOUR_MS },
   seven_day: { label: 'Weekly', durationMs: 7 * DAY_MS },
-  seven_day_opus: { label: 'Weekly · Opus', durationMs: 7 * DAY_MS },
-  seven_day_sonnet: { label: 'Weekly · Sonnet', durationMs: 7 * DAY_MS },
+  seven_day_opus: { label: 'Weekly · Opus', durationMs: 7 * DAY_MS, scope: 'model' },
+  seven_day_sonnet: { label: 'Weekly · Sonnet', durationMs: 7 * DAY_MS, scope: 'model' },
+  seven_day_overage_included: { label: 'Weekly · Model', durationMs: 7 * DAY_MS, scope: 'model' },
 }
+
+const CLAUDE_OVERAGE_INCLUDED_WINDOW = 'seven_day_overage_included'
 
 /** Whether `id` is a Claude window this app draws (the overage and credit kinds are not limits). */
 export function isClaudeUsageWindowId(id: string): boolean {
   return Object.hasOwn(CLAUDE_WINDOWS, id)
 }
 
-export function claudeUsageWindowLabel(id: string): string {
+/**
+ * A Claude window's row label. The model-included weekly is named by the
+ * model `model` is (`claude-fable-5` → "Weekly · Fable"): the session that
+ * reports the window runs the model it meters. Without one it is "Weekly · Model".
+ */
+export function claudeUsageWindowLabel(id: string, model?: string | null): string {
+  if (id === CLAUDE_OVERAGE_INCLUDED_WINDOW) {
+    const family = claudeModelFamily(model)
+    if (family) return `Weekly · ${family}`
+  }
   return CLAUDE_WINDOWS[id]?.label ?? id
+}
+
+/** Whether a Claude window meters one model rather than the account. */
+export function claudeUsageWindowScope(id: string): 'model' | undefined {
+  return CLAUDE_WINDOWS[id]?.scope
+}
+
+// "Opus" from `claude-opus-5`, `claude-opus-4-1-20250805` or the alias `opus`;
+// null for anything that does not read as one (`default`, a dated id with no
+// name in front).
+function claudeModelFamily(model: string | null | undefined): string | null {
+  const name = (model ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^claude-/u, '')
+  const family = /^([a-z]{3,20})(?=$|[-_.\d[])/u.exec(name)?.[1]
+  if (!family || family === 'default' || family === 'claude') return null
+  return family.charAt(0).toUpperCase() + family.slice(1)
+}
+
+/** An account-wide window: one that holds back every turn, not only a chat on one model. */
+export function isProviderWideUsageWindow(window: Pick<UsageLimitWindow, 'scope'>): boolean {
+  return window.scope !== 'model'
 }
 
 export function claudeUsageWindowDurationMs(id: string): number | undefined {

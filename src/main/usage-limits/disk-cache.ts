@@ -3,6 +3,7 @@ import { dirname } from 'node:path'
 
 import { isRecord } from '../../shared/records'
 import {
+  claudeUsageWindowScope,
   USAGE_LIMIT_PROVIDERS,
   type UsageLimitProvider,
   type UsageLimitSnapshot,
@@ -132,9 +133,17 @@ function readWindow(raw: unknown): UsageLimitWindow | null {
     usedPercent,
     resetsAt,
     ...(time(raw.durationMs) ? { durationMs: raw.durationMs } : {}),
+    ...(raw.scope === 'model' || metersOneModel(raw.id) ? { scope: 'model' as const } : {}),
     status: raw.status as UsageLimitStatus,
     observedAt: raw.observedAt,
   }
+}
+
+// A window a cache from before `scope` kept: Claude's model weeklies by their
+// id, and a Codex bucket under a limit id of its own.
+function metersOneModel(id: string): boolean {
+  if (claudeUsageWindowScope(id) === 'model') return true
+  return /^[^:]+:(?:primary|secondary)$/u.test(id) && !id.startsWith('codex:')
 }
 
 function text(value: unknown): value is string {

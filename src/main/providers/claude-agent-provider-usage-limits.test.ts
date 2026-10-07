@@ -1,14 +1,23 @@
+import { USAGE_LIMIT_ERROR_PREFIXES } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, expect, test } from 'vitest'
 
+import type { ConversationEvent } from '../../shared/conversation-runtime'
 import type { UsageLimitHit } from '../../shared/usage-limits'
+import { useClaudeUsageLimitPrefixes } from '../usage-limits/sources'
 import { onUsageLimitHit, usageLimitsStore, usageRateLimit } from '../usage-limits/store'
-import { CLAUDE_AGENT_PROVIDER_ID, mapSdkMessage } from './claude-agent-provider'
+import { CLAUDE_AGENT_PROVIDER_ID, createClaudeAgentProvider, mapSdkMessage } from './claude-agent-provider'
+import type { MockAdapterTurnInput } from './conversation-provider-adapter'
 
 // The subscription's limits as a Claude chat reports them: the SDK's
-// `rate_limit_event`s carry the windows, the init's credential source says
-// whether there is a subscription at all, and a turn that ends refused is a
-// limit hit. The store is the app's one; each test starts from a clean
-// provider by billing it to an API key, which forgets its windows.
+// `rate_limit_event`s carry the windows, the init's key source and the
+// session's account say whether there is a subscription at all, and a turn
+// whose result says it ended on a limit is a limit hit. The store is the app's
+// one; each test starts from a clean provider by billing it to an API key,
+// which forgets its windows.
+
+// The fallback for a CLI that sends no terminal reason reads the SDK's list,
+// which a chat takes when it loads the SDK.
+useClaudeUsageLimitPrefixes(USAGE_LIMIT_ERROR_PREFIXES)
 
 // Epoch seconds, as the SDK sends them.
 const RESET_S = Math.floor(Date.now() / 1000) + 3 * 60 * 60
@@ -57,6 +66,15 @@ const failedResult = (result: string) => ({
   usage: { input_tokens: 0, output_tokens: 0 },
   session_id: 'native',
 })
+
+// A session whose init named no key, and whose account (`reportAccount`)
+// said it is signed in to a plan.
+function subscribed(state: ReturnType<typeof mapperState> & { usageBilling?: 'subscription' | 'api' | null }) {
+  mapSdkMessage(state, init('none'))
+  state.usageBilling = 'subscription'
+  usageLimitsStore().noteBilling('claude', 'subscription', 'max')
+  return state
+}
 
 const claudeSnapshot = () =>
   usageLimitsStore()
@@ -117,7 +135,7 @@ test('an API-key session shows no limits, whatever events it sees', () => {
 test('a turn that ends after a rejected event is a limit hit, with the window and when it resets', () => {
   const hits = collectHits()
   const state = mapperState()
-  mapSdkMessage(state, init('none'))
+  subscribed(state)
   mapSdkMessage(
     state,
     rateLimitEvent({
@@ -149,7 +167,7 @@ test('a turn that ends after a rejected event is a limit hit, with the window an
 test('a turn the CLI ends with its usage-limit message or its rate_limit error is a hit without a window', () => {
   const hits = collectHits()
   const state = mapperState()
-  mapSdkMessage(state, init('none'))
+  subscribed(state)
   mapSdkMessage(state, failedResult("You've reached your weekly limit"))
   mapSdkMessage(state, {
     type: 'assistant',
@@ -166,12 +184,120 @@ test('a turn the CLI ends with its usage-limit message or its rate_limit error i
   ])
 })
 
-test('an event that allows requests again clears the refusal, so a later failure is not taken for one', () => {
+test('an event that lets a kind of limit through again clears that kind’s refusal and no other', () => {
   const hits = collectHits()
   const state = mapperState()
-  mapSdkMessage(state, init('none'))
+  subscribed(state)
   mapSdkMessage(state, rateLimitEvent({ status: 'rejected', resetsAt: RESET_S, rateLimitType: 'five_hour' }))
   mapSdkMessage(state, rateLimitEvent({ status: 'allowed', resetsAt: RESET_S + 18_000, rateLimitType: 'five_hour' }))
   mapSdkMessage(state, failedResult('API Error: 500'))
   expect(hits).toEqual([])
+
+  // The weekly going through says nothing about the session window that refused.
+  mapSdkMessage(state, rateLimitEvent({ status: 'rejected', resetsAt: RESET_S, rateLimitType: 'five_hour' }))
+  mapSdkMessage(
+    state,
+    rateLimitEvent({ status: 'allowed_warning', resetsAt: RESET_S + 86_400, rateLimitType: 'seven_day' }),
+  )
+  mapSdkMessage(state, failedResult('Request failed'))
+  expect(hits.map((hit) => [hit.windowId, hit.resetsAt])).toEqual([['five_hour', RESET_S * 1000]])
+})
+
+test('a result that says it ended on a limit is a hit with no event before it; a failed sign-in never is', () => {
+  const hits = collectHits()
+  const state = mapperState()
+  subscribed(state)
+  mapSdkMessage(state, { ...failedResult('Claude usage limit reached.'), terminal_reason: 'blocking_limit' })
+  mapSdkMessage(state, { ...failedResult('Rate limited'), terminal_reason: 'api_error', api_error_status: 429 })
+  expect(hits.map((hit) => [hit.windowId, hit.resetsAt])).toEqual([
+    [null, null],
+    [null, null],
+  ])
+  mapSdkMessage(state, { ...failedResult('Overloaded'), terminal_reason: 'api_error', api_error_status: 529 })
+  expect(hits).toHaveLength(2)
+
+  // An exchange whose sign-in failed, even with a rate_limit error beside it.
+  mapSdkMessage(state, {
+    type: 'assistant',
+    error: 'authentication_failed',
+    parent_tool_use_id: null,
+    uuid: '1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f',
+    session_id: 'native',
+    message: { id: 'msg_2', role: 'assistant', content: [], stop_reason: null },
+  })
+  mapSdkMessage(state, { ...failedResult('Not logged in'), terminal_reason: 'blocking_limit' })
+  expect(hits).toHaveLength(2)
+})
+
+// The session's account, as its initialize answers it, decides whether there
+// is a plan: a cloud provider's session forgets what a subscription reported.
+function accountHarness(account: Record<string, unknown>) {
+  const query = (params: { prompt: AsyncIterable<Record<string, unknown>> }) => {
+    const pending: Record<string, unknown>[] = []
+    let wake = null as (() => void) | null
+    let ended = false
+    void (async () => {
+      for await (const _message of params.prompt) {
+        pending.push({ type: 'result', subtype: 'success', is_error: false, session_id: 'native' })
+        wake?.()
+      }
+    })()
+    return {
+      async *[Symbol.asyncIterator]() {
+        while (!ended) {
+          if (!pending.length) await new Promise<void>((resolve) => (wake = resolve))
+          while (pending.length) yield pending.shift()!
+        }
+      },
+      interrupt: async () => {
+        ended = true
+        wake?.()
+      },
+      setPermissionMode: async () => undefined,
+      initializationResult: async () => ({ commands: [], agents: [], models: [], account }),
+    }
+  }
+  const adapter = createClaudeAgentProvider({
+    loadQuery: (async () => query) as never,
+    resolveExecutable: async () => '/fake/bin/claude',
+    buildEnv: () => ({ PATH: '/usr/bin' }),
+  })
+  const turn: MockAdapterTurnInput = {
+    sessionId: 'conv_1',
+    workspaceId: 'ws-1',
+    agentId: 'agent-1',
+    providerId: CLAUDE_AGENT_PROVIDER_ID,
+    modelId: 'sonnet',
+    workspaceRoot: '/Users/dev/app',
+    turnId: 'turn_1',
+    requestId: 'approval_1',
+    message: 'hello',
+  }
+  return {
+    adapter,
+    async firstTurn() {
+      await adapter.startSession(turn)
+      for await (const _event of (await adapter.sendTurn(turn)) as AsyncIterable<ConversationEvent>) {
+        // drained
+      }
+      // The account is read beside the turn, not ahead of it.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    },
+  }
+}
+
+test('a session on a cloud provider bills no plan, and the subscription reading is forgotten', async () => {
+  usageLimitsStore().noteWindows('claude', [{ id: 'five_hour', usedPercent: 40, status: 'allowed' }])
+  expect(claudeSnapshot()).toBeDefined()
+  const bedrock = accountHarness({ apiProvider: 'bedrock' })
+  await bedrock.firstTurn()
+  expect(claudeSnapshot()).toBeUndefined()
+  expect(usageRateLimit('claude').limited).toBe(false)
+  await bedrock.adapter.disposeAll()
+
+  const max = accountHarness({ apiProvider: 'firstParty', subscriptionType: 'max' })
+  await max.firstTurn()
+  usageLimitsStore().noteWindows('claude', [{ id: 'five_hour', usedPercent: 40, status: 'allowed' }])
+  expect(claudeSnapshot()).toMatchObject({ billing: 'subscription', plan: 'max' })
+  await max.adapter.disposeAll()
 })

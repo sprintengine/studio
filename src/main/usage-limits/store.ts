@@ -1,6 +1,7 @@
 import {
   USAGE_LIMIT_PROVIDERS,
   USAGE_LIMIT_STALE_AFTER_MS,
+  isProviderWideUsageWindow,
   usageWindowHasReset,
   type UsageLimitBilling,
   type UsageLimitHit,
@@ -10,6 +11,7 @@ import {
   type UsageLimitWindow,
   type UsageLimitsState,
 } from '../../shared/usage-limits'
+import { claudeStatusLineUpdates } from './sources'
 
 // The latest usage-limit reading per provider, merged from whatever the agents
 // report as they run: a Claude chat's `rate_limit_event`s, a Claude terminal's
@@ -29,11 +31,16 @@ export type UsageWindowUpdate = {
   usedPercent?: number | null
   resetsAt?: number | null
   durationMs?: number
+  scope?: 'model'
   status?: UsageLimitStatus
 }
 
 export type UsageRateLimitAnswer = {
-  /** A window is at its limit (or a turn said so) and has not reset yet. */
+  /**
+   * An account-wide window is at its limit (or a turn said so) and has not
+   * reset yet. A window that meters one model (`scope: 'model'`) never makes
+   * the provider limited: a chat on another model still runs.
+   */
   limited: boolean
   /** When the last limiting window lifts (epoch ms), or null when unknown or not limited. */
   resetsAt: number | null
@@ -138,22 +145,29 @@ export function createUsageLimitsStore(options: { now?: () => number } = {}): Us
     const resetsAt = update.resetsAt !== undefined ? update.resetsAt : (previous?.resetsAt ?? null)
     const usedPercent = update.usedPercent !== undefined ? update.usedPercent : (previous?.usedPercent ?? null)
     // A window that reset is a new window: the old one's status does not carry
-    // into it. Without a word on status, a full window is at its limit.
+    // into it. Without a word on status, a full window is at its limit —
+    // unless the same window was last said to be a warning: full and carried
+    // by the person's extra usage, which a status line's bare 100% cannot
+    // tell apart from refused.
     const sameWindow = previous !== undefined && previous.resetsAt === resetsAt
     const status: UsageLimitStatus =
       update.status ??
       (usedPercent !== null && usedPercent >= 100
-        ? 'rejected'
+        ? sameWindow && previous.status === 'warning'
+          ? 'warning'
+          : 'rejected'
         : sameWindow && previous.status !== 'allowed'
           ? previous.status
           : 'allowed')
     const durationMs = update.durationMs ?? previous?.durationMs
+    const scope = update.scope ?? previous?.scope
     entry.windows.set(update.id, {
       id: update.id,
       label: update.label ?? previous?.label ?? update.id,
       usedPercent,
       resetsAt,
       ...(durationMs ? { durationMs } : {}),
+      ...(scope ? { scope } : {}),
       status,
       observedAt: at,
     })
@@ -184,7 +198,8 @@ export function createUsageLimitsStore(options: { now?: () => number } = {}): Us
       entry.observedAt = Math.max(entry.observedAt, at)
       if (entry.hit && updates.some((update) => update.status === 'allowed' || update.status === 'warning')) {
         const stillRejected = [...entry.windows.values()].some(
-          (window) => window.status === 'rejected' && !usageWindowHasReset(window, at),
+          (window) =>
+            isProviderWideUsageWindow(window) && window.status === 'rejected' && !usageWindowHasReset(window, at),
         )
         if (!stillRejected) entry.hit = null
       }
@@ -195,12 +210,15 @@ export function createUsageLimitsStore(options: { now?: () => number } = {}): Us
       const entry = entryFor(input.provider)
       if (entry.billing === 'api') return
       let resetsAt = input.resetsAt
-      if (input.windowId && entry.windows.has(input.windowId)) {
+      const named = input.windowId ? entry.windows.get(input.windowId) : undefined
+      if (named && input.windowId) {
         mergeWindow(entry, { id: input.windowId, status: 'rejected', ...(resetsAt !== null ? { resetsAt } : {}) }, at)
       }
       // The turn did not say when; the windows at their limit might.
-      resetsAt ??= limitingWindows(entry, at).resetsAt
-      entry.hit = { resetsAt, at }
+      resetsAt ??= named && !isProviderWideUsageWindow(named) ? named.resetsAt : limitingWindows(entry, at).resetsAt
+      // A model's own window holds back the chats on that model, which the
+      // hit's listeners resume; it does not make the provider limited.
+      if (!named || isProviderWideUsageWindow(named)) entry.hit = { resetsAt, at }
       const hit: UsageLimitHit = {
         provider: input.provider,
         sessionId: input.sessionId,
@@ -257,14 +275,15 @@ export function createUsageLimitsStore(options: { now?: () => number } = {}): Us
   }
 }
 
-// The windows holding the provider back now, and when the last of them lifts:
-// every one has to before a turn can run again.
+// The account-wide windows holding the provider back now, and when the last of
+// them lifts: every one has to before a turn can run again. A model's own
+// window holds back only the chats on that model, so it is not one of them.
 function limitingWindows(entry: ProviderEntry, now: number): { resetsAt: number | null; windowId: string | null } {
   let windowId: string | null = null
   let resetsAt: number | null = null
   for (const window of entry.windows.values()) {
     if (usageWindowHasReset(window, now)) continue
-    if (window.status !== 'rejected') continue
+    if (window.status !== 'rejected' || !isProviderWideUsageWindow(window)) continue
     if (windowId === null || (window.resetsAt ?? 0) > (resetsAt ?? 0)) {
       windowId = window.id
       resetsAt = window.resetsAt
@@ -289,4 +308,24 @@ export function usageRateLimit(provider: UsageLimitProvider, now?: number): Usag
 /** Every turn that ends on a usage limit, with when it lifts. Returns the unsubscribe. */
 export function onUsageLimitHit(listener: (hit: UsageLimitHit) => void): () => void {
   return usageLimits.onLimitHit(listener)
+}
+
+// A Claude terminal's status line is read in the desktop's own process, where
+// its terminals run. With the Studio server out of process the chats, the
+// IPC that draws the limits and the resumes after them are the server's, and
+// its store is another; the desktop forwards each reading there (app-services,
+// `SERVER_EVENTS.usageStatusLine`) as well as keeping it here, where the
+// launch notices read it.
+const statusLineForwarders = new Set<(rateLimits: unknown, at: number) => void>()
+
+/** A Claude Code status line's `rateLimits`: into this process's store, and to whatever forwards them. */
+export function noteStatusLineRateLimits(rateLimits: unknown, at: number): void {
+  usageLimits.noteWindows('claude', claudeStatusLineUpdates(rateLimits), at)
+  for (const forward of statusLineForwarders) forward(rateLimits, at)
+}
+
+/** Hear every status-line reading this process takes. Returns the unsubscribe. */
+export function forwardStatusLineRateLimits(listener: (rateLimits: unknown, at: number) => void): () => void {
+  statusLineForwarders.add(listener)
+  return () => statusLineForwarders.delete(listener)
 }

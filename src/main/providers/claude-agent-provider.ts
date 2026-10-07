@@ -28,7 +28,13 @@ import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { normalizeApiKeySource } from '../../shared/conversation/apiKeySource'
 import { usageLimitsStore } from '../usage-limits/store'
-import { claudeBillingOf, isClaudeUsageLimitMessage, readClaudeRateLimitInfo } from '../usage-limits/sources'
+import {
+  claudeBillingOf,
+  claudeBillingOfAccount,
+  isClaudeUsageLimitResult,
+  readClaudeRateLimitInfo,
+  useClaudeUsageLimitPrefixes,
+} from '../usage-limits/sources'
 import type { PromptCacheTtl } from '../../shared/prompt-cache'
 import { leadingCommandFor, leadingSlashCommand } from '../conversation-commands/leading-command'
 import {
@@ -294,6 +300,9 @@ type SessionState = {
   // says what `/compact` printed. Both reset when the exchange ends.
   commandOutputShown: boolean
   compactedInExchange: boolean
+  // How the session bills, once its init or its account has said (see
+  // mapSdkMessage's state and `reportAccount`).
+  usageBilling?: 'subscription' | 'api' | null
 }
 
 // Event types that belong to a turn (carry a turnId and must be suppressed by
@@ -870,6 +879,21 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.abort = abort
     void pump(state, q)
     void reportSupportedAgents(state, q)
+    void reportAccount(state, q)
+  }
+
+  // How the session bills, from the account its initialize answered with: the
+  // init's `apiKeySource: none` is a claude.ai login only on Anthropic's own
+  // API. A cloud provider, a gateway or a key has no plan limits, and the
+  // store forgets any subscription reading it held for one.
+  async function reportAccount(state: SessionState, q: Query): Promise<void> {
+    if (typeof q.initializationResult !== 'function') return
+    const answer = await q.initializationResult().catch(() => null)
+    if (!answer || state.query !== q) return
+    const billing = claudeBillingOfAccount(answer.account, normalizeApiKeySource(answer.account?.apiKeySource))
+    if (!billing) return
+    state.usageBilling = billing.billing
+    usageLimitsStore().noteBilling('claude', billing.billing, billing.plan)
   }
 
   // The native permission mode a chat mode runs the child in. Ask is plan mode
@@ -1913,6 +1937,9 @@ function spawnTrackedChild(state: SessionState, start: () => ChildProcess, now: 
 
 async function defaultLoadQuery(): Promise<SdkQueryFunction> {
   const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  // The words a turn refused by a usage limit ends with, as this SDK knows
+  // them: the fallback for a CLI that does not say `terminal_reason`.
+  useClaudeUsageLimitPrefixes(sdk.USAGE_LIMIT_ERROR_PREFIXES)
   return sdk.query
 }
 
@@ -2021,14 +2048,19 @@ export function mapSdkMessage(
     contextModel?: string | null
     contextPromptTokens?: number
     contextOutputTokens?: number
-    // How the session bills, from its init: an API key's session reports no
-    // plan limits, and none of what it says is taken as one.
+    // How the session bills, from its init's key source and its account
+    // (`reportAccount`): a session that does not bill a plan reports no plan
+    // limits, and none of what it says is taken as one.
     usageBilling?: 'subscription' | 'api' | null
-    // A usage limit refused this exchange's requests (a rejected
-    // `rate_limit_event`, or the CLI's own `rate_limit` error), so a turn that
-    // fails now failed on it. Cleared when requests are allowed again and at
-    // every result.
-    usageLimitRefusal?: { windowId: string | null; resetsAt: number | null } | null
+    // The usage limits refusing this exchange's requests, by kind of limit (a
+    // rejected `rate_limit_event`): an event that lets one kind through again
+    // clears that kind and no other. Cleared at every result.
+    usageRefusals?: Map<string, { windowId: string | null; resetsAt: number | null }>
+    // The main chain's latest assistant message carried the CLI's
+    // `rate_limit` error, and whether one this exchange said its sign-in
+    // failed, which no usage limit explains. Cleared at every result.
+    assistantRateLimited?: boolean
+    assistantAuthFailed?: boolean
   },
   message: Record<string, unknown>,
   // exchangeContinues: a `result` that answers only part of what the child was
@@ -2083,13 +2115,10 @@ export function mapSdkMessage(
     state.usageBilling = billing
     usageLimitsStore().noteBilling('claude', billing)
   }
-  if (
-    message.type === 'assistant' &&
-    message.error === 'rate_limit' &&
-    !readParentToolUseId(message) &&
-    state.usageBilling !== 'api'
-  )
-    state.usageLimitRefusal ??= { windowId: null, resetsAt: null }
+  if (message.type === 'assistant' && !readParentToolUseId(message)) {
+    state.assistantRateLimited = message.error === 'rate_limit'
+    if (message.error === 'authentication_failed') state.assistantAuthFailed = true
+  }
 
   if (messageSessionId && messageSessionId !== state.providerSessionId) {
     state.providerSessionId = messageSessionId
@@ -2122,11 +2151,12 @@ export function mapSdkMessage(
     // a transcript event: the reading is the account's, not the chat's.
     case 'rate_limit_event': {
       if (state.usageBilling === 'api') break
-      const reading = readClaudeRateLimitInfo(message.rate_limit_info)
+      const reading = readClaudeRateLimitInfo(message.rate_limit_info, state.contextModel)
       if (!reading) break
       if (reading.update) usageLimitsStore().noteWindows('claude', [reading.update])
-      if (reading.rejected) state.usageLimitRefusal = reading.rejected
-      else if (reading.allowed) state.usageLimitRefusal = null
+      const refusals = (state.usageRefusals ??= new Map())
+      if (reading.rejected) refusals.set(reading.type, reading.rejected)
+      else refusals.delete(reading.type)
       break
     }
     case 'system': {
@@ -2346,8 +2376,12 @@ export function mapSdkMessage(
         commandOutput(message.result, message.local_command)
       state.commandOutputShown = false
       state.compactedInExchange = false
-      const usageLimitRefusal = state.usageLimitRefusal ?? null
-      state.usageLimitRefusal = null
+      const refusals = [...(state.usageRefusals?.values() ?? [])]
+      const heardRefusal = refusals.length > 0 || state.assistantRateLimited === true
+      const authFailed = state.assistantAuthFailed === true
+      state.usageRefusals?.clear()
+      state.assistantRateLimited = false
+      state.assistantAuthFailed = false
       if (options.interrupted) {
         state.openToolUseIds?.clear()
         if (state.lastChainUuid) state.settledChainUuid = state.lastChainUuid
@@ -2418,14 +2452,24 @@ export function mapSdkMessage(
         // so a restart does not try the same point again.
         const missingForkPoint = Boolean(state.resumeAt) && /No message found with message\.uuid/i.test(reported)
         // A turn a usage limit refused: said to whatever waits to resume it,
-        // with when the limit lifts if the CLI told us.
-        const usageLimit =
-          usageLimitRefusal ??
-          (isClaudeUsageLimitMessage(reported) && state.usageBilling !== 'api'
-            ? { windowId: null, resetsAt: null }
-            : null)
-        if (usageLimit)
-          usageLimitsStore().noteLimitHit({ provider: 'claude', sessionId: state.sessionId, ...usageLimit })
+        // with when the limit lifts if the CLI told us — the last of the
+        // refusing windows to reset, and only when each said when.
+        if (
+          state.usageBilling !== 'api' &&
+          isClaudeUsageLimitResult(message, { refused: heardRefusal, authFailed, reported })
+        ) {
+          const latest = refusals.reduce<(typeof refusals)[number] | null>(
+            (best, refusal) => (best === null || (refusal.resetsAt ?? 0) > (best.resetsAt ?? 0) ? refusal : best),
+            null,
+          )
+          const everyResetKnown = refusals.length > 0 && refusals.every((refusal) => refusal.resetsAt !== null)
+          usageLimitsStore().noteLimitHit({
+            provider: 'claude',
+            sessionId: state.sessionId,
+            windowId: latest?.windowId ?? null,
+            resetsAt: everyResetKnown ? (latest?.resetsAt ?? null) : null,
+          })
+        }
         if (missingForkPoint) {
           state.resumeAt = null
           // The point it was given is not one to go back to either.

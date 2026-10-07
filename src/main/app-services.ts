@@ -151,7 +151,7 @@ import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canv
 import { broadcastToWorkspaceWindows, isBrowserHostWebContents, listWorkspaceWindows } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchNotices } from './agent-launch-notices'
-import { usageRateLimit } from './usage-limits/store'
+import { forwardStatusLineRateLimits, usageRateLimit } from './usage-limits/store'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
@@ -1796,6 +1796,10 @@ export function createAppServices(
     const sendTerminalSessions = () =>
       server.rpc.emit(SERVER_EVENTS.terminalSessions, terminalRuntime.ipcHandlers.listTerminals())
     terminalRuntime.subscribeSessionsChanged(sendTerminalSessions)
+    // A Claude terminal's status line is the only reading of the plan's usage
+    // a person who never opens a chat gives; the limits the windows draw and
+    // the resumes wait on are the server's store, so each reading goes there.
+    forwardStatusLineRateLimits((rateLimits, at) => server.rpc.emit(SERVER_EVENTS.usageStatusLine, { rateLimits, at }))
     onGatewayLaunchTokenChange((change) => server.rpc.emit(SERVER_EVENTS.launchTokens, { changes: [change] }))
     // Asked by a server as it starts, before its gateway listens.
     server.rpc.handle(SHELL_METHODS.liveLaunchTokens, () => liveGatewayLaunchTokens())

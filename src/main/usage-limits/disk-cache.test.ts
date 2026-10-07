@@ -96,3 +96,44 @@ test('a missing, malformed or foreign file is an empty cache, and a bad window d
   expect(snapshots).toHaveLength(1)
   expect(snapshots[0].windows.map((window) => window.id)).toEqual(['five_hour'])
 })
+
+test('a model’s own window read back from a cache that predates its scope is still that model’s', async () => {
+  const file = await scratchFile()
+  const now = Date.now()
+  const window = (id: string, label: string) => ({
+    id,
+    label,
+    usedPercent: 100,
+    resetsAt: now + HOUR,
+    status: 'rejected',
+    observedAt: now,
+  })
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: 1,
+      snapshots: [
+        {
+          provider: 'claude',
+          billing: 'subscription',
+          observedAt: now,
+          windows: [window('seven_day_opus', 'Weekly · Opus'), window('five_hour', 'Session (5h)')],
+        },
+        {
+          provider: 'codex',
+          billing: 'subscription',
+          observedAt: now,
+          windows: [window('codex_spark:primary', 'Spark')],
+        },
+      ],
+    }),
+  )
+  const scopes = (await readUsageLimitsCache(file)).flatMap((snapshot) =>
+    snapshot.windows.map((entry) => [entry.id, entry.scope ?? null]),
+  )
+  expect(scopes).toEqual([
+    ['seven_day_opus', 'model'],
+    ['five_hour', null],
+    ['codex_spark:primary', 'model'],
+  ])
+})

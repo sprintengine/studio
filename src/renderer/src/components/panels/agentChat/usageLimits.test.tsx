@@ -104,7 +104,23 @@ test('the strip names the fullest window that has not reset', () => {
   expect(headlineWindow(claude(), NOW)?.id).toBe('seven_day')
   expect(usageStripLabel(claude(), NOW)).toBe('Claude usage limits: Weekly, 93% used · resets in 3d 4h')
   expect(headlineWindow(codex, NOW)).toBe(null)
-  expect(usageStripLabel(codex, NOW)).toBe('Codex usage limits: all windows reset')
+  expect(usageStripLabel(codex, NOW)).toBe('Codex usage limits: every account-wide window has reset')
+})
+
+test('a model’s own window at its limit has its row, but the strip never says the limit is reached for it', () => {
+  const opus = {
+    id: 'seven_day_opus',
+    label: 'Weekly · Opus',
+    usedPercent: 100,
+    resetsAt: NOW + 30 * HOUR,
+    durationMs: 7 * 24 * HOUR,
+    scope: 'model' as const,
+    status: 'rejected' as const,
+    observedAt: NOW,
+  }
+  const snapshot = claude({ windows: [...claude().windows, opus] })
+  expect(headlineWindow(snapshot, NOW)?.id).toBe('seven_day')
+  expect(usageStripLabel(snapshot, NOW)).not.toMatch(/Limit reached/u)
 })
 
 test('a reading is dated only once it is old enough to be doubted', () => {

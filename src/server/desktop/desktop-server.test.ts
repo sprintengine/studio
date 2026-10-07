@@ -168,6 +168,20 @@ test('the desktop server composes, serves a window over the tunnel and the shell
   )
   await waitFor(() => mirrored.length > 0 || undefined)
 
+  // A Claude terminal's status line, read in the shell, reaches the usage
+  // limits the server's windows draw.
+  shellRpc.emit(SERVER_EVENTS.usageStatusLine, {
+    rateLimits: { five_hour: { usedPercentage: 37, resetsAt: Date.now() + 3_600_000 } },
+    at: Date.now(),
+  })
+  let claudeLimits: { windows: Array<{ id: string; usedPercent: number }> } | undefined
+  for (let tries = 0; tries < 200 && !claudeLimits; tries++) {
+    const answer = await window.invoke('usage-limits:get')
+    claudeLimits = answer.value?.snapshots?.find((snapshot: { provider: string }) => snapshot.provider === 'claude')
+    if (!claudeLimits) await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  assert.equal(claudeLimits?.windows.find((entry) => entry.id === 'five_hour')?.usedPercent, 37)
+
   // The shell's mirror reads from the server.
   const mirror = await shellRpc.call<ServerMirrorState>(SERVER_METHODS.mirrorSnapshot)
   assert.equal(mirror.launchSettings.settings.lastSelectedCli, 'codex')
