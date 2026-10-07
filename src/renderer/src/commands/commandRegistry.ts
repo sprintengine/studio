@@ -80,9 +80,13 @@ export const COMMAND_REGISTRY = [
   }),
   // Start the chat typed in New chat and stay there, on a fresh empty box with
   // the same project and engine, to fire off the next task at once. ⌘⏎
-  // because it is ⏎ held a little harder: the same send, kept in place. The
-  // composer resolves it itself (see the `new-chat` scope); plain ⏎ still opens
-  // the chat it starts.
+  // because it is ⏎ held a little harder: the same send, kept in place. Plain ⏎
+  // still opens the chat it starts. Its `new-chat` scope is never pushed onto
+  // the window's active scopes: NewAgentPanel resolves the binding in the
+  // prompt's keydown, after its slash and mention menus and an input method
+  // have had the key, so the window dispatcher never matches it. It has a scope
+  // at all so the Shortcuts tab shows it, rebinds it, and checks it for
+  // conflicts like any other command.
   command({
     id: 'chat.new.launchInBackground',
     title: 'Start Chat and Stay on New Chat',

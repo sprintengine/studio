@@ -8,19 +8,16 @@ export type CommandScope =
   | 'editor'
   | 'terminal'
   | 'panel'
-  // The New chat composer's own keys. Never pushed onto the window's active
-  // scopes: NewAgentPanel resolves its binding in the prompt's keydown, after
-  // its slash and mention menus and an input method have had the key, so the
-  // window dispatcher never matches it. Listed here so the Shortcuts tab
-  // shows it, rebinds it, and checks it for conflicts like any other command.
-  | 'new-chat'
   // Open scope family: `panel:<moduleId>` scopes are derived from
   // the workspace-type registry — the shell pushes one when the active
   // workspace's mode belongs to that module — so a capability module's
   // commands can gate on "my workspace is active" without growing this union
   // per module.
   // `(string & {})` keeps the named literals in completions while accepting
-  // the derived family.
+  // the derived family. The family also carries `new-chat`, the New chat
+  // composer's own scope (commandRegistry.ts): it is the shell's alone, so it
+  // is not named here, where the module SDK's mirror of this union would have
+  // to publish it to every module.
   | (string & {})
 
 export type CommandAvailability =
