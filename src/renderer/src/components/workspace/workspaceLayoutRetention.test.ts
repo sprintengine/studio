@@ -194,6 +194,7 @@ test('a chat started in the background is drawn as a warm hidden layer, never th
     activeWorkspaceId: 'open',
     mountedWorkspaceIds: ['open', 'a', 'b', 'c', 'gone-cold'],
     startingWorkspaceIds: ['started', 'closed-meanwhile'],
+    startsTerminalAgent: () => true,
     lastFocusedAtByWorkspaceId: { open: 50, a: 40, b: 30, c: 20, 'gone-cold': 10 },
     warmLimit: 3,
   })
@@ -212,9 +213,25 @@ test('nothing starting: the active layer, the retained ones, the most recent war
     activeWorkspaceId: 'open',
     mountedWorkspaceIds: ['a', 'b'],
     startingWorkspaceIds: [],
+    startsTerminalAgent: () => true,
     lastFocusedAtByWorkspaceId: { a: 1, b: 2 },
     warmLimit: 1,
   })
   assert.deepEqual(layers.rendered, ['open', 'a', 'b'])
   assert.deepEqual([...layers.warm], ['b'])
+})
+
+test('only a chat starting a terminal agent is warm; one starting a conversation is only mounted', () => {
+  const started = Array.from({ length: 12 }, (_, index) => `chat-${index}`)
+  const layers = workspaceLayers({
+    visibleWorkspaceIds: ['open', 'terminal', ...started],
+    activeWorkspaceId: 'open',
+    mountedWorkspaceIds: ['open'],
+    startingWorkspaceIds: ['terminal', ...started],
+    startsTerminalAgent: (workspaceId) => workspaceId === 'terminal',
+    lastFocusedAtByWorkspaceId: {},
+    warmLimit: 0,
+  })
+  assert.deepEqual(layers.rendered, ['open', 'terminal', ...started], 'every one is mounted, so its agent starts')
+  assert.deepEqual([...layers.warm], ['terminal'], 'however many ⌘⏎ started, only the terminal one is composited')
 })

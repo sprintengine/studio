@@ -19,6 +19,7 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { generatedWorkspaceTitleRequester } from '../../store/generatedWorkspaceTitle'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
+import { normalizeAgentRuntime } from '../../store/slices/agentsSlice'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import {
   isAgentCliAvailable,
@@ -865,6 +866,15 @@ export default function WorkspaceManager() {
     activeWorkspaceId: windowActiveWorkspaceId,
     mountedWorkspaceIds,
     startingWorkspaceIds: startingInBackgroundIds,
+    // Read off the live record: this projection does not follow a change of
+    // agents. A chat whose agents are not known yet is taken to start a
+    // terminal one: laid out for nothing costs some compositing, not laid out
+    // costs a terminal started at the wrong size.
+    startsTerminalAgent: (workspaceId) => {
+      const record = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)
+      const agents = Object.values(record?.agents ?? {})
+      return agents.length === 0 || agents.some((agent) => normalizeAgentRuntime(agent).runtimeKind === 'terminal')
+    },
     lastFocusedAtByWorkspaceId: workspaceLayoutLastFocusedAtRef.current,
     warmLimit: WORKSPACE_LAYOUT_WARM_HIDDEN_LIMIT,
   })
