@@ -706,6 +706,35 @@ test('NewAgentPanel interaction', async () => {
       resetNewChatDraftsForTests()
     })
 
+    await check('a parked draft keeps the worktree chip as it was left', async () => {
+      seedStore()
+      const { readNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      const nameField = (view: Harness) =>
+        view.container.querySelector<HTMLInputElement>('input[aria-label^="Worktree name"]')
+      const first = await render({ draftKey: 'win-3', initialSelection: { kind: 'conversation' } })
+      assert.ok(nameField(first), 'the door opens with the worktree on')
+      await act(async () => {
+        const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!
+        setValue.call(nameField(first), 'fix-login')
+        nameField(first)!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      first.unmount()
+      assert.equal(readNewChatDraft('win-3')?.worktreeName, 'fix-login')
+      const second = await render({ draftKey: 'win-3', initialSelection: { kind: 'conversation' } })
+      assert.equal(nameField(second)?.value, 'fix-login', 'the typed name comes back')
+      const chip = second.container.querySelector<HTMLElement>('[data-worktree-chip] button')!
+      await act(async () => {
+        chip.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      second.unmount()
+      const third = await render({ draftKey: 'win-3', initialSelection: { kind: 'conversation' } })
+      assert.equal(nameField(third), null, 'and a chip turned off stays off')
+      assert.equal(third.container.querySelector('[data-worktree-chip]')?.getAttribute('data-worktree-chip'), 'off')
+      third.unmount()
+      resetNewChatDraftsForTests()
+    })
+
     // ── Tags ──────────────────────────────────────────────────────────────────
     await check('removing the kind tag returns to a conversation and the tag goes', async () => {
       seedStore()

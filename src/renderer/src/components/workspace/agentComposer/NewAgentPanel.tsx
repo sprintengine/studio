@@ -657,10 +657,13 @@ export default function NewAgentPanel({
     // is the exception, not the rule. The door only (the one with a parked
     // draft); a scheduled agent or an extension opens with it off, and the
     // pane's "+" spawns beside a workspace that already has its folder.
+    // A parked draft opens the chip as the person left it, name and all.
     initialWorktreeName: editing
       ? (editing.worktree?.name ?? null)
       : draftKey && initialMode !== 'scheduled' && initialMode !== 'extension'
-        ? ''
+        ? draft?.worktreeName !== undefined
+          ? draft.worktreeName
+          : ''
         : null,
     // The engine a parked draft was made on, when whoever made it stored none —
     // a card's `Go` picker, which must not move this door's remembered engine
@@ -1066,8 +1069,19 @@ export default function NewAgentPanel({
       engine: composer.openingEngine,
       skills: composer.skills,
       mcpServers: composer.mcpServers,
+      worktreeName: composer.worktreeName,
     })
-  }, [draftKey, prompt, images, files, selection, composer.openingEngine, composer.skills, composer.mcpServers])
+  }, [
+    draftKey,
+    prompt,
+    images,
+    files,
+    selection,
+    composer.openingEngine,
+    composer.skills,
+    composer.mcpServers,
+    composer.worktreeName,
+  ])
 
   const insertPromptPath = (dropped: string) => {
     // A file from the SSH machine this chat starts on is typed as that
