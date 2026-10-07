@@ -14,7 +14,7 @@ import { installWorktreePool } from './active-pool'
 import { createDependencyInstaller, DEPENDENCY_INSTALL_RECORD, installDependencyInstaller } from './dependency-install'
 import { acquireInstanceLock, createPoolStore, POOL_RECORD_VERSION, poolIdFor, type PoolRecord } from './pool-store'
 import { agentLeaseKey } from '../../shared/ipc/worktree-pool'
-import { parseSlotStatus } from './slot-git'
+import { defaultSlotGitRunner, parseSlotStatus, type SlotGitRunner } from './slot-git'
 import type { MeasureDiskUsage } from './disk-usage'
 import { createWorktreeInventory } from './worktree-inventory'
 import { createWorktreePoolService } from './worktree-pool-service'
@@ -74,12 +74,16 @@ function makeService(
     instanceId?: string
     measure?: MeasureDiskUsage
     knownWorkspaceIds?: () => Iterable<string> | null
+    git?: SlotGitRunner
+    fetchBackoffMs?: number
   } = {},
 ) {
   const live = options.live ?? []
   const clock = { offset: 0 }
   const service = createWorktreePoolService({
     store: createPoolStore(userData),
+    ...(options.git ? { git: options.git } : {}),
+    ...(options.fetchBackoffMs !== undefined ? { fetchBackoffMs: options.fetchBackoffMs } : {}),
     livePaths: () => live,
     log: process.env.POOL_TEST_LOG ? (line) => console.log(line) : () => {},
     timers: false,
@@ -939,6 +943,56 @@ test('a pool that throws on a lease is a pool declining: createGitWorktree makes
   if (!created.ok) return
   assert.equal(created.data.path.endsWith('fallback'), true)
   assert.equal(created.data.leaseId, null)
+})
+
+test('after a failed fetch, leases fork from the ref as it stands without trying again until the backoff ends', async () => {
+  // Offline: the remote is unreachable.
+  await git(repo, 'remote', 'set-url', 'origin', join(caseDir, 'gone.git'))
+  const before = await git(repo, 'rev-parse', 'origin/main')
+  let fetches = 0
+  const counting: SlotGitRunner = (cwd, args, options) => {
+    if (args[0] === 'fetch') fetches += 1
+    return defaultSlotGitRunner(cwd, args, options)
+  }
+  const harness = makeService({ git: counting, fetchBackoffMs: HOUR })
+  const first = await lease(harness, 'offline-one')
+  assert.equal(fetches, 1)
+  assert.equal(first.baseSha, before)
+  assert.match(first.baseNote ?? '', /could not be fetched/)
+  const second = await lease(harness, 'offline-two')
+  assert.equal(fetches, 1, 'no second wait on a remote that just failed')
+  assert.match(second.baseNote ?? '', /was not fetched/)
+  // Past the backoff it is tried again, and once it works the note goes.
+  await git(repo, 'remote', 'set-url', 'origin', origin)
+  harness.clock.offset += 2 * HOUR
+  const third = await lease(harness, 'online-again')
+  assert.equal(fetches, 2)
+  assert.equal(third.baseNote, null)
+})
+
+test('a fresh worktree made because the pool declined forks from the base the pool already fetched', async () => {
+  // A ref only the pool names: the fresh path's own lookup would say origin/main.
+  await git(repo, 'update-ref', 'refs/remotes/origin/pool-base', 'HEAD')
+  const declining = {
+    lease: async () => ({
+      ok: false,
+      reason: 'full',
+      message: 'full',
+      base: { ref: 'origin/pool-base', sha: await git(repo, 'rev-parse', 'HEAD'), note: null },
+    }),
+  } as unknown as Parameters<typeof installWorktreePool>[0]
+  installWorktreePool(declining)
+  const created = await createGitWorktree({
+    repoRoot: repo,
+    containerPath: container,
+    destinationPath: join(container, 'declined'),
+    branchName: 'agent/declined',
+    baseRef: 'HEAD',
+    fromPool: true,
+  })
+  assert.equal(created.ok, true, created.ok ? '' : created.message)
+  if (!created.ok) return
+  assert.equal(created.data.baseRef, 'origin/pool-base')
 })
 
 test('a record that cannot be written fails its caller and nothing else (no unhandled rejection)', async () => {

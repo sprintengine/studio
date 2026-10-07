@@ -92,6 +92,8 @@ export function createWorktreePoolTools(deps: WorktreePoolToolsDeps): McpToolReg
           branch: leased.branch,
           baseRef: leased.baseRef,
           baseCommit: leased.baseSha,
+          // Offline, or the fetch failed: the base may be behind the remote.
+          ...(leased.baseNote ? { baseNote: leased.baseNote } : {}),
           reused: !leased.created,
           dependencies:
             'Not installed by Studio. A reused worktree keeps the previous agent’s ignored files; run the install ' +

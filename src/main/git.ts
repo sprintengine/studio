@@ -18,6 +18,7 @@ import { listGitWorktrees } from './git-worktree-list'
 import { activeWorktreePool } from './worktree-pool/active-pool'
 import { activeDependencyInstaller } from './worktree-pool/dependency-install'
 import { defaultSlotGitRunner, resolveAgentForkBase } from './worktree-pool/slot-git'
+import type { WorktreePoolLeaseResult } from './worktree-pool/worktree-pool-service'
 import { withWorktreeRegistryLock } from './worktree-registry-lock'
 import { repoRootFromWorktreePath, WORKTREE_CONTAINER_DIR, worktreeContainerPath } from '../shared/worktree-paths'
 import { dependencyInstallSettingFor, type WorktreeDependencyInstallView } from '../shared/ipc/worktree-pool'
@@ -527,6 +528,9 @@ async function createAgentWorktreeFromPool(
   input: GitWorktreeCreateInput,
 ): Promise<GitWorktreeOperationResult<GitWorktreeCreated>> {
   const pool = activeWorktreePool()
+  // The base the pool already fetched for this very request, when it then
+  // declined: the fresh worktree forks from it rather than fetching again.
+  let poolBaseRef: string | null = null
   if (pool) {
     // A pool that throws (a record it could not write, a git it could not
     // start) is a pool declining like any other: the fresh worktree below is
@@ -539,11 +543,13 @@ async function createAgentWorktreeFromPool(
         hostId: input.hostId ?? null,
         copyIncludedFiles: input.copyIncludedFiles === true,
       })
-      .catch((error: unknown) => ({
-        ok: false as const,
-        reason: 'error' as const,
-        message: error instanceof Error ? error.message : String(error),
-      }))
+      .catch(
+        (error: unknown): WorktreePoolLeaseResult => ({
+          ok: false,
+          reason: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      )
     if (leased.ok) {
       // The entry is what the lease just made, not a listing read back: the
       // slot's path is git's own spelling, and a listing that failed now would
@@ -573,13 +579,16 @@ async function createAgentWorktreeFromPool(
       }
     } else if (leased.reason === 'branch-exists' || leased.reason === 'invalid-name') {
       return { ok: false, message: leased.message }
-    } else if (leased.reason !== 'disabled' && leased.reason !== 'unsupported') {
-      console.info(`[git] worktree pool declined (${leased.reason}: ${leased.message}); creating a fresh worktree`)
+    } else {
+      if (leased.reason !== 'disabled' && leased.reason !== 'unsupported') {
+        console.info(`[git] worktree pool declined (${leased.reason}: ${leased.message}); creating a fresh worktree`)
+      }
+      poolBaseRef = leased.base?.ref ?? null
     }
   }
   const root = await resolveRepoRoot(input.repoRoot)
   if (!root.ok) return root
-  const forkBase = await resolveAgentForkBase(defaultSlotGitRunner, root.data)
+  const forkBase = poolBaseRef ?? (await resolveAgentForkBase(defaultSlotGitRunner, root.data))
   const created = await createGitWorktree({ ...input, fromPool: false, baseRef: forkBase ?? input.baseRef })
   return created.ok ? { ...created, data: await withDependencyInstall(created.data, root.data, input) } : created
 }
