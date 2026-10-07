@@ -425,8 +425,15 @@ function parentKey(parent: { workspaceId: string | null; agentId: string }): str
 
 // ── The notice's words (exported for tests) ────────────────────────────────
 
-const NOTICE_PREFIX = `[${STUDIO_PRODUCT_NAME}]`
-const NOTICE_SIGNATURE = `(Sent by ${STUDIO_PRODUCT_NAME}, not typed by the person.)`
+/**
+ * How a message Studio types into an agent's session opens and closes: the
+ * conversation protocol has no origin for a message other than the person, so
+ * the words say who sent it. Shared with the other notices Studio sends.
+ */
+export const STUDIO_NOTICE_PREFIX = `[${STUDIO_PRODUCT_NAME}]`
+export const STUDIO_NOTICE_SIGNATURE = `(Sent by ${STUDIO_PRODUCT_NAME}, not typed by the person.)`
+const NOTICE_PREFIX = STUDIO_NOTICE_PREFIX
+const NOTICE_SIGNATURE = STUDIO_NOTICE_SIGNATURE
 
 /** One message for everything a parent is told at once. */
 export function composeLaunchNotice(notices: readonly LaunchNotice[]): string {

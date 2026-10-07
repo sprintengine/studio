@@ -72,6 +72,7 @@ import { DesignSystemSettings } from './DesignSystemSettings'
 import { orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { AgentConfigAdoptionStatus } from '../onboarding/agentConfigAdoption'
 import { ConversationImportSettings } from './ConversationImportSettings'
+import { UsageLimitResumeSettings } from './UsageLimitResumeSettings'
 import {
   GeneralSettingsIcon,
   ProfileSettingsIcon,
@@ -1509,6 +1510,8 @@ export default function SettingsPanel({
               actually ran this session, and says so plainly when it failed. */}
           <AgentConfigAdoptionStatus adoption={agentConfigAdoptionResult} />
           <ConversationImportSettings />
+          {/* A chat a usage limit stopped, carried on when the limit resets. */}
+          <UsageLimitResumeSettings />
           <AgentClisSection
             runs={agentCliRuns}
             machine={agentsMachine}

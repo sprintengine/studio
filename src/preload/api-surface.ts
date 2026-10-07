@@ -20,6 +20,7 @@ import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
 import { conversationCommandsApi } from './api/conversation-commands'
 import { usageLimitsApi } from './api/usage-limits'
+import { usageLimitResumeApi } from './api/usage-limit-resume'
 import { conversationPeekApi } from './api/conversation-peek'
 import { agentCompactApi } from './api/agent-compact'
 import { pullRequestApi } from './api/pull-request'
@@ -113,6 +114,7 @@ export const apiModules = {
   ...conversationApi,
   ...conversationCommandsApi,
   ...usageLimitsApi,
+  ...usageLimitResumeApi,
   ...conversationPeekApi,
   ...agentCompactApi,
   ...pullRequestApi,

@@ -45,6 +45,7 @@ function serverDomainStubs(dataDir: string): ServerDomainIpcDeps {
       hosts: { subscribe: () => () => undefined },
       workspaceRegistry: { getRecords: () => [] },
       conversations: anything(),
+      usageLimitResumes: anything(),
     } as never,
     gateway: anything(),
     studioRpc: { provideChat: () => undefined } as never,

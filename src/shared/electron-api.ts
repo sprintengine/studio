@@ -250,6 +250,7 @@ import type { CliModelDiscoveryInput, CliModelDiscoveryResult } from './ipc/cli-
 import type { ConversationCommandsRequest } from './ipc/conversation-commands'
 import type { ConversationCommandCatalog } from './conversation/commands'
 import type { UsageLimitsState } from './usage-limits'
+import type { UsageLimitResumeState, UsageLimitResumeUpdate } from './usage-limit-resume'
 import type {
   AgentLaunchPreviewInput,
   AgentLaunchPreviewResult,
@@ -1537,6 +1538,11 @@ export type ElectronApi = {
   // (src/main/usage-limits).
   usageLimits: () => Promise<UsageLimitsState>
   onUsageLimitsChanged: (listener: (state: UsageLimitsState) => void) => () => void
+  // The chats a usage limit stopped, with the resume each has scheduled, and
+  // the setting that schedules one for every such chat (usage-limits/resume.ts).
+  usageLimitResumes: () => Promise<UsageLimitResumeState>
+  updateUsageLimitResume: (update: UsageLimitResumeUpdate) => Promise<UsageLimitResumeState>
+  onUsageLimitResumesChanged: (listener: (state: UsageLimitResumeState) => void) => () => void
   // One-shot text generation on the person's own agent CLI (their login, no
   // API key): today the chat title from a first prompt. Never rejects — a
   // failure is a typed `{ ok: false }` the caller answers by keeping what it

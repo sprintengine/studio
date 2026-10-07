@@ -38,7 +38,15 @@ import { createWorkspaceRegistryService } from '../../main/workspace-registry-se
 import { createWorkspaceRegistryStore } from '../../main/workspace-registry-store'
 import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
 import { createConversationLifecycle } from '../../main/automation/conversation-lifecycle'
+import {
+  createUsageLimitResumer,
+  USAGE_LIMIT_RESUMES_FILE,
+  usageLimitResumeFileStorage,
+} from '../../main/usage-limits/resume'
+import { onUsageLimitHit, usageLimitsStore, usageRateLimit } from '../../main/usage-limits/store'
 import { conversationSummaryPhase } from '../../shared/conversation/phase'
+import { usageLimitKindOf } from '../../shared/usage-limit-resume'
+import { isSettledWorkspace } from '../../shared/workspace-lifecycle'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
 import { createPullRequestDomain } from '../pull-requests/pull-request-domain'
@@ -52,6 +60,9 @@ import {
 import type { WslServers } from '../wsl/desktop-wsl-servers'
 import type { StudioRole } from './data-dir'
 import { takeDataDir } from './take-data-dir'
+
+/** The client a resume after a usage limit is sent as, for the runtime's command receipts. */
+const STUDIO_RESUME_CLIENT_ID = 'studio-usage-limit-resume'
 
 // The Studio core: the services the server owns (studio-server design, section
 // 4.1), composed once. The desktop builds it inside Electron main, from
@@ -473,7 +484,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       )
     },
   })
-  const createConversationHost = () =>
+  // `asPerson: false` is for Studio's own sends (a resume after a usage
+  // limit): they are not the person writing, so the chat keeps its place in
+  // the lists ordered by when the person last did.
+  const createConversationHost = (hostOptions: { asPerson?: boolean } = {}) =>
     createConversationGatewayHost(
       conversations,
       (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
@@ -502,7 +516,12 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       listMarks,
       {
         workspaceOf: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
-        noteUserMessage: (workspaceId, at) => conversationLifecycle.noteUserMessage(workspaceId, at, 'gateway'),
+        ...(hostOptions.asPerson === false
+          ? {}
+          : {
+              noteUserMessage: (workspaceId: string, at: number) =>
+                conversationLifecycle.noteUserMessage(workspaceId, at, 'gateway'),
+            }),
         reasoningEffortOf: (key) =>
           workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.conversationReasoningEffort,
         // A phone's switch moves the chat's record as the chat view's own does,
@@ -513,6 +532,54 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
         },
       },
     )
+
+  // A chat a usage limit stopped picks up again when the limit resets
+  // (usage-limits/resume.ts). The limits are reported in this process, by the
+  // chats it runs; the resume goes through the same send a paired device's
+  // does, which resumes a chat with no live session from its record.
+  let resumeHost: ReturnType<typeof createConversationHost> | null = null
+  const usageLimitResumes = createUsageLimitResumer({
+    storage: usageLimitResumeFileStorage(join(dataDir, USAGE_LIMIT_RESUMES_FILE)),
+    onLimitHit: onUsageLimitHit,
+    rateLimit: (provider, now) => usageRateLimit(provider, now),
+    limitKind: (provider, windowId) => {
+      if (!windowId) return null
+      const window = usageLimitsStore()
+        .state()
+        .snapshots.find((snapshot) => snapshot.provider === provider)
+        ?.windows.find((candidate) => candidate.id === windowId)
+      return usageLimitKindOf(windowId, window?.durationMs)
+    },
+    listSessions: () => {
+      const listed = conversations.listSessions()
+      return listed.ok ? listed.sessions : []
+    },
+    onConversationEvent: (listener) => conversations.onEvent(listener),
+    chat: ({ workspaceId, agentId }) => {
+      const record = workspaceRegistry.getRecord(workspaceId)
+      if (!record?.agents[agentId]) return null
+      return { settled: isSettledWorkspace(record), lastUserMessageAt: record.lastUserMessageAt ?? null }
+    },
+    send: async (chat, message, commandId) => {
+      resumeHost ??= createConversationHost({ asPerson: false })
+      const key = resumeHost.resolveKey(chat.workspaceId, chat.agentId)
+      if (!key) return { ok: false, message: 'The chat has no folder on this machine.' }
+      return resumeHost.command(key, STUDIO_RESUME_CLIENT_ID, commandId, { kind: 'send', message })
+    },
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Usage limits', message })
+    },
+  })
+  void usageLimitResumes.start()
+  const stopFollowingResumes = [
+    // A timer stands still while the computer sleeps; waking reads the clock again.
+    powerActivity.onResume(() => usageLimitResumes.wake()),
+    powerActivity.onScreenLockChange((locked) => {
+      if (!locked) usageLimitResumes.wake()
+    }),
+    // A deleted chat's resume goes with it.
+    workspaceRegistry.subscribe(() => usageLimitResumes.prune()),
+  ]
 
   /**
    * The core's own end, for a process that owns nothing else: the registry
@@ -536,6 +603,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       // The servers the Studio itself started stop with it: nothing would be
       // left to stop them from.
       () => localServers.dispose(),
+      () => {
+        for (const stop of stopFollowingResumes) stop()
+        return usageLimitResumes.dispose()
+      },
       () => workspaceSyncService.flush(),
       () => hosts.dispose(),
     ]
@@ -573,6 +644,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     conversationLifecycle,
     pullRequests,
     localServers,
+    usageLimitResumes,
     shutdown,
   }
 }

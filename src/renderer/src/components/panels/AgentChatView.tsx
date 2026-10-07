@@ -131,6 +131,7 @@ import { conversationContextReading } from './agentChat/contextReading'
 import { ConversationComposerStrip } from './agentChat/conversationStrip'
 import { useConversationStripFacts } from './agentChat/conversationStripFacts'
 import { useUsageLimitSnapshot } from './agentChat/usageLimits'
+import { UsageLimitResumeRow } from './agentChat/usageLimitResume'
 import { usageLimitProviderOf } from '../../store/usageLimitsStore'
 import { studioAppCommands, useConversationCommands } from './agentChat/useConversationCommands'
 import { composerAppCommand } from './agentChat/composerAppCommands'
@@ -3059,6 +3060,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 // Read-only: the pending requests are shown, not answerable.
                 busy={respondingRequestId !== null || !operate}
               />
+
+              {/* A turn a usage limit stopped: when the limit resets, and
+                the resume Studio can send the chat then. Read on this
+                computer, so only for a chat that runs here. */}
+              {transport.kind !== 'remote' && !stripFacts.machine ? (
+                <UsageLimitResumeRow workspaceId={workspaceId} agentId={agentId} />
+              ) : null}
 
               {/*
                * A turn failure renders as a structured error block in the
