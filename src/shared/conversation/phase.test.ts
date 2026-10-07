@@ -1,6 +1,12 @@
 import { test } from 'vitest'
 import assert from 'node:assert/strict'
-import { conversationPhaseNeedsAttention, conversationPhaseOf, conversationSummaryPhase } from './phase'
+import type { ConversationSessionSummary } from '../conversation-runtime'
+import {
+  conversationPhaseNeedsAttention,
+  conversationPhaseOf,
+  conversationSummaryPhase,
+  conversationTurnInProgress,
+} from './phase'
 
 test('conversation phase follows action priority', () => {
   assert.equal(conversationPhaseOf({}), 'idle')
@@ -49,4 +55,26 @@ test('background agents keep a finished conversation working', () => {
     conversationSummaryPhase({ ...summary, phase: 'waiting_for_approval', backgroundAgents: 1 }),
     'waiting_for_approval',
   )
+})
+
+test('a turn is in progress while a chat starts, runs or waits on the person', () => {
+  const summary = (status: ConversationSessionSummary['status'], extra: Partial<ConversationSessionSummary> = {}) => ({
+    sessionId: 'conversation-1',
+    workspaceId: 'workspace-1',
+    agentId: 'agent-1',
+    providerId: 'provider-1',
+    modelId: 'model-1',
+    status,
+    createdAt: 1,
+    updatedAt: 2,
+    ...extra,
+  })
+  assert.equal(conversationTurnInProgress(summary('starting')), true)
+  assert.equal(conversationTurnInProgress(summary('active')), true)
+  assert.equal(conversationTurnInProgress(summary('awaiting_approval')), true)
+  assert.equal(conversationTurnInProgress(summary('ready', { phase: 'waiting_for_input' })), true)
+  assert.equal(conversationTurnInProgress(summary('ready', { backgroundAgents: 1 })), true)
+  assert.equal(conversationTurnInProgress(summary('ready')), false)
+  assert.equal(conversationTurnInProgress(summary('stopped')), false)
+  assert.equal(conversationTurnInProgress(summary('failed')), false)
 })

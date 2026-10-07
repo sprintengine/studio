@@ -92,6 +92,10 @@ import {
   scheduleCliVersionRead,
 } from './cli-version-advisory-service'
 import { createBackgroundModeStore } from './background-mode-store'
+import { createQuitConfirmationStore } from './quit-confirmation-store'
+import { countWorkingTerminalAgents, createQuitConfirmation } from './quit-confirmation'
+import { askToQuitWhileWorking } from './quit-confirmation-electron'
+import { conversationTurnInProgress } from '../shared/conversation/phase'
 import { createStudioAreaSkillStore } from './studio-area-skill-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
@@ -190,6 +194,11 @@ import {
 // How long the quit gives the session integrations' removal. What it does not
 // reach stays listed, and the next quit takes it out.
 const QUIT_INTEGRATION_REMOVAL_BUDGET_MS = 5_000
+
+// How long a quit waits for the server to say how many chats are working
+// before it asks (or does not) on what the shell knows by itself.
+const QUIT_COUNT_SERVER_BUDGET_MS = 1_000
+
 // How long an agent launch waits for a server that is still starting before
 // it goes ahead and lets the launch report what is missing.
 const AGENT_LAUNCH_SERVER_WAIT_MS = 30_000
@@ -722,6 +731,15 @@ export function createAppServices(
   // synchronously inside `window-all-closed`, which is precisely when no
   // renderer is left to ask.
   const backgroundModeStore = createBackgroundModeStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+
+  // "Ask before quitting while agents are working": main's own, since the
+  // quit dialog's "Don't ask again" writes it with no renderer involved.
+  const quitConfirmationStore = createQuitConfirmationStore({
     resolveUserDataDir: () => app.getPath('userData'),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
@@ -1901,6 +1919,34 @@ export function createAppServices(
     }
   }
 
+  // What a quit would stop: terminal agents mid-turn here in the shell, and
+  // chats with a turn in progress wherever they run. Out of process the chats
+  // are the server's, asked with a short budget: a server that does not
+  // answer must not hold up the quit, so it counts none.
+  async function countWorkingAgents(): Promise<number> {
+    const terminals = countWorkingTerminalAgents(terminalRuntime.ipcHandlers.listTerminals())
+    if (!server) {
+      const listed = conversations.listSessions()
+      return terminals + (listed.ok ? listed.sessions.filter(conversationTurnInProgress).length : 0)
+    }
+    if (!server.isServing()) return terminals
+    let budget: NodeJS.Timeout | undefined
+    const chats = await Promise.race([
+      server.rpc.call<unknown>(SERVER_METHODS.conversationsWorking).catch(() => 0),
+      new Promise<number>((resolve) => {
+        budget = setTimeout(() => resolve(0), QUIT_COUNT_SERVER_BUDGET_MS)
+      }),
+    ])
+    clearTimeout(budget)
+    return terminals + (typeof chats === 'number' && chats > 0 ? chats : 0)
+  }
+  const quitConfirmation = createQuitConfirmation({
+    isEnabled: () => quitConfirmationStore.isEnabled(),
+    stopAsking: () => quitConfirmationStore.set(false),
+    countWorkingAgents,
+    ask: askToQuitWhileWorking,
+  })
+
   // This profile, as the launcher's other users know it (integrations/live-instances.ts).
   const launcherProfile = createHash('sha256').update(app.getPath('userData')).digest('hex').slice(0, 16)
   // Every quit takes back out what the app writes again whenever it next needs
@@ -1985,6 +2031,8 @@ export function createAppServices(
     automationService,
     studioRpcService,
     backgroundModeStore,
+    quitConfirmationStore,
+    quitConfirmation,
     telemetryConsentStore,
     analytics,
     readBackgroundStatus,

@@ -23,6 +23,7 @@ import { getSharedCredentialStore } from '../../main/secret-store'
 import { readStudioEnvironmentId } from '../../main/studio-rpc/studio-rpc-service'
 import { createTailnetNotifier } from '../../main/tailnet-notifications'
 import { createWorkspaceBackupService } from '../../main/workspace-backup'
+import { conversationTurnInProgress } from '../../shared/conversation/phase'
 import { isWslHostId } from '../../shared/execution-host'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../../shared/product-identity'
@@ -622,6 +623,10 @@ function serveShellRequests(deps: {
   )
   rpc.handle(SERVER_METHODS.conversationRoots, () => core.conversations.listLiveConversationRoots())
   rpc.handle(SERVER_METHODS.conversationWorkspaceRoots, () => core.conversations.liveConversationWorkspaceRoots())
+  rpc.handle(SERVER_METHODS.conversationsWorking, () => {
+    const listed = core.conversations.listSessions()
+    return listed.ok ? listed.sessions.filter(conversationTurnInProgress).length : 0
+  })
   rpc.handle(SERVER_METHODS.applyModuleEnablement, (params) =>
     deps.modules.applyEnablement((params as { overrides?: Record<string, boolean> } | null)?.overrides ?? {}),
   )

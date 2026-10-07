@@ -1693,6 +1693,12 @@ export type ElectronApi = {
   // the whole renderer-facing telemetry surface — there is no channel for the
   // renderer to send an event, only this one to stop main sending them.
   setTelemetryEnabled: (enabled: boolean) => Promise<void>
+  // "Ask before quitting while agents are working", which main owns: the quit
+  // dialog's "Don't ask again" turns it off with no renderer involved. Both
+  // answer with the value main now holds; null from a client with no quit of
+  // its own to ask about (a browser tab).
+  getQuitConfirmation: () => Promise<boolean | null>
+  setQuitConfirmation: (enabled: boolean) => Promise<boolean | null>
   resolveBacklogLocation: (workspaceRoot: string) => Promise<BacklogLocationResult>
   setBacklogRoot: (input: BacklogSetRootInput) => Promise<BacklogLocationResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>

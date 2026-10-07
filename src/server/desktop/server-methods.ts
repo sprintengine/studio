@@ -24,6 +24,8 @@ export const SERVER_METHODS = {
   conversationRoots: 'conversations.live-roots',
   /** → the folders chats are working in now, which the shell's worktree cleanup never removes. */
   conversationWorkspaceRoots: 'conversations.live-workspace-roots',
+  /** → how many chats have a turn in progress, which a quit would stop. */
+  conversationsWorking: 'conversations.working',
   /** `{ overrides }` → the module enablement result: the shell wrote the file, the server applies it live. */
   applyModuleEnablement: 'modules.apply-enablement',
   /** `{ clientId }` → `{ connectionId, ticket }`: a chat view's protocol connection, its port already attached. */

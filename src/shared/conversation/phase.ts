@@ -44,3 +44,15 @@ function statusPhase(summary: ConversationSessionSummary): ConversationPhase {
     completed: summary.status === 'stopped',
   })
 }
+
+/**
+ * Whether stopping the chat now would cut a turn short: one starting, running
+ * (background agents included), or stopped on a question or an approval. What
+ * a quit asks about; a finished, failed or resting chat loses nothing.
+ */
+export function conversationTurnInProgress(summary: ConversationSessionSummary): boolean {
+  const phase = conversationSummaryPhase(summary)
+  return (
+    phase === 'starting' || phase === 'running' || phase === 'waiting_for_approval' || phase === 'waiting_for_input'
+  )
+}

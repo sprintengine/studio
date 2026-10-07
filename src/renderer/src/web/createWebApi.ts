@@ -130,6 +130,9 @@ const browserEmptyStates = {
   listFolderOpenTargets: async () => [],
   setBackgroundMode: async () => undefined,
   setTelemetryEnabled: async () => undefined,
+  // A browser tab has no quit to ask about.
+  getQuitConfirmation: async () => null,
+  setQuitConfirmation: async () => null,
   // Third-party renderer modules are off on the web unless the owner turns
   // them on for this server (R61); bundled modules load from the bundle.
   listThirdPartyRendererEntries: async () => ({ entries: [], failures: {} }),

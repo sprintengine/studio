@@ -5,6 +5,7 @@ import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
 import { registerAppearanceIpc } from './ipc/appearance-ipc'
 import { registerBackgroundModeIpc } from './ipc/background-mode-ipc'
 import { registerTelemetryIpc } from './ipc/telemetry-ipc'
+import { registerQuitConfirmationIpc } from './ipc/quit-confirmation-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import {
   registerRemoteStudioConnectionIpc,
@@ -228,6 +229,7 @@ export function registerCoreIpc(
   registerAppearanceIpc(ipcMain)
   registerBackgroundModeIpc(ipcMain, services.backgroundModeStore)
   registerTelemetryIpc(ipcMain, services.telemetryConsentStore)
+  registerQuitConfirmationIpc(ipcMain, services.quitConfirmationStore)
   registerMarketplaceRegistryIpc(ipcMain)
   registerHostedSourcesFeedIpc(ipcMain)
   registerHostedCardFeedIpc(ipcMain)

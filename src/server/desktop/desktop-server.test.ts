@@ -182,6 +182,9 @@ test('the desktop server composes, serves a window over the tunnel and the shell
   assert.equal(info.pid, process.pid)
   assert.match(info.cipher, /desktop keychain/)
 
+  // What a quit would stop: no chat has a turn running here.
+  assert.equal(await shellRpc.call(SERVER_METHODS.conversationsWorking), 0)
+
   // The drain runs every leg and lets the directory go.
   hub.dispatch({ t: 'shutdown', drain: true, budgetMs: 8_000 }, [])
   assert.equal(await exit, 0)
