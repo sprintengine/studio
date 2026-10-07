@@ -215,7 +215,9 @@ test('on Windows a UNC path a transcript names is never touched: no stat, no thu
   const { files, createThumbnail, openPath } = setup({ platform: 'win32' })
   const unc = '\\\\attacker\\share\\x.pdf'
   expect(await files.preview(unc)).toEqual({ kind: 'unknown', thumbnailDataUrl: null, openable: false })
-  await expect(files.open(unc)).rejects.toThrow('x.pdf was not attached here, so it can only be shown in File Explorer.')
+  await expect(files.open(unc)).rejects.toThrow(
+    'x.pdf was not attached here, so it can only be shown in File Explorer.',
+  )
   expect(statCalls).toEqual([])
   expect(createThumbnail).not.toHaveBeenCalled()
   expect(openPath).not.toHaveBeenCalled()

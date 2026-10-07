@@ -293,7 +293,9 @@ export function createAttachedFiles(deps: AttachedFilesDeps) {
         throw new Error(`${name} was not attached here, so it can only be shown in ${fileManagerName(deps.platform)}.`)
       }
       const refuse = () =>
-        new Error(`${name} is not a kind of file this app opens, so it is only shown in ${fileManagerName(deps.platform)}.`)
+        new Error(
+          `${name} is not a kind of file this app opens, so it is only shown in ${fileManagerName(deps.platform)}.`,
+        )
       if (!opensInDefaultApp(path, deps.platform)) throw refuse()
       const info = await stat(path).catch(() => null)
       if (!info) throw new Error(`${name} is no longer there.`)
