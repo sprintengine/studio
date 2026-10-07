@@ -45,14 +45,18 @@ export async function readJsonLinesWindow(
 
 /** Every record of a JSON-lines file, in order, without holding the file in memory. */
 export async function* readJsonLines(path: string): AsyncGenerator<Record<string, unknown>> {
-  const lines = createInterface({ input: createReadStream(path, { encoding: 'utf8' }), crlfDelay: Infinity })
+  const input = createReadStream(path, { encoding: 'utf8' })
+  const lines = createInterface({ input, crlfDelay: Infinity })
   try {
     for await (const line of lines) {
       const record = parseRecord(line)
       if (record) yield record
     }
   } finally {
+    // Closing the interface leaves its stream open: a reader that stops early
+    // (a scan wants the first few records) would hold the file's descriptor.
     lines.close()
+    input.destroy()
   }
 }
 
