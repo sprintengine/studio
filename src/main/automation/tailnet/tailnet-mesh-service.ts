@@ -248,11 +248,7 @@ export type TailnetMeshService = {
    * Say a chat on a paired machine is on screen here, so its "finished,
    * unseen" mark clears on every device that shows it.
    */
-  visitConversation(input: {
-    connectionId: unknown
-    workspaceId?: unknown
-    visitedAt?: unknown
-  }): Promise<MeshVisitConversationResult>
+  visitConversation(input: { connectionId: unknown; workspaceId?: unknown }): Promise<MeshVisitConversationResult>
   /**
    * One remote workspace's checkout facts — branch, trunk, branches,
    * worktrees — over `workspace.checkout` (workspace:read). A pairing that
@@ -1596,21 +1592,17 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
   async function visitConversation(input: {
     connectionId: unknown
     workspaceId?: unknown
-    visitedAt?: unknown
   }): Promise<MeshVisitConversationResult> {
-    // This machine's clock, as the far end caps it: a visit is never later
-    // than its own now.
-    const visitedAt =
-      typeof input.visitedAt === 'number' && Number.isFinite(input.visitedAt) && input.visitedAt >= 0
-        ? input.visitedAt
-        : Date.now()
-    const answer = await callLifecycleTool(input.connectionId, input.workspaceId, 'conversation.visit', { visitedAt })
+    // No time is sent: the visit is now, and the far end stamps it with its
+    // own clock. One read here could run behind that machine's, and a visit
+    // stamped earlier than a finish there would never clear it.
+    const answer = await callLifecycleTool(input.connectionId, input.workspaceId, 'conversation.visit', {})
     if (!answer.ok) return answer
     const lastVisitedAt = answer.value.lastVisitedAt
     return {
       ok: true,
       workspaceId: input.workspaceId as string,
-      lastVisitedAt: typeof lastVisitedAt === 'number' && Number.isFinite(lastVisitedAt) ? lastVisitedAt : visitedAt,
+      lastVisitedAt: typeof lastVisitedAt === 'number' && Number.isFinite(lastVisitedAt) ? lastVisitedAt : Date.now(),
     }
   }
 

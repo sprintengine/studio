@@ -95,11 +95,7 @@ export const meshApi = {
     settled?: boolean
   }): Promise<MeshSettleConversationResult> =>
     ipcRenderer.invoke(MESH_SETTLE_CONVERSATION_CHANNEL, input) as Promise<MeshSettleConversationResult>,
-  meshVisitConversation: (input: {
-    connectionId: string
-    workspaceId: string
-    visitedAt?: number
-  }): Promise<MeshVisitConversationResult> =>
+  meshVisitConversation: (input: { connectionId: string; workspaceId: string }): Promise<MeshVisitConversationResult> =>
     ipcRenderer.invoke(MESH_VISIT_CONVERSATION_CHANNEL, input) as Promise<MeshVisitConversationResult>,
   meshWorkspaceCheckout: (connectionId: string, workspaceId: string): Promise<MeshWorkspaceCheckoutResult> =>
     ipcRenderer.invoke(MESH_WORKSPACE_CHECKOUT_CHANNEL, {
