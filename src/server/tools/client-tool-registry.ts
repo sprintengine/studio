@@ -211,6 +211,7 @@ const DEFAULT_GRACE_MS = STUDIO_TOOL_LIMITS.reconnectGraceMs
 const BUSY_RETRY_MS = 500
 const MAX_AFFINITIES = 8192
 const MAX_PENDING_CANCELS = 256
+const MAX_DEPARTED = 1024
 const SHELL_KIND_ORDER: Record<StudioClientKind, number> = { desktop: 0, web: 1, headless: 2, app: 3 }
 
 function noun(toolset: string, title: string): string {
@@ -241,6 +242,11 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
   // record says which client, this says which of its processes.
   const startedInstances = new Map<string, string>()
   const buckets = new Map<string, { tokens: number; at: number }>()
+  // Instances whose grace ran out after they were sent calls, by key, with the
+  // cancels for what they were running. The process may only have been slow
+  // to come back: it is told what it may stop, and a reply it still sends is
+  // dropped rather than read as a frame out of place, which ends the connection.
+  const departed = new Map<string, StudioCancelFrame[]>()
   let sequence = 0
   let closed = false
   const callPrefix = randomBytes(6).toString('hex')
@@ -381,6 +387,8 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         for (const frame of instance.pendingCancels.splice(0)) safeSend(connection, frame)
       }
     } else {
+      const before = departed.get(key)
+      departed.delete(key)
       instance = {
         key,
         clientId: connection.clientId,
@@ -399,9 +407,10 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         stale: new Set(),
         staleTimer: null,
         pendingCancels: [],
-        called: false,
+        called: before !== undefined,
       }
       instances.set(key, instance)
+      for (const frame of before ?? []) safeSend(connection, frame)
     }
     byConnection.set(connection.connectionId, instance)
   }
@@ -440,6 +449,16 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     if (instance.staleTimer) clearTimeout(instance.staleTimer)
     instance.staleTimer = null
     instance.stale.clear()
+    if (instance.called) {
+      // What it was sent is answered here or elsewhere now: it may stop.
+      const cancels = [...instance.pendingCancels]
+      for (const call of calls.values())
+        if (call.instance === instance && call.sentTo.size > 0)
+          cancels.push({ t: 'cancel', id: call.id, reason: 'client_replaced' })
+      departed.delete(instance.key)
+      departed.set(instance.key, cancels.slice(-MAX_PENDING_CANCELS))
+      while (departed.size > MAX_DEPARTED) departed.delete(departed.keys().next().value!)
+    }
     instance.pendingCancels = []
     for (const call of [...calls.values()])
       if (call.instance === instance)
@@ -1130,6 +1149,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         if (entry.instance === instance)
           finish(entry, failure('client_unavailable', `${instance.clientName} is no longer paired with Studio.`))
     }
+    for (const key of [...departed.keys()]) if (key.startsWith(`${clientId}\u0000`)) departed.delete(key)
     let names: string[] = []
     try {
       names = options.store.forgetClient(clientId)
@@ -1174,6 +1194,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     }
     instances.clear()
     byConnection.clear()
+    departed.clear()
   }
 
   return {

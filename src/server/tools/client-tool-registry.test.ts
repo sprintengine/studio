@@ -428,6 +428,32 @@ test('a call cancelled while its client is away is cancelled there when it comes
   assert.deepEqual(second.frames, [{ t: 'cancel', id, reason: 'interrupted' }])
 })
 
+test('a process back after its grace ran out is told to stop what it was running, and may still answer it', async () => {
+  reach.set('game-app', 'all')
+  const instanceId = 'game-process-0123456789'
+  const first = connect('game-app', { instanceId })
+  registry.offer(first.connectionId, toolset('game'))
+  const mutation = registry.call({ caller: agent(), toolset: 'game', tool: 'spawn_enemy', args: {} })
+  const id = lastCall(first).id
+  registry.detach(first.connectionId)
+  await vi.advanceTimersByTimeAsync(20_000)
+  assert.equal(code((await mutation).result), 'client_disconnected')
+  // The same process, only slow to come back: it hears its call was settled,
+  // and its late reply is one it may send, dropped rather than out of place.
+  const second = connect('game-app', { instanceId })
+  assert.deepEqual(second.frames, [{ t: 'cancel', id, reason: 'client_replaced' }])
+  assert.equal(registry.mayAnswer(second.connectionId), true)
+  registry.reply(second.connectionId, { t: 'reply', id, ok: true, result: text('late') })
+  assert.equal(registry.pendingCalls(), 0)
+  // A process that was never sent a call is still not one that may answer.
+  const idle = connect('idle-app', { instanceId: 'idle-process-0123456789' })
+  registry.offer(idle.connectionId, toolset('idle'))
+  registry.detach(idle.connectionId)
+  await vi.advanceTimersByTimeAsync(20_000)
+  const idleAgain = connect('idle-app', { instanceId: 'idle-process-0123456789' })
+  assert.deepEqual([idleAgain.frames, registry.mayAnswer(idleAgain.connectionId)], [[], false])
+})
+
 test('the offer rate limit is a connection’s: a process that reconnects may offer again', () => {
   const instanceId = 'game-process-0123456789'
   let connection = connect('game-app', { instanceId })
