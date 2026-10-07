@@ -90,7 +90,16 @@ export function createScheduledAgentsModule(
           refusedBeforeRecorded.delete(run.workspaceId)
           return store.recordRun(id, { at: run.at, ok: false, message: refused })
         },
-        onRan: () => service?.notifyChanged(),
+        onRan: (agent, run) => {
+          // A one-time schedule whose chat started has done its one job: it is
+          // closed, and its chat carries on as any other. One whose run failed
+          // stays, saying so, until the person has seen it.
+          if (agent.schedule.once !== undefined && run.ok) {
+            void store.remove(agent.id).then(() => service?.notifyChanged())
+            return
+          }
+          service?.notifyChanged()
+        },
         isRunWorking: (workspaceId) => {
           const listed = conversations.listSessions({ workspaceId })
           return listed.ok && isRunChatWorking(listed.sessions)

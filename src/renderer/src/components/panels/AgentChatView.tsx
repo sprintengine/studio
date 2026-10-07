@@ -35,7 +35,7 @@ import type { ConversationProviderListEntry, ConversationProviderModel } from '.
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../../shared/launch-settings'
 import type { CliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { ChevronDownIcon } from '../AppIcons'
+import { ChevronDownIcon, ScheduleGlyph } from '../AppIcons'
 import { copySelectionAsMarkdown } from '../../utils/selectionToMarkdown'
 import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
 import { renderKeybinding } from '../../commands/keybindings'
@@ -64,6 +64,7 @@ import {
 import {
   COMPOSER_SURFACE_CLASS,
   SendGlyph,
+  SendButton,
   FOCUS_RING_INSET_CLASS,
   FOCUS_RING_WITHIN_EDITOR_CLASS,
   FloatingButton,
@@ -136,6 +137,11 @@ import { ConversationComposerStrip } from './agentChat/conversationStrip'
 import { useConversationStripFacts } from './agentChat/conversationStripFacts'
 import { useUsageLimitSnapshot } from './agentChat/usageLimits'
 import { UsageLimitResumeRow } from './agentChat/usageLimitResume'
+import { ScheduledMessageRows } from './agentChat/scheduledMessages'
+import type { ScheduledMessage } from '../../../../shared/scheduled-messages'
+import { canScheduleMessages, updateScheduledMessage } from '../../store/scheduledMessagesStore'
+import { SendTimeTag } from '../workspace/agentComposer/schedule/SendTimeEditor'
+import { defaultSendAt } from '../workspace/agentComposer/schedule/sendTime'
 import { usageLimitProviderOf } from '../../store/usageLimitsStore'
 import { studioAppCommands, useConversationCommands } from './agentChat/useConversationCommands'
 import { composerAppCommand } from './agentChat/composerAppCommands'
@@ -723,6 +729,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // typed intent is dropped. Attachments ride the queue too — dropping them at
   // the queue boundary would silently lose what the user staged.
   const [queuedTurn, setQueuedTurn] = useState<QueuedTurn | null>(null)
+  // When the draft is to be sent, picked from the "+" (Schedule); null sends
+  // it as usual. While set, Enter and the send button schedule the draft
+  // instead: main keeps it and sends it into this chat at that time, whether
+  // or not this view is open then.
+  const [sendAt, setSendAt] = useState<number | null>(null)
   // The local id of a queued message handed to the running turn (a steer),
   // until its own `user_message` arrives. One is delivered at a time, and the
   // queue holds its next message until then.
@@ -1571,6 +1582,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Set further down, once the model picker and effort control it drives are
   // known; answers whether it handled the message.
   const runAppCommandRef = useRef<(text: string, attachments: number) => boolean>(() => false)
+  // Set further down, once the chat's identity and draft are in hand: hands
+  // the draft to main to send at `sendAt`.
+  const scheduleDraftRef = useRef<() => Promise<void>>(async () => undefined)
   // Composer submit (Enter or the send affordance). Sends immediately when the
   // session is idle. While a turn runs the message queues, where it stays in
   // sight: the flush effect below sends it the moment the session unlocks,
@@ -1588,6 +1602,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       !draftMetadata.files.length
     )
       return
+    // A time is picked: the draft is scheduled, whatever the turn is doing.
+    if (sendAt !== null) {
+      void scheduleDraftRef.current()
+      return
+    }
     // A command Studio answers itself, or one it will not send, is handled
     // here whatever the turn is doing: it never reaches the CLI or the queue.
     if (runAppCommandRef.current(text, attachments.length + draftMetadata.files.length)) return
@@ -1614,6 +1633,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     queuedTurn,
     steeringTurnId,
     sendTurn,
+    sendAt,
   ])
 
   // Open the composer's right-click menu (1793). The clipboard read is awaited
@@ -2036,6 +2056,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // ⌘↵ / Ctrl+↵: commit and send now. Idle, that is an ordinary send; while
   // the agent works, the draft joins the queue and the queue goes at once.
   const commitComposerNow = () => {
+    // A time is picked: ⌘↵ schedules, as Enter does.
+    if (sendAt !== null) {
+      submitComposer()
+      return
+    }
     if (!isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) && steeringTurnId === null) {
       submitComposer()
       return
@@ -2873,6 +2898,63 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     workspaceRoot,
     transport,
   })
+  // ── Scheduling the next message ──────────────────────────────────────────
+  // Offered for a chat that runs on this computer, as its usage-limit resume
+  // is: main sends the message, through this computer's own chats.
+  const scheduleOffered = operate && transport.kind !== 'remote' && !stripFacts.machine && canScheduleMessages()
+  // What a scheduled message carries is its text: a picture or a file staged
+  // with it is the moment's, and is not kept for later.
+  const scheduleBlocked =
+    attachments.length > 0 || draftMetadata.files.length > 0
+      ? 'A scheduled message carries text only — remove the pictures and files first'
+      : null
+  const scheduleOption = useMemo(
+    () =>
+      scheduleOffered
+        ? {
+            on: sendAt !== null,
+            disabled: sendAt === null ? scheduleBlocked : null,
+            onToggle: () => setSendAt((current) => (current === null ? defaultSendAt(Date.now()) : null)),
+          }
+        : undefined,
+    [scheduleOffered, sendAt, scheduleBlocked],
+  )
+  // A chat that stops offering it (moved to another machine) sends as usual.
+  useEffect(() => {
+    if (!scheduleOffered) setSendAt(null)
+  }, [scheduleOffered])
+  const editScheduledMessage = useCallback(
+    (message: ScheduledMessage) => {
+      void updateScheduledMessage({ kind: 'delete', id: message.id }).then((deleted) => {
+        if (!deleted) return
+        setDraft((current) => [message.text, current].filter(Boolean).join('\n'))
+        setSendAt(message.sendAt > Date.now() ? message.sendAt : defaultSendAt(Date.now()))
+        composerRef.current?.focus()
+      })
+    },
+    [setDraft],
+  )
+  scheduleDraftRef.current = async () => {
+    if (sendAt === null) return
+    if (scheduleBlocked) {
+      setActionError(`${scheduleBlocked}, or send it now.`)
+      return
+    }
+    const text = draft.trim()
+    if (!text) return
+    if (sendAt <= Date.now()) {
+      setActionError('That time has passed — pick one ahead, or send it now.')
+      return
+    }
+    const scheduled = await updateScheduledMessage({ kind: 'schedule', workspaceId, agentId, text, sendAt })
+    if (!scheduled) {
+      setActionError('The message could not be scheduled.')
+      return
+    }
+    setActionError(null)
+    clearDraft()
+    setSendAt(null)
+  }
   // The pull requests this conversation opened, from the record the sidebar
   // reads. A chat on a paired machine has its record there, not here.
   const conversationPullRequests = usePullRequestsOfConversation(
@@ -3227,6 +3309,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 <UsageLimitResumeRow workspaceId={workspaceId} agentId={agentId} />
               ) : null}
 
+              {/* The messages scheduled into this chat from the "+": when each
+                goes out, with Send now, Edit and Delete. Edit takes one back
+                into the composer still set for its time, so pressing
+                Schedule again puts it back. */}
+              {scheduleOffered ? (
+                <ScheduledMessageRows workspaceId={workspaceId} agentId={agentId} onEdit={editScheduledMessage} />
+              ) : null}
+
               {/*
                * A turn failure renders as a structured error block in the
                * transcript (with its own Retry), so here we only restate text for
@@ -3424,10 +3514,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     onFiles={onPickedFiles}
                   />
                 ) : null}
-                {imagesEnabled || filesEnabled || supportsSkills ? (
+                {imagesEnabled || filesEnabled || supportsSkills || scheduleOption ? (
                   <ComposerPlusMenu
                     placement="top-start"
                     onAttach={imagesEnabled || filesEnabled ? openFilePicker : undefined}
+                    schedule={scheduleOption}
                     skills={
                       supportsSkills
                         ? {
@@ -3445,7 +3536,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     }
                   />
                 ) : null}
-                {/* The tags: each skill attached to the next turn. */}
+                {/* The tags: when the message is to go, then each skill attached to the next turn. */}
+                {sendAt !== null ? (
+                  <SendTimeTag at={sendAt} onChange={setSendAt} onRemove={() => setSendAt(null)} />
+                ) : null}
                 {supportsSkills
                   ? attachedSkills.map((skill) => (
                       <SkillContextChip
@@ -3492,7 +3586,21 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     className="max-w-[180px] px-1.5 text-meta text-[color:var(--text-muted)]"
                   />
                 )}
-                {projection.activeTurn && !operate ? null : projection.activeTurn ? (
+                {/* With a time picked the send schedules, whatever the turn is
+                    doing: Stop is not what a press means then. */}
+                {sendAt !== null ? (
+                  <SendButton
+                    size="sm"
+                    onClick={submitComposer}
+                    disabled={!draft.trim()}
+                    aria-keyshortcuts="Enter"
+                    data-composer-schedule-send="true"
+                    className="shrink-0 gap-1.5 pl-3 pr-2.5"
+                  >
+                    Schedule
+                    <ScheduleGlyph className="icon-sm" />
+                  </SendButton>
+                ) : projection.activeTurn && !operate ? null : projection.activeTurn ? (
                   <ComposerActionButton
                     tone="neutral"
                     ariaLabel={pending === 'stopping' ? 'Stopping' : 'Stop responding'}

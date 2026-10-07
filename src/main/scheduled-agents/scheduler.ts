@@ -13,8 +13,18 @@
 // schedule that comes round faster than its runs finish would otherwise stack
 // chats doing the same job on the same checkout. A skipped time is not queued —
 // the next one counts on from it, as a missed one does.
+//
+// A one-time schedule is the exception to "missed runs are not replayed": it
+// is one message the person asked to have sent, and late is closer to that
+// than never, so one whose time passed while the app was closed runs once the
+// app is open. It runs once — the scheduler never arms it again after firing.
 
-import { nextScheduledAgentRun, type ScheduledAgent, type ScheduledAgentLastRun } from '../../shared/scheduled-agents'
+import {
+  nextScheduledAgentRun,
+  scheduledAgentOnceDue,
+  type ScheduledAgent,
+  type ScheduledAgentLastRun,
+} from '../../shared/scheduled-agents'
 
 // A timer longer than this is re-armed rather than trusted: a changed clock or
 // a long sleep moves what "the soonest run" means, and setTimeout's own limit
@@ -64,10 +74,11 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
   // Each agent's due time, counted forward from when it was last scheduled —
   // never recomputed from "now" on a refresh, or a run due during a sleep
   // would be skipped the moment the computer woke and refreshed.
-  const dueAt = new Map<string, { at: number | null; cron: string; timezone: string }>()
+  const dueAt = new Map<string, { at: number | null; cron: string; timezone: string; once: number | undefined }>()
   const inFlight = new Set<string>()
 
-  const dueFor = (agent: ScheduledAgent, after: number): number | null => nextScheduledAgentRun(agent.schedule, after)
+  const dueFor = (agent: ScheduledAgent, after: number): number | null =>
+    agent.schedule.once !== undefined ? scheduledAgentOnceDue(agent) : nextScheduledAgentRun(agent.schedule, after)
 
   const reconcile = (): void => {
     const agents = deps.list()
@@ -76,11 +87,17 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
     for (const agent of agents) {
       const known = dueAt.get(agent.id)
       // A new agent, or one whose schedule changed, counts from now.
-      if (!known || known.cron !== agent.schedule.cron || known.timezone !== agent.schedule.timezone) {
+      if (
+        !known ||
+        known.cron !== agent.schedule.cron ||
+        known.timezone !== agent.schedule.timezone ||
+        known.once !== agent.schedule.once
+      ) {
         dueAt.set(agent.id, {
           at: dueFor(agent, now()),
           cron: agent.schedule.cron,
           timezone: agent.schedule.timezone,
+          once: agent.schedule.once,
         })
       }
     }
@@ -129,8 +146,8 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
       const entry = dueAt.get(agent.id)
       if (!entry || entry.at === null || entry.at > at) continue
       // The next time counts from now, so every time missed in a long sleep
-      // collapses into the one run below.
-      entry.at = dueFor(agent, at)
+      // collapses into the one run below. A one-time schedule has no next.
+      entry.at = agent.schedule.once !== undefined ? null : dueFor(agent, at)
       void fire(agent).then((fired) => {
         if (!fired.ok && fired.refused !== 'unknown') deps.onSkipped?.(agent, fired.refused)
       })

@@ -26,6 +26,15 @@ export type ScheduledAgentSchedule = {
   cron: string
   /** The IANA zone the cron's wall-clock is read in: the machine it runs on. */
   timezone: string
+  /**
+   * One run, at this instant (epoch ms), instead of the cron's repeats: a
+   * message to start a chat with later, once. The cron then names the same
+   * minute (`cronForInstant`), so whatever reads the cron alone still reads
+   * a true schedule. A one-time schedule that has run is done: the scheduler
+   * closes it once its chat has started, and keeps one whose run failed, with
+   * no next run, so the failure is seen.
+   */
+  once?: number
 }
 
 /** A skill or an installed MCP server, by id, with the name its chip shows. */
@@ -112,12 +121,64 @@ export function scheduledAgentTitle(prompt: string): string {
 }
 
 /** The schedule in words, or null when the cron does not parse. */
-export function scheduledAgentScheduleWords(schedule: Pick<ScheduledAgentSchedule, 'cron'>): string | null {
+export function scheduledAgentScheduleWords(
+  schedule: Pick<ScheduledAgentSchedule, 'cron'> & Partial<Pick<ScheduledAgentSchedule, 'timezone' | 'once'>>,
+): string | null {
+  if (schedule.once !== undefined) return `Once, ${onceWords(schedule.once, schedule.timezone)}`
   const parsed = parseCronSchedule(schedule.cron)
   return parsed.ok ? describeCronSchedule(parsed.schedule) : null
 }
 
+/** "Wed 7 Oct at 3:00 PM", in the schedule's zone. */
+function onceWords(at: number, timeZone: string | undefined): string {
+  let parts: Intl.DateTimeFormatPart[]
+  try {
+    parts = new Intl.DateTimeFormat('en-US', {
+      ...(timeZone ? { timeZone } : {}),
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).formatToParts(new Date(at))
+  } catch {
+    return new Date(at).toISOString()
+  }
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? ''
+  return `${get('weekday')} ${get('day')} ${get('month')} at ${get('hour')}:${get('minute')} ${get('dayPeriod')}`.trim()
+}
+
+/**
+ * The cron that names `at`'s minute in `timeZone`: "30 15 7 10 *". What a
+ * one-time schedule carries as its cron, so a reader of the cron alone reads
+ * the right day and time.
+ */
+export function cronForInstant(at: number, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(at))
+  const get = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0)
+  return `${get('minute')} ${get('hour') % 24} ${get('day')} ${get('month')} *`
+}
+
+/**
+ * When a one-time schedule is due: its instant, until a run has gone at or
+ * after it — a Run now before the time does not use it up. Null once run,
+ * and for a repeating schedule.
+ */
+export function scheduledAgentOnceDue(agent: Pick<ScheduledAgent, 'schedule' | 'lastRun'>): number | null {
+  const once = agent.schedule.once
+  if (once === undefined) return null
+  return agent.lastRun && agent.lastRun.at >= once ? null : once
+}
+
 export function nextScheduledAgentRun(schedule: ScheduledAgentSchedule, after: number): number | null {
+  if (schedule.once !== undefined) return schedule.once > after ? schedule.once : null
   const parsed = parseCronSchedule(schedule.cron)
   if (!parsed.ok) return null
   try {
@@ -128,6 +189,7 @@ export function nextScheduledAgentRun(schedule: ScheduledAgentSchedule, after: n
 }
 
 export function nextScheduledAgentRuns(schedule: ScheduledAgentSchedule, after: number, count: number): number[] {
+  if (schedule.once !== undefined) return schedule.once > after && count > 0 ? [schedule.once] : []
   const parsed = parseCronSchedule(schedule.cron)
   if (!parsed.ok) return []
   try {
@@ -151,9 +213,15 @@ export type ScheduledAgentDraftValidation = { ok: true; draft: ScheduledAgentDra
 /**
  * A draft from any door — the New chat panel, an extension, an agent's MCP
  * call — held to one bar. A schedule that never runs (the 30th of February) is
- * refused here rather than saved to sit silent.
+ * refused here rather than saved to sit silent, as is a one-time schedule for
+ * a time already gone — except one read back from the file (`stored`), whose
+ * time may well have passed while it ran, or while the app was closed.
  */
-export function validateScheduledAgentDraft(input: unknown, now: number): ScheduledAgentDraftValidation {
+export function validateScheduledAgentDraft(
+  input: unknown,
+  now: number,
+  options: { stored?: boolean } = {},
+): ScheduledAgentDraftValidation {
   if (!isRecord(input)) return { ok: false, message: 'A scheduled agent must be an object.' }
   const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : ''
   if (!prompt) return { ok: false, message: 'A scheduled agent needs a prompt.' }
@@ -163,14 +231,25 @@ export function validateScheduledAgentDraft(input: unknown, now: number): Schedu
   if (!cli) return { ok: false, message: 'A scheduled agent needs an agent CLI to run.' }
 
   const schedule = isRecord(input.schedule) ? input.schedule : null
-  const cron = typeof schedule?.cron === 'string' ? schedule.cron.trim() : ''
   const timezone = typeof schedule?.timezone === 'string' ? schedule.timezone.trim() : ''
-  const parsed = parseCronSchedule(cron)
-  if (!parsed.ok) return { ok: false, message: parsed.error }
   if (!timezone || !isValidTimeZone(timezone)) {
     return { ok: false, message: `"${timezone}" is not a timezone this computer knows.` }
   }
-  if (nextCronRun(parsed.schedule, timezone, now) === null) {
+  const rawOnce = schedule?.once
+  let once: number | undefined
+  if (rawOnce !== undefined && rawOnce !== null) {
+    if (typeof rawOnce !== 'number' || !Number.isFinite(rawOnce) || rawOnce <= 0) {
+      return { ok: false, message: 'A one-time schedule needs the time it runs at.' }
+    }
+    if (!options.stored && rawOnce <= now) return { ok: false, message: 'That time has already passed.' }
+    once = Math.floor(rawOnce)
+  }
+  // A one-time schedule's cron is its minute, whatever was written beside it.
+  const cron =
+    once !== undefined ? cronForInstant(once, timezone) : typeof schedule?.cron === 'string' ? schedule.cron.trim() : ''
+  const parsed = parseCronSchedule(cron)
+  if (!parsed.ok) return { ok: false, message: parsed.error }
+  if (once === undefined && nextCronRun(parsed.schedule, timezone, now) === null) {
     return { ok: false, message: 'That schedule never comes round — no calendar has that day.' }
   }
 
@@ -192,7 +271,7 @@ export function validateScheduledAgentDraft(input: unknown, now: number): Schedu
     ok: true,
     draft: {
       prompt,
-      schedule: { cron, timezone },
+      schedule: { cron, timezone, ...(once !== undefined ? { once } : {}) },
       folderPath,
       hostId,
       cli,
