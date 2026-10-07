@@ -64,6 +64,11 @@ type SegmentedControlProps<V extends string = string> = {
   className?: string
 }
 
+// A segment never wraps and never shrinks: the track is one control height, so
+// a label broken over lines spills out of it, a word per line (Settings ▸
+// Worktrees' filter did, beside a field that took the row's width). A row too
+// narrow for the strip has to wrap around it instead.
+//
 // The TRACK carries the ramp height; segments fill it. A track and a thumb
 // (owner ruling 2026-10-04): the strip is a plain `bg.well` with no hairline and
 // no inset shadow, and the chosen segment is a thumb on it — the `bg.selected`
@@ -169,7 +174,7 @@ export function SegmentedControl<V extends string = string>({
               if (!checked) onChange(item.value)
             }}
             className={`
-              interactive inline-flex items-center rounded-xs ${iconOnly ? ICON_ONLY_SEGMENT : SEGMENT_SIZE[size]} font-medium ${FOCUS_RING_CLASS}
+              interactive inline-flex shrink-0 items-center whitespace-nowrap rounded-xs ${iconOnly ? ICON_ONLY_SEGMENT : SEGMENT_SIZE[size]} font-medium ${FOCUS_RING_CLASS}
               ${
                 checked
                   ? 'control-thumb bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
