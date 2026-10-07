@@ -71,6 +71,10 @@ test('anything not on the list is only revealed, on every platform: programs, sc
       '/Users/dev/Desktop/page.html',
       '/Users/dev/Desktop/drawing.svg',
       '/Users/dev/Desktop/budget.xlsm',
+      // The older binary Office formats carry macros too, unannounced
+      '/Users/dev/Desktop/brief.doc',
+      '/Users/dev/Desktop/budget.XLS',
+      'C:\\Users\\dev\\Desktop\\deck.ppt',
       // No extension: nothing says what it is
       '/Users/dev/Desktop/README',
     ])

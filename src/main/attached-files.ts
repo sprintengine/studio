@@ -28,7 +28,12 @@ import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs'
 import { realpath, stat } from 'fs/promises'
 import { isAbsolute, join } from 'path'
 
-import { isNetworkPath, opensInDefaultApp, type AttachedFilePreview } from '../shared/attached-files'
+import {
+  isNetworkPath,
+  opensAsDocumentPackage,
+  opensInDefaultApp,
+  type AttachedFilePreview,
+} from '../shared/attached-files'
 
 const FILE_NAME = 'attached-files.json'
 /** Paths remembered across restarts, the most recently attached kept. */
@@ -276,6 +281,9 @@ export function createAttachedFiles(deps: AttachedFilesDeps) {
       if (!deps.registry.has(path)) return UNKNOWN
       const info = await stat(path).catch(() => null)
       if (!info) return { kind: 'missing', thumbnailDataUrl: null, openable: false }
+      // A document package (a Pages file saved as a folder) is the document.
+      if (info.isDirectory() && opensAsDocumentPackage(path, deps.platform))
+        return { kind: 'file', thumbnailDataUrl: await deps.thumbnails.thumbnail(path, info), openable: true }
       if (info.isDirectory()) return { kind: 'folder', thumbnailDataUrl: null, openable: false }
       if (!info.isFile()) return { kind: 'missing', thumbnailDataUrl: null, openable: false }
       return {
@@ -299,10 +307,12 @@ export function createAttachedFiles(deps: AttachedFilesDeps) {
       if (!opensInDefaultApp(path, deps.platform)) throw refuse()
       const info = await stat(path).catch(() => null)
       if (!info) throw new Error(`${name} is no longer there.`)
-      if (!info.isFile()) throw new Error(`${name} is not a file.`)
+      const documentPackage = info.isDirectory() && opensAsDocumentPackage(path, deps.platform)
+      if (!info.isFile() && !documentPackage) throw new Error(`${name} is not a file.`)
       // A link opens what it points at, so that is what is judged.
       const target = await realpath(path).catch(() => path)
       if (!opensInDefaultApp(target, deps.platform)) throw refuse()
+      if (documentPackage && !opensAsDocumentPackage(target, deps.platform)) throw refuse()
       // `openPath` reports failure by resolving with the message, not by throwing.
       const failure = await deps.openPath(target)
       if (failure) throw new Error(failure)

@@ -14,18 +14,17 @@
 // from a blocklist cost a program run.
 //
 // Left out on purpose:
-// - Office formats that carry macros (docm, xlsm, pptm, …), and anything a
-//   browser opens as a page (html, svg, xhtml): those run code of their own.
+// - Office formats that carry macros (docm, xlsm, pptm, …), the older binary
+//   ones (doc, xls, ppt), which carry them too without the name saying so,
+//   and anything a browser opens as a page (html, svg, xhtml): those run code
+//   of their own.
 // - Archives and disk images (zip, dmg, iso, …): opening one expands or mounts
 //   it, which is more than showing it.
 const OPENABLE_EXTENSIONS = new Set([
   // Documents
   'pdf',
-  'doc',
   'docx',
-  'xls',
   'xlsx',
-  'ppt',
   'pptx',
   'odt',
   'ods',
@@ -104,6 +103,17 @@ export function opensInDefaultApp(path: string, platform: string): boolean {
   const name = path.split(/[\\/]/).pop() ?? ''
   if (platform === 'win32' && windowsNameMisleads(name)) return false
   return OPENABLE_EXTENSIONS.has(fileExtension(name))
+}
+
+// The iWork formats are saved either as one file or as a package: a folder the
+// Mac shows and opens as a single document. Such a folder opens like the file
+// would, on macOS only, where the system knows it as a document; elsewhere it
+// is a folder like any other, and only revealed.
+const DOCUMENT_PACKAGE_EXTENSIONS = new Set(['pages', 'numbers', 'key'])
+
+/** Whether a folder at this path is a document package a click may open in its default app (macOS only). */
+export function opensAsDocumentPackage(path: string, platform: string): boolean {
+  return platform === 'darwin' && DOCUMENT_PACKAGE_EXTENSIONS.has(fileExtension(path))
 }
 
 /**

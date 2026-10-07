@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -174,6 +174,30 @@ test('a folder, a bundle and a file that has gone are refused, in words', async 
   const gone = join(root, 'gone.pdf')
   files.register(gone)
   await expect(files.open(gone)).rejects.toThrow('gone.pdf is no longer there.')
+})
+
+test('on macOS an iWork document saved as a package opens like the file would; elsewhere it is a folder', async () => {
+  const mac = setup()
+  const pages = join(root, 'Proposal.pages')
+  await mkdir(pages)
+  mac.files.register(pages)
+  expect(await mac.files.preview(pages)).toMatchObject({ kind: 'file', openable: true })
+  await mac.files.open(pages)
+  expect(mac.openPath).toHaveBeenCalledWith(await realpath(pages))
+
+  // A package-named folder that is a link to something else is judged by where it leads.
+  const elsewhere = join(root, 'Elsewhere')
+  await mkdir(elsewhere)
+  const disguised = join(root, 'Budget.numbers')
+  await symlink(elsewhere, disguised)
+  mac.files.register(disguised)
+  await expect(mac.files.open(disguised)).rejects.toThrow('is not a kind of file this app opens')
+
+  const linux = setup({ platform: 'linux' })
+  linux.files.register(pages)
+  expect(await linux.files.preview(pages)).toEqual({ kind: 'folder', thumbnailDataUrl: null, openable: false })
+  await expect(linux.files.open(pages)).rejects.toThrow('Proposal.pages is not a file.')
+  expect(linux.openPath).not.toHaveBeenCalled()
 })
 
 test('the system’s refusal to open a file is the error the card shows', async () => {
