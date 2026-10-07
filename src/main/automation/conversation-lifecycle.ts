@@ -96,8 +96,10 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
   /**
    * A person has the chat on screen. Only moves the visit clock forward, and
    * never to a time this machine has not reached yet, so a device whose clock
-   * runs ahead cannot mark a later finish as seen. It is not activity: the
-   * message clock and the chat's rest are left as they are.
+   * runs ahead cannot mark a later finish as seen. A visit stamped no later
+   * than the chat's last Mark unread was taken before it, however late it
+   * arrives, and does not undo it. It is not activity: the message clock and
+   * the chat's rest are left as they are.
    */
   function visit(
     workspaceId: string,
@@ -108,7 +110,8 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
     if (!record) return unknown(workspaceId)
     const at = Math.min(visitedAt ?? now(), now())
     const stored = typeof record.lastVisitedAt === 'number' ? record.lastVisitedAt : null
-    if (stored !== null && stored >= at) return { ok: true, workspaceId, lastVisitedAt: stored }
+    const seenBeforeRewind = typeof record.visitRewoundAt === 'number' && at <= record.visitRewoundAt
+    if (stored !== null && (stored >= at || seenBeforeRewind)) return { ok: true, workspaceId, lastVisitedAt: stored }
     const failed = write(workspaceId, { lastVisitedAt: at }, actor)
     if (failed) return failed
     return { ok: true, workspaceId, lastVisitedAt: at }

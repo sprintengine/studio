@@ -26,6 +26,7 @@ function fixture(
     ? ({ id: 'ws-1', name: 'Fix the login', createdAt: 10, ...record } as WorkspaceRegistryRecord)
     : null
   const writes: Array<{ workspaceId: string; patch: WorkspaceFieldsPatch; actor: WorkspaceRegistryActor }> = []
+  const clock = { at: NOW }
   const lifecycle = createConversationLifecycle({
     getRecord: (workspaceId) => (stored && workspaceId === stored.id ? stored : null),
     updateWorkspaceFields: (workspaceId, patch, actor) => {
@@ -36,14 +37,14 @@ function fixture(
     },
     rewindVisit: (workspaceId, lastVisitedAt, actor) => {
       // The service's own command: it stamps the rewind, nobody else may.
-      const patch = { lastVisitedAt, visitRewoundAt: NOW }
+      const patch = { lastVisitedAt, visitRewoundAt: clock.at }
       writes.push({ workspaceId, patch, actor })
       if (stored) applyWorkspaceFieldsPatch(stored as unknown as Record<string, unknown>, patch)
       return { ok: true, event: {} as never }
     },
     isWorking: () => options.working === true,
     latestChatTurnEnd: () => options.chatTurnEnd,
-    now: () => NOW,
+    now: () => clock.at,
   })
   const tools = createConversationTools({
     launch: async () => assert.fail('no chat is started here'),
@@ -54,6 +55,7 @@ function fixture(
   return {
     stored,
     writes,
+    clock,
     lifecycle,
     settle: toolNamed('conversation.settle'),
     visit: toolNamed('conversation.visit'),
@@ -188,8 +190,26 @@ test('a chat whose agent has finished nothing is not marked, and an unknown one 
 test('a visit after Mark unread moves the clock forward again, as reading it does', async () => {
   const f = fixture({ lastVisitedAt: 9_000 }, { chatTurnEnd: 5_000 })
   f.lifecycle.markUnread('ws-1', 'ui')
-  await f.visit.handler({ workspaceId: 'ws-1', visitedAt: 6_000 })
-  assert.equal(f.stored?.lastVisitedAt, 6_000)
+  f.clock.at = NOW + 1_000
+  await f.visit.handler({ workspaceId: 'ws-1', visitedAt: NOW + 500 })
+  assert.equal(f.stored?.lastVisitedAt, NOW + 500)
+})
+
+test('a visit stamped before a Mark unread, arriving after it, does not undo it', async () => {
+  const f = fixture({ lastVisitedAt: 1_000 }, { chatTurnEnd: 5_000 })
+  f.clock.at = 8_000
+  f.lifecycle.markUnread('ws-1', 'ui')
+  assert.equal(f.stored?.lastVisitedAt, 1_000)
+  f.clock.at = 9_000
+  // A phone's reading from before the mark, sent late.
+  const late = await f.visit.handler({ workspaceId: 'ws-1', visitedAt: 7_000 })
+  assert.deepEqual(late.structuredContent, { ok: true, workspaceId: 'ws-1', lastVisitedAt: 1_000 })
+  const atTheMark = await f.visit.handler({ workspaceId: 'ws-1', visitedAt: 8_000 })
+  assert.deepEqual(atTheMark.structuredContent, { ok: true, workspaceId: 'ws-1', lastVisitedAt: 1_000 })
+  assert.equal(f.writes.length, 1, 'only the mark was written')
+  // One taken after it reads the chat again.
+  await f.visit.handler({ workspaceId: 'ws-1', visitedAt: 8_500 })
+  assert.equal(f.stored?.lastVisitedAt, 8_500)
 })
 
 test('a message from a paired device moves the message clock and wakes a resting chat', () => {
