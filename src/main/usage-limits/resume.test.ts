@@ -609,3 +609,39 @@ test('a refused resume is still on the chat after a restart, and its Retry count
   await second.advance(30_000)
   assert.equal(second.sent.at(-1)?.commandId, `usage-limit-resume:${T0}:2`)
 })
+
+test('a hit heard while the file is being read neither overwrites it nor goes unscheduled', async () => {
+  const storage = memoryStorage()
+  const first = await started({ storage })
+  first.resumer.update({ kind: 'auto', enabled: true })
+  first.addChat(OTHER)
+  first.hit(OTHER)
+  await first.resumer.dispose()
+  const saved = storage.body
+
+  // The next start's read is slow; a limit hit arrives before it is done.
+  let finishRead: () => void = () => undefined
+  const slow: UsageLimitResumeStorage & { body: string | null } = {
+    body: saved,
+    read: () => new Promise((resolve) => (finishRead = () => resolve(slow.body))),
+    write: async (body) => {
+      slow.body = body
+    },
+  }
+  const second = harness({ storage: slow })
+  second.addChat()
+  second.addChat(OTHER)
+  const starting = second.resumer.start()
+  second.hit()
+  await settle()
+  assert.equal(slow.body, saved, 'nothing is written before the file is read')
+
+  finishRead()
+  await starting
+  await settle()
+  const body = JSON.parse(slow.body!) as { autoResume: boolean; pending: Array<{ agentId: string }> }
+  assert.equal(body.autoResume, true, 'the setting survives')
+  assert.deepEqual(body.pending.map((entry) => entry.agentId).sort(), [CHAT.agentId, OTHER.agentId])
+  // Heard before the setting was known, it is scheduled once it is.
+  assert.ok(notice(second)?.resumeAt, 'the new hit is scheduled')
+})
