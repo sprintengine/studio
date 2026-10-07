@@ -3,6 +3,7 @@ import { COMMAND_REGISTRY, getCommandDefinition } from './commandRegistry'
 import { keydownMatchesKeybindings } from './commandDispatcher'
 import { findKeybindingConflicts, hasBlockingKeybindingConflict } from './conflicts'
 import { normalizeKeybinding } from './keybindings'
+import type { CommandScope, ShellCommandScope } from './types'
 import { test } from 'vitest'
 
 test('commandRegistry', async () => {
@@ -136,4 +137,17 @@ test('one keydown matches a binding exactly as the dispatcher would', () => {
   )
   assert.equal(keydownMatchesKeybindings({ ...enter, metaKey: true }, [], 'darwin'), false, 'disabled: nothing')
   assert.equal(keydownMatchesKeybindings({ ...enter, metaKey: true }, ['Primary+K Enter'], 'darwin'), false)
+})
+
+test("the shell's scopes are a closed list, and New chat's stays the shell's own", () => {
+  const scopes: readonly ShellCommandScope[] = [
+    'global',
+    'new-chat',
+    // @ts-expect-error a misspelt scope fails to compile rather than matching nothing
+    'new-chats',
+  ]
+  // Every shell scope is a scope a dispatcher can be asked about; the open
+  // `CommandScope` the module SDK mirrors does not name `new-chat`.
+  const published: readonly CommandScope[] = scopes
+  assert.equal(published.length, 3)
 })

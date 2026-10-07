@@ -1,24 +1,28 @@
 export type CommandCategory =
   'settings' | 'command_palette' | 'workspace' | 'panel' | 'voice' | 'git' | 'terminal' | 'diagnostics'
 
+// The scopes the module SDK publishes by name (its mirror of `CommandScope`).
+type PublishedCommandScope = 'global' | 'workspace' | 'workspace-navigation' | 'editor' | 'terminal' | 'panel'
+
 export type CommandScope =
-  | 'global'
-  | 'workspace'
-  | 'workspace-navigation'
-  | 'editor'
-  | 'terminal'
-  | 'panel'
+  | PublishedCommandScope
   // Open scope family: `panel:<moduleId>` scopes are derived from
   // the workspace-type registry — the shell pushes one when the active
   // workspace's mode belongs to that module — so a capability module's
   // commands can gate on "my workspace is active" without growing this union
   // per module.
   // `(string & {})` keeps the named literals in completions while accepting
-  // the derived family. The family also carries `new-chat`, the New chat
-  // composer's own scope (commandRegistry.ts): it is the shell's alone, so it
-  // is not named here, where the module SDK's mirror of this union would have
-  // to publish it to every module.
+  // the derived family.
   | (string & {})
+
+/**
+ * The scopes the shell's own commands may name, closed so a misspelt scope in
+ * the registry fails to compile rather than quietly matching nothing. It adds
+ * `new-chat`, the New chat composer's own scope (commandRegistry.ts), which
+ * is the shell's alone: naming it in `CommandScope` would make the module
+ * SDK's mirror of that union publish it to every module.
+ */
+export type ShellCommandScope = PublishedCommandScope | 'new-chat'
 
 export type CommandAvailability =
   | 'always'
@@ -83,7 +87,8 @@ export type CommandContribution = {
   allowInEditableTarget?: boolean
 }
 
-export type CommandDefinition = CommandContribution & {
+export type CommandDefinition = Omit<CommandContribution, 'scopes'> & {
   category: CommandCategory
+  scopes: readonly ShellCommandScope[]
   handlerPath: CommandHandlerPath
 }

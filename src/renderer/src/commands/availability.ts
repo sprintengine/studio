@@ -1,5 +1,5 @@
 import { getCommandDefinition } from './commandRegistry'
-import type { CommandAvailability, CommandDefinition, CommandScope, ModuleCommandContext } from './types'
+import type { CommandAvailability, CommandContribution, CommandScope, ModuleCommandContext } from './types'
 
 /**
  * Runtime truth for each availability precondition a command can declare. The
@@ -17,7 +17,7 @@ export type CommandAvailabilityContext = Partial<Record<CommandAvailability, boo
  * both.
  */
 export function isCommandAvailable(
-  command: Pick<CommandDefinition, 'availability' | 'availabilityPredicate'>,
+  command: Pick<CommandContribution, 'availability' | 'availabilityPredicate'>,
   context: CommandAvailabilityContext,
   moduleContext?: ModuleCommandContext,
 ): boolean {
@@ -46,7 +46,7 @@ export function isCommandAvailable(
  * the dispatcher applies before a keybinding can match.
  */
 export function isCommandInScope(
-  command: Pick<CommandDefinition, 'scopes'>,
+  command: Pick<CommandContribution, 'scopes'>,
   activeScopes: readonly CommandScope[],
 ): boolean {
   return command.scopes.some((scope) => activeScopes.includes(scope))
@@ -57,7 +57,7 @@ export function isCommandInScope(
  * offered only when its scope is active and its preconditions are met.
  */
 export function isCommandEnabled(
-  command: Pick<CommandDefinition, 'scopes' | 'availability' | 'availabilityPredicate'>,
+  command: Pick<CommandContribution, 'scopes' | 'availability' | 'availabilityPredicate'>,
   activeScopes: readonly CommandScope[],
   context: CommandAvailabilityContext,
   moduleContext?: ModuleCommandContext,
