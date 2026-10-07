@@ -12,7 +12,9 @@ import { installStudioLoopback } from '../../../../../../tests/studio-chat-loopb
 // The virtual list measures a real viewport, which jsdom does not have; this
 // stand-in renders every row so the rows themselves can be driven. Like the
 // real list, a row on screen renders again only when its item or the list's
-// `extraData` changes: a new `renderItem` alone does not reach it.
+// `extraData` changes: a new `renderItem` alone does not reach it. Where it
+// was asked to scroll to is kept, for what lands the view on a row.
+const scrolledToIndex = vi.hoisted(() => [] as { index: number; viewPosition?: number }[])
 const ListRow = memo(
   function ListRow({
     item,
@@ -50,7 +52,9 @@ vi.mock('@legendapp/list/react', () => ({
     const scroller = useRef<HTMLDivElement>(null)
     useImperativeHandle(ref, () => ({
       scrollToEnd: async () => undefined,
-      scrollToIndex: async () => undefined,
+      scrollToIndex: async (target: { index: number; viewPosition?: number }) => {
+        scrolledToIndex.push({ index: target.index, viewPosition: target.viewPosition })
+      },
       scrollToOffset: async () => undefined,
       getScrollableNode: () => scroller.current,
       getState: () => ({ positionAtIndex: () => 0, positionByKey: () => 0 }),
@@ -498,6 +502,84 @@ test('opening a folded turn does not flash the jump-to-latest pill', async () =>
     await chat.act(async () => fold!.click())
     expect(chat.host.textContent).not.toContain('Jump to latest')
   } finally {
+    await chat.unmount()
+  }
+})
+
+// A reply event at a set time: the divider is placed by when replies began
+// and finished against the chat's visit clock.
+function eventAt(createdAt: number, type: ConversationEventType, payload: Record<string, unknown>): ConversationEvent {
+  return { ...event(type, payload), createdAt }
+}
+
+test('a chat opened with replies nobody has read opens at a New divider, which holds until the chat is left', async () => {
+  const { noteChatOpened, noteChatLeft, markChatUnread } = await import('./unreadDivider')
+  // Read up to the first reply; the second, which worked through two folded
+  // steps, finished after the last visit.
+  noteChatOpened('workspace', 2_500, 10_000)
+  scrolledToIndex.length = 0
+  const chat = await mountChat({
+    events: [
+      eventAt(1_000, 'user_message', { turnId: 'a', text: 'Check the build' }),
+      eventAt(1_100, 'turn_started', { turnId: 'a' }),
+      eventAt(1_200, 'content_delta', { turnId: 'a', text: 'It builds.' }),
+      eventAt(2_000, 'turn_completed', { turnId: 'a' }),
+      eventAt(3_000, 'user_message', { turnId: 'b', text: 'Now the tests' }),
+      eventAt(3_100, 'turn_started', { turnId: 'b' }),
+      eventAt(3_200, 'tool_started', { turnId: 'b', toolUseId: 'one', name: 'Read', input: { path: 'a.ts' } }),
+      eventAt(3_300, 'tool_output', { turnId: 'b', toolUseId: 'one', output: 'a', status: 'ok' }),
+      eventAt(3_400, 'tool_started', { turnId: 'b', toolUseId: 'two', name: 'Read', input: { path: 'b.ts' } }),
+      eventAt(3_500, 'tool_output', { turnId: 'b', toolUseId: 'two', output: 'b', status: 'ok' }),
+      eventAt(3_600, 'content_delta', { turnId: 'b', text: 'They pass.' }),
+      eventAt(4_000, 'turn_completed', { turnId: 'b' }),
+    ],
+  })
+  const dividers = () =>
+    Array.from(chat.host.querySelectorAll('[role="separator"][aria-label="New since you last looked"]'))
+  // The row the divider stands above, by what it says.
+  const belowDivider = () => {
+    const [divider] = dividers()
+    return divider?.nextElementSibling?.textContent ?? null
+  }
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 50)))
+    expect(dividers()).toHaveLength(1)
+    expect(belowDivider(), 'above the unread reply, steps and all, not inside its work').toContain('They pass.')
+    expect(belowDivider()).not.toContain('Now the tests')
+    expect(scrolledToIndex, 'the chat opens at the divider rather than the end').toContainEqual({
+      index: 3,
+      viewPosition: 0,
+    })
+
+    // The agent goes on: a new turn streams in while the chat is in front.
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: eventAt(11_000, 'user_message', { turnId: 'c', text: 'And lint' }) })
+      chat.emit({ type: 'event', event: eventAt(11_100, 'turn_started', { turnId: 'c' }) })
+      chat.emit({ type: 'event', event: eventAt(11_200, 'content_delta', { turnId: 'c', text: 'Lint is clean.' }) })
+    })
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 50)))
+    expect(dividers(), 'one divider, where it was').toHaveLength(1)
+    expect(belowDivider()).toContain('They pass.')
+    expect(
+      scrolledToIndex.filter((target) => target.index === 3),
+      'landed once per opening',
+    ).toHaveLength(1)
+
+    await chat.act(async () => noteChatLeft('workspace'))
+    expect(dividers(), 'gone once the chat is left').toHaveLength(0)
+    // Back again with everything seen: nothing new, no divider.
+    await chat.act(async () => noteChatOpened('workspace', 12_000, 13_000))
+    expect(dividers()).toHaveLength(0)
+    await chat.act(async () => noteChatLeft('workspace'))
+
+    // Marked unread from the sidebar: the next opening puts it above the
+    // latest reply.
+    markChatUnread('workspace', 14_000)
+    await chat.act(async () => noteChatOpened('workspace', 12_000, 15_000))
+    expect(dividers()).toHaveLength(1)
+    expect(belowDivider()).toContain('Lint is clean.')
+  } finally {
+    noteChatLeft('workspace')
     await chat.unmount()
   }
 })

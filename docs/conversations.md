@@ -529,6 +529,12 @@ brought back, renamed, or written to, and for a visit when it is the first
 since the chat's agent finished (the visits stamped while a chat stays on
 screen are not a push each).
 
+The desktop's own Mark unread (a row's menu) never moves `lastVisitedAt`: the
+clock only goes forward, so a chat marked unread there is still read on every
+other device. It puts the row's "finished while you were away" mark back up
+in that window, and the next time the chat is opened there its "New" divider
+sits above the latest reply.
+
 Both tools need `conversation:operate` and are audited, like
 `conversation.create`. A paired desktop's Remote rows use all of it: they are
 titled with `chatTitle`, ordered by `lastUserMessageAt` (else `updatedAt`),

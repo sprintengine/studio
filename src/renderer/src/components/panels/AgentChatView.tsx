@@ -144,6 +144,7 @@ import {
 } from './agentChat/quoteSelection'
 import { useStickToBottom } from './agentChat/useStickToBottom'
 import { ConversationRowFrame } from './agentChat/conversationRowFrame'
+import { type ChatOpening, unreadDividerRowId, useChatOpening } from './agentChat/unreadDivider'
 import { loadWholeConversation } from './agentChat/conversationReplay'
 import { ConversationReplayView, type ConversationReplaySource } from './agentChat/conversationReplayView'
 import { onChatReplayRequest, takeChatReplayRequest } from './agentChat/chatReplayRequests'
@@ -163,6 +164,7 @@ import { StudioConnectionNotice } from './agentChat/studioConnectionNotice'
 import { CompactGlyph } from './agentChat/toolRows/ToolKindGlyph'
 import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
 import { TimelineRow, type TimelineChrome } from './agentChat/timelineRows'
+import { UnreadDivider } from './agentChat/turnMeta'
 import type { EditFromHereDraft } from './agentChat/editFromHere'
 import { forkChat, takeForkedAttachments, type ForkFromHereTarget } from './agentChat/forkFromHere'
 import { EmptyChatState, ReadinessState, readinessLabel, type ChatReadiness } from './agentChat/chatStates'
@@ -884,6 +886,15 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     previousRowsRef.current = rows
     return rows
   }, [projection.entries, projection.activeTurn])
+  // The "New" divider: where the replies the reader has not seen begin, as
+  // they stood when the chat was opened (`unreadDivider.ts`). A chat followed
+  // from another machine keeps its visit clock there, so only one here has a
+  // divider.
+  const opening = useChatOpening(transport.kind === 'local' ? workspaceId : null)
+  const unreadRowId = useMemo(
+    () => (opening ? unreadDividerRowId(timelineRows, opening) : null),
+    [timelineRows, opening],
+  )
   const { handleRecallKeyDown, detachRecall } = useComposerRecall(shape.promptHistory, draft, setDraft)
 
   // A model switch made from a paired device reaches this window as the
@@ -1105,6 +1116,33 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     },
     [atBottomRef],
   )
+  // A chat opened with replies its reader has not seen opens at the divider,
+  // with what is new below it to read down into, instead of at the end: from
+  // the end the reader would have to find where they left off by scrolling
+  // back through it. Once per opening, and only where the chat would have
+  // opened at the end anyway — a place the reader left mid-history, or a
+  // search jump, keeps its own. Ahead of the end-follow below, which runs
+  // after it in the same commit and finds `atBottomRef` already off.
+  const landedOpeningRef = useRef<ChatOpening | null>(null)
+  const openingRef = useRef(opening)
+  openingRef.current = opening
+  useEffect(() => {
+    if (!opening || landedOpeningRef.current === opening || !hydrated) return
+    landedOpeningRef.current = opening
+    const index = unreadRowId ? timelineRows.findIndex((row) => row.id === unreadRowId) : -1
+    if (index < 0 || searching || !atBottomRef.current) return
+    atBottomRef.current = false
+    setAtBottom(false)
+    setAnchoredUserId(null)
+    // A frame later, as a search jump lands, so a list mounted this commit
+    // has laid out its first rows before it is moved. Not cancelled when the
+    // rows move on — a streaming chat moves them every frame, and the landing
+    // happens once — only skipped if the chat was left in the meantime.
+    requestAnimationFrame(() => {
+      if (openingRef.current !== opening) return
+      void listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false })
+    })
+  }, [opening, hydrated, unreadRowId, timelineRows, searching, atBottomRef, setAtBottom])
   const followedInitialSnapshot = useRef(false)
   useEffect(() => {
     if (!hydrated) return
@@ -2524,9 +2562,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // ending, a retry becoming possible, a jump's flash, never with a token.
   // `chrome` is the previous object while nothing in it changed (above).
   const rowContext = useMemo(
-    () => ({ chrome, flashRowId, hydrated, replayThroughSeq }),
+    () => ({ chrome, flashRowId, hydrated, replayThroughSeq, unreadRowId }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chrome, flashRowId, hydrated, replayThroughSeq],
+    [chrome, flashRowId, hydrated, replayThroughSeq, unreadRowId],
   )
 
   const completedReplies = shape.completedReplies
@@ -2840,21 +2878,24 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 // here rather than only in the closure below.
                 extraData={rowContext}
                 renderItem={({ item }) => (
-                  <ConversationRowFrame
-                    key={item.id}
-                    id={item.id}
-                    live={
-                      hydrated &&
-                      (item.kind === 'user'
-                        ? item.entry.seq === undefined || item.entry.seq > replayThroughSeq
-                        : item.kind === 'assistant' && (item.entry.checkpointTurnSeq ?? 0) > replayThroughSeq)
-                    }
-                    seen={animatedRowIds.current}
-                    flash={flashRowId === item.id}
-                    onFlashEnd={clearFlash}
-                  >
-                    <TimelineRow key={item.id} row={item} chrome={chrome} />
-                  </ConversationRowFrame>
+                  <>
+                    {item.id === unreadRowId ? <UnreadDivider /> : null}
+                    <ConversationRowFrame
+                      key={item.id}
+                      id={item.id}
+                      live={
+                        hydrated &&
+                        (item.kind === 'user'
+                          ? item.entry.seq === undefined || item.entry.seq > replayThroughSeq
+                          : item.kind === 'assistant' && (item.entry.checkpointTurnSeq ?? 0) > replayThroughSeq)
+                      }
+                      seen={animatedRowIds.current}
+                      flash={flashRowId === item.id}
+                      onFlashEnd={clearFlash}
+                    >
+                      <TimelineRow key={item.id} row={item} chrome={chrome} />
+                    </ConversationRowFrame>
+                  </>
                 )}
                 keyExtractor={(row) => row.id}
                 getItemType={(row) => row.kind}

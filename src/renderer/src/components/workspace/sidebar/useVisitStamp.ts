@@ -35,6 +35,13 @@ export type VisitTarget = {
   /** Its visit clock as last read. */
   visitedAt: number | null
   stamp: (at: number) => void
+  /**
+   * Said once as the chat comes in front, before the first stamp moves its
+   * clock, and `left` once as it stops being in front: the chat view reads
+   * what was unread from the clock as it stood (`unreadDivider.ts`).
+   */
+  opened?: () => void
+  left?: () => void
 }
 
 /** Stamp `target` while it is on screen. Null, or off screen, stamps nothing. */
@@ -46,6 +53,16 @@ export function useVisitStamp(target: VisitTarget | null, onScreen: boolean): vo
   const stampedAt = useRef(new Map<string, number>())
   const key = target?.key ?? null
   const turnEndedAt = target?.turnEndedAt ?? null
+  // Ahead of the stamping below, which runs after it in the same commit: the
+  // opening has to read the clock before the visit moves it. Not gated on the
+  // window being focused — the chat is the one in front either way, and the
+  // person coming back to the window is not opening it again.
+  useEffect(() => {
+    if (key === null) return
+    const current = targetRef.current
+    current?.opened?.()
+    return () => current?.left?.()
+  }, [key])
   useEffect(() => {
     if (!onScreen || key === null) return
     const tick = (): void => {

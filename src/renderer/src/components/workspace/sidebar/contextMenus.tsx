@@ -49,6 +49,7 @@ export function workspaceTypeRowActions(
 
 export type ContextMenuAction =
   | 'open'
+  | 'mark-unread'
   | 'rename'
   | 'new-chat'
   | 'reveal'
@@ -78,6 +79,7 @@ export function WorkspaceContextMenu({
   now,
   working,
   remoteSettle = false,
+  canMarkUnread = false,
   onClose,
   onSelect,
   onPickColor,
@@ -96,6 +98,11 @@ export function WorkspaceContextMenu({
    * (`conversation-lifecycle`): Settle asks that machine, which owns the chat.
    */
   remoteSettle?: boolean
+  /**
+   * An agent here has finished something, the chat is not the one in front,
+   * and its row is not already marked: Mark unread has something to mark.
+   */
+  canMarkUnread?: boolean
   onClose: () => void
   onSelect: (action: ContextMenuAction) => void
   onPickColor: (color: HighlightColor) => void
@@ -123,6 +130,7 @@ export function WorkspaceContextMenu({
       surfaceClassName="min-w-[240px]"
     >
       <MenuItem onClick={() => onSelect('open')}>Open</MenuItem>
+      {canMarkUnread ? <MenuItem onClick={() => onSelect('mark-unread')}>Mark unread</MenuItem> : null}
       <MenuItem onClick={() => onSelect('rename')} shortcut="F2">
         Rename
       </MenuItem>

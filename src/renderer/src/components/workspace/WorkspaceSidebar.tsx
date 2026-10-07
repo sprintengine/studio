@@ -132,6 +132,7 @@ import {
   rowHasOpenTerminals,
 } from './sidebar/rowTerminals'
 import { useVisitStamp, type VisitTarget } from './sidebar/useVisitStamp'
+import { markChatUnread, noteChatLeft, noteChatOpened } from '../panels/agentChat/unreadDivider'
 import { onWorkspaceSettledElsewhere, takeWorkspacesSettledElsewhere } from '../../utils/settledElsewhere'
 import { useWindowActive } from '../../utils/windowActivity'
 import {
@@ -1249,6 +1250,13 @@ function WorkspaceSidebar({
       turnEndedAt,
       visitedAt: typeof workspace.lastVisitedAt === 'number' ? workspace.lastVisitedAt : null,
       stamp: (at) => recordWorkspaceVisit(workspace.id, at),
+      // The clock is read off the live store: the rows here are not drawn
+      // again for a visit, so theirs can be a stamp behind.
+      opened: () => {
+        const live = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)
+        noteChatOpened(workspace.id, typeof live?.lastVisitedAt === 'number' ? live.lastVisitedAt : null, Date.now())
+      },
+      left: () => noteChatLeft(workspace.id),
     }
   }, [
     globalSurfaceActive,
@@ -1259,6 +1267,21 @@ function WorkspaceSidebar({
     recordWorkspaceVisit,
   ])
   useVisitStamp(visitTarget, windowActive)
+
+  // Mark unread puts a row's "finished while you were away" mark back up and,
+  // the next time the chat is opened here, the "New" divider above its latest
+  // reply. Offered only where that means something: an agent in the chat has
+  // finished a turn, the row is not already marked, and the chat is not the
+  // one in front — opening is what clears the mark, so the chat being looked
+  // at would lose it at once. A chat followed from a paired machine keeps its
+  // read state there, so it is not offered for one.
+  const canMarkWorkspaceUnread = (workspace: Workspace): boolean => {
+    if (workspace.remoteOrigin || workspace.id === activeWorkspaceId || unseenDoneIds.has(workspace.id)) return false
+    if (typeof workspace.lastTurnEndedAt === 'number') return true
+    return (conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS).some(
+      (session) => typeof session.lastTurnEndedAt === 'number',
+    )
+  }
 
   // A row opened from a paired machine's chat is settled by that machine,
   // which owns the chat; Settle from its menu asks it first, and only once it
@@ -2958,6 +2981,10 @@ function WorkspaceSidebar({
             const workspace = workspaceById.get(contextMenu.workspaceId)
             return workspace ? remoteKeepsRest(workspace) : false
           })()}
+          canMarkUnread={(() => {
+            const workspace = workspaceById.get(contextMenu.workspaceId)
+            return workspace ? canMarkWorkspaceUnread(workspace) : false
+          })()}
           onClose={() => setContextMenu(null)}
           onSelect={(action) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
@@ -2981,6 +3008,12 @@ function WorkspaceSidebar({
             }
             if (action === 'open') {
               onSelectWorkspace(workspace.id)
+              setContextMenu(null)
+              return
+            }
+            if (action === 'mark-unread') {
+              markChatUnread(workspace.id, Date.now())
+              setUnseenDoneIds((previous) => new Set(previous).add(workspace.id))
               setContextMenu(null)
               return
             }
