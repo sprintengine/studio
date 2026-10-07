@@ -81,6 +81,12 @@ test('an update is read field by field', () => {
     workspaceId: 'ws-1',
     agentId: 'a-1',
   })
+  expect(parseUsageLimitResumeUpdate({ kind: 'retry', workspaceId: 'ws-1', agentId: 'a-1' })).toEqual({
+    kind: 'retry',
+    workspaceId: 'ws-1',
+    agentId: 'a-1',
+  })
+  expect(parseUsageLimitResumeUpdate({ kind: 'resend', workspaceId: 'ws-1', agentId: 'a-1' })).toBeNull()
   expect(parseUsageLimitResumeUpdate({ kind: 'dismiss', workspaceId: 'ws-1' })).toBeNull()
   expect(parseUsageLimitResumeUpdate({ kind: 'cancel', workspaceId: '', agentId: 'a-1' })).toBeNull()
   expect(parseUsageLimitResumeUpdate({ kind: 'auto', enabled: 'yes' })).toBeNull()

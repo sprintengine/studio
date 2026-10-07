@@ -22,8 +22,8 @@ const MAX_ID_LENGTH = 200
 /**
  * `usage-limit-resumes:get` answers with the chats a usage limit stopped and
  * the setting; every change after that is pushed to each window that asked.
- * `usage-limit-resumes:update` schedules, cancels or dismisses one chat's
- * resume, or switches the setting, and answers with the state after it.
+ * `usage-limit-resumes:update` schedules, cancels, dismisses or retries one
+ * chat's resume, or switches the setting, and answers with the state after it.
  */
 export function registerUsageLimitResumeIpc(ipcMain: IpcMain, resumer: UsageLimitResumer): { stop: () => void } {
   const subscribers = new Map<number, SubscriberLike>()
@@ -60,7 +60,8 @@ export function registerUsageLimitResumeIpc(ipcMain: IpcMain, resumer: UsageLimi
 export function parseUsageLimitResumeUpdate(input: unknown): UsageLimitResumeUpdate | null {
   if (!isRecord(input)) return null
   if (input.kind === 'auto') return typeof input.enabled === 'boolean' ? { kind: 'auto', enabled: input.enabled } : null
-  if (input.kind !== 'schedule' && input.kind !== 'cancel' && input.kind !== 'dismiss') return null
+  if (input.kind !== 'schedule' && input.kind !== 'cancel' && input.kind !== 'dismiss' && input.kind !== 'retry')
+    return null
   if (!id(input.workspaceId) || !id(input.agentId)) return null
   return { kind: input.kind, workspaceId: input.workspaceId, agentId: input.agentId }
 }

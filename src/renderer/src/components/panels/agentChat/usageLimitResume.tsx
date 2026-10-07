@@ -1,8 +1,9 @@
 // The composer tray's row for a chat a usage limit stopped: which limit, when
 // it resets, and Resume at reset, which has Studio send the chat a short "carry
 // on" once it has. With the resume scheduled the row says when it goes out,
-// and Cancel takes it back. Main keeps the resumes and sends them
-// (src/main/usage-limits/resume.ts); this only draws one chat's.
+// and Cancel takes it back. A resume the chat refused says why, with Retry.
+// Main keeps the resumes and sends them (src/main/usage-limits/resume.ts);
+// this only draws one chat's.
 
 import { memo, useEffect, type JSX } from 'react'
 
@@ -41,6 +42,12 @@ export function usageLimitResumeWords(notice: UsageLimitResumeNotice, now: numbe
   return `${head} It did not say when it resets.`
 }
 
+/** A refused resume in words: "Couldn't resume: the chat has no folder on this machine." */
+export function usageLimitResumeFailureWords(failure: string): string {
+  const reason = failure.trim().replace(/\.$/u, '')
+  return `Couldn't resume: ${reason ? reason.charAt(0).toLowerCase() + reason.slice(1) : 'the chat refused it'}.`
+}
+
 function UsageLimitResumeRowBody({
   workspaceId,
   agentId,
@@ -56,9 +63,30 @@ function UsageLimitResumeRowBody({
   // A minute's resolution: the words count down in minutes.
   const now = useRelativeNow(30_000, notice !== null)
   if (!notice) return null
+  const chat = { workspaceId, agentId }
+  // The resume went out and the chat refused it: said here, where the person
+  // looks, until they send it again or put it away.
+  if (notice.failure !== undefined) {
+    return (
+      <ComposerTrayRow
+        tone="warn"
+        actions={
+          <>
+            <GhostButton size="xs" onClick={() => void updateUsageLimitResume({ kind: 'retry', ...chat })}>
+              Retry
+            </GhostButton>
+            <GhostButton size="xs" onClick={() => void updateUsageLimitResume({ kind: 'dismiss', ...chat })}>
+              Dismiss
+            </GhostButton>
+          </>
+        }
+      >
+        {usageLimitResumeFailureWords(notice.failure)}
+      </ComposerTrayRow>
+    )
+  }
   // Nothing scheduled and the limit has reset: the notice is no longer true.
   if (notice.resumeAt === null && notice.resetsAt !== null && notice.resetsAt <= now) return null
-  const chat = { workspaceId, agentId }
   const words = usageLimitResumeWords(notice, now)
 
   if (notice.resumeAt !== null) {

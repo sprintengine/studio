@@ -147,3 +147,15 @@ test("another chat's notice, or one whose limit has reset with nothing scheduled
   )
   expect(row.textContent).toBe('')
 })
+
+test('a resume the chat refused says why, with Retry, even after the limit has reset', async () => {
+  installApi({
+    autoResume: true,
+    notices: [live({ resetsAt: LIVE - MINUTE, failure: 'The chat has no folder on this machine' })],
+  })
+  const row = await render(<UsageLimitResumeRow workspaceId="ws-1" agentId="agent-1" />)
+  expect(row.textContent).toMatch(/^Couldn't resume: the chat has no folder on this machine\./)
+  expect(buttons(row)).toEqual(['Retry', 'Dismiss'])
+  await click(row, 'Retry')
+  expect(updates).toEqual([{ kind: 'retry', workspaceId: 'ws-1', agentId: 'agent-1' }])
+})

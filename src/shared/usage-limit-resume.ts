@@ -20,6 +20,11 @@ export type UsageLimitResumeNotice = UsageLimitResumeChat & {
   hitAt: number
   /** When the continuation goes out (epoch ms), or null while none is scheduled. */
   resumeAt: number | null
+  /**
+   * The continuation was sent and the chat refused it, in the chat's words.
+   * The notice stays, saying so, until Retry or Dismiss; nothing is scheduled.
+   */
+  failure?: string
 }
 
 export type UsageLimitResumeState = {
@@ -31,10 +36,10 @@ export type UsageLimitResumeState = {
 /**
  * What a window asks of the resumes: schedule a chat's (Resume at reset),
  * cancel it but keep the notice, dismiss the notice with whatever it had
- * scheduled, or switch the setting.
+ * scheduled, send one that failed again now, or switch the setting.
  */
 export type UsageLimitResumeUpdate =
-  (UsageLimitResumeChat & { kind: 'schedule' | 'cancel' | 'dismiss' }) | { kind: 'auto'; enabled: boolean }
+  (UsageLimitResumeChat & { kind: 'schedule' | 'cancel' | 'dismiss' | 'retry' }) | { kind: 'auto'; enabled: boolean }
 
 const HOUR_MS = 60 * 60 * 1000
 

@@ -43,14 +43,21 @@ import type { UsageRateLimitAnswer } from './store'
 // - the chat is idle: not running a turn, not waiting on a question or an
 //   approval. A busy chat is looked at again a minute later, for a while;
 // - the person has not sent the chat anything since the limit stopped it.
-//   Whatever they said is the chat's next step, and it replaces this one;
+//   Whatever they said is the chat's next step, and it replaces this one. The
+//   chat's own messages count, not its workspace's, and only the person's: a
+//   message Studio sent it (a launched agent's notice) carries Studio's origin;
 // - the provider is not still limited by a window that resets later (a
 //   weekly limit behind the session one): the resume moves to that reset.
 //
 // A chat has at most one resume, for the latest limit that stopped it, and a
 // limit hit is resumed at most once: the hit is remembered, and the send
 // carries a command id made from it, which the chat's runtime answers from its
-// receipt if it is ever sent again.
+// receipt if it is ever sent again. A send the chat refuses stays on the chat
+// as a notice saying so, with Retry, which sends again under a new id.
+//
+// The resumes follow the limit hits as they happen, not the chats' records:
+// a chat whose turn failed records that it failed, but not which window ran
+// out or when it resets, which is what the resume waits for.
 
 export const USAGE_LIMIT_RESUMES_FILE = 'usage-limit-resumes.json'
 const FORMAT_VERSION = 1
@@ -79,6 +86,8 @@ const UNKNOWN_RESET_NOTICE_MS = 12 * 60 * 60_000
 const MAX_RESUMED = 100
 /** Ids are minted by the app and short; this only keeps a hand-edited file from carrying a strange one. */
 const MAX_ID_LENGTH = 200
+/** A refusal's words, as the notice keeps them. */
+const MAX_FAILURE_LENGTH = 300
 
 /**
  * The turn a resume sends. Studio's own words: the chat records it as Studio's
@@ -97,6 +106,10 @@ type PendingResume = UsageLimitResumeChat & {
   fireAt: number | null
   /** When it first came due, for giving up on a chat that stays busy. */
   dueSince?: number
+  /** The chat refused the resume, in its words: kept as a notice until Retry or Dismiss. */
+  failure?: string
+  /** How many times Retry sent it again; each send needs a command id of its own. */
+  attempt?: number
 }
 
 type ResumedHit = UsageLimitResumeChat & { hitAt: number; at: number }
@@ -117,8 +130,12 @@ export type UsageLimitResumerDeps = {
   limitKind?: (provider: UsageLimitProvider, windowId: string | null) => UsageLimitKind
   listSessions: () => ConversationSessionSummary[]
   onConversationEvent: (listener: (event: ConversationEvent) => void) => () => void
-  /** The chat as its record has it, or null for one deleted. */
-  chat: (chat: UsageLimitResumeChat) => { settled: boolean; lastUserMessageAt: number | null } | null
+  /**
+   * The chat as its record has it, or null for one deleted. When the person
+   * last wrote to it is its sessions' (`lastUserMessageAt`, the chat's own and
+   * the person's only), not the record's, which is its workspace's.
+   */
+  chat: (chat: UsageLimitResumeChat) => { settled: boolean } | null
   /** Send a turn through the chat's normal send path, resuming its session when none is live. */
   send: (chat: UsageLimitResumeChat, message: string, commandId: string) => Promise<UsageLimitResumeSendResult>
   now?: () => number
@@ -200,6 +217,7 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
         resetsAt: entry.resetsAt,
         hitAt: entry.hitAt,
         resumeAt: entry.fireAt,
+        ...(entry.failure ? { failure: entry.failure } : {}),
       })),
     }
   }
@@ -216,9 +234,11 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
     let dropped = false
     for (const [key, entry] of pending) {
       const gone = deps.chat(entry) === null
-      // A notice nobody scheduled is about a limit that has reset.
+      // A notice nobody scheduled is about a limit that has reset. One that
+      // says a resume failed stays until the person has read it.
       const lapsed =
         entry.fireAt === null &&
+        entry.failure === undefined &&
         (entry.resetsAt !== null ? entry.resetsAt <= at : at - entry.hitAt > UNKNOWN_RESET_NOTICE_MS)
       if (gone || lapsed) {
         pending.delete(key)
@@ -229,6 +249,7 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
   }
 
   function rememberResumed(entry: PendingResume, at: number): void {
+    if (wasResumed(entry, entry.hitAt)) return
     resumed = [...resumed, { workspaceId: entry.workspaceId, agentId: entry.agentId, hitAt: entry.hitAt, at }].slice(
       -MAX_RESUMED,
     )
@@ -319,13 +340,12 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
     const record = deps.chat(entry)
     if (!record) return drop('the chat was deleted')
     if (record.settled) return drop('the chat was put to rest')
+    // This chat's own sessions: another chat in its workspace being written to
+    // is not this one's next step.
     const sessions = deps
       .listSessions()
       .filter((session) => session.workspaceId === entry.workspaceId && session.agentId === entry.agentId)
-    const lastSent = Math.max(
-      record.lastUserMessageAt ?? 0,
-      ...sessions.map((session) => session.lastUserMessageAt ?? 0),
-    )
+    const lastSent = Math.max(0, ...sessions.map((session) => session.lastUserMessageAt ?? 0))
     if (lastSent > entry.hitAt) return drop('the person has written to it since')
     // Still held back by a window that resets later: wait for that one.
     const limit = deps.rateLimit(entry.provider, at)
@@ -356,16 +376,19 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
       result = await deps.send(
         { workspaceId: entry.workspaceId, agentId: entry.agentId },
         USAGE_LIMIT_RESUME_MESSAGE,
-        `usage-limit-resume:${entry.hitAt}`,
+        // A retry is a new command: the first one's receipt answers its own id
+        // with its refusal.
+        `usage-limit-resume:${entry.hitAt}${entry.attempt ? `:${entry.attempt}` : ''}`,
       )
     } catch (error) {
       result = { ok: false, message: error instanceof Error ? error.message : String(error) }
     }
     if (result.ok || !running) return
+    // Something newer has taken the chat's place meanwhile: that one stands.
+    if (pending.has(key)) return
     // A turn that started between the look and the send: the same wait as a
-    // busy chat, unless something newer has taken the chat's place meanwhile.
-    if (result.code === 'busy' && !pending.has(key)) {
-      resumed = resumed.filter((hit) => !(chatKey(hit) === key && hit.hitAt === entry.hitAt))
+    // busy chat.
+    if (result.code === 'busy') {
       const at = now()
       entry.dueSince ??= at
       if (at - entry.dueSince <= BUSY_GIVE_UP_MS) {
@@ -375,7 +398,15 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
         return
       }
     }
-    log(`A chat's resume after its usage limit was not sent: ${result.message ?? 'the chat refused it'}.`)
+    // Refused: the chat says so, with Retry, rather than a line in a log
+    // nobody reads.
+    const reason = failureWords(result.message)
+    log(`A chat's resume after its usage limit was not sent: ${reason}.`)
+    entry.failure = reason
+    entry.fireAt = null
+    entry.dueSince = undefined
+    pending.set(key, entry)
+    changed()
   }
 
   // ── What a window asks ───────────────────────────────────────────────────
@@ -384,6 +415,16 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
     if (input.kind === 'auto') {
       if (autoResume !== input.enabled) {
         autoResume = input.enabled
+        // On, it schedules every chat already waiting on a reset still ahead,
+        // as it would have had it been on when the limit stopped them. A
+        // resume that failed waits for its Retry; one cancelled is
+        // scheduled again, which is what turning this on asks for.
+        if (autoResume) {
+          const at = now()
+          for (const entry of pending.values())
+            if (entry.fireAt === null && entry.failure === undefined && entry.resetsAt !== null && entry.resetsAt > at)
+              entry.fireAt = fireTimeFor(entry.resetsAt)
+        }
         changed()
       }
       return state()
@@ -395,8 +436,15 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
     else if (input.kind === 'cancel') {
       entry.fireAt = null
       entry.dueSince = undefined
+    } else if (input.kind === 'retry') {
+      if (entry.failure === undefined) return state()
+      entry.failure = undefined
+      entry.attempt = (entry.attempt ?? 0) + 1
+      entry.dueSince = undefined
+      entry.fireAt = now()
     } else {
       if (entry.resetsAt === null) return state()
+      entry.failure = undefined
       entry.fireAt = entry.resetsAt > now() ? fireTimeFor(entry.resetsAt) : now()
     }
     changed()
@@ -506,8 +554,19 @@ function readPending(raw: unknown): PendingResume[] {
       createdAt: raw.createdAt,
       fireAt: time(raw.fireAt) ? raw.fireAt : null,
       ...(time(raw.dueSince) ? { dueSince: raw.dueSince } : {}),
+      ...(typeof raw.failure === 'string' && raw.failure ? { failure: failureWords(raw.failure) } : {}),
+      ...(typeof raw.attempt === 'number' && Number.isInteger(raw.attempt) && raw.attempt > 0
+        ? { attempt: raw.attempt }
+        : {}),
     },
   ]
+}
+
+/** A refusal in a few words, one line, as the notice shows it. */
+function failureWords(message: string | undefined): string {
+  const flat = (message ?? '').replace(/\s+/gu, ' ').trim().replace(/\.$/u, '')
+  if (!flat) return 'the chat refused it'
+  return flat.length > MAX_FAILURE_LENGTH ? `${flat.slice(0, MAX_FAILURE_LENGTH - 1).trimEnd()}…` : flat
 }
 
 function readResumed(raw: unknown): ResumedHit[] {

@@ -51,7 +51,7 @@ function harness(options: { storage?: UsageLimitResumeStorage; now?: number } = 
   const hitListeners = new Set<(hit: UsageLimitHit) => void>()
   const eventListeners = new Set<(event: ConversationEvent) => void>()
   const sessions: ConversationSessionSummary[] = []
-  const records = new Map<string, { settled: boolean; lastUserMessageAt: number | null }>()
+  const records = new Map<string, { settled: boolean }>()
   const sent: Array<{ chat: typeof CHAT; message: string; commandId: string }> = []
   const limits = new Map<UsageLimitProvider, UsageRateLimitAnswer>()
   const storage = options.storage ?? memoryStorage()
@@ -95,7 +95,7 @@ function harness(options: { storage?: UsageLimitResumeStorage; now?: number } = 
   })
 
   function addChat(chat = CHAT, session: Partial<ConversationSessionSummary> = {}) {
-    records.set(`${chat.workspaceId}/${chat.agentId}`, { settled: false, lastUserMessageAt: null })
+    records.set(`${chat.workspaceId}/${chat.agentId}`, { settled: false })
     sessions.push({
       sessionId: `s-${chat.agentId}`,
       ...chat,
@@ -276,11 +276,26 @@ test('a message the person sent that the event stream missed still stops the res
   h.resumer.update({ kind: 'auto', enabled: true })
   h.addChat()
   h.hit()
-  h.records.get('ws-1/agent-1')!.lastUserMessageAt = T0 + HOUR
+  // The chat's own session says the person wrote, as a resumed session reads it back.
+  h.sessions[0]!.lastUserMessageAt = T0 + HOUR
   await h.advance(3 * HOUR)
   assert.equal(h.sent.length, 0)
   assert.equal(notice(h), null)
   assert.match(h.logs.join('\n'), /written to it since/)
+})
+
+test('the person writing to another chat in the same workspace does not take this one’s resume back', async () => {
+  const h = await started()
+  h.resumer.update({ kind: 'auto', enabled: true })
+  h.addChat()
+  const sibling = { workspaceId: CHAT.workspaceId, agentId: 'agent-sibling' }
+  h.addChat(sibling, { lastUserMessageAt: T0 + HOUR })
+  h.hit()
+  h.jump(HOUR)
+  h.emit(userMessage(sibling, h.now()))
+  await h.advance(3 * HOUR)
+  assert.equal(h.sent.length, 1)
+  assert.deepEqual(h.sent[0]?.chat, CHAT)
 })
 
 test('a chat deleted before its resume is forgotten, and none is sent', async () => {
@@ -416,7 +431,7 @@ test('several chats due together go one after another, a few seconds apart', asy
   )
 })
 
-test('a refused send while a turn started is tried again; any other refusal is reported', async () => {
+test('a refused send while a turn started is tried again', async () => {
   const h = await started()
   h.resumer.update({ kind: 'auto', enabled: true })
   h.addChat()
@@ -429,6 +444,55 @@ test('a refused send while a turn started is tried again; any other refusal is r
   await h.advance(2 * MINUTE)
   assert.equal(h.sent.length, 2)
   assert.equal(notice(h), null)
+})
+
+test('any other refusal stays on the chat as a notice saying why, and Retry sends it again as a new command', async () => {
+  const h = await started()
+  h.resumer.update({ kind: 'auto', enabled: true })
+  h.addChat()
+  h.hit()
+  h.answerSends(() => ({ ok: false, message: 'Conversation provider is unavailable.' }))
+  await h.advance(2 * HOUR + 2 * MINUTE)
+  assert.equal(h.sent.length, 1)
+  assert.deepEqual(notice(h), {
+    ...CHAT,
+    provider: 'claude',
+    limit: 'session',
+    resetsAt: T0 + 2 * HOUR,
+    hitAt: T0,
+    resumeAt: null,
+    failure: 'Conversation provider is unavailable',
+  })
+  // It stays past the reset it was about: the person has not read it yet.
+  await h.advance(6 * HOUR)
+  assert.equal(notice(h)?.failure, 'Conversation provider is unavailable')
+  assert.equal(h.sent.length, 1, 'nothing is retried by itself')
+
+  h.answerSends(() => ({ ok: true }))
+  h.resumer.update({ kind: 'retry', ...CHAT })
+  await h.advance(10_000)
+  assert.equal(h.sent.length, 2)
+  assert.equal(h.sent[1]?.commandId, `usage-limit-resume:${T0}:1`, 'the first id’s receipt holds its refusal')
+  assert.equal(notice(h), null)
+})
+
+test('turning the setting on schedules every chat already waiting on a reset still ahead', async () => {
+  const h = await started()
+  h.addChat()
+  h.addChat(OTHER)
+  h.hit()
+  h.hit(OTHER, { resetsAt: null })
+  assert.equal(notice(h)!.resumeAt, null)
+  h.resumer.update({ kind: 'auto', enabled: true })
+  const resumeAt = notice(h)!.resumeAt!
+  assert.ok(resumeAt >= T0 + 2 * HOUR + MINUTE && resumeAt <= T0 + 2 * HOUR + MINUTE + 30_000, String(resumeAt))
+  // One with no reset known has nothing to wait for.
+  assert.equal(h.resumer.state().notices.find((entry) => entry.agentId === OTHER.agentId)?.resumeAt, null)
+  await h.advance(3 * HOUR)
+  assert.deepEqual(
+    h.sent.map((entry) => entry.chat),
+    [CHAT],
+  )
 })
 
 test('the schedule and the setting survive a restart, and a resume due while the app was closed goes out after start', async () => {
@@ -522,4 +586,26 @@ test('every change is told to the listeners', async () => {
   h.hit()
   h.resumer.update({ kind: 'dismiss', ...CHAT })
   assert.deepEqual(told, [1, 0])
+})
+
+test('a refused resume is still on the chat after a restart, and its Retry counts on from there', async () => {
+  const storage = memoryStorage()
+  const first = await started({ storage })
+  first.resumer.update({ kind: 'auto', enabled: true })
+  first.addChat()
+  first.hit()
+  first.answerSends(() => ({ ok: false, message: 'Conversation provider is unavailable.' }))
+  await first.advance(2 * HOUR + 2 * MINUTE)
+  first.resumer.update({ kind: 'retry', ...CHAT })
+  await first.advance(10_000)
+  assert.equal(first.sent.at(-1)?.commandId, `usage-limit-resume:${T0}:1`)
+  await first.resumer.dispose()
+
+  const second = harness({ storage, now: first.now() + HOUR })
+  second.addChat()
+  await second.resumer.start()
+  assert.equal(notice(second)?.failure, 'Conversation provider is unavailable')
+  second.resumer.update({ kind: 'retry', ...CHAT })
+  await second.advance(30_000)
+  assert.equal(second.sent.at(-1)?.commandId, `usage-limit-resume:${T0}:2`)
 })

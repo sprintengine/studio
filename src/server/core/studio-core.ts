@@ -38,16 +38,8 @@ import { createWorkspaceRegistryService } from '../../main/workspace-registry-se
 import { createWorkspaceRegistryStore } from '../../main/workspace-registry-store'
 import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
 import { createConversationLifecycle } from '../../main/automation/conversation-lifecycle'
-import {
-  createUsageLimitResumer,
-  USAGE_LIMIT_RESUMES_FILE,
-  usageLimitResumeFileStorage,
-} from '../../main/usage-limits/resume'
-import { onUsageLimitHit, usageLimitsStore, usageRateLimit } from '../../main/usage-limits/store'
 import { conversationSummaryPhase } from '../../shared/conversation/phase'
 import type { ConversationMessageOrigin, ConversationSessionSummary } from '../../shared/conversation-runtime'
-import { usageLimitKindOf } from '../../shared/usage-limit-resume'
-import { isSettledWorkspace } from '../../shared/workspace-lifecycle'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
 import { createPullRequestDomain } from '../pull-requests/pull-request-domain'
@@ -61,9 +53,7 @@ import {
 import type { WslServers } from '../wsl/desktop-wsl-servers'
 import type { StudioRole } from './data-dir'
 import { takeDataDir } from './take-data-dir'
-
-/** The client a resume after a usage limit is sent as, for the runtime's command receipts. */
-const STUDIO_RESUME_CLIENT_ID = 'studio-usage-limit-resume'
+import { createStudioUsageLimitResumes } from './studio-usage-limit-resumes'
 
 // The Studio core: the services the server owns (studio-server design, section
 // 4.1), composed once. The desktop builds it inside Electron main, from
@@ -538,38 +528,14 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     )
 
   // A chat a usage limit stopped picks up again when the limit resets
-  // (usage-limits/resume.ts). The limits are reported in this process, by the
-  // chats it runs; the resume goes through the same send a paired device's
-  // does, which resumes a chat with no live session from its record.
-  let resumeHost: ReturnType<typeof createConversationHost> | null = null
-  const usageLimitResumes = createUsageLimitResumer({
-    storage: usageLimitResumeFileStorage(join(dataDir, USAGE_LIMIT_RESUMES_FILE)),
-    onLimitHit: onUsageLimitHit,
-    rateLimit: (provider, now) => usageRateLimit(provider, now),
-    limitKind: (provider, windowId) => {
-      if (!windowId) return null
-      const window = usageLimitsStore()
-        .state()
-        .snapshots.find((snapshot) => snapshot.provider === provider)
-        ?.windows.find((candidate) => candidate.id === windowId)
-      return usageLimitKindOf(windowId, window?.durationMs)
-    },
-    listSessions: () => {
-      const listed = conversations.listSessions()
-      return listed.ok ? listed.sessions : []
-    },
-    onConversationEvent: (listener) => conversations.onEvent(listener),
-    chat: ({ workspaceId, agentId }) => {
-      const record = workspaceRegistry.getRecord(workspaceId)
-      if (!record?.agents[agentId]) return null
-      return { settled: isSettledWorkspace(record), lastUserMessageAt: record.lastUserMessageAt ?? null }
-    },
-    send: async (chat, message, commandId) => {
-      resumeHost ??= createConversationHost({ origin: { kind: 'studio', reason: 'usage-resume' } })
-      const key = resumeHost.resolveKey(chat.workspaceId, chat.agentId)
-      if (!key) return { ok: false, message: 'The chat has no folder on this machine.' }
-      return resumeHost.command(key, STUDIO_RESUME_CLIENT_ID, commandId, { kind: 'send', message })
-    },
+  // (usage-limits/resume.ts, wired in studio-usage-limit-resumes.ts). The
+  // limits are reported in this process, by the chats it runs; the resume goes
+  // through the same send a paired device's does, marked as Studio's.
+  const usageLimitResumes = createStudioUsageLimitResumes({
+    dataDir,
+    conversations,
+    workspaceRecord: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
+    createHost: (hostOptions) => createConversationHost(hostOptions),
     log: (message) => {
       void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Usage limits', message })
     },
