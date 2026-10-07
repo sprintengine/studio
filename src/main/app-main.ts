@@ -420,6 +420,7 @@ registerAppLifecycle({
   releaseDataDir: () => (serverHost ? undefined : services.studioCore.dataDirLock?.release()),
   canvasService: services.canvasService,
   worktreePool: services.worktreePool,
+  dependencyInstaller: services.dependencyInstaller,
   browserRecorder: services.browserRecorder,
   desktopShell: serverHost ? services.desktopShell : null,
   conversationCommands: coreIpc.conversationCommands,

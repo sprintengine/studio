@@ -218,6 +218,16 @@ export type GitWorktreeCreateInput = {
   fromPool?: boolean
   /** The machine whose git makes it (a WSL machine's); absent resolves from the folder. */
   hostId?: string
+  /**
+   * With `fromPool`, how the project's dependency install is waited for
+   * (worktree-pool/dependency-install.ts): `wait`, the default, answers once
+   * it has ended, so the agent starts after it; `start` answers as soon as it
+   * is running, with its running view, for a caller in main that waits on it
+   * itself (`DependencyInstaller.settled`) and has a reason not to hold its
+   * own caller that long — a gateway call, whose client gives up on a call
+   * long before an install ends. A window's own launch always waits.
+   */
+  dependencyInstall?: 'wait' | 'start'
 }
 
 /** A created worktree, and what it was forked from. */
@@ -226,7 +236,11 @@ export type GitWorktreeCreated = GitWorktreeEntry & {
   baseRef: string
   /** Set when the worktree is a pool slot: the lease to give back if the launch fails. */
   leaseId: string | null
-  /** The dependency install the lease ran before handing the slot out, when it ran one. */
+  /**
+   * The dependency install the agent worktree ran before it was handed out,
+   * when it ran one: how it ended, or, asked to only `start` it, the install
+   * still running.
+   */
   dependencyInstall?: WorktreeDependencyInstallView | null
 }
 
@@ -500,9 +514,14 @@ async function finishAddedWorktree(
  * a pool (worktree-pool/), else a fresh worktree forked from the same ref.
  *
  * The pool declining is never the caller's problem — another Studio holds it,
- * the repository is on a WSL machine, the pool is off — and the fresh worktree
- * is what the caller would have got before there was a pool. A name the branch
- * cannot take is the caller's, and is reported as the fresh path would.
+ * the repository is on a WSL machine, the pool is off or full — and the fresh
+ * worktree is what the caller would have got before there was a pool. A name
+ * the branch cannot take is the caller's, and is reported as the fresh path
+ * would.
+ *
+ * Either way the project's dependency install runs before the worktree is
+ * handed out, when the project opted in (`withDependencyInstall`). A fresh
+ * worktree is the case that needs it most: it has no `node_modules` at all.
  */
 async function createAgentWorktreeFromPool(
   input: GitWorktreeCreateInput,
@@ -524,21 +543,13 @@ async function createAgentWorktreeFromPool(
           )
         : undefined
       if (entry) {
-        // The project's dependency install, when it opted in and the slot's
-        // lockfile changed since it last installed: before the agent starts,
-        // which it does whatever came of it (worktree-pool/dependency-install.ts).
-        const installer = activeDependencyInstaller()
-        const dependencyInstall = installer
-          ? await installer.prepare({
-              repoRoot: leased.repoRoot,
-              path: leased.path,
-              branch: leased.branch,
-              setting: dependencyInstallSettingFor(await pool.getSettings(), leased.repoRoot),
-            })
-          : null
         return {
           ok: true,
-          data: { ...entry, baseRef: leased.baseRef, leaseId: leased.leaseId, dependencyInstall },
+          data: await withDependencyInstall(
+            { ...entry, baseRef: leased.baseRef, leaseId: leased.leaseId },
+            leased.repoRoot,
+            input,
+          ),
           message: null,
         }
       }
@@ -555,7 +566,37 @@ async function createAgentWorktreeFromPool(
   const root = await resolveRepoRoot(input.repoRoot)
   if (!root.ok) return root
   const forkBase = await resolveAgentForkBase(defaultSlotGitRunner, root.data)
-  return createGitWorktree({ ...input, fromPool: false, baseRef: forkBase ?? input.baseRef })
+  const created = await createGitWorktree({ ...input, fromPool: false, baseRef: forkBase ?? input.baseRef })
+  return created.ok ? { ...created, data: await withDependencyInstall(created.data, root.data, input) } : created
+}
+
+/**
+ * The project's dependency install in a just-made agent worktree, when it
+ * opted in and the worktree's lockfile changed since it last installed: before
+ * the agent starts, which it does whatever came of it. The choice is read from
+ * the pool's settings, where Settings ▸ Worktrees keeps it, so a process
+ * without a pool (a Studio server out of process) installs nothing, as it has
+ * no installer either.
+ */
+async function withDependencyInstall(
+  created: GitWorktreeCreated,
+  repoRoot: string,
+  input: Pick<GitWorktreeCreateInput, 'branchName' | 'dependencyInstall'>,
+): Promise<GitWorktreeCreated> {
+  const installer = activeDependencyInstaller()
+  const pool = activeWorktreePool()
+  if (!installer || !pool) return created
+  const request = {
+    repoRoot,
+    path: created.path,
+    branch: created.branch ?? input.branchName,
+    setting: dependencyInstallSettingFor(await pool.getSettings(), repoRoot),
+  }
+  const dependencyInstall =
+    input.dependencyInstall === 'start'
+      ? ((await installer.start(request))?.view ?? null)
+      : await installer.prepare(request)
+  return { ...created, dependencyInstall }
 }
 
 // One restore per worktree path at a time; see restoreGitWorktree.

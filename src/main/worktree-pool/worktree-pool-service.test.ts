@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { access, appendFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterAll, beforeAll, beforeEach, test } from 'vitest'
 
@@ -960,6 +960,100 @@ test('a project that opted in installs in a leased slot once per lockfile, and r
     assert.equal(second.ok && second.data.path, first.data.path, 'the same slot again')
     assert.equal(second.ok && second.data.dependencyInstall, null, 'same lockfile: no install')
     assert.deepEqual(calls, ['npm ci'])
+  } finally {
+    installDependencyInstaller(null)
+  }
+})
+
+test('a fresh worktree made because the pool is full installs too, and a caller may only start the install', async () => {
+  await pushToOrigin('package-lock.json', '{"lockfileVersion":3}\n')
+  const input = (name: string, extra: Partial<Parameters<typeof createGitWorktree>[0]> = {}) => ({
+    repoRoot: repo,
+    containerPath: container,
+    destinationPath: join(container, name),
+    branchName: `agent/${name}`,
+    baseRef: 'HEAD',
+    agentLockOwner: `agent/${name}`,
+    fromPool: true,
+    ...extra,
+  })
+  const calls: string[] = []
+  const harness = makeService()
+  installWorktreePool(harness.service)
+  installDependencyInstaller(
+    createDependencyInstaller({
+      env: async () => ({}),
+      nodeVersion: async () => 'v22.12.0',
+      run: async ({ command, cwd }) => {
+        calls.push(`${command} in ${basename(cwd)}`)
+        await mkdir(join(cwd, 'node_modules'), { recursive: true })
+        return { code: 0, timedOut: false, cancelled: false }
+      },
+      log: () => {},
+    }),
+  )
+  try {
+    await harness.service.updateSettings({
+      maxSlots: 2,
+      dependencyInstall: { [repo]: { enabled: true, command: null } },
+    })
+    // Two slots held, so the third lease is declined and a plain worktree made.
+    assert.equal((await createGitWorktree(input('one'))).ok, true)
+    assert.equal((await createGitWorktree(input('two'))).ok, true)
+    const fresh = await createGitWorktree(input('three'))
+    assert.equal(fresh.ok, true, fresh.ok ? '' : fresh.message)
+    if (!fresh.ok) return
+    assert.equal(fresh.data.leaseId, null, 'not a pool slot')
+    assert.equal(fresh.data.path, join(container, 'three'))
+    assert.equal(fresh.data.dependencyInstall?.state, 'succeeded', 'the worktree with no node_modules at all installs')
+    assert.equal(fresh.data.dependencyInstall?.reason, 'first')
+    assert.ok(calls.includes('npm ci in three'))
+  } finally {
+    installDependencyInstaller(null)
+  }
+})
+
+test('asked only to start it, the worktree comes back while its install runs, and how it ends is asked after', async () => {
+  await pushToOrigin('package-lock.json', '{"lockfileVersion":3}\n')
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => (release = resolve))
+  const harness = makeService()
+  installWorktreePool(harness.service)
+  const installer = createDependencyInstaller({
+    env: async () => ({}),
+    nodeVersion: async () => 'v22.12.0',
+    run: async ({ cwd }) => {
+      await gate
+      await mkdir(join(cwd, 'node_modules'), { recursive: true })
+      return { code: 0, timedOut: false, cancelled: false }
+    },
+    log: () => {},
+  })
+  installDependencyInstaller(installer)
+  try {
+    await harness.service.updateSettings({ dependencyInstall: { [repo]: { enabled: true, command: null } } })
+    const made = await createGitWorktree({
+      repoRoot: repo,
+      containerPath: container,
+      destinationPath: join(container, 'quick'),
+      branchName: 'agent/quick',
+      baseRef: 'HEAD',
+      agentLockOwner: 'agent/quick',
+      fromPool: true,
+      dependencyInstall: 'start',
+    })
+    assert.equal(made.ok, true, made.ok ? '' : made.message)
+    if (!made.ok) return
+    const running = made.data.dependencyInstall
+    assert.equal(running?.state, 'running', 'answered before the install ended')
+    assert.deepEqual(
+      installer.list().map((view) => view.id),
+      [running!.id],
+    )
+    release()
+    const ended = await installer.settled(running!.id)
+    assert.equal(ended?.state, 'succeeded')
+    assert.equal((await installer.settled(running!.id))?.state, 'succeeded', 'and still answers once it is over')
   } finally {
     installDependencyInstaller(null)
   }

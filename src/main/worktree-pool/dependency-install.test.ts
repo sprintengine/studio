@@ -21,6 +21,7 @@ let slot = ''
 let adminDir = ''
 
 beforeEach(async () => {
+  node = 'v22.12.0'
   scratch = await realpath(await mkdtemp(join(tmpdir(), 'sprintengine-dependency-install-')))
   slot = join(scratch, 'pool-01')
   adminDir = join(scratch, 'repo', '.git', 'worktrees', 'pool-01')
@@ -54,9 +55,12 @@ function fakeRunner(outcome: Partial<InstallRunOutcome> = {}) {
   return { run, calls }
 }
 
+let node = 'v22.12.0'
+
 function installer(run: InstallCommandRunner, views: WorktreeDependencyInstallView[] = []) {
   return createDependencyInstaller({
     env: async () => ({ PATH: '/usr/bin:/bin' }),
+    nodeVersion: async () => node,
     run,
     onChange: (view) => views.push(view),
     log: () => {},
@@ -284,3 +288,141 @@ test('the stored choices keep what a project opted into, and drop the default an
   })
   assert.deepEqual(normalizePoolSettings(null).dependencyInstall, {}, 'off for every project by default')
 })
+
+test('a new Node, registry configuration, patch or declared manager version installs again', async () => {
+  const { run, calls } = fakeRunner()
+  const deps = installer(run)
+  await deps.prepare(lease())
+  assert.equal(await deps.prepare(lease()), null)
+
+  node = 'v24.1.0'
+  assert.equal((await deps.prepare(lease()))?.reason, 'changed', 'native modules are built for one Node')
+
+  await writeFile(join(slot, '.npmrc'), '@acme:registry=https://npm.example.com/\n')
+  assert.equal((await deps.prepare(lease()))?.reason, 'changed', '.npmrc')
+
+  await mkdir(join(slot, 'patches'), { recursive: true })
+  await writeFile(join(slot, 'patches', 'left-pad+1.3.0.patch'), '--- a\n+++ b\n')
+  assert.equal((await deps.prepare(lease()))?.reason, 'changed', 'a patch added')
+  assert.equal(await deps.prepare(lease()), null)
+  await writeFile(join(slot, 'patches', 'left-pad+1.3.0.patch'), '--- a\n+++ c\n')
+  assert.equal((await deps.prepare(lease()))?.reason, 'changed', 'a patch edited')
+
+  await writeFile(join(slot, 'package.json'), '{"name":"app","packageManager":"npm@10.9.0"}\n')
+  assert.equal((await deps.prepare(lease()))?.reason, 'changed', 'packageManager')
+  await writeFile(join(slot, 'package.json'), '{"name":"app","packageManager":"npm@10.9.0","version":"2.0.0"}\n')
+  assert.equal(await deps.prepare(lease()), null, 'the rest of package.json is the lockfile’s business')
+  assert.equal(calls.length, 6)
+})
+
+test('a project outside JavaScript does not reinstall for a new Node', async () => {
+  await rm(join(slot, 'package-lock.json'))
+  await rm(join(slot, 'package.json'))
+  await writeFile(join(slot, 'Cargo.lock'), 'version = 3\n')
+  const { run, calls } = fakeRunner()
+  const deps = installer(run)
+  const own = { enabled: true, command: 'cargo fetch' }
+  await deps.prepare(lease(own))
+  node = 'v24.1.0'
+  assert.equal(await deps.prepare(lease(own)), null)
+  assert.equal(calls.length, 1)
+})
+
+test('the Node version is asked of the install’s own environment, and only when something would run', async () => {
+  const asked: Array<string | undefined> = []
+  const deps = createDependencyInstaller({
+    env: async () => ({ PATH: '/Users/dev/.nvm/versions/node/v22.12.0/bin:/usr/bin' }),
+    nodeVersion: async (env) => {
+      asked.push(env.PATH)
+      return 'v22.12.0'
+    },
+    run: fakeRunner().run,
+    log: () => {},
+  })
+  await deps.prepare(lease(null))
+  assert.deepEqual(asked, [], 'off: no login shell, no node')
+  await deps.prepare(lease())
+  assert.deepEqual(asked, ['/Users/dev/.nvm/versions/node/v22.12.0/bin:/usr/bin'])
+})
+
+test('a record that cannot be cleared stops the install, so a stopped one is never vouched for', async () => {
+  // A directory where the record would be: rm cannot take it away.
+  await mkdir(join(adminDir, DEPENDENCY_INSTALL_RECORD, 'inside'), { recursive: true })
+  const { run, calls } = fakeRunner()
+  assert.equal(await installer(run).prepare(lease()), null)
+  assert.deepEqual(calls, [])
+})
+
+test('start answers while the install runs, and settled says how it ended, also after it did', async () => {
+  let release: (outcome: InstallRunOutcome) => void = () => {}
+  const deps = installer(() => new Promise((done) => (release = done)))
+  const started = await deps.start(lease())
+  assert.equal(started?.view.state, 'running')
+  const asked = deps.settled(started!.view.id)
+  release({ code: 0, timedOut: false, cancelled: false })
+  assert.equal((await asked)?.state, 'succeeded')
+  assert.equal((await started!.settled).state, 'succeeded')
+  assert.equal((await deps.settled(started!.view.id))?.state, 'succeeded')
+  assert.equal(await deps.settled('no-such-install'), null)
+})
+
+test('the quit stops every running install, records none of them, starts no more, and says nothing to the windows', async () => {
+  const views: WorktreeDependencyInstallView[] = []
+  const deps = installer(
+    ({ signal }) =>
+      new Promise((done) => {
+        // A manager that exits 0 as it is killed is still not a finished install.
+        signal.addEventListener('abort', () => done({ code: 0, timedOut: false, cancelled: false }))
+      }),
+    views,
+  )
+  const started = await deps.start(lease())
+  assert.equal(started?.view.state, 'running')
+  await deps.shutdown({ waitMs: 1_000 })
+  assert.equal((await started!.settled).state, 'cancelled')
+  assert.equal(await deps.settled(started!.view.id), null, 'nothing is started because of it on the way out')
+  assert.deepEqual(deps.list(), [])
+  assert.equal(await exists(join(adminDir, DEPENDENCY_INSTALL_RECORD)), false, 'so the next lease installs again')
+  assert.deepEqual(
+    views.map((view) => view.state),
+    ['running'],
+    'no "the agent started without it" toast as the app closes',
+  )
+  assert.equal(await deps.prepare(lease()), null, 'and none starts during the quit')
+})
+
+test.skipIf(process.platform === 'win32')(
+  'stopping the real runner ends everything the install started, not only the shell',
+  async () => {
+    const abort = new AbortController()
+    let output = ''
+    const pending = runInstallCommand({
+      // A script that leaves a child of its own running, as a postinstall can.
+      command: 'sleep 30 & echo "child $!"; wait',
+      cwd: slot,
+      env: process.env,
+      timeoutMs: 20_000,
+      signal: abort.signal,
+      onOutput: (chunk) => (output += chunk),
+    })
+    for (let tries = 0; tries < 100 && !/child \d+/u.test(output); tries += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    const child = Number(/child (\d+)/u.exec(output)?.[1])
+    assert.ok(child > 0, output)
+    abort.abort()
+    const ended = await pending
+    assert.equal(ended.cancelled, true)
+    const alive = () => {
+      try {
+        process.kill(child, 0)
+        return true
+      } catch {
+        return false
+      }
+    }
+    // Reaped by init once its parent is gone, which is not instant.
+    for (let tries = 0; tries < 50 && alive(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(alive(), false, 'the script’s own child went with it')
+  },
+)

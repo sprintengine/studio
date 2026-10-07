@@ -1,5 +1,5 @@
-import { spawn } from 'child_process'
-import { createHash, randomUUID } from 'crypto'
+import { execFile, spawn } from 'child_process'
+import { createHash, randomUUID, type Hash } from 'crypto'
 import { readdir, readFile, rm, stat, writeFile } from 'fs/promises'
 import { join, resolve } from 'path'
 
@@ -30,10 +30,11 @@ import { killProcessTree } from '../process-tree-kill'
  * worktree: `clean -fd` and "Clear ignored files" never reach it, git ignores
  * a file it does not know there, and it lives exactly as long as the slot is
  * registered — a slot removed and made again starts with no record, as it
- * starts with no `node_modules`. The record is a fingerprint of the command
- * and the lockfiles it reads; it is cleared before an install starts and
- * written only when one succeeds, so an install that failed, timed out or was
- * cancelled runs again at the next lease.
+ * starts with no `node_modules`. The record is a fingerprint of everything the
+ * install's result depends on (`installFingerprint`); it is cleared before an
+ * install starts and written only when one succeeds, so an install that
+ * failed, timed out, was cancelled or was killed by the app quitting runs
+ * again at the next lease.
  */
 
 /** The lockfiles an install command is inferred from, in the order a tie is broken. */
@@ -60,6 +61,31 @@ const OUTPUT_TAIL_CHARS = 8_000
 
 /** How long after the install exits its pipes may stay open (a daemon a script left behind). */
 const PIPE_DRAIN_GRACE_MS = 2_000
+
+/**
+ * The files beside the lockfile that change what an install produces: the
+ * registry and its credentials' configuration, Yarn's settings, pnpm's
+ * workspace (catalogs, overrides, patched dependencies), and Yarn 1's rc.
+ */
+const INSTALL_CONFIG_FILES = ['.npmrc', '.yarnrc', '.yarnrc.yml', 'pnpm-workspace.yaml'] as const
+
+/**
+ * `patches/` (patch-package, pnpm's and Yarn's patch protocols) is read whole
+ * into the fingerprint, within these bounds: a patch past them counts by its
+ * name and size, so a pathological folder costs a listing, not a read.
+ */
+const PATCH_FILES_MAX = 500
+const PATCH_BYTES_MAX = 8 * 1024 * 1024
+const PATCH_DEPTH_MAX = 3
+
+/** How long `node -v` may take before the fingerprint goes without it. */
+const NODE_VERSION_TIMEOUT_MS = 5_000
+
+/** How long the quit waits for the installs it stopped to let go of their worktrees. */
+const SHUTDOWN_WAIT_MS = 3_000
+
+/** The settled installs kept for a caller that asks how one ended after it did. */
+const SETTLED_KEPT = 64
 
 type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun'
 
@@ -141,14 +167,20 @@ async function readRecord(recordPath: string | null): Promise<InstallRecord | nu
 /**
  * Whether a leased worktree should install, and with what. Runs when the
  * project opted in, there is something to run, and the worktree never
- * installed, installed with another lockfile or command, or lost what it
- * installed — a JavaScript project with neither `node_modules` nor Yarn's
- * Plug'n'Play map.
+ * installed, installed with something else (`installFingerprint`), or lost
+ * what it installed — a JavaScript project with neither `node_modules` nor
+ * Yarn's Plug'n'Play map.
  */
 export async function planDependencyInstall(input: {
   worktreePath: string
   setting: WorktreeDependencyInstallSetting | null
   recordPath: string | null
+  /**
+   * The Node version the install would run under (`node -v` in its
+   * environment); asked only once there is something to install, and only of
+   * a JavaScript project. Absent, or null, the fingerprint goes without it.
+   */
+  nodeVersion?: () => Promise<string | null>
 }): Promise<DependencyInstallPlan> {
   if (!input.setting?.enabled) return { run: false, why: 'off' }
   const files = new Set(await readdir(input.worktreePath).catch(() => [] as string[]))
@@ -165,27 +197,103 @@ export async function planDependencyInstall(input: {
   const command = own ?? inferred?.command ?? null
   if (!command) return { run: false, why: 'nothing-to-install' }
 
-  // The lockfile the inferred command reads; under a command of the project's
-  // own, every lockfile there, since nothing says which it reads.
-  const read = own
-    ? [...JS_LOCKFILES, ...OTHER_LOCKFILES].filter((name) => files.has(name)).sort()
-    : [inferred!.lockfile]
-  const hash = createHash('sha256').update(`${command}\0`)
-  for (const name of read) {
-    const content = await readFile(join(input.worktreePath, name)).catch(() => null)
-    hash.update(`${name}\0`)
-    hash.update(content ?? '\0missing')
-    hash.update('\0')
-  }
-  const fingerprint = hash.digest('hex')
+  const javascript = files.has('package.json') || JS_LOCKFILES.some((name) => files.has(name))
+  const fingerprint = await installFingerprint({
+    worktreePath: input.worktreePath,
+    files,
+    command,
+    // The lockfile the inferred command reads; under a command of the
+    // project's own, every lockfile there, since nothing says which it reads.
+    lockfiles: own
+      ? [...JS_LOCKFILES, ...OTHER_LOCKFILES].filter((name) => files.has(name)).sort()
+      : [inferred!.lockfile],
+    packageManager,
+    nodeVersion: javascript && input.nodeVersion ? await input.nodeVersion().catch(() => null) : null,
+  })
 
   const record = await readRecord(input.recordPath)
-  const javascript = JS_LOCKFILES.some((name) => files.has(name))
-  const installed = !javascript || files.has('node_modules') || files.has('.pnp.cjs')
+  const installed = !JS_LOCKFILES.some((name) => files.has(name)) || files.has('node_modules') || files.has('.pnp.cjs')
   if (!record) return { run: true, command, fingerprint, reason: 'first' }
   if (record.fingerprint !== fingerprint) return { run: true, command, fingerprint, reason: 'changed' }
   if (!installed) return { run: true, command, fingerprint, reason: 'missing' }
   return { run: false, why: 'up-to-date' }
+}
+
+/**
+ * What an install's result depends on, hashed: the command, the lockfiles it
+ * reads, the package manager and its version as package.json declares it
+ * (`packageManager`, which Corepack runs; read from the file, not by starting
+ * the manager), the Node version it runs under (a native module built for one
+ * ABI does not load in another), the registry and manager configuration
+ * beside the lockfile, and `patches/`. A change to any of them installs again.
+ */
+export async function installFingerprint(input: {
+  worktreePath: string
+  files: ReadonlySet<string>
+  command: string
+  lockfiles: readonly string[]
+  packageManager: string | null
+  nodeVersion: string | null
+}): Promise<string> {
+  const hash = createHash('sha256').update(`${input.command}\0`)
+  const part = (name: string, content: Buffer | string | null) => {
+    hash.update(`${name}\0`)
+    hash.update(content ?? '\0missing')
+    hash.update('\0')
+  }
+  for (const name of input.lockfiles) part(name, await readFile(join(input.worktreePath, name)).catch(() => null))
+  if (input.packageManager) part('packageManager', input.packageManager.trim())
+  if (input.nodeVersion) part('node', input.nodeVersion.trim())
+  for (const name of INSTALL_CONFIG_FILES) {
+    if (input.files.has(name)) part(name, await readFile(join(input.worktreePath, name)).catch(() => null))
+  }
+  if (input.files.has('patches')) await hashPatches(join(input.worktreePath, 'patches'), hash)
+  return hash.digest('hex')
+}
+
+/** Every file under `patches/`, by its path and contents, within the bounds above. */
+async function hashPatches(dir: string, hash: Hash): Promise<void> {
+  const found: string[] = []
+  const walk = async (relative: string, depth: number): Promise<void> => {
+    if (depth > PATCH_DEPTH_MAX || found.length >= PATCH_FILES_MAX) return
+    const entries = await readdir(join(dir, relative), { withFileTypes: true }).catch(() => [])
+    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      if (found.length >= PATCH_FILES_MAX) return
+      const path = relative ? `${relative}/${entry.name}` : entry.name
+      if (entry.isDirectory()) await walk(path, depth + 1)
+      else if (entry.isFile()) found.push(path)
+    }
+  }
+  await walk('', 0)
+  let budget = PATCH_BYTES_MAX
+  for (const path of found) {
+    const size = (await stat(join(dir, path)).catch(() => null))?.size ?? -1
+    hash.update(`patches/${path}\0${size}\0`)
+    if (size < 0 || size > budget) continue
+    budget -= size
+    const content = await readFile(join(dir, path)).catch(() => null)
+    if (content) hash.update(content)
+    hash.update('\0')
+  }
+}
+
+/**
+ * `node -v` as the install would see it: resolved on the environment's PATH,
+ * so a version manager's node is the one asked. Null when there is none, or it
+ * does not answer in time.
+ */
+export function readNodeVersion(env: NodeJS.ProcessEnv): Promise<string | null> {
+  return new Promise((done) => {
+    execFile(
+      'node',
+      ['-v'],
+      { env, timeout: NODE_VERSION_TIMEOUT_MS, windowsHide: true, shell: process.platform === 'win32' },
+      (error, stdout) => {
+        const version = String(stdout ?? '').trim()
+        done(!error && /^v?\d+\./u.test(version) ? version : null)
+      },
+    )
+  })
 }
 
 export type InstallRunOutcome = {
@@ -208,8 +316,11 @@ export type InstallCommandRunner = (input: {
 /**
  * The command through the platform's shell (`/bin/sh`, `cmd.exe`), so a
  * project's own command may chain steps and `npm` resolves as the `.cmd` shim
- * it is on Windows. Detached on POSIX so a timeout or a cancel ends the
- * scripts the manager started, not only the manager.
+ * it is on Windows. Detached on POSIX so a timeout, a cancel or the app
+ * quitting ends the scripts the manager started, not only the manager: the
+ * group is killed whole, and on Windows `taskkill /T` walks the tree. Being
+ * detached is also what would let it outlive the app, which is why the quit
+ * stops every one still running (`shutdown` below).
  */
 export const runInstallCommand: InstallCommandRunner = ({ command, cwd, env, timeoutMs, signal, onOutput }) =>
   new Promise((done) => {
@@ -264,9 +375,16 @@ function lastLineOf(text: string): string | null {
 }
 
 export type DependencyInstallerDeps = {
-  /** The environment an install runs with: the person's PATH, the app's own variables left out. */
+  /**
+   * The environment an install runs with: the person's login environment (so
+   * a token or a proxy their shell profile exports reaches a private
+   * registry), none of the app's own variables. Read once per install, and
+   * only when one runs.
+   */
   env: () => Promise<NodeJS.ProcessEnv>
   run?: InstallCommandRunner
+  /** The Node version in that environment, for the fingerprint; `readNodeVersion` unless a test stands in. */
+  nodeVersion?: (env: NodeJS.ProcessEnv) => Promise<string | null>
   /** Sent as an install starts, while it runs, and as it ends. */
   onChange?: (view: WorktreeDependencyInstallView) => void
   gitDir?: (worktreePath: string) => Promise<string | null>
@@ -284,34 +402,68 @@ export type DependencyInstallInput = {
 
 export type DependencyInstaller = ReturnType<typeof createDependencyInstaller>
 
+type RunningInstall = {
+  view: WorktreeDependencyInstallView
+  abort: AbortController
+  settled: Promise<WorktreeDependencyInstallView>
+}
+
 export function createDependencyInstaller(deps: DependencyInstallerDeps) {
   const run = deps.run ?? runInstallCommand
+  const nodeVersion = deps.nodeVersion ?? readNodeVersion
   const gitDir = deps.gitDir ?? worktreeGitDir
   const now = deps.now ?? Date.now
   const timeoutMs = deps.timeoutMs ?? DEPENDENCY_INSTALL_TIMEOUT_MS
   const log = deps.log ?? ((line: string) => console.info(`[worktree-install] ${line}`))
-  const running = new Map<string, { view: WorktreeDependencyInstallView; abort: AbortController }>()
+  const running = new Map<string, RunningInstall>()
+  // How the last few ended, for a caller that started one without waiting
+  // (`start`) and asks after it ended (`settled`).
+  const ended = new Map<string, WorktreeDependencyInstallView>()
+  let quitting = false
 
   /**
-   * Install in a just-leased worktree if it needs it, and wait for it. Null
-   * when nothing ran. Never throws: whatever happens here, the lease stands.
+   * Plan an install for a just-leased worktree and, when it needs one, start
+   * it. Answers once it is running (or once it is clear that nothing runs),
+   * with how it ends as a promise beside it. Never throws.
    */
-  async function prepare(input: DependencyInstallInput): Promise<WorktreeDependencyInstallView | null> {
+  async function start(
+    input: DependencyInstallInput,
+  ): Promise<{ view: WorktreeDependencyInstallView; settled: Promise<WorktreeDependencyInstallView> } | null> {
+    if (quitting) return null
     const adminDir = await gitDir(input.path).catch(() => null)
     const recordPath = adminDir ? join(adminDir, DEPENDENCY_INSTALL_RECORD) : null
-    const plan = await planDependencyInstall({ worktreePath: input.path, setting: input.setting, recordPath }).catch(
-      (error: unknown) => {
-        log(`${input.path}: could not tell whether to install: ${error instanceof Error ? error.message : error}`)
-        return { run: false, why: 'nothing-to-install' } as const
-      },
-    )
+    // Read once, and only when the plan gets as far as needing it: the
+    // environment is a login shell's, which costs a process start.
+    let env: Promise<NodeJS.ProcessEnv> | null = null
+    const installEnv = () => (env ??= deps.env())
+    const plan = await planDependencyInstall({
+      worktreePath: input.path,
+      setting: input.setting,
+      recordPath,
+      nodeVersion: async () => nodeVersion(await installEnv()),
+    }).catch((error: unknown) => {
+      log(`${input.path}: could not tell whether to install: ${error instanceof Error ? error.message : error}`)
+      return { run: false, why: 'nothing-to-install' } as const
+    })
     if (!plan.run) {
       if (plan.why !== 'off') log(`${input.path}: no install (${plan.why})`)
       return null
     }
+    if (quitting) return null
 
     // Cleared first: from here until it succeeds, the slot has not installed.
-    if (recordPath) await rm(recordPath, { force: true }).catch(() => {})
+    // A record that cannot be cleared would vouch for whatever half an install
+    // left behind if this one is stopped, so then nothing runs at all.
+    if (recordPath) {
+      const cleared = await rm(recordPath, { force: true }).then(
+        () => true,
+        (error: unknown) => {
+          log(`${input.path}: not installing, the last install's record could not be cleared: ${String(error)}`)
+          return false
+        },
+      )
+      if (!cleared) return null
+    }
 
     const view: WorktreeDependencyInstallView = {
       id: randomUUID(),
@@ -328,11 +480,23 @@ export function createDependencyInstaller(deps: DependencyInstallerDeps) {
       exitCode: null,
     }
     const abort = new AbortController()
-    running.set(view.id, { view, abort })
     const emit = () => deps.onChange?.({ ...view })
     log(`${input.path}: ${plan.command} (${plan.reason})`)
     emit()
+    const settled = runPlanned(input, plan, view, abort, recordPath, installEnv, emit)
+    running.set(view.id, { view, abort, settled })
+    return { view: { ...view }, settled }
+  }
 
+  async function runPlanned(
+    input: DependencyInstallInput,
+    plan: Extract<DependencyInstallPlan, { run: true }>,
+    view: WorktreeDependencyInstallView,
+    abort: AbortController,
+    recordPath: string | null,
+    installEnv: () => Promise<NodeJS.ProcessEnv>,
+    emit: () => void,
+  ): Promise<WorktreeDependencyInstallView> {
     let output = ''
     let pending: ReturnType<typeof setTimeout> | null = null
     const onOutput = (chunk: string) => {
@@ -340,7 +504,7 @@ export function createDependencyInstaller(deps: DependencyInstallerDeps) {
       view.lastLine = lastLineOf(output) ?? view.lastLine
       pending ??= setTimeout(() => {
         pending = null
-        if (view.state === 'running') emit()
+        if (view.state === 'running' && !quitting) emit()
       }, PROGRESS_INTERVAL_MS)
     }
 
@@ -349,7 +513,7 @@ export function createDependencyInstaller(deps: DependencyInstallerDeps) {
       outcome = await run({
         command: plan.command,
         cwd: input.path,
-        env: await deps.env(),
+        env: await installEnv(),
         timeoutMs,
         signal: abort.signal,
         onOutput,
@@ -358,23 +522,26 @@ export function createDependencyInstaller(deps: DependencyInstallerDeps) {
       outcome = {
         code: null,
         timedOut: false,
-        cancelled: false,
+        cancelled: abort.signal.aborted,
         error: error instanceof Error ? error.message : String(error),
       }
     } finally {
       if (pending) clearTimeout(pending)
-      running.delete(view.id)
     }
 
     view.endedAt = now()
     view.exitCode = outcome.code
-    view.state = outcome.cancelled
-      ? 'cancelled'
-      : outcome.timedOut
-        ? 'timed-out'
-        : outcome.code === 0 && !outcome.error
-          ? 'succeeded'
-          : 'failed'
+    view.state =
+      outcome.cancelled || abort.signal.aborted
+        ? 'cancelled'
+        : outcome.timedOut
+          ? 'timed-out'
+          : outcome.code === 0 && !outcome.error
+            ? 'succeeded'
+            : 'failed'
+    // Only a finished install is written down. One the quit stopped is not,
+    // even when its manager happened to exit 0 on the way out: what it left
+    // is not known to be whole, and the next lease installs again.
     if (view.state === 'succeeded') {
       if (recordPath) {
         const record: InstallRecord = { fingerprint: plan.fingerprint, command: plan.command, installedAt: now() }
@@ -385,9 +552,33 @@ export function createDependencyInstaller(deps: DependencyInstallerDeps) {
     } else {
       view.output = [ansiPlainText(output).trim(), outcome.error].filter(Boolean).join('\n') || null
     }
+    running.delete(view.id)
+    ended.set(view.id, { ...view })
+    while (ended.size > SETTLED_KEPT) ended.delete(ended.keys().next().value!)
     log(`${input.path}: ${plan.command} ${view.state} in ${Math.round((view.endedAt - view.startedAt) / 1000)} s`)
-    emit()
+    // The windows are closing with the app: a "cancelled, the agent started
+    // without it" toast would be the last thing they say, and untrue.
+    if (!quitting) emit()
     return { ...view }
+  }
+
+  /**
+   * Install in a just-leased worktree if it needs it, and wait for it. Null
+   * when nothing ran. Never throws: whatever happens here, the lease stands.
+   */
+  async function prepare(input: DependencyInstallInput): Promise<WorktreeDependencyInstallView | null> {
+    const started = await start(input)
+    return started ? started.settled : null
+  }
+
+  /**
+   * How an install `start` began ends: its last view once it has, null for an
+   * id this installer does not know, and null while the app quits, when
+   * nothing should start because of it.
+   */
+  async function settled(id: string): Promise<WorktreeDependencyInstallView | null> {
+    const view = (await running.get(id)?.settled) ?? ended.get(id) ?? null
+    return quitting ? null : view
   }
 
   /** Stop a running install; the agent then starts as after a failed one. */
@@ -403,7 +594,36 @@ export function createDependencyInstaller(deps: DependencyInstallerDeps) {
     return [...running.values()].map((entry) => ({ ...entry.view }))
   }
 
-  return { prepare, cancel, list }
+  /** One install as it is now: running, with its last line, or as it ended; null when unknown. */
+  function find(id: string): WorktreeDependencyInstallView | null {
+    const live = running.get(id)?.view ?? ended.get(id)
+    return live ? { ...live } : null
+  }
+
+  /**
+   * The app is quitting: start nothing more, and stop every install running,
+   * the whole process tree of each (`runInstallCommand` starts it as a group
+   * of its own, and on Windows `taskkill /T` walks it), so no package manager
+   * outlives the app. None of them is recorded, so each runs again at its
+   * worktree's next lease. Waits a moment for them to let go.
+   */
+  async function shutdown(options: { waitMs?: number } = {}): Promise<void> {
+    quitting = true
+    const stopping = [...running.values()]
+    for (const entry of stopping) entry.abort.abort()
+    if (stopping.length === 0) return
+    log(`stopping ${stopping.length} install(s) for the quit`)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      Promise.allSettled(stopping.map((entry) => entry.settled)),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, options.waitMs ?? SHUTDOWN_WAIT_MS)
+      }),
+    ])
+    clearTimeout(timer)
+  }
+
+  return { start, prepare, settled, cancel, list, find, shutdown }
 }
 
 let active: DependencyInstaller | null = null
@@ -415,4 +635,27 @@ export function installDependencyInstaller(installer: DependencyInstaller | null
 
 export function activeDependencyInstaller(): DependencyInstaller | null {
   return active
+}
+
+/**
+ * An install a caller in main started without waiting for it
+ * (`createGitWorktree` with `dependencyInstall: 'start'`), as that caller
+ * follows it: where it is now, and how it ends.
+ */
+export type StartedDependencyInstall = {
+  /** The install as it started. */
+  view: WorktreeDependencyInstallView
+  /** The install as it is now: its last line while it runs, its end once it has. */
+  current: () => WorktreeDependencyInstallView
+  /** How it ended; null when the app is quitting, and nothing should start because of it. */
+  settled: Promise<WorktreeDependencyInstallView | null>
+}
+
+/** The started install behind a worktree's running view, followed through the active installer; null when none runs. */
+export function startedDependencyInstall(
+  view: WorktreeDependencyInstallView | null | undefined,
+): StartedDependencyInstall | null {
+  const installer = active
+  if (!view || view.state !== 'running' || !installer) return null
+  return { view, current: () => installer.find(view.id) ?? view, settled: installer.settled(view.id) }
 }

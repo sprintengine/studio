@@ -115,6 +115,12 @@ type RegisterAppLifecycleOptions = {
   worktreePool?: {
     shutdown(options?: { waitMs?: number }): Promise<void>
   }
+  // The dependency installs agent worktrees are running (worktree-pool/
+  // dependency-install.ts). Each runs detached, as a process group of its own,
+  // so nothing would end it with the app: the quit stops every one.
+  dependencyInstaller?: {
+    shutdown(options?: { waitMs?: number }): Promise<void>
+  }
   // Recordings of browser tabs an agent started: each is a file still being
   // written, so quit saves what was captured, with its length, before the
   // windows that encode them close.
@@ -225,6 +231,7 @@ export function registerAppLifecycle({
   releaseDataDir,
   canvasService,
   worktreePool,
+  dependencyInstaller,
   browserRecorder,
   desktopShell,
   conversationCommands,
@@ -628,8 +635,9 @@ export function registerAppLifecycle({
   // The legs are ordered by what a cut-short quit would cost, cheapest-to-save
   // and most-missed first, within what they depend on:
   //  1. Stop new work: module begin hooks, timers, the automations engine (so a
-  //     dying agent cannot finalize a run: open a PR, remove its worktree) and
-  //     the agent-state socket.
+  //     dying agent cannot finalize a run: open a PR, remove its worktree), the
+  //     dependency installs agent worktrees are running, and the agent-state
+  //     socket.
   //  2. Small writes the person would miss: the workspace registry (every
   //     sidebar change), then every chat's buffered transcript.
   //  3. Terminal snapshots: the most valuable and, with many terminals, the
@@ -684,6 +692,10 @@ export function registerAppLifecycle({
       // come back later, and resume from their cursors.
       ['local app socket', () => studioRpcService?.stop()],
       ['automations', () => automationService?.shutdown()],
+      // With the new work: an install the quit cuts short is not recorded, so
+      // its worktree installs again at its next lease, and an agent that was
+      // waiting on it is not started on the way out.
+      ['dependency installs', () => dependencyInstaller?.shutdown()],
       ['agent state', () => agentStateService?.shutdown()],
       ['workspace registry', () => workspaceSyncService?.flush()],
       ['chat transcripts', () => conversationOwner?.flushTranscripts?.()],
@@ -732,6 +744,7 @@ export function registerAppLifecycle({
           hostedFeedPoller?.stop()
         },
       ],
+      ['dependency installs', () => dependencyInstaller?.shutdown()],
       ['browser recordings', () => browserRecorder?.stopAll('app_quit')],
       // The canvas's last board write lands before the server stops serving.
       ['canvas', () => canvasService?.dispose()],

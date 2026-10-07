@@ -387,8 +387,10 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
     return diagnostics.withIpcDiagnostics('GitIPC', 'worktree-list', { repoRoot }, () => listGitWorktrees(repoRoot))
   })
 
+  // A window's launch always waits for the worktree's dependency install: the
+  // agent it starts next would otherwise run in a half-installed checkout.
   ipcMain.handle('git:worktree:create', async (_, input) => {
-    return withGitHost(scopedHost(input?.hostId), () => createGitWorktree(input))
+    return withGitHost(scopedHost(input?.hostId), () => createGitWorktree({ ...input, dependencyInstall: 'wait' }))
   })
 
   ipcMain.handle('git:worktree:restore', async (_, input) => {

@@ -88,6 +88,13 @@ test('app-lifecycle', async () => {
           throw new Error('canvas worker gone')
         },
       },
+      // The installs agent worktrees run are stopped with the new work, before
+      // anything is written: none of them outlives the app.
+      dependencyInstaller: {
+        shutdown: async () => {
+          order.push('dependencyInstaller.shutdown')
+        },
+      },
       // A recording an agent started is saved, with its length, before the
       // canvas and the registry's last write.
       browserRecorder: {
@@ -154,6 +161,7 @@ test('app-lifecycle', async () => {
     )
     assert.ok(reports.some((leg) => leg.name === 'terminals'))
     assert.deepEqual(order, [
+      'dependencyInstaller.shutdown',
       'workspaceSync.flush',
       'conversation.flushTranscripts',
       'terminal.shutdown',
