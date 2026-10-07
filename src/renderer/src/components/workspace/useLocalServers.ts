@@ -102,7 +102,11 @@ export function useWorkspaceLocalServers(workspaceIds: readonly string[]): Works
   useEffect(() => {
     void ask()
   }, [ask, key])
-  useAskWhenLocalServersMove(ask)
+  const concerns = useCallback(
+    (change: LocalServersChange) => change.workspaceIds.some((id) => idsRef.current.includes(id)),
+    [],
+  )
+  useAskWhenLocalServersMove(ask, concerns)
 
   return byWorkspace
 }
@@ -152,7 +156,12 @@ export function useLocalServersOfConversation(
   useEffect(() => {
     void ask()
   }, [ask])
-  useAskWhenLocalServersMove(ask)
+  const concerns = useCallback(
+    (change: LocalServersChange) =>
+      change.conversations.some((owner) => owner.workspaceId === workspaceId && owner.agentId === agentId),
+    [workspaceId, agentId],
+  )
+  useAskWhenLocalServersMove(ask, concerns)
   return key !== null && held.key === key ? held.list : EMPTY
 }
 
@@ -191,12 +200,34 @@ async function act(
   }
 }
 
+/** What a `localServers.changed` push names as moved. */
+type LocalServersChange = { workspaceIds: readonly string[]; conversations: readonly StudioLocalServerOwner[] }
+
+/** A push's payload, or null when it names nothing this reads (asked about all the same). */
+function readLocalServersChange(payload: unknown): LocalServersChange | null {
+  if (!payload || typeof payload !== 'object') return null
+  const { workspaceIds, conversations } = payload as Record<string, unknown>
+  if (!Array.isArray(workspaceIds) || !Array.isArray(conversations)) return null
+  return {
+    workspaceIds: workspaceIds.filter((id): id is string => typeof id === 'string'),
+    conversations: conversations.filter(
+      (owner): owner is StudioLocalServerOwner =>
+        !!owner &&
+        typeof owner === 'object' &&
+        typeof (owner as StudioLocalServerOwner).workspaceId === 'string' &&
+        typeof (owner as StudioLocalServerOwner).agentId === 'string',
+    ),
+  }
+}
+
 /**
- * Ask again whenever the server says local servers moved, and when the
- * window's Studio connection comes back (a restarted server may have seen a
- * port close while nobody was connected).
+ * Ask again whenever the server says local servers this view shows moved
+ * (`concerns`: every window has a strip and a sidebar, and a push about
+ * another workspace is not worth their reads), and when the window's Studio
+ * connection comes back (a restarted server may have seen a port close while
+ * nobody was connected). A push whose payload cannot be read is asked about.
  */
-function useAskWhenLocalServersMove(ask: () => Promise<void>): void {
+function useAskWhenLocalServersMove(ask: () => Promise<void>, concerns: (change: LocalServersChange) => boolean): void {
   useEffect(() => {
     const api = typeof window === 'undefined' ? null : window.api
     if (typeof api?.studioConnect !== 'function') return
@@ -218,7 +249,16 @@ function useAskWhenLocalServersMove(ask: () => Promise<void>): void {
         if (!client || !alive || client === subscribed) return
         stop?.()
         subscribed = client
-        stop = client.subscribe('localServers.changed', {}, { onPayload: schedule })
+        stop = client.subscribe(
+          'localServers.changed',
+          {},
+          {
+            onPayload: (payload) => {
+              const change = readLocalServersChange(payload)
+              if (!change || concerns(change)) schedule()
+            },
+          },
+        )
       })
     }
     subscribe()
@@ -233,7 +273,7 @@ function useAskWhenLocalServersMove(ask: () => Promise<void>): void {
       stop?.()
       unwatch()
     }
-  }, [ask])
+  }, [ask, concerns])
 }
 
 /**
