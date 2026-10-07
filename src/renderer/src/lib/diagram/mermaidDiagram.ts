@@ -12,12 +12,15 @@
 // stylesheet tells whoever serves it that the reply was read, and when. Mermaid
 // adds the SVG to the page to measure its labels before handing it back, so
 // sanitizing what comes back cannot stop a load that has already started.
-// Three layers, then: a source that names an image or stylesheet to load is
-// not drawn at all (`loadsFromElsewhere`); the drawing runs at
+// Four layers, then: a source that names an image or stylesheet to load is
+// not drawn at all — read as text first (`loadsFromElsewhere`), then as the
+// diagram Mermaid parsed it into (`parsedDiagramLoads`), since the text can
+// spell an image in more ways than a pattern can follow; the drawing runs at
 // `securityLevel: 'strict'` with labels as SVG text and a diagram's own
 // configuration kept off every setting that reaches the page unsanitized
-// (`SECURE_KEYS`); and the SVG that comes back is sanitized once more before
-// the page keeps it (`sanitizeDiagramSvg`).
+// (`SECURE_KEYS`), and while it runs no image it adds is let point outside
+// the page (`withoutRemoteImages`); and the SVG that comes back is sanitized
+// once more before the page keeps it (`sanitizeDiagramSvg`).
 
 type Mermaid = typeof import('mermaid').default
 type Purify = typeof import('dompurify').default
@@ -78,18 +81,178 @@ function withoutRemoteCss(css: string): string {
   return decoded.replace(REMOTE_CSS, (found) => (found.startsWith('@') ? '' : 'none'))
 }
 
+// Mermaid reads `#117;` as the character 117 and `#quot;` as the entity of
+// that name, and a label or style it writes as markup reads `&#117;`,
+// `&#x75;` and `&quot;` the same way, so a source is judged with its
+// entities decoded too. Twice over, for an entity spelled with one.
+const ENTITY = /[&#](?:#?x[0-9a-f]+|#?\d+|[a-z][a-z0-9]*);/giu
+let entityReader: HTMLTextAreaElement | null = null
+
+function decodeEntities(text: string): string {
+  let decoded = text
+  for (let pass = 0; pass < 3; pass++) {
+    ENTITY.lastIndex = 0
+    if (!ENTITY.test(decoded)) break
+    const next = decoded.replace(ENTITY, (entity) => {
+      // Mermaid's spelling, `#…;`, is the HTML one without its `&`.
+      const html = !entity.startsWith('#') ? entity : /^#\d+;$/u.test(entity) ? `&${entity}` : `&${entity.slice(1)}`
+      const numeric = /^&#(x?)([0-9a-f]+);$/iu.exec(html)
+      if (numeric) {
+        const point = parseInt(numeric[2]!, numeric[1] ? 16 : 10)
+        return point && point <= 0x10ffff ? String.fromCodePoint(point) : '\ufffd'
+      }
+      if (typeof document === 'undefined') return entity
+      entityReader ??= document.createElement('textarea')
+      entityReader.innerHTML = html
+      return entityReader.value
+    })
+    if (next === decoded) break
+    decoded = next
+  }
+  return decoded
+}
+
 // What makes Mermaid itself fetch while it lays a diagram out: CSS in a
 // `style`, `classDef` or init directive, a node's `img` (which it loads to
 // measure), and a sequence participant's icon given as an address rather than
-// an `@`-named symbol of the diagram's own.
+// an `@`-named symbol of the diagram's own. Only a cheap first look: shape
+// data is YAML, which quotes and escapes a key any number of ways, so what the
+// diagram was parsed into is read as well (`parsedDiagramLoads`).
 const LOADING_SYNTAX = [/@\{[^}]*\bimg\s*:/u, /["']icon["']\s*:\s*["']\s*(?!@)/u]
 
-/** Whether drawing this source would load something from outside it. */
+/** Whether drawing this source would load something from outside it, judged from its text. */
 export function loadsFromElsewhere(source: string): boolean {
-  return hasRemoteCss(decodeCssEscapes(source)) || LOADING_SYNTAX.some((pattern) => pattern.test(source))
+  const decoded = decodeEntities(source)
+  return (
+    hasRemoteCss(decodeCssEscapes(source)) ||
+    hasRemoteCss(decodeCssEscapes(decoded)) ||
+    LOADING_SYNTAX.some((pattern) => pattern.test(source) || pattern.test(decoded))
+  )
+}
+
+type ParsedModel = {
+  getVertices?: () => Map<string, { img?: unknown }> | Record<string, { img?: unknown }>
+  getData?: () => { nodes?: Array<{ img?: unknown }> }
+  getActors?: () => Map<string, { properties?: { icon?: unknown } }>
+}
+
+function valuesOf<T>(collection: Map<string, T> | Record<string, T> | undefined | null): T[] {
+  if (!collection) return []
+  return collection instanceof Map ? [...collection.values()] : Object.values(collection)
+}
+
+/**
+ * Whether the diagram Mermaid parsed would load something while it is drawn:
+ * a node with an image (a flowchart's image shape, and any diagram whose
+ * layout data carries one), or a participant whose icon is an address rather
+ * than an `@`-named symbol of the diagram's own. Read from the parsed model,
+ * so it does not matter how the source spelled the key. A model that cannot
+ * be read is taken to load.
+ */
+export function parsedDiagramLoads(diagram: { db: unknown }): boolean {
+  const db = (diagram.db ?? {}) as ParsedModel
+  try {
+    const nodes = [...valuesOf(db.getVertices?.()), ...(db.getData?.().nodes ?? [])]
+    if (nodes.some((node) => node?.img != null && node.img !== '')) return true
+    return valuesOf(db.getActors?.()).some((actor) => {
+      const icon = actor?.properties?.icon
+      return icon != null && !String(icon).trim().startsWith('@')
+    })
+  } catch {
+    return true
+  }
 }
 
 export const LOADS_FROM_ELSEWHERE = 'Diagrams in a reply do not load images or styles from elsewhere'
+
+// ---- No image leaves the page while a diagram is drawn -------------------------
+
+// An address that stays on the page: a fragment of the diagram's own, an
+// image carried inline, or nothing.
+const ON_PAGE = /^\s*(?:#|data:|blob:|$)/iu
+const IMAGE_ATTRIBUTES = new Set(['src', 'srcset', 'href'])
+
+class RemoteImageRefused extends Error {
+  constructor() {
+    super(LOADS_FROM_ELSEWHERE)
+  }
+}
+
+/**
+ * Runs `draw` with every image it starts refused unless its address stays on
+ * the page — the backstop for an image the two readings of the source missed.
+ * A content security policy cannot be the backstop: the window shows remote
+ * images on purpose (pictures in replies, avatars, favicons, extension icons),
+ * and a policy, or a request filter in the main process, sees a request with
+ * no way to tell which element asked for it. So the guard is here, and only
+ * for as long as the drawing runs, which is one diagram at a time.
+ *
+ * What it covers is what Mermaid does: an `Image` whose `src` it sets as a
+ * property to measure the picture before the node is placed, and an
+ * `<image>`'s `href` it sets as an attribute inside the scratch element it
+ * draws in. The page's own images are out of its reach — React writes `src`
+ * as an attribute, never inside that element, and an image the page builds
+ * itself while a diagram is drawn (an attachment's preview) has a `data:` or
+ * `blob:` address. A refused image fails the drawing, and the block says why.
+ */
+export async function withoutRemoteImages<T>(scratchId: string, draw: () => Promise<T>): Promise<T> {
+  if (typeof HTMLImageElement === 'undefined' || typeof Element === 'undefined') return draw()
+  const image = HTMLImageElement.prototype
+  const element = Element.prototype
+  const reflected = (['src', 'srcset'] as const).map(
+    (name) => [name, Object.getOwnPropertyDescriptor(image, name)] as const,
+  )
+  const { setAttribute, setAttributeNS } = element
+  let refused = false
+
+  const inDiagram = (node: Element) =>
+    node.closest(`#${CSS.escape(scratchId)}`) !== null ||
+    (!node.isConnected && typeof SVGImageElement !== 'undefined' && node instanceof SVGImageElement)
+  const refuse = (): never => {
+    refused = true
+    throw new RemoteImageRefused()
+  }
+
+  for (const [name, descriptor] of reflected) {
+    if (!descriptor?.set) continue
+    const set = descriptor.set
+    Object.defineProperty(image, name, {
+      ...descriptor,
+      set(this: HTMLImageElement, value: unknown) {
+        if (!ON_PAGE.test(String(value)) && (!this.isConnected || inDiagram(this))) refuse()
+        set.call(this, value)
+      },
+    })
+  }
+  element.setAttribute = function (this: Element, name: string, value: string) {
+    if (
+      IMAGE_ATTRIBUTES.has(name.toLowerCase().replace(/^xlink:/u, '')) &&
+      !ON_PAGE.test(String(value)) &&
+      inDiagram(this)
+    )
+      refuse()
+    setAttribute.call(this, name, value)
+  }
+  element.setAttributeNS = function (this: Element, namespace: string | null, name: string, value: string) {
+    const local = name.slice(name.indexOf(':') + 1).toLowerCase()
+    if (IMAGE_ATTRIBUTES.has(local) && !ON_PAGE.test(String(value)) && inDiagram(this)) refuse()
+    setAttributeNS.call(this, namespace, name, value)
+  }
+
+  try {
+    const result = await draw()
+    if (refused) throw new RemoteImageRefused()
+    return result
+  } catch (error) {
+    // Mermaid catches some failures itself; a refusal is reported as one
+    // whatever became of the error it threw.
+    throw refused ? new RemoteImageRefused() : error
+  } finally {
+    for (const [name, descriptor] of reflected) if (descriptor) Object.defineProperty(image, name, descriptor)
+    element.setAttribute = setAttribute
+    element.setAttributeNS = setAttributeNS
+  }
+}
 
 // Settings a diagram's `%%{init}%%` or front matter may not change. Mermaid's
 // own list first: `secure` replaces it rather than adding to it.
@@ -347,7 +510,8 @@ async function render({ mermaid, purify }: Engine, source: string): Promise<Diag
       flowchart: { htmlLabels: false },
       // What Mermaid's own sanitizer keeps in the label text it still sets as
       // markup — before the page is out of reach of anything that loads.
-      dompurifyConfig: { FORBID_TAGS: ['style', ...LOADING_TAGS], FORBID_ATTR: LOADING_ATTRIBUTES },
+      // A `style` attribute is CSS, and CSS can fetch.
+      dompurifyConfig: { FORBID_TAGS: ['style', ...LOADING_TAGS], FORBID_ATTR: ['style', ...LOADING_ATTRIBUTES] },
       theme: 'base',
       themeVariables: themeVariables(),
       // A diagram that does not parse is reported to the block, which shows
@@ -357,11 +521,16 @@ async function render({ mermaid, purify }: Engine, source: string): Promise<Diag
       maxEdges: 500,
     })
     // Parse first: a syntax error then throws here, before anything is added
-    // to the document to measure.
+    // to the document to measure. `parse` applies the diagram's directives as
+    // `render` will; the diagram it parses to is then read for what it would
+    // load, however its source spelled it.
     await mermaid.parse(source)
-    const { svg } = await mermaid.render(id, source)
+    const parsed = await mermaid.mermaidAPI.getDiagramFromText(source)
+    if (parsedDiagramLoads(parsed)) return { error: LOADS_FROM_ELSEWHERE }
+    const { svg } = await withoutRemoteImages(`d${id}`, () => mermaid.render(id, source))
     return { svg: sanitizeDiagramSvg(purify, svg) }
   } catch (error) {
+    if (error instanceof RemoteImageRefused) return { error: LOADS_FROM_ELSEWHERE }
     const message = error instanceof Error ? error.message : String(error)
     // Mermaid loads each kind of diagram's code as it is first drawn; that
     // failing is the network's doing, not the diagram's.

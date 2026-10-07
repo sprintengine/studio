@@ -21,6 +21,14 @@ const mermaid = vi.hoisted(() => {
         if (source.includes('broken')) throw new Error('Parse error on line 2:\n...\nExpecting NODE_STRING')
         return { diagramType: 'flowchart' }
       },
+      mermaidAPI: {
+        getDiagramFromText: async (source: string) => ({
+          db: {
+            getVertices: () =>
+              new Map(source.includes('parsed-img') ? [['A', { img: 'https://evil.example/p.png' }]] : []),
+          },
+        }),
+      },
       render: async (id: string, source: string) => {
         events.push(`start ${source}`)
         await new Promise((resolve) => setTimeout(resolve, 5))
@@ -84,7 +92,7 @@ test('labels are SVG text, and a diagram cannot change what reaches the page uns
   )
   expect(config.dompurifyConfig).toMatchObject({
     FORBID_TAGS: expect.arrayContaining(['style', 'a', 'img', 'image', 'script']),
-    FORBID_ATTR: expect.arrayContaining(['href', 'xlink:href', 'src', 'srcset']),
+    FORBID_ATTR: expect.arrayContaining(['style', 'href', 'xlink:href', 'src', 'srcset']),
   })
 })
 
@@ -99,6 +107,15 @@ test('a source that would load an image or a style from elsewhere is not drawn',
     'stateDiagram-v2\n  A --> B\n  classDef bad background:image-set("https://evil.example/f.png" 1x)',
     'flowchart TD\n  A@{ img: "https://evil.example/g.png", label: "A" }',
     'sequenceDiagram\n  participant A\n  properties A: {"icon": "https://evil.example/h.png"}',
+    // HTML entities, and Mermaid's own `#…;` spelling of them, are read as
+    // the characters they stand for.
+    'stateDiagram-v2\n  A --> B\n  classDef bad fill:&#117;rl(https://evil.example/i.png)',
+    'stateDiagram-v2\n  A --> B\n  classDef bad fill:&#x75;rl(https://evil.example/j.png)',
+    'graph TD\n  A --> B\n  style A fill:u#114;l(https://evil.example/k.png)',
+    'graph TD\n  A --> B\n  style A fill:url&lpar;https://evil.example/l.png)',
+    'graph TD\n  A --> B\n  style A fill:url#lpar;https://evil.example/m.png)',
+    'graph TD\n  A --> B\n  style A fill:&amp;#117;rl(https://evil.example/n.png)',
+    'flowchart TD\n  A@{ &#105;mg: "https://evil.example/o.png" }',
   ]) {
     expect(loadsFromElsewhere(source), source).toBe(true)
     expect(await drawDiagram('a', source), source).toEqual({ error: LOADS_FROM_ELSEWHERE })
@@ -111,9 +128,17 @@ test('a source that would load an image or a style from elsewhere is not drawn',
     'graph TD\n  A --> B\n  style A fill:#f9f',
     'graph TD\n  A["Fetch https://api.example.com/v1"] --> B',
     'sequenceDiagram\n  participant A\n  properties A: {"icon": "@clock"}',
+    'graph TD\n  A["Tom &amp; Jerry #9829;"] --> B\n  style B fill:#f9f;',
   ]) {
     expect(loadsFromElsewhere(source), source).toBe(false)
   }
+})
+
+test('a node image only the parsed diagram shows is not drawn either', async () => {
+  const source = 'flowchart TD\n  A --> B %% parsed-img'
+  expect(loadsFromElsewhere(source)).toBe(false)
+  expect(await drawDiagram('a', source)).toEqual({ error: LOADS_FROM_ELSEWHERE })
+  expect(mermaid.events).toEqual(['initialize'])
 })
 
 test('a diagram is drawn once per appearance and source, however often it is asked for', async () => {
