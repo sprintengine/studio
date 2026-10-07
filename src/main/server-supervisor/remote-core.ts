@@ -137,6 +137,8 @@ export function createRemoteCore(link: ShellServerLink): StudioCore {
     conversationOwner: {
       // One idle setting governs terminals and chats; the chats' half is the server's.
       setIdleThresholdMs: (value: unknown) => rpc.emit(SERVER_EVENTS.conversationIdleThreshold, value),
+      // The chats run in the server; none of them is this process's to hear settle.
+      onSessionIdle: () => () => undefined,
       flushTranscripts: () => undefined,
       shutdown: () => undefined,
     },

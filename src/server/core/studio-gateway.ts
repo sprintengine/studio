@@ -1,7 +1,7 @@
 import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import type { ConversationEventType } from '../../shared/conversation-runtime'
 import { createAutomationService } from '../../main/automation/automation-service'
-import { createConversationTools } from '../../main/automation/conversation-tools'
+import { createConversationTools, type ConversationToolsDeps } from '../../main/automation/conversation-tools'
 import { createConversationListChangeFilter } from '../../main/automation/conversation-lifecycle'
 import { launchPermissionCeiling } from '../../main/automation/launch-permission-cap'
 import { createStudioGatewayTools } from '../../main/automation/studio-gateway-tools'
@@ -61,6 +61,13 @@ export type StudioGatewayOptions = Pick<
    * no shell of its own names none and never waits.
    */
   expectShellToolsets?: readonly string[]
+  /**
+   * Remember which agent started a chat through `conversation.create`, so it is
+   * told when the chat's turn ends (agent-launch-notices.ts). The desktop in
+   * process links; a server out of process cannot type into a terminal agent
+   * and leaves it out.
+   */
+  linkLaunchedAgent?: ConversationToolsDeps['linkLaunchedAgent']
 }
 
 export type StudioGateway = ReturnType<typeof createStudioGateway>
@@ -80,6 +87,7 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
       launch: (request) => core.conversationLaunchService.launch(request),
       resolveAgentPermissionPreset: core.resolveAgentPermissionPreset,
       lifecycle: core.conversationLifecycle,
+      ...(options.linkLaunchedAgent ? { linkLaunchedAgent: options.linkLaunchedAgent } : {}),
     }),
     ...createPullRequestTools({ link: (key, input) => core.pullRequests.linkForAgent(key, input) }),
     ...createLocalServerTools({ link: (key, input) => core.localServers.linkForAgent(key, input) }),

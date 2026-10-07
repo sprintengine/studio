@@ -137,6 +137,7 @@ import type { TerminalRootInfo } from './workspace-memory'
 import type { ChangelistEdit } from '../shared/git/changelists'
 import type { TerminalSessionDeltaEntry, TerminalSessionsDelta } from '../shared/ipc/terminal'
 import { parsePromptCacheReading } from '../shared/prompt-cache'
+import { noteStatusLineRateLimits } from './usage-limits/store'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
@@ -2400,7 +2401,12 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // Only a change in the whole-percent reading or in the prompt cache counts as
   // a change worth broadcasting; the cost and line counts move on every
   // refresh and nothing renders them yet.
-  const statusLineChanged = frame.statusLine ? recordSessionStatusLine(session, frame.statusLine, frame.ts) : false
+  //
+  // The usage windows riding the same reading are the account's, not the
+  // session's: they go to the usage-limit store and nowhere on the session.
+  const { rateLimits, ...statusLineReading } = frame.statusLine ?? {}
+  if (rateLimits) noteStatusLineRateLimits(rateLimits, frame.ts)
+  const statusLineChanged = frame.statusLine ? recordSessionStatusLine(session, statusLineReading, frame.ts) : false
   // Every path out of this function that does not reach the broadcast at the
   // end still has to publish an edit or a context reading: they are rendered,
   // and this is the only place they would be.

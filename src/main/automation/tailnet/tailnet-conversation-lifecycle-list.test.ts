@@ -222,3 +222,34 @@ test('a send from a paired device stamps the desktop’s message clock', async (
   assert.equal(notes[0]?.[0], 'chat')
   assert.ok(notes[0]![1] >= before)
 })
+
+test('a send through a host for Studio’s own messages is recorded as Studio’s and stamps no clock', async () => {
+  const sent: Array<{ origin?: unknown }> = []
+  const runtime = {
+    listSessions: () => ({ ok: true, sessions: [session('chat', 'agent-1')] }),
+    listThreads: async () => ({ ok: true, threads: [] }),
+    getProviderCapabilities: () => undefined,
+    sendTurn: async (input: { origin?: unknown }) => {
+      sent.push(input)
+      return { ok: true }
+    },
+  } as unknown as ConversationBackend
+  const host = createConversationGatewayHost(
+    runtime,
+    () => '/Users/dev/app',
+    () => [],
+    () => 'bypass',
+    () => null,
+    async () => null,
+    {},
+    { sendOrigin: { kind: 'studio', reason: 'usage-resume' } },
+  )
+  const result = await host.command(
+    { workspaceRoot: '/Users/dev/app', workspaceId: 'chat', agentId: 'agent-1' },
+    'studio-usage-limit-resume',
+    'usage-limit-resume:1',
+    { kind: 'send', message: 'carry on' },
+  )
+  assert.equal(result.ok, true)
+  assert.deepEqual(sent[0]?.origin, { kind: 'studio', reason: 'usage-resume' })
+})

@@ -329,6 +329,7 @@ export interface WorkspaceStore
   setAppearanceChatContrast: (contrast: number) => void
   setAppearanceChatWidth: (width: ChatWidth) => void
   setAppearanceAgentCharacters: (enabled: boolean) => void
+  setAppearanceUsageLimits: (enabled: boolean) => void
   addWorkspace: (
     template: LayoutTemplate,
     options?: {

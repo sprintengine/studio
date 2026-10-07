@@ -52,6 +52,8 @@ import type {
   ConversationStartSessionResult,
 } from '../shared/conversation-runtime'
 import type { EnsureSkillInstalledResult } from '../shared/modules/skills'
+import type { WorktreeDependencyInstallView } from '../shared/ipc/worktree-pool'
+import type { StartedDependencyInstall } from './worktree-pool/dependency-install'
 import type { CliPermissionPreset } from '../shared/cli-permission-preset'
 import { parseCliPermissionModeId } from '../shared/cli-permission-mode'
 import { workspaceHostIdOf, type ExecutionHostId } from '../shared/execution-host'
@@ -199,6 +201,12 @@ export type ConversationLaunchResult =
       providerId: string
       modelId: string
       sessionId: string
+      /**
+       * The new worktree's dependency install, still running: the chat and its
+       * session are there, and its first message is sent once the install
+       * ends, however it ends. Absent when nothing was installing.
+       */
+      dependencyInstall?: WorktreeDependencyInstallView
     }
   | { ok: false; code: string; message: string }
 
@@ -247,7 +255,17 @@ export type ConversationLaunchServiceDeps = {
     destinationPath: string
     branchName: string
     hostId: ExecutionHostId | null
-  }) => Promise<{ ok: true; path: string; branch: string; baseRef: string } | { ok: false; message: string }>
+  }) => Promise<
+    | {
+        ok: true
+        path: string
+        branch: string
+        baseRef: string
+        /** The project's dependency install, started in the worktree and still running. */
+        dependencyInstall?: StartedDependencyInstall
+      }
+    | { ok: false; message: string }
+  >
   /**
    * Count a new chat in the project at this folder, for the project pickers'
    * order (`shared/project-frecency.ts`). Told after a `newChat` launch has
@@ -284,7 +302,10 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
   async function cutNewChatWorktree(
     workspace: ConversationLaunchWorkspace,
     folderPath: string,
-  ): Promise<{ ok: true; folderPath: string; worktree: WorkspaceWorktree } | { ok: false; message: string }> {
+  ): Promise<
+    | { ok: true; folderPath: string; worktree: WorkspaceWorktree; dependencyInstall?: StartedDependencyInstall }
+    | { ok: false; message: string }
+  > {
     // A folder on an SSH machine is not this computer's to fork: a window's
     // New chat does not offer the worktree there either.
     if (isMachinePath(folderPath)) {
@@ -324,6 +345,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       ok: true,
       folderPath: made.path,
       worktree: { branch: made.branch, baseRef: made.baseRef, repoRoot: projectFolder },
+      ...(made.dependencyInstall ? { dependencyInstall: made.dependencyInstall } : {}),
     }
   }
 
@@ -418,11 +440,13 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
     // no chat has been seen to hold.
     let chatFolder = workspaceRoot
     let chatWorktree = workspace.worktree ?? null
+    let installing: StartedDependencyInstall | null = null
     if (request.newWorktree === true) {
       const cut = await cutNewChatWorktree(workspace, workspaceRoot)
       if (!cut.ok) return { ok: false, code: 'worktree_unavailable', message: cut.message }
       chatFolder = cut.folderPath
       chatWorktree = cut.worktree
+      installing = cut.dependencyInstall ?? null
     }
     // The run worktree when there is one: the session starts there, so the
     // agent's edits, its transcript and the skills below all stay inside it.
@@ -576,6 +600,17 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         deps.warn?.(message)
         request.onFirstSendFailed?.(message)
       }
+      // The chat's worktree is still installing its dependencies: the chat
+      // and its session are there, and say so (the chat view shows the
+      // install), and the first message goes once the install ends, however
+      // it ends — a failure is the person's toast and bell row, never a chat
+      // that never starts. Nothing goes while the app quits.
+      const ready: Promise<boolean> = installing
+        ? installing.settled.then(
+            (ended) => ended !== null,
+            () => true,
+          )
+        : Promise.resolve(true)
       // At the chat's effort only where its provider runs that level, as a
       // window's chat view sends each turn: a level the CLI's terminal takes
       // and its chat does not (Codex's `max`) runs at the provider's default.
@@ -583,16 +618,17 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         reasoningEffort && started.session.capabilities?.reasoningEfforts?.includes(reasoningEffort)
           ? reasoningEffort
           : undefined
-      void deps
-        .send({
-          sessionId,
-          commandId: newCommandId(),
-          message: prompt,
-          ...(turnEffort ? { reasoningEffort: turnEffort } : {}),
-          ...(skills.length > 0 ? { skills: skills.map((id) => ({ id })) } : {}),
-          ...(request.attachments?.length ? { attachments: request.attachments } : {}),
-        })
-        .then((sent) => {
+      void ready
+        .then(async (go) => {
+          if (!go) return
+          const sent = await deps.send({
+            sessionId,
+            commandId: newCommandId(),
+            message: prompt,
+            ...(turnEffort ? { reasoningEffort: turnEffort } : {}),
+            ...(skills.length > 0 ? { skills: skills.map((id) => ({ id })) } : {}),
+            ...(request.attachments?.length ? { attachments: request.attachments } : {}),
+          })
           if (!sent.ok) failed(`The first message of chat "${agentId}" was refused: ${sent.message}`)
         })
         .catch((error: unknown) => {
@@ -611,6 +647,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       providerId,
       modelId,
       sessionId: started.session.sessionId,
+      ...(installing ? { dependencyInstall: installing.current() } : {}),
     }
   }
 

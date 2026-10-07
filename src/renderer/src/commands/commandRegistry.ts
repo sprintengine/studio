@@ -572,6 +572,15 @@ export const COMMAND_REGISTRY = [
   }),
   // The performance diagnostics panel is a dev/diagnostics-only engineering
   // tool (process metrics, terminal/replay footprint, retention warnings).
+  // The subscription usage limits as a dialog, for a person with no Claude or
+  // Codex chat open to open them from. Unbound.
+  command({
+    id: 'usage.limits.show',
+    title: 'Show Usage Limits',
+    category: 'settings',
+    scopes: ['global'],
+    handlerPath: { kind: 'workspace-manager', handler: 'setUsageLimitsOpen(true)' },
+  }),
   // Gated on diagnosticsEnabled so it never surfaces in a normal build; ships
   // unbound (users can bind it in Shortcuts settings).
   command({

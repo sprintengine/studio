@@ -8,6 +8,14 @@ import type { WorkspaceRegistryActor } from '../../shared/workspace-registry'
 import type { ConversationLifecycle } from './conversation-lifecycle'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import type { ConversationLaunchService } from '../conversation-launch-service'
+import type { WorktreeDependencyInstallView } from '../../shared/ipc/worktree-pool'
+import {
+  launchingAgentOf,
+  NOT_TOLD_NOT_AN_AGENT,
+  NOT_TOLD_UNAVAILABLE,
+  type LaunchedAgentLink,
+  type LaunchLinkResult,
+} from '../agent-launch-notices'
 import {
   capLaunchPermissionPreset,
   launchPermissionCeiling,
@@ -36,6 +44,14 @@ export type ConversationToolsDeps = {
   resolveAgentPermissionPreset: AgentPermissionResolver
   /** A chat's rest and visit clock, written to the desktop's own record (conversation-lifecycle.ts). */
   lifecycle: Pick<ConversationLifecycle, 'settle' | 'visit'>
+  /**
+   * Remember that the calling agent started this chat, so the caller is told
+   * when its turn ends or it waits on someone (agent-launch-notices.ts).
+   * Answers whether the caller will be told. Absent where this process cannot
+   * type into the caller (a Studio server out of process), and the result says
+   * so.
+   */
+  linkLaunchedAgent?: (link: LaunchedAgentLink) => LaunchLinkResult
 }
 
 /**
@@ -46,6 +62,22 @@ function lifecycleActor(context: McpConnectionContext | undefined): WorkspaceReg
   return context?.metadata.kind === 'remote-tailnet' ? 'mobile' : 'gateway'
 }
 
+/**
+ * A worktree's dependency install as a caller is told about it: where it is,
+ * with no path on this machine (the caller may be a paired device).
+ */
+export function installProjection(view: WorktreeDependencyInstallView): Record<string, unknown> {
+  return {
+    state: view.state,
+    command: view.command,
+    reason: view.reason,
+    startedAt: view.startedAt,
+    endedAt: view.endedAt,
+    lastLine: view.lastLine,
+    exitCode: view.exitCode,
+  }
+}
+
 export function createConversationTools(deps: ConversationToolsDeps): McpToolRegistration[] {
   return [
     {
@@ -54,7 +86,14 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         'Start a chat agent in a workspace: the CLI runs as a conversation (the chat view, not a terminal). ' +
         'The chat is added to the workspace, its session is started, and `prompt` is sent as its first ' +
         'message; the call returns once the session is up, without waiting for the reply. Follow it with ' +
-        'the conversation stream by its workspaceId and agentId.',
+        'the conversation stream by its workspaceId and agentId. Called by an agent of this app, the caller is ' +
+        'told when the chat finishes a turn (with the end of its reply, quoted), fails or closes: a short notice ' +
+        'from Studio arrives as a new message once the caller is idle, never in the middle of its turn. That the ' +
+        "chat waits on the person for an answer or an approval rides along with the next notice. The result's " +
+        '"notifyParent" says whether the caller will be told, and "notifyParentReason" why not. A new worktree ' +
+        "whose project installs its dependencies first (an opt-in in this machine's Settings) answers while the " +
+        'install runs, with "dependencyInstall" saying so: the chat and its session are there, and `prompt` is ' +
+        'sent once the install ends, however it ends.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -104,6 +143,12 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           },
           prompt: { type: 'string', description: "The chat's first message." },
           name: { type: 'string', description: 'Agent display name; one from the name pool when omitted.' },
+          notifyParent: {
+            type: 'boolean',
+            description:
+              'Tell the calling agent when the chat finishes a turn, fails or closes, with a short notice that ' +
+              'arrives as a new message once the caller is idle. Defaults to true.',
+          },
         },
         required: ['workspaceId'],
         additionalProperties: false,
@@ -117,7 +162,7 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
             return toolError('invalid_arguments', `"${key}" must be a string when provided.`)
           }
         }
-        for (const key of ['newChat', 'worktree'] as const) {
+        for (const key of ['newChat', 'worktree', 'notifyParent'] as const) {
           if (args[key] !== undefined && typeof args[key] !== 'boolean') {
             return toolError('invalid_arguments', `"${key}" must be a boolean when provided.`)
           }
@@ -155,6 +200,24 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           ...(capped.permissionPreset ? { permissionPreset: capped.permissionPreset } : {}),
         })
         if (!launched.ok) return toolError(launched.code, launched.message)
+        const parent = launchingAgentOf(context)
+        const linked: LaunchLinkResult | null =
+          args.notifyParent === false
+            ? null
+            : !parent
+              ? { linked: false, reason: NOT_TOLD_NOT_AN_AGENT }
+              : !deps.linkLaunchedAgent
+                ? { linked: false, reason: NOT_TOLD_UNAVAILABLE }
+                : deps.linkLaunchedAgent({
+                    parent,
+                    child: {
+                      workspaceId: launched.workspaceId,
+                      agentId: launched.agentId,
+                      sessionId: launched.sessionId,
+                      transport: 'conversation',
+                      name: launched.name,
+                    },
+                  })
         return toolSuccess({
           conversation: {
             workspaceId: launched.workspaceId,
@@ -165,6 +228,9 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
             modelId: launched.modelId,
             sessionId: launched.sessionId,
           },
+          notifyParent: linked?.linked === true,
+          ...(linked && !linked.linked ? { notifyParentReason: linked.reason } : {}),
+          ...(launched.dependencyInstall ? { dependencyInstall: installProjection(launched.dependencyInstall) } : {}),
         })
       },
     },

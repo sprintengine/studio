@@ -1,0 +1,69 @@
+/* Meter — how much of a known budget is spent, drawn as a bar filled from the
+ * left. Extracted from the shipped Meter primitive
+ * (src/renderer/src/components/ui/Meter.tsx).
+ *
+ * A DISPLAY of one proportion, like the context ring, and for a different kind
+ * of budget: one that refills on a schedule (a plan's five-hour or weekly
+ * usage window). It is a bar rather than a ring because it is read in a list,
+ * one under another, where bars of one length compare at a glance and rings
+ * do not. It is never a progress indicator: nothing is loading, and the value
+ * falls back to nothing when the window resets.
+ *
+ * Two custom properties carry the state, set by the consumer as inline styles
+ * because they are per-instance data rather than design values:
+ *   --ds-meter-value   0–1, the share spent (root)
+ *   --ds-meter-marker  0–1, where the optional marker stands (root) */
+
+.ds-meter {
+  position: relative;
+  display: block;
+  inline-size: 100%;
+  block-size: 6px; /* ds-lint-allow: the bar's thickness, between the slider's 8px groove and a hairline */
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-active);
+  /* The track's edge is an inset shadow, as the slider's groove is: a border
+     would take a pixel out of the box the fill is measured against. */
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-default);
+}
+
+/* The spent share. Accent as INK, inside the accent budget: a bar per window
+   in a popover is a handful of thin strokes, not a field of colour. */
+.ds-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  inline-size: calc(var(--ds-meter-value, 0) * 100%);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-accent-primary);
+}
+
+/* A point on the bar the value is read against — for a usage window, how much
+   of the window's time has gone by. Taller than the bar so it reads as a mark
+   on it rather than as a second fill. */
+.ds-meter-marker {
+  position: absolute;
+  inset-block: -2px; /* ds-lint-allow: the marker overhangs the bar by its own stroke on each side */
+  inset-inline-start: calc(var(--ds-meter-marker) * 100% - 1px);
+  inline-size: 2px;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-text-subtle);
+}
+
+/* Close to the limit, or at it. The only other tone a meter takes: a full
+   window is a wait, not a failure, so there is no danger tier. */
+.ds-meter--warn .ds-meter-fill {
+  background: var(--sem-color-status-warn);
+}
+
+/* No value to show — the window has reset since it was read. The track alone,
+   one ink step quieter, and the consumer says so in words beside it. */
+.ds-meter--unknown {
+  opacity: 0.6;
+}
+
+/* The trigger-sized bar: short and thin, read beside other marks on a strip
+   rather than in a list. It is drawn inside a control that owns the hit target
+   and the accessible name, so it is decorative there. */
+.ds-meter--compact {
+  inline-size: 16px; /* ds-lint-allow: an icon-sized mark; the icon scale has no 16px width step for a bar */
+  block-size: 4px; /* ds-lint-allow: the compact bar's thickness */
+}

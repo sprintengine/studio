@@ -5,7 +5,7 @@ import { createServer, type Server } from 'http'
 import { dirname, join } from 'path'
 import type { SprintEngineAuthState, SessionSnapshot, SessionUser } from '../shared/electron-api'
 import { AccountPhotoCache } from './account-photo-cache'
-import { CURRENT_DEEP_LINK_SCHEME, DEEP_LINK_SCHEMES } from './deep-link-scheme'
+import { CURRENT_DEEP_LINK_SCHEME, DEEP_LINK_SCHEMES } from '../shared/deep-link-scheme'
 import {
   CLERK_IDENTITY_PROVIDER,
   IDENTITY_MARKER_FILE_NAME,

@@ -130,6 +130,9 @@ import { useCreatePullRequestState } from './agentChat/createPullRequest'
 import { conversationContextReading } from './agentChat/contextReading'
 import { ConversationComposerStrip } from './agentChat/conversationStrip'
 import { useConversationStripFacts } from './agentChat/conversationStripFacts'
+import { useUsageLimitSnapshot } from './agentChat/usageLimits'
+import { UsageLimitResumeRow } from './agentChat/usageLimitResume'
+import { usageLimitProviderOf } from '../../store/usageLimitsStore'
 import { studioAppCommands, useConversationCommands } from './agentChat/useConversationCommands'
 import { composerAppCommand } from './agentChat/composerAppCommands'
 import { commandInsertText } from './agentChat/slashCommandMenu'
@@ -159,6 +162,7 @@ import {
 import { ConversationPendingDock, type ApprovalModeSwitch } from './agentChat/pendingDock'
 import { QueuedTurnRow, queuedTurnSendNow } from './agentChat/queuedTurnBubble'
 import { ComposerTray, ComposerTrayRow } from './agentChat/composerTray'
+import { WorktreeInstallTrayRow } from './agentChat/worktreeInstallRow'
 import { StudioConnectionNotice } from './agentChat/studioConnectionNotice'
 import { CompactGlyph } from './agentChat/toolRows/ToolKindGlyph'
 import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
@@ -2738,6 +2742,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     () => (conversationLocalServers.length > 0 ? { workspaceId, servers: conversationLocalServers } : null),
     [conversationLocalServers, workspaceId],
   )
+  // The subscription limits of the agent this chat runs on — read on this
+  // computer, so only for a chat that runs here.
+  const usageLimitsShown = useWorkspaceStore((s) => s.appSettings.appearance.usageLimits)
+  const usageProvider =
+    usageLimitsShown && transport.kind !== 'remote' && !stripFacts.machine
+      ? usageLimitProviderOf(conversation?.providerId)
+      : null
+  const stripUsageLimits = useUsageLimitSnapshot(usageProvider)
   // "Create PR" works in this computer's checkout only: a chat on a paired
   // machine, WSL or an SSH machine (the strip names its machine) has no git
   // or `gh` here.
@@ -2942,6 +2954,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               {/* A window on the Studio protocol whose connection is down
                 says so, in words, while the transcript stays as it was. */}
               <StudioConnectionNotice />
+              {/* The chat's worktree still installing its dependencies: the
+                first message a chat started from outside a window waits for it. */}
+              <WorktreeInstallTrayRow folder={workspaceRoot} />
               {/* Loading is not a warning — it is the state the screen is in,
                 so it reads as the quiet line it is; anything else here is a
                 degraded session. */}
@@ -3049,6 +3064,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 // Read-only: the pending requests are shown, not answerable.
                 busy={respondingRequestId !== null || !operate}
               />
+
+              {/* A turn a usage limit stopped: when the limit resets, and
+                the resume Studio can send the chat then. Read on this
+                computer, so only for a chat that runs here. */}
+              {transport.kind !== 'remote' && !stripFacts.machine ? (
+                <UsageLimitResumeRow workspaceId={workspaceId} agentId={agentId} />
+              ) : null}
 
               {/*
                * A turn failure renders as a structured error block in the
@@ -3352,6 +3374,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               pullRequests={conversationPullRequests}
               createPullRequest={createPullRequest}
               localServers={stripLocalServers}
+              usageLimits={stripUsageLimits}
             />
           </div>
           {replay ? (
@@ -3484,7 +3507,8 @@ function transcriptShape(entries: readonly TranscriptEntry[]) {
     if (entry.kind === 'user') {
       hasUserMessage = true
       hasConversation = true
-      if (entry.text) promptHistory.push(entry.text)
+      // Up recalls what the person typed, not what Studio sent the chat.
+      if (entry.text && entry.origin?.kind !== 'studio') promptHistory.push(entry.text)
     }
     if (entry.kind !== 'assistant') continue
     hasConversation = true

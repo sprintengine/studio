@@ -16,7 +16,7 @@
 
 import { existsSync } from 'node:fs'
 import { readdir, readFile, rm, rmdir } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 
 import { STUDIO_MCP_SERVER_ID } from '../../shared/product-identity'
 import { isRecord } from '../../shared/records'
@@ -38,6 +38,7 @@ import {
   removeCodexManagedServers,
   RETIRED_SPRINTENGINE_MCP_SERVER_ID,
 } from '../mcp-config-service'
+import { isOwnUrlHandlerEntry } from '../linux-url-handler'
 import { readSkillProvenance } from '../skills/install'
 import { removeSettingsKey, STUDIO_PLUGIN_ID, STUDIO_PLUGIN_SOURCE_ID } from '../skills/studio-plugin'
 import { KNOWLEDGE_ACTIVITY_HOOK_TAG, scanForIntegrations, type ScanHome, type ScanRoot } from './integration-scan'
@@ -565,6 +566,20 @@ async function removeKnownMarketplace(entry: IntegrationLedgerEntry): Promise<Re
   )
 }
 
+/**
+ * The desktop entry a Linux AppImage writes to answer for the scheme
+ * (`linux-url-handler.ts`): a file of its own, deleted only while it still
+ * carries the app's marker. One the person or another tool rewrote is theirs.
+ */
+async function removeUrlHandlerEntry(entry: IntegrationLedgerEntry): Promise<Result> {
+  if (!isAbsolute(entry.path)) return skip(NOT_OURS_BY_PATH)
+  const text = await readFile(entry.path, 'utf8').catch(() => null)
+  if (text === null) return skip(ALREADY_GONE)
+  if (!isOwnUrlHandlerEntry(text)) return skip('It is no longer Studio’s link handler, so it was left alone.')
+  await rm(entry.path, { force: true })
+  return removed
+}
+
 async function removeEntry(
   entry: IntegrationLedgerEntry,
   deps: IntegrationRemovalDeps,
@@ -686,6 +701,7 @@ async function removeEntry(
     case 'tailnet-share':
       return removeTailnetShare(entry, deps)
     case 'protocol-handler': {
+      if (entry.path.endsWith('.desktop')) return removeUrlHandlerEntry(entry)
       if (!deps.removeProtocolClient) return skip('Only the app itself can unregister the link handler.')
       return deps.removeProtocolClient(entry.marker) ? removed : skip(ALREADY_GONE)
     }

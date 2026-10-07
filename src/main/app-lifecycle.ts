@@ -2,11 +2,22 @@ import { app, BrowserWindow, ipcMain, Menu, net, powerMonitor } from 'electron'
 import { createAppMenu } from './app-menu'
 import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
-import { DEEP_LINK_SCHEMES } from './deep-link-scheme'
+import { DEEP_LINK_SCHEMES } from '../shared/deep-link-scheme'
+import { CHAT_LINK_OPEN_CHANNEL, chatLinkFromArgv } from '../shared/deep-link'
+import { createChatLinkRouter } from './chat-link-router'
+import { registerChatLinkIpc, routeSecondLaunch } from './chat-link-ipc'
+import { registerLinuxUrlHandler, systemLinuxUrlHandlerDeps } from './linux-url-handler'
 import { BOOT_WORKSPACE_SYNC_BUDGET_MS, runBootDiscovery, settleWithin } from './boot-discovery'
 import { discoverAndBroadcastCliModels } from './ipc/cli-model-discovery-ipc'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
-import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow } from './window-factory'
+import {
+  createMainWindow,
+  isWorkspaceWindowWebContents,
+  listWorkspaceWindows,
+  markAppQuitInProgressForWindowClose,
+  revealMainWindow,
+  workspaceWindowIdOf,
+} from './window-factory'
 import { markStartup } from './startup-timeline'
 import { createBackgroundPresence } from './background-presence'
 import { buildElectronBackgroundMenu, createElectronBackgroundTray } from './background-tray-electron'
@@ -101,6 +112,12 @@ type RegisterAppLifecycleOptions = {
   worktreePool?: {
     shutdown(options?: { waitMs?: number }): Promise<void>
   }
+  // The dependency installs agent worktrees are running (worktree-pool/
+  // dependency-install.ts). Each runs detached, as a process group of its own,
+  // so nothing would end it with the app: the quit stops every one.
+  dependencyInstaller?: {
+    shutdown(options?: { waitMs?: number }): Promise<void>
+  }
   // Recordings of browser tabs an agent started: each is a file still being
   // written, so quit saves what was captured, with its length, before the
   // windows that encode them close.
@@ -153,6 +170,14 @@ type RegisterAppLifecycleOptions = {
   moduleLoadReady?: Promise<void>
   updateService: SprintEngineUpdateService
   handleAuthCallback(argv: string[]): void
+  /**
+   * The registry's windows, for a `sprintengine://chat/…` link: the one that
+   * holds the chat, and the primary. Absent, a link opens in the focused window.
+   */
+  chatWindows?: {
+    holderOf(chatId: string): string | null
+    primaryWindowId(): string
+  }
   // Background mode. Absent means the setting can never read on, so
   // the last-window-close rule collapses to exactly its form before background mode existed.
   backgroundMode?: {
@@ -203,6 +228,7 @@ export function registerAppLifecycle({
   releaseDataDir,
   canvasService,
   worktreePool,
+  dependencyInstaller,
   browserRecorder,
   desktopShell,
   conversationCommands,
@@ -213,6 +239,7 @@ export function registerAppLifecycle({
   moduleLoadReady,
   updateService,
   handleAuthCallback,
+  chatWindows,
   backgroundMode,
   checkPluginSourceUpdates,
   startDeferredBootJobs,
@@ -256,6 +283,37 @@ export function registerAppLifecycle({
     backgroundPresence.onWindowOpened()
   }
 
+  // A `sprintengine://chat/…` link (shared/deep-link.ts), held until the window
+  // it is for is listening, then opened there (chat-link-router.ts). It only
+  // ever selects a chat; the auth callback keeps its own path below.
+  const chatLinks = createChatLinkRouter<BrowserWindow>({
+    windows: listWorkspaceWindows,
+    windowIdOf: workspaceWindowIdOf,
+    primaryWindowId: () => chatWindows?.primaryWindowId() ?? 'primary',
+    holderOf: (chatId) => chatWindows?.holderOf(chatId) ?? null,
+    // Not once the app is quitting: a link still waiting when its last window
+    // closes for the quit must not open a new one.
+    canOpenWindow: () => app.isReady() && shutdownRun === null,
+    // Only ever asked with no workspace window open, so it makes one. Raising
+    // whatever window there is, as the tray's Open does, could raise an aux
+    // window, and the link would wait for a workspace window that never came.
+    openWindow: () => {
+      createMainWindow({ diagnosticsEnabled })
+      backgroundPresence.onWindowOpened()
+    },
+    send: (win, link, generation) => win.webContents.send(CHAT_LINK_OPEN_CHANNEL, link, generation),
+  })
+  function openChatLinkFrom(argv: readonly string[]): void {
+    const link = chatLinkFromArgv(argv)
+    if (link) chatLinks.open(link)
+  }
+  registerChatLinkIpc({
+    ipcMain,
+    router: chatLinks,
+    windowOf: (contents) => BrowserWindow.fromWebContents(contents),
+    isWorkspaceWindow: isWorkspaceWindowWebContents,
+  })
+
   // The single-instance lock itself is taken by the entry (index.ts), before any
   // service is built, so a second launch exits without paying for the service
   // graph. This process holds it, and hears every later launch here.
@@ -268,15 +326,24 @@ export function registerAppLifecycle({
       if (isScriptSecondLaunch(argv)) return
       // Relaunching the app while it is backgrounded must produce a window:
       // without this the second launch silently did nothing, which on Windows
-      // and Linux left the tray as the only way back in.
-      openWindowFromBackground()
+      // and Linux left the tray as the only way back in. A launch carrying a
+      // chat link gets its window from the link router, which raises the one
+      // the chat opens in, or opens one.
+      routeSecondLaunch(argv, {
+        openChatLink: (link) => chatLinks.open(link),
+        openWindow: openWindowFromBackground,
+      })
       handleAuthCallback(argv)
     })
   }
 
+  // macOS hands a link over here, to a running app and to one the link is
+  // launching alike; in the second case before `ready`, which the chat-link
+  // router waits out.
   app.on('open-url', (event, callbackUrl) => {
     event.preventDefault()
     handleAuthCallback([callbackUrl])
+    openChatLinkFrom([callbackUrl])
   })
 
   let hostedFeedPoller: HostedFeedPoller | null = null
@@ -537,6 +604,8 @@ export function registerAppLifecycle({
 
     void Promise.resolve(moduleLoadReady).then(() => moduleKernel?.runStartup())
     handleAuthCallback(process.argv)
+    // A link that launched the app on Windows or Linux is one of its arguments.
+    openChatLinkFrom(process.argv)
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().every((win) => isCanvasWorkerWindow(win))) {
@@ -561,8 +630,9 @@ export function registerAppLifecycle({
   // The legs are ordered by what a cut-short quit would cost, cheapest-to-save
   // and most-missed first, within what they depend on:
   //  1. Stop new work: module begin hooks, timers, the automations engine (so a
-  //     dying agent cannot finalize a run: open a PR, remove its worktree) and
-  //     the agent-state socket.
+  //     dying agent cannot finalize a run: open a PR, remove its worktree), the
+  //     dependency installs agent worktrees are running, and the agent-state
+  //     socket.
   //  2. Small writes the person would miss: the workspace registry (every
   //     sidebar change), then every chat's buffered transcript.
   //  3. Terminal snapshots: the most valuable and, with many terminals, the
@@ -617,6 +687,10 @@ export function registerAppLifecycle({
       // come back later, and resume from their cursors.
       ['local app socket', () => studioRpcService?.stop()],
       ['automations', () => automationService?.shutdown()],
+      // With the new work: an install the quit cuts short is not recorded, so
+      // its worktree installs again at its next lease, and an agent that was
+      // waiting on it is not started on the way out.
+      ['dependency installs', () => dependencyInstaller?.shutdown()],
       ['agent state', () => agentStateService?.shutdown()],
       ['workspace registry', () => workspaceSyncService?.flush()],
       ['chat transcripts', () => conversationOwner?.flushTranscripts?.()],
@@ -665,6 +739,7 @@ export function registerAppLifecycle({
           hostedFeedPoller?.stop()
         },
       ],
+      ['dependency installs', () => dependencyInstaller?.shutdown()],
       ['browser recordings', () => browserRecorder?.stopAll('app_quit')],
       // The canvas's last board write lands before the server stops serving.
       ['canvas', () => canvasService?.dispose()],
@@ -853,10 +928,44 @@ function bindElectronPowerActivity(): void {
   syncFocus()
 }
 
-// Both schemes, current and legacy — see `deep-link-scheme.ts` for why the old
-// one is still claimed. Registering is cheap and idempotent; an unclaimed
-// scheme is a dead link with nowhere to report itself.
+// Every scheme in `DEEP_LINK_SCHEMES` (shared/deep-link-scheme.ts). Registering
+// is cheap and idempotent; an unclaimed scheme is a dead link with nowhere to
+// report itself.
 function registerDeepLinkProtocols(): void {
+  // A packaged AppImage answers for its schemes with a desktop entry it writes
+  // itself (linux-url-handler.ts). Electron's registration names a desktop file
+  // no AppImage installs: run beside it, it would hand the default to a file
+  // that is not there at every start, and the entry would take it back.
+  const appImageEntry = process.platform === 'linux' && app.isPackaged && Boolean(process.env.APPIMAGE)
+  if (appImageEntry) {
+    void registerLinuxUrlHandler(
+      {
+        ...systemLinuxUrlHandlerDeps(),
+        platform: process.platform,
+        isPackaged: app.isPackaged,
+        env: process.env,
+        log: (level, message, details) => {
+          void writeDiagnosticLog({
+            level,
+            source: 'workspace',
+            title: 'Link handler',
+            message,
+            ...(details ? { details: JSON.stringify(details) } : {}),
+          }).catch(() => undefined)
+        },
+        record: (path, scheme) =>
+          recordIntegrationWrite({
+            kind: 'protocol-handler',
+            path,
+            marker: scheme,
+            createdFile: true,
+            hostId: 'local',
+          }),
+      },
+      DEEP_LINK_SCHEMES,
+    )
+    return
+  }
   for (const scheme of DEEP_LINK_SCHEMES) {
     if (!app.isPackaged) {
       // A dev build is `electron <app-dir>`, so the OS has to be handed both

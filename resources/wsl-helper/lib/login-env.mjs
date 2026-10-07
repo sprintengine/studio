@@ -75,8 +75,12 @@ export function keepVariable(name) {
 
 const SENTINEL = '__SPRINTENGINE_ENV__'
 
-/** `env -0` output after the sentinel, as the kept variables. */
-export function parseEnvDump(bytes) {
+/**
+ * `env -0` output after the sentinel, as the kept variables: the fixed list
+ * above unless the caller names its own rule (main's dependency install keeps
+ * the whole login environment, less the app's own variables).
+ */
+export function parseEnvDump(bytes, keep = keepVariable) {
   const text = Buffer.isBuffer(bytes) ? bytes.toString('utf8') : String(bytes)
   const marker = `\0${SENTINEL}\0`
   const start = text.lastIndexOf(marker)
@@ -86,7 +90,7 @@ export function parseEnvDump(bytes) {
     const equals = entry.indexOf('=')
     if (equals <= 0) continue
     const name = entry.slice(0, equals)
-    if (keepVariable(name)) env[name] = entry.slice(equals + 1)
+    if (keep(name)) env[name] = entry.slice(equals + 1)
   }
   return env
 }
@@ -109,13 +113,14 @@ const TIMED_OUT = Symbol('timed out')
 // Settles on the deadline whatever the shell does: something a profile
 // starts in a session of its own can hold the output pipe open long after
 // the shell itself is gone, and nothing may wait on that.
-function dump(shell, flags, timeoutMs) {
+function dump(shell, flags, timeoutMs, keep, env) {
   return new Promise((resolve) => {
     let child
     try {
       child = spawn(shell, [...flags, `printf '\\0${SENTINEL}\\0'; env -0`], {
         stdio: ['ignore', 'pipe', 'ignore'],
         detached: true,
+        ...(env ? { env } : {}),
       })
     } catch {
       resolve(null)
@@ -144,11 +149,11 @@ function dump(shell, flags, timeoutMs) {
       if (size <= 4 * 1024 * 1024) chunks.push(chunk)
     })
     child.on('error', () => finish(null))
-    child.on('close', () => finish(parseEnvDump(Buffer.concat(chunks))))
+    child.on('close', () => finish(parseEnvDump(Buffer.concat(chunks), keep)))
     // The shell exited but something it started still holds the pipe: what
     // it printed is all there is.
     child.on('exit', () => {
-      setTimeout(() => finish(parseEnvDump(Buffer.concat(chunks))), 1_000).unref()
+      setTimeout(() => finish(parseEnvDump(Buffer.concat(chunks), keep)), 1_000).unref()
     })
   })
 }
@@ -156,9 +161,17 @@ function dump(shell, flags, timeoutMs) {
 /**
  * The kept variables from an interactive login shell (where nvm and most
  * version managers set PATH up), else a plain login shell, else the helper's
- * own environment. Always has a PATH.
+ * own environment. Always has a PATH. `keep` replaces the fixed list, and
+ * `env` is what the shell starts with (this process's environment when absent).
  */
-export async function captureLoginEnv({ uid, baseEnv = process.env, timeoutMs = 8_000, shell } = {}) {
+export async function captureLoginEnv({
+  uid,
+  baseEnv = process.env,
+  timeoutMs = 8_000,
+  shell,
+  keep = keepVariable,
+  env,
+} = {}) {
   const chosen = shell ?? loginShell(uid)
   const name = chosen.split('/').at(-1) ?? ''
   // `-i` loads the interactive rc files (`.bashrc`, `.zshrc`), which is where a
@@ -171,15 +184,14 @@ export async function captureLoginEnv({ uid, baseEnv = process.env, timeoutMs = 
       ]
     : [['-l', '-c']]
   for (const flags of attempts) {
-    const env = await dump(chosen, flags, timeoutMs)
+    const captured = await dump(chosen, flags, timeoutMs, keep, env)
     // A shell that hangs would hang again: one deadline is all it gets, so
     // the first request after a start never waits more than that.
-    if (env === TIMED_OUT) break
-    if (env && env.PATH) return env
+    if (captured === TIMED_OUT) break
+    if (captured && captured.PATH) return captured
   }
   const fallback = {}
-  for (const [name, value] of Object.entries(baseEnv))
-    if (keepVariable(name) && value !== undefined) fallback[name] = value
+  for (const [name, value] of Object.entries(baseEnv)) if (keep(name) && value !== undefined) fallback[name] = value
   if (!fallback.PATH) fallback.PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
   return fallback
 }

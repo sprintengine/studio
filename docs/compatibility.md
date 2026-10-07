@@ -93,7 +93,12 @@ and three capabilities (2026-10-05) say what those take and answer:
 CLI with a `catalog`, the model picker's own rows). An argument needs its
 capability more than a route does: a handler skips an argument it does not
 know rather than refusing it, so a `worktree` sent to a desktop without the
-capability starts the chat in the checkout and says nothing. These names carry
+capability starts the chat in the checkout and says nothing. The answer to a
+`worktree` create may carry `dependencyInstall` (2026-10-07): the new
+worktree's project installs its dependencies first, the chat and its session
+already exist, and the first message goes once the install ends. It is an
+optional member with no capability: a client that does not read it sees the
+chat start a little later, and an older desktop never sends it. These names carry
 no `conversation-` prefix, which is kept for the conversation lane's own
 vocabulary: every `conversation-` capability this machine advertises must be
 one `@sprintengine/conversation-protocol` names
@@ -209,7 +214,11 @@ send them (`docs/conversations.md`, "Machines and pull requests in the list").
 The context a chat has spent (`contextWindow` and `contextUsed` on a
 `usage_updated` event) is the same kind of member: a phone that does not read
 them shows no context ring, and one that does draws none for a desktop that
-does not send them. A chat's rest and read state are the
+does not send them. So is `origin` on a `user_message` payload
+(`ConversationMessageOrigin`, 2026-10-07), which marks a message the desktop
+sent a chat itself — a launched agent's notice, a resume after a usage limit —
+as Studio's: a reader that does not know it shows the message as the person's,
+as every reader did before, and a message without one is the person's. A chat's rest and read state are the
 `conversation-lifecycle` capability: a desktop that advertises it leaves the
 chats it has settled out of the list, sends it in its sidebar's order, names
 each chat's `chatTitle`, `lastUserMessageAt`, `lastTurnEndedAt` and

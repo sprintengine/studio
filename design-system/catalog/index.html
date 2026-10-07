@@ -668,6 +668,8 @@ code {
 #ds-view-component-menu:checked ~ .ds-catalog #component-menu { display: block; }
 #ds-view-component-menu-option:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-menu-option:checked ~ .ds-catalog #component-menu-option { display: block; }
+#ds-view-component-meter:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-meter:checked ~ .ds-catalog #component-meter { display: block; }
 #ds-view-component-micro-chip:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-micro-chip:checked ~ .ds-catalog #component-micro-chip { display: block; }
 #ds-view-component-modal:checked ~ .ds-catalog #components { display: block; }
@@ -796,6 +798,8 @@ code {
 #ds-view-component-menu:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-menu"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-menu-option:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-menu-option"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-menu-option:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-menu-option"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-meter:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-meter"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-meter:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-meter"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-micro-chip:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-micro-chip"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-micro-chip:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-micro-chip"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-modal:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-modal"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -5792,6 +5796,77 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   visibility: hidden;
 }
 
+/* components/meter/component.css */
+/* Meter — how much of a known budget is spent, drawn as a bar filled from the
+ * left. Extracted from the shipped Meter primitive
+ * (src/renderer/src/components/ui/Meter.tsx).
+ *
+ * A DISPLAY of one proportion, like the context ring, and for a different kind
+ * of budget: one that refills on a schedule (a plan's five-hour or weekly
+ * usage window). It is a bar rather than a ring because it is read in a list,
+ * one under another, where bars of one length compare at a glance and rings
+ * do not. It is never a progress indicator: nothing is loading, and the value
+ * falls back to nothing when the window resets.
+ *
+ * Two custom properties carry the state, set by the consumer as inline styles
+ * because they are per-instance data rather than design values:
+ *   --ds-meter-value   0–1, the share spent (root)
+ *   --ds-meter-marker  0–1, where the optional marker stands (root) */
+
+.ds-meter {
+  position: relative;
+  display: block;
+  inline-size: 100%;
+  block-size: 6px; /* ds-lint-allow: the bar's thickness, between the slider's 8px groove and a hairline */
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-active);
+  /* The track's edge is an inset shadow, as the slider's groove is: a border
+     would take a pixel out of the box the fill is measured against. */
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-default);
+}
+
+/* The spent share. Accent as INK, inside the accent budget: a bar per window
+   in a popover is a handful of thin strokes, not a field of colour. */
+.ds-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  inline-size: calc(var(--ds-meter-value, 0) * 100%);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-accent-primary);
+}
+
+/* A point on the bar the value is read against — for a usage window, how much
+   of the window's time has gone by. Taller than the bar so it reads as a mark
+   on it rather than as a second fill. */
+.ds-meter-marker {
+  position: absolute;
+  inset-block: -2px; /* ds-lint-allow: the marker overhangs the bar by its own stroke on each side */
+  inset-inline-start: calc(var(--ds-meter-marker) * 100% - 1px);
+  inline-size: 2px;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-text-subtle);
+}
+
+/* Close to the limit, or at it. The only other tone a meter takes: a full
+   window is a wait, not a failure, so there is no danger tier. */
+.ds-meter--warn .ds-meter-fill {
+  background: var(--sem-color-status-warn);
+}
+
+/* No value to show — the window has reset since it was read. The track alone,
+   one ink step quieter, and the consumer says so in words beside it. */
+.ds-meter--unknown {
+  opacity: 0.6;
+}
+
+/* The trigger-sized bar: short and thin, read beside other marks on a strip
+   rather than in a list. It is drawn inside a control that owns the hit target
+   and the accessible name, so it is decorative there. */
+.ds-meter--compact {
+  inline-size: 16px; /* ds-lint-allow: an icon-sized mark; the icon scale has no 16px width step for a bar */
+  block-size: 4px; /* ds-lint-allow: the compact bar's thickness */
+}
+
 /* components/micro-chip/component.css */
 /* Micro chip — the hairline rectangle that carries one fact about the thing
  * beside it ("Default"). Extracted from the shipped MicroChip / DefaultChip
@@ -10690,6 +10765,52 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     border-radius: var(--sem-radius-shell);
     background: var(--sem-color-bg-surface);
   }
+.ds-embed-component-meter {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-meter .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-meter .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    margin: 0 0 var(--sem-space-lg);
+  }
+.ds-embed-component-meter .demo-row {
+    display: flex;
+    gap: var(--sem-space-3xl);
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+.ds-embed-component-meter .demo-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-lg);
+    width: 240px;
+  }
+.ds-embed-component-meter .demo-value {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sem-space-sm);
+    padding-bottom: var(--sem-space-xs);
+    font-size: var(--sem-font-size-meta);
+  }
+.ds-embed-component-meter .demo-value-name {
+    color: var(--sem-color-text-primary);
+  }
+.ds-embed-component-meter .demo-value-axis {
+    color: var(--sem-color-text-subtle);
+    font-size: var(--sem-font-size-micro);
+  }
+.ds-embed-component-meter .demo-trigger {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+  }
 .ds-embed-component-micro-chip {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -12841,6 +12962,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-liveness" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-menu" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-menu-option" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-meter" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-micro-chip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-modal" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-pager" />
@@ -12925,6 +13047,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-liveness">Liveness</label>
 <label class="catalog-nav-item" for="ds-view-component-menu">Menu</label>
 <label class="catalog-nav-item" for="ds-view-component-menu-option">Menu option</label>
+<label class="catalog-nav-item" for="ds-view-component-meter">Meter</label>
 <label class="catalog-nav-item" for="ds-view-component-micro-chip">Micro chip</label>
 <label class="catalog-nav-item" for="ds-view-component-modal">Modal</label>
 <label class="catalog-nav-item" for="ds-view-component-pager">Pager</label>
@@ -32037,6 +32160,288 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
       &lt;span class=&quot;ds-menu-option-mark&quot;&gt;✓&lt;/span&gt;
     &lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-menu-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot; disabled&gt;Unreachable host&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-meter" class="catalog-view catalog-component">
+<h3>Meter</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-meter">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="demo-row">
+    <div class="demo-list">
+      <div class="demo-window">
+        <div class="demo-value"><span class="demo-value-name" id="l-0">Session (5h)</span><span class="demo-value-axis">42% · resets in 2h 13m</span></div>
+        <div class="ds-meter" role="meter" aria-labelledby="l-0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="42" aria-valuetext="42% used" style="--ds-meter-value: 0.42; --ds-meter-marker: 0.56">
+          <span class="ds-meter-fill"></span>
+          <span class="ds-meter-marker"></span>
+        </div>
+      </div>
+      <div class="demo-window">
+        <div class="demo-value"><span class="demo-value-name" id="l-1">Weekly</span><span class="demo-value-axis">93% · resets in 3d 4h</span></div>
+        <div class="ds-meter ds-meter--warn" role="meter" aria-labelledby="l-1" aria-valuemin="0" aria-valuemax="100" aria-valuenow="93" aria-valuetext="93% used" style="--ds-meter-value: 0.93; --ds-meter-marker: 0.48">
+          <span class="ds-meter-fill"></span>
+          <span class="ds-meter-marker"></span>
+        </div>
+      </div>
+      <div class="demo-window">
+        <div class="demo-value"><span class="demo-value-name" id="l-2">Weekly · Opus</span><span class="demo-value-axis">— · reset</span></div>
+        <div class="ds-meter ds-meter--unknown" role="meter" aria-labelledby="l-2" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Reset">
+        </div>
+      </div>
+    </div>
+    <div class="demo-trigger">
+      <span class="demo-value-axis">Compact, inside a trigger</span>
+      <span class="ds-meter ds-meter--compact" aria-hidden="true" style="--ds-meter-value: 0.42"><span class="ds-meter-fill"></span></span>
+      <span class="ds-meter ds-meter--compact ds-meter--warn" aria-hidden="true" style="--ds-meter-value: 0.93"><span class="ds-meter-fill"></span></span>
+    </div>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="demo-row">
+    <div class="demo-list">
+      <div class="demo-window">
+        <div class="demo-value"><span class="demo-value-name" id="d-0">Session (5h)</span><span class="demo-value-axis">42% · resets in 2h 13m</span></div>
+        <div class="ds-meter" role="meter" aria-labelledby="d-0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="42" aria-valuetext="42% used" style="--ds-meter-value: 0.42; --ds-meter-marker: 0.56">
+          <span class="ds-meter-fill"></span>
+          <span class="ds-meter-marker"></span>
+        </div>
+      </div>
+      <div class="demo-window">
+        <div class="demo-value"><span class="demo-value-name" id="d-1">Weekly</span><span class="demo-value-axis">93% · resets in 3d 4h</span></div>
+        <div class="ds-meter ds-meter--warn" role="meter" aria-labelledby="d-1" aria-valuemin="0" aria-valuemax="100" aria-valuenow="93" aria-valuetext="93% used" style="--ds-meter-value: 0.93; --ds-meter-marker: 0.48">
+          <span class="ds-meter-fill"></span>
+          <span class="ds-meter-marker"></span>
+        </div>
+      </div>
+      <div class="demo-window">
+        <div class="demo-value"><span class="demo-value-name" id="d-2">Weekly · Opus</span><span class="demo-value-axis">— · reset</span></div>
+        <div class="ds-meter ds-meter--unknown" role="meter" aria-labelledby="d-2" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Reset">
+        </div>
+      </div>
+    </div>
+    <div class="demo-trigger">
+      <span class="demo-value-axis">Compact, inside a trigger</span>
+      <span class="ds-meter ds-meter--compact" aria-hidden="true" style="--ds-meter-value: 0.42"><span class="ds-meter-fill"></span></span>
+      <span class="ds-meter ds-meter--compact ds-meter--warn" aria-hidden="true" style="--ds-meter-value: 0.93"><span class="ds-meter-fill"></span></span>
+    </div>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>How much of a known budget is spent, as a bar filled from the left. Extracted from the shipped <code>Meter</code> primitive (<code>src/renderer/src/components/ui/Meter.tsx</code>).</p>
+<p>It is a <strong>display of one proportion</strong>: not a control, and not a progress indicator. Nothing is loading, and the value can fall as well as rise — a usage window that resets goes back to nothing. Reach for it where the budget refills on a schedule and several are read together, one under another: bars of one length compare at a glance where rings do not. For the single &quot;how full is the context window&quot; fact beside a title, the [context ring](../context-ring/component.md) is the idiom; for something that completes, use a progress indicator.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Bar | <code>.ds-meter</code> | yes — the track, <code>bg.active</code> on a <code>border.default</code> inset hairline | | Fill | <code>.ds-meter-fill</code> | yes — the spent share, <code>accent.primary</code> | | Marker | <code>.ds-meter-marker</code> | no — a 2px tick at a second point the value is read against |</p>
+<p>The value is the custom property <code>--ds-meter-value</code> (0–1) on the root, and the marker's position is <code>--ds-meter-marker</code> (0–1). Both are per-instance data set inline by the consumer, not design values.</p>
+<p>The bar never carries its own label or number. The consumer says what is measured and how much in its own type, beside the bar — &quot;Weekly · 82% used · resets in 3d 4h&quot; — because a bar alone makes the reader estimate a number they could have been told.</p>
+<h4>Variants</h4>
+<ul><li><strong>Default</strong> — <code>accent.primary</code> fill.</li><li><strong><code>--warn</code></strong> — <code>status.warn</code> fill, at or past the consumer's warn threshold (90% of a usage window in the product that ships it), or when the budget is refusing work now. There is no danger tier: a full window is a wait, not a failure.</li><li><strong><code>--unknown</code></strong> — the track alone, quieter, when there is no value to show (the window reset since it was read). The consumer says &quot;reset&quot; in words.</li><li><strong><code>--compact</code></strong> — 16 × 4px, for a mark inside another control (a strip's trigger). Decorative there: the control carries the accessible name.</li></ul>
+<p><strong>The marker as pace.</strong> For a window that refills on a schedule, the marker stands at the share of the window's *time* gone by. A fill past the marker is running ahead of the window; short of it, there is room to spare. The consumer says which in words (&quot;ahead of pace&quot;); the marker never stands alone.</p>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Ordinary | accent fill | | Warn | status.warn fill | | Unknown | track only, 60% opacity |</p>
+<p>A meter is not interactive and has no hover, focus or disabled state. A meter inside a control takes that control's states.</p>
+<h4>Usage</h4>
+<ul><li>Pair every bar with its words: what it measures, the number, and — for a window — when it resets.</li><li>Read meters in a column of equal widths. Two meters of different lengths cannot be compared by eye.</li><li>Do not animate the fill. A reading that changed is a new fact, not a motion.</li><li>Do not tint the track. A track with a colour reads as a second value.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>A standalone meter is <code>role=&quot;meter&quot;</code> with <code>aria-valuemin=&quot;0&quot;</code>, <code>aria-valuemax=&quot;100&quot;</code>, <code>aria-valuenow</code>, and an <code>aria-valuetext</code> that says the number in words (&quot;82% used&quot;). Its accessible name comes from the label beside it (<code>aria-labelledby</code>).</li><li>A meter with no value (<code>--unknown</code>) omits <code>aria-valuenow</code> and says why in <code>aria-valuetext</code> (&quot;Reset&quot;).</li><li>A <code>--compact</code> meter inside a control is <code>aria-hidden</code>; the control's own name says the value.</li><li>Colour is never the only signal: the warn tone always comes with the words that say the window is close to or at its limit.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/meter/component.css</summary><pre><code>/* Meter — how much of a known budget is spent, drawn as a bar filled from the
+ * left. Extracted from the shipped Meter primitive
+ * (src/renderer/src/components/ui/Meter.tsx).
+ *
+ * A DISPLAY of one proportion, like the context ring, and for a different kind
+ * of budget: one that refills on a schedule (a plan's five-hour or weekly
+ * usage window). It is a bar rather than a ring because it is read in a list,
+ * one under another, where bars of one length compare at a glance and rings
+ * do not. It is never a progress indicator: nothing is loading, and the value
+ * falls back to nothing when the window resets.
+ *
+ * Two custom properties carry the state, set by the consumer as inline styles
+ * because they are per-instance data rather than design values:
+ *   --ds-meter-value   0–1, the share spent (root)
+ *   --ds-meter-marker  0–1, where the optional marker stands (root) */
+
+.ds-meter {
+  position: relative;
+  display: block;
+  inline-size: 100%;
+  block-size: 6px; /* ds-lint-allow: the bar's thickness, between the slider's 8px groove and a hairline */
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-active);
+  /* The track's edge is an inset shadow, as the slider's groove is: a border
+     would take a pixel out of the box the fill is measured against. */
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-default);
+}
+
+/* The spent share. Accent as INK, inside the accent budget: a bar per window
+   in a popover is a handful of thin strokes, not a field of colour. */
+.ds-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  inline-size: calc(var(--ds-meter-value, 0) * 100%);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-accent-primary);
+}
+
+/* A point on the bar the value is read against — for a usage window, how much
+   of the window's time has gone by. Taller than the bar so it reads as a mark
+   on it rather than as a second fill. */
+.ds-meter-marker {
+  position: absolute;
+  inset-block: -2px; /* ds-lint-allow: the marker overhangs the bar by its own stroke on each side */
+  inset-inline-start: calc(var(--ds-meter-marker) * 100% - 1px);
+  inline-size: 2px;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-text-subtle);
+}
+
+/* Close to the limit, or at it. The only other tone a meter takes: a full
+   window is a wait, not a failure, so there is no danger tier. */
+.ds-meter--warn .ds-meter-fill {
+  background: var(--sem-color-status-warn);
+}
+
+/* No value to show — the window has reset since it was read. The track alone,
+   one ink step quieter, and the consumer says so in words beside it. */
+.ds-meter--unknown {
+  opacity: 0.6;
+}
+
+/* The trigger-sized bar: short and thin, read beside other marks on a strip
+   rather than in a list. It is drawn inside a control that owns the hit target
+   and the accessible name, so it is decorative there. */
+.ds-meter--compact {
+  inline-size: 16px; /* ds-lint-allow: an icon-sized mark; the icon scale has no 16px width step for a bar */
+  block-size: 4px; /* ds-lint-allow: the compact bar's thickness */
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/meter/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Meter&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    margin: 0 0 var(--sem-space-lg);
+  }
+  .demo-row {
+    display: flex;
+    gap: var(--sem-space-3xl);
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  /* The consumer's composition, not the component's: each bar under its own
+     words, in a column of equal widths. */
+  .demo-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-lg);
+    width: 240px;
+  }
+  .demo-value {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sem-space-sm);
+    padding-bottom: var(--sem-space-xs);
+    font-size: var(--sem-font-size-meta);
+  }
+  .demo-value-name {
+    color: var(--sem-color-text-primary);
+  }
+  .demo-value-axis {
+    color: var(--sem-color-text-subtle);
+    font-size: var(--sem-font-size-micro);
+  }
+  .demo-trigger {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;div class=&quot;demo-list&quot;&gt;
+      &lt;div class=&quot;demo-window&quot;&gt;
+        &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-name&quot; id=&quot;l-0&quot;&gt;Session (5h)&lt;/span&gt;&lt;span class=&quot;demo-value-axis&quot;&gt;42% · resets in 2h 13m&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;ds-meter&quot; role=&quot;meter&quot; aria-labelledby=&quot;l-0&quot; aria-valuemin=&quot;0&quot; aria-valuemax=&quot;100&quot; aria-valuenow=&quot;42&quot; aria-valuetext=&quot;42% used&quot; style=&quot;--ds-meter-value: 0.42; --ds-meter-marker: 0.56&quot;&gt;
+          &lt;span class=&quot;ds-meter-fill&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-meter-marker&quot;&gt;&lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;demo-window&quot;&gt;
+        &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-name&quot; id=&quot;l-1&quot;&gt;Weekly&lt;/span&gt;&lt;span class=&quot;demo-value-axis&quot;&gt;93% · resets in 3d 4h&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;ds-meter ds-meter--warn&quot; role=&quot;meter&quot; aria-labelledby=&quot;l-1&quot; aria-valuemin=&quot;0&quot; aria-valuemax=&quot;100&quot; aria-valuenow=&quot;93&quot; aria-valuetext=&quot;93% used&quot; style=&quot;--ds-meter-value: 0.93; --ds-meter-marker: 0.48&quot;&gt;
+          &lt;span class=&quot;ds-meter-fill&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-meter-marker&quot;&gt;&lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;demo-window&quot;&gt;
+        &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-name&quot; id=&quot;l-2&quot;&gt;Weekly · Opus&lt;/span&gt;&lt;span class=&quot;demo-value-axis&quot;&gt;— · reset&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;ds-meter ds-meter--unknown&quot; role=&quot;meter&quot; aria-labelledby=&quot;l-2&quot; aria-valuemin=&quot;0&quot; aria-valuemax=&quot;100&quot; aria-valuetext=&quot;Reset&quot;&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-trigger&quot;&gt;
+      &lt;span class=&quot;demo-value-axis&quot;&gt;Compact, inside a trigger&lt;/span&gt;
+      &lt;span class=&quot;ds-meter ds-meter--compact&quot; aria-hidden=&quot;true&quot; style=&quot;--ds-meter-value: 0.42&quot;&gt;&lt;span class=&quot;ds-meter-fill&quot;&gt;&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-meter ds-meter--compact ds-meter--warn&quot; aria-hidden=&quot;true&quot; style=&quot;--ds-meter-value: 0.93&quot;&gt;&lt;span class=&quot;ds-meter-fill&quot;&gt;&lt;/span&gt;&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;div class=&quot;demo-list&quot;&gt;
+      &lt;div class=&quot;demo-window&quot;&gt;
+        &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-name&quot; id=&quot;d-0&quot;&gt;Session (5h)&lt;/span&gt;&lt;span class=&quot;demo-value-axis&quot;&gt;42% · resets in 2h 13m&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;ds-meter&quot; role=&quot;meter&quot; aria-labelledby=&quot;d-0&quot; aria-valuemin=&quot;0&quot; aria-valuemax=&quot;100&quot; aria-valuenow=&quot;42&quot; aria-valuetext=&quot;42% used&quot; style=&quot;--ds-meter-value: 0.42; --ds-meter-marker: 0.56&quot;&gt;
+          &lt;span class=&quot;ds-meter-fill&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-meter-marker&quot;&gt;&lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;demo-window&quot;&gt;
+        &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-name&quot; id=&quot;d-1&quot;&gt;Weekly&lt;/span&gt;&lt;span class=&quot;demo-value-axis&quot;&gt;93% · resets in 3d 4h&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;ds-meter ds-meter--warn&quot; role=&quot;meter&quot; aria-labelledby=&quot;d-1&quot; aria-valuemin=&quot;0&quot; aria-valuemax=&quot;100&quot; aria-valuenow=&quot;93&quot; aria-valuetext=&quot;93% used&quot; style=&quot;--ds-meter-value: 0.93; --ds-meter-marker: 0.48&quot;&gt;
+          &lt;span class=&quot;ds-meter-fill&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-meter-marker&quot;&gt;&lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;demo-window&quot;&gt;
+        &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-name&quot; id=&quot;d-2&quot;&gt;Weekly · Opus&lt;/span&gt;&lt;span class=&quot;demo-value-axis&quot;&gt;— · reset&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;ds-meter ds-meter--unknown&quot; role=&quot;meter&quot; aria-labelledby=&quot;d-2&quot; aria-valuemin=&quot;0&quot; aria-valuemax=&quot;100&quot; aria-valuetext=&quot;Reset&quot;&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-trigger&quot;&gt;
+      &lt;span class=&quot;demo-value-axis&quot;&gt;Compact, inside a trigger&lt;/span&gt;
+      &lt;span class=&quot;ds-meter ds-meter--compact&quot; aria-hidden=&quot;true&quot; style=&quot;--ds-meter-value: 0.42&quot;&gt;&lt;span class=&quot;ds-meter-fill&quot;&gt;&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-meter ds-meter--compact ds-meter--warn&quot; aria-hidden=&quot;true&quot; style=&quot;--ds-meter-value: 0.93&quot;&gt;&lt;span class=&quot;ds-meter-fill&quot;&gt;&lt;/span&gt;&lt;/span&gt;
+    &lt;/div&gt;
   &lt;/div&gt;
 &lt;/div&gt;
 &lt;/body&gt;

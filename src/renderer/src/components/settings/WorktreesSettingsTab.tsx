@@ -2,10 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   DEFAULT_WORKTREE_POOL_SETTINGS,
+  dependencyInstallSettingFor,
+  WORKTREE_INSTALL_COMMAND_MAX,
   WORKTREE_POOL_DISK_LIMIT_CHOICES_GB,
   WORKTREE_POOL_KEEP_IDLE_MAX,
   WORKTREE_POOL_MAX_SLOTS_CEILING,
   WORKTREE_POOL_MAX_SLOTS_MIN,
+  type WorktreeDependencyInstallSetting,
+  type WorktreeDependencyInstallView,
   type WorktreeInventory,
   type WorktreePoolActionInput,
   type WorktreePoolHeldAction,
@@ -41,11 +45,14 @@ import { Table } from '../ui/Table'
 import { SettingToggle, SettingsPageHeader, SettingsSectionTitle } from './SettingsAtoms'
 import { FreeSpaceDialog } from './WorktreesFreeSpaceDialog'
 import {
+  applyInstallChange,
   buildWorktreeProjects,
   formatBytes,
+  installAt,
   inventoryRootsOf,
   partLabel,
   rowMatches,
+  withDependencyInstall,
   worktreeTotals,
   type WorktreeFilter,
   type WorktreeProjectView,
@@ -116,6 +123,8 @@ export function WorktreesSettingsTab({
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set())
   const [freeOpen, setFreeOpen] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  // Dependency installs running in leased worktrees, by worktree; shown on its row with Cancel.
+  const [installs, setInstalls] = useState<ReadonlyMap<string, WorktreeDependencyInstallView>>(new Map())
   const mounted = useRef(true)
 
   const read = useCallback(async (measure: boolean) => {
@@ -159,6 +168,23 @@ export function WorktreesSettingsTab({
     }
   }, [read])
 
+  useEffect(() => {
+    let live = true
+    const unsubscribe = window.api?.onWorktreeInstallChanged?.((view) => {
+      setInstalls((current) => applyInstallChange(current, view))
+    })
+    void window.api
+      ?.listWorktreeInstalls?.()
+      .then((views) => {
+        if (live) setInstalls((current) => views.reduce(applyInstallChange, current))
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+      unsubscribe?.()
+    }
+  }, [])
+
   const projects = useMemo(
     () => (inventory ? buildWorktreeProjects(inventory, workspaces, now) : []),
     [inventory, workspaces, now],
@@ -180,6 +206,18 @@ export function WorktreesSettingsTab({
     } catch (error) {
       setResult({ tone: 'error', text: error instanceof Error ? error.message : String(error) })
     }
+  }
+
+  const updateInstall = (repoRoot: string, setting: WorktreeDependencyInstallSetting) =>
+    void updateSettings({ dependencyInstall: withDependencyInstall(settings.dependencyInstall, repoRoot, setting) })
+
+  const cancelInstall = async (install: WorktreeDependencyInstallView) => {
+    const stopped = await window.api.cancelWorktreeInstall(install.id).catch(() => false)
+    setResult(
+      stopped
+        ? { tone: 'info', text: `Stopped ${install.command}. The agent starts without it.` }
+        : { tone: 'info', text: 'That install had already ended.' },
+    )
   }
 
   /** Run one step against a worktree, the row marked busy meanwhile, and say how it went. */
@@ -629,12 +667,17 @@ export function WorktreesSettingsTab({
             busy={busy}
             onToggleExpanded={(key) => toggle(setExpanded, key)}
             onToggleSelected={(key) => toggle(setSelected, key)}
+            poolEnabled={settings.enabled}
+            install={dependencyInstallSettingFor(settings, project.repoRoot)}
+            onInstallChange={(setting) => updateInstall(project.repoRoot, setting)}
+            installs={installs}
             actions={{
               openChat: onOpenChat,
               remove: (row) => void confirmRemove(row),
               clearIgnored: (row) => void clearIgnored(row),
               held: (row, action) => void heldAction(row, action),
               prune: (row) => void prune(row),
+              cancelInstall: (install) => void cancelInstall(install),
             }}
           />
         ))
@@ -693,6 +736,7 @@ type RowActions = {
   clearIgnored: (row: WorktreeRow) => void
   held: (row: WorktreeRow, action: WorktreePoolHeldAction) => void
   prune: (row: WorktreeRow) => void
+  cancelInstall: (install: WorktreeDependencyInstallView) => void
 }
 
 function ProjectCard({
@@ -705,6 +749,10 @@ function ProjectCard({
   busy,
   onToggleExpanded,
   onToggleSelected,
+  poolEnabled,
+  install,
+  onInstallChange,
+  installs,
   actions,
 }: {
   project: WorktreeProjectView
@@ -716,6 +764,11 @@ function ProjectCard({
   busy: ReadonlySet<string>
   onToggleExpanded: (key: string) => void
   onToggleSelected: (key: string) => void
+  poolEnabled: boolean
+  /** The project's install choice; null when it never made one (off). */
+  install: WorktreeDependencyInstallSetting | null
+  onInstallChange: (setting: WorktreeDependencyInstallSetting) => void
+  installs: ReadonlyMap<string, WorktreeDependencyInstallView>
   actions: RowActions
 }) {
   const [open, setOpen] = useState(true)
@@ -725,7 +778,7 @@ function ProjectCard({
     project.lastFetchAt ? `Fetched ${formatRelativeMsAgo(project.lastFetchAt, now)}` : null,
     `${count} worktree${count === 1 ? '' : 's'}${project.bytes ? ` · ${formatBytes(project.bytes)}` : ''}`,
   ].filter(Boolean)
-  const rowProps = { now, expanded, selected, busy, onToggleExpanded, onToggleSelected, actions }
+  const rowProps = { now, expanded, selected, busy, onToggleExpanded, onToggleSelected, installs, actions }
   return (
     <SettingCard className="mb-4 overflow-hidden">
       <div className="flex items-center gap-3 border-b border-[color:var(--border-subtle)] px-4 py-2.5">
@@ -752,6 +805,14 @@ function ProjectCard({
         />
       ) : null}
       {project.error ? <InlineNotice tone="error" className="m-3" title={project.error} /> : null}
+      {open ? (
+        <DependencyInstallSettings
+          projectName={project.name}
+          install={install}
+          disabled={!poolEnabled || project.heldByOtherInstance}
+          onChange={onInstallChange}
+        />
+      ) : null}
       {open ? (
         <Table
           fixed
@@ -818,6 +879,7 @@ function WorktreeTableRow({
   busy,
   onToggleExpanded,
   onToggleSelected,
+  installs,
   actions,
 }: {
   row: WorktreeRow
@@ -827,9 +889,11 @@ function WorktreeTableRow({
   busy: ReadonlySet<string>
   onToggleExpanded: (key: string) => void
   onToggleSelected: (key: string) => void
+  installs: ReadonlyMap<string, WorktreeDependencyInstallView>
   actions: RowActions
 }) {
   const isOpen = expanded.has(row.key)
+  const install = installAt(installs, row.path)
   const isBusy = busy.has(row.key) || row.state === 'busy'
   const selectable = row.removal === 'evict' || row.removal === 'remove'
   const menu: OverflowMenuItem[] = [
@@ -914,14 +978,20 @@ function WorktreeTableRow({
           <div className="truncate text-body text-[color:var(--text-default)]" title={row.usedBy}>
             {row.usedBy}
           </div>
-          <div className="truncate text-meta text-[color:var(--text-subtle)]">{usedBySub(row, now)}</div>
+          <div className="truncate text-meta text-[color:var(--text-subtle)]" title={install?.lastLine ?? undefined}>
+            {install ? `installing dependencies · ${install.lastLine ?? install.command}` : usedBySub(row, now)}
+          </div>
         </Table.Cell>
         <Table.Cell numeric className="text-[color:var(--text-muted)]">
           {formatBytes(row.bytes)}
         </Table.Cell>
         <Table.Cell className="pr-3">
           <div className="flex items-center justify-end gap-1">
-            {row.state === 'held' ? (
+            {install ? (
+              <OutlineButton size="xs" onClick={() => actions.cancelInstall(install)}>
+                Cancel install
+              </OutlineButton>
+            ) : row.state === 'held' ? (
               <PrimaryButton size="xs" disabled={isBusy} onClick={() => actions.held(row, 'commit')}>
                 Commit…
               </PrimaryButton>
@@ -950,6 +1020,66 @@ function WorktreeTableRow({
         </tr>
       ) : null}
     </>
+  )
+}
+
+/**
+ * A project's choice to install dependencies in its pooled worktrees (owner
+ * ruling 2026-10-06): off until turned on here, because the install runs the
+ * repository's own scripts. The command is kept as typed and saved when the
+ * field is left; empty means the one the lockfile implies.
+ */
+function DependencyInstallSettings({
+  projectName,
+  install,
+  disabled,
+  onChange,
+}: {
+  projectName: string
+  install: WorktreeDependencyInstallSetting | null
+  disabled: boolean
+  onChange: (setting: WorktreeDependencyInstallSetting) => void
+}) {
+  const enabled = install?.enabled === true
+  const saved = install?.command ?? ''
+  const [draft, setDraft] = useState(saved)
+  useEffect(() => setDraft(saved), [saved])
+  const commit = () => {
+    const command = draft.trim()
+    if (command !== saved) onChange({ enabled, command: command || null })
+  }
+  return (
+    <div className="border-b border-[color:var(--border-subtle)]">
+      <SettingToggle
+        label="Install dependencies when the lockfile changes"
+        description="Before an agent starts in one of this project's pooled worktrees, the install runs if the lockfile changed since that worktree last installed, and the agent waits for it. It runs the project's own install scripts with your permissions, so turn it on only for code you trust."
+        enabled={enabled}
+        disabled={disabled}
+        onChange={(next) => onChange({ enabled: next, command: install?.command ?? null })}
+      />
+      {enabled ? (
+        <SettingRow
+          label="Install command"
+          help="Empty uses the lockfile's own: npm ci, pnpm install --frozen-lockfile, yarn install with --frozen-lockfile or --immutable, or bun install --frozen-lockfile. A command of your own runs again whenever any lockfile changes."
+          disabled={disabled}
+        >
+          <Input
+            size="sm"
+            aria-label={`Install command for ${projectName}`}
+            placeholder="From the lockfile"
+            value={draft}
+            maxLength={WORKTREE_INSTALL_COMMAND_MAX}
+            disabled={disabled}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commit()
+            }}
+            className="w-64 font-mono"
+          />
+        </SettingRow>
+      ) : null}
+    </div>
   )
 }
 

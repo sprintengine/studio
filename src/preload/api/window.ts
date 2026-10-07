@@ -1,5 +1,7 @@
 import type { IpcRendererEvent } from 'electron'
 import { ipc as ipcRenderer } from '../ipc-router'
+import type { ChatLink } from '../../shared/deep-link'
+import { subscribeToChatLinks } from './chat-link-subscription'
 import type {
   AuxWindowRetargetPayload,
   CreateWorkspaceWindowInput,
@@ -87,6 +89,9 @@ export const windowApi = {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
+  // The handshake with main, and the acknowledgement that lets main stop
+  // holding a link, are in chat-link-subscription.ts.
+  onChatLinkOpen: (cb: (link: ChatLink) => void): (() => void) => subscribeToChatLinks(ipcRenderer, cb),
   panePopOutOpen: (input: PanePopOutOpenInput): Promise<PanePopOutOpenResult> =>
     ipcRenderer.invoke('pane-popout:open', input),
   // Sends rather than invokes: the owner pushes on every change to the tabs it
@@ -140,6 +145,7 @@ export const windowApi = {
   | 'onWindowHiddenChanged'
   | 'onWindowPlacementChanged'
   | 'onWindowCloseRequested'
+  | 'onChatLinkOpen'
   | 'panePopOutOpen'
   | 'panePopOutPush'
   | 'panePopOutFocus'

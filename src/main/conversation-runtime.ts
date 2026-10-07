@@ -49,7 +49,7 @@ import type {
   ConversationImportTranscriptInput,
   ConversationImportTranscriptResult,
 } from '../shared/conversation-runtime'
-import { CONVERSATION_SESSION_NOT_FOUND } from '../shared/conversation-runtime'
+import { CONVERSATION_SESSION_NOT_FOUND, readConversationMessageOrigin } from '../shared/conversation-runtime'
 import { cliRuntimesOnPlatform, distroOfHostId, type ExecutionHostId } from '../shared/execution-host'
 import { wslInputInRootSpelling } from '../shared/host-paths'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
@@ -139,6 +139,9 @@ export type ConversationTerminalHandoffTarget = {
 }
 
 type RuntimeSession = ConversationSessionSummary & {
+  // The idle listeners were told this session came to rest, and it has not
+  // been busy since (noteSettled).
+  idleAnnounced?: boolean
   // Spawned agents still running, by spawning tool call.
   runningSubagents: Map<string, ConversationSubagentStatusPayload>
   workspaceRoot: string
@@ -290,6 +293,12 @@ type EmittedSummary = {
 const DEFAULT_TOOL_PREVIEW_INTERVAL_MS = 5_000
 /** How long a send turned away by a running turn waits before it is sent again. */
 const TURN_BUSY_RETRY_MS = 1_000
+/**
+ * How much of the end of the last reply a session keeps: a little more than a
+ * launch notice quotes (agent-launch-notices.ts), so a reply cut short there
+ * is shown cut.
+ */
+const LAST_ASSISTANT_TAIL_CHARS = 320
 
 const UNSAVED_NOTICE =
   'This conversation could not be saved to disk. It carries on here, but messages from now on may be missing after the app restarts.'
@@ -402,6 +411,7 @@ export class ConversationRuntime {
   private readonly forkedMcpServers = new Map<string, ConversationMcpServer[]>()
   private readonly sequenceInitializations = new Map<string, Promise<void>>()
   private readonly listeners = new Set<ConversationRuntimeListener>()
+  private readonly idleListeners = new Set<(summary: ConversationSessionSummary) => void>()
   private readonly sequences = new Map<string, number>()
   // When each workspace's checkpoint refs were last expired this run.
   private readonly checkpointsExpiredAt = new Map<string, number>()
@@ -491,6 +501,44 @@ export class ConversationRuntime {
   onEvent(listener: ConversationRuntimeListener): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  /**
+   * A chat that has just let go of its turn: it runs none and waits on no
+   * card, so a message sent now is taken rather than refused as busy. Told
+   * once per settle, after the state the summary reads is in place. The
+   * turn's end event is not that moment: it is published while the turn still
+   * holds the session, so a send made on it is refused (main/agent-launch-
+   * notices.ts waits for this instead).
+   */
+  onSessionIdle(listener: (summary: ConversationSessionSummary) => void): () => void {
+    this.idleListeners.add(listener)
+    return () => this.idleListeners.delete(listener)
+  }
+
+  // Tell the idle listeners when `session` has just come to rest. Called after
+  // every event and at each place a turn lets go of the session; a check that
+  // finds it busy re-arms the announcement for its next rest.
+  private noteSettled(session: RuntimeSession): void {
+    const settled =
+      this.sessions.get(session.sessionId) === session &&
+      (session.status === 'ready' || session.status === 'failed') &&
+      !isSessionBusy(session)
+    if (!settled) {
+      session.idleAnnounced = false
+      return
+    }
+    if (session.idleAnnounced) return
+    session.idleAnnounced = true
+    if (this.idleListeners.size === 0) return
+    const summary = this.toSummary(session)
+    for (const listener of [...this.idleListeners]) {
+      try {
+        listener(summary)
+      } catch (error) {
+        console.warn('[conversation-runtime] an idle listener failed:', error instanceof Error ? error.message : error)
+      }
+    }
   }
   getProviderCapabilities(providerId: string) {
     return this.getAdapterForProviderId(providerId)?.capabilities
@@ -883,6 +931,7 @@ export class ConversationRuntime {
         sourceCommandId: input.sourceCommandId,
         skillIds: skills.ids,
         mentionRefs: mentions.refs,
+        ...(input.origin ? { origin: input.origin } : {}),
       })
 
     const turnId = `turn_${this.randomId()}`
@@ -917,6 +966,7 @@ export class ConversationRuntime {
             ...(input.sourceCommandId ? { commandId: input.sourceCommandId } : {}),
             ...(skills.ids.length ? { skills: skills.ids } : {}),
             ...(mentions.refs.length ? { mentions: mentions.refs } : {}),
+            ...(input.origin ? { origin: input.origin } : {}),
           }),
           { turnId },
         )
@@ -983,6 +1033,7 @@ export class ConversationRuntime {
     })()
     if (session.providerTurn === providerTurn) session.providerTurn = null
     providerTurn.settle(result)
+    this.noteSettled(session)
     return result
   }
 
@@ -1106,6 +1157,7 @@ export class ConversationRuntime {
       sourceCommandId?: string
       skillIds: string[]
       mentionRefs: Awaited<ReturnType<typeof resolveConversationMentions>>['refs']
+      origin?: ConversationSendTurnInput['origin']
     },
   ): Promise<ConversationSessionActionResult> {
     const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
@@ -1156,6 +1208,7 @@ export class ConversationRuntime {
             ...(input.sourceCommandId ? { commandId: input.sourceCommandId } : {}),
             ...(input.skillIds.length ? { skills: input.skillIds } : {}),
             ...(input.mentionRefs.length ? { mentions: input.mentionRefs } : {}),
+            ...(input.origin ? { origin: input.origin } : {}),
           }),
           { turnId },
         )
@@ -1362,6 +1415,7 @@ export class ConversationRuntime {
       session.activeTurnAbort = null
       session.status = 'ready'
       session.updatedAt = this.now()
+      this.noteSettled(session)
       return { ok: true, session: this.toSummary(session) }
     }
     if (session.stateful) {
@@ -1381,6 +1435,7 @@ export class ConversationRuntime {
     session.pendingRequestId = null
     session.status = input.approved ? 'ready' : 'failed'
     session.updatedAt = this.now()
+    this.noteSettled(session)
     return { ok: true, session: this.toSummary(session) }
   }
 
@@ -1561,6 +1616,7 @@ export class ConversationRuntime {
     session.activeTurnAbort = null
     session.status = 'ready'
     session.updatedAt = this.now()
+    this.noteSettled(session)
     return { ok: true, session: this.toSummary(session) }
   }
 
@@ -2069,6 +2125,7 @@ export class ConversationRuntime {
     const result = (this.emissionTails.get(path) ?? Promise.resolve())
       .catch(() => undefined)
       .then(() => this.emitNow(session, event, options))
+      .finally(() => this.noteSettled(session))
     this.emissionTails.set(path, result)
     return result
   }
@@ -2293,17 +2350,30 @@ export class ConversationRuntime {
       ).length
     }
     // Read off the event, as the turn's end is, so a resume restores it. An
-    // image-only message is the person's input too.
-    if (event.type === 'user_message' && event.createdAt > 0)
+    // image-only message is the person's input too; one Studio sent (a
+    // launched agent's notice, a resume after a usage limit) is not, and
+    // neither moves the clock nor becomes the chat's first or last words.
+    const fromPerson = event.type === 'user_message' && !readConversationMessageOrigin(event.payload?.origin)
+    if (event.type === 'user_message' && !fromPerson) {
+      session.lastAssistantText = ''
+      session.lastAssistantTail = ''
+    }
+    if (fromPerson && event.createdAt > 0)
       session.lastUserMessageAt = Math.max(session.lastUserMessageAt ?? 0, event.createdAt)
-    if (event.type === 'user_message' && typeof event.payload?.text === 'string') {
+    if (fromPerson && typeof event.payload?.text === 'string') {
       // An image-only turn carries no text, and an empty excerpt would pin the
       // chat's "first message" to nothing: the first turn with words keeps it.
       if (!session.firstUserText && event.payload.text.trim()) session.firstUserText = event.payload.text.slice(0, 240)
       session.lastUserText = event.payload.text.slice(0, 240)
       session.lastAssistantText = ''
+      session.lastAssistantTail = ''
     } else if (event.type === 'content_delta' && typeof event.payload?.text === 'string') {
+      // The opening is the sidebar's preview; the end is where an agent puts
+      // its conclusion, which a launch notice quotes.
       session.lastAssistantText = ((session.lastAssistantText ?? '') + event.payload.text).slice(0, 240)
+      session.lastAssistantTail = ((session.lastAssistantTail ?? '') + event.payload.text).slice(
+        -LAST_ASSISTANT_TAIL_CHARS,
+      )
     }
   }
 
@@ -2558,6 +2628,7 @@ export class ConversationRuntime {
       session.pendingApprovalRequestIds.clear()
       session.status = event.type === 'turn_completed' ? 'ready' : 'failed'
       session.updatedAt = this.now()
+      this.noteSettled(session)
     }
   }
 
@@ -3871,6 +3942,7 @@ export class ConversationRuntime {
       firstUserText: session.firstUserText,
       lastUserText: session.lastUserText,
       lastAssistantText: session.lastAssistantText,
+      lastAssistantTail: session.lastAssistantTail,
       ...(session.backgroundAgents ? { backgroundAgents: session.backgroundAgents } : {}),
       ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
       ...(session.lastUserMessageAt !== undefined ? { lastUserMessageAt: session.lastUserMessageAt } : {}),

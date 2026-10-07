@@ -11,7 +11,9 @@ import type {
   ConversationToolKind,
   ConversationSubagentStatusPayload,
   ConversationToolStatus,
+  ConversationMessageOrigin,
 } from './protocol.js'
+import { readConversationMessageOrigin } from './protocol.js'
 import { parseConversationMentions, type ConversationMentionRef } from './mentions.js'
 import { normalizeApiKeySource } from './apiKeySource.js'
 import { applyPromptCacheEvent, type PromptCacheReading } from './promptCache.js'
@@ -108,6 +110,10 @@ export type TranscriptEntry =
       storedAttachments?: ConversationStoredImageAttachment[]
       mentions?: ConversationMentionRef[]
       skills?: string[]
+      // Studio sent this message itself (a launched agent's notice, a resume
+      // after a usage limit): drawn as Studio's notice, not the person's
+      // bubble. Absent for the person's, which every older transcript is.
+      origin?: ConversationMessageOrigin
     }
   | {
       kind: 'assistant'
@@ -561,7 +567,12 @@ export function projectConversation(
   // only fill the optimistic gap between a send and its first event.
   const eventUserTurns = new Map<
     string,
-    UserTurn & { seq?: number; localTurnId?: string; storedAttachments?: ConversationStoredImageAttachment[] }
+    UserTurn & {
+      seq?: number
+      localTurnId?: string
+      storedAttachments?: ConversationStoredImageAttachment[]
+      origin?: ConversationMessageOrigin
+    }
   >()
   const representedLocalTurnIds = new Set<string>()
   // The persisted `user_message` event names its images by store reference,
@@ -717,6 +728,7 @@ export function projectConversation(
         if (turnId) {
           ensureTurn(turnId)
           const localTurnId = readString(event.payload, 'localTurnId')
+          const origin = readConversationMessageOrigin(event.payload?.origin)
           eventUserTurns.set(turnId, {
             // The acknowledgement replaces an optimistic bubble in place. The
             // local identity is persisted too, so remounts keep the same key.
@@ -730,6 +742,7 @@ export function projectConversation(
             skills: Array.isArray(event.payload?.skills)
               ? event.payload.skills.filter((id): id is string => typeof id === 'string')
               : undefined,
+            ...(origin ? { origin } : {}),
           })
           ensureTurn(turnId).seq = event.seq
           if (localTurnId) representedLocalTurnIds.add(localTurnId)
@@ -1104,6 +1117,7 @@ export function projectConversation(
           createdAt: eventUserTurn.createdAt,
           mentions: eventUserTurn.mentions,
           skills: eventUserTurn.skills,
+          ...(eventUserTurn.origin ? { origin: eventUserTurn.origin } : {}),
           ...(attachments
             ? { attachments }
             : eventUserTurn.storedAttachments

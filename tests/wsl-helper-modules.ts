@@ -91,7 +91,7 @@ export type RelayModule = {
 
 export type LoginEnvModule = {
   keepVariable(name: string): boolean
-  parseEnvDump(bytes: Buffer | string): Record<string, string> | null
+  parseEnvDump(bytes: Buffer | string, keep?: (name: string) => boolean): Record<string, string> | null
   loginShell(uid: number, passwd?: () => string): string
 }
 

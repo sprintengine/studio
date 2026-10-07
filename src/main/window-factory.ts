@@ -40,6 +40,7 @@ let detachedRestorePending = true
 // Workspace (main-shell) windows only — aux/diagnostics windows never frost.
 // The material IPC re-applies the material live to every member on change.
 const workspaceWindows = new Set<BrowserWindow>()
+const workspaceWindowIds = new WeakMap<BrowserWindow, string>()
 // Panes popped out of a workspace window (aux kind `pane`): the other host of
 // the embedded browser, kept apart from the workspace windows because they are
 // not one — they show no workspace and answer no workspace broadcast.
@@ -77,6 +78,13 @@ export function applyWindowMaterialToWorkspaceWindows(material: WindowMaterial, 
     if (process.platform === 'darwin') win.setVibrancy(options.vibrancy ?? null)
     win.setBackgroundColor(options.backgroundColor)
   }
+}
+
+// The workspace-window id a window was opened with (the registry's
+// `workspaceWindows[].id`): how a chat link finds the window that holds its
+// chat (chat-link-router.ts).
+export function workspaceWindowIdOf(win: BrowserWindow): string {
+  return workspaceWindowIds.get(win) ?? 'primary'
 }
 
 // Whether a WebContents is one of the workspace windows — the windows that
@@ -220,6 +228,7 @@ export function createMainWindow({
   })
 
   workspaceWindows.add(win)
+  workspaceWindowIds.set(win, windowId)
   win.on('closed', () => {
     workspaceWindows.delete(win)
   })

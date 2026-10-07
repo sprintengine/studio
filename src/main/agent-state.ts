@@ -7,6 +7,8 @@ import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { isAbsoluteObservedPath, MAX_OBSERVED_CWD_LENGTH } from '../shared/observed-checkout'
 import { isRecord } from '../shared/records'
 import { parsePromptCacheReading, type PromptCacheReading } from '../shared/prompt-cache'
+import { isClaudeUsageWindowId } from '../shared/usage-limits'
+import type { StatusLineRateLimit } from './usage-limits/sources'
 import type { ChangelistEdit } from '../shared/git/changelists'
 import { resolveClaudeConfigDir } from './claude-config-dir'
 import { withConfigFileLock, writeFileAtomically } from './config-file-write'
@@ -565,8 +567,14 @@ const MAX_TOOL_CALL_OUTPUT_LENGTH = 32 * 1024
 
 // One reading from a session's status line. The numbers are the CLI's own —
 // nothing here is derived, and nothing else from the status-line payload (the
-// transcript path, the repo identity, the rate limits, the prompt cache's
-// statistics) is carried: see the forwarder.
+// transcript path, the repo identity, the prompt cache's statistics) is
+// carried: see the forwarder.
+//
+// The rate limits are carried, as two numbers per window: a terminal session
+// is the only place a subscriber who never opens a chat says where their
+// five-hour and weekly windows stand. They are the account's, not the
+// session's, so the ingest hands them to the usage-limit store and never
+// keeps them on the session or broadcasts them with it.
 export type AgentStateFrameStatusLine = {
   // 0..100, rounded to a whole percent on the way in: it is rendered as a ring
   // and a number, and a broadcast per hundredth of a percent is a broadcast per
@@ -581,6 +589,9 @@ export type AgentStateFrameStatusLine = {
   // The main conversation's prompt cache, whole: its nulls (nothing cached, a
   // re-cache size not known yet after a compaction) are part of the reading.
   promptCache?: PromptCacheReading
+  // The subscription's usage windows, by the CLI's id (`five_hour`,
+  // `seven_day`…): 0..100 used, and the reset in epoch ms when it said.
+  rateLimits?: Record<string, StatusLineRateLimit>
 }
 
 // Cap on the two free-text status-line fields. A model display name is a word
@@ -730,7 +741,28 @@ function parseFrameStatusLine(raw: unknown): AgentStateFrameStatusLine | null {
   if (sessionName) statusLine.sessionName = sessionName
   const promptCache = parsePromptCacheReading(raw.promptCache)
   if (promptCache) statusLine.promptCache = promptCache
+  const rateLimits = parseStatusLineRateLimits(raw.rateLimits)
+  if (rateLimits) statusLine.rateLimits = rateLimits
   return Object.keys(statusLine).length > 0 ? statusLine : null
+}
+
+// The usage windows, each by its own rules: a known window id, a percentage in
+// 0..100 (refused, not clamped, like the context's), and a reset that is a real
+// time. A window that fails drops alone.
+function parseStatusLineRateLimits(raw: unknown): Record<string, StatusLineRateLimit> | null {
+  if (!isRecord(raw)) return null
+  const out: Record<string, StatusLineRateLimit> = {}
+  for (const [id, value] of Object.entries(raw)) {
+    if (!isClaudeUsageWindowId(id) || !isRecord(value)) continue
+    const used = value.usedPercentage
+    if (typeof used !== 'number' || !Number.isFinite(used) || used < 0 || used > 100) continue
+    const resetsAt = value.resetsAt
+    out[id] =
+      typeof resetsAt === 'number' && Number.isFinite(resetsAt) && resetsAt > 0
+        ? { usedPercentage: used, resetsAt }
+        : { usedPercentage: used }
+  }
+  return Object.keys(out).length > 0 ? out : null
 }
 
 function parseStatusLineCount(raw: unknown): number | null {

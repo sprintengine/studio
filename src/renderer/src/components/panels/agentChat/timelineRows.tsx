@@ -59,6 +59,8 @@ import {
   useOpenAgentsPane,
 } from './subagentStatus'
 import React, { memo, useId, useMemo, useState, useRef } from 'react'
+import { STUDIO_PRODUCT_NAME } from '../../../../../shared/product-identity'
+import { withoutStudioNoticePrefix } from '../../../../../shared/studio-notice'
 
 // Auth-shaped turn failures get a sign-in action in the error block. Whole
 // words and stems, so a path or message that merely contains "author" or a
@@ -168,6 +170,7 @@ export function UserTimelineRow({
   entry: Extract<TranscriptEntry, { kind: 'user' }>
   chrome?: TimelineChrome
 }) {
+  if (entry.origin?.kind === 'studio') return <StudioNoticeRow entry={entry} />
   const attachments = entry.attachments ?? []
   const stored = attachments.length ? [] : (entry.storedAttachments ?? [])
   return (
@@ -246,6 +249,26 @@ export function UserTimelineRow({
           />
         ) : null}
       </div>
+    </div>
+  )
+}
+
+// A message Studio sent the chat itself — news from an agent the chat started,
+// a resume once a usage limit reset — is Studio's remark on the conversation,
+// not something the person said. So it is not the person's bubble and has none
+// of its actions (edit, fork, revert): it reads as the quiet line an adapter's
+// own note does (commandOutputRow), under Studio's name. The agent was sent the
+// words with a short name in front (shared/studio-notice.ts); the row says the
+// name itself and leaves that out.
+function StudioNoticeRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'user' }> }) {
+  return (
+    <div className="pb-6" data-studio-notice={entry.origin?.reason ?? ''}>
+      <MessageAuthorHeading>{`${STUDIO_PRODUCT_NAME} said`}</MessageAuthorHeading>
+      <p className="whitespace-pre-wrap break-words text-meta text-[color:var(--text-muted)]">
+        <span className="font-medium text-[color:var(--text-subtle)]">{STUDIO_PRODUCT_NAME}</span>
+        {' · '}
+        {withoutStudioNoticePrefix(entry.text)}
+      </p>
     </div>
   )
 }

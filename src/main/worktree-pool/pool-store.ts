@@ -7,6 +7,8 @@ import {
   WORKTREE_POOL_KEEP_IDLE_MAX,
   WORKTREE_POOL_MAX_SLOTS_CEILING,
   WORKTREE_POOL_MAX_SLOTS_MIN,
+  WORKTREE_INSTALL_COMMAND_MAX,
+  type WorktreeDependencyInstallSetting,
   type WorktreeDiskUsage,
   type WorktreePoolHeldReason,
   type WorktreePoolSettings,
@@ -305,7 +307,30 @@ export function normalizePoolSettings(input: Partial<WorktreePoolSettings> | nul
         : typeof diskLimitGb === 'number' && Number.isFinite(diskLimitGb) && diskLimitGb > 0
           ? Math.min(100_000, diskLimitGb)
           : base.diskLimitGb,
+    dependencyInstall: normalizeDependencyInstall(input?.dependencyInstall),
   }
+}
+
+/** The most projects a settings file keeps an install choice for. */
+const DEPENDENCY_INSTALL_PROJECTS_MAX = 500
+
+/**
+ * Each project's install choice, as typed: a command is trimmed and capped, an
+ * empty one means "infer it", and a project that is off with no command of its
+ * own is the default and is not written down.
+ */
+function normalizeDependencyInstall(value: unknown): Record<string, WorktreeDependencyInstallSetting> {
+  const out: Record<string, WorktreeDependencyInstallSetting> = {}
+  if (!isRecord(value)) return out
+  for (const [repoRoot, entry] of Object.entries(value)) {
+    if (Object.keys(out).length >= DEPENDENCY_INSTALL_PROJECTS_MAX) break
+    if (!repoRoot || !isRecord(entry)) continue
+    const command = typeof entry.command === 'string' ? entry.command.trim().slice(0, WORKTREE_INSTALL_COMMAND_MAX) : ''
+    const enabled = entry.enabled === true
+    if (!enabled && !command) continue
+    out[repoRoot] = { enabled, command: command || null }
+  }
+  return out
 }
 
 export function createPoolStore(userDataDir: string): PoolStore {

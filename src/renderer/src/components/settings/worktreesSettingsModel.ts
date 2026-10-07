@@ -1,5 +1,7 @@
 import { comparablePath } from '../../../../shared/host-paths'
 import type {
+  WorktreeDependencyInstallSetting,
+  WorktreeDependencyInstallView,
   WorktreeInventory,
   WorktreeInventoryEntry,
   WorktreePoolSlotView,
@@ -469,4 +471,43 @@ export function bytesOf(rows: readonly WorktreeRow[]): number {
 /** A slot's size breakdown entries, named for a person. */
 export function partLabel(name: string): string {
   return name === '…' ? 'Everything else' : name
+}
+
+/**
+ * Every project's install choice with this one's replaced, under the path the
+ * page names the project by: an entry that spells the same project another
+ * way goes, so one project never holds two answers.
+ */
+export function withDependencyInstall(
+  current: Readonly<Record<string, WorktreeDependencyInstallSetting>>,
+  repoRoot: string,
+  setting: WorktreeDependencyInstallSetting,
+): Record<string, WorktreeDependencyInstallSetting> {
+  const key = comparablePath(repoRoot)
+  const next = Object.fromEntries(Object.entries(current ?? {}).filter(([root]) => comparablePath(root) !== key))
+  next[repoRoot] = setting
+  return next
+}
+
+/**
+ * The installs running now, by the worktree each runs in: added as one is
+ * heard starting or moving on, dropped as it ends.
+ */
+export function applyInstallChange(
+  current: ReadonlyMap<string, WorktreeDependencyInstallView>,
+  view: WorktreeDependencyInstallView,
+): Map<string, WorktreeDependencyInstallView> {
+  const next = new Map(current)
+  const key = comparablePath(view.path)
+  if (view.state === 'running') next.set(key, view)
+  else if (next.get(key)?.id === view.id) next.delete(key)
+  return next
+}
+
+/** The install running in this worktree, if one is. */
+export function installAt(
+  installs: ReadonlyMap<string, WorktreeDependencyInstallView>,
+  path: string,
+): WorktreeDependencyInstallView | null {
+  return installs.get(comparablePath(path)) ?? null
 }

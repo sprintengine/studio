@@ -43,6 +43,8 @@ import {
 } from './cli-host-child'
 import { studioGatewayForChat, withStudioGateway, type StudioMcpServerResolver } from './studio-gateway-entry'
 import { studioPlatform } from '../../server/platform/platform'
+import { usageLimitsStore } from '../usage-limits/store'
+import { codexBillingOf, codexRateLimitUpdates, isCodexUsageLimitError } from '../usage-limits/sources'
 
 export const CODEX_CONVERSATION_PROVIDER_ID = 'codex-agent'
 type RecordValue = Record<string, unknown>
@@ -63,6 +65,9 @@ const CODEX_INITIALIZE = {
   clientInfo: { name: 'sprintengine_studio', title: 'SprintEngine Studio', version: '1.0.0' },
   capabilities: { experimentalApi: true },
 }
+// How long the read of the account's usage limits at start may take before it
+// is let go. It never holds a turn up; the pushes that follow replace it.
+export const CODEX_RATE_LIMITS_READ_TIMEOUT_MS = 3_000
 // How long a stopped turn waits for Codex to confirm it with `turn/completed`.
 // An app-server that never does is closed, so a hung turn can neither keep the
 // process alive nor refuse every later message as "already running a turn".
@@ -119,6 +124,8 @@ type ActiveTurn = {
   // Notes already written this turn, so a failure Codex retries reads once.
   notes: Set<string>
   plans: number
+  // Codex reported this turn's error as a plan's usage limit.
+  usageLimit?: boolean
 }
 // A subagent Codex spawned: its own thread, drawn as a lane under the step
 // that started it.
@@ -155,6 +162,9 @@ type Session = {
   // The distribution the app-server runs in, for a chat on a WSL machine;
   // null on this one. Known once the app-server has been started.
   wsl: WslCliTarget | null
+  // How the signed-in account pays, from `account/read`: only a ChatGPT
+  // sign-in has plan limits to read. Null until known.
+  usageBilling?: 'subscription' | 'api' | null
 }
 export type CodexConversationProviderOptions = {
   resolveExecutable?: (input: MockAdapterSessionInput) => Promise<string>
@@ -329,6 +339,28 @@ export function createCodexConversationProvider(
     finish(state, undefined, true)
     transport?.close()
   }
+  // What `account/read` says about billing, and for a subscription, where its
+  // limits stand: read once as the app-server starts, in the background, and
+  // let go after a short wait — the turn never waits on it, and the pushes
+  // that follow every request keep it current from there.
+  function noteCodexAccount(state: Session, transport: CodexRpcTransport, account: RecordValue) {
+    const billing = codexBillingOf(account)
+    state.usageBilling = billing?.billing ?? null
+    if (!billing) return
+    usageLimitsStore().noteBilling('codex', billing.billing, billing.plan)
+    if (billing.billing !== 'subscription') return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), CODEX_RATE_LIMITS_READ_TIMEOUT_MS)
+      timer.unref?.()
+    })
+    const read = transport.request('account/rateLimits/read', { excludeResetCreditDetails: true }).catch(() => null)
+    void Promise.race([read, timeout]).then((result) => {
+      clearTimeout(timer)
+      if (result && state.transport === transport && state.usageBilling === 'subscription')
+        usageLimitsStore().noteWindows('codex', codexRateLimitUpdates(result))
+    })
+  }
   async function interrupt(state: Session): Promise<void> {
     const turn = state.turn
     if (!turn) return
@@ -434,6 +466,13 @@ export function createCodexConversationProvider(
       void publishSkills(state, true)
       return
     }
+    // The account's usage after a request moved it, turn or no turn: a sparse
+    // snapshot whose windows merge into the last ones read.
+    if (message.method === 'account/rateLimits/updated') {
+      if (state.usageBilling === 'subscription')
+        usageLimitsStore().noteWindows('codex', codexRateLimitUpdates(params.rateLimits))
+      return
+    }
     const method = message.method
     if (child) return onChildMessage(state, child, method, params)
     if (!turn) return
@@ -525,6 +564,19 @@ export function createCodexConversationProvider(
     if (method === 'turn/completed') {
       const native = record(params.turn)
       turn.nativeId = text(native.id) || turn.nativeId
+      // A turn a plan's usage limit refused: said to whatever waits to resume
+      // it. When the limit lifts is the full window's reset, which the store has.
+      if (
+        native.status === 'failed' &&
+        (turn.usageLimit || isCodexUsageLimitError(native.error)) &&
+        state.usageBilling !== 'api'
+      )
+        usageLimitsStore().noteLimitHit({
+          provider: 'codex',
+          sessionId: state.input.sessionId,
+          resetsAt: null,
+          windowId: null,
+        })
       finish(
         state,
         native.status === 'failed' ? text(record(native.error).message) || 'Codex turn failed.' : undefined,
@@ -606,6 +658,7 @@ export function createCodexConversationProvider(
     switch (method) {
       // An error Codex will not retry fails the turn, which says so already.
       case 'error':
+        if (state.turn && isCodexUsageLimitError(params.error)) state.turn.usageLimit = true
         if (params.willRetry === true)
           note(state, `Codex hit an error and is retrying: ${text(record(params.error).message)}`)
         return
@@ -846,6 +899,7 @@ export function createCodexConversationProvider(
         const account = record(await transport.request('account/read', { refreshToken: false }))
         if (account.requiresOpenaiAuth === true && !account.account)
           throw new Error('Codex is not logged in. Run codex login in a terminal, then retry.')
+        noteCodexAccount(state, transport, account)
         const policy = codexPermissionPolicy(state.input.permissionPreset, state.input.permissionMode)
         const threadParams = {
           cwd: state.input.workspaceRoot === undefined ? undefined : hostCwd(state.input.workspaceRoot, wsl),

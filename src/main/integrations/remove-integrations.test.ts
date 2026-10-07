@@ -18,6 +18,7 @@ import { runRemovalCommand } from './remove-integrations-cli'
 import { removeIntegrations, SESSION_INTEGRATION_KINDS, type IntegrationRemovalDeps } from './remove-integrations'
 import { ensureStudioLauncher, launcherRefForHome } from './launcher'
 import { excludeFromWorktree } from './worktree-exclude'
+import { renderUrlHandlerEntry } from '../linux-url-handler'
 
 afterEach(() => {
   installIntegrationLedger(null)
@@ -488,4 +489,30 @@ test('a removal told to stop leaves the kinds it has not reached listed', async 
   assert.ok(left.has('mcp-gateway') && left.has('launcher'))
   assert.ok(existsSync(join(home, '.sprintengine', 'bin', 'studio-run')))
   assert.match(await readFile(join(repo, '.mcp.json'), 'utf8'), /sprintengine-studio/u)
+})
+
+test("an AppImage's link-handler entry is deleted only while it is still Studio's", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'sprintengine-remove-')))
+  const ledger = createIntegrationLedger({ path: join(root, 'userData', 'integration-ledger.json') })
+  const apps = join(root, 'home', '.local', 'share', 'applications')
+  const ours = join(apps, 'sprintengine-url-handler.desktop')
+  const rewritten = join(apps, 'legacy-url-handler.desktop')
+  await write(ours, renderUrlHandlerEntry('sprintengine', '/home/dev/Applications/SprintEngine-Studio.AppImage'))
+  // One Studio wrote once, which the person has since replaced with their own.
+  const theirs = '[Desktop Entry]\nType=Application\nName=Mine\nExec=mine %U\nMimeType=x-scheme-handler/legacy;\n'
+  await write(rewritten, theirs)
+  const entry = { kind: 'protocol-handler', hostId: 'local', createdFile: true } as const
+  await ledger.record([
+    { ...entry, path: ours, marker: 'sprintengine' },
+    { ...entry, path: rewritten, marker: 'legacy' },
+    { ...entry, path: 'sprintengine-url-handler.desktop', marker: 'sprintengine' },
+  ])
+  const report = await removeIntegrations(deps(ledger, { scan: false }))
+  const outcome = (path: string) => report.outcomes.find((one) => one.path === path)
+  assert.equal(outcome(ours)?.status, 'removed')
+  assert.equal(existsSync(ours), false)
+  assert.equal(outcome(rewritten)?.status, 'skipped')
+  assert.equal(await readFile(rewritten, 'utf8'), theirs)
+  assert.equal(outcome('sprintengine-url-handler.desktop')?.status, 'skipped', 'a path that is not absolute is refused')
+  assert.equal(report.failed, 0)
 })

@@ -119,3 +119,46 @@ test("the launch's refusal of an effort level is passed through under its own co
   assert.equal(result.isError, true)
   assert.equal(errorCode(result), 'unsupported_effort')
 })
+
+test('a chat whose worktree is still installing says so, with no path on this machine in the answer', async () => {
+  const [registration] = createConversationTools({
+    launch: async () => ({
+      ...(LAUNCHED as Extract<ConversationLaunchResult, { ok: true }>),
+      dependencyInstall: {
+        id: 'install-1',
+        repoRoot: '/Users/dev/app',
+        path: '/Users/dev/.sprintengine-worktrees/app/chat-k7qz',
+        branch: 'agent/chat-k7qz',
+        command: 'npm ci',
+        reason: 'changed',
+        state: 'running',
+        startedAt: 10,
+        endedAt: null,
+        lastLine: 'added 12 packages',
+        output: null,
+        exitCode: null,
+      },
+    }),
+    resolveAgentPermissionPreset: () => 'bypass',
+    lifecycle: noLifecycle,
+  })
+  const result = await registration!.handler({ workspaceId: 'ws-1', newChat: true, worktree: true, prompt: 'hi' })
+  const answer = result.structuredContent as { conversation: { sessionId: string }; dependencyInstall: unknown }
+  assert.equal(answer.conversation.sessionId, 'conv_1', 'the conversation member is unchanged')
+  assert.deepEqual(answer.dependencyInstall, {
+    state: 'running',
+    command: 'npm ci',
+    reason: 'changed',
+    startedAt: 10,
+    endedAt: null,
+    lastLine: 'added 12 packages',
+    exitCode: null,
+  })
+  assert.doesNotMatch(JSON.stringify(answer), /\/Users\/dev/u)
+})
+
+test('a chat with nothing installing answers as it always did', async () => {
+  const { registration } = create()
+  const result = await registration.handler({ workspaceId: 'ws-1', newChat: true, worktree: true, prompt: 'hi' })
+  assert.equal('dependencyInstall' in (result.structuredContent as object), false)
+})

@@ -1,5 +1,5 @@
-import type { AgentPhase, TerminalSessionSnapshot } from '../shared/electron-api'
-import type { ConversationSessionSummary } from '../shared/conversation-runtime'
+import type { AgentPhase, AgentStateSource, TerminalSessionSnapshot } from '../shared/electron-api'
+import type { ConversationMessageOrigin, ConversationSessionSummary } from '../shared/conversation-runtime'
 import { bracketedTerminalPaste } from '../shared/terminal-paste'
 
 /**
@@ -43,6 +43,11 @@ export type ControlPlaneSession = {
   transport: ControlPlaneTransport
   alive: boolean
   workspaceId?: string
+  /**
+   * The workspace a terminal agent was launched in, when it has since been
+   * moved to another chat: the one its MCP calls go on naming.
+   */
+  launchWorkspaceId?: string
   agentId?: string
   agentName?: string
   cwd?: string
@@ -54,8 +59,21 @@ export type ControlPlaneSession = {
    * terminals, which have no agent to be idle or working.
    */
   phase?: AgentPhase
+  /**
+   * Where a terminal agent's phase came from: `hook` for the CLI's own
+   * lifecycle hooks, `lifecycle` for a stamp (`starting` at spawn, `stalled`
+   * from the watchdog). Only a hook-reported phase moves when a turn ends.
+   * Absent for a chat, whose phase is its runtime's, and a plain shell.
+   */
+  phaseSource?: AgentStateSource
   lastOutputAt?: number | null
   lastInputAt?: number | null
+  /** When something was last typed or pasted into a terminal (not a focus report). */
+  lastKeyInputAt?: number | null
+  /** When a terminal agent's last turn ended, by its hooks. */
+  lastTurnEndedAt?: number | null
+  /** A chat's conversation provider (`claude-agent`, `codex-agent`…). */
+  providerId?: string
 }
 
 /**
@@ -157,6 +175,21 @@ export type ControlPlaneSendOptions = {
    * time the send before it in the queue has finished.
    */
   precondition?: () => string | null
+  /**
+   * Who the message is from, for a chat: a chat records it on the turn's
+   * `user_message`, so a notice Studio sends is drawn as Studio's and never
+   * counted as the person writing. A terminal has no record to mark; its
+   * agent reads the words alone.
+   */
+  origin?: ConversationMessageOrigin
+  /**
+   * A terminal send that must not land on a draft: refused as `user_typing`
+   * when anyone has typed into the session since its agent's last turn ended
+   * (this service's own writes aside), however long ago. The typing gate only
+   * looks back a moment, and a person who paused mid-sentence has a draft at
+   * the prompt that a submitted send would take with it.
+   */
+  holdForDraft?: boolean
 }
 
 export type ControlPlaneReadOptions = {
@@ -188,7 +221,12 @@ type ControlPlaneTerminalPort = {
 
 export type ControlPlaneConversationPort = {
   list(): ConversationSessionSummary[]
-  sendTurn(input: { sessionId: string; message: string }): Promise<{ ok: boolean; message?: string }>
+  /** `code: 'busy'` is a turn already running (or awaiting approval): the message was not sent. */
+  sendTurn(input: {
+    sessionId: string
+    message: string
+    origin?: ConversationMessageOrigin
+  }): Promise<{ ok: boolean; message?: string; code?: string }>
   interrupt(input: { sessionId: string }): Promise<{ ok: boolean; message?: string }>
 }
 
@@ -244,6 +282,8 @@ export class AgentControlPlane {
    * ours we would read every automated send as someone typing.
    */
   private readonly ownInputAt = new Map<string, number>()
+  /** The same for `lastKeyInputAt`, which this service's writes move too. */
+  private readonly ownKeyInputAt = new Map<string, number>()
 
   constructor(deps: AgentControlPlaneDeps) {
     this.deps = deps
@@ -343,7 +383,7 @@ export class AgentControlPlane {
           message: 'A conversation session cannot pre-fill text without sending it as a turn.',
         }
       }
-      return this.enqueue(session.sessionId, () => this.sendConversationTurn(session, text))
+      return this.enqueue(session.sessionId, () => this.sendConversationTurn(session, text, options.origin))
     }
 
     return this.enqueue(session.sessionId, () => this.sendTerminalPrompt(session.sessionId, text, submit, options))
@@ -610,6 +650,14 @@ export class AgentControlPlane {
     }
     const blocked = options.precondition?.()
     if (blocked) return { ok: false, sessionId, reason: 'unsupported', message: blocked }
+    if (options.holdForDraft && this.hasDraftSinceTurnEnd(before)) {
+      return {
+        ok: false,
+        sessionId,
+        reason: 'user_typing',
+        message: `Agent session ${sessionId} was typed into after its last turn ended; the automated send stood down.`,
+      }
+    }
 
     const pasted = this.writeTerminal(sessionId, bracketedTerminalPaste(text))
     if (!pasted.ok) return pasted
@@ -632,15 +680,25 @@ export class AgentControlPlane {
     return { ok: true, sessionId, transport: 'terminal', submitted: true, confirmed }
   }
 
-  private async sendConversationTurn(session: ControlPlaneSession, text: string): Promise<ControlPlaneSendResult> {
+  private async sendConversationTurn(
+    session: ControlPlaneSession,
+    text: string,
+    origin: ConversationMessageOrigin | undefined,
+  ): Promise<ControlPlaneSendResult> {
     const conversation = this.deps.conversation
     if (!conversation) return this.conversationUnavailable(session.sessionId)
-    const result = await conversation.sendTurn({ sessionId: session.sessionId, message: text })
+    const result = await conversation.sendTurn({
+      sessionId: session.sessionId,
+      message: text,
+      ...(origin ? { origin } : {}),
+    })
     if (!result.ok) {
       return {
         ok: false,
         sessionId: session.sessionId,
-        reason: 'write_failed',
+        // A chat refuses a second turn rather than queueing it: that is "not
+        // now", which a caller retries, not a failed write.
+        reason: result.code === 'busy' ? 'busy' : 'write_failed',
         message: result.message ?? 'Conversation turn was rejected.',
       }
     }
@@ -721,6 +779,13 @@ export class AgentControlPlane {
     }
   }
 
+  private hasDraftSinceTurnEnd(session: ControlPlaneSession): boolean {
+    const typed = session.lastKeyInputAt
+    if (typed == null) return false
+    if (this.ownKeyInputAt.get(session.sessionId) === typed) return false
+    return session.lastTurnEndedAt == null || typed > session.lastTurnEndedAt
+  }
+
   private isUserTyping(session: ControlPlaneSession): boolean {
     if (session.lastInputAt == null) return false
     if (this.ownInputAt.get(session.sessionId) === session.lastInputAt) return false
@@ -763,6 +828,7 @@ export class AgentControlPlane {
     // guard can tell this service's input apart from a person's.
     const after = this.findSession(sessionId)
     if (after?.lastInputAt != null) this.ownInputAt.set(sessionId, after.lastInputAt)
+    if (after?.lastKeyInputAt != null) this.ownKeyInputAt.set(sessionId, after.lastKeyInputAt)
     return { ok: true }
   }
 
@@ -921,13 +987,17 @@ function toTerminalSession(snapshot: TerminalSessionSnapshot): ControlPlaneSessi
     transport: 'terminal',
     alive: snapshot.processAlive,
     workspaceId: snapshot.workspaceId,
+    ...(snapshot.launchWorkspaceId ? { launchWorkspaceId: snapshot.launchWorkspaceId } : {}),
     agentId: snapshot.agentId,
     agentName: snapshot.agentName,
     cwd: snapshot.cwd,
     cli: snapshot.cli,
     phase: snapshot.agentState?.phase,
+    ...(snapshot.agentState ? { phaseSource: snapshot.agentState.source } : {}),
     lastOutputAt: snapshot.lastOutputAt,
     lastInputAt: snapshot.lastInputAt,
+    lastKeyInputAt: snapshot.lastKeyInputAt ?? null,
+    lastTurnEndedAt: snapshot.lastTurnEndedAt ?? null,
   }
 }
 
@@ -935,9 +1005,12 @@ function toConversationSession(summary: ConversationSessionSummary): ControlPlan
   return {
     sessionId: summary.sessionId,
     transport: 'conversation',
-    alive: summary.status !== 'stopped' && summary.status !== 'failed',
+    // A chat whose last turn failed is still there and takes the next
+    // message, as it does from its own composer; only a stopped one is gone.
+    alive: summary.status !== 'stopped',
     workspaceId: summary.workspaceId,
     agentId: summary.agentId,
+    providerId: summary.providerId,
     phase: conversationPhase(summary.status),
     // A conversation session streams events, not pty bytes; `updatedAt` is the
     // nearest honest "last activity" stamp. Nothing routes on it — `wait` and

@@ -18,6 +18,8 @@ import type {
 } from '../../shared/conversation-runtime'
 import { resolveGatewayLaunchToken } from '../../server/core/gateway-launch-tokens'
 import { conversationCommandsFor } from '../conversation-commands/registry'
+import { onUsageLimitHit, usageLimitsStore, usageRateLimit } from '../usage-limits/store'
+import type { UsageLimitHit } from '../../shared/usage-limits'
 
 function fixture(
   setup: {
@@ -35,6 +37,8 @@ function fixture(
     // Codex never answers `initialize`.
     initializeTimesOut?: boolean
     readCodexLogBytes?: CodexConversationProviderOptions['readCodexLogBytes']
+    // The answer to `account/rateLimits/read`.
+    rateLimits?: () => unknown
   } = {},
 ) {
   let connection!: CodexRpcOptions
@@ -70,6 +74,7 @@ function fixture(
             return { turn: { id: 'native-turn' } }
           }
           if (method === 'skills/list') return setup.skills ?? { data: [] }
+          if (method === 'account/rateLimits/read' && setup.rateLimits) return setup.rateLimits()
           if (method === 'thread/compact/start') {
             resolveStarted()
             return {}
@@ -198,10 +203,13 @@ test('streams text and command output, preserves nonzero exit as an ordinary too
     { partial: true },
     { status: 'ok', exitCode: 1 },
   ])
-  expect(f.calls.map((call) => call.method).slice(0, 4)).toEqual([
+  // The subscription's limits are asked for as the app-server starts, and the
+  // thread is started without waiting for the answer.
+  expect(f.calls.map((call) => call.method).slice(0, 5)).toEqual([
     'initialize',
     'initialized',
     'account/read',
+    'account/rateLimits/read',
     'thread/start',
   ])
   // `none` sends no override anywhere: Codex runs on its own configured default.
@@ -1680,4 +1688,130 @@ test('a seeded Codex fork says when Codex took its conversation, and a refused s
   const starts = f.calls.filter((call) => call.method === 'turn/start')
   expect(JSON.stringify(starts.at(-1)?.params)).toContain('persisted question')
   expect(f.events.filter((event) => event.payload?.historySeeded === true)).toHaveLength(1)
+})
+
+// Epoch seconds, as Codex sends them.
+const LIMIT_RESET_S = Math.floor(Date.now() / 1000) + 2 * 60 * 60
+const PLUS_ACCOUNT = { requiresOpenaiAuth: true, account: { type: 'chatgpt', email: null, planType: 'plus' } }
+const codexWindows = () =>
+  usageLimitsStore()
+    .state()
+    .snapshots.find((snapshot) => snapshot.provider === 'codex')
+
+test("a ChatGPT sign-in's limits are read once as the app-server starts, and every push after merges in", async () => {
+  const f = fixture({
+    account: PLUS_ACCOUNT,
+    rateLimits: () => ({
+      rateLimits: {
+        limitId: 'codex',
+        primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: LIMIT_RESET_S },
+        secondary: { usedPercent: 37, windowDurationMins: 10080, resetsAt: LIMIT_RESET_S + 86_400 },
+        rateLimitReachedType: null,
+      },
+      rateLimitsByLimitId: null,
+    }),
+  })
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  expect(f.calls.filter((call) => call.method === 'account/rateLimits/read')).toEqual([
+    { method: 'account/rateLimits/read', params: { excludeResetCreditDetails: true } },
+  ])
+  await vi.waitFor(() => expect(codexWindows()?.windows).toHaveLength(2))
+  expect(codexWindows()).toMatchObject({ billing: 'subscription', plan: 'plus' })
+  // A sparse push: the weekly window it leaves null keeps its reading.
+  await f.message({
+    method: 'account/rateLimits/updated',
+    params: {
+      rateLimits: {
+        limitId: 'codex',
+        primary: { usedPercent: 15, windowDurationMins: 300, resetsAt: LIMIT_RESET_S },
+        secondary: null,
+      },
+    },
+  })
+  expect(codexWindows()?.windows.map((window) => [window.id, window.usedPercent])).toEqual([
+    ['codex:primary', 15],
+    ['codex:secondary', 37],
+  ])
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+})
+
+test('the read of the limits never holds a turn up', async () => {
+  const f = fixture({ account: PLUS_ACCOUNT, rateLimits: () => new Promise(() => undefined) })
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  expect(f.events.at(-1)?.type).toBe('turn_completed')
+})
+
+test('an API-key sign-in has no plan limits: none are read, and none are shown', async () => {
+  const f = fixture({ account: { requiresOpenaiAuth: true, account: { type: 'apiKey' } }, rateLimits: () => ({}) })
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  await f.message({
+    method: 'account/rateLimits/updated',
+    params: { rateLimits: { primary: { usedPercent: 50, windowDurationMins: 300, resetsAt: LIMIT_RESET_S } } },
+  })
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  expect(f.calls.some((call) => call.method === 'account/rateLimits/read')).toBe(false)
+  expect(codexWindows()).toBeUndefined()
+})
+
+test('a turn Codex fails on a usage limit is told as a limit hit, with when the full window resets', async () => {
+  const hits: UsageLimitHit[] = []
+  const stop = onUsageLimitHit((hit) => hits.push(hit))
+  const f = fixture({ account: PLUS_ACCOUNT })
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  await f.message({
+    method: 'account/rateLimits/updated',
+    params: {
+      rateLimits: {
+        limitId: 'codex',
+        primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: LIMIT_RESET_S },
+        rateLimitReachedType: 'rate_limit_reached',
+      },
+    },
+  })
+  const error = {
+    message: "You've hit your usage limit. Try again later.",
+    codexErrorInfo: 'usageLimitExceeded',
+    additionalDetails: null,
+    misalignment: null,
+  }
+  await f.message({
+    method: 'error',
+    params: { error, willRetry: false, threadId: 'native-thread', turnId: 'native-turn' },
+  })
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'failed', error } } })
+  await done
+  stop()
+  expect(f.events.at(-1)?.type).toBe('turn_failed')
+  expect(hits).toEqual([
+    { provider: 'codex', sessionId: 'session', resetsAt: LIMIT_RESET_S * 1000, windowId: null, at: expect.any(Number) },
+  ])
+  expect(usageRateLimit('codex')).toEqual({ limited: true, resetsAt: LIMIT_RESET_S * 1000, windowId: 'codex:primary' })
+})
+
+test('a turn that fails for another reason is no limit hit', async () => {
+  const hits: UsageLimitHit[] = []
+  const stop = onUsageLimitHit((hit) => hits.push(hit))
+  const f = fixture({ account: PLUS_ACCOUNT })
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  await f.message({
+    method: 'turn/completed',
+    params: { turn: { status: 'failed', error: { message: 'Overloaded', codexErrorInfo: 'serverOverloaded' } } },
+  })
+  await done
+  stop()
+  expect(hits).toEqual([])
 })

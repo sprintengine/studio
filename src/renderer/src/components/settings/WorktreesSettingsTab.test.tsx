@@ -320,3 +320,82 @@ test('Prune counts only the other missing worktrees git actually forgot', async 
   expect(host.textContent).toContain('Git forgot gone.')
   expect(host.textContent).not.toContain('other missing worktree')
 })
+
+function switchLabelled(label: string): HTMLElement {
+  const labelEl = [...host.querySelectorAll<HTMLElement>('[id]')].find((el) => el.textContent?.trim() === label)
+  const found = labelEl ? host.querySelector<HTMLElement>(`[role="switch"][aria-labelledby="${labelEl.id}"]`) : null
+  if (!found) throw new Error(`no switch ${label}`)
+  return found
+}
+
+test('installing dependencies is off for a project until turned on, and is saved for that project with its command', async () => {
+  const patches: unknown[] = []
+  let saved: object = { enabled: true, keepIdle: 3, maxSlots: 12, diskLimitGb: 30, dependencyInstall: {} }
+  Object.assign((window as unknown as { api: object }).api, {
+    getWorktreePoolSettings: async () => saved,
+    setWorktreePoolSettings: async (patch: object) => {
+      patches.push(patch)
+      saved = { ...saved, ...patch }
+      return saved
+    },
+  })
+  await render()
+  const toggle = switchLabelled('Install dependencies when the lockfile changes')
+  expect(toggle.getAttribute('aria-checked')).toBe('false')
+  expect(host.querySelector('[aria-label="Install command for app"]')).toBeNull()
+
+  await click(toggle)
+  expect(patches).toEqual([{ dependencyInstall: { [REPO]: { enabled: true, command: null } } }])
+
+  const input = host.querySelector<HTMLInputElement>('[aria-label="Install command for app"]')
+  expect(input).toBeTruthy()
+  await act(async () => {
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    setValue.call(input, 'pnpm install --frozen-lockfile && pnpm build')
+    input!.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => {
+    input!.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+  })
+  expect(patches[1]).toEqual({
+    dependencyInstall: { [REPO]: { enabled: true, command: 'pnpm install --frozen-lockfile && pnpm build' } },
+  })
+})
+
+test('a running dependency install shows on its worktree’s row, and Cancel stops it', async () => {
+  const cancelled: string[] = []
+  let changed: ((view: unknown) => void) | null = null
+  const running = {
+    id: 'install-1',
+    repoRoot: REPO,
+    path: `${POOL}/pool-01`,
+    branch: 'agent/fix-login',
+    command: 'npm ci',
+    reason: 'changed',
+    state: 'running',
+    startedAt: now,
+    endedAt: null,
+    lastLine: 'added 12 packages',
+    output: null,
+    exitCode: null,
+  }
+  Object.assign((window as unknown as { api: object }).api, {
+    listWorktreeInstalls: async () => [running],
+    onWorktreeInstallChanged: (cb: (view: unknown) => void) => {
+      changed = cb
+      return () => {}
+    },
+    cancelWorktreeInstall: async (id: string) => {
+      cancelled.push(id)
+      return true
+    },
+  })
+  await render()
+  expect(rowNamed('pool-01')?.textContent).toContain('installing dependencies · added 12 packages')
+  await click(button(rowNamed('pool-01')!, 'Cancel install'))
+  expect(cancelled).toEqual(['install-1'])
+
+  await act(async () => changed?.({ ...running, state: 'cancelled', endedAt: now + 1000 }))
+  expect(rowNamed('pool-01')?.textContent).not.toContain('installing dependencies')
+  expect(rowNamed('pool-01')?.textContent).toContain('Open chat')
+})

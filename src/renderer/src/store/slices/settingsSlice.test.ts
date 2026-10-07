@@ -851,6 +851,7 @@ test('settingsSlice', async () => {
     chatContrast: 100,
     chatWidth: 'comfortable',
     agentCharacters: true,
+    usageLimits: true,
   })
   assert.deepEqual(normalizeAppearanceSettings(undefined), defaultAppearanceSettings())
   assert.deepEqual(normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'glass' }), {
@@ -859,15 +860,30 @@ test('settingsSlice', async () => {
     chatContrast: 100,
     chatWidth: 'full',
     agentCharacters: true,
+    usageLimits: true,
   })
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'tinted' }),
-    { theme: 'sage', windowMaterial: 'tinted', chatContrast: 100, chatWidth: 'full', agentCharacters: true },
+    {
+      theme: 'sage',
+      windowMaterial: 'tinted',
+      chatContrast: 100,
+      chatWidth: 'full',
+      agentCharacters: true,
+      usageLimits: true,
+    },
     'tinted is a stored material in its own right',
   )
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'sage' }),
-    { theme: 'sage', windowMaterial: 'glass', chatContrast: 100, chatWidth: 'full', agentCharacters: true },
+    {
+      theme: 'sage',
+      windowMaterial: 'glass',
+      chatContrast: 100,
+      chatWidth: 'full',
+      agentCharacters: true,
+      usageLimits: true,
+    },
     'a persisted appearance predating the material axis hydrates to the glass default',
   )
   assert.equal(
@@ -879,6 +895,16 @@ test('settingsSlice', async () => {
     normalizeAppearanceSettings({ theme: 'sage', agentCharacters: 'no' }).agentCharacters,
     true,
     'a malformed value falls back to characters on',
+  )
+  assert.equal(
+    normalizeAppearanceSettings({ theme: 'sage', usageLimits: false }).usageLimits,
+    false,
+    'hiding the usage limits is kept',
+  )
+  assert.equal(
+    normalizeAppearanceSettings({ theme: 'sage' }).usageLimits,
+    true,
+    'a stored appearance from before the setting shows them',
   )
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'nope', windowMaterial: 'frosted' }),
@@ -1339,6 +1365,7 @@ test('a stored appearance from before the chat settings hydrates to the chat as 
     chatContrast: 100,
     chatWidth: 'full',
     agentCharacters: true,
+    usageLimits: true,
   })
 })
 

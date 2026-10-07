@@ -39,18 +39,18 @@ pool per repository and machine so Windows and WSL never share slots.
 
 ## 3. Decisions taken
 
-| Decision                | Ruling                                                                                                                                                                                                                                                |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Idle cost               | None. The pool is finished worktrees kept on disk; no timers, no background refresh, no idle installs. The only idle cost is disk.                                                                                                                    |
-| When a slot is prepared | On intent: when the person turns on the Worktree chip in New chat or starts typing its name, fetch once and reset a free slot to the chosen base in the background, so it is ready by the time they press Enter.                                      |
-| Base                    | `origin/<default branch>` by default, with a base-branch picker in New chat. A feature-branch base still reuses a pooled slot and switches it to that base.                                                                                           |
-| Installs                | After hand-out, and only when the lockfile fingerprint changed since the slot last installed. No approval step. Covers npm, pnpm, yarn, bun, Cargo, Go, uv, Poetry, Bundler, Composer and Gradle/Maven, plus a per-repository setup command override. |
-| Pool size               | Keep 1–3 finished worktrees per repository; anything beyond that is removed by the automatic agent-worktree cleanup (#57's rules).                                                                                                                    |
-| Slot paths              | Stable and reused (`.sprintengine-worktrees/<repo>/pool-NN`). Accepted trade-off: a CLI's own per-directory resume history mixes across leases; the app always resumes by session id.                                                                 |
-| Agent branches          | Kept on return (the slot is detached, the branch stays).                                                                                                                                                                                              |
-| Dirty returns           | Held, locked and never reset; the Worktree manager offers Commit, Stash, Discard and Keep.                                                                                                                                                            |
-| WSL                     | A pool per machine; WSL pools run through the distribution's git via the Linux helper.                                                                                                                                                                |
-| Review                  | Before it ships, the design is checked against the bug history of existing open-source worktree-pool tools, and every class of bug they hit is shown handled or fixed.                                                                                |
+| Decision                | Ruling                                                                                                                                                                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Idle cost               | None. The pool is finished worktrees kept on disk; no timers, no background refresh, no idle installs. The only idle cost is disk.                                                                                                                                              |
+| When a slot is prepared | On intent: when the person turns on the Worktree chip in New chat or starts typing its name, fetch once and reset a free slot to the chosen base in the background, so it is ready by the time they press Enter.                                                                |
+| Base                    | `origin/<default branch>` by default, with a base-branch picker in New chat. A feature-branch base still reuses a pooled slot and switches it to that base.                                                                                                                     |
+| Installs                | Off unless the project opts in (Settings ▸ Worktrees). Then after hand-out, and only when the install fingerprint changed since the worktree last installed. A command is inferred for npm, pnpm, yarn and bun only; a per-project command covers anything else. See section 5. |
+| Pool size               | Keep 1–3 finished worktrees per repository; anything beyond that is removed by the automatic agent-worktree cleanup (#57's rules).                                                                                                                                              |
+| Slot paths              | Stable and reused (`.sprintengine-worktrees/<repo>/pool-NN`). Accepted trade-off: a CLI's own per-directory resume history mixes across leases; the app always resumes by session id.                                                                                           |
+| Agent branches          | Kept on return (the slot is detached, the branch stays).                                                                                                                                                                                                                        |
+| Dirty returns           | Held, locked and never reset; the Worktree manager offers Commit, Stash, Discard and Keep.                                                                                                                                                                                      |
+| WSL                     | A pool per machine; WSL pools run through the distribution's git via the Linux helper.                                                                                                                                                                                          |
+| Review                  | Before it ships, the design is checked against the bug history of existing open-source worktree-pool tools, and every class of bug they hit is shown handled or fixed.                                                                                                          |
 
 ## 4. Open questions
 
@@ -86,12 +86,71 @@ pool per repository and machine so Windows and WSL never share slots.
 The owner's rulings on restarting the work, and how the open questions above
 were settled:
 
-- **No installs, ever.** The pool never runs a package manager, in the
-  background or after hand-out. A reused slot keeps the last agent's ignored
-  files (`node_modules`, build output, a virtual environment), so the next
-  agent's own install is incremental or unnecessary. This replaces the
-  "install when the lockfile changed" decision in section 3, and with it
-  questions 4 and 5.
+- **Installs only when a project asks, and only when the lockfile changed**
+  (owner ruling 2026-10-06, revising the 2026-10-05 "no installs, ever"). The
+  first ruling held that the pool never runs a package manager: a reused slot
+  keeps the last agent's ignored files (`node_modules`, build output, a virtual
+  environment), so the next agent's own install is incremental or unnecessary,
+  and nothing runs a repository's scripts that the person did not start. Both
+  halves still hold for the pool itself, which never installs and never does
+  anything in the background. What changed is the hand-out: a project may now
+  opt in (Settings ▸ Worktrees, on the project's card; off by default), and
+  then a leased slot installs before its agent starts when its lockfile
+  differs from the one it last installed with. That answers question 5 the
+  cautious way: an install runs the repository's own scripts with the
+  person's rights, so it happens only where the person turned it on.
+  - **Where.** `createAgentWorktreeFromPool` (git.ts), which every agent
+    worktree goes through: after the lease, or after the fresh worktree made
+    because the pool declined (full, held by another Studio, off), which is the
+    worktree that needs it most. New chat, the tab strip's worktree spawn and
+    scheduled runs wait for it. A gateway call does not: `agent.launch`,
+    `backlog.work` and `conversation.create` answer while it runs, because the
+    caller's client gives up on a call long before an install ends and a retry
+    would be a second agent in a second worktree. `agent.launch` answers with
+    the agent's id and state `installing_dependencies`, which `agent.status`
+    reports (then `starting`, until the agent's start is confirmed), and starts
+    the agent when the install ends; `conversation.create`
+    makes the chat and its session at once, says `dependencyInstall` in its
+    answer and in the chat's composer tray, and sends the first message when
+    the install ends. However it ends, the agent starts. A reclaimed settled
+    chat, a worktree forked from a named base ref and `worktree.lease` do not
+    install.
+  - **When.** The worktree's record is a fingerprint of everything the
+    install's result depends on: the command, the lockfile it reads, the
+    package manager version `packageManager` declares, the Node version
+    (`node -v` in the install's environment, for a JavaScript project),
+    `.npmrc`, `.yarnrc`, `.yarnrc.yml`, `pnpm-workspace.yaml` and `patches/`
+    (names and contents, bounded). It is kept in the worktree's git admin
+    directory (`.git/worktrees/<slot>/sprintengine-dependencies.json`): outside
+    the worktree, so `clean -fd` and "Clear ignored files" never reach it,
+    ignored by git, and gone with the worktree's registration. It runs when the
+    record is missing, differs, or `node_modules` (or Yarn's `.pnp.cjs`) is
+    gone. The record is cleared before an install starts (an install whose
+    record cannot be cleared does not run) and written only when it succeeds,
+    so a failed, timed-out, cancelled or quit-stopped one runs again at the
+    next lease.
+  - **What.** Inferred from the lockfile, never one that rewrites it: `npm ci`,
+    `pnpm install --frozen-lockfile`, `yarn install --frozen-lockfile` (Yarn 1)
+    or `--immutable` (Yarn 2+), `bun install --frozen-lockfile`;
+    `packageManager` in package.json breaks a tie between lockfiles. A
+    project's own command replaces it, and then every lockfile present
+    (Cargo, uv, Poetry, Bundler, Composer and Go's included) counts, since
+    nothing says which it reads. Other ecosystems get no inferred command. It
+    runs through the platform shell with the person's whole login environment
+    (an interactive login shell's for bash, zsh and the ksh family, a login
+    shell's for fish and the rest; `worktree-pool/install-environment.ts`), so
+    a registry token, a proxy or `NODE_EXTRA_CA_CERTS` their profile exports
+    reaches it; none of the app's own `SPRINTENGINE_*` variables do. On
+    Windows it gets the app's environment, less those. It runs as a process
+    group of its own, and quitting the app stops every install still running,
+    the whole group (`taskkill /T` on Windows).
+  - **How it shows** (question 4). A toast that stays while it runs ("npm ci
+    in pool-03: the lockfile changed. The agent starts when it finishes."),
+    re-shown in place as it ends; the worktree's row in Settings ▸ Worktrees
+    says it is installing, with its last output line and Cancel. The agent
+    waits for it, and starts whatever came of it: a failure, a timeout (20
+    minutes) or a cancel is a warning toast and a bell row carrying what the
+    install printed, never a withheld chat.
 - **Always the default branch.** Every agent worktree forks from
   `origin/<default>`, fetched at hand-out (at most once a minute per
   repository, and never waiting more than ten seconds; offline it forks from
