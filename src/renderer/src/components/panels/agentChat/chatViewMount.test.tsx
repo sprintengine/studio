@@ -1925,3 +1925,30 @@ test('the strip’s diff counts are a split pill that opens the Git panel, and a
     await clean.unmount()
   }
 })
+
+test('Retry after a failed resume from Studio asks again as the person, without Studio’s name', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({
+    events: [
+      event('user_message', {
+        turnId: 't1',
+        text: '[SprintEngine Studio] Continue where you left off — your usage limit has reset.',
+        origin: { kind: 'studio', reason: 'usage-resume' },
+      }),
+      event('turn_started', { turnId: 't1' }),
+      event('turn_failed', { turnId: 't1', reason: 'runtime' }),
+    ],
+    sendTurn,
+  })
+  try {
+    const retry = chat.button('Retry')
+    expect(retry, 'the failed turn offers Retry').toBeDefined()
+    await chat.act(async () => retry!.click())
+    expect(sendTurn).toHaveBeenCalledTimes(1)
+    expect(sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      message: 'Continue where you left off — your usage limit has reset.',
+    })
+  } finally {
+    await chat.unmount()
+  }
+})

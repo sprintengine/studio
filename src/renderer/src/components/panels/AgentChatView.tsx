@@ -13,6 +13,7 @@
 
 import { parseMachinePath } from '../../../../shared/machine-paths'
 import { workspaceHostIdOf } from '../../../../shared/execution-host'
+import { withoutStudioNoticePrefix } from '../../../../shared/studio-notice'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import {
@@ -2077,13 +2078,18 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Retry re-sends the last user message. The projection's entries are the
   // authoritative source — after an app restart the message only exists in the
   // replayed transcript, not in the local userTurns state.
+  //
+  // When that message was Studio's own (a resume after a usage limit), the
+  // retry is the person asking the agent to carry on, and goes as theirs: a
+  // window cannot send as Studio, and repeating Studio's name in front would
+  // tell the agent Studio was speaking when the person was.
   const retryLatestRef = useRef<() => void>(() => undefined)
   retryLatestRef.current = () => {
     const lastUser = [...projection.entries]
       .reverse()
       .find((entry): entry is Extract<TranscriptEntry, { kind: 'user' }> => entry.kind === 'user')
     if (lastUser)
-      void sendTurn(lastUser.text, lastUser.attachments, {
+      void sendTurn(lastUser.origin ? withoutStudioNoticePrefix(lastUser.text) : lastUser.text, lastUser.attachments, {
         skillIds: lastUser.skills ?? [],
         mentions: lastUser.mentions ?? [],
         files: attachedFilePaths(lastUser.files),
