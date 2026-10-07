@@ -338,6 +338,9 @@ const WorkspacePaneColumn = React.lazy(() =>
 // the rest of the deferred shell rather than carried through it.
 const ToastHost = React.lazy(() => import('./ToastHost').then((m) => ({ default: m.ToastHost })))
 const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
+const UsageLimitsDialog = React.lazy(() =>
+  import('../panels/agentChat/usageLimits').then((module) => ({ default: module.UsageLimitsDialog })),
+)
 // First-run only: the CLI onboarding card (and the CliInstallControl subtree it
 // shares with the lazy Settings panel) mounts on machines with no CLI installed,
 // so the machines that never show it never evaluate it at boot.
@@ -680,6 +683,7 @@ export default function WorkspaceManager() {
   // sets it; every other way of opening the palette clears it.
   const [paletteTarget, setPaletteTarget] = useState<PaletteAgentTarget | null>(null)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  const [usageLimitsOpen, setUsageLimitsOpen] = useState(false)
   // The app-wide default preset, straight from settings. It used to be mirrored
   // into local state so a spawn surface could edit it; a preset is remembered
   // per CLI now (ui/cliPermissionPresets), so nothing on a spawn surface writes
@@ -3826,6 +3830,10 @@ export default function WorkspaceManager() {
         setDiagnosticsOpen(true)
         return true
       }
+      if (commandId === 'usage.limits.show') {
+        setUsageLimitsOpen(true)
+        return true
+      }
       if (commandId === 'chat.new' || commandId === 'chat.newConversation' || commandId === 'chat.newTerminalAgent') {
         openNewChatPanel(
           undefined,
@@ -5108,6 +5116,12 @@ export default function WorkspaceManager() {
       {diagnosticsOpen && (
         <React.Suspense fallback={null}>
           <DiagnosticsOverlay onClose={() => setDiagnosticsOpen(false)} />
+        </React.Suspense>
+      )}
+
+      {usageLimitsOpen && (
+        <React.Suspense fallback={null}>
+          <UsageLimitsDialog onClose={() => setUsageLimitsOpen(false)} />
         </React.Suspense>
       )}
 

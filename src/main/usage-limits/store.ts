@@ -1,0 +1,292 @@
+import {
+  USAGE_LIMIT_PROVIDERS,
+  USAGE_LIMIT_STALE_AFTER_MS,
+  usageWindowHasReset,
+  type UsageLimitBilling,
+  type UsageLimitHit,
+  type UsageLimitProvider,
+  type UsageLimitSnapshot,
+  type UsageLimitStatus,
+  type UsageLimitWindow,
+  type UsageLimitsState,
+} from '../../shared/usage-limits'
+
+// The latest usage-limit reading per provider, merged from whatever the agents
+// report as they run: a Claude chat's `rate_limit_event`s, a Claude terminal's
+// status line, a Codex app-server's `account/rateLimits/*`. Nothing here asks a
+// provider for anything; it only keeps what it is told, and says when that
+// changed (for the renderer) and when a turn hit a limit (for whatever waits
+// to resume it).
+//
+// One reading per provider, not per account: no source names the account
+// without its credentials being read, and a person signed in to a second
+// account replaces the first's reading the moment that account reports.
+
+/** Part of a window, as one report has it: fields left undefined keep what was known. */
+export type UsageWindowUpdate = {
+  id: string
+  label?: string
+  usedPercent?: number | null
+  resetsAt?: number | null
+  durationMs?: number
+  status?: UsageLimitStatus
+}
+
+export type UsageRateLimitAnswer = {
+  /** A window is at its limit (or a turn said so) and has not reset yet. */
+  limited: boolean
+  /** When the last limiting window lifts (epoch ms), or null when unknown or not limited. */
+  resetsAt: number | null
+  windowId: string | null
+}
+
+export type UsageLimitsStore = {
+  /** What the session's sign-in says about billing; an API key hides the provider and forgets its windows. */
+  noteBilling(provider: UsageLimitProvider, billing: Exclude<UsageLimitBilling, 'unknown'>, plan?: string): void
+  /** Windows a source reported; each merges into the window of the same id. Only a subscription reports them. */
+  noteWindows(provider: UsageLimitProvider, updates: UsageWindowUpdate[], at?: number): void
+  /** A turn failed on a usage limit. Marks the window it named, and tells `onLimitHit`'s listeners. */
+  noteLimitHit(hit: Omit<UsageLimitHit, 'at'> & { at?: number }): void
+  /** One snapshot per provider with something to show: never an API-billed one, never one with no windows. */
+  state(): UsageLimitsState
+  /** "Is this provider rate-limited now, and until when?" */
+  rateLimit(provider: UsageLimitProvider, now?: number): UsageRateLimitAnswer
+  onChanged(listener: (state: UsageLimitsState) => void): () => void
+  onLimitHit(listener: (hit: UsageLimitHit) => void): () => void
+  /** Readings from an earlier run's cache. A provider already reported this run keeps its live reading. */
+  restore(snapshots: readonly UsageLimitSnapshot[], now?: number): void
+  /** What the cache keeps: the providers with a reading, windows that reset already left out. */
+  persisted(now?: number): UsageLimitSnapshot[]
+}
+
+type ProviderEntry = {
+  billing: UsageLimitBilling
+  plan?: string
+  windows: Map<string, UsageLimitWindow>
+  observedAt: number
+  // The last turn that ended on a limit, until a later reading says the
+  // provider is allowed again or the time it gave has passed.
+  hit: { resetsAt: number | null; at: number } | null
+}
+
+// A reading republished with nothing changed but its age, so the "as of" a
+// stale reading is drawn with moves on when a fresh one arrives.
+const REPUBLISH_AFTER_MS = USAGE_LIMIT_STALE_AFTER_MS / 3
+
+export function createUsageLimitsStore(options: { now?: () => number } = {}): UsageLimitsStore {
+  const clock = options.now ?? Date.now
+  const entries = new Map<UsageLimitProvider, ProviderEntry>()
+  const changedListeners = new Set<(state: UsageLimitsState) => void>()
+  const hitListeners = new Set<(hit: UsageLimitHit) => void>()
+  let published = ''
+  let publishedAt = 0
+
+  const entryFor = (provider: UsageLimitProvider): ProviderEntry => {
+    let entry = entries.get(provider)
+    if (!entry) {
+      entry = { billing: 'unknown', windows: new Map(), observedAt: 0, hit: null }
+      entries.set(provider, entry)
+    }
+    return entry
+  }
+
+  function snapshotOf(provider: UsageLimitProvider, entry: ProviderEntry): UsageLimitSnapshot | null {
+    if (entry.billing === 'api' || entry.windows.size === 0) return null
+    return {
+      provider,
+      billing: entry.billing,
+      ...(entry.plan ? { plan: entry.plan } : {}),
+      windows: [...entry.windows.values()],
+      observedAt: entry.observedAt,
+    }
+  }
+
+  function state(): UsageLimitsState {
+    const snapshots: UsageLimitSnapshot[] = []
+    for (const provider of USAGE_LIMIT_PROVIDERS) {
+      const entry = entries.get(provider)
+      const snapshot = entry ? snapshotOf(provider, entry) : null
+      if (snapshot) snapshots.push(snapshot)
+    }
+    return { snapshots }
+  }
+
+  // Told only when what the renderer draws changed: a status line refreshes
+  // after every assistant message, almost always with the same numbers.
+  function publish(): void {
+    const next = state()
+    const signature = JSON.stringify(
+      next.snapshots.map((snapshot) => ({
+        ...snapshot,
+        observedAt: 0,
+        windows: snapshot.windows.map((window) => ({
+          ...window,
+          usedPercent: window.usedPercent === null ? null : Math.round(window.usedPercent),
+          observedAt: 0,
+        })),
+      })),
+    )
+    const now = clock()
+    if (signature === published && now - publishedAt < REPUBLISH_AFTER_MS) return
+    published = signature
+    publishedAt = now
+    for (const listener of changedListeners) listener(next)
+  }
+
+  function mergeWindow(entry: ProviderEntry, update: UsageWindowUpdate, at: number): void {
+    const previous = entry.windows.get(update.id)
+    const resetsAt = update.resetsAt !== undefined ? update.resetsAt : (previous?.resetsAt ?? null)
+    const usedPercent = update.usedPercent !== undefined ? update.usedPercent : (previous?.usedPercent ?? null)
+    // A window that reset is a new window: the old one's status does not carry
+    // into it. Without a word on status, a full window is at its limit.
+    const sameWindow = previous !== undefined && previous.resetsAt === resetsAt
+    const status: UsageLimitStatus =
+      update.status ??
+      (usedPercent !== null && usedPercent >= 100
+        ? 'rejected'
+        : sameWindow && previous.status !== 'allowed'
+          ? previous.status
+          : 'allowed')
+    const durationMs = update.durationMs ?? previous?.durationMs
+    entry.windows.set(update.id, {
+      id: update.id,
+      label: update.label ?? previous?.label ?? update.id,
+      usedPercent,
+      resetsAt,
+      ...(durationMs ? { durationMs } : {}),
+      status,
+      observedAt: at,
+    })
+  }
+
+  return {
+    noteBilling(provider, billing, plan) {
+      const entry = entryFor(provider)
+      const changed = entry.billing !== billing || (plan !== undefined && entry.plan !== plan)
+      entry.billing = billing
+      if (plan !== undefined) entry.plan = plan
+      // An API key has no plan limits: what was read under a subscription is
+      // not this account's, and is neither shown nor kept.
+      if (billing === 'api') {
+        entry.windows.clear()
+        entry.plan = undefined
+        entry.hit = null
+      }
+      if (changed) publish()
+    },
+    noteWindows(provider, updates, at = clock()) {
+      if (updates.length === 0) return
+      const entry = entryFor(provider)
+      // Only a subscription is reported windows; whatever was believed before,
+      // this is one now.
+      entry.billing = 'subscription'
+      for (const update of updates) mergeWindow(entry, update, at)
+      entry.observedAt = Math.max(entry.observedAt, at)
+      if (entry.hit && updates.some((update) => update.status === 'allowed' || update.status === 'warning')) {
+        const stillRejected = [...entry.windows.values()].some(
+          (window) => window.status === 'rejected' && !usageWindowHasReset(window, at),
+        )
+        if (!stillRejected) entry.hit = null
+      }
+      publish()
+    },
+    noteLimitHit(input) {
+      const at = input.at ?? clock()
+      const entry = entryFor(input.provider)
+      if (entry.billing === 'api') return
+      let resetsAt = input.resetsAt
+      if (input.windowId && entry.windows.has(input.windowId)) {
+        mergeWindow(entry, { id: input.windowId, status: 'rejected', ...(resetsAt !== null ? { resetsAt } : {}) }, at)
+      }
+      // The turn did not say when; the windows at their limit might.
+      resetsAt ??= limitingWindows(entry, at).resetsAt
+      entry.hit = { resetsAt, at }
+      const hit: UsageLimitHit = {
+        provider: input.provider,
+        sessionId: input.sessionId,
+        resetsAt,
+        windowId: input.windowId,
+        at,
+      }
+      for (const listener of hitListeners) listener(hit)
+      publish()
+    },
+    state,
+    rateLimit(provider, now = clock()) {
+      const entry = entries.get(provider)
+      if (!entry || entry.billing === 'api') return { limited: false, resetsAt: null, windowId: null }
+      const limiting = limitingWindows(entry, now)
+      if (limiting.windowId) return { limited: true, resetsAt: limiting.resetsAt, windowId: limiting.windowId }
+      if (entry.hit && (entry.hit.resetsAt === null || entry.hit.resetsAt > now))
+        return { limited: true, resetsAt: entry.hit.resetsAt, windowId: null }
+      return { limited: false, resetsAt: null, windowId: null }
+    },
+    onChanged(listener) {
+      changedListeners.add(listener)
+      return () => changedListeners.delete(listener)
+    },
+    onLimitHit(listener) {
+      hitListeners.add(listener)
+      return () => hitListeners.delete(listener)
+    },
+    restore(snapshots, now = clock()) {
+      let restored = false
+      for (const snapshot of snapshots) {
+        if (entries.has(snapshot.provider) || snapshot.billing === 'api') continue
+        const windows = snapshot.windows.filter((window) => !usageWindowHasReset(window, now))
+        if (windows.length === 0) continue
+        entries.set(snapshot.provider, {
+          billing: snapshot.billing,
+          ...(snapshot.plan ? { plan: snapshot.plan } : {}),
+          windows: new Map(windows.map((window) => [window.id, window])),
+          observedAt: snapshot.observedAt,
+          hit: null,
+        })
+        restored = true
+      }
+      if (restored) publish()
+    },
+    persisted(now = clock()) {
+      const out: UsageLimitSnapshot[] = []
+      for (const snapshot of state().snapshots) {
+        const windows = snapshot.windows.filter((window) => !usageWindowHasReset(window, now))
+        if (windows.length > 0) out.push({ ...snapshot, windows })
+      }
+      return out
+    },
+  }
+}
+
+// The windows holding the provider back now, and when the last of them lifts:
+// every one has to before a turn can run again.
+function limitingWindows(entry: ProviderEntry, now: number): { resetsAt: number | null; windowId: string | null } {
+  let windowId: string | null = null
+  let resetsAt: number | null = null
+  for (const window of entry.windows.values()) {
+    if (usageWindowHasReset(window, now)) continue
+    if (window.status !== 'rejected') continue
+    if (windowId === null || (window.resetsAt ?? 0) > (resetsAt ?? 0)) {
+      windowId = window.id
+      resetsAt = window.resetsAt
+    }
+  }
+  return { resetsAt, windowId }
+}
+
+// The app's one store. Providers report into it from wherever they run; the
+// IPC layer relays it, and a later feature asks it whether to wait.
+const usageLimits = createUsageLimitsStore()
+
+export function usageLimitsStore(): UsageLimitsStore {
+  return usageLimits
+}
+
+/** Whether `provider` is rate-limited now and when that lifts; the question auto-resume will ask. */
+export function usageRateLimit(provider: UsageLimitProvider, now?: number): UsageRateLimitAnswer {
+  return usageLimits.rateLimit(provider, now)
+}
+
+/** Every turn that ends on a usage limit, with when it lifts. Returns the unsubscribe. */
+export function onUsageLimitHit(listener: (hit: UsageLimitHit) => void): () => void {
+  return usageLimits.onLimitHit(listener)
+}

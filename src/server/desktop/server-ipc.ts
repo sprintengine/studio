@@ -23,6 +23,7 @@ import { registerHostsIpc } from '../../main/ipc/hosts-ipc'
 import { registerLaunchSettingsIpc } from '../../main/ipc/launch-settings-ipc'
 import { registerMeshIpc } from '../../main/ipc/mesh-ipc'
 import { registerStudioLocalAppsIpc } from '../../main/ipc/studio-local-apps-ipc'
+import { registerUsageLimitsIpc } from '../../main/ipc/usage-limits-ipc'
 import { registerWorkspaceBackupIpc } from '../../main/ipc/workspace-backup-ipc'
 import { registerWorkspaceSyncIpc } from '../../main/ipc/workspace-sync-ipc'
 import type { AgentLaunchSettingsStore } from '../../main/launch-settings-store'
@@ -42,7 +43,8 @@ import type { StudioGateway } from '../core/studio-gateway'
 // What is here: the workspace bus and registry hydration, launch settings and
 // machines, the gateway's settings and the tailnet and mesh, the paired local
 // apps, workspace backups, model discovery, the composer's command lists,
-// backlog files, provider credentials and the GitHub token, and the chats.
+// the subscription usage limits, backlog files, provider credentials and the
+// GitHub token, and the chats.
 // What is not: anything that acts on a window, a terminal or the shell's own
 // caches (the git panel, the file explorer, skills and the marketplace,
 // modules' enablement and trust), which stays with the shell until phase 10.
@@ -90,6 +92,8 @@ export function registerServerDomainIpc(registry: IpcRegistryLike, deps: ServerD
     userDataDir: dataDir(),
     cliRuntimes: () => core.agentLaunchSettings.get().cliRuntimes,
   })
+  // The subscription usage limits the chats' agents report.
+  registerUsageLimitsIpc(ipc, { userDataDir: dataDir() })
   registerLaunchSettingsIpc(ipc, { launchSettings: core.agentLaunchSettings })
   registerHostsIpc(ipc, { hosts: core.hosts })
   registerBacklogIpc(ipc)

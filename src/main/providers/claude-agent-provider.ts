@@ -27,6 +27,8 @@ import { AGENT_IDENTITY_ENV_KEYS, MCP_CHANNEL_TOKEN_ENV } from '../../shared/stu
 import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { normalizeApiKeySource } from '../../shared/conversation/apiKeySource'
+import { usageLimitsStore } from '../usage-limits/store'
+import { claudeBillingOf, isClaudeUsageLimitMessage, readClaudeRateLimitInfo } from '../usage-limits/sources'
 import type { PromptCacheTtl } from '../../shared/prompt-cache'
 import { leadingCommandFor, leadingSlashCommand } from '../conversation-commands/leading-command'
 import {
@@ -2019,6 +2021,14 @@ export function mapSdkMessage(
     contextModel?: string | null
     contextPromptTokens?: number
     contextOutputTokens?: number
+    // How the session bills, from its init: an API key's session reports no
+    // plan limits, and none of what it says is taken as one.
+    usageBilling?: 'subscription' | 'api' | null
+    // A usage limit refused this exchange's requests (a rejected
+    // `rate_limit_event`, or the CLI's own `rate_limit` error), so a turn that
+    // fails now failed on it. Cleared when requests are allowed again and at
+    // every result.
+    usageLimitRefusal?: { windowId: string | null; resetsAt: number | null } | null
   },
   message: Record<string, unknown>,
   // exchangeContinues: a `result` that answers only part of what the child was
@@ -2068,6 +2078,18 @@ export function mapSdkMessage(
   // is written to the transcript as is.
   const apiKeySource = init ? normalizeApiKeySource(message.apiKeySource) : null
   if (init && typeof message.model === 'string' && message.model) state.contextModel = message.model
+  const billing = init ? claudeBillingOf(apiKeySource) : null
+  if (billing) {
+    state.usageBilling = billing
+    usageLimitsStore().noteBilling('claude', billing)
+  }
+  if (
+    message.type === 'assistant' &&
+    message.error === 'rate_limit' &&
+    !readParentToolUseId(message) &&
+    state.usageBilling !== 'api'
+  )
+    state.usageLimitRefusal ??= { windowId: null, resetsAt: null }
 
   if (messageSessionId && messageSessionId !== state.providerSessionId) {
     state.providerSessionId = messageSessionId
@@ -2096,6 +2118,17 @@ export function mapSdkMessage(
   }
 
   switch (message.type) {
+    // Where the subscription's windows stand, sent whenever that changes. Not
+    // a transcript event: the reading is the account's, not the chat's.
+    case 'rate_limit_event': {
+      if (state.usageBilling === 'api') break
+      const reading = readClaudeRateLimitInfo(message.rate_limit_info)
+      if (!reading) break
+      if (reading.update) usageLimitsStore().noteWindows('claude', [reading.update])
+      if (reading.rejected) state.usageLimitRefusal = reading.rejected
+      else if (reading.allowed) state.usageLimitRefusal = null
+      break
+    }
     case 'system': {
       if (message.subtype === 'local_command_output') {
         if (typeof message.content === 'string') commandOutput(stripLocalCommandTags(message.content), undefined)
@@ -2313,6 +2346,8 @@ export function mapSdkMessage(
         commandOutput(message.result, message.local_command)
       state.commandOutputShown = false
       state.compactedInExchange = false
+      const usageLimitRefusal = state.usageLimitRefusal ?? null
+      state.usageLimitRefusal = null
       if (options.interrupted) {
         state.openToolUseIds?.clear()
         if (state.lastChainUuid) state.settledChainUuid = state.lastChainUuid
@@ -2382,6 +2417,15 @@ export function mapSdkMessage(
         // on from where it was, and the cursor the rewind recorded is replaced
         // so a restart does not try the same point again.
         const missingForkPoint = Boolean(state.resumeAt) && /No message found with message\.uuid/i.test(reported)
+        // A turn a usage limit refused: said to whatever waits to resume it,
+        // with when the limit lifts if the CLI told us.
+        const usageLimit =
+          usageLimitRefusal ??
+          (isClaudeUsageLimitMessage(reported) && state.usageBilling !== 'api'
+            ? { windowId: null, resetsAt: null }
+            : null)
+        if (usageLimit)
+          usageLimitsStore().noteLimitHit({ provider: 'claude', sessionId: state.sessionId, ...usageLimit })
         if (missingForkPoint) {
           state.resumeAt = null
           // The point it was given is not one to go back to either.

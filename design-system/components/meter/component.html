@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Meter</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    margin: 0 0 var(--sem-space-lg);
+  }
+  .demo-row {
+    display: flex;
+    gap: var(--sem-space-3xl);
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  /* The consumer's composition, not the component's: each bar under its own
+     words, in a column of equal widths. */
+  .demo-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-lg);
+    width: 240px;
+  }
+  .demo-value {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sem-space-sm);
+    padding-bottom: var(--sem-space-xs);
+    font-size: var(--sem-font-size-meta);
+  }
+  .demo-value-name {
+    color: var(--sem-color-text-primary);
+  }
+  .demo-value-axis {
+    color: var(--sem-color-text-subtle);
+    font-size: var(--sem-font-size-micro);
+  }
+  .demo-trigger {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="demo-row">
+    <div class="demo-list">
+      <div class="demo-window">
+        <div class="demo-value"><span class="demo-value-name" id="l-0">Session (5h)</span><span class="demo-value-axis">42% · resets in 2h 13m</span></div>
+        <div class="ds-meter" role="meter" aria-labelledby="l-0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="42" aria-valuetext="42% used" style="--ds-meter-value: 0.42; --ds-meter-marker: 0.56">
+          <span class="ds-meter-fill"></span>
+          <span class="ds-meter-marker"></span>
+        </div>
+      </div>
+      <div class="demo-window">
+        <div class="demo-value"><span class="demo-value-name" id="l-1">Weekly</span><span class="demo-value-axis">93% · resets in 3d 4h</span></div>
+        <div class="ds-meter ds-meter--warn" role="meter" aria-labelledby="l-1" aria-valuemin="0" aria-valuemax="100" aria-valuenow="93" aria-valuetext="93% used" style="--ds-meter-value: 0.93; --ds-meter-marker: 0.48">
+          <span class="ds-meter-fill"></span>
+          <span class="ds-meter-marker"></span>
+        </div>
+      </div>
+      <div class="demo-window">
+        <div class="demo-value"><span class="demo-value-name" id="l-2">Weekly · Opus</span><span class="demo-value-axis">— · reset</span></div>
+        <div class="ds-meter ds-meter--unknown" role="meter" aria-labelledby="l-2" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Reset">
+        </div>
+      </div>
+    </div>
+    <div class="demo-trigger">
+      <span class="demo-value-axis">Compact, inside a trigger</span>
+      <span class="ds-meter ds-meter--compact" aria-hidden="true" style="--ds-meter-value: 0.42"><span class="ds-meter-fill"></span></span>
+      <span class="ds-meter ds-meter--compact ds-meter--warn" aria-hidden="true" style="--ds-meter-value: 0.93"><span class="ds-meter-fill"></span></span>
+    </div>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="demo-row">
+    <div class="demo-list">
+      <div class="demo-window">
+        <div class="demo-value"><span class="demo-value-name" id="d-0">Session (5h)</span><span class="demo-value-axis">42% · resets in 2h 13m</span></div>
+        <div class="ds-meter" role="meter" aria-labelledby="d-0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="42" aria-valuetext="42% used" style="--ds-meter-value: 0.42; --ds-meter-marker: 0.56">
+          <span class="ds-meter-fill"></span>
+          <span class="ds-meter-marker"></span>
+        </div>
+      </div>
+      <div class="demo-window">
+        <div class="demo-value"><span class="demo-value-name" id="d-1">Weekly</span><span class="demo-value-axis">93% · resets in 3d 4h</span></div>
+        <div class="ds-meter ds-meter--warn" role="meter" aria-labelledby="d-1" aria-valuemin="0" aria-valuemax="100" aria-valuenow="93" aria-valuetext="93% used" style="--ds-meter-value: 0.93; --ds-meter-marker: 0.48">
+          <span class="ds-meter-fill"></span>
+          <span class="ds-meter-marker"></span>
+        </div>
+      </div>
+      <div class="demo-window">
+        <div class="demo-value"><span class="demo-value-name" id="d-2">Weekly · Opus</span><span class="demo-value-axis">— · reset</span></div>
+        <div class="ds-meter ds-meter--unknown" role="meter" aria-labelledby="d-2" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Reset">
+        </div>
+      </div>
+    </div>
+    <div class="demo-trigger">
+      <span class="demo-value-axis">Compact, inside a trigger</span>
+      <span class="ds-meter ds-meter--compact" aria-hidden="true" style="--ds-meter-value: 0.42"><span class="ds-meter-fill"></span></span>
+      <span class="ds-meter ds-meter--compact ds-meter--warn" aria-hidden="true" style="--ds-meter-value: 0.93"><span class="ds-meter-fill"></span></span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

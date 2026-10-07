@@ -699,6 +699,8 @@ export default function SettingsPanel({
   const setAppearanceWindowMaterial = useWorkspaceStore((s) => s.setAppearanceWindowMaterial)
   const agentCharacters = useWorkspaceStore((s) => s.appSettings.appearance.agentCharacters)
   const setAppearanceAgentCharacters = useWorkspaceStore((s) => s.setAppearanceAgentCharacters)
+  const usageLimits = useWorkspaceStore((s) => s.appSettings.appearance.usageLimits)
+  const setAppearanceUsageLimits = useWorkspaceStore((s) => s.setAppearanceUsageLimits)
   const isMac = window.api.platform === 'darwin'
   const chatListView = useWorkspaceStore((s) => s.chatListView)
   const openFilesInExternalWindow = useWorkspaceStore((s) => s.openFilesInExternalWindow)
@@ -1299,6 +1301,12 @@ export default function SettingsPanel({
                 description="Draw each agent Claude sends off as a little character that moves while it works, and changes with the seasons."
                 enabled={agentCharacters}
                 onChange={setAppearanceAgentCharacters}
+              />
+              <SettingToggle
+                label="Show subscription usage limits"
+                description="A small bar on a Claude or Codex chat's composer for how much of your plan's five-hour and weekly limits you have used, read from what the agent reports. Never shown for an API key."
+                enabled={usageLimits}
+                onChange={setAppearanceUsageLimits}
               />
             </SettingCard>
           </section>

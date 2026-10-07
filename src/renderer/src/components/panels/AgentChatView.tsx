@@ -130,6 +130,8 @@ import { useCreatePullRequestState } from './agentChat/createPullRequest'
 import { conversationContextReading } from './agentChat/contextReading'
 import { ConversationComposerStrip } from './agentChat/conversationStrip'
 import { useConversationStripFacts } from './agentChat/conversationStripFacts'
+import { useUsageLimitSnapshot } from './agentChat/usageLimits'
+import { usageLimitProviderOf } from '../../store/usageLimitsStore'
 import { studioAppCommands, useConversationCommands } from './agentChat/useConversationCommands'
 import { composerAppCommand } from './agentChat/composerAppCommands'
 import { commandInsertText } from './agentChat/slashCommandMenu'
@@ -2738,6 +2740,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     () => (conversationLocalServers.length > 0 ? { workspaceId, servers: conversationLocalServers } : null),
     [conversationLocalServers, workspaceId],
   )
+  // The subscription limits of the agent this chat runs on — read on this
+  // computer, so only for a chat that runs here.
+  const usageLimitsShown = useWorkspaceStore((s) => s.appSettings.appearance.usageLimits)
+  const usageProvider =
+    usageLimitsShown && transport.kind !== 'remote' && !stripFacts.machine
+      ? usageLimitProviderOf(conversation?.providerId)
+      : null
+  const stripUsageLimits = useUsageLimitSnapshot(usageProvider)
   // "Create PR" works in this computer's checkout only: a chat on a paired
   // machine, WSL or an SSH machine (the strip names its machine) has no git
   // or `gh` here.
@@ -3352,6 +3362,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               pullRequests={conversationPullRequests}
               createPullRequest={createPullRequest}
               localServers={stripLocalServers}
+              usageLimits={stripUsageLimits}
             />
           </div>
           {replay ? (

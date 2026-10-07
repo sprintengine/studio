@@ -12,6 +12,8 @@ import { LocalServersStripButton, localServersStripCopy } from '../../workspace/
 import { PullRequestStripButton, stripPullRequestCopy } from '../../workspace/PullRequestMark'
 import { CreatePullRequestControl, pullRequestSlotChoice } from './createPullRequest'
 import { fitComposerStrip, fullComposerStripFit, sameComposerStripFit, type ComposerStripFit } from './composerStripFit'
+import type { UsageLimitSnapshot } from '../../../../../shared/usage-limits'
+import { UsageLimitsStripButton } from './usageLimits'
 
 // The strip under an open conversation's composer (owner ruling 2026-10-04):
 // the facts of where this agent works, read-only, on the same strip the New
@@ -24,8 +26,9 @@ import { fitComposerStrip, fullComposerStripFit, sameComposerStripFit, type Comp
 //   started ("localhost:5173 · Running", "3 servers · 2 running";
 //   LocalServerMarks.tsx) · the pull request slot: the conversation's pull
 //   request ("Open PR #123"), or "Create PR" when the branch is ready to
-//   propose (createPullRequest.tsx), never both · the context ring, pinned to
-//   the right corner.
+//   propose (createPullRequest.tsx), never both · the subscription's usage
+//   limits, as a small bar (usageLimits.tsx) · the context ring, pinned to the
+//   right corner.
 //
 // The project is not here: the title bar names it, and the person knows which
 // project they are in. Nothing here is a choice — the conversation has
@@ -89,6 +92,7 @@ export function ConversationComposerStrip({
   pullRequests = NO_PULL_REQUESTS,
   createPullRequest = null,
   localServers = null,
+  usageLimits = null,
   now = Date.now(),
 }: {
   machine: ConversationStripMachine | null
@@ -116,6 +120,11 @@ export function ConversationComposerStrip({
     workspaceId: string
     servers: readonly StudioLocalServer[]
   } | null
+  /**
+   * The subscription usage limits of the agent this chat runs on, when it has
+   * reported some. Null draws nothing. Like the ring, it never leaves the line.
+   */
+  usageLimits?: UsageLimitSnapshot | null
   /** The clock the pull request's age is read against; a test pins it. */
   now?: number
 }): React.JSX.Element | null {
@@ -130,6 +139,7 @@ export function ConversationComposerStrip({
   const pullRequestRef = useRef<HTMLSpanElement | null>(null)
   const serversRef = useRef<HTMLSpanElement | null>(null)
   const ringRef = useRef<HTMLSpanElement | null>(null)
+  const usageRef = useRef<HTMLSpanElement | null>(null)
   // The last width each part was drawn at. A part in the menu is not drawn,
   // and its width is still what decides whether it comes back.
   const widths = useRef<{
@@ -140,6 +150,7 @@ export function ConversationComposerStrip({
     overflow?: number
     pullRequest?: number
     servers?: number
+    usage?: number
     ring?: number
   }>({})
   const [available, setAvailable] = useState(0)
@@ -174,6 +185,7 @@ export function ConversationComposerStrip({
   const branchWorktree = branch?.worktree ?? false
   const changesKey = hasChanges && changes ? `${changes.added}:${changes.removed}` : null
   const ringShown = percentage !== null
+  const usageShown = usageLimits !== null
   // What the slot draws, as a key its width is measured under.
   const pullRequestText = slot === 'create' ? 'create' : (pullRequest?.text ?? null)
   const serversText = serversCopy ? `${serversCopy.label} · ${serversCopy.state}` : null
@@ -208,6 +220,7 @@ export function ConversationComposerStrip({
     known.ring = widthOf(ringRef.current) ?? known.ring
     known.pullRequest = widthOf(pullRequestRef.current) ?? known.pullRequest
     known.servers = widthOf(serversRef.current) ?? known.servers
+    known.usage = widthOf(usageRef.current) ?? known.usage
     const branchWidth = widthOf(branchRef.current)
     const textWidth = widthOf(branchTextRef.current)
     const drawnText = branchTextRef.current?.textContent ?? ''
@@ -230,12 +243,14 @@ export function ConversationComposerStrip({
         : fitComposerStrip({
             available,
             gap,
-            // The local servers, the pull request and the ring are the line's
-            // pinned end: none of them leaves, so the fit gives way around them.
+            // The local servers, the pull request, the usage limits and the
+            // ring are the line's pinned end: none of them leaves, so the fit
+            // gives way around them.
             ring: pinnedWidth(
               [
                 serversText ? (known.servers ?? 0) : null,
                 pullRequestText ? (known.pullRequest ?? 0) : null,
+                usageShown ? (known.usage ?? 0) : null,
                 ringShown ? (known.ring ?? 0) : null,
               ],
               gap,
@@ -260,13 +275,22 @@ export function ConversationComposerStrip({
     branchWorktree,
     changesKey,
     ringShown,
+    usageShown,
     pullRequestText,
     slotResized,
     serversText,
     fit,
   ])
 
-  if (!machine && !branch && !hasChanges && percentage === null && pullRequestText === null && serversText === null)
+  if (
+    !machine &&
+    !branch &&
+    !hasChanges &&
+    percentage === null &&
+    pullRequestText === null &&
+    serversText === null &&
+    !usageLimits
+  )
     return null
 
   const showMachine = machine !== null && fit.machine
@@ -379,10 +403,19 @@ export function ConversationComposerStrip({
           )}
         </span>
       ) : null}
+      {usageLimits ? (
+        <span
+          ref={usageRef}
+          className={`${pullRequestText !== null || serversText !== null ? '' : 'ml-auto '}inline-flex shrink-0`}
+          data-strip-usage-limits-slot=""
+        >
+          <UsageLimitsStripButton snapshot={usageLimits} />
+        </span>
+      ) : null}
       {percentage !== null && context ? (
         <span
           ref={ringRef}
-          className={`${pullRequestText !== null || serversText !== null ? '' : 'ml-auto '}inline-flex shrink-0`}
+          className={`${pullRequestText !== null || serversText !== null || usageLimits ? '' : 'ml-auto '}inline-flex shrink-0`}
           data-strip-context=""
         >
           <ContextRing usedPercentage={percentage} tokens={context} />

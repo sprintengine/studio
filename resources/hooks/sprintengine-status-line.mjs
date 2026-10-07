@@ -36,11 +36,12 @@
 //     reading anyway) that runs CONCURRENTLY with the wrapped command, so a
 //     dead socket costs the person nothing but the timeout, in parallel.
 //   * Only the numbers and names below ever ride the socket: the seven
-//     context, cost and naming readings, and three of the prompt cache's
-//     (its lifetime, when it goes cold, and what a cold resume re-caches). The
-//     payload also carries the transcript path, the repo identity, the rest of
-//     the prompt cache's statistics and the person's cwd; none of it is ours to
-//     forward from here.
+//     context, cost and naming readings, three of the prompt cache's (its
+//     lifetime, when it goes cold, and what a cold resume re-caches), and the
+//     subscription's usage windows, two numbers each (how full, when it
+//     resets). The payload also carries the transcript path, the repo
+//     identity, the rest of the prompt cache's statistics, a gateway's spend
+//     limit and the person's cwd; none of it is ours to forward from here.
 //
 // The frame's `event` is `StatusLine`, which is deliberately in NO manifest's
 // agentStateSpec: a status-line refresh is not a lifecycle event and must move
@@ -300,7 +301,33 @@ function buildStatusLine(payload) {
   if (sessionName) statusLine.sessionName = sessionName
   const promptCache = buildPromptCache(record(payload.prompt_cache))
   if (promptCache) statusLine.promptCache = promptCache
+  const rateLimits = buildRateLimits(record(payload.rate_limits))
+  if (rateLimits) statusLine.rateLimits = rateLimits
   return Object.keys(statusLine).length > 0 ? statusLine : null
+}
+
+// The subscription windows the app draws. The payload's `rate_limits` is there
+// only for a claude.ai subscriber, and each window only while its reset is
+// ahead; a gateway's `spend_limit` beside them is not a plan limit and stays.
+const RATE_LIMIT_WINDOWS = ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet']
+
+/**
+ * The subscription's usage windows: how full each is (0..100) and when it
+ * resets (epoch SECONDS in the payload, milliseconds on the socket). This is
+ * the one reading of a terminal session's usage limits the app gets; it is
+ * the account's, not the session's, and main keeps it apart from the rest.
+ */
+function buildRateLimits(rateLimits) {
+  if (!rateLimits) return null
+  const out = {}
+  for (const id of RATE_LIMIT_WINDOWS) {
+    const window = record(rateLimits[id])
+    const usedPercentage = number(window?.used_percentage)
+    if (usedPercentage === null) continue
+    const resetsAt = number(window.resets_at)
+    out[id] = resetsAt === null ? { usedPercentage } : { usedPercentage, resetsAt: resetsAt * 1000 }
+  }
+  return Object.keys(out).length > 0 ? out : null
 }
 
 /**

@@ -147,6 +147,7 @@ export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   'tailnet:share-status': { retry: 'once' },
   'tailnet:unshare-port': {},
   'tailnet:update-device-scopes': {},
+  'usage-limits:get': { retry: 'once' },
   'workspace-backup:read': { retry: 'once' },
   'workspace-backup:write': {},
   'workspace-registry:hydrate': {},

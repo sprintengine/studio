@@ -19,6 +19,7 @@ import { textGenerationApi } from './api/text-generation'
 import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
 import { conversationCommandsApi } from './api/conversation-commands'
+import { usageLimitsApi } from './api/usage-limits'
 import { conversationPeekApi } from './api/conversation-peek'
 import { agentCompactApi } from './api/agent-compact'
 import { pullRequestApi } from './api/pull-request'
@@ -111,6 +112,7 @@ export const apiModules = {
   ...pluginsApi,
   ...conversationApi,
   ...conversationCommandsApi,
+  ...usageLimitsApi,
   ...conversationPeekApi,
   ...agentCompactApi,
   ...pullRequestApi,

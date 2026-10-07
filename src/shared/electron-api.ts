@@ -249,6 +249,7 @@ import type { SprintEngineAuthState } from './ipc/account'
 import type { CliModelDiscoveryInput, CliModelDiscoveryResult } from './ipc/cli-model-discovery'
 import type { ConversationCommandsRequest } from './ipc/conversation-commands'
 import type { ConversationCommandCatalog } from './conversation/commands'
+import type { UsageLimitsState } from './usage-limits'
 import type {
   AgentLaunchPreviewInput,
   AgentLaunchPreviewResult,
@@ -1531,6 +1532,11 @@ export type ElectronApi = {
   // list main hears afterwards (src/main/conversation-commands).
   conversationCommands: (input: ConversationCommandsRequest) => Promise<ConversationCommandCatalog>
   onConversationCommandsChanged: (listener: (catalog: ConversationCommandCatalog) => void) => () => void
+  // The subscription usage limits (five-hour and weekly windows) the agents
+  // reported, per provider, and every change main hears afterwards
+  // (src/main/usage-limits).
+  usageLimits: () => Promise<UsageLimitsState>
+  onUsageLimitsChanged: (listener: (state: UsageLimitsState) => void) => () => void
   // One-shot text generation on the person's own agent CLI (their login, no
   // API key): today the chat title from a first prompt. Never rejects — a
   // failure is a typed `{ ok: false }` the caller answers by keeping what it

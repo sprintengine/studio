@@ -261,6 +261,7 @@ export default function CommandPalette({
   const openExtensionsSurface = useWorkspaceStore((state) => state.openExtensionsSurface)
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleEnablement = useWorkspaceStore((state) => state.appSettings.modules)
+  const usageLimitsShown = useWorkspaceStore((state) => state.appSettings.appearance.usageLimits)
   const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
   const shortcutFor = (commandId: string): string | undefined =>
     getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform) ?? undefined
@@ -555,7 +556,29 @@ export default function CommandPalette({
 
     // Registry- and panel-backed commands are all one source group; stamp it
     // once here rather than on every literal above.
-    const registryCommands: Command[] = [...panelToggleCommands, ...gitCommands, ...moduleCommands].map((command) => ({
+    // The subscription usage limits, as a dialog: the one place to read them
+    // with no Claude or Codex chat open. Gone with the setting that hides them.
+    const usageCommands: UngroupedCommand[] = usageLimitsShown
+      ? [
+          {
+            id: 'usage.limits.show',
+            label: 'Show usage limits',
+            keywords: 'subscription plan limit five-hour weekly claude codex',
+            shortcut: shortcutFor('usage.limits.show'),
+            run: () => {
+              onRunCommand('usage.limits.show')
+              onClose()
+            },
+          },
+        ]
+      : []
+
+    const registryCommands: Command[] = [
+      ...panelToggleCommands,
+      ...gitCommands,
+      ...usageCommands,
+      ...moduleCommands,
+    ].map((command) => ({
       ...command,
       group: 'commands' as const,
     }))
@@ -700,6 +723,7 @@ export default function CommandPalette({
     commandAvailability,
     moduleCommandContext,
     moduleEnablement,
+    usageLimitsShown,
   ])
 
   // ── Handing a result to an agent ────────────────────────────────────────
