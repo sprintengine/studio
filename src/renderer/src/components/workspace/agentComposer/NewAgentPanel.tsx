@@ -974,7 +974,10 @@ export default function NewAgentPanel({
   // The hidden file input the "+" menu's Attach files row clicks. The menu
   // and the skills picker it opens over the same "+" are `ComposerPlusMenu`.
   const fileInputRef = React.useRef<HTMLInputElement>(null)
-  const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
+  // What git said about the folder: a repository, not one, or no answer (a
+  // window that cannot ask). Only "not one" can be a folder of several.
+  const [workspaceGitAnswer, setWorkspaceGitAnswer] = React.useState<'repository' | 'none' | 'unknown'>('unknown')
+  const workspaceIsGitRepo = workspaceGitAnswer === 'repository'
   // Replacing the static box, the panel draws the cards the box was drawn
   // with: different cards under the same composer would be a visible swap.
   const [seed] = React.useState(() => (bootComposer ? bootComposerSeed() : null) ?? newSuggestionSeed())
@@ -1189,16 +1192,16 @@ export default function NewAgentPanel({
   React.useEffect(() => {
     let cancelled = false
     if (!workspaceRoot) {
-      setWorkspaceIsGitRepo(false)
+      setWorkspaceGitAnswer('unknown')
       return
     }
     void window.api
       .getGitRepoRoot(workspaceRoot)
       .then((root) => {
-        if (!cancelled) setWorkspaceIsGitRepo(Boolean(root))
+        if (!cancelled) setWorkspaceGitAnswer(root ? 'repository' : 'none')
       })
       .catch(() => {
-        if (!cancelled) setWorkspaceIsGitRepo(false)
+        if (!cancelled) setWorkspaceGitAnswer('unknown')
       })
     return () => {
       cancelled = true
@@ -1214,9 +1217,11 @@ export default function NewAgentPanel({
   // the chip stays, off and disabled, and says why: a worktree per repository
   // is a later step (docs/design/multi-repo-projects.md).
   const worktreeCouldApply = !extensionMode && selection.kind !== 'terminal' && !remoteTarget && !pickedSsh
-  const projectRepositories = useProjectRepositories(worktreeCouldApply ? workspaceRoot : null)
+  const projectRepositories = useProjectRepositories(
+    worktreeCouldApply && workspaceGitAnswer === 'none' ? workspaceRoot : null,
+  )
   const worktreeUnavailable =
-    worktreeCouldApply && !workspaceIsGitRepo && projectRepositories.project
+    worktreeCouldApply && workspaceGitAnswer === 'none' && projectRepositories.project
       ? PROJECT_REPOSITORIES_WORKTREE_REASON
       : undefined
   // The chip starts on at the door, so a launch it is not offered for drops
