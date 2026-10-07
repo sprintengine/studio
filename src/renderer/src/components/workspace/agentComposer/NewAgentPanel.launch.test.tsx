@@ -720,6 +720,35 @@ test('NewAgentPanel launch paths', async () => {
       useWorkspaceStore.setState({ appSettings: settings } as never)
     })
 
+    await check('a stay chord rebound to Alt and a letter matches the key, not the character it types', async () => {
+      seedStore()
+      const settings = useWorkspaceStore.getState().appSettings
+      useWorkspaceStore.setState({
+        appSettings: {
+          ...settings,
+          keybindings: { ...settings.keybindings, overrides: { 'chat.new.launchInBackground': ['Alt+K'] } },
+        },
+      } as never)
+      const view = await render({ initialSelection: { kind: 'conversation' }, launchesInBackground: true })
+      await act(async () => typeIntoComposer(composerField(view.container), 'one'))
+      // Option+K on a Mac keyboard types "˚"; the key is still K.
+      await act(async () => {
+        composerField(view.container).dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', {
+            key: '˚',
+            code: 'KeyK',
+            altKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        )
+      })
+      assert.equal(view.launches.length, 1, 'the rebound chord starts the chat')
+      assert.equal(view.launches[0]?.stay, true)
+      view.unmount()
+      useWorkspaceStore.setState({ appSettings: settings } as never)
+    })
+
     await check('a ⌘⏎ launch that started nothing hands the prompt back', async () => {
       seedStore()
       const launches: Array<Record<string, unknown>> = []

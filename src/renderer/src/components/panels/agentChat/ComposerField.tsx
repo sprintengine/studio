@@ -33,10 +33,13 @@ export type ComposerFieldHandle = {
 /**
  * A key pressed in the field, in the shape the composer's key handlers read.
  * It is what a React keyboard event on the old textarea carried, so the
- * handlers kept their bodies; `currentTarget` is the field's handle.
+ * handlers kept their bodies; `currentTarget` is the field's handle. `code`
+ * is the physical key, which a rebindable chord matches on: with Alt held, or
+ * on a layout that is not Latin, `key` names a character no binding spells.
  */
 export type ComposerKeyEvent = {
   key: string
+  code: string
   altKey: boolean
   ctrlKey: boolean
   metaKey: boolean
@@ -230,6 +233,7 @@ export const ComposerField = forwardRef<ComposerFieldHandle, Props>(function Com
                 if (!onKeyDown) return false
                 onKeyDown({
                   key: event.key,
+                  code: event.code,
                   altKey: event.altKey,
                   ctrlKey: event.ctrlKey,
                   metaKey: event.metaKey,
