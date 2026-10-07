@@ -1554,7 +1554,10 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     const unsupported = {
       ok: false as const,
       code: 'lifecycle_unsupported',
-      message: `${connection.machineName} cannot settle its chats from here yet. Update SprintEngine Studio there to settle one from here.`,
+      message:
+        tool === 'conversation.settle'
+          ? `${connection.machineName} cannot settle its chats from here yet. Update SprintEngine Studio there to settle one from here.`
+          : `${connection.machineName} does not keep its chats' read state yet. Update SprintEngine Studio there for a chat read here to read as seen there.`,
     }
     const capabilities = peerCapabilities.get(connection.id)
     if (capabilities && !tailnetPeerSupports(capabilities, 'conversation-lifecycle')) return unsupported

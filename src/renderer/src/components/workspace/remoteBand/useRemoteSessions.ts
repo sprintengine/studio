@@ -117,11 +117,14 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
                   ? []
                   : entry.conversations
               : entry.conversations
-            // Whether the machine keeps its chats' rest, as its newest list said.
+            // Whether the machine keeps its chats' rest, and what this pairing
+            // may do with them, as its newest list said.
             const lifecycle = listed?.ok ? listed.lifecycle === true : entry.lifecycle
+            const access = listed?.ok ? listed.access : entry.access
             const listedParts = {
               ...(conversations ? { conversations } : {}),
               ...(lifecycle !== undefined ? { lifecycle } : {}),
+              ...(access !== undefined ? { access } : {}),
             }
             if (!result) return { ...entry, at: Date.now(), ...listedParts }
             return {

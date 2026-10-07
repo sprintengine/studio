@@ -6,6 +6,7 @@ import type { Workspace } from '../../../types/workspace'
 import {
   buildRemoteBand,
   conversationsOf,
+  remoteLifecycleWritable,
   remoteRestToFollow,
   unattachedConversations,
   type RemoteBrowseEntry,
@@ -66,7 +67,7 @@ function band(entries: Array<[MeshConnection, Partial<RemoteBrowseEntry> & { con
     browses: new Map(
       entries.map(([machine, entry]) => [
         machine.id,
-        { browse: browse(), loading: false, error: null, at: 1, lifecycle: true, ...entry },
+        { browse: browse(), loading: false, error: null, at: 1, lifecycle: true, access: 'operate' as const, ...entry },
       ]),
     ),
     reachability: new Map(),
@@ -163,6 +164,16 @@ test('a row carries its clocks and whether its machine keeps its rest', () => {
   const [older] = band([[mini, { lifecycle: false, conversations: [chat('a')] }]])
   assert.equal(older!.rows[0]!.lifecycle, false)
   assert.equal(older!.rows[0]!.lastTurnEndedAt, null)
+})
+
+test('a pairing that may only follow a machine’s chats offers no Settle and says no visit there', () => {
+  const [readOnly] = band([[mini, { access: 'read', conversations: [chat('a')] }]])
+  assert.equal(readOnly!.rows[0]!.lifecycle, false, 'the machine would refuse every one')
+  assert.equal(remoteLifecycleWritable({ browse: null, loading: false, error: null, at: 1, lifecycle: true }), false)
+  assert.equal(
+    remoteLifecycleWritable({ browse: null, loading: false, error: null, at: 1, lifecycle: true, access: 'operate' }),
+    true,
+  )
 })
 
 // A row here opened from a paired machine's chat, by the remote workspace it follows.

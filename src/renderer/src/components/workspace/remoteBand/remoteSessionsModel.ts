@@ -7,6 +7,7 @@ import {
   type MeshBrowse,
   type MeshConnection,
   type MeshConversation,
+  type MeshConversationAccess,
   type MeshMachineReachability,
 } from '../../../../../shared/tailnet-mesh'
 import type { Workspace } from '../../../types/workspace'
@@ -40,9 +41,22 @@ export type RemoteBrowseEntry = {
   conversations?: MeshConversation[]
   /**
    * The machine advertises `conversation-lifecycle`: it owns its chats' rest
-   * and read state, and a row here may offer Settle. Absent before a list.
+   * and read state. Absent before a list.
    */
   lifecycle?: boolean
+  /** What the pairing may do with the machine's chats, as its newest list said. Absent before a list. */
+  access?: MeshConversationAccess
+}
+
+/**
+ * Whether this pairing may write a machine's chats' rest and read state:
+ * the machine keeps them, and the pairing may drive its chats. Settling one
+ * and saying one is on screen need `conversation:operate` there; a pairing
+ * that may only follow them would be refused every time, and a visit is
+ * stamped every few seconds.
+ */
+export function remoteLifecycleWritable(entry: RemoteBrowseEntry | undefined): boolean {
+  return entry?.lifecycle === true && entry.access === 'operate'
 }
 
 /**
@@ -95,7 +109,11 @@ export type RemoteSessionRow = {
   /** When the chat's agent last finished a turn, and a person last had it on screen, on any device. */
   lastTurnEndedAt: number | null
   lastVisitedAt: number | null
-  /** The machine keeps this chat's rest and read state, so Settle may be offered for it. */
+  /**
+   * The machine keeps this chat's rest and read state, and this pairing may
+   * write them (`remoteLifecycleWritable`), so Settle may be offered for it
+   * and a visit said.
+   */
   lifecycle: boolean
 }
 
@@ -336,7 +354,9 @@ export function buildRemoteBand(input: {
       )
       const rows = (entry?.conversations ?? [])
         .filter((conversation) => !resting.has(conversation.workspaceId))
-        .map((conversation) => remoteChatRowOf(connection, conversation, browse, workspaces, entry?.lifecycle === true))
+        .map((conversation) =>
+          remoteChatRowOf(connection, conversation, browse, workspaces, remoteLifecycleWritable(entry)),
+        )
         .sort(compareByRecency)
       const attachedIds = new Set(rows.map((row) => row.attachedWorkspaceId).filter((id): id is string => id !== null))
       const parked = workspaces.filter(

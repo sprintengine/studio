@@ -118,6 +118,7 @@ test('a machine whose list leaves the capability out is not asked, and says why'
     assert.match(!settled.ok ? settled.message : '', /Update SprintEngine Studio there/)
     const visited = await machine.mesh.visitConversation({ connectionId: machine.connectionId, workspaceId: 'ws-1' })
     assert.equal(!visited.ok && visited.code, 'lifecycle_unsupported')
+    assert.match(!visited.ok ? visited.message : '', /read state/, 'a visit is not told about settling')
     assert.deepEqual(machine.toolCalls, [])
   } finally {
     await machine.close()
