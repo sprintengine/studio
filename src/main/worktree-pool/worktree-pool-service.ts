@@ -13,7 +13,7 @@ import { comparablePath } from '../../shared/host-paths'
 import { hostIdForFolder, isWslHostId, LOCAL_HOST_ID, normalizeExecutionHostId } from '../../shared/execution-host'
 import { pathJoin } from '../../shared/paths'
 import { slugifyWorktreeName, worktreeContainerPath } from '../../shared/worktree-paths'
-import { lockAgentWorktree } from '../agent-worktree-lock'
+import { agentWorktreeLockReason, lockAgentWorktree } from '../agent-worktree-lock'
 import {
   hiddenEditPaths,
   ignoredPathsAtRisk,
@@ -208,6 +208,8 @@ export type WorktreePoolLeaseResult =
       branch: string
       baseRef: string
       baseSha: string
+      /** The reason of the agent worktree lock placed on it, or null when locking failed. */
+      lockReason: string | null
       /** The slot was made for this lease; nothing was reused. */
       created: boolean
       elapsedMs: number
@@ -966,6 +968,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           branch,
           baseRef: base.ref,
           baseSha: base.sha,
+          lockReason: locked.ok ? agentWorktreeLockReason(owner) : null,
           created,
           elapsedMs: now() - started,
         }

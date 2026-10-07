@@ -9,6 +9,7 @@ import { afterAll, beforeAll, beforeEach, test } from 'vitest'
 import { cleanupAgentWorktrees } from '../agent-worktree-cleanup'
 import { setAgentWorktreeLockProfile } from '../agent-worktree-lock'
 import { createGitWorktree, restoreGitWorktree } from '../git'
+import { listGitWorktrees } from '../git-worktree-list'
 import { installWorktreePool } from './active-pool'
 import { createDependencyInstaller, DEPENDENCY_INSTALL_RECORD, installDependencyInstaller } from './dependency-install'
 import { acquireInstanceLock, createPoolStore, POOL_RECORD_VERSION, poolIdFor, type PoolRecord } from './pool-store'
@@ -910,6 +911,12 @@ test('createGitWorktree with fromPool leases from the installed pool, and withou
   assert.equal(pooled.data.branch, 'agent/pooled')
   assert.equal(pooled.data.baseRef, 'origin/main')
   assert.ok(pooled.data.leaseId)
+  // Built from the lease, with no listing read back, and as git would list it.
+  const listed = await listGitWorktrees(repo)
+  const asListed = listed.ok ? listed.data.worktrees.find((worktree) => worktree.path === pooled.data.path) : null
+  assert.ok(asListed, 'git lists the slot at the path the lease gave')
+  const { baseRef: _baseRef, leaseId: _leaseId, dependencyInstall: _install, ...entry } = pooled.data
+  assert.deepEqual(entry, asListed)
 
   const taken = await createGitWorktree(input('pooled'))
   assert.equal(taken.ok, false, 'an existing branch is reported, not papered over with a fresh worktree')

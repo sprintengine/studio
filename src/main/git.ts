@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'path'
-import { lockAgentWorktree, relockWorktree, unlockWorktree } from './agent-worktree-lock'
+import { agentWorktreeLockOwner, lockAgentWorktree, relockWorktree, unlockWorktree } from './agent-worktree-lock'
 import { excludeFromWorktree } from './integrations/worktree-exclude'
 import { cloneTree } from './clone-tree'
 import {
@@ -545,27 +545,32 @@ async function createAgentWorktreeFromPool(
         message: error instanceof Error ? error.message : String(error),
       }))
     if (leased.ok) {
-      const listed = await listGitWorktrees(leased.path)
-      const entry = listed.ok
-        ? listed.data.worktrees.find(
-            (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(leased.path),
-          )
-        : undefined
-      if (entry) {
-        return {
-          ok: true,
-          data: await withDependencyInstall(
-            { ...entry, baseRef: leased.baseRef, leaseId: leased.leaseId },
-            leased.repoRoot,
-            input,
-          ),
-          message: null,
-        }
+      // The entry is what the lease just made, not a listing read back: the
+      // slot's path is git's own spelling, and a listing that failed now would
+      // only send the chat to a fresh worktree on a branch the slot already has.
+      const agentLock = agentWorktreeLockOwner(leased.lockReason)
+      const entry: GitWorktreeEntry = {
+        path: leased.path,
+        head: leased.baseSha,
+        branch: leased.branch,
+        branchRef: `refs/heads/${leased.branch}`,
+        detached: false,
+        bare: false,
+        locked: leased.lockReason !== null,
+        lockedReason: leased.lockReason,
+        ...(agentLock ? { agentLock } : {}),
+        prunable: false,
+        prunableReason: null,
       }
-      // Leased, yet git does not list it: give it straight back rather than
-      // hand out a path nobody can account for.
-      await pool.release(leased.leaseId)
-      console.warn(`[git] pool worktree ${leased.path} is not listed by git; creating a fresh worktree`)
+      return {
+        ok: true,
+        data: await withDependencyInstall(
+          { ...entry, baseRef: leased.baseRef, leaseId: leased.leaseId },
+          leased.repoRoot,
+          input,
+        ),
+        message: null,
+      }
     } else if (leased.reason === 'branch-exists' || leased.reason === 'invalid-name') {
       return { ok: false, message: leased.message }
     } else if (leased.reason !== 'disabled' && leased.reason !== 'unsupported') {
