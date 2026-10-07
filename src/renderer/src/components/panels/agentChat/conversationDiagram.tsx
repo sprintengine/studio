@@ -6,6 +6,7 @@ import {
   subscribeAppearance,
   type DiagramResult,
 } from '../../../lib/diagram/mermaidDiagram'
+import type { CodeBlockNoteAction } from '../../ui/CodeBlock'
 
 const DIAGRAM_LANGUAGES = new Set(['mermaid', 'mmd'])
 
@@ -25,7 +26,9 @@ function diagramNote(error: string): string {
  * What a reply's ```mermaid block draws in place of its source: nothing while
  * the message streams — a diagram half-typed does not parse, and redrawing
  * it every token would flicker — then the diagram once the block is complete.
- * One that does not parse keeps its source, with a note under it saying why.
+ * One that does not parse keeps its source, with a note under it saying why;
+ * one whose renderer did not load says so too, with a Retry that asks for the
+ * renderer again.
  *
  * Drawn for the window's current appearance; after a switch the previous
  * drawing stays up until the new one is ready, so the block never drops back
@@ -35,7 +38,7 @@ export function useDiagramDrawing(
   code: string,
   language: string | undefined,
   streaming: boolean | undefined,
-): { drawing?: ReactNode; note?: string } {
+): { drawing?: ReactNode; note?: string; noteAction?: CodeBlockNoteAction } {
   const wanted = !streaming && isDiagramLanguage(language)
   // Only a diagram listens for the appearance: every other block in a reply
   // goes through this hook too.
@@ -46,6 +49,9 @@ export function useDiagramDrawing(
   )
   const cached = wanted ? cachedDiagram(appearance, code) : undefined
   const [drawn, setDrawn] = useState<{ code: string; appearance: string; result: DiagramResult } | null>(null)
+  // Bumped by Retry: a failed load is never cached, so drawing again asks for
+  // the renderer again.
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     if (!wanted || cached) return
     let current = true
@@ -55,10 +61,13 @@ export function useDiagramDrawing(
     return () => {
       current = false
     }
-  }, [wanted, cached, appearance, code])
+  }, [wanted, cached, appearance, code, attempt])
   const result = cached ?? (drawn?.code === code ? drawn.result : undefined)
   if (!wanted || !result) return {}
-  if ('error' in result) return { note: diagramNote(result.error) }
+  if ('error' in result) {
+    const note = diagramNote(result.error)
+    return result.retry ? { note, noteAction: { label: 'Retry', onClick: () => setAttempt((n) => n + 1) } } : { note }
+  }
   return { drawing: <DiagramSvg svg={result.svg} /> }
 }
 

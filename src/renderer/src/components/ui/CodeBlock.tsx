@@ -1,6 +1,7 @@
 import React, { Component, memo, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { ChevronDownIcon } from '../AppIcons'
 import { GhostButton, IconButton } from './Buttons'
+import { LinkButton } from './LinkButton'
 import { CopyGlyphButton } from './CopyGlyphButton'
 import { FileTypeGlyph } from './FileTypeGlyph'
 import { Tooltip } from './Tooltip'
@@ -47,7 +48,11 @@ export type CodeBlockProps = {
   drawing?: ReactNode
   /** A quiet line under the block saying something about it, such as why it shows as source. */
   note?: string
+  /** An action the note offers, set after it as a link: "Retry" when a drawing failed to load. */
+  noteAction?: CodeBlockNoteAction
 }
+
+export type CodeBlockNoteAction = { label: string; onClick: () => void }
 
 /**
  * A settled block longer than this folds. Twenty lines is about a screenful of
@@ -280,6 +285,12 @@ export function CodeBlock(props: CodeBlockProps) {
       {props.note ? (
         <div className="ds-code-block__note" data-copy-exclude="">
           {props.note}
+          {props.noteAction ? (
+            <>
+              {' · '}
+              <LinkButton onClick={props.noteAction.onClick}>{props.noteAction.label}</LinkButton>
+            </>
+          ) : null}
         </div>
       ) : null}
     </section>

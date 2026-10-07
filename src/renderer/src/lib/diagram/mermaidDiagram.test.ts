@@ -196,3 +196,18 @@ test('the SVG loses everything that would load from elsewhere', () => {
   expect(clean).toContain('fill:url(#d_gradient)')
   expect(clean).toContain('marker-end="url(#d_arrow)"')
 })
+
+test('a renderer that fails to load is asked for again, and says the failure is worth retrying', async () => {
+  vi.resetModules()
+  vi.doMock('mermaid', () => {
+    throw new Error('Failed to fetch dynamically imported module')
+  })
+  const fresh = await import('./mermaidDiagram')
+  const failed = await fresh.drawDiagram('a', 'graph TD; offline')
+  expect(failed).toEqual({ error: 'The diagram renderer could not be loaded', retry: true })
+  expect(fresh.cachedDiagram('a', 'graph TD; offline')).toBeUndefined()
+
+  vi.doMock('mermaid', () => ({ default: mermaid.api }))
+  expect(await fresh.drawDiagram('a', 'graph TD; offline')).toMatchObject({ svg: expect.stringContaining('offline') })
+  vi.doUnmock('mermaid')
+})

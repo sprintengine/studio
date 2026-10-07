@@ -47,6 +47,13 @@ async function settle(): Promise<void> {
   for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
 }
 
+// Until `ready` holds: a module graph imported afresh takes longer than a few turns.
+async function settleUntil(ready: () => boolean): Promise<void> {
+  for (let turn = 0; turn < 100 && !ready(); turn++) {
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
+  }
+}
+
 const diagram = (label: string) => `\`\`\`mermaid\ngraph TD\n  ${label} --> B\n\`\`\``
 
 test('a reply draws its mermaid block only once the message has settled', async () => {
@@ -124,4 +131,25 @@ test('an appearance switch redraws the diagram, keeping the old drawing up meanw
   await settle()
   expect(mermaid.drawn).toHaveLength(2)
   expect(container.querySelector('.ds-code-block__drawing [data-diagram]')).not.toBeNull()
+})
+
+test('a renderer that did not load says so, and Retry asks for it again', async () => {
+  vi.resetModules()
+  vi.doMock('mermaid', () => {
+    throw new Error('Failed to fetch dynamically imported module')
+  })
+  const fresh = await import('./conversationLinks')
+  act(() => root.render(<fresh.ConversationMarkdown text={diagram('Offline')} />))
+  await settleUntil(() => container.querySelector('.ds-code-block__note') !== null)
+  const note = container.querySelector('.ds-code-block__note')
+  expect(note?.textContent).toBe('Shown as source: The diagram renderer could not be loaded · Retry')
+  expect(container.querySelector('pre')?.textContent).toContain('Offline --> B')
+
+  vi.doMock('mermaid', () => ({ default: mermaid.api }))
+  const retry = [...(note?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Retry')
+  act(() => retry?.click())
+  await settleUntil(() => container.querySelector('.ds-code-block__drawing') !== null)
+  expect(container.querySelector('.ds-code-block__drawing [data-diagram]')?.textContent).toBe('Offline --> B')
+  expect(container.querySelector('.ds-code-block__note')).toBeNull()
+  vi.doUnmock('mermaid')
 })

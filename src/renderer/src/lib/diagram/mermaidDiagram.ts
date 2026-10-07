@@ -25,6 +25,7 @@ type Engine = { mermaid: Mermaid; purify: Purify }
 
 let engine: Promise<Engine> | null = null
 
+// A failed load is forgotten, so the next diagram, or a Retry, asks again.
 function loadEngine(): Promise<Engine> {
   engine ??= Promise.all([import('mermaid'), import('dompurify')]).then(
     ([mermaid, purify]) => ({ mermaid: mermaid.default, purify: purify.default }),
@@ -36,7 +37,12 @@ function loadEngine(): Promise<Engine> {
   return engine
 }
 
-export type DiagramResult = { svg: string } | { error: string }
+/**
+ * A drawing, or why there is none. `retry` marks a failure that was the
+ * network's, not the diagram's — the renderer, or a part of it, did not load —
+ * so asking again may draw it.
+ */
+export type DiagramResult = { svg: string } | { error: string; retry?: boolean }
 
 // ---- Nothing from outside the diagram -----------------------------------------
 
@@ -299,7 +305,7 @@ function remember(key: string, result: DiagramResult): void {
  * asked for twice while it is being drawn is drawn once. A source that does
  * not parse resolves to its error — never a rejection — and that answer is
  * kept like a drawing is; a renderer that failed to load is not, so the next
- * diagram asks for it again.
+ * diagram, or a Retry, asks for it again.
  */
 export function drawDiagram(appearance: string, source: string): Promise<DiagramResult> {
   const key = cacheKey(appearance, source)
@@ -314,9 +320,9 @@ export function drawDiagram(appearance: string, source: string): Promise<Diagram
       return refused
     }
     const loaded = await loadEngine().catch(() => null)
-    if (!loaded) return { error: 'The diagram renderer could not be loaded' }
+    if (!loaded) return { error: 'The diagram renderer could not be loaded', retry: true }
     const result = await render(loaded, source)
-    remember(key, result)
+    if (!('retry' in result)) remember(key, result)
     return result
   })
   queue = run.catch(() => undefined)
@@ -324,6 +330,8 @@ export function drawDiagram(appearance: string, source: string): Promise<Diagram
   void run.finally(() => drawing.delete(key)).catch(() => undefined)
   return run
 }
+
+const CHUNK_LOAD_FAILED = /dynamically imported module|importing a module script|failed to fetch/iu
 
 async function render({ mermaid, purify }: Engine, source: string): Promise<DiagramResult> {
   const id = `chat-diagram-${++serial}`
@@ -354,7 +362,10 @@ async function render({ mermaid, purify }: Engine, source: string): Promise<Diag
     const { svg } = await mermaid.render(id, source)
     return { svg: sanitizeDiagramSvg(purify, svg) }
   } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) }
+    const message = error instanceof Error ? error.message : String(error)
+    // Mermaid loads each kind of diagram's code as it is first drawn; that
+    // failing is the network's doing, not the diagram's.
+    return CHUNK_LOAD_FAILED.test(message) ? { error: message, retry: true } : { error: message }
   } finally {
     // The scratch element Mermaid measures in, should a failure leave it behind.
     document.getElementById(`d${id}`)?.remove()

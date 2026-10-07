@@ -24,7 +24,9 @@ bottom:
    "Show all N lines" / "Show less".
 4. **Note** — a quiet line under the block: "Highlighting stopped at 2000
    lines" past 2000 lines, or the surface's own word on the block, such as why
-   a diagram shows as its source.
+   a diagram shows as its source. A surface may give it one action, set after
+   it as a link button behind ` · ` ("Retry" when a diagram's renderer did not
+   load).
 
 A filename comes from the fence info: `title="src/app.ts"`, `file=` /
 `filename=` / `path=`, or a bare path after the language (` ```ts src/app.ts `).
@@ -81,8 +83,10 @@ there is nothing else to exclude.
 - **Failed grammar**: plain source. **Over 2000 lines**: highlighting stops and
   the note says so.
 - **Not drawn**: a drawn block whose source does not parse keeps its source,
-  and the note says why ("Shown as source: Parse error on line 2"). Until a
-  drawing is ready the source shows, so a block never renders empty.
+  and the note says why ("Shown as source: Parse error on line 2"). A
+  renderer that did not load is the network's failure rather than the
+  source's, so its note ends in a Retry. Until a drawing is ready the source
+  shows, so a block never renders empty.
 
 Light and dark come from the same semantic tokens.
 
