@@ -91,6 +91,9 @@ temporary folders.
 9. **Cap of twenty.** At most twenty members are listed. A folder with more is
    still reported, with `truncated: true` and the first twenty; section 5 says
    what a truncated project gives up.
+10. **Never the home folder or a filesystem root.** Both hold clones nobody
+    means as one project, and a chat opened there would checkpoint every one
+    of them.
 
 The answer is the project folder, where the list came from (`children` or the
 workspace file's name), the members (absolute path, relative path, display
@@ -158,9 +161,11 @@ and no Revert at all, which is most of what makes a chat's work reviewable.
   is left out of that turn; the others still are. A member that appeared
   between a turn's `pre` and `post` has no `pre` and is left out of that turn's
   diff.
-- **Revert** previews every member first and acts only on the members whose
-  files the dialog showed, each with its exact list, so the drift check is the
-  same per member as it is today. It is not atomic across members: a member
+- **Revert** involves the members that hold the turn's checkpoint (for an
+  undo, a recovery point), previews each of them first, and checks every
+  member's list against what the dialog showed before it changes any file, so
+  the drift check is the same per member as it is today. A member with nothing
+  to restore is not touched. It is not atomic across members: a member
   that fails after another has been reverted stops the revert and says which
   member failed; each reverted member keeps its own recovery ref, so Undo
   restores those.

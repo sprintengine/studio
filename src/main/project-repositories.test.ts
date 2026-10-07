@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, parse } from 'node:path'
 import { afterEach, beforeEach, test } from 'vitest'
 
 import {
@@ -216,4 +216,11 @@ test('the workspace-file reader keeps strings intact and drops only real comment
   assert.deepEqual(parseJsonWithComments('﻿{ "a": "x // y", /* c */ "b": [1, 2,], }'), { a: 'x // y', b: [1, 2] })
   assert.deepEqual(parseJsonWithComments('{ "a": "q\\" ,]" }'), { a: 'q" ,]' })
   assert.throws(() => parseJsonWithComments('{ "a": }'))
+})
+
+test('the home folder and a filesystem root are never a project of several repositories', () => {
+  repo(join(acme, 'api'))
+  assert.equal(discoverProjectRepositories(acme, { home: acme }), null)
+  assert.ok(discoverProjectRepositories(acme, { home: base, refresh: true }), 'any other folder is')
+  assert.equal(discoverProjectRepositories(parse(acme).root), null)
 })

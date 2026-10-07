@@ -1,7 +1,9 @@
 import { lstatSync, readdirSync, readFileSync, realpathSync, statSync, type Dirent } from 'fs'
+import { homedir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 
 import { buildHostContextDocument } from '../shared/host-context/document'
+import { comparablePath } from '../shared/host-paths'
 import {
   PROJECT_REPOSITORY_LIMIT,
   type ProjectRepositories,
@@ -25,6 +27,7 @@ import {
 //  * Never outside the folder, by path or by symlink, and at most three
 //    folders down; a member inside another member is that member's business.
 //  * At most PROJECT_REPOSITORY_LIMIT, with `truncated` saying there are more.
+//  * Never the home folder or a filesystem root.
 //
 // Synchronous on purpose: a terminal launch builds its host context
 // synchronously, and the reads are a directory listing and one `lstat` per
@@ -48,6 +51,8 @@ export type DiscoverProjectRepositoriesOptions = {
   /** Read the folder again rather than answer from the last read. */
   refresh?: boolean
   now?: number
+  /** The home folder, which is never a project; this machine's by default. */
+  home?: string
 }
 
 /**
@@ -70,7 +75,7 @@ export function discoverProjectRepositories(
   if (!options.refresh && cached && now - cached.at < HOLD_MS && cached.mtimeMs === info.mtimeMs) return cached.answer
   let answer: ProjectRepositories | null = null
   try {
-    answer = readProjectRepositories(root)
+    answer = readProjectRepositories(root, options.home ?? homedir())
   } catch {
     answer = null
   }
@@ -89,7 +94,10 @@ export function clearProjectRepositoriesCache(): void {
 
 type Candidate = { path: string; relativePath: string }
 
-function readProjectRepositories(root: string): ProjectRepositories | null {
+function readProjectRepositories(root: string, home: string): ProjectRepositories | null {
+  // A home folder or a drive holds clones nobody means as one project, and a
+  // chat opened there would checkpoint every one of them.
+  if (dirname(root) === root || comparablePath(root) === comparablePath(home)) return null
   if (insideRepository(root)) return null
   const entries = readdirSync(root, { withFileTypes: true })
   const fromFile = workspaceFileCandidates(root, entries)
