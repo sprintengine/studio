@@ -454,6 +454,19 @@ export function compareVersions(a: string, b: string): number | null {
 }
 
 /**
+ * The machine whose server holds this home's lock, when it is not the one
+ * probed: a home shared over NFS. Its pid means nothing here, so it is never
+ * attached to or signalled. A record naming this machine (a Mac's host name
+ * moves with the network) keeps the lock its own.
+ */
+export function otherHostHolding(probe: Probe): string | null {
+  if (!probe.lock.alive || !probe.lock.host || !probe.hostname || probe.lock.host === probe.hostname) return null
+  const record = probe.serverRecord
+  const recordHost = typeof record?.hostId === 'string' ? record.hostId : null
+  return recordHost && recordHost.endsWith(probe.hostname) ? null : probe.lock.host
+}
+
+/**
  * Attach, start, upgrade or refuse, from what the probe found. A newer server
  * is never replaced or stopped, so two desktops on different versions never
  * replace each other's server in turn; an external one is never replaced
@@ -466,15 +479,13 @@ export function locateServer(
 ): Located {
   const record = probe.serverRecord
   if (!probe.lock.alive) return { action: 'start' }
-  if (probe.lock.host && probe.hostname && probe.lock.host !== probe.hostname) {
-    const recordHost = typeof record?.hostId === 'string' ? record.hostId : null
-    if (!recordHost || !recordHost.endsWith(probe.hostname))
-      return {
-        action: 'blocked',
-        reason: `A Studio server is already running for this home on ${probe.lock.host}. One server serves one home.`,
-        offerUpgrade: false,
-      }
-  }
+  const otherHost = otherHostHolding(probe)
+  if (otherHost)
+    return {
+      action: 'blocked',
+      reason: `A Studio server is already running for this home on ${otherHost}. One server serves one home.`,
+      offerUpgrade: false,
+    }
   if (!record)
     return {
       action: 'blocked',

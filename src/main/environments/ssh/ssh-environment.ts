@@ -9,7 +9,15 @@ import type { FrontDoorPurpose } from '../../../server/wsl/front-door-proof'
 import type { SshEnvironmentSettings, SshEnvironmentState, SshMachineGh } from '../../../shared/ssh-environments'
 import type { RelayReady } from './relay-client'
 import { classifySshFailure, type SshFailure } from './ssh-command'
-import { assessProbe, buildConnectScript, locateServer, parseProbe, spaceFor, type Probe } from './ssh-connect-script'
+import {
+  assessProbe,
+  buildConnectScript,
+  locateServer,
+  otherHostHolding,
+  parseProbe,
+  spaceFor,
+  type Probe,
+} from './ssh-connect-script'
 import { buildInstallArchive } from './ssh-install'
 import { RemoteSession, SessionClosedError, type SessionProcess } from './ssh-session'
 
@@ -632,6 +640,16 @@ export class SshEnvironment {
     )
     try {
       const probe = await this.probe(session, true, label)
+      // The pid in a lock another machine holds is no process here: stopping
+      // it would signal whatever on this machine has the same number.
+      const otherHost = otherHostHolding(probe)
+      if (otherHost) {
+        session.kill()
+        throw new StepError(
+          'failed',
+          `The Studio server for this home runs on ${otherHost}, not ${label}, so it can only be stopped there.`,
+        )
+      }
       if (probe.serverRecord && probe.serverRecord.origin !== 'bootstrap') {
         session.kill()
         throw new StepError(
