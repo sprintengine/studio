@@ -290,3 +290,39 @@ test('a CLI home that is there but cannot be read says so, rather than offering 
     await chmod(projects, 0o755)
   }
 })
+
+test('an import of sessions the scan just listed reads their files, not both CLI homes again', async () => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) return
+  const { home, app } = await fixture()
+  const t = harness(home)
+  const scan = await t.service.scan()
+  assert.ok(scan.ok)
+  // The home can no longer be listed, but its files can still be read by name.
+  const projects = join(home, '.claude', 'projects')
+  await chmod(projects, 0o300)
+  try {
+    const result = await t.service.importSessions({ sessions: [{ source: 'claude-code', sessionId: 'claude-1' }] })
+    assert.ok(result.ok, 'no second scan, which would have found the home unreadable')
+    assert.equal(result.imported.length, 1)
+  } finally {
+    await chmod(projects, 0o755)
+  }
+
+  // A session the scan did not list sends the import back to a full scan.
+  const day = join(home, '.codex', 'sessions', '2026', '09', '06')
+  await mkdir(day, { recursive: true })
+  await writeFile(
+    join(day, 'rollout-2026-09-06T09-00-00-codex-2.jsonl'),
+    jsonl([
+      { timestamp: '2026-09-06T09:00:00Z', type: 'session_meta', payload: { id: 'codex-2', cwd: app, source: 'cli' } },
+      {
+        timestamp: '2026-09-06T09:00:01Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Add search' }] },
+      },
+    ]),
+  )
+  const later = await t.service.importSessions({ sessions: [{ source: 'codex', sessionId: 'codex-2' }] })
+  assert.ok(later.ok)
+  assert.equal(later.imported.length, 1)
+})

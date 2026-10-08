@@ -27,6 +27,14 @@ export type ImportedConversation = {
 }
 
 /**
+ * How much of one tool call's output an imported chat keeps: its start and its
+ * end, where a command says what it did and how it ended. A long session's
+ * builds and test runs would otherwise be held whole in memory while it is
+ * read, and written whole into the chat's transcript.
+ */
+export const MAX_IMPORTED_TOOL_OUTPUT_CHARS = 32 * 1024
+
+/**
  * Writes a session's history in the chat's own vocabulary, one turn per
  * message the person sent: each opens with their message and closes when the
  * next one arrives or the history ends. What a CLI recorded before the first
@@ -88,7 +96,12 @@ export class ImportedTranscriptBuilder {
     // Only the answer to a call this history showed: one whose call fell
     // before the first message has no row to land in.
     if (!this.turnId || !payload.toolUseId || !this.openTools.delete(payload.toolUseId)) return
-    this.push('tool_output', this.stamp(at), { ...payload, turnId: this.turnId })
+    const output = cappedOutput(payload.output)
+    this.push('tool_output', this.stamp(at), {
+      ...payload,
+      ...(output !== payload.output ? { output, truncated: true } : {}),
+      turnId: this.turnId,
+    })
   }
 
   compacted(at: number | null, payload: Record<string, unknown> = {}): void {
@@ -133,6 +146,14 @@ export class ImportedTranscriptBuilder {
     this.lastAt = Math.max(this.lastAt, time)
     return this.lastAt
   }
+}
+
+/** A tool's output cut to its start and end when it runs past the cap. */
+function cappedOutput(output: string): string {
+  if (output.length <= MAX_IMPORTED_TOOL_OUTPUT_CHARS) return output
+  const half = MAX_IMPORTED_TOOL_OUTPUT_CHARS / 2
+  const left = output.length - 2 * half
+  return `${output.slice(0, half)}\n… ${left} characters left out on import …\n${output.slice(-half)}`
 }
 
 /** A record's ISO time as epoch milliseconds, or null when it has none. */
