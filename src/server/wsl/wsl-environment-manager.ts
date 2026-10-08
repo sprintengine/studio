@@ -179,6 +179,8 @@ type Handle = {
   probe: { inFlight: boolean; missed: number; lastAt: number; graceUntil: number }
   /** Why this app stopped the running server itself (it hung), said once its exit comes. */
   killedFor: string | null
+  /** The last server's pid in the distribution, for a start that finds it still holding the data directory. */
+  lastPid: number | null
   stopping: boolean
   /**
    * The word `wsl.exe --list --verbose` gave the distribution's state while
@@ -213,6 +215,7 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
         pingTimer: null,
         probe: { inFlight: false, missed: 0, lastAt: 0, graceUntil: 0 },
         killedFor: null,
+        lastPid: null,
         stopping: false,
         runningState: null,
       }
@@ -575,10 +578,28 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
           await deps.runner.runScript(handle.distro, 'true', { timeoutMs: 60_000 })
         },
         envelopeFor: (boot) => envelopeFor(handle, token, boot),
+        killInDistro: async (pid) => {
+          if (!Number.isSafeInteger(pid) || pid <= 1) return
+          await deps.runner.runScript(handle.distro, `kill -9 ${pid} 2>/dev/null; true`, { timeoutMs: 15_000 })
+        },
+        lockHolder: async (runDir) => {
+          if (/['\0\n]/u.test(runDir)) return null
+          const read = await deps.runner.runScript(
+            handle.distro,
+            `head -c 1024 '${runDir}/studio.lock' 2>/dev/null; true`,
+            {
+              timeoutMs: 15_000,
+            },
+          )
+          const pid = /"pid"\s*:\s*(\d+)/u.exec(read.stdout)?.[1]
+          return pid ? Number(pid) : null
+        },
+        previousPid: handle.lastPid,
         log,
         ...deps.start,
       })
       handle.server = server
+      handle.lastPid = server.boot.pid
       server.onExit((exit) => void onServerExit(handle, server, exit))
       handle.killedFor = null
       handle.probe = { inFlight: false, missed: 0, lastAt: 0, graceUntil: 0 }
