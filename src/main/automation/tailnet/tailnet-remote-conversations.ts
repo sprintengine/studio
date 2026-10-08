@@ -4,10 +4,17 @@ import {
   CONVERSATION_RESYNC_CLOSE_CODE,
   CONVERSATION_SCOPE_CLOSE_CODE,
   conversationCloseRetryAfterMs,
-  explainRejectedConversationFrame,
-  parseConversationClientFrame,
   type ConversationClientFrame,
 } from '../../../../packages/conversation-protocol/src'
+import {
+  explainRejectedConversationMessage,
+  parseConversationClientMessage,
+  type ConversationClientMessage,
+} from '../../../../packages/conversation-protocol/src/clientFrames'
+import {
+  CONVERSATION_QUEUED_SENDS_CAPABILITY,
+  conversationPeerSupports,
+} from '../../../../packages/conversation-protocol/src/handshake'
 import {
   isKnownConversationServerFrameType,
   parseConversationServerFrame,
@@ -32,6 +39,7 @@ import type {
   MeshConversationKey,
   MeshConversationListResult,
   MeshLinkState,
+  MeshQueuedMessage,
 } from '../../../shared/tailnet-mesh'
 import { asRecord } from '../../../shared/records'
 import type { RemoteConversationCache, RemoteConversationCacheRecord } from './tailnet-remote-conversation-cache'
@@ -124,6 +132,8 @@ export type RemoteConversationsOptions = {
   onAway?(connectionId: string): void
   /** Whether the machine runs on battery: the save beat and the retry cap stretch while it does. */
   isOnBattery?(): boolean
+  /** What the machine last said it serves; null or absent while it has not said. */
+  capabilitiesOf?(connectionId: string): readonly string[] | null | undefined
   openSocket?: typeof openRemoteConversationSocket
   retry?: { baseMs: number; maxMs: number }
   requestTimeoutMs?: number
@@ -162,7 +172,7 @@ type ResultFrame = Extract<ConversationParsedServerFrame, { type: 'result' }>
 type PendingRequest = { resolve(frame: ResultFrame | { failure: string; code: string }): void; timer: NodeJS.Timeout }
 type PendingCommand = {
   commandId: string
-  frame: Extract<ConversationClientFrame, { type: 'command' }>
+  frame: Extract<ConversationClientMessage, { type: 'command' }>
   resolve(result: MeshConversationCommandResult): void
   timer: NodeJS.Timeout | null
   retry: NodeJS.Timeout | null
@@ -210,6 +220,12 @@ type Follow = {
   requestSequence: number
   saveTimer: NodeJS.Timeout | null
   dirty: boolean
+  /**
+   * What the machine last said it holds for this conversation until its turn
+   * ends; null until it has said. Kept, not cached on disk: it stands while
+   * the link is down, since the machine holds them all the same.
+   */
+  queued: MeshQueuedMessage[] | null
 }
 type SnapshotFrame = Extract<ConversationParsedServerFrame, { type: 'snapshot' }>
 
@@ -341,7 +357,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
 
   // ── The link ──────────────────────────────────────────────────────────────
 
-  const send = (follow: Follow, frame: ConversationClientFrame): boolean => {
+  const send = (follow: Follow, frame: ConversationClientMessage): boolean => {
     if (!follow.socket?.isOpen()) return false
     follow.socket.send(frame as unknown as Record<string, unknown>)
     return true
@@ -559,7 +575,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
     // A snapshot, fence or event for another conversation is never applied
     // to this one's copy: its cursor would be a cursor into the wrong log.
     const named =
-      frame.type === 'snapshot' || frame.type === 'synchronized'
+      frame.type === 'snapshot' || frame.type === 'synchronized' || frame.type === 'queued'
         ? frame.key
         : frame.type === 'event'
           ? { workspaceId: frame.event.workspaceId, agentId: frame.event.agentId }
@@ -654,6 +670,12 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
         })
         for (const waiter of follow.waiters.splice(0)) waiter(true)
         for (const command of follow.commands.values()) if (!command.sent) dispatch(follow, command)
+        watchQueued(follow)
+        return
+      }
+      case 'queued': {
+        follow.queued = frame.messages
+        emit(follow, { type: 'queued', messages: frame.messages })
         return
       }
       case 'subscribeFailed': {
@@ -799,6 +821,19 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
     }
   }
 
+  /**
+   * Ask the machine to say what it holds for this conversation, after each
+   * fence: a new socket, or the same one joined again, starts with no watch.
+   * Asked of a machine that has not said what it serves as well, which answers
+   * a request it does not know with a refusal nobody waits on; never of one
+   * that said and left `conversation-queued-sends` out.
+   */
+  function watchQueued(follow: Follow): void {
+    const capabilities = options.capabilitiesOf?.(follow.key.connectionId)
+    if (capabilities && !conversationPeerSupports(capabilities, CONVERSATION_QUEUED_SENDS_CAPABILITY)) return
+    send(follow, { type: 'watchQueued', requestId: `queued-${++follow.requestSequence}` })
+  }
+
   function dispatch(follow: Follow, command: PendingCommand): void {
     if (!follow.synchronized) return
     command.sent = send(follow, command.frame)
@@ -915,6 +950,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
           requestSequence: 0,
           saveTimer: null,
           dirty: false,
+          queued: null,
         }
         created.loaded = options.cache.load(key).then(
           (record) => {
@@ -957,6 +993,9 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
         })
       }
       input.emit(linkFrame(joined))
+      // A second window on the conversation is told what the machine holds,
+      // as the first was.
+      if (joined.queued) input.emit({ type: 'queued', messages: joined.queued })
       return { ok: true }
     },
 
@@ -1019,11 +1058,12 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
       if (follow.finished) return { ok: false, code: follow.code ?? 'closed', message: follow.detail }
       const commandId = `desk-${randomBytes(12).toString('base64url')}`
       // The same validation the far end applies: a permanent rule is refused
-      // here with the far end's own words, without a trip.
+      // here with the far end's own words, without a trip. The full
+      // contract's, so a queued send keeps its `queue`.
       const candidate = { type: 'command', commandId, command }
-      const frame = parseConversationClientFrame(candidate)
+      const frame = parseConversationClientMessage(candidate)
       if (!frame || frame.type !== 'command') {
-        const rejection = explainRejectedConversationFrame(candidate)
+        const rejection = explainRejectedConversationMessage(candidate)
         return { ok: false, code: rejection.code, message: rejection.message }
       }
       if (follow.access === 'read')
@@ -1035,7 +1075,9 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
       return new Promise<MeshConversationCommandResult>((resolve) => {
         // A send is answered when its turn ends, which may be long after it
         // started, as it is on the desktop itself. Only the other commands,
-        // which are answered at once, are given up on.
+        // which are answered at once, are given up on. A queued send is
+        // answered once it is held, but waits out a dropped link like any
+        // send: given up on, it would be kept here as well as held there.
         const timer =
           frame.command.kind === 'send'
             ? null

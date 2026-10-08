@@ -1,4 +1,5 @@
 import {
+  CONVERSATION_MAX_MESSAGE_CHARS,
   isConversationWirePermissionPreset,
   parseConversationWireModels,
   type ConversationServerFrame,
@@ -7,7 +8,12 @@ import {
   type ConversationWirePhase,
   type ConversationWireThread,
 } from './index.js'
-import { isConversationPermissionModeId } from './commands.js'
+import {
+  CONVERSATION_MAX_QUEUED_MESSAGES,
+  isConversationPermissionModeId,
+  type ConversationQueuedFrame,
+  type ConversationQueuedMessage,
+} from './commands.js'
 
 // The client half of the frame contract: what a desktop or phone following a
 // conversation accepts from the desktop it follows. `parseConversationClientFrame`
@@ -185,6 +191,7 @@ export type ConversationParsedServerFrame =
       part?: { index: number; total: number }
       key?: ConversationWireKey
     }
+  | ConversationQueuedFrame
 
 const SERVER_FRAME_TYPES = new Set([
   'sessions',
@@ -196,6 +203,7 @@ const SERVER_FRAME_TYPES = new Set([
   'result',
   'commandResult',
   'error',
+  'queued',
 ])
 const PHASES = new Set<ConversationWirePhase>([
   'idle',
@@ -500,6 +508,29 @@ export function parseConversationServerFrame(value: unknown): ConversationParsed
       return code(frame.code) && text(frame.message)
         ? { type: 'error', code: frame.code, message: frame.message, ...retry(frame) }
         : null
+    case 'queued': {
+      const key = frame.key
+      if (!record(key) || !id(key.workspaceId) || !id(key.agentId) || !Array.isArray(frame.messages)) return null
+      const messages: ConversationQueuedMessage[] = []
+      for (const entry of frame.messages) {
+        if (messages.length >= CONVERSATION_MAX_QUEUED_MESSAGES) break
+        // One unreadable message does not hide the rest.
+        if (
+          !record(entry) ||
+          !id(entry.id) ||
+          !text(entry.text, CONVERSATION_MAX_MESSAGE_CHARS) ||
+          !clock(entry.createdAt)
+        )
+          continue
+        messages.push({
+          id: entry.id,
+          text: entry.text,
+          createdAt: entry.createdAt,
+          ...(typeof entry.failure === 'string' && entry.failure.length <= 2_000 ? { failure: entry.failure } : {}),
+        })
+      }
+      return { type: 'queued', key: { workspaceId: key.workspaceId, agentId: key.agentId }, messages }
+    }
     default:
       return null
   }

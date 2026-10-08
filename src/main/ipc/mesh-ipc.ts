@@ -171,9 +171,12 @@ export function registerMeshIpc(ipcMain: IpcMain, service: AutomationService): v
   // is the `send` command.
   ipcMain.handle(MESH_CONVERSATION_SEND_CHANNEL, (_event, input: unknown) => {
     const record = asRecord(input) ?? {}
-    return service
-      .mesh()
-      .conversationSend({ key: record.key, message: record.message, attachments: record.attachments })
+    return service.mesh().conversationSend({
+      key: record.key,
+      message: record.message,
+      attachments: record.attachments,
+      queue: record.queue,
+    })
   })
   ipcMain.handle(MESH_CONVERSATION_TOOL_DETAIL_CHANNEL, (_event, input: unknown) => {
     const record = asRecord(input) ?? {}

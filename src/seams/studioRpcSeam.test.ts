@@ -312,6 +312,8 @@ test('every method the server serves has its call in the SDK, under the same sco
     'conversation.setPermissionPreset': 'conversations.setPermissionPreset',
     'conversation.setModel': 'conversations.setModel',
     'conversation.stop': 'conversations.stop',
+    // Taking back a held message is Studio's own windows', called by name.
+    'conversation.cancelQueued': 'request',
     'conversation.loadEarlier': 'conversations.loadEarlier',
     'conversation.toolDetail': 'conversations.toolDetail',
     'conversation.turnDiff': 'conversations.turnDiff',
