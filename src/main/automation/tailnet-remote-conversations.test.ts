@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, vi } from 'vitest'
@@ -24,6 +25,7 @@ import {
 } from './tailnet/tailnet-remote-conversation-cache'
 import type { RemoteJsonSocket, RemoteJsonSocketHandlers } from './tailnet/tailnet-remote-client'
 import { pairingUrl } from './tailnet/tailnet-service'
+import { TAILNET_IDENTITY_PATH, TAILNET_PAIR_PATH, TAILNET_UPLOAD_PATH } from './tailnet/tailnet-routes'
 
 // Another Studio desktop following this machine's conversations over the
 // tailnet. Both halves are real: the gateway, its conversation socket, the
@@ -380,6 +382,131 @@ test("a paired desktop switches a chat's model within its CLI, and the host's se
     assert.deepEqual(h.provider.switched, ['mock-large', 'default'])
   } finally {
     await h.close()
+  }
+})
+
+test('a paired desktop attaches images to a message: each goes up the upload route and the send names them', async () => {
+  const h = await startHarness()
+  try {
+    const connectionId = await h.pair(['conversation:read', 'conversation:operate'])
+    const key = { connectionId, workspaceId, agentId }
+    const pane = follower(h.mesh, key)
+    assert.deepEqual(await pane.following, { ok: true })
+    await waitFor(pane.live, 'the follow goes live')
+    const turns = vi.spyOn(h.runtime, 'sendTurn')
+
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 4, 5, 6])
+    const sent = h.mesh.conversationSend({
+      key,
+      message: 'look at these',
+      attachments: [
+        { id: 'a-1', mediaType: 'image/png', dataBase64: png.toString('base64'), name: 'screen.png', byteLength: 11 },
+        // Pasted from the clipboard, so it has no name of its own.
+        { id: 'a-2', mediaType: 'image/jpeg', dataBase64: jpeg.toString('base64'), byteLength: 7 },
+      ],
+    })
+    await h.provider.turnStarted()
+    h.provider.push(null)
+    assert.deepEqual(await sent, { ok: true })
+    const turn = turns.mock.calls.at(-1)![0]
+    assert.equal(turn.message, 'look at these', 'the words arrive as they were written, with no paths in them')
+    assert.deepEqual(
+      turn.attachments?.map((attachment) => [
+        attachment.mediaType,
+        attachment.name,
+        Buffer.from(attachment.dataBase64, 'base64').equals(attachment.mediaType === 'image/png' ? png : jpeg),
+      ]),
+      [
+        ['image/png', 'screen.png', true],
+        ['image/jpeg', 'image-2.jpg', true],
+      ],
+      'the chat over there is handed the same bytes, in order, under a name each',
+    )
+
+    // A message without images is the send it always was.
+    h.provider.nextTurn()
+    const plain = h.mesh.conversationSend({ key, message: 'and this', attachments: [] })
+    await h.provider.turnStarted()
+    h.provider.push(null)
+    assert.deepEqual(await plain, { ok: true })
+    assert.equal(turns.mock.calls.at(-1)![0].attachments?.length ?? 0, 0)
+
+    // What the local boundary refuses is refused here, before anything goes up.
+    const turnsBefore = turns.mock.calls.length
+    const tooMany = await h.mesh.conversationSend({
+      key,
+      message: 'many',
+      attachments: Array.from({ length: 17 }, (_, index) => ({
+        id: `m-${index}`,
+        mediaType: 'image/png',
+        dataBase64: png.toString('base64'),
+        byteLength: png.length,
+      })),
+    })
+    assert.equal(tooMany.ok, false)
+    assert.equal(tooMany.ok ? '' : tooMany.code, 'invalid_arguments')
+    const notAnImage = await h.mesh.conversationSend({
+      key,
+      message: 'a document',
+      attachments: [{ id: 'p-1', mediaType: 'application/pdf', dataBase64: png.toString('base64'), byteLength: 11 }],
+    })
+    assert.equal(notAnImage.ok ? '' : notAnImage.code, 'invalid_arguments')
+
+    // A chat the machine does not list as taking images is told so in words.
+    const elsewhere = await h.mesh.conversationSend({
+      key: { ...key, agentId: 'not-listed' },
+      message: 'look',
+      attachments: [{ id: 'e-1', mediaType: 'image/png', dataBase64: png.toString('base64'), byteLength: 11 }],
+    })
+    assert.equal(elsewhere.ok ? '' : elsewhere.code, 'images_unsupported')
+    assert.equal(turns.mock.calls.length, turnsBefore, 'no refused message started a turn')
+  } finally {
+    await h.close()
+  }
+})
+
+test('a machine whose handshake leaves uploads out is not sent an image, and says so in words', async () => {
+  let uploads = 0
+  const device = {
+    deviceId: 'device-1',
+    deviceName: 'dev-macbook-air',
+    scopes: ['conversation:read', 'conversation:operate'],
+    transportVersion: 2,
+    capabilities: ['events', 'conversations'],
+  }
+  const peer = createServer((request, response) => {
+    const path = new URL(request.url ?? '/', 'http://peer.invalid').pathname
+    request.resume()
+    if (path === TAILNET_UPLOAD_PATH) uploads++
+    const known = path === TAILNET_PAIR_PATH || path === TAILNET_IDENTITY_PATH
+    response.writeHead(known ? 200 : 404, { 'Content-Type': 'application/json' })
+    response.end(JSON.stringify(path === TAILNET_PAIR_PATH ? { ...device, deviceToken: 'device-token' } : device))
+  })
+  await new Promise<void>((resolve) => peer.listen(0, '127.0.0.1', resolve))
+  const dir = mkdtempSync(join(tmpdir(), 'remote-conversation-older-'))
+  const mesh = createTailnetMeshService({
+    resolveUserDataDir: () => dir,
+    resolveDeviceName: () => 'dev-macbook-air',
+    resolvePeerName: async () => null,
+  })
+  try {
+    const port = (peer.address() as { port: number }).port
+    const paired = await mesh.pair({ pairingUrl: pairingUrl('127.0.0.1', port, 'pairing-token') })
+    assert.ok(paired.ok, paired.ok ? '' : paired.message)
+    await mesh.checkReachability(paired.connection.id)
+    const answer = await mesh.conversationSend({
+      key: { connectionId: paired.connection.id, workspaceId, agentId },
+      message: 'look',
+      attachments: [{ id: 'a-1', mediaType: 'image/png', dataBase64: 'iVBORw==', byteLength: 4 }],
+    })
+    assert.equal(answer.ok ? '' : answer.code, 'images_unsupported')
+    assert.match(answer.ok ? '' : answer.message, /Update Studio there/)
+    assert.equal(uploads, 0)
+  } finally {
+    mesh.shutdown()
+    await new Promise<void>((resolve) => peer.close(() => resolve()))
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 

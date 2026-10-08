@@ -18,6 +18,7 @@ import {
   TAILNET_CONVERSATION_PATH,
   TAILNET_CONVERSATION_IMAGE_PATH,
   TAILNET_EVENTS_PATH,
+  TAILNET_UPLOAD_PATH,
   TAILNET_WS_TICKET_PATH,
 } from './tailnet-routes'
 import {
@@ -54,6 +55,8 @@ import { asRecord } from '../../../shared/records'
 
 /** A wrong port that accepts TCP and then says nothing must not hang the UI behind it. */
 const REQUEST_TIMEOUT_MS = 10_000
+/** One image going up to the upload route; see `uploadRemoteConversationImage`. */
+const UPLOAD_TIMEOUT_MS = 60_000
 /** The upgrade handshake only. A change feed is idle most of its life and is never timed out. */
 const HANDSHAKE_TIMEOUT_MS = 10_000
 /** Enough for any control response; a body larger than this is not our listener answering. */
@@ -117,9 +120,19 @@ export function requestTailnetJson(input: {
   path: string
   token?: string
   body?: unknown
+  /**
+   * A body sent as it is, under its own type, in place of a JSON `body`: an
+   * image going up to the upload route. The answer is JSON either way.
+   */
+  bytes?: { data: Buffer; contentType: string }
   timeoutMs?: number
 }): Promise<JsonAnswer> {
-  const payload = input.body === undefined ? undefined : Buffer.from(JSON.stringify(input.body), 'utf8')
+  const payload = input.bytes
+    ? input.bytes.data
+    : input.body === undefined
+      ? undefined
+      : Buffer.from(JSON.stringify(input.body), 'utf8')
+  const contentType = input.bytes ? input.bytes.contentType : 'application/json'
   const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS
   return new Promise((resolve, reject) => {
     const call = httpRequest(
@@ -133,7 +146,7 @@ export function requestTailnetJson(input: {
           Connection: 'close',
           // No Origin, ever: the listener refuses any request carrying one, and
           // rightly — see the transport notes in the knowledge graph.
-          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': payload.length } : {}),
+          ...(payload ? { 'Content-Type': contentType, 'Content-Length': payload.length } : {}),
           ...(input.token ? { Authorization: `Bearer ${input.token}` } : {}),
         },
       },
@@ -607,6 +620,52 @@ export function fetchRemoteConversationImage(input: {
     })
     call.end()
   })
+}
+
+/**
+ * An image a person attached to a message on a chat that runs on another
+ * machine, put in that machine's upload store (`upload`) for the send that
+ * follows to name by the id it answers. The route is the one the phone attaches
+ * pictures through, under the same pairing token: the far end keeps an upload
+ * for the device that sent it and the chat session it named, and a send from
+ * any other device, or for any other chat, cannot spend it.
+ *
+ * Given longer than a control request: five megabytes over a relayed tailnet
+ * path can take well over the ten seconds an answer to a read is allowed.
+ */
+export async function uploadRemoteConversationImage(input: {
+  endpoint: TailnetEndpoint
+  token: string
+  sessionId: string
+  name: string
+  mediaType: string
+  bytes: Buffer
+  timeoutMs?: number
+}): Promise<RemoteCallOutcome<{ uploadId: string }>> {
+  const query = new URLSearchParams({ sessionId: input.sessionId, name: input.name })
+  let answer: JsonAnswer
+  try {
+    answer = await requestTailnetJson({
+      endpoint: input.endpoint,
+      method: 'POST',
+      path: `${TAILNET_UPLOAD_PATH}?${query.toString()}`,
+      token: input.token,
+      bytes: { data: input.bytes, contentType: input.mediaType },
+      timeoutMs: input.timeoutMs ?? UPLOAD_TIMEOUT_MS,
+    })
+  } catch (error) {
+    return { ok: false, code: 'unreachable', message: describeUnreachable(input.endpoint, error) }
+  }
+  if (answer.status === 401) return { ok: false, code: 'unauthorized', message: UNAUTHORIZED_MESSAGE }
+  const record = asRecord(answer.body)
+  if (answer.status === 200 && typeof record?.uploadId === 'string' && record.uploadId)
+    return { ok: true, value: { uploadId: record.uploadId } }
+  const error = asRecord(record?.error)
+  return {
+    ok: false,
+    code: typeof error?.code === 'string' ? error.code : `http_${answer.status}`,
+    message: typeof error?.message === 'string' ? error.message : `That machine answered HTTP ${answer.status}.`,
+  }
 }
 
 export type RemoteJsonSocket = {

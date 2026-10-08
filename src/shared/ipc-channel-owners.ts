@@ -107,6 +107,7 @@ export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   'mesh:conversation-earlier': {},
   'mesh:conversation-follow': {},
   'mesh:conversation-list': { retry: 'once' },
+  'mesh:conversation-send': {},
   'mesh:conversation-tool-detail': {},
   'mesh:conversation-tool-image': {},
   'mesh:conversation-turn-diff': {},

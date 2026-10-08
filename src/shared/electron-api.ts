@@ -202,6 +202,7 @@ import type {
   ConversationToolDetailResult,
   ConversationAttachmentInput,
   ConversationAttachmentResult,
+  ConversationImageAttachment,
   ConversationPlanDocumentInput,
   ConversationPlanDocumentResult,
   ConversationSubscribeInput,
@@ -977,7 +978,17 @@ export type ElectronApi = {
     beforeCursor: number
     turnLimit?: number
   }) => Promise<ConversationPageResult>
-  meshConversationSend: (input: { key: MeshConversationKey; message: string }) => Promise<MeshConversationCommandResult>
+  /**
+   * A message to a chat on a paired machine. `attachments` are the images a
+   * chat here sends with a turn; main puts each in that machine's upload store
+   * and the send names them. A chat that does not take images refuses the
+   * message in words rather than sending the words alone.
+   */
+  meshConversationSend: (input: {
+    key: MeshConversationKey
+    message: string
+    attachments?: ConversationImageAttachment[]
+  }) => Promise<MeshConversationCommandResult>
   meshConversationInterrupt: (input: { key: MeshConversationKey }) => Promise<MeshConversationCommandResult>
   meshConversationResolveApproval: (input: {
     key: MeshConversationKey
