@@ -88,7 +88,7 @@ import { SpawnPermissionFooter } from './spawnFooter'
 import { EnginePickerChip } from './enginePicker'
 import { ProjectScopePicker } from './ProjectScopePicker'
 import { remoteProjectOfWorkspace, remoteProjectsOf, type RemoteProject } from './remoteProjects'
-import { type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
+import { focusProjectSearch, type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
 import { mergeDraftConnectors, readNewChatDraft, writeNewChatDraft, type NewChatDraftImage } from './newChatDraft'
 import {
   bootComposerRect,
@@ -2879,6 +2879,7 @@ function RemoteProjectPicker({
       popupRole="menu"
       placement="bottom-start"
       surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
+      onOpenAutoFocus={focusProjectSearch}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         // The same stable hook the local chip carries: the two never render
         // together, so a pass looking for "the project control on the scope

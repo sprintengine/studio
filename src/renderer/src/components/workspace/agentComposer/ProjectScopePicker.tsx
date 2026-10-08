@@ -15,6 +15,7 @@ import {
 } from '../useFolderRepositoryIdentities'
 import { resolveDefaultParentPath } from '../newWorkspace/folderCreation'
 import {
+  focusProjectSearch,
   ProjectSourceMenu,
   type ProjectCloneRequest,
   type ProjectCloneResult,
@@ -231,6 +232,7 @@ export function ProjectScopePicker({
       ariaLabel={ariaLabel}
       popupRole="menu"
       placement="bottom-start"
+      onOpenAutoFocus={focusProjectSearch}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         // Exactly the machine trigger's box, because it is now literally the
         // same component: the scope line is one row of sibling chips, and the
