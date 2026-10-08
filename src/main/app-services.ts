@@ -1392,14 +1392,21 @@ export function createAppServices(
   // worktree cleanup hands back the slots nothing uses. It does nothing on its
   // own: reading its records is all that happens here, and a pool recovers
   // from an interrupted run the first time it is used.
+  // Where live work sits, for the pool and the agent worktree cleanup alike:
+  // every live terminal, the checkout it observes, and the folder of every chat
+  // whose provider session is working now. One list, so neither recycles a
+  // folder the other would have kept.
+  const liveWorkPaths = async (): Promise<string[]> => [
+    ...listLiveTerminalSessions().flatMap((session) =>
+      [session.cwd, session.observedCheckout?.cwd, session.observedCheckout?.gitRoot].filter(
+        (path): path is string => typeof path === 'string' && path.length > 0,
+      ),
+    ),
+    ...(await conversations.liveConversationWorkspaceRoots().catch(() => [])),
+  ]
   const worktreePool = createWorktreePoolService({
     store: createPoolStore(app.getPath('userData')),
-    livePaths: () =>
-      listLiveTerminalSessions().flatMap((session) =>
-        [session.cwd, session.observedCheckout?.cwd].filter(
-          (path): path is string => typeof path === 'string' && path.length > 0,
-        ),
-      ),
+    livePaths: liveWorkPaths,
     onChange: broadcastWorktreePoolChanged,
     seedIncludedFiles: seedWorktreeIncludedFiles,
     // Settled chats included: a slot holding a chat's history is never removed.
@@ -2083,6 +2090,7 @@ export function createAppServices(
     canvasService,
     canvasSubscribers,
     worktreePool,
+    liveWorkPaths,
     dependencyInstaller,
     automationService,
     studioRpcService,

@@ -19,6 +19,7 @@ import {
   ignoredPathsAtRisk,
   insideAny,
   isChatTranscriptPath,
+  pathInside,
   pathSpellings,
 } from '../agent-worktree-keep-checks'
 import type { GitWorktreeEntry } from '../git'
@@ -167,8 +168,12 @@ const SLOT_NAME = /^pool-(\d{2,})$/u
 export type WorktreePoolServiceDeps = {
   store: PoolStore
   git?: SlotGitRunner
-  /** Working directories of live terminal sessions: a slot one sits in is never recycled. */
-  livePaths?: () => string[]
+  /**
+   * Where live work sits — terminals and the checkouts they observe, and the
+   * folders chats are working in (`liveWorkPaths`): a slot one is in is never
+   * recycled.
+   */
+  livePaths?: () => string[] | Promise<string[]>
   onChange?: (snapshot: WorktreePoolSnapshot) => void
   log?: (line: string) => void
   now?: () => number
@@ -297,12 +302,6 @@ type PoolRuntime = {
 
 type ResolvedRepo = { repoRoot: string; commonDir: string }
 
-function isInside(child: string, parent: string): boolean {
-  const a = comparablePath(child)
-  const b = comparablePath(parent)
-  return a === b || a.startsWith(`${b}/`)
-}
-
 function tail(text: string | null | undefined, max = 600): string | null {
   const value = (text ?? '').trim()
   if (!value) return null
@@ -366,8 +365,17 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     return pool.record.slots.find((slot) => slot.id === slotId)
   }
 
-  function somethingRunsIn(path: string): boolean {
-    return (deps.livePaths?.() ?? []).some((live) => live && isInside(live, path))
+  /**
+   * Whether a live terminal or chat works inside `path`. Compared under every
+   * spelling (agent-worktree-keep-checks.ts): a terminal opened through a
+   * symlink to the container is still in the slot.
+   */
+  async function somethingRunsIn(path: string): Promise<boolean> {
+    const live = ((await deps.livePaths?.()) ?? []).filter(Boolean)
+    if (live.length === 0) return false
+    const slotSpellings = await pathSpellings(path)
+    for (const each of live) if (insideAny(await pathSpellings(each), slotSpellings)) return true
+    return false
   }
 
   async function getSettings(): Promise<WorktreePoolSettings> {
@@ -677,7 +685,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     // leaves it for exactly this): the `index.lock` in the slot is that dead
     // run's own, whatever its age.
     const resumingOwnReset = slot.op?.kind === 'reset'
-    const lockVerdict = await clearStaleIndexLock(gitDir, !somethingRunsIn(slot.path), now(), resumingOwnReset)
+    const lockVerdict = await clearStaleIndexLock(gitDir, !(await somethingRunsIn(slot.path)), now(), resumingOwnReset)
     if (lockVerdict === 'busy') {
       await hold(pool, slot, 'error', 'git is busy in this worktree (index.lock)')
       return false
@@ -936,7 +944,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       }
       try {
         if (!created) {
-          if (somethingRunsIn(slot.path)) {
+          if (await somethingRunsIn(slot.path)) {
             // Someone opened a terminal in an idle slot; it is not reset under them.
             passedOver.add(slot.id)
             await withPool(pool, async () => {
@@ -1270,7 +1278,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     if (!began) return 'skipped'
     const branch = began.lease?.branch ?? began.held?.branch ?? null
     try {
-      if (somethingRunsIn(slot.path)) {
+      if (await somethingRunsIn(slot.path)) {
         // The agent's terminal (or anyone's) is still in there: put it back as
         // it was, and the next sweep asks again.
         await withPool(pool, async () => {
@@ -1395,7 +1403,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     if (!pool || !(await ready(pool))) return []
     await forgetSlotsGoneFromDisk(pool)
     const protectedSpellings = await Promise.all(
-      [...input.protectedPaths, ...(deps.livePaths?.() ?? [])].filter(Boolean).map((path) => pathSpellings(path)),
+      [...input.protectedPaths, ...((await deps.livePaths?.()) ?? [])].filter(Boolean).map((path) => pathSpellings(path)),
     )
     const entries: WorktreePoolSweepEntry[] = []
     for (const slot of [...pool.record.slots]) {
@@ -1469,7 +1477,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     })
     if (!began) return 'Only a worktree that is ready to reuse can be removed.'
     try {
-      if (somethingRunsIn(slot.path)) {
+      if (await somethingRunsIn(slot.path)) {
         await putBack()
         return 'A terminal is open in it. Close it first.'
       }
@@ -1661,7 +1669,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
    * on its commit; the next agent in it installs from nothing.
    */
   async function clearIgnored(pool: PoolRuntime, slot: SlotRecord): Promise<WorktreePoolActionResult> {
-    if (somethingRunsIn(slot.path)) {
+    if (await somethingRunsIn(slot.path)) {
       return { ok: false, message: 'A terminal is open in that worktree. Close it first.' }
     }
     const began = await withPool(pool, async () => {
@@ -1759,7 +1767,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       if (!entry || !onDisk) {
         // Gone from git or from disk. A half-made slot of our own is cleared
         // away; anything else was removed by someone, and is forgotten.
-        if (slot.op?.kind === 'create' && onDisk && !entry && isInside(slot.path, pool.containerPath)) {
+        if (slot.op?.kind === 'create' && onDisk && !entry && pathInside(slot.path, pool.containerPath)) {
           await rm(slot.path, { recursive: true, force: true }).catch(() => {})
         }
         if (entry && !onDisk) goneFromDisk.push(slot.path)
@@ -1900,7 +1908,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     message: string | undefined,
   ): Promise<WorktreePoolActionResult> {
     if (slot.state !== 'held') return { ok: false, message: 'That worktree is not held.' }
-    if (somethingRunsIn(slot.path)) {
+    if (await somethingRunsIn(slot.path)) {
       return { ok: false, message: 'A terminal is still open in that worktree. Close it first.' }
     }
     const began = await withPool(pool, async () => {

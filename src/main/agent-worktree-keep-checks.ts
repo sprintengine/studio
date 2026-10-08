@@ -59,6 +59,14 @@ export async function pathSpellings(path: string): Promise<string[]> {
   return [...spellings]
 }
 
+/**
+ * `child` is `parent` or inside it, as spelled: for two paths that come from
+ * the same source (both git's), where resolving symlinks would buy nothing.
+ */
+export function pathInside(child: string, parent: string): boolean {
+  return insideAny([comparable(child)], [comparable(parent)])
+}
+
 /** True when any spelling of `child` is `parent` or inside it. */
 export function insideAny(childSpellings: readonly string[], parentSpellings: readonly string[]): boolean {
   return childSpellings.some((child) =>

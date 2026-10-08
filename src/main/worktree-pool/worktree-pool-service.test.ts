@@ -365,6 +365,20 @@ test('a lease passes over an idle slot a terminal sits in and makes a new one', 
   assert.equal((await slotAt(harness, 'pool-01')).state, 'idle', 'left as it was')
 })
 
+test('a chat or terminal reached through a symlink still keeps its idle slot from being reset', async () => {
+  const live: string[] = []
+  const harness = makeService({ live })
+  const first = await lease(harness, 'first')
+  await returnAll(harness)
+  // The container opened through a link, as a chat that recorded `~/code/…` would.
+  const link = join(caseDir, 'linked-worktrees')
+  await symlink(container, link)
+  live.push(join(link, basename(first.path), 'src'))
+  const second = await lease(harness, 'second')
+  assert.notEqual(second.path, first.path)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle', 'left as it was')
+})
+
 test('a detached HEAD holding commits no ref reaches gets a branch before the slot is reused', async () => {
   const harness = makeService()
   const leased = await lease(harness, 'detach')
