@@ -50,8 +50,7 @@
 - **The tool presentation is public.** `presentToolItem`, `toolActionVerb`
   and `summarizeToolGroup` (with `PresentableTool` and `ToolPresentation`)
   are exported from the entry, for views that word a tool step as Studio
-  does. A group of more than three kinds of step names the three largest
-  and counts the rest ("… and 2 more"). The pinned files are unchanged.
+  does. The pinned files are unchanged.
 
 ## 0.2.0
 
