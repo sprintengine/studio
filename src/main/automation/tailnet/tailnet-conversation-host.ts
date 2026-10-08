@@ -772,18 +772,35 @@ export function createConversationGatewayHost(
             }
             // A message from a paired device is the person speaking, as one
             // typed here is: the chat moves up the desktop's own list, and every
-            // list ordered by that clock, at once. Stamped as it goes out, not
-            // when the send is answered, which is when its turn ends.
-            registry.noteUserMessage?.(key.workspaceId, Date.now())
-            const sent = await api.send({
-              sessionId: session.sessionId,
-              commandId,
-              message: command.message,
-              attachments,
-              ...turnEffort,
-              ...stamp,
-              ...(registry.sendOrigin ? { origin: registry.sendOrigin } : {}),
-            })
+            // list ordered by that clock, at once. Stamped when the chat takes
+            // it, which its `user_message` says, not when the send is answered,
+            // which is when its turn ends; and never for a send turned away (a
+            // phone sends again every second while a turn runs, and a message
+            // it gave up on would still wake a settled chat).
+            const noteUserMessage = registry.noteUserMessage
+            const sessionId = session.sessionId
+            const stopWatching: (() => unknown) | null = noteUserMessage
+              ? runtime.onEvent((event) => {
+                  if (event.type !== 'user_message' || event.sessionId !== sessionId) return
+                  if (event.payload?.commandId !== commandId) return
+                  stopWatching?.()
+                  noteUserMessage(key.workspaceId, event.createdAt > 0 ? event.createdAt : Date.now())
+                })
+              : null
+            let sent: ConversationSessionActionResult
+            try {
+              sent = await api.send({
+                sessionId,
+                commandId,
+                message: command.message,
+                attachments,
+                ...turnEffort,
+                ...stamp,
+                ...(registry.sendOrigin ? { origin: registry.sendOrigin } : {}),
+              })
+            } finally {
+              stopWatching?.()
+            }
             // Accepted: the images are in the turn now, so their staged files
             // are removed rather than left for the hour-long expiry. A refused
             // send keeps them for a retry.
