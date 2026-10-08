@@ -624,7 +624,9 @@ in the app's own process.
 - **What the view offers is what the grant and the lane allow.** A pairing
   without `conversation:operate` sees the conversation with the composer,
   approvals and stop closed. A remote view never offers a permanent approval
-  rule, a checkpoint revert, or this machine's skills, files and images. It
+  rule, a checkpoint revert, or this machine's skills and files. Images it
+  does offer, where the machine lists the chat as taking them: main puts each
+  in that machine's upload store, as the phone does, and the send names them. It
   offers the same two-preset switcher a local chat does, reading the preset the
   machine's list names; a desktop built before the list carried the preset
   leaves the switcher hidden rather than guessing. Its engine chip is the same
