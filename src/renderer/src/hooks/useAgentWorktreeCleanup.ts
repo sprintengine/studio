@@ -1,11 +1,11 @@
 import { useEffect } from 'react'
 
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { isSettledWorkspace } from '../utils/workspaceSettle'
 import {
   agentWorktreeCleanupPlan,
   chatsReclaimedBy,
   entriesRemovedBy,
-  offersItsWorktree,
   openWorkspaceIds,
 } from '../utils/agentWorktreeCleanup'
 
@@ -53,10 +53,10 @@ function agentCount(): number {
   return count
 }
 
-/** The settled chats that live in a worktree of their own: the ones a settle offers to the sweep. */
-function settledWorktreeChatCount(): number {
+/** The settled chats: each settle releases whatever worktree the chat held (it counts as deleted). */
+function settledChatCount(): number {
   let count = 0
-  for (const workspace of useWorkspaceStore.getState().workspaces) if (offersItsWorktree(workspace)) count += 1
+  for (const workspace of useWorkspaceStore.getState().workspaces) if (isSettledWorkspace(workspace)) count += 1
   return count
 }
 
@@ -108,12 +108,12 @@ export function scheduleAgentWorktreeSweeps(sweep: () => void = () => void sweep
   const first = window.setTimeout(sweep, FIRST_SWEEP_DELAY_MS)
   const periodic = window.setInterval(sweep, SWEEP_INTERVAL_MS)
   let lastCount = agentCount()
-  let lastSettled = settledWorktreeChatCount()
+  let lastSettled = settledChatCount()
   const unsubscribe = useWorkspaceStore.subscribe(() => {
     const count = agentCount()
     const removed = count < lastCount
     lastCount = count
-    const settledCount = settledWorktreeChatCount()
+    const settledCount = settledChatCount()
     const settled = settledCount > lastSettled
     lastSettled = settledCount
     if (settled) {

@@ -18,6 +18,7 @@ import {
   insideAny,
   isChatTranscriptPath,
   pathSpellings,
+  worktreeLastUsedAt,
 } from '../agent-worktree-keep-checks'
 import { listGitWorktrees } from '../git-worktree-list'
 import { pathExists } from '../git-utils'
@@ -46,7 +47,7 @@ import type { WorktreePoolService } from './worktree-pool-service'
  */
 
 const MAX_CHANGES_LISTED = 12
-const CONCURRENCY = 4
+const CONCURRENCY = 8
 
 export type WorktreeInventoryDeps = {
   pool: Pick<WorktreePoolService, 'load' | 'measure' | 'snapshots' | 'ownsPath'> | null
@@ -87,6 +88,13 @@ export function createWorktreeInventory(deps: WorktreeInventoryDeps) {
   /** Sizes of worktrees the pool does not own, as last measured; the pool keeps its own slots'. */
   const sizes = new Map<string, WorktreeDiskUsage>()
   let measuredAt: number | null = null
+  /**
+   * Where each worktree stands against the default branch, by its HEAD and the
+   * default branch's commit: both unchanged, the answer is too. Counting and
+   * the squash-merge test are most of what a read costs, and most worktrees
+   * have not moved since the page last asked.
+   */
+  const standing = new Map<string, Pick<WorktreeInventoryEntry, 'uniqueCommits' | 'behindCommits' | 'merged'>>()
 
   /** The main checkout of the repository a folder is in, or null when it has none here. */
   async function mainCheckout(folder: string): Promise<string | null> {
@@ -103,8 +111,10 @@ export function createWorktreeInventory(deps: WorktreeInventoryDeps) {
   async function describe(
     entry: GitWorktreeEntry,
     defaultRef: string | null,
+    defaultSha: string | null,
     slotId: string | null,
     slotSize: WorktreeDiskUsage | null,
+    slotUsedAt: number | null,
   ): Promise<WorktreeInventoryEntry> {
     const missing = entry.prunable || !(await pathExists(entry.path))
     const described: WorktreeInventoryEntry = {
@@ -121,14 +131,20 @@ export function createWorktreeInventory(deps: WorktreeInventoryDeps) {
       changedPaths: null,
       changes: [],
       size: slotId ? slotSize : (sizes.get(comparablePath(entry.path)) ?? null),
+      lastUsedAt: slotUsedAt,
     }
     if (missing) return described
+    const usedAt = await worktreeLastUsedAt(entry.path, git)
+    if (usedAt !== null) described.lastUsedAt = Math.max(usedAt, slotUsedAt ?? 0)
     const status = await git(entry.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
     if (status.ok) {
       const changes = parsePorcelainZ(status.stdout)
       described.changedPaths = changes.length
       described.changes = changes.slice(0, MAX_CHANGES_LISTED)
     }
+    const standingKey = defaultSha && entry.head ? `${comparablePath(entry.path)}\0${entry.head}\0${defaultSha}` : null
+    const known = standingKey ? standing.get(standingKey) : undefined
+    if (known) return { ...described, ...known }
     if (defaultRef && entry.head) {
       const ahead = await git(entry.path, ['rev-list', '--count', `${defaultRef}..${entry.head}`])
       const behind = await git(entry.path, ['rev-list', '--count', `${entry.head}..${defaultRef}`])
@@ -139,6 +155,10 @@ export function createWorktreeInventory(deps: WorktreeInventoryDeps) {
       if (described.uniqueCommits !== null) {
         described.merged =
           described.uniqueCommits === 0 || (await changesAlreadyIn(entry.path, defaultRef, entry.head, git))
+      }
+      if (standingKey && described.uniqueCommits !== null && described.behindCommits !== null) {
+        const { uniqueCommits, behindCommits, merged } = described
+        standing.set(standingKey, { uniqueCommits, behindCommits, merged })
       }
     }
     return described
@@ -167,10 +187,14 @@ export function createWorktreeInventory(deps: WorktreeInventoryDeps) {
           return { repoRoot, defaultRef: null, pool, worktrees: [], error: 'git could not list its worktrees.' }
         }
         const defaultRef = await resolvePoolBaseRef(git, repoRoot)
+        const resolved = defaultRef
+          ? await git(repoRoot, ['rev-parse', '--verify', '--quiet', `${defaultRef}^{commit}`])
+          : null
+        const defaultSha = resolved?.ok ? resolved.stdout.trim() || null : null
         const others = listed.filter((entry) => !entry.bare && comparablePath(entry.path) !== comparablePath(repoRoot))
         const worktrees = await mapWithLimit(others, CONCURRENCY, (entry) => {
           const slot = pool?.slots.find((candidate) => comparablePath(candidate.path) === comparablePath(entry.path))
-          return describe(entry, defaultRef, slot?.id ?? null, slot?.size ?? null)
+          return describe(entry, defaultRef, defaultSha, slot?.id ?? null, slot?.size ?? null, slot?.lastUsedAt ?? null)
         })
         return { repoRoot, defaultRef, pool, worktrees, error: null }
       },
@@ -241,7 +265,7 @@ export function createWorktreeInventory(deps: WorktreeInventoryDeps) {
       if (files.length === 0) {
         return {
           ok: false,
-          message: 'It holds the history of a chat still on record. Delete the chat to let it go.',
+          message: 'It holds the history of a chat that is not settled. Settle or delete the chat to let it go.',
         }
       }
       const more = files.length > 3 ? ` and ${files.length - 3} more` : ''

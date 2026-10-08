@@ -243,6 +243,12 @@ export type WorktreeInventoryEntry = {
   /** The first few of those, as `git status --short` codes and paths. */
   changes: Array<{ code: string; path: string }>
   size: WorktreeDiskUsage | null
+  /**
+   * When it was last used, in ms since the epoch: its index or HEAD moved
+   * (a stage, commit or checkout in it), or, for a pool slot, its last lease.
+   * Null when unknown.
+   */
+  lastUsedAt: number | null
 }
 
 export type WorktreeInventoryProject = {

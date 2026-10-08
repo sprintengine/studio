@@ -1,16 +1,7 @@
 import React from 'react'
 
 import type { GitHubRepoSummary } from '../../../../../shared/electron-api'
-import {
-  Input,
-  LinkButton,
-  MenuItem,
-  MENU_DIVIDER_CLASS,
-  MENU_GROUP_LABEL_CLASS,
-  MENU_LIST_CLASS,
-  MenuOption,
-  PrimaryButton,
-} from '../../ui'
+import { Input, LinkButton, MenuItem, MENU_DIVIDER_CLASS, MENU_LIST_CLASS, MenuOption, PrimaryButton } from '../../ui'
 import { FolderTypeIcon } from '../../AppIcons'
 import type { ProjectColor } from '../../../utils/projectColor'
 import { GitHubRepoPicker, toRepoListState, type GitHubRepoListState } from '../newWorkspace/GitHubRepoPicker'
@@ -25,7 +16,12 @@ import { basename } from '../../../utils/paths'
 // wants everything created, stepped in place rather than stacking a second
 // dialog on the first.
 
-export type ProjectSourceOption = { path: string; label: string }
+export type ProjectSourceOption = {
+  path: string
+  label: string
+  /** When a chat in it was last written to; the host orders by it. */
+  lastUsedAt?: number
+}
 
 export type ProjectCloneRequest = { url: string; parentDir: string; folderName: string }
 export type ProjectCloneResult = { ok: true; path: string } | { ok: false; message: string }
@@ -49,7 +45,6 @@ export function focusProjectSearch(surface: HTMLElement): void {
 
 export function ProjectSourceMenu({
   options,
-  recentOptions = [],
   selectedPath,
   defaultParent,
   onSelect,
@@ -58,9 +53,12 @@ export function ProjectSourceMenu({
   onClone,
   onClose,
 }: {
+  /**
+   * Every project offered, open here or only known, in the order to list
+   * them: one list, the one used last first (owner, 2026-10-08), never a
+   * second "Recent" section below the first.
+   */
   options: ProjectSourceOption[]
-  /** Projects the app knows but this window has not open: searched too. */
-  recentOptions?: ProjectSourceOption[]
   selectedPath: string | null
   /** Where a cloned repository lands: the smart parent, or null on a cold start with nothing to go on. */
   defaultParent: string | null
@@ -215,7 +213,6 @@ export function ProjectSourceMenu({
   const matches = (option: ProjectSourceOption) =>
     !needle || option.label.toLowerCase().includes(needle) || option.path.toLowerCase().includes(needle)
   const visible = options.filter(matches)
-  const visibleRecent = recentOptions.filter(matches)
 
   const projectRow = (option: ProjectSourceOption) => (
     <MenuOption
@@ -328,15 +325,7 @@ export function ProjectSourceMenu({
       ) : null}
       <div className={MENU_DIVIDER_CLASS} role="separator" />
       {visible.map(projectRow)}
-      {visibleRecent.length > 0 ? (
-        // Known but not open here: the hub's recent folders, under the spec's
-        // group label (never bolder than its rows).
-        <div role="group" aria-label="Recent">
-          <div className={`${MENU_GROUP_LABEL_CLASS} pb-0.5 pt-1.5`}>Recent</div>
-          {visibleRecent.map(projectRow)}
-        </div>
-      ) : null}
-      {visible.length === 0 && visibleRecent.length === 0 ? (
+      {visible.length === 0 ? (
         // "No matching" answers a search; before anything is typed there is
         // nothing it could fail to match.
         <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">

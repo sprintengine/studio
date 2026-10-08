@@ -70,6 +70,8 @@ export type WorktreeRow = {
   /** Who or what uses it, in one line. */
   usedBy: string
   bytes: number | null
+  /** When it was last used (a stage, commit or checkout in it, or a slot's last lease); null when unknown. */
+  lastUsedAt: number | null
   /** What a person may do to it from this page: remove it (pool or git), prune it, or nothing. */
   removal: 'evict' | 'remove' | 'prune' | null
   /** Why it may not be removed, when it may not. */
@@ -264,6 +266,7 @@ function slotRow(
     chat,
     usedBy,
     bytes: slot.size?.bytes ?? entry?.size?.bytes ?? null,
+    lastUsedAt: entry?.lastUsedAt ?? slot.lastUsedAt,
     removal,
     keptBecause: foreign
       ? 'Another SprintEngine Studio manages this pool.'
@@ -299,6 +302,7 @@ function otherRow(
       chat,
       usedBy: chat ? chat.title : 'No chat',
       bytes: null,
+      lastUsedAt: null,
       removal: 'prune',
       keptBecause: null,
     }
@@ -326,6 +330,7 @@ function otherRow(
     chat,
     usedBy: chat ? (chat.settled ? `Settled chat “${chat.title}”` : chat.title) : 'No chat',
     bytes: entry.size?.bytes ?? null,
+    lastUsedAt: entry.lastUsedAt,
     removal: keptBecause ? null : 'remove',
     keptBecause,
   }
@@ -339,49 +344,65 @@ export function buildWorktreeProjects(
   now: number,
 ): WorktreeProjectView[] {
   const chats = indexChats(workspaces)
-  return inventory.projects
-    .map((project) => {
-      const pool = project.pool
-      const foreign = pool?.heldByOtherInstance === true
-      const entries = new Map(project.worktrees.map((entry) => [comparablePath(entry.path), entry]))
-      const poolRows = (pool?.slots ?? [])
-        .map((slot) =>
-          slotRow(
-            project.repoRoot,
-            slot,
-            entries.get(comparablePath(slot.path)) ?? null,
-            project.defaultRef,
-            chats,
-            now,
-            foreign,
-          ),
-        )
-        .sort(
-          (a, b) =>
-            STATE_ORDER[a.state] - STATE_ORDER[b.state] ||
-            (b.slot?.lastUsedAt ?? 0) - (a.slot?.lastUsedAt ?? 0) ||
-            a.name.localeCompare(b.name),
-        )
-      const slotPaths = new Set(poolRows.map((row) => comparablePath(row.path)))
-      const otherRows = project.worktrees
-        .filter((entry) => !entry.slotId && !slotPaths.has(comparablePath(entry.path)))
-        .map((entry) => otherRow(project.repoRoot, entry, project.defaultRef, chats))
-        .sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.name.localeCompare(b.name))
-      const bytes = [...poolRows, ...otherRows].reduce((sum, row) => sum + (row.bytes ?? 0), 0)
-      return {
-        repoRoot: project.repoRoot,
-        name: baseName(project.repoRoot),
-        defaultRef: project.defaultRef,
-        lastFetchAt: pool?.lastFetchAt ?? null,
-        heldByOtherInstance: foreign,
-        containerPath: pool?.containerPath ?? null,
-        poolRows,
-        otherRows,
-        bytes,
-        error: project.error,
-      }
-    })
-    .sort((a, b) => a.name.localeCompare(b.name))
+  return (
+    inventory.projects
+      .map((project) => {
+        const pool = project.pool
+        const foreign = pool?.heldByOtherInstance === true
+        const entries = new Map(project.worktrees.map((entry) => [comparablePath(entry.path), entry]))
+        const poolRows = (pool?.slots ?? [])
+          .map((slot) =>
+            slotRow(
+              project.repoRoot,
+              slot,
+              entries.get(comparablePath(slot.path)) ?? null,
+              project.defaultRef,
+              chats,
+              now,
+              foreign,
+            ),
+          )
+          .sort(
+            (a, b) =>
+              STATE_ORDER[a.state] - STATE_ORDER[b.state] ||
+              (b.slot?.lastUsedAt ?? 0) - (a.slot?.lastUsedAt ?? 0) ||
+              a.name.localeCompare(b.name),
+          )
+        const slotPaths = new Set(poolRows.map((row) => comparablePath(row.path)))
+        const otherRows = project.worktrees
+          .filter((entry) => !entry.slotId && !slotPaths.has(comparablePath(entry.path)))
+          .map((entry) => otherRow(project.repoRoot, entry, project.defaultRef, chats))
+          // The one used last first: the long tail at the foot is what is safe to let go.
+          .sort(
+            (a, b) =>
+              STATE_ORDER[a.state] - STATE_ORDER[b.state] ||
+              (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0) ||
+              a.name.localeCompare(b.name),
+          )
+        const bytes = [...poolRows, ...otherRows].reduce((sum, row) => sum + (row.bytes ?? 0), 0)
+        return {
+          repoRoot: project.repoRoot,
+          name: baseName(project.repoRoot),
+          defaultRef: project.defaultRef,
+          lastFetchAt: pool?.lastFetchAt ?? null,
+          heldByOtherInstance: foreign,
+          containerPath: pool?.containerPath ?? null,
+          poolRows,
+          otherRows,
+          bytes,
+          error: project.error,
+        }
+      })
+      // The project worked in last leads (owner, 2026-10-08), by its most
+      // recently used worktree; one with none known sorts by name below.
+      .sort((a, b) => projectUsedAt(b) - projectUsedAt(a) || a.name.localeCompare(b.name))
+  )
+}
+
+function projectUsedAt(project: WorktreeProjectView): number {
+  let latest = 0
+  for (const row of [...project.poolRows, ...project.otherRows]) latest = Math.max(latest, row.lastUsedAt ?? 0)
+  return latest
 }
 
 export function worktreeTotals(projects: readonly WorktreeProjectView[]): WorktreeTotals {
