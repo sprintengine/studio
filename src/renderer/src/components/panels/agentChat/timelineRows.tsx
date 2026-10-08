@@ -48,7 +48,7 @@ import { formatMessageDateTime, formatMessageTime, LiveElapsed } from './liveEla
 import { ReasoningBlock } from './reasoningBlock'
 import { CompactionDivider, TurnMeta } from './turnMeta'
 import { CommandOutputRow } from './commandOutputRow'
-import { ChevronRightGlyph, ToolKindGlyph } from './toolRows/ToolKindGlyph'
+import { ChevronRightGlyph, ThoughtGlyph, ToolKindGlyph } from './toolRows/ToolKindGlyph'
 import { ChangedFilesCard, hasTurnChanges, RevertTurnAction } from './changedFilesCard'
 import { EditFromHereAction, type EditFromHereDraft } from './editFromHere'
 import { ForkMessageAction, ForkReplyAction, type ForkFromHereTarget } from './forkFromHere'
@@ -1139,20 +1139,46 @@ export function WorkingTimelineRow({ row }: { row: Extract<ConversationTimelineR
   const ref = useRef<HTMLDivElement>(null)
   useLiveRowMotion(ref, true)
   const openAgents = useOpenAgentsPane()
+  const context = useConversationLinkContext()
+  // The same disclosure the running turn's fold keeps. Opened, the thinking
+  // and the prose between steps are on screen in full, and the line under the
+  // label would only repeat the newest of them.
+  const [foldOpen] = useConversationDisclosure(
+    `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`,
+    `fold:${row.turnId ?? ''}`,
+    false,
+  )
+  const thought = foldOpen ? undefined : row.latestThought
   return (
-    <div ref={ref} className="flex items-baseline gap-2 pb-2 pl-0.5 text-meta text-[color:var(--text-muted)]">
-      <span className="chat-shimmer font-medium">
-        {row.label}
-        {/* The shimmer's bright band: a masked copy of the label (index.css). */}
-        <span className="chat-shimmer__glint" aria-hidden="true">
-          <span className="chat-shimmer__band" data-text={row.label} />
+    <div ref={ref} className="pb-2 pl-0.5 text-meta text-[color:var(--text-muted)]">
+      <div className="flex items-baseline gap-2">
+        <span className="chat-shimmer font-medium">
+          {row.label}
+          {/* The shimmer's bright band: a masked copy of the label (index.css). */}
+          <span className="chat-shimmer__glint" aria-hidden="true">
+            <span className="chat-shimmer__band" data-text={row.label} />
+          </span>
         </span>
-      </span>
-      {row.startedAt !== undefined ? <LiveElapsed startedAt={row.startedAt} /> : null}
-      {row.agents && openAgents ? (
-        <LinkButton ink="quiet" onClick={() => openAgents(null)}>
-          See agents
-        </LinkButton>
+        {row.startedAt !== undefined ? <LiveElapsed startedAt={row.startedAt} /> : null}
+        {row.agents && openAgents ? (
+          <LinkButton ink="quiet" onClick={() => openAgents(null)}>
+            See agents
+          </LinkButton>
+        ) : null}
+      </div>
+      {/* Why, under what: the agent's latest thought while its steps are
+          folded away. One line, quieter than the label, and never the reply,
+          which is on screen by the time the label says "Replying". */}
+      {thought ? (
+        <div
+          className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[color:var(--text-subtle)]"
+          data-latest-thought=""
+        >
+          <span className="flex shrink-0 text-[color:var(--text-disabled)]">
+            <ThoughtGlyph />
+          </span>
+          <span className="min-w-0 truncate">{thought}</span>
+        </div>
       ) : null}
     </div>
   )

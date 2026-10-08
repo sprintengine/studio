@@ -7,31 +7,12 @@ import { ConversationMarkdown, useConversationLinkContext } from './conversation
 import { useConversationDisclosure } from './conversationViewState'
 import { useLiveRowMotion } from './liveVisibility'
 import { ChevronRightGlyph, ThoughtGlyph } from './toolRows/ToolKindGlyph'
+import { reasoningPreview } from './conversationTimeline'
 
-// The first line of the reasoning as plain words, for the closed header: enough
-// to tell one block from the next without opening it. Markdown marks are
-// dropped because the header is a single line of plain text. Only the lines up
-// to the first worth showing are read: the block re-renders on every streamed
-// token, and splitting the whole trace each time is work thrown away.
-export function reasoningPreview(text: string): string {
-  let line = ''
-  for (let start = 0; start < text.length;) {
-    const end = text.indexOf('\n', start)
-    const part = text.slice(start, end === -1 ? text.length : end).trim()
-    if (part && !/^(```|---|\*\*\*)/u.test(part)) {
-      line = part
-      break
-    }
-    if (end === -1) break
-    start = end + 1
-  }
-  if (!line) return ''
-  return line
-    .replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/u, '')
-    .replace(/(\*\*|__|`)/gu, '')
-    .replace(/\[([^\]]*)\]\([^)]*\)/gu, '$1')
-    .trim()
-}
+// The closed header previews the first line of the reasoning as plain words,
+// enough to tell one block from the next without opening it; the timeline's
+// working line reads the same preview for the thought it shows.
+export { reasoningPreview }
 
 // Closed is the resting state: reasoning is how the answer was reached, not
 // the answer. The header names how long the model thought and previews what

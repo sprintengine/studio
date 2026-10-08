@@ -3,6 +3,7 @@
 
 import { type TranscriptToolEntry, type TranscriptEntry, type TurnRetry } from './conversationProjection.js'
 import { toolActionVerb } from './protocol.js'
+import { proseShownToUser } from './shownProse.js'
 
 // Every call in a lane subtree, lane headers included, in start order.
 export function flattenToolEntries(tools: TranscriptToolEntry[]): TranscriptToolEntry[] {
@@ -93,9 +94,78 @@ export type ConversationTimelineRow =
       startedAt?: number
       // Agents still working, when the line is counting them.
       agents?: number
+      // The turn running now, whose fold the line sits under.
+      turnId?: string
+      // The first sentence of what the agent last thought or said between its
+      // steps, while the turn is folded and those steps are out of sight: the
+      // line says what it is doing, this says why. Absent while it replies,
+      // when the reply itself is on screen.
+      latestThought?: string
     }
 
 // ── Presentation vocabulary (pure, unit-tested) ─────────────────────────────
+
+// The first line of some reasoning or prose as plain words: enough to tell one
+// stretch of thinking from the next without opening it. Markdown marks are
+// dropped because what shows it is a single line of plain text. Only the lines
+// up to the first worth showing are read: it runs on every streamed token, and
+// splitting a whole trace each time is work thrown away.
+export function reasoningPreview(text: string): string {
+  let line = ''
+  for (let start = 0; start < text.length;) {
+    const end = text.indexOf('\n', start)
+    const part = text.slice(start, end === -1 ? text.length : end).trim()
+    if (part && !/^(```|---|\*\*\*)/u.test(part)) {
+      line = part
+      break
+    }
+    if (end === -1) break
+    start = end + 1
+  }
+  if (!line) return ''
+  return line
+    .replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/u, '')
+    .replace(/(\*\*|__|`)/gu, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/gu, '$1')
+    .trim()
+}
+
+// The first sentence of that line: a thought is shown in a single muted line,
+// and a sentence is the unit that reads as one. A full stop inside a word
+// (`a.ts`, `1.5`) does not end it; one followed by a space or the end does.
+export function firstThoughtSentence(text: string): string {
+  const line = reasoningPreview(text)
+  const sentence = /^.*?[.!?…](?=\s|$)/u.exec(line)
+  return (sentence ? sentence[0] : line).trim()
+}
+
+// What the turn last thought or said between its steps, newest first: the
+// thinking since its last step, else whichever came last of the thinking and
+// the prose before each step. Prose that shows the person a picture is drawn
+// outside the fold already, so it is not repeated here.
+export function latestTurnThought(
+  entry: Pick<Extract<TranscriptEntry, { kind: 'assistant' }>, 'reasoning' | 'reasoningSegments' | 'intermediateText'>,
+  tools: readonly TranscriptToolEntry[],
+): string | undefined {
+  const trailing = firstThoughtSentence(entry.reasoning)
+  if (trailing) return trailing
+  const order = new Map(tools.map((tool, index) => [tool.id, index]))
+  let best: { at: number; text: string } | undefined
+  const consider = (beforeToolUseId: string, rank: number, text: string) => {
+    const index = order.get(beforeToolUseId)
+    if (index === undefined) return
+    const sentence = firstThoughtSentence(text)
+    if (!sentence) return
+    // The prose before a step comes after the thinking before it.
+    const at = index * 2 + rank
+    if (!best || at >= best.at) best = { at, text: sentence }
+  }
+  for (const segment of entry.reasoningSegments ?? []) consider(segment.beforeToolUseId, 0, segment.text)
+  for (const part of entry.intermediateText ?? []) {
+    if (!proseShownToUser(part.text)) consider(part.beforeToolUseId, 1, part.text)
+  }
+  return best?.text
+}
 
 // The live line while the provider waits to retry a failed call: what went
 // wrong, and how far through its attempts it is. The reason is the one thing a
@@ -314,6 +384,14 @@ export function deriveConversationTimelineRows(
           : stage === 'responding'
             ? 'Replying…'
             : 'Thinking…'
+    const turnTools =
+      latestAssistant && stage !== 'responding' && !retry
+        ? entries.filter(
+            (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.turnId === latestAssistant.turnId,
+          )
+        : null
+    const latestThought =
+      latestAssistant?.status === 'streaming' && turnTools ? latestTurnThought(latestAssistant, turnTools) : undefined
     rows.push({
       kind: 'working',
       id: 'working-indicator-row',
@@ -321,6 +399,8 @@ export function deriveConversationTimelineRows(
       label,
       startedAt: latestAssistant?.startedAt,
       ...(stage === 'tool' && runningLanes.length > 0 ? { agents: runningLanes.length } : {}),
+      ...(latestAssistant ? { turnId: latestAssistant.turnId } : {}),
+      ...(latestThought ? { latestThought } : {}),
     })
   }
 
@@ -354,7 +434,9 @@ export function deriveConversationTimelineRows(
       previous.kind === 'working' &&
       row.stage === previous.stage &&
       row.label === previous.label &&
-      row.startedAt === previous.startedAt
+      row.startedAt === previous.startedAt &&
+      row.turnId === previous.turnId &&
+      row.latestThought === previous.latestThought
     )
       return previous
     return row
