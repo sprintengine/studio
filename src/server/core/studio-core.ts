@@ -62,7 +62,7 @@ import type { WslServers } from '../wsl/desktop-wsl-servers'
 import type { StudioRole } from './data-dir'
 import { takeDataDir } from './take-data-dir'
 import { createStudioUsageLimitResumes } from './studio-usage-limit-resumes'
-import { createStudioScheduledMessages } from './studio-scheduled-messages'
+import { createStudioScheduledMessages, studioHeldMessages } from './studio-scheduled-messages'
 
 // The Studio core: the services the server owns (studio-server design, section
 // 4.1), composed once. The desktop builds it inside Electron main, from
@@ -580,6 +580,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
           if (!workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]) return
           workspaceSyncService.updateWorkspaceAgent(key.workspaceId, key.agentId, patch, 'system')
         },
+        // A message a paired machine queued while the chat's turn ran is held
+        // here, among the scheduled messages below, and sent from here when the
+        // turn ends: the machine that typed it may sleep or close meanwhile.
+        heldMessages: studioHeldMessages(() => scheduledMessages),
       },
     )
 

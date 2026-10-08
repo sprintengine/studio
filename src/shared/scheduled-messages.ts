@@ -21,6 +21,13 @@ export type ScheduledMessage = ScheduledMessageChat & {
   sendAt: number
   createdAt: number
   /**
+   * Held for the end of the chat's turn rather than for a time: a message a
+   * paired machine's composer queued while this chat was working, handed
+   * here so it goes even once that machine sleeps or closes. It went due when
+   * it was held, so it waits on the turn from the start.
+   */
+  queued?: true
+  /**
    * It came due while the chat was working, and waits for the turn to end
    * (epoch ms it first came due). Absent while it is still ahead.
    */

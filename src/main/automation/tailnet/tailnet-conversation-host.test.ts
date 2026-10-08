@@ -12,9 +12,11 @@ import {
   createConversationGatewayHost,
   readBoundedConversationUpload,
   type AgentChoicePatch,
+  type ConversationHeldMessages,
 } from './tailnet-conversation-host'
 import { MAX_ATTACHMENTS_PER_TURN, MAX_ATTACHMENT_BYTES } from '../../../shared/conversation-attachments'
 import { CONVERSATION_MAX_IMAGES } from '../../../../packages/conversation-protocol/src'
+import type { ConversationQueuedMessage } from '../../../../packages/conversation-protocol/src/public'
 import type { ConversationModelCatalog } from '../../conversation-model-catalog'
 
 type Preset = ConversationPermissionPreset
@@ -27,6 +29,7 @@ async function fixture(
     adapter?: ConversationProviderAdapter
     agentName?: string | null
     modelCatalog?: (providerId: string) => Promise<ConversationModelCatalog | null>
+    heldMessages?: ConversationHeldMessages
   } = {},
 ) {
   const workspaceRoot = options.workspaceRoot ?? (await mkdtemp(join(tmpdir(), 'conversation-gateway-')))
@@ -55,6 +58,7 @@ async function fixture(
       writeAgentChoice: (asked, patch) => {
         if (asked.workspaceId === key.workspaceId && asked.agentId === key.agentId) written.push(patch)
       },
+      ...(options.heldMessages ? { heldMessages: options.heldMessages } : {}),
     },
   )
   const start = (permissionPreset: Preset = options.preset ?? 'bypass') =>
@@ -271,6 +275,127 @@ test('a send the runtime turns away behind a running turn reaches the phone as b
     assert.equal(sent.ok, false)
     assert.equal(sent.code, 'busy')
     assert.equal(sent.retryAfterMs, 1_000)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+/** Held messages kept in memory, with each chat's list set by the test. */
+function memoryHeld() {
+  const listeners = new Set<() => void>()
+  const lists = new Map<string, ConversationQueuedMessage[]>()
+  const holds: Array<{ chat: { workspaceId: string; agentId: string }; text: string; source: string }> = []
+  const cancels: string[] = []
+  const chatOf = (chat: { workspaceId: string; agentId: string }) => `${chat.workspaceId}/${chat.agentId}`
+  const held: ConversationHeldMessages = {
+    hold: (chat, text, source) => {
+      holds.push({ chat: { workspaceId: chat.workspaceId, agentId: chat.agentId }, text, source })
+      return { ok: true }
+    },
+    cancel: (_chat, id) => {
+      cancels.push(id)
+      return id === 'sm-1' ? { ok: true } : { ok: false, message: 'That message is already on its way into the chat.' }
+    },
+    list: (chat) => lists.get(chatOf(chat)) ?? [],
+    onChanged: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+  return {
+    held,
+    holds,
+    cancels,
+    listeners,
+    set(chat: { workspaceId: string; agentId: string }, messages: ConversationQueuedMessage[]) {
+      lists.set(chatOf(chat), messages)
+      for (const listener of [...listeners]) listener()
+    },
+  }
+}
+
+test('a queued send is held for the turn and answered at once: no session is resumed and nothing is sent now', async () => {
+  const memory = memoryHeld()
+  const f = await fixture({ heldMessages: memory.held })
+  try {
+    const start = vi.spyOn(f.runtime, 'startSession')
+    const send = vi.spyOn(f.runtime, 'sendTurn')
+    const answer = await f.host.command(f.key, 'laptop', 'queued-1', {
+      kind: 'send',
+      message: 'Then the docs.',
+      queue: true,
+    })
+    assert.deepEqual(answer, { ok: true })
+    assert.deepEqual(memory.holds, [
+      {
+        chat: { workspaceId: 'workspace', agentId: 'agent' },
+        text: 'Then the docs.',
+        source: JSON.stringify(['laptop', 'queued-1']),
+      },
+    ])
+    assert.equal(start.mock.calls.length, 0, 'no session started for a message that waits')
+    assert.equal(send.mock.calls.length, 0, 'nothing sent into the running turn')
+    // An ordinary send beside it is still the send it always was.
+    const started = await f.start()
+    assert.ok(started.ok)
+    assert.equal((await f.host.command(f.key, 'laptop', 'now-1', { kind: 'send', message: '/tools' })).ok, true)
+    assert.equal(memory.holds.length, 1)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a host that holds nothing takes a queued send as an ordinary one, and refuses taking one back', async () => {
+  const f = await fixture()
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    vi.spyOn(f.runtime, 'sendTurn').mockResolvedValue({
+      ok: false,
+      code: 'busy',
+      retryAfterMs: 1_000,
+      message: 'Conversation turn is already in progress.',
+    })
+    const sent = await f.host.command(f.key, 'laptop', 'queued-1', { kind: 'send', message: 'two', queue: true })
+    assert.equal(sent.code, 'busy', 'refused busy behind the turn, as before the member')
+    assert.equal(f.host.watchQueued, undefined)
+    const cancel = await f.host.command(f.key, 'laptop', 'cancel-1', { kind: 'cancelQueued', queuedId: 'sm-1' })
+    assert.equal(cancel.ok, false)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a held message is taken back through the held messages, refused once it is on its way', async () => {
+  const memory = memoryHeld()
+  const f = await fixture({ heldMessages: memory.held })
+  try {
+    assert.deepEqual(await f.host.command(f.key, 'laptop', 'cancel-1', { kind: 'cancelQueued', queuedId: 'sm-1' }), {
+      ok: true,
+    })
+    const late = await f.host.command(f.key, 'laptop', 'cancel-2', { kind: 'cancelQueued', queuedId: 'sm-2' })
+    assert.equal(late.ok, false)
+    assert.match(late.message ?? '', /on its way/)
+    assert.deepEqual(memory.cancels, ['sm-1', 'sm-2'])
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a chat’s held messages are told now, and again only when its own list changes', async () => {
+  const memory = memoryHeld()
+  const f = await fixture({ heldMessages: memory.held })
+  try {
+    const told: ConversationQueuedMessage[][] = []
+    const stop = f.host.watchQueued!({ workspaceId: 'workspace', agentId: 'agent' }, (messages) => told.push(messages))
+    assert.deepEqual(told, [[]], 'told what is held at once, nothing included')
+    const held = { id: 'sm-1', text: 'Then the docs.', createdAt: 1_700_000_000_000 }
+    memory.set({ workspaceId: 'workspace', agentId: 'agent' }, [held])
+    memory.set({ workspaceId: 'workspace', agentId: 'other' }, [{ ...held, id: 'sm-2' }])
+    memory.set({ workspaceId: 'workspace', agentId: 'agent' }, [held])
+    assert.deepEqual(told, [[], [held]], 'another chat’s change, or none, is not told')
+    stop()
+    assert.equal(memory.listeners.size, 0)
   } finally {
     await f.cleanup()
   }

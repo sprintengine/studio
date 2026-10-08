@@ -271,7 +271,19 @@ beside `lastVisitedAt`, an optional member with no capability of its own: a
 phone drops only the readings it took before the stamp, so a chat marked
 unread while the phone was closed reads unread there, and an older phone
 ignores the member. The Studio
-RPC does not advertise it, having no method for either tool. Breaking frame changes require a new
+RPC does not advertise it, having no method for either tool.
+A queued message is the `conversation-queued-sends` capability (2026-10-08):
+a `send` that says `queue` is held by the desktop and sent when the chat's
+turn ends, `cancelQueued` takes one back, and a client that asks with a
+`watchQueued` request is sent `queued` frames saying what is held for the
+chat it follows. All of it is additive: a desktop without the capability
+drops `queue` and refuses a send made mid-turn `busy`, as it always did, and
+answers the new command and request under their ids; a desktop sends `queued`
+frames only to a client that asked, so a phone that never asks never sees
+one. A client asks whenever the desktop has not said it lacks the
+capability, since an older desktop's refusal is harmless. The Studio RPC does
+not advertise it: its conversation topic carries no `queued` frames, and its
+`conversation.cancelQueued` method is an owner's only. Breaking frame changes require a new
 negotiated capability or the tailnet version-window process above, not merely
 a package version change. Presentation-only fixes use a package patch.
 Both ESM and CommonJS tarball consumers and Node16 declarations are checked by

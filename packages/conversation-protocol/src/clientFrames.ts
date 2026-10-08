@@ -4,7 +4,11 @@ import {
   type ConversationClientFrame,
   type ConversationFrameRejection,
 } from './index.js'
-import { isConversationPermissionModeId, type ConversationCommand } from './commands.js'
+import {
+  isConversationPermissionModeId,
+  type ConversationCommand,
+  type ConversationWatchQueuedRequest,
+} from './commands.js'
 import type { ConversationHelloRequest } from './handshake.js'
 
 // The server half of the full contract: what a desktop accepts from a client.
@@ -18,6 +22,7 @@ export type ConversationClientMessage =
   | Exclude<ConversationClientFrame, { type: 'command' }>
   | { type: 'command'; commandId: string; command: ConversationCommand }
   | ConversationHelloRequest
+  | ConversationWatchQueuedRequest
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -40,8 +45,23 @@ export function parseConversationClientMessage(value: unknown): ConversationClie
       ...(version === undefined ? {} : { protocolVersion: version as number }),
     }
   }
+  if (value.type === 'watchQueued')
+    return id(value.requestId) ? { type: 'watchQueued', requestId: value.requestId } : null
   if (value.type === 'command' && record(value.command)) {
     const command = value.command
+    if (command.kind === 'cancelQueued') {
+      return id(value.commandId) && id(command.queuedId)
+        ? { type: 'command', commandId: value.commandId, command: { kind: 'cancelQueued', queuedId: command.queuedId } }
+        : null
+    }
+    // A held message is its words alone: the pictures a send carries are
+    // staged for that send, and would be gone by the turn it waits for.
+    if (command.kind === 'send' && command.queue !== undefined) {
+      if (command.queue !== true || command.uploadIds !== undefined) return null
+      const frame = parseConversationClientFrame(value)
+      if (!frame || frame.type !== 'command' || frame.command.kind !== 'send') return null
+      return { ...frame, command: { ...frame.command, queue: true } }
+    }
     if (command.kind === 'resolvePlan') {
       return id(value.commandId) &&
         id(command.requestId) &&
@@ -72,7 +92,8 @@ export function explainRejectedConversationMessage(value: unknown): Conversation
   const rejection = explainRejectedConversationFrame(value)
   // A malformed command of a kind this contract added is a bad frame, not one
   // the desktop does not know.
-  return rejection.code === 'unsupported_command' && rejection.commandKind === 'resolvePlan'
+  return rejection.code === 'unsupported_command' &&
+    (rejection.commandKind === 'resolvePlan' || rejection.commandKind === 'cancelQueued')
     ? { ...rejection, code: 'invalid_frame', message: 'Unsupported conversation frame.' }
     : rejection
 }

@@ -25,6 +25,8 @@ import {
 } from './tailnet/tailnet-remote-conversation-cache'
 import type { RemoteJsonSocket, RemoteJsonSocketHandlers } from './tailnet/tailnet-remote-client'
 import { pairingUrl } from './tailnet/tailnet-service'
+import { createScheduledMessages } from '../scheduled-messages/scheduled-messages'
+import { studioHeldMessages } from '../../server/core/studio-scheduled-messages'
 import { TAILNET_IDENTITY_PATH, TAILNET_PAIR_PATH, TAILNET_UPLOAD_PATH } from './tailnet/tailnet-routes'
 
 // Another Studio desktop following this machine's conversations over the
@@ -119,12 +121,40 @@ type Harness = {
 const workspaceId = 'workspace'
 const agentId = 'agent'
 
-async function startHarness(): Promise<Harness> {
+async function startHarness(options: { holdQueued?: boolean } = {}): Promise<Harness> {
   const workspaceRoot = mkdtempSync(join(tmpdir(), 'remote-conversation-host-'))
   const remoteDir = mkdtempSync(join(tmpdir(), 'remote-conversation-devices-'))
   const localDir = mkdtempSync(join(tmpdir(), 'remote-conversation-local-'))
   const provider = pushProvider()
   const runtime = new ConversationRuntime({ adapters: [provider.adapter], getProviderById: () => undefined })
+  // The far end's scheduled messages, where a queued send is held: the real
+  // ones, kept in memory, following this runtime's chats and sending through
+  // the host as a scheduled message does. Their clock runs past the start's
+  // grace once started, so a held message is not kept waiting for it.
+  let skew = 0
+  let body: string | null = null
+  const scheduled = options.holdQueued
+    ? createScheduledMessages({
+        storage: {
+          read: async () => body,
+          write: async (next) => {
+            body = next
+          },
+        },
+        listSessions: () => {
+          const listed = runtime.listSessions()
+          return listed.ok ? listed.sessions : []
+        },
+        onConversationEvent: (listener) => runtime.onEvent(listener),
+        chatExists: (chat) => chat.workspaceId === workspaceId && chat.agentId === agentId,
+        send: async (chat, text, commandId) => {
+          const key = real.resolveKey(chat.workspaceId, chat.agentId)
+          if (!key) return { ok: false, message: 'The chat has no folder on this machine' }
+          return real.command(key, 'studio-scheduled-message', commandId, { kind: 'send', message: text })
+        },
+        now: () => Date.now() + skew,
+      })
+    : null
   const real = createConversationGatewayHost(
     runtime,
     (id) => (id === workspaceId ? workspaceRoot : null),
@@ -143,7 +173,13 @@ async function startHarness(): Promise<Harness> {
             ],
           }
         : null,
+    undefined,
+    scheduled ? { heldMessages: studioHeldMessages(() => scheduled) } : {},
   )
+  if (scheduled) {
+    await scheduled.start()
+    skew = 60_000
+  }
   const joins: Harness['joins'] = []
   const conversations: ConversationGatewayHost = {
     ...real,
@@ -218,6 +254,7 @@ async function startHarness(): Promise<Harness> {
     },
     async close() {
       harness.mesh.shutdown()
+      await scheduled?.dispose()
       await server.stop().catch(() => undefined)
       await runtime.shutdown()
       for (const dir of [workspaceRoot, remoteDir, localDir]) rmSync(dir, { recursive: true, force: true })
@@ -852,9 +889,13 @@ test('a kept copy read back while its write is in flight is the copy that write 
 })
 
 /** A follow client whose sockets and kept copy the test drives, on fake timers. */
-function drivenClient(overrides: { isOnBattery?: () => boolean; dial?: 'ok' | 'fail' } = {}) {
+function drivenClient(
+  overrides: { isOnBattery?: () => boolean; dial?: 'ok' | 'fail'; capabilities?: string[] | null } = {},
+) {
   const handlers: RemoteJsonSocketHandlers[] = []
   const sockets: Array<{ socket: RemoteJsonSocket; closed: boolean }> = []
+  // Every frame this client sent, on any socket.
+  const sent: Array<Record<string, unknown>> = []
   const saves: Array<{ lastSeq: number | null; events: number }> = []
   const away: string[] = []
   let dial = overrides.dial ?? 'ok'
@@ -871,6 +912,7 @@ function drivenClient(overrides: { isOnBattery?: () => boolean; dial?: 'ok' | 'f
     },
     retry: { baseMs: 500, maxMs: 15_000 },
     ...(overrides.isOnBattery ? { isOnBattery: overrides.isOnBattery } : {}),
+    ...(overrides.capabilities !== undefined ? { capabilitiesOf: () => overrides.capabilities } : {}),
     onAway: (connectionId) => away.push(connectionId),
     resolveConnection: () => ({
       id: 'c',
@@ -885,7 +927,9 @@ function drivenClient(overrides: { isOnBattery?: () => boolean; dial?: 'ok' | 'f
       if (dial === 'fail') return { ok: false, code: 'unreachable', message: 'mac-mini did not answer.' }
       const entry = { closed: false, socket: null as unknown as RemoteJsonSocket }
       entry.socket = {
-        send: () => undefined,
+        send: (frame) => {
+          sent.push(frame)
+        },
         close: () => {
           entry.closed = true
         },
@@ -913,6 +957,7 @@ function drivenClient(overrides: { isOnBattery?: () => boolean; dial?: 'ok' | 'f
     client,
     handlers,
     sockets,
+    sent,
     saves,
     away,
     frames,
@@ -1042,6 +1087,121 @@ test('a follow woken, resumed and joined while its dial is out opens one socket'
     d.fence(1)
     assert.equal(d.link()?.type === 'link' && d.link()?.state, 'live')
     d.client.shutdown()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('a message queued while the turn runs over there is held there, and goes when the turn ends with this desktop gone', async () => {
+  const h = await startHarness({ holdQueued: true })
+  const asked: string[] = []
+  const stopListening = h.runtime.onEvent((event) => {
+    if (event.type === 'user_message' && event.workspaceId === workspaceId && event.agentId === agentId)
+      asked.push(String(event.payload?.text ?? ''))
+  })
+  try {
+    const connectionId = await h.pair(['conversation:read', 'conversation:operate'])
+    const listed = await h.mesh.listConversations(connectionId)
+    assert.ok(listed.ok, listed.ok ? '' : listed.message)
+    assert.equal(listed.queuedSends, true, 'the machine says it holds queued messages')
+    const key = { connectionId, workspaceId, agentId }
+    const pane = follower(h.mesh, key)
+    await waitFor(pane.live, 'the follow goes live')
+    await waitFor(() => pane.of('queued').length > 0, 'told what the machine holds, nothing yet')
+    assert.deepEqual(pane.of('queued').at(-1)?.messages, [])
+
+    void h.mesh.conversationCommand({ key, command: { kind: 'send', message: 'stream' } })
+    await h.provider.turnStarted()
+    // A held message is its words alone: one with pictures is refused here.
+    const withPicture = await h.mesh.conversationSend({
+      key,
+      message: 'Look at this.',
+      queue: true,
+      attachments: [{ id: 'a', mediaType: 'image/png', dataBase64: 'iVBORw0KGgo=', name: 'a.png', byteLength: 8 }],
+    })
+    assert.equal(withPicture.ok, false)
+    assert.equal(!withPicture.ok && withPicture.code, 'invalid_arguments')
+    // Queued mid-turn, as the window sends it: answered as soon as it is held,
+    // long before the turn ends.
+    const queued = await h.mesh.conversationSend({ key, message: 'And then the docs.', queue: true })
+    assert.deepEqual(queued, { ok: true })
+    await waitFor(() => pane.of('queued').at(-1)?.messages.length === 1, 'the window sees what is held there')
+    assert.equal(pane.of('queued').at(-1)?.messages[0]?.text, 'And then the docs.')
+
+    // The laptop closes: nothing on this side is left to send it.
+    h.mesh.shutdown()
+    h.provider.nextTurn()
+    h.provider.push(null)
+    await h.provider.turnStarted()
+    assert.deepEqual(asked, ['stream', 'And then the docs.'], 'the machine sent it into the chat once the turn ended')
+    h.provider.push(null)
+  } finally {
+    stopListening()
+    await h.close()
+  }
+})
+
+test('a held message is taken back from here, and every window is told it is gone', async () => {
+  const h = await startHarness({ holdQueued: true })
+  try {
+    const connectionId = await h.pair(['conversation:read', 'conversation:operate'])
+    const key = { connectionId, workspaceId, agentId }
+    const pane = follower(h.mesh, key)
+    await waitFor(pane.live, 'the follow goes live')
+    void h.mesh.conversationCommand({ key, command: { kind: 'send', message: 'stream' } })
+    await h.provider.turnStarted()
+    await h.mesh.conversationCommand({ key, command: { kind: 'send', message: 'Maybe this.', queue: true } })
+    await waitFor(() => pane.of('queued').at(-1)?.messages.length === 1, 'held')
+    // A second window opened now is told at once, without asking the machine again.
+    const second = follower(h.mesh, key, 'pane-2')
+    await second.following
+    assert.equal(second.of('queued').at(-1)?.messages[0]?.text, 'Maybe this.')
+    const queuedId = pane.of('queued').at(-1)!.messages[0]!.id
+    assert.deepEqual(await h.mesh.conversationCommand({ key, command: { kind: 'cancelQueued', queuedId } }), {
+      ok: true,
+    })
+    await waitFor(() => pane.of('queued').at(-1)?.messages.length === 0, 'taken back')
+    await waitFor(() => second.of('queued').at(-1)?.messages.length === 0, 'both windows are told')
+    const again = await h.mesh.conversationCommand({ key, command: { kind: 'cancelQueued', queuedId } })
+    assert.equal(again.ok, false, 'a message no longer held cannot be taken back twice')
+    h.provider.push(null)
+  } finally {
+    await h.close()
+  }
+})
+
+test('the held messages are asked for after each fence, and never of a machine that said it holds none', async () => {
+  vi.useFakeTimers()
+  try {
+    const watches = (sent: Array<Record<string, unknown>>) => sent.filter((frame) => frame.type === 'watchQueued')
+    // Not said yet: asked anyway, and an older machine answers under the id.
+    const unknown = drivenClient({ capabilities: null })
+    await unknown.follow()
+    await vi.advanceTimersByTimeAsync(0)
+    unknown.fence(1)
+    assert.equal(watches(unknown.sent).length, 1)
+    unknown.fence(2)
+    assert.equal(watches(unknown.sent).length, 2, 'each fence begins the watch afresh')
+    unknown.handlers.at(-1)!.onFrame({
+      type: 'queued',
+      key: { workspaceId, agentId },
+      messages: [{ id: 'sm-1', text: 'Held.', createdAt: 1 }],
+    })
+    assert.deepEqual(unknown.frames.at(-1), {
+      type: 'queued',
+      messages: [{ id: 'sm-1', text: 'Held.', createdAt: 1 }],
+    })
+    // Another conversation's list is not this one's.
+    unknown.handlers.at(-1)!.onFrame({ type: 'queued', key: { workspaceId, agentId: 'other' }, messages: [] })
+    assert.equal(unknown.frames.filter((frame) => frame.type === 'queued').length, 1)
+    unknown.client.shutdown()
+
+    const without = drivenClient({ capabilities: ['conversations', 'conversation-models'] })
+    await without.follow()
+    await vi.advanceTimersByTimeAsync(0)
+    without.fence(1)
+    assert.equal(watches(without.sent).length, 0)
+    without.client.shutdown()
   } finally {
     vi.useRealTimers()
   }

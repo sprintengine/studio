@@ -1,5 +1,5 @@
 import type { ConversationWireCommand } from '../../packages/conversation-protocol/src'
-import type { ConversationThread } from '../../packages/conversation-protocol/src/public'
+import type { ConversationQueuedMessage, ConversationThread } from '../../packages/conversation-protocol/src/public'
 import type { ConversationSessionFrame } from './conversation-runtime'
 import type { RepositoryIdentity } from './repository-identity'
 import type { TailnetRemoteStatus, TailnetScope } from './tailnet'
@@ -357,7 +357,17 @@ export type MeshConversationLink = {
   code?: string
 }
 
-export type MeshConversationFrame = ConversationSessionFrame | MeshConversationLink
+/**
+ * The messages the machine holds for this conversation until its turn ends,
+ * whole each time (`conversation-queued-sends`). The last list heard stands
+ * while the link is down: that machine still holds them.
+ */
+export type MeshConversationQueued = { type: 'queued'; messages: MeshQueuedMessage[] }
+
+/** A message a paired machine holds for its chat's turn to end, by that machine's id for it. */
+export type MeshQueuedMessage = ConversationQueuedMessage
+
+export type MeshConversationFrame = ConversationSessionFrame | MeshConversationLink | MeshConversationQueued
 
 /**
  * `modelSwitch`: the machine advertises `conversation-models` — its list names
@@ -372,6 +382,12 @@ export type MeshConversationFrame = ConversationSessionFrame | MeshConversationL
  * leaves out settled chats and names their titles and clocks, and it takes
  * `conversation.settle` and `conversation.visit`. False for a machine that
  * does not, whose chats offer no Settle here.
+ *
+ * `queuedSends`: the machine advertises `conversation-queued-sends` — a
+ * message queued in one of its chats mid-turn is handed to it at once, and it
+ * sends it when the turn ends. False for a machine that does not, where the
+ * message waits here and goes when the turn ends only if this machine is
+ * awake to send it.
  */
 export type MeshConversationListResult =
   | {
@@ -381,6 +397,7 @@ export type MeshConversationListResult =
       modelSwitch: boolean
       permissionModes?: boolean
       lifecycle?: boolean
+      queuedSends?: boolean
     }
   | { ok: false; code: string; message: string }
 
@@ -391,8 +408,12 @@ export type MeshConversationListResult =
  */
 export type MeshConversationImageResult = { ok: true; dataUrl: string } | { ok: false; code: string; message: string }
 
-/** The commands a remote device may send. A permanent rule is not among them. */
-export type MeshConversationCommand = ConversationWireCommand
+/**
+ * The commands a remote device may send. A permanent rule is not among them.
+ * A queued send and taking one back need `conversation-queued-sends` there.
+ */
+export type MeshConversationCommand =
+  ConversationWireCommand | { kind: 'send'; message: string; queue: true } | { kind: 'cancelQueued'; queuedId: string }
 
 /** `notice` qualifies an accepted command, e.g. that a model switch applies from the next turn. */
 export type MeshConversationCommandResult = { ok: true; notice?: string } | { ok: false; code: string; message: string }

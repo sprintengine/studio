@@ -1,7 +1,9 @@
 // The message a person committed while the agent was working, as a row in the
 // composer tray: "Queued", then the message on one line. It waits for the turn
 // to end on its own; "Send now" hands it to the running turn instead (a
-// steer), and Edit takes it back into the composer.
+// steer), and Edit takes it back into the composer. A chat on another machine
+// that holds its own queue has its rows drawn here too, from what that machine
+// says it holds.
 
 import type { ConversationImageAttachment } from '../../../../../shared/conversation-runtime'
 import { AttachmentThumbnail } from '../ComposerAttachmentStrip'
@@ -63,43 +65,63 @@ export function QueuedTurnRow({
   shortcutLabel,
   onSendNow,
   onEdit,
+  status = 'Queued',
+  statusHint = 'Sends when this turn ends',
+  failed = false,
 }: {
   text: string
   attachments: ConversationImageAttachment[]
-  sendNow: QueuedTurnSendNow
+  // Null where the message cannot be sent sooner from here (one on its way
+  // to the machine that will hold it, or one that machine could not send).
+  sendNow: QueuedTurnSendNow | null
   // The chord that sends now from the composer, for the action's tooltip.
   shortcutLabel: string
   onSendNow: () => void
-  onEdit: () => void
+  // Absent where the message cannot be taken back from here.
+  onEdit?: () => void
+  // What the row says of the message, and its tooltip. A message the machine
+  // running the chat holds says so: it is that machine that sends it.
+  status?: string
+  statusHint?: string
+  // The chat refused it when its turn came: said in the warning tone.
+  failed?: boolean
 }) {
-  const sendNowHint =
-    sendNow.reason ??
-    (sendNow.kind === 'steer'
-      ? `Give this to the agent while it works (${shortcutLabel})`
-      : `Stop the reply and send this instead (${shortcutLabel})`)
+  const sendNowHint = sendNow
+    ? (sendNow.reason ??
+      (sendNow.kind === 'steer'
+        ? `Give this to the agent while it works (${shortcutLabel})`
+        : `Stop the reply and send this instead (${shortcutLabel})`))
+    : null
   return (
     <ComposerTrayRow
       role="group"
       ariaLabel="Queued message"
-      glyph={<QueuedGlyph />}
+      tone={failed ? 'warn' : 'neutral'}
+      glyph={failed ? undefined : <QueuedGlyph />}
       actions={
-        <>
-          <Tooltip content={sendNowHint} placement="top">
-            <GhostButton size="xs" disabled={sendNow.disabled} onClick={onSendNow}>
-              {sendNow.label}
-            </GhostButton>
-          </Tooltip>
-          <Tooltip content="Take it back into the composer" placement="top">
-            <GhostButton size="xs" onClick={onEdit}>
-              Edit
-            </GhostButton>
-          </Tooltip>
-        </>
+        sendNow || onEdit ? (
+          <>
+            {sendNow ? (
+              <Tooltip content={sendNowHint ?? sendNow.label} placement="top">
+                <GhostButton size="xs" disabled={sendNow.disabled} onClick={onSendNow}>
+                  {sendNow.label}
+                </GhostButton>
+              </Tooltip>
+            ) : null}
+            {onEdit ? (
+              <Tooltip content="Take it back into the composer" placement="top">
+                <GhostButton size="xs" onClick={onEdit}>
+                  Edit
+                </GhostButton>
+              </Tooltip>
+            ) : null}
+          </>
+        ) : null
       }
     >
       <span className="flex min-w-0 items-center gap-2">
-        <Tooltip content="Sends when this turn ends" placement="top">
-          <span className="shrink-0">Queued</span>
+        <Tooltip content={statusHint} placement="top">
+          <span className="shrink-0">{status}</span>
         </Tooltip>
         {attachments.map((attachment) => (
           <AttachmentThumbnail key={attachment.id} attachment={attachment} className="size-icon-md shrink-0" />

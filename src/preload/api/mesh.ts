@@ -158,12 +158,16 @@ export const meshApi = {
     key: MeshConversationKey
     message: string
     attachments?: ConversationImageAttachment[]
+    queue?: boolean
   }): Promise<MeshConversationCommandResult> =>
     ipcRenderer.invoke(MESH_CONVERSATION_SEND_CHANNEL, {
       key: input.key,
       message: input.message,
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      ...(input.queue ? { queue: true } : {}),
     }) as Promise<MeshConversationCommandResult>,
+  meshConversationCancelQueued: (input: { key: MeshConversationKey; queuedId: string }) =>
+    command(input.key, { kind: 'cancelQueued', queuedId: input.queuedId }),
   meshConversationInterrupt: (input: { key: MeshConversationKey }) => command(input.key, { kind: 'interrupt' }),
   meshConversationResolveApproval: (input: {
     key: MeshConversationKey
@@ -214,6 +218,7 @@ export const meshApi = {
   | 'onMeshConversationSession'
   | 'meshConversationLoadEarlier'
   | 'meshConversationSend'
+  | 'meshConversationCancelQueued'
   | 'meshConversationInterrupt'
   | 'meshConversationResolveApproval'
   | 'meshConversationAnswerQuestion'
