@@ -598,7 +598,9 @@ export function attachedConversations(
  * (`settledAt` on its workspace), and only from a machine that keeps its
  * chats' rest. `followed` holds the settle each row last followed, so one is
  * followed once: a person who brings the row back here keeps it until the
- * machine settles the chat again.
+ * machine settles the chat again. It is kept across a restart
+ * (`readFollowedRemoteRests`), or the first browse after one would settle
+ * every such row again.
  */
 export function remoteRestToFollow(input: {
   workspaces: readonly Workspace[]
@@ -617,4 +619,35 @@ export function remoteRestToFollow(input: {
     due.push({ workspaceId: workspace.id, settledAt: remote.settledAt })
   }
   return due
+}
+
+/** Where the settles the rows here have followed are kept, so a restart does not follow one again. */
+export const FOLLOWED_REMOTE_RESTS_KEY = 'sprintengine.remote.followedRests'
+
+/** The followed settles as they were kept; anything unreadable is read as none. */
+export function readFollowedRemoteRests(raw: string | null): Map<string, number> {
+  const followed = new Map<string, number>()
+  if (!raw) return followed
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return followed
+    for (const [workspaceId, settledAt] of Object.entries(parsed))
+      if (typeof settledAt === 'number' && Number.isFinite(settledAt)) followed.set(workspaceId, settledAt)
+  } catch {
+    // Unreadable: nothing was followed, which costs at most one settle followed again.
+  }
+  return followed
+}
+
+/** The followed settles to keep: only those of rows still here, so a closed row's entry goes with it. */
+export function followedRemoteRestsToKeep(
+  followed: ReadonlyMap<string, number>,
+  workspaces: readonly Pick<Workspace, 'id' | 'remoteOrigin'>[],
+): string {
+  const kept: Record<string, number> = {}
+  for (const workspace of workspaces) {
+    const settledAt = followed.get(workspace.id)
+    if (workspace.remoteOrigin && settledAt !== undefined) kept[workspace.id] = settledAt
+  }
+  return JSON.stringify(kept)
 }
