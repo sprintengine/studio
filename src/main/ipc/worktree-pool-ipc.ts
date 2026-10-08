@@ -49,6 +49,11 @@ export function registerWorktreePoolIpc(
   ipcMain.handle(
     'worktree-pool:action',
     async (_, input: WorktreePoolActionInput): Promise<WorktreePoolActionResult> => {
+      if (input?.kind === 'release') {
+        return isString(input.leaseId)
+          ? pool.action({ kind: 'release', leaseId: input.leaseId })
+          : { ok: false, message: 'No lease named.' }
+      }
       if (!input || !isString(input.repoRoot) || !isString(input.slotId)) {
         return { ok: false, message: 'No worktree named.' }
       }

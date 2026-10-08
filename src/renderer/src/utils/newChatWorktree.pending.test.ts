@@ -43,9 +43,35 @@ function pendingChat(failure?: string): FakeWorkspace {
   }
 }
 
+const givenBack: unknown[] = []
+
 function stubWorktree(answer: () => Promise<unknown>) {
   ;(globalThis as { window?: unknown }).window = {
-    api: { getGitRepoRoot: async () => PROJECT, createGitWorktree: answer },
+    api: {
+      getGitRepoRoot: async () => PROJECT,
+      createGitWorktree: answer,
+      worktreePoolAction: async (input: unknown) => {
+        givenBack.push({ pool: input })
+        return { ok: true, message: null }
+      },
+      removeGitWorktree: async (input: unknown) => {
+        givenBack.push({ removed: input })
+        return { ok: true, data: {}, message: null }
+      },
+    },
+  }
+}
+
+/** An attempt whose worktree lands when the test says, with the answer it is given. */
+function heldWorktree() {
+  let land: (value: unknown) => void = () => undefined
+  stubWorktree(() => new Promise((resolve) => (land = resolve)))
+  return {
+    land: async (value: unknown) => {
+      // The attempt reaches the worktree call after its repository lookup.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      land(value)
+    },
   }
 }
 
@@ -53,6 +79,7 @@ afterEach(() => {
   ;(globalThis as { window?: unknown }).window = originalWindow
   state.workspaces = []
   writes.length = 0
+  givenBack.length = 0
 })
 
 test('the folder lands before the wait is cleared, so the chat is never folderless and ungated', async () => {
@@ -89,23 +116,60 @@ test('a chat pending with no attempt in this window reads as failed, never as pr
   )
 })
 
-test('Start in the project is refused while an attempt runs, and leaves nothing to make after it', async () => {
+test('Start in the project goes ahead while an attempt runs, and the worktree it lands with goes back to the pool', async () => {
   state.workspaces = [pendingChat()]
-  let land: (value: unknown) => void = () => undefined
-  stubWorktree(() => new Promise((resolve) => (land = resolve)))
+  const worktree = heldWorktree()
   const attempt = prepareNewChatWorktree('chat')
-  assert.equal(startPendingNewChatInProject('chat'), false, 'refused while the worktree may yet land')
-
-  // Settled as failed, the chat is started in the project; a retry asked of
-  // it afterwards (another window's button, say) has nothing left to make.
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  land({ ok: false, message: 'Could not fetch origin.' })
-  await attempt
-  assert.equal(startPendingNewChatInProject('chat'), true)
+  assert.equal(startPendingNewChatInProject('chat'), true, 'not held up by the attempt')
   assert.equal(state.workspaces[0]!.folderPath, PROJECT)
   assert.equal(state.workspaces[0]!.worktree, null)
+
   writes.length = 0
-  stubWorktree(async () => ({ ok: true, data: { path: `${PROJECT}-wt`, branch: 'agent/chat-3', baseRef: 'main' } }))
+  await worktree.land({
+    ok: true,
+    data: { path: `${PROJECT}-wt`, branch: 'agent/chat-1', baseRef: 'main', leaseId: 'lease-1' },
+  })
+  assert.equal(await attempt, false)
+  assert.deepEqual(writes, [], 'the chat stays in the project')
+  assert.deepEqual(givenBack, [{ pool: { kind: 'release', leaseId: 'lease-1' } }])
+
+  // A retry asked of it afterwards (another window's button, say) has nothing left to make.
+  stubWorktree(async () => ({ ok: true, data: { path: `${PROJECT}-wt2`, branch: 'agent/chat-2', baseRef: 'main' } }))
   assert.equal(await prepareNewChatWorktree('chat'), false, 'nothing pending: nothing made')
   assert.deepEqual(writes, [])
+})
+
+test('a fresh worktree made for a chat closed while it was being made is removed, with the checks a removal makes', async () => {
+  state.workspaces = [pendingChat()]
+  const worktree = heldWorktree()
+  const attempt = prepareNewChatWorktree('chat')
+  state.workspaces = []
+  await worktree.land({
+    ok: true,
+    data: { path: `${PROJECT}-wt`, branch: 'agent/chat-1', baseRef: 'main', leaseId: null },
+  })
+  assert.equal(await attempt, false)
+  assert.deepEqual(givenBack, [{ removed: { repoRoot: PROJECT, path: `${PROJECT}-wt` } }], 'not forced')
+})
+
+test('a worktree another machine made for a closed chat is left to the sweep there', async () => {
+  const chat = pendingChat()
+  chat.agents.agent!.chatPendingWorktree = { name: '', projectFolder: PROJECT, hostId: 'wsl:Ubuntu' } as never
+  state.workspaces = [chat]
+  const worktree = heldWorktree()
+  const attempt = prepareNewChatWorktree('chat')
+  state.workspaces = []
+  await worktree.land({ ok: true, data: { path: '/home/dev/app-wt', branch: 'agent/chat-1', baseRef: 'main' } })
+  assert.equal(await attempt, false)
+  assert.deepEqual(givenBack, [])
+})
+
+test('a worktree that could not be made leaves nothing to give back', async () => {
+  state.workspaces = [pendingChat()]
+  const worktree = heldWorktree()
+  const attempt = prepareNewChatWorktree('chat')
+  state.workspaces = []
+  await worktree.land({ ok: false, message: 'Could not fetch origin.' })
+  assert.equal(await attempt, false)
+  assert.deepEqual(givenBack, [])
 })

@@ -327,6 +327,19 @@ test('a lease nobody has been seen using is left alone for an hour; one seen in 
   )
 })
 
+test('a lease given back by the window that took it is returned at once, with no hour to wait', async () => {
+  const harness = makeService()
+  const leased = await lease(harness, 'closed-chat')
+  const released = await harness.service.action({ kind: 'release', leaseId: leased.leaseId })
+  assert.deepEqual(released, { ok: true, message: 'Returned to the pool.' })
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+  assert.equal(await lockReason(leased.path), null, 'unlocked')
+  assert.deepEqual(await harness.service.action({ kind: 'release', leaseId: leased.leaseId }), {
+    ok: false,
+    message: 'No such lease.',
+  })
+})
+
 test('a dirty return is held and locked, untouched until a person stashes', async () => {
   const harness = makeService()
   const leased = await lease(harness, 'dirty')
