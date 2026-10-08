@@ -118,6 +118,26 @@ export const COMMAND_REGISTRY = [
       action: 'nextWaitingChatId(...) -> sidebarSelectWorkspace(nextWorkspaceId) | toast',
     },
   }),
+  // Settle the chat on screen, or bring it back if it is settled: the row's
+  // Settle, from the keyboard. S for "settle"; ⌘⇧S is bound nowhere in the app
+  // or its modules, and a person reaches for it from a composer as they finish
+  // with a chat — but not from an editor or a terminal, where ⌘⇧S is Save As
+  // (`shellTakesChordFrom`). A chat whose agents are working is refused, as
+  // its row refuses it.
+  command({
+    id: 'chat.settle',
+    title: 'Settle chat, or bring it back',
+    category: 'workspace',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Shift+S'],
+    allowInEditableTarget: true,
+    availability: ['activeWorkspace'],
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspaceSidebar',
+      action: 'chatSettleStep(activeWorkspace) -> settleWorkspaceById | setWorkspaceSettled(id, false) | toast',
+    },
+  }),
   command({
     id: 'chat.newConversation',
     title: 'New conversation',

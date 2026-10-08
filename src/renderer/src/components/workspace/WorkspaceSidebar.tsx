@@ -103,6 +103,8 @@ import { workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { isSettledWorkspace } from '../../utils/workspaceSettle'
+import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
+import { chatSettleStep } from './chatSettleCommand'
 import { isSnoozedWorkspace, resolveSnoozePresets, snoozeWakeLabel, workspaceWokeAt } from '../../utils/workspaceSnooze'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 import { useScheduledAgents } from '../../store/scheduledAgentsStore'
@@ -1789,6 +1791,31 @@ function WorkspaceSidebar({
     for (const ws of workspaces) map.set(ws.id, ws)
     return map
   }, [workspaces])
+
+  // `chat.settle` (⌘⇧S), routed here by the window for the chat on screen: the
+  // same toggle as Settle in that row's menu, with the same hand-off.
+  const settleFromCommand = useStableCallback((id: WorkspaceId) => {
+    const workspace = workspaceById.get(id)
+    if (!workspace || id !== activeWorkspaceId) return
+    const step = chatSettleStep(workspace, rowIsWorking(id))
+    if (step === 'restore') setWorkspaceSettled(id, false)
+    else if (step === 'settle-remote') settleOpenedRemote(workspace)
+    else if (step === 'settle') settleWorkspaceById(id)
+    else
+      showToast({
+        tone: 'neutral',
+        title: `${workspace.name} is still working`,
+        description: 'It can be settled once its agents finish.',
+      })
+  })
+  useEffect(() => {
+    const onPanelCommand = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string; workspaceId?: string }>).detail
+      if (detail?.id === 'chat.settle' && detail.workspaceId) settleFromCommand(detail.workspaceId)
+    }
+    window.addEventListener(PANEL_COMMAND_EVENT, onPanelCommand)
+    return () => window.removeEventListener(PANEL_COMMAND_EVENT, onPanelCommand)
+  }, [settleFromCommand])
 
   // Seed / repair the single tab stop. When no row owns it (first paint) or the
   // owning row has left the DOM (folder collapsed, workspace closed), hand it to

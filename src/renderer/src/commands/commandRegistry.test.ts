@@ -166,3 +166,11 @@ test('command titles are in sentence case', () => {
     }
   }
 })
+
+test('the settle chord ships free of conflicts and reaches the chat from its composer', () => {
+  const settle = getCommandDefinition('chat.settle')
+  assert.deepEqual(settle?.defaultKeybindings, ['primary+shift+s'])
+  assert.deepEqual(settle?.availability, ['activeWorkspace'])
+  assert.equal(settle?.allowInEditableTarget, true)
+  assert.deepEqual(findKeybindingConflicts(settle!, COMMAND_REGISTRY), [])
+})

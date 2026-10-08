@@ -254,6 +254,7 @@ import { hasTerminalInstance } from '../../utils/diagnostics/terminalInstanceReg
 import { clearPaneAttachedHidden, paneAttachedHidden } from '../../utils/terminalPaneVisibility'
 import { shouldSendTerminalPaintVisibility } from './manager/terminalPaintVisibility'
 import { drawnSidebarChatIds, numberedChatIds } from './manager/numberedChats'
+import { shellTakesChordFrom } from '../../commands/keyTargetGate'
 import {
   closeActiveLayoutTab,
   cycleActiveLayoutTab,
@@ -3945,6 +3946,13 @@ export default function WorkspaceManager() {
         else setSidebarCollapsed(!sidebarCollapsed)
         return true
       }
+      if (commandId === 'chat.settle') {
+        // The chat on screen, which the sidebar settles the way its row would:
+        // it owns the hand-off to the next chat and the remote ask.
+        if (!windowActiveWorkspaceId || newChatPanelOpen || activeGlobalSurface) return false
+        dispatchPanelCommand(commandId, windowActiveWorkspaceId)
+        return true
+      }
       if (commandId === 'workspace.close' && windowActiveWorkspaceId) {
         closeWorkspaceById(windowActiveWorkspaceId)
         return true
@@ -4260,13 +4268,16 @@ export default function WorkspaceManager() {
     })
 
     const onKey = (event: KeyboardEvent) => {
-      const result = commandDispatcherRef.current.resolve(event, dispatcherContext(event))
+      const context = dispatcherContext(event)
+      const result = commandDispatcherRef.current.resolve(event, context)
       if (result.kind === 'unmatched') return
       if (result.kind === 'pending') {
         event.preventDefault()
         event.stopPropagation()
         return
       }
+      // A chord an editor or a terminal owns goes on to it (keyTargetGate.ts).
+      if (!shellTakesChordFrom(result.commandId, event.target, context.platform)) return
       if (runCommand(result.commandId)) {
         event.preventDefault()
         event.stopPropagation()
