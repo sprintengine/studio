@@ -13,6 +13,7 @@ import {
 import type { WslRunner } from '../../main/hosts/wsl-runner'
 import { WslSetupError } from '../../main/hosts/wsl-setup-error'
 import type { ServerBootstrapEnvelope } from '../bootstrap/envelope'
+import { backoffDelayMs } from '../../shared/exponentialBackoff'
 import { chatsAreWorking } from '../core/chats-working'
 import { connectRemoteConversationBackend, type RemoteConversationBackend } from './backend-wire'
 import { connectLoopback, openBridge } from './front-door-client'
@@ -133,6 +134,9 @@ const DEFAULT_PING_MS = 15_000
 const QUIT_DRAIN_MS = 10_000
 const CRASH_BACKOFF_BASE_MS = 2_000
 const CRASH_BACKOFF_MAX_MS = 30_000
+// A server that ran this long before it crashed was healthy: its crash starts
+// the backoff again from the bottom, rather than counting as one in a row.
+const HEALTHY_RUN_MS = 5 * 60_000
 // How long a server whose wire closed has to answer a ping before it is taken
 // for hung, and stopped with every chat it runs. A dead one is known sooner,
 // by its exit, so this is only ever waited out by a server that is alive but
@@ -159,6 +163,8 @@ type Handle = {
   token: string | null
   crashes: number
   retryAt: number
+  /** When the running server's start succeeded, for telling a crash in a row from one after a healthy run. */
+  startedAt: number
   idleTimer: ReturnType<typeof setTimeout> | null
   pingTimer: ReturnType<typeof setInterval> | null
   stopping: boolean
@@ -190,6 +196,7 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
         token: null,
         crashes: 0,
         retryAt: 0,
+        startedAt: 0,
         idleTimer: null,
         pingTimer: null,
         stopping: false,
@@ -446,8 +453,11 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       })
       return
     }
+    if (now() - handle.startedAt >= HEALTHY_RUN_MS) handle.crashes = 0
     handle.crashes++
-    const wait = Math.min(CRASH_BACKOFF_MAX_MS, CRASH_BACKOFF_BASE_MS * 2 ** (handle.crashes - 1))
+    const wait =
+      backoffDelayMs(handle.crashes - 1, { baseMs: CRASH_BACKOFF_BASE_MS, maxMs: CRASH_BACKOFF_MAX_MS }) ??
+      CRASH_BACKOFF_MAX_MS
     handle.retryAt = now() + wait
     // Why, as the exit says it: what the server printed while it worked
     // (a library's warnings) is not why it stopped.
@@ -510,7 +520,9 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       handle.pingTimer = setInterval(() => server.ping(), pingMs)
       handle.pingTimer.unref?.()
       const connection = await connectBackend(handle)
-      handle.crashes = 0
+      // Not a reset of the crash count: a server that crashes again soon after
+      // starting is the next crash in a row, and waits longer.
+      handle.startedAt = now()
       armIdle(handle)
       // What WSL calls a running distribution, in this PC's language, read
       // while this one surely runs; listing does not start the VM.

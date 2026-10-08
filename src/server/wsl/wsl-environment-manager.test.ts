@@ -453,6 +453,30 @@ test('a server killed under a running distribution is a crash; under a stopped o
   assert.match(shutDown.status('Ubuntu').reason ?? '', /WSL was shut down/u)
 })
 
+test('crashes in a row wait longer each time, and one after a healthy run starts the wait over', async () => {
+  const home = fakeHome('crash-backoff')
+  let clock = 1_000_000
+  const { manager: wsl } = manager({ homes: { Ubuntu: home }, now: () => clock })
+  const crash = async () => {
+    process.kill(readServerPid(home), 'SIGKILL')
+    await waitFor(() => wsl.status('Ubuntu').state === 'unavailable')
+  }
+  await wsl.connect('Ubuntu')
+  await crash()
+  await assert.rejects(wsl.connect('Ubuntu'), /tried again in 2 s/u)
+  clock += 2_000
+  await wsl.connect('Ubuntu')
+  // Started, and down again at once: the next crash in a row.
+  await crash()
+  await assert.rejects(wsl.connect('Ubuntu'), /tried again in 4 s/u)
+  clock += 4_000
+  await wsl.connect('Ubuntu')
+  // A run long enough to call healthy.
+  clock += 10 * 60_000
+  await crash()
+  await assert.rejects(wsl.connect('Ubuntu'), /tried again in 2 s/u)
+}, 60_000)
+
 test('a server started again while a crash is being looked into is not then said to have stopped', async () => {
   const home = fakeHome('crash-restart')
   const statuses: WslServerStatus[] = []
