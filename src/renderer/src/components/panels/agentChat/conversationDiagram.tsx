@@ -1,8 +1,9 @@
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import {
   appearanceKey,
   cachedDiagram,
   drawDiagram,
+  scopeDiagramIds,
   subscribeAppearance,
   type DiagramResult,
 } from '../../../lib/diagram/mermaidDiagram'
@@ -71,8 +72,14 @@ export function useDiagramDrawing(
   return { drawing: <DiagramSvg svg={result.svg} /> }
 }
 
+// Each copy on screen gets ids of its own (`scopeDiagramIds`); a count rather
+// than `useId`, which repeats from one React root to the next.
+let copies = 0
+
 // The SVG has been sanitized on its way out of the renderer
 // (`sanitizeDiagramSvg`), which is what makes setting it as markup safe.
 function DiagramSvg({ svg }: { svg: string }) {
-  return <div className="contents" dangerouslySetInnerHTML={{ __html: svg }} />
+  const [scope] = useState(() => `diagram-copy-${++copies}`)
+  const scoped = useMemo(() => scopeDiagramIds(svg, scope), [svg, scope])
+  return <div className="contents" dangerouslySetInnerHTML={{ __html: scoped }} />
 }

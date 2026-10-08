@@ -453,6 +453,40 @@ test('a question renders its markdown, and its options their inline marks', () =
   )
 })
 
+test('a choose-one question’s rows wear the kit’s radio mark, a choose-many one’s its checkbox', () => {
+  const card = (multiSelect: boolean) =>
+    new JSDOM(
+      renderToStaticMarkup(
+        <ConversationQuestionCard
+          requestId="q"
+          questions={[
+            {
+              question: 'Which scale?',
+              header: 'Scale',
+              options: [{ label: 'Compact' }, { label: 'Comfortable' }],
+              multiSelect,
+            },
+          ]}
+          onAnswer={() => undefined}
+          busy={false}
+        />,
+      ),
+    ).window.document
+  const one = card(false)
+  const rows = [...one.querySelectorAll('[role="radio"]')]
+  expect(rows.length).toBeGreaterThan(0)
+  for (const row of rows) {
+    const mark = row.querySelector('[data-radio-mark]')
+    expect(mark?.getAttribute('aria-hidden')).toBe('true')
+    // Round by the system's pill radius, not a hand-rolled `rounded-full`.
+    expect(mark?.className).toContain('rounded-[var(--sem-radius-pill)]')
+  }
+  expect(one.querySelector('.rounded-full')).toBeNull()
+  const many = card(true)
+  expect(many.querySelector('[data-radio-mark]')).toBeNull()
+  expect(many.querySelector('[role="menuitemcheckbox"] [aria-hidden="true"]')).not.toBeNull()
+})
+
 test('a plan can be copied, and a long one offers to show in full', () => {
   const short = renderToStaticMarkup(
     <ConversationPlanCard

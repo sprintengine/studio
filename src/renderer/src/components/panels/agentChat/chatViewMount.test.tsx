@@ -93,6 +93,23 @@ vi.mock('./imageAttachments', async (importOriginal) => ({
   }),
 }))
 
+// The composer's "+" menu, counted each time its memo lets a render through:
+// a wrapper with the same shallow comparison the menu's own memo makes.
+const plusMenuRenders = vi.hoisted(() => ({ count: 0 }))
+vi.mock('../../workspace/agentComposer/ComposerPlusMenu', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../workspace/agentComposer/ComposerPlusMenu')>()
+  const { createElement, memo } = await import('react')
+  return {
+    ...actual,
+    ComposerPlusMenu: memo(function CountedComposerPlusMenu(
+      props: import('react').ComponentProps<typeof actual.ComposerPlusMenu>,
+    ) {
+      plusMenuRenders.count++
+      return createElement(actual.ComposerPlusMenu, props)
+    }),
+  }
+})
+
 type SendTurn = (input: {
   mode?: string
   message?: string
@@ -1067,6 +1084,8 @@ test('the drop overlay leaves with the drag, however many rows it crossed or los
       drag('dragenter', composer)
     })
     expect(overlay()).toBe(true)
+    const drop = [...chat.host.querySelectorAll('div')].find((element) => element.textContent === 'Drop to attach')
+    expect(drop?.className, 'it floats on the layer for a tray over its pane').toContain('z-[var(--z-float)]')
     await chat.act(async () => drag('dragleave', composer, inside))
     expect(overlay(), 'moving within the panel keeps it').toBe(true)
     await chat.act(async () => drag('dragleave', composer, doc.body))
@@ -2022,6 +2041,137 @@ test('Retry after a failed resume from Studio asks again as the person, without 
     expect(sendTurn.mock.calls[0]?.[0]).toMatchObject({
       message: 'Continue where you left off — your usage limit has reset.',
     })
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('Retry after a failed turn on a launched agent’s news asks to carry on, rather than repeat the news as the person’s', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({
+    events: [
+      event('user_message', {
+        turnId: 't1',
+        text: '[SprintEngine Studio] Agent Builder, which you launched, finished its turn.',
+        origin: { kind: 'studio', reason: 'agent-notice' },
+      }),
+      event('turn_started', { turnId: 't1' }),
+      event('turn_failed', { turnId: 't1', reason: 'runtime' }),
+    ],
+    sendTurn,
+  })
+  try {
+    const retry = chat.button('Retry')
+    expect(retry, 'the failed turn offers Retry').toBeDefined()
+    await chat.act(async () => retry!.click())
+    expect(sendTurn).toHaveBeenCalledTimes(1)
+    expect(sendTurn.mock.calls[0]?.[0]).toMatchObject({ message: 'Continue.' })
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('Retry re-sends a failed message’s stored images', async () => {
+  const sent: Record<string, unknown>[] = []
+  const attachment = vi.fn(async () => ({ ok: true, mediaType: 'image/png', dataBase64: 'iVBORw0KGgo=' }))
+  const chat = await mountChat({
+    capabilities: { images: true },
+    sendTurn: async (input) => {
+      sent.push(input as Record<string, unknown>)
+      return { ok: true }
+    },
+    api: { conversationAttachment: attachment },
+    events: [
+      // Image-only: the stored message names its picture and carries no words.
+      event('user_message', {
+        turnId: 't1',
+        text: '',
+        attachments: [{ id: 'img-1', mediaType: 'image/png', ref: 'sha256-abc', byteLength: 8, name: 'shot.png' }],
+      }),
+      event('turn_started', { turnId: 't1' }),
+      event('turn_failed', { turnId: 't1', reason: 'runtime', message: 'Overloaded' }),
+    ],
+  })
+  try {
+    const retry = chat.button('Retry')
+    expect(retry, 'a Retry is offered').toBeDefined()
+    await chat.act(async () => retry!.click())
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(attachment).toHaveBeenCalledWith(expect.objectContaining({ ref: 'sha256-abc' }))
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.attachments).toEqual([
+      { id: 'img-1', mediaType: 'image/png', dataBase64: 'iVBORw0KGgo=', byteLength: 8, name: 'shot.png' },
+    ])
+  } finally {
+    await chat.unmount()
+  }
+})
+
+function answeredTurn(turnId: string, question: string, answer: string): ConversationEvent[] {
+  return [
+    event('user_message', { turnId, text: question }),
+    event('turn_started', { turnId }),
+    event('content_delta', { turnId, text: answer }),
+    event('turn_completed', { turnId }),
+  ]
+}
+
+test('Load earlier does not call the older replies it loads new; a reply finishing after it is', async () => {
+  const older = [...answeredTurn('o1', 'Old one', 'Old answer one.'), ...answeredTurn('o2', 'Old two', 'Old answer two.')]
+  const recent = answeredTurn('n1', 'New one', 'New answer.')
+  // Opened at its end, as a chat read to the end was left: a place remembered
+  // mid-history from another test would page the history in by itself.
+  const { rememberConversationScroll } = await import('./conversationViewState')
+  rememberConversationScroll('workspace:agent', { offset: 0, atEnd: true })
+  const chat = await mountChat({
+    events: recent,
+    folderPath: '/Users/dev/earlier',
+    api: {
+      conversationLoadEarlier: async () => ({ ok: true, page: { events: older, hasMore: false, beforeCursor: null } }),
+    },
+  })
+  try {
+    await chat.act(async () => {
+      chat.emit({ type: 'snapshot', page: { events: recent, hasMore: true, beforeCursor: recent[0]!.seq! } })
+      chat.emit({ type: 'synchronized', seq: recent.at(-1)!.seq! })
+    })
+    const load = chat.button('Load earlier')
+    expect(load, 'the older page is offered').toBeDefined()
+    await chat.act(async () => load!.click())
+    // Over the Studio protocol the page arrives a few turns later.
+    for (let turn = 0; turn < 50 && !chat.host.textContent?.includes('Old answer one.'); turn++)
+      await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
+    expect(chat.host.textContent).toContain('Old answer one.')
+    expect(chat.button('Jump to latest'), 'scrolled up into history, the pill only offers the way back').toBeDefined()
+    expect(chat.host.textContent).not.toMatch(/\d+ new repl/)
+    await chat.act(async () => {
+      for (const next of answeredTurn('n2', 'Next', 'Next answer.')) chat.emit({ type: 'event', event: next })
+    })
+    for (let turn = 0; turn < 50 && !chat.button('1 new reply'); turn++)
+      await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
+    expect(chat.button('1 new reply'), 'the one that finished since is news').toBeDefined()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('typing and a streamed reply leave the composer’s "+" menu as it was', async () => {
+  const chat = await mountChat({
+    capabilities: { images: true, skills: 'workspace' },
+    events: [
+      event('user_message', { turnId: 'live', text: 'And the other cache?' }),
+      event('turn_started', { turnId: 'live' }),
+    ],
+  })
+  try {
+    expect(chat.host.querySelector('[data-composer-options]')).not.toBeNull()
+    plusMenuRenders.count = 0
+    for (const draft of ['W', 'Wh', 'Why', 'Why n', 'Why not']) await chat.act(async () => chat.type(draft))
+    for (const text of ['The ', 'cache ', 'was ', 'keyed ', 'on the path.'])
+      await chat.act(async () => chat.emit({ type: 'event', event: event('content_delta', { turnId: 'live', text }) }))
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 60)))
+    expect(chat.host.textContent).toContain('keyed on the path.')
+    expect(plusMenuRenders.count).toBe(0)
   } finally {
     await chat.unmount()
   }

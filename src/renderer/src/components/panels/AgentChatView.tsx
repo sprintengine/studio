@@ -54,7 +54,7 @@ import {
   sortFiles,
   type DroppedFiles,
 } from '../../utils/imageFileTransfer'
-import { attachedFileName, attachedFilePaths, attachedFilesOf, workspaceRunsHere } from '../../utils/attachedFiles'
+import { attachedFileName, attachedFilesOf, workspaceRunsHere } from '../../utils/attachedFiles'
 import {
   attachmentCountLabel,
   attachmentPreviewUrl,
@@ -179,7 +179,7 @@ import { CompactGlyph } from './agentChat/toolRows/ToolKindGlyph'
 import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
 import { TimelineRow, type TimelineChrome } from './agentChat/timelineRows'
 import { UnreadDivider } from './agentChat/turnMeta'
-import type { EditFromHereDraft } from './agentChat/editFromHere'
+import { editFromHereDraft, type EditFromHereDraft } from './agentChat/editFromHere'
 import { forkChat, takeForkedAttachments, type ForkFromHereTarget } from './agentChat/forkFromHere'
 import { EmptyChatState, ReadinessState, readinessLabel, type ChatReadiness } from './agentChat/chatStates'
 import { ComposerActionButton, ComposerContextMenu, type ComposerMenuState } from './agentChat/composerControls'
@@ -293,6 +293,11 @@ const END_FOLLOW_TRIGGERS = { dataChange: true, itemLayout: true, layout: true }
 // Said on the composer when a settled chat's worktree could not be checked out
 // again; the toast that came with it says why (chatWorktreeRestore.ts).
 const WORKTREE_NOT_BACK = 'This chat’s worktree could not be brought back, so nothing can run in it.'
+
+// What Retry sends when the failed turn answered news Studio brought the chat:
+// the person asking the agent to carry on, in their own words, rather than the
+// news repeated as though they were reporting it.
+const RETRY_AFTER_STUDIO_NOTICE = 'Continue.'
 
 // Stable empty-catalog reference: returned for any provider whose live catalog
 // has not loaded so effects keyed on the derived list do not re-run each render.
@@ -759,9 +764,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const [anchoredUserId, setAnchoredUserId] = useState<string | null>(null)
   const chromeRef = useRef<TimelineChrome | null>(null)
   const composerRef = useRef<ComposerFieldHandle | null>(null)
-  // Completed assistant replies the user has "seen" (was at the bottom for);
-  // the jump pill counts completions past this baseline while scrolled up.
-  const repliesSeenRef = useRef(0)
+  // The newest completed reply the reader has seen: the latest one whenever
+  // they are at the end, and the latest the chat opened with until then. The
+  // jump pill counts the replies completed after it while scrolled up — after
+  // it in the transcript, so a page of older replies loaded above is not news.
+  const replySeenRef = useRef<{ turnId: string | null } | null>(null)
 
   // Resolve provider/model/key readiness from the conversation IPC.
   useEffect(() => {
@@ -1276,9 +1283,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     if (!conversation || !workspace || renamedFromModelRef.current || providers.length === 0) return
     if (!isModelDerivedChatName(agent?.name, conversation.modelId, derivedNameLabels)) return
     renamedFromModelRef.current = true
+    // The other agents' names as they are now: read once, here, rather than
+    // drawn from, so the chat does not redraw with every agent it sits beside.
+    const agents = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)?.agents
     updateBinding({
       name: pickRandomAgentName(
-        Object.entries(workspace.agents)
+        Object.entries(agents ?? {})
           .filter(([id]) => id !== agentId)
           .map(([, other]) => other.name),
       ),
@@ -2102,25 +2112,36 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
 
   // Retry re-sends the last user message. The projection's entries are the
   // authoritative source — after an app restart the message only exists in the
-  // replayed transcript, not in the local userTurns state.
+  // replayed transcript, not in the local userTurns state. Its images are read
+  // back from the store the transcript names them in, as Edit from here does:
+  // a stored message carries refs rather than the bytes, and an image-only
+  // message would otherwise retry as nothing at all.
   //
-  // When that message was Studio's own (a resume after a usage limit), the
-  // retry is the person asking the agent to carry on, and goes as theirs: a
-  // window cannot send as Studio, and repeating Studio's name in front would
-  // tell the agent Studio was speaking when the person was.
-  const retryLatestRef = useRef<() => void>(() => undefined)
-  retryLatestRef.current = () => {
+  // When that message was Studio's own, the retry is the person asking the
+  // agent to carry on, and goes as theirs: a window cannot send as Studio, and
+  // repeating Studio's name in front would tell the agent Studio was speaking
+  // when the person was. A resume after a usage limit already is that ask, so
+  // its words go without the name. A launched agent's news is not: sent as the
+  // person's, it would have them reporting what another agent did, so its
+  // retry is the plain ask to carry on.
+  const retryLatestRef = useRef<() => Promise<void>>(async () => undefined)
+  retryLatestRef.current = async () => {
     const lastUser = [...projection.entries]
       .reverse()
       .find((entry): entry is Extract<TranscriptEntry, { kind: 'user' }> => entry.kind === 'user')
-    if (lastUser)
-      void sendTurn(lastUser.origin ? withoutStudioNoticePrefix(lastUser.text) : lastUser.text, lastUser.attachments, {
-        skillIds: lastUser.skills ?? [],
-        mentions: lastUser.mentions ?? [],
-        files: attachedFilePaths(lastUser.files),
-      })
+    if (!lastUser) return
+    if (lastUser.origin && lastUser.origin.reason !== 'usage-resume') {
+      void sendTurn(RETRY_AFTER_STUDIO_NOTICE)
+      return
+    }
+    const message = await editFromHereDraft(lastUser, transport)
+    void sendTurn(lastUser.origin ? withoutStudioNoticePrefix(message.text) : message.text, message.attachments, {
+      skillIds: message.skills,
+      mentions: message.mentions,
+      files: message.files,
+    })
   }
-  const retry = useCallback(() => retryLatestRef.current(), [])
+  const retry = useCallback(() => void retryLatestRef.current(), [])
   // The composer's Retry repeats the send that failed. A failed send hands its
   // message back to the composer, so when the composer still holds it the retry
   // goes from there and empties it, as the first attempt did; edited since, the
@@ -2476,23 +2497,54 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     clientSupports('drag-paths')
 
   const skillInventory = useWorkspaceSkills(workspaceRoot, null, supportsSkills)
-  const attachedSkills = draftMetadata.skillIds.map(
-    (id): WorkspaceSkill =>
-      pickedSkills[id] ??
-      skillInventory.skills.find((skill) => skill.id === id) ?? {
-        id,
-        name: id,
-        source: 'custom',
-        harnesses: [],
-        installState: 'installed',
-      },
+  // Held from render to render, as the "+" menu that takes them is memoized:
+  // a list rebuilt each render redrew the menu on every keystroke and token.
+  const attachedSkills = useMemo(
+    () =>
+      draftMetadata.skillIds.map(
+        (id): WorkspaceSkill =>
+          pickedSkills[id] ??
+          skillInventory.skills.find((skill) => skill.id === id) ?? {
+            id,
+            name: id,
+            source: 'custom',
+            harnesses: [],
+            installState: 'installed',
+          },
+      ),
+    [draftMetadata.skillIds, pickedSkills, skillInventory.skills],
   )
-  const setAttachedSkills = (skills: WorkspaceSkill[]) => {
-    const ids = [...new Set(skills.map((skill) => skill.id))].slice(0, 32)
-    setPickedSkills((current) => ({ ...current, ...Object.fromEntries(skills.map((skill) => [skill.id, skill])) }))
-    updateBinding({ conversationSkills: ids })
-    setDraftMetadata((current) => ({ ...current, skillIds: ids }))
-  }
+  const setAttachedSkills = useCallback(
+    (skills: WorkspaceSkill[]) => {
+      const ids = [...new Set(skills.map((skill) => skill.id))].slice(0, 32)
+      setPickedSkills((current) => ({ ...current, ...Object.fromEntries(skills.map((skill) => [skill.id, skill])) }))
+      updateBinding({ conversationSkills: ids })
+      setDraftMetadata((current) => ({ ...current, skillIds: ids }))
+    },
+    [updateBinding, setDraftMetadata],
+  )
+  const plusMenuSkills = useMemo(
+    () =>
+      supportsSkills
+        ? {
+            workspaceRoot,
+            // A chat stages skills itself, so the workspace-wide inventory is
+            // its list; it reads no MCP servers.
+            pluginId: null,
+            skills: attachedSkills,
+            onSkillsChange: setAttachedSkills,
+            mcpServers: NO_MCP_SERVERS,
+            onMcpServersChange: ignoreMcpServers,
+            includeMcps: false,
+          }
+        : undefined,
+    [supportsSkills, workspaceRoot, attachedSkills, setAttachedSkills],
+  )
+  const removeDraftFile = useCallback(
+    (path: string) =>
+      setDraftMetadata((current) => ({ ...current, files: current.files.filter((entry) => entry !== path) })),
+    [setDraftMetadata],
+  )
   const removeContextTrigger = (range: { start: number; end: number }) => {
     setDraft((current) => current.slice(0, range.start) + current.slice(range.end))
     pendingCaretRef.current = range.start
@@ -2681,9 +2733,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     [chrome, flashRowId, hydrated, replayThroughSeq, unreadRowId],
   )
 
-  const completedReplies = shape.completedReplies
-  if (atBottom && repliesSeenRef.current !== completedReplies) repliesSeenRef.current = completedReplies
-  const newReplies = atBottom ? 0 : Math.max(0, completedReplies - repliesSeenRef.current)
+  const latestCompletedTurnId = shape.latestCompletedTurnId ?? null
+  if (hydrated && (atBottom || !replySeenRef.current) && replySeenRef.current?.turnId !== latestCompletedTurnId)
+    replySeenRef.current = { turnId: latestCompletedTurnId }
+  const newReplies =
+    atBottom || !replySeenRef.current ? 0 : repliesCompletedAfter(shapeEntries, replySeenRef.current.turnId)
   // Install trailing space in the same render as the optimistic prompt, before
   // the scroll effect runs. Otherwise a send from scrollback is clamped to the
   // old scroll range and leaves the new prompt at the bottom.
@@ -2982,13 +3036,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // or `gh` here.
   const createPullRequestCwd =
     transport.kind !== 'remote' && transport.capabilities.localFiles && !stripFacts.machine ? workspaceRoot : null
+  // A turn ending moves the transcript's shape, and a token never does: read
+  // when the shape moves, not on every streamed frame, which scanned back over
+  // the whole running turn's events each time.
   const lastTurnEnd = useMemo(() => {
     for (let index = events.length - 1; index >= 0; index -= 1) {
       const event = events[index]
       if (event.type === 'turn_completed' || event.type === 'turn_failed') return event.id
     }
     return ''
-  }, [events])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structureRevision])
   const [createPullRequestAsk, setCreatePullRequestAsk] = useState(0)
   const createPullRequestState = useCreatePullRequestState(
     // Not asked while the conversation owns an open pull request: the slot is that one's.
@@ -3363,7 +3421,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               {dropActive && !composerInputDisabled ? (
                 // Opaque, not a scrim: the field's own text ghosting through the
                 // drop state reads as a rendering artifact rather than a state.
-                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[var(--sem-radius-composer)] bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
+                <div className="pointer-events-none absolute inset-0 z-[var(--z-float)] flex items-center justify-center rounded-[var(--sem-radius-composer)] bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
                   Drop to attach
                 </div>
               ) : null}
@@ -3373,12 +3431,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 reading={attachingCount}
                 onRemove={removeAttachment}
                 files={draftMetadata.files}
-                onRemoveFile={(path) =>
-                  setDraftMetadata((current) => ({
-                    ...current,
-                    files: current.files.filter((entry) => entry !== path),
-                  }))
-                }
+                onRemoveFile={removeDraftFile}
                 className="px-5 pt-4"
               />
               {/* The files and folders @-mentioned into the draft. The skills
@@ -3519,21 +3572,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     placement="top-start"
                     onAttach={imagesEnabled || filesEnabled ? openFilePicker : undefined}
                     schedule={scheduleOption}
-                    skills={
-                      supportsSkills
-                        ? {
-                            workspaceRoot,
-                            // A chat stages skills itself, so the workspace-wide
-                            // inventory is its list; it reads no MCP servers.
-                            pluginId: null,
-                            skills: attachedSkills,
-                            onSkillsChange: setAttachedSkills,
-                            mcpServers: NO_MCP_SERVERS,
-                            onMcpServersChange: ignoreMcpServers,
-                            includeMcps: false,
-                          }
-                        : undefined
-                    }
+                    skills={plusMenuSkills}
                   />
                 ) : null}
                 {/* The tags: when the message is to go, then each skill attached to the next turn. */}
@@ -3785,7 +3824,7 @@ function transcriptShape(entries: readonly TranscriptEntry[]) {
   const promptHistory: string[] = []
   const checkpointSeqs = new Set<number>()
   let lastFailedTurnId: string | undefined
-  let completedReplies = 0
+  let latestCompletedTurnId: string | undefined
   let hasUserMessage = false
   let hasConversation = false
   for (const entry of entries) {
@@ -3799,7 +3838,7 @@ function transcriptShape(entries: readonly TranscriptEntry[]) {
     if (entry.kind !== 'assistant') continue
     hasConversation = true
     if (entry.status === 'failed') lastFailedTurnId = entry.turnId
-    if (entry.status === 'complete') completedReplies++
+    if (entry.status === 'complete') latestCompletedTurnId = entry.turnId
     if (entry.checkpointAvailable && entry.checkpointTurnSeq !== undefined) checkpointSeqs.add(entry.checkpointTurnSeq)
   }
   return {
@@ -3807,11 +3846,27 @@ function transcriptShape(entries: readonly TranscriptEntry[]) {
     promptHistory,
     checkpointSeqs,
     lastFailedTurnId,
-    completedReplies,
+    latestCompletedTurnId,
     hasUserMessage,
     hasConversation,
     latestTurnId: latestReplyTurnId(entries),
   }
+}
+
+// The replies completed after the one the reader last saw, counted back from
+// the end: a page of older history loaded above it adds none. A seen reply that
+// has left the transcript (the conversation went back past it) leaves nothing
+// to count from, so nothing is called new rather than everything; none seen at
+// all makes every completed reply new.
+export function repliesCompletedAfter(entries: readonly TranscriptEntry[], seenTurnId: string | null): number {
+  let count = 0
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index]!
+    if (entry.kind !== 'assistant') continue
+    if (seenTurnId !== null && entry.turnId === seenTurnId) return count
+    if (entry.status === 'complete') count++
+  }
+  return seenTurnId === null ? count : 0
 }
 
 // Model groups: one per provider, merging each provider's own live catalog

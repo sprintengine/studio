@@ -80,6 +80,15 @@ test('a reply draws its mermaid block only once the message has settled', async 
   expect(container.querySelector('[data-code-language="mermaid"]')).not.toBeNull()
 })
 
+test('the same diagram shown twice is drawn once, and each copy has ids of its own', async () => {
+  act(() => root.render(<ConversationMarkdown text={`${diagram('Twice')}\n\nAgain:\n\n${diagram('Twice')}`} />))
+  await settleUntil(() => container.querySelectorAll('[data-diagram]').length === 2)
+  expect(mermaid.drawn).toHaveLength(1)
+  const ids = [...container.querySelectorAll('[data-diagram]')].map((svg) => svg.id)
+  expect(ids).toHaveLength(2)
+  expect(ids[0]).not.toBe(ids[1])
+})
+
 test('Show source swaps the drawing for its source and back', async () => {
   act(() => root.render(<ConversationMarkdown text={diagram('Toggle')} />))
   await settle()

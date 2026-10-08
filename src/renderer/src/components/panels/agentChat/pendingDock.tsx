@@ -13,7 +13,7 @@ import {
   SplitButton,
   InlineNotice,
 } from '../../ui'
-import { CheckboxBox } from '../../ui/Checkbox'
+import { CheckboxBox, RadioMark } from '../../ui/Checkbox'
 import { type TranscriptEntry } from './conversationProjection'
 import { toolObject } from './conversationTimeline'
 import { ConversationFileLink, ConversationMarkdown } from './conversationLinks'
@@ -201,23 +201,6 @@ export function DockShell({
         <div className="ml-auto flex shrink-0 gap-2">{actions}</div>
       </div>
     </div>
-  )
-}
-
-// The single-answer twin of `CheckboxBox`: the same size, border and accent,
-// round. Decorative — the row's `aria-checked` carries the state.
-function RadioDot({ checked }: { checked: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`inline-flex size-icon-sm items-center justify-center rounded-full border transition-colors ${
-        checked
-          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)]'
-          : 'border-[color:var(--border-default)] bg-[color:var(--bg-app)]'
-      }`}
-    >
-      {checked ? <span className="size-1.5 rounded-full bg-[color:var(--text-on-accent)]" /> : null}
-    </span>
   )
 }
 
@@ -730,13 +713,13 @@ export function ConversationQuestionCard({
               selected={checked}
               disabled={busy}
               onClick={() => toggleOption(option.label)}
-              // The marker says what kind of answer this is — a dot for one, a
+              // The marker says what kind of answer this is — a radio for one, a
               // box for several — not which digit picks it. The digits still
               // work; a numbered square on every row was a key hint by another
               // name, and the only square corner on a card of rounded ones.
               icon={
                 <span className="mt-0.5 flex shrink-0">
-                  {question.multiSelect ? <CheckboxBox checked={checked} /> : <RadioDot checked={checked} />}
+                  {question.multiSelect ? <CheckboxBox checked={checked} /> : <RadioMark checked={checked} />}
                 </span>
               }
             >

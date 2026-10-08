@@ -143,3 +143,57 @@
 .ds-checkbox-input[aria-readonly='true'] {
   cursor: default;
 }
+
+/* ── Radio mark (2026-10-08) ─────────────────────────────────────────────
+ * The box's single-answer twin: the same size, border, well and accent
+ * fill, fully round, with a disc where the tick would be. Only the picture:
+ * the row it sits in is the `role="radio"` and carries `aria-checked`, so the
+ * mark is aria-hidden and never met twice. There is no radio control here — a
+ * choose-one list of rows is a radiogroup of rows. */
+.ds-radio-mark {
+  display: inline-flex;
+  flex: none;
+  box-sizing: border-box;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-app);
+  color: var(--sem-color-text-on-accent);
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-radio-mark--checked {
+  border-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-accent-primary);
+}
+
+.ds-radio-mark-disc {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* The demo's row: the mark and its label, the row being the control. */
+.ds-radio-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+  cursor: pointer;
+}
+
+.ds-radio-row:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-radio-mark {
+    transition: none;
+  }
+}
