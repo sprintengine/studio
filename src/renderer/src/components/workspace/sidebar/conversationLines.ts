@@ -47,12 +47,24 @@ export function conversationsWithTabs(
 }
 
 export function conversationLineText(summary: ConversationSessionSummary): string {
-  const phase = conversationSummaryPhase(summary)
+  return chatLineText(conversationSummaryPhase(summary), summary)
+}
+
+/**
+ * What a chat's line says in its phase: the wait that needs a person, the tool
+ * a running turn is in, else the opening of the agent's last reply. One
+ * wording for a chat held here and one listed by a paired machine, so the two
+ * rows read alike.
+ */
+export function chatLineText(
+  phase: ConversationPhase,
+  said: { currentToolTitle?: string | null; lastAssistantText?: string | null },
+): string {
   if (phase === 'waiting_for_approval') return 'Needs approval'
   if (phase === 'waiting_for_input') return 'Asked a question'
   if (phase === 'failed') return 'Failed'
-  if (phase === 'running') return summary.currentToolTitle?.trim() || 'Thinking'
-  return cachedReplyPreviewText(summary.lastAssistantText ?? '') || (phase === 'starting' ? 'Starting' : 'Ready')
+  if (phase === 'running') return said.currentToolTitle?.trim() || 'Thinking'
+  return cachedReplyPreviewText(said.lastAssistantText ?? '') || (phase === 'starting' ? 'Starting' : 'Ready')
 }
 
 // The last few replies' previews. A row redraws its line far more often than

@@ -86,6 +86,7 @@ import {
   attachedConversations,
   buildRemoteBand,
   openSpecOfConversation,
+  remoteFinishUnseen,
   remoteConversationTitle,
   followedRemoteRestsToKeep,
   FOLLOWED_REMOTE_RESTS_KEY,
@@ -149,6 +150,7 @@ import {
   ScheduledRunGlyph,
   RowTooltip,
   RowTooltipsSuppressed,
+  SETTLE_TICK_GLYPH,
   ShelfFoldRow,
   WorkingElapsed,
   type FlatProjectLine,
@@ -2156,6 +2158,7 @@ function WorkspaceSidebar({
   const stableHandleClose = useStableCallback(handleClose)
   const stableSetWorkspaceSnoozed = useStableCallback(setWorkspaceSnoozed)
   const stableSettleWorkspaceById = useStableCallback(settleWorkspaceById)
+  const stableSettleOpenedRemote = useStableCallback(settleOpenedRemote)
   const stableSetWorkspaceSettled = useStableCallback(setWorkspaceSettled)
   const stableOpenPaneTab = useStableCallback(openPaneTab)
   const stableSetRovingKey = useStableCallback(setRovingKey)
@@ -2178,6 +2181,7 @@ function WorkspaceSidebar({
       handleClose: stableHandleClose,
       setWorkspaceSnoozed: stableSetWorkspaceSnoozed,
       settleWorkspaceById: stableSettleWorkspaceById,
+      settleOpenedRemote: stableSettleOpenedRemote,
       setWorkspaceSettled: stableSetWorkspaceSettled,
       openPaneTab: stableOpenPaneTab,
       setRovingKey: stableSetRovingKey,
@@ -2202,6 +2206,7 @@ function WorkspaceSidebar({
       stableHandleClose,
       stableSetWorkspaceSnoozed,
       stableSettleWorkspaceById,
+      stableSettleOpenedRemote,
       stableSetWorkspaceSettled,
       stableOpenPaneTab,
       stableSetRovingKey,
@@ -2268,6 +2273,7 @@ function WorkspaceSidebar({
         }
         isTabDropTarget={tabDropTarget?.kind === 'workspace' && tabDropTarget.id === workspace.id}
         rowConversation={remoteConversationByWorkspace.get(workspace.id) ?? null}
+        remoteSettle={remoteKeepsRest(workspace)}
         liveSessions={sessionsByWorkspaceId.get(workspace.id) ?? NO_SESSIONS}
         peekSessions={peekSessionsByWorkspaceId.get(workspace.id) ?? NO_SESSIONS}
         conversationSessions={conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS}
@@ -2288,35 +2294,113 @@ function WorkspaceSidebar({
   // A conversation on a paired machine that no workspace here is attached to.
   //
   // The same row a local chat gets (owner, 2026-09-11): its own title, a line
-  // per agent in it, and — in the flat stream — the project line above it, with
-  // the same glyph in the same hue the project wears everywhere else. What is
-  // different is said in one mark: the green machine glyph beside the project's
-  // folder icon, naming the device on hover. Opening it attaches a pane here.
+  // per agent in it saying what a local chat's line says, and — in the flat
+  // stream — the project line above it, with the same glyph in the same hue
+  // the project wears everywhere else. What is different is said in one mark:
+  // the machine glyph beside the project's folder icon, naming the device on
+  // hover. Opening it attaches a pane here.
   //
   // No drag, rename, or close: those are a workspace's, and this row has none
-  // until it is opened.
+  // until it is opened. Settle is the chat's, and its machine keeps it, so
+  // the seat offers the same tick a local row does wherever that machine may
+  // be asked (`RemoteSessionRow.lifecycle`).
   //
   // The seat and the surface are the local rows' own (owner ruling
   // 2026-09-05): the working mark with how long the turn has run, the gold
-  // surface for a turn waiting on a person, a quiet time since an idle row
-  // last worked. No status dot — that vocabulary was already spoken for.
+  // surface for a turn waiting on a person, the green one for a finish nobody
+  // has seen, a quiet time since an idle row last worked. No status dot —
+  // that vocabulary was already spoken for.
   const renderRemoteConversationRow = (
     conversation: RemoteConversation,
     options?: { flatProject?: FlatProjectLine },
   ) => {
     const rowKey = `remote-session-${conversation.key}`
     const open = () => onOpenRemoteSession?.(openSpecOfConversation(conversation))
+    const agent = conversation.agents[0]!
     const needsAttention = conversation.activity === 'needs-input'
+    const unseenDone = !needsAttention && conversation.agents.some(remoteFinishUnseen)
+    const working = conversation.activity === 'working'
     const flatProject = options?.flatProject ?? null
     const surface = needsAttention
       ? attentionRowClass(false)
-      : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
+      : unseenDone
+        ? doneRowClass(false)
+        : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
     const lines = conversation.agents.map(lineOfRemoteRow)
+    const machine: RowMachine = {
+      ref: { kind: 'paired', name: conversation.machineName },
+      name: conversation.machineName,
+    }
+    // The local rows' hover-and-focus-revealed actions, in the same place:
+    // "More actions", then Settle, which waits while the agent works.
+    const actions = (
+      <span className="pointer-events-none absolute inset-y-0 right-0 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+        <Tooltip content="More actions">
+          <IconButton
+            onClick={(event) => {
+              event.stopPropagation()
+              const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
+              setRemoteMenu({ key: conversation.key, x: bounds.right, y: bounds.bottom })
+            }}
+            tone="quiet"
+            aria-label="Chat actions"
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
+              <circle cx="3.5" cy="8" r="1.2" />
+              <circle cx="8" cy="8" r="1.2" />
+              <circle cx="12.5" cy="8" r="1.2" />
+            </svg>
+          </IconButton>
+        </Tooltip>
+        {agent.lifecycle ? (
+          <Tooltip content={working ? 'Settle once its agents finish' : 'Settle'}>
+            <IconButton
+              onClick={(event) => {
+                event.stopPropagation()
+                if (working) return
+                settleRemoteConversation(conversation)
+              }}
+              tone="quiet"
+              aria-disabled={working || undefined}
+              aria-label={`Settle ${conversation.title}`}
+            >
+              {SETTLE_TICK_GLYPH}
+            </IconButton>
+          </Tooltip>
+        ) : null}
+      </span>
+    )
+    // The flat stream's seat rides the project line, as a local row's does;
+    // in the tree the first agent line's own seat carries the actions.
+    const idleSince = lines[0]!.idleSince
+    const idleText = !working && idleSince !== null ? formatRelativeMs(idleSince, now) : ''
+    const flatSeat = (
+      <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
+        <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+          {working ? (
+            <>
+              <WorkingMark label={activityLabel('working')} seed={conversation.key} />
+              {lines[0]!.workingSince !== null ? <WorkingElapsed since={lines[0]!.workingSince} /> : null}
+            </>
+          ) : idleText ? (
+            <RowTooltip
+              content={`Idle ${formatRelativeMsAgo(idleSince, now)} (${new Date(idleSince!).toLocaleString()})`}
+            >
+              <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
+                <span aria-hidden="true">{idleText}</span>
+                <span className="sr-only">Idle {formatRelativeMsAgo(idleSince, now)}</span>
+              </span>
+            </RowTooltip>
+          ) : null}
+        </span>
+        {actions}
+      </span>
+    )
     return (
       <div
         key={rowKey}
         data-row-key={rowKey}
-        data-remote-session={conversation.agents[0]!.sessionId}
+        data-remote-session={agent.sessionId}
         data-remote-conversation={conversation.key}
         data-remote-activity={conversation.activity}
         tabIndex={rovingKey === rowKey ? 0 : -1}
@@ -2337,60 +2421,39 @@ function WorkspaceSidebar({
         role="treeitem"
       >
         {flatProject ? (
-          <ProjectLine
-            project={flatProject}
-            machine={{ ref: { kind: 'paired', name: conversation.machineName }, name: conversation.machineName }}
-          />
+          <ProjectLine project={flatProject} machine={machine}>
+            {flatSeat}
+          </ProjectLine>
         ) : null}
+        <AttentionPulse active={needsAttention} resetKey={conversation.key} />
+        <AttentionPulse active={unseenDone} resetKey={conversation.key} tone="good" />
         <div className="flex min-w-0 items-center gap-2">
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
             {/* In the tree the project header is above and carries no machine,
                 so the row wears the glyph; in the flat stream the project line
                 already wears it, right of the folder icon. */}
-            {flatProject ? null : (
-              <MachineRowGlyph
-                machine={{ ref: { kind: 'paired', name: conversation.machineName }, name: conversation.machineName }}
-              />
-            )}
-            {/* Weight marks a running turn, the way residency bolds a local row. */}
+            {flatProject ? null : <MachineRowGlyph machine={machine} />}
+            {/* Weight marks a running turn, or one that wants you, the way
+                `workspaceRowEmphasis` weights a local row. */}
             <TruncatedText
               as="span"
               text={conversation.title}
-              className={`min-w-0 flex-1 ${conversation.activity === 'working' ? 'font-semibold' : ''}`}
+              className={`min-w-0 flex-1 ${working || needsAttention || unseenDone ? 'font-semibold' : ''}`}
             />
             <span className="sr-only"> (on {conversation.machineName}, not open here)</span>
             {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
-          </span>
-          {/* The local rows' "More actions" button, revealed the same way:
-              on hover, and when keyboard focus is in the row. */}
-          <span className="pointer-events-none inline-flex shrink-0 items-center opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-            <Tooltip content="More actions">
-              <IconButton
-                onClick={(event) => {
-                  event.stopPropagation()
-                  const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
-                  setRemoteMenu({ key: conversation.key, x: bounds.right, y: bounds.bottom })
-                }}
-                tone="quiet"
-                aria-label="Chat actions"
-              >
-                <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
-                  <circle cx="3.5" cy="8" r="1.2" />
-                  <circle cx="8" cy="8" r="1.2" />
-                  <circle cx="12.5" cy="8" r="1.2" />
-                </svg>
-              </IconButton>
-            </Tooltip>
+            {unseenDone ? <span className="sr-only"> (finished while you were away)</span> : null}
           </span>
         </div>
-        {/* One line per agent, the way a local chat draws its terminals.
+        {/* One line per agent, the way a local chat draws its chats.
             `disambiguate` is what makes a row of three say WHICH of them is
             the one waiting on a person. */}
-        {lines.map((line) => (
+        {lines.map((line, index) => (
           <TerminalLineView
             key={line.key}
             line={line}
             now={now}
+            seatOverlay={index === 0 && !flatProject ? actions : undefined}
             disambiguate={lines.length > 1}
             rowOwnsStatus={flatProject !== null}
           />
@@ -3447,6 +3510,7 @@ type WorkspaceRowHandlers = {
   handleClose: (workspaceId: WorkspaceId) => void
   setWorkspaceSnoozed: (workspaceId: WorkspaceId, until: number | null) => void
   settleWorkspaceById: (workspaceId: WorkspaceId) => void
+  settleOpenedRemote: (workspace: Workspace) => void
   setWorkspaceSettled: (workspaceId: WorkspaceId, settled: boolean) => void
   openPaneTab: ReturnType<typeof useWorkspaceStore.getState>['openPaneTab']
   setRovingKey: (key: string) => void
@@ -3483,6 +3547,8 @@ type WorkspaceRowProps = {
   dropMark: 'before' | 'after' | null
   isTabDropTarget: boolean
   rowConversation: RemoteConversation | null
+  /** A chat born on a paired machine that keeps its rest, so the seat's tick asks it to settle (`remoteKeepsRest`). */
+  remoteSettle: boolean
   liveSessions: TerminalSessionSnapshot[]
   peekSessions: TerminalSessionSnapshot[]
   conversationSessions: readonly ConversationSessionSummary[]
@@ -3519,6 +3585,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   dropMark,
   isTabDropTarget,
   rowConversation,
+  remoteSettle,
   liveSessions,
   peekSessions,
   conversationSessions,
@@ -3538,6 +3605,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     handleClose,
     setWorkspaceSnoozed,
     settleWorkspaceById,
+    settleOpenedRemote,
     setWorkspaceSettled,
     openPaneTab,
     setRovingKey,
@@ -3749,8 +3817,10 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     hasLiveLines: rowLines.lines.length > 0,
     conversation: rowConversationPullRequests,
   })
-  // Settle waits while an agent in the chat works (`settleWorkspaceById`).
-  const settleBlocked = workspaceIsWorking(activity, conversationSessions, liveSessions)
+  // Settle waits while an agent in the chat works (`settleWorkspaceById`), here
+  // or, for a chat born on a paired machine, over there.
+  const settleBlocked =
+    workspaceIsWorking(activity, conversationSessions, liveSessions) || rowConversation?.activity === 'working'
   const tabbedConversations = useMemo(
     () => conversationsWithTabs(conversationSessions, workspace.layoutModel),
     [conversationSessions, workspace.layoutModel],
@@ -3829,10 +3899,12 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
             (owner ruling 2026-09-05). The tick's SHAPE says done; it does
             not need the tone to say it.
 
-            A row born on a paired machine keeps the ✕: rest is a state a
-            chat enters on this disk, so it has nothing to settle into — the
-            same rule the menu's Settle entry follows. */}
-        {workspace.remoteOrigin ? (
+            A row born on a paired machine settles the same way when its
+            machine keeps its chats' rest: the tick asks the machine, and the
+            row goes once it has said yes (`settleOpenedRemote`), the rule
+            the menu's Settle entry follows. One whose machine keeps no rest
+            has nothing to settle into, and keeps the ✕. */}
+        {workspace.remoteOrigin && !remoteSettle ? (
           <Tooltip content="Close workspace">
             <IconButton
               onClick={(event) => {
@@ -3932,24 +4004,14 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
               onClick={(event) => {
                 event.stopPropagation()
                 if (settleBlocked) return
-                settleWorkspaceById(workspace.id)
+                if (workspace.remoteOrigin) settleOpenedRemote(workspace)
+                else settleWorkspaceById(workspace.id)
               }}
               tone="quiet"
               aria-disabled={settleBlocked || undefined}
               aria-label={`Settle ${workspace.name}`}
             >
-              {/* `CheckIcon`'s geometry (24-grid, M5 12.5L10 17L19 7.5)
-                  brought onto the 16-grid at its 1.4 stroke and inset to the
-                  12×12 live area. */}
-              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                <path
-                  d="M3.75 8.5L6.5 11.25L12.25 5.25"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              {SETTLE_TICK_GLYPH}
             </IconButton>
           </Tooltip>
         )}

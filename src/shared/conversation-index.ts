@@ -17,6 +17,10 @@ export type ConversationThread = {
   // transcript's own events. Absent for a chat whose agent has not finished
   // one. Not `updatedAt`, which every event moves.
   lastTurnEndedAt?: number
+  // The opening of the agent's last reply, as the runtime's session keeps it
+  // (`lastAssistantText`): the sidebar's preview for a chat no session holds.
+  // Empty once the person has written again, until the agent answers.
+  lastAssistantText?: string
 }
 export type ConversationSearchInput = ConversationWorkspaceKey & { query: string; requestId?: string }
 export type ConversationSearchHit = { agentId: string; seq: number; turnId?: string; snippet: string }

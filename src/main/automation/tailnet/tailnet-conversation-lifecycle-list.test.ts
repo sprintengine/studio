@@ -137,6 +137,49 @@ test('the turn end is the later of the transcript’s and a session’s, never `
   assert.equal('lastTurnEndedAt' in byWorkspace.get('b')!, false)
 })
 
+test('a chat previews its last reply: the newest session’s reading, else the transcript’s', async () => {
+  const host = hostFor({
+    threads: {
+      held: [indexed('agent-1', { lastAssistantText: 'From the transcript' })],
+      cold: [indexed('agent-1', { lastAssistantText: 'Done — the tests pass.' })],
+      asked: [indexed('agent-1', { lastAssistantText: 'An earlier answer' })],
+    },
+    sessions: [
+      session('held', 'agent-1', { lastAssistantText: 'Older', updatedAt: 5 }),
+      session('held', 'agent-1', { sessionId: 'conv-held-2', lastAssistantText: 'Fresh reply', updatedAt: 9 }),
+      // The person has written since that reply: nothing to preview until the agent answers.
+      session('asked', 'agent-1', { lastAssistantText: '', updatedAt: 9 }),
+    ],
+    records: {
+      held: { name: 'Held', createdAt: 1 },
+      cold: { name: 'Cold', createdAt: 1 },
+      asked: { name: 'Asked', createdAt: 1 },
+    },
+  })
+  const listed = await host.list()
+  const byWorkspace = new Map(listed.map((thread) => [thread.workspaceId, thread]))
+  assert.equal(byWorkspace.get('held')?.lastAssistantText, 'Fresh reply')
+  assert.equal(byWorkspace.get('cold')?.lastAssistantText, 'Done — the tests pass.')
+  assert.equal('lastAssistantText' in byWorkspace.get('asked')!, false)
+
+  // The client keeps a readable preview, cuts a long one, and drops the rest.
+  const wire = JSON.parse(JSON.stringify(listed)) as Array<Record<string, unknown>>
+  const parsed = parseConversationServerFrame({
+    type: 'sessions',
+    requestId: 'list',
+    sessions: [
+      { ...wire[0], agentId: 'long', lastAssistantText: 'y'.repeat(500) },
+      { ...wire[0], agentId: 'blank', lastAssistantText: '   ' },
+      { ...wire[0], agentId: 'number', lastAssistantText: 7 },
+    ],
+  })
+  assert.ok(parsed?.type === 'sessions')
+  const [long, blank, number] = parsed.sessions
+  assert.equal(long?.lastAssistantText?.length, 240)
+  assert.equal('lastAssistantText' in blank!, false)
+  assert.equal('lastAssistantText' in number!, false)
+})
+
 test('a chat with nothing true to say leaves the members out rather than sending empties', async () => {
   const host = hostFor({
     threads: { chat: [indexed('agent-1')], unknown: [indexed('agent-1')] },

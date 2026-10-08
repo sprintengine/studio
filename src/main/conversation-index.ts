@@ -10,6 +10,7 @@ import {
   writeConversationStorage,
 } from './conversation-persistence'
 import { workspaceSidecarPath } from './workspace-sidecar'
+import { CONVERSATION_MAX_REPLY_PREVIEW } from '../../packages/conversation-protocol/src/public'
 import {
   readConversationMessageOrigin,
   type ConversationEvent,
@@ -25,8 +26,10 @@ import type {
 type Fingerprint = { file: string; size: number; mtime: number }
 // 3 since a row carries `lastTurnEndedAt`: a version 2 cache has rows read
 // before it was kept, so it is read again once rather than trusted, and every
-// chat that ever finished a turn says when.
-const INDEX_VERSION = 3
+// chat that ever finished a turn says when. 4 since it carries
+// `lastAssistantText`, for the same reason: every chat that has a reply
+// previews it.
+const INDEX_VERSION = 4
 type Index = { version: typeof INDEX_VERSION; threads: ConversationThread[]; files: Fingerprint[] }
 /**
  * One transcript's row as it stood after reading the file up to `offset` (the
@@ -473,6 +476,19 @@ function foldEvent(fold: ThreadFold, event: ConversationEvent): void {
     if (typeof cost === 'number' && Number.isFinite(cost) && cost >= 0)
       fold.costs.set(text(event.payload?.turnId) || event.id, cost)
   }
+  // The opening of the last reply, kept as the runtime's session keeps it: a
+  // message from the person with words, or one Studio sent, starts the next
+  // reply afresh; an image-only message from the person does not.
+  if (
+    event.type === 'user_message' &&
+    (readConversationMessageOrigin(event.payload?.origin) || typeof event.payload?.text === 'string')
+  )
+    thread.lastAssistantText = ''
+  else if (event.type === 'content_delta' && typeof event.payload?.text === 'string')
+    thread.lastAssistantText = ((thread.lastAssistantText ?? '') + event.payload.text).slice(
+      0,
+      CONVERSATION_MAX_REPLY_PREVIEW,
+    )
   if (event.type === 'user_message') {
     fold.turns.add(text(event.payload?.turnId) || event.id)
     // A message Studio sent the chat is not what the person opened it with.
@@ -532,6 +548,7 @@ async function readIndex(root: string, path: string): Promise<Index | null> {
           Number.isSafeInteger(item.turnCount) &&
           Number.isSafeInteger(item.lastSeq) &&
           (item.lastTurnEndedAt === undefined || Number.isFinite(item.lastTurnEndedAt)) &&
+          (item.lastAssistantText === undefined || typeof item.lastAssistantText === 'string') &&
           (item.totalCostUsd === undefined ||
             (typeof item.totalCostUsd === 'number' && Number.isFinite(item.totalCostUsd) && item.totalCostUsd >= 0)) &&
           ['first-message', 'user', 'generated'].includes(text(item.titleSource))

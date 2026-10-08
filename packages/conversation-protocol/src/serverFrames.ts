@@ -93,7 +93,18 @@ export type ConversationThread = Omit<ConversationWireThread, 'capabilities'> & 
    * never marked unread.
    */
   visitRewoundAt?: number
+  /**
+   * The opening of the agent's last reply, as the desktop's own sidebar
+   * previews it under the chat's title: the reply's first characters as
+   * written, markdown and all, at most `CONVERSATION_MAX_REPLY_PREVIEW`. Absent
+   * from a desktop built before it was listed, and for a chat whose agent has
+   * not replied since the person last wrote.
+   */
+  lastAssistantText?: string
 }
+
+/** The most characters of a reply's opening a listed chat carries. */
+export const CONVERSATION_MAX_REPLY_PREVIEW = 240
 
 /**
  * The machine a listed chat runs on, or the desktop itself.
@@ -308,6 +319,12 @@ function thread(value: unknown): ConversationThread | null {
   const host = value.host === undefined ? null : parseConversationWireHost(value.host)
   const pullRequests = value.pullRequests === undefined ? null : parseConversationWirePullRequests(value.pullRequests)
   const chatTitle = text(value.chatTitle, 2_000) && value.chatTitle.trim() ? value.chatTitle : null
+  // A preview past its length is cut rather than refused: it is a sidebar's
+  // line, and the row is worth more than the words.
+  const lastAssistantText =
+    typeof value.lastAssistantText === 'string' && value.lastAssistantText.trim()
+      ? value.lastAssistantText.slice(0, CONVERSATION_MAX_REPLY_PREVIEW)
+      : null
   return {
     ...listed,
     title: value.title,
@@ -338,6 +355,7 @@ function thread(value: unknown): ConversationThread | null {
     ...(clock(value.lastTurnEndedAt) ? { lastTurnEndedAt: value.lastTurnEndedAt } : {}),
     ...(clock(value.lastVisitedAt) ? { lastVisitedAt: value.lastVisitedAt } : {}),
     ...(clock(value.visitRewoundAt) ? { visitRewoundAt: value.visitRewoundAt } : {}),
+    ...(lastAssistantText ? { lastAssistantText } : {}),
     ...(flags
       ? {
           capabilities: {
