@@ -1305,6 +1305,38 @@ test('worktree.lease serves only an agent Studio started, and only that agent ca
   assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
 })
 
+test('worktree.lease runs the project’s opted-in install before answering, and says how it went', async () => {
+  const harness = makeService()
+  const asked: Array<{ repoRoot: string; path: string; branch: string }> = []
+  const tools = createWorktreePoolTools({
+    pool: harness.service,
+    findWorkspace: () => ({ folderPath: repo }),
+    installDependencies: async (request) => {
+      asked.push(request)
+      return {
+        id: 'i1',
+        repoRoot: request.repoRoot,
+        path: request.path,
+        branch: request.branch,
+        command: 'npm ci',
+        reason: 'first',
+        state: 'succeeded',
+        startedAt: 0,
+        endedAt: 1,
+        lastLine: null,
+        output: null,
+        exitCode: 0,
+      }
+    },
+  })
+  const agent = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-1' } }
+  const leased = await tools[0].handler({ name: 'with-install' }, agent)
+  const answer = leased.structuredContent as { path: string; branch: string; dependencies: string }
+  assert.deepEqual(asked, [{ repoRoot: await realpath(repo), path: answer.path, branch: 'agent/with-install' }])
+  assert.match(answer.dependencies, /npm ci` succeeded/)
+  assert.doesNotMatch(tools[0].description, /never installs/)
+})
+
 test('slot status parsing reads branch, commit and every kind of change', () => {
   const oid = 'a'.repeat(40)
   const status = parseSlotStatus(

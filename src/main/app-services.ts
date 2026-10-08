@@ -19,6 +19,7 @@ import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
 import { createDesktopSsh, type DesktopSsh } from './environments/ssh/desktop-ssh'
 import { isMachinePath } from '../shared/machine-paths'
 import { workspaceProjectRootOf } from '../shared/worktree-paths'
+import { dependencyInstallSettingFor } from '../shared/ipc/worktree-pool'
 import type { WorkspaceEnvironmentRef } from '../renderer/src/types/workspace'
 import { sessionSshPreview } from './environments/ssh/ssh-preview'
 import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../server/wsl/wsl-tool-relay'
@@ -1435,6 +1436,12 @@ export function createAppServices(
     pool: worktreePool,
     findWorkspace: (workspaceId) =>
       workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ?? null,
+    // The install a chat's own leased worktree gets, when the project opted in.
+    installDependencies: async (request) =>
+      dependencyInstaller.prepare({
+        ...request,
+        setting: dependencyInstallSettingFor(await worktreePool.getSettings(), request.repoRoot),
+      }),
   })
 
   const canvasSubscribers = createCanvasSubscriberRegistry()

@@ -82,7 +82,10 @@ import {
  * for a worktree (a lease) or a sweep found one nobody uses (a return), and a
  * slot's size is measured only when Settings ▸ Worktrees asks or, with a disk
  * limit set, when the slot comes back. The
- * pool never installs dependencies; an agent that needs them runs its own
+ * pool itself never installs dependencies. A project that opted in
+ * (Settings ▸ Worktrees) has its install run on the lease, for the chat or
+ * agent that asked and before it gets the worktree, when the lockfile changed
+ * (dependency-install.ts); otherwise an agent that needs them runs its own
  * install, which on a reused slot finds most of the work already done.
  *
  * ## Life of a slot
