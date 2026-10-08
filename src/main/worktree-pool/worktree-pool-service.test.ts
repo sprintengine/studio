@@ -14,6 +14,8 @@ import { installWorktreePool } from './active-pool'
 import { createDependencyInstaller, DEPENDENCY_INSTALL_RECORD, installDependencyInstaller } from './dependency-install'
 import { acquireInstanceLock, createPoolStore, POOL_RECORD_VERSION, poolIdFor, type PoolRecord } from './pool-store'
 import { agentLeaseKey } from '../../shared/ipc/worktree-pool'
+import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
+import { bindGatewayConversation } from '../../server/tools/client-tool-gateway'
 import { defaultSlotGitRunner, parseSlotStatus, type SlotGitRunner } from './slot-git'
 import type { MeasureDiskUsage } from './disk-usage'
 import { createWorktreeInventory } from './worktree-inventory'
@@ -1414,6 +1416,16 @@ test('asked only to start it, the worktree comes back while its install runs, an
   }
 })
 
+/**
+ * An agent's connection as the gateway leaves it once the agent's launch
+ * token checked out: declared, and bound to its conversation.
+ */
+function provenAgent(workspaceId: string, agentId: string): McpConnectionContext {
+  const context: McpConnectionContext = { metadata: { kind: 'studio-agent', workspaceId, agentId } }
+  bindGatewayConversation(context, { workspaceId, agentId })
+  return context
+}
+
 test('worktree.lease serves only an agent Studio started, and only that agent can release it', async () => {
   const harness = makeService()
   const tools = createWorktreePoolTools({
@@ -1421,27 +1433,34 @@ test('worktree.lease serves only an agent Studio started, and only that agent ca
     findWorkspace: (workspaceId) => (workspaceId === 'ws-1' ? { folderPath: repo } : null),
   })
   const [leaseTool, releaseTool] = tools
-  const agent = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-1' } }
+  const agent = provenAgent('ws-1', 'agent-1')
 
   const refused = await leaseTool.handler({ name: 'x' }, { metadata: { kind: 'external-local' } })
   assert.equal(refused.isError, true)
+  // An agent declared without a launch token proves nothing: anything that
+  // can reach the socket can declare one.
+  const declared = await leaseTool.handler(
+    { name: 'declared' },
+    { metadata: { kind: 'studio-agent', workspaceId: 'ws-1', agentId: 'agent-1' } },
+  )
+  assert.equal(declared.isError, true)
 
   const leased = await leaseTool.handler({ name: 'by-tool' }, agent)
   assert.equal(leased.isError ?? false, false)
   const path = (leased.structuredContent as { path: string }).path
   assert.match(path, /pool-01$/)
 
-  const stranger = await releaseTool.handler(
-    { path },
-    { metadata: { kind: 'studio-agent', workspaceId: 'ws-1', agentId: 'agent-2' } },
-  )
+  const stranger = await releaseTool.handler({ path }, provenAgent('ws-1', 'agent-2'))
   assert.equal(stranger.isError, true)
   // Another chat's agent with the same id (ids repeat across older chats).
-  const namesake = await releaseTool.handler(
-    { path },
-    { metadata: { kind: 'studio-agent', workspaceId: 'ws-2', agentId: 'agent-1' } },
-  )
+  const namesake = await releaseTool.handler({ path }, provenAgent('ws-2', 'agent-1'))
   assert.equal(namesake.isError, true)
+  // The right ids, declared but not proven, release nothing either.
+  const unproven = await releaseTool.handler(
+    { path },
+    { metadata: { kind: 'studio-agent', workspaceId: 'ws-1', agentId: 'agent-1' } },
+  )
+  assert.equal(unproven.isError, true)
 
   const released = await releaseTool.handler({ path }, agent)
   assert.equal((released.structuredContent as { released: boolean }).released, true)
@@ -1472,8 +1491,7 @@ test('worktree.lease runs the project’s opted-in install before answering, and
       }
     },
   })
-  const agent = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-1' } }
-  const leased = await tools[0].handler({ name: 'with-install' }, agent)
+  const leased = await tools[0].handler({ name: 'with-install' }, provenAgent('ws-1', 'agent-1'))
   const answer = leased.structuredContent as { path: string; branch: string; dependencies: string }
   assert.deepEqual(asked, [{ repoRoot: await realpath(repo), path: answer.path, branch: 'agent/with-install' }])
   assert.match(answer.dependencies, /npm ci` succeeded/)

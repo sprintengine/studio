@@ -1,6 +1,7 @@
 import type { WorktreeDependencyInstallView } from '../../shared/ipc/worktree-pool'
 import { toolError, toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { workspaceProjectRootOf } from '../../shared/worktree-paths'
+import { gatewayConversation } from '../../server/tools/client-tool-gateway'
 import type { WorktreePoolService } from './worktree-pool-service'
 
 // The worktree pool's tools: how an agent that wants a worktree of its own
@@ -11,9 +12,10 @@ import type { WorktreePoolService } from './worktree-pool-service'
 // agent's dependencies, and goes back to the pool when the agent is gone.
 //
 // Whose lease it is comes from the CONNECTION, never from the arguments: the
-// calling agent, which the gateway knows from the agent's launch. Anything
-// else calling is refused, because a lease nobody owns is returned the moment
-// the cleanup next looks.
+// calling agent, as the launch token the connection presented proves it.
+// Anything else calling, a connection that only declared an agent included,
+// is refused, because a lease nobody owns is returned the moment the cleanup
+// next looks.
 
 export const WORKTREE_LEASE_TOOL = 'worktree.lease'
 export const WORKTREE_RELEASE_TOOL = 'worktree.release'
@@ -56,10 +58,13 @@ function dependenciesNote(install: WorktreeDependencyInstallView | null): string
   )
 }
 
+/**
+ * The agent the connection's launch token proved, not the ids it declared:
+ * any local connection can declare an agent id, and a lease (or a release)
+ * made under one would act on another agent's worktree.
+ */
 function callingAgent(context: Parameters<McpToolRegistration['handler']>[1]) {
-  const metadata = context?.metadata
-  if (metadata?.kind !== 'studio-agent' || !metadata.workspaceId || !metadata.agentId) return null
-  return { workspaceId: metadata.workspaceId, agentId: metadata.agentId }
+  return gatewayConversation(context) ?? null
 }
 
 const NOT_AN_AGENT =
