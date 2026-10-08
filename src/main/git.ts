@@ -543,13 +543,11 @@ async function createAgentWorktreeFromPool(
         hostId: input.hostId ?? null,
         copyIncludedFiles: input.copyIncludedFiles === true,
       })
-      .catch(
-        (error: unknown): WorktreePoolLeaseResult => ({
-          ok: false,
-          reason: 'error',
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      )
+      .catch((error: unknown): WorktreePoolLeaseResult => ({
+        ok: false,
+        reason: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      }))
     if (leased.ok) {
       // The entry is what the lease just made, not a listing read back: the
       // slot's path is git's own spelling, and a listing that failed now would
