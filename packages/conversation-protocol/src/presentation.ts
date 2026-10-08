@@ -175,13 +175,16 @@ export function summarizeToolGroup(items: PresentableTool[]): string {
     other: 'tool',
   }
   const plurals: Partial<Record<string, string>> = { directory: 'directories', query: 'queries' }
-  const clauses = [...counts]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([kind, count]) => {
-      const noun = nouns[kind]
-      return `${verbs[kind][0].toLowerCase()} ${count} ${count === 1 ? noun : (plurals[noun] ?? `${noun}s`)}`
-    })
+  const sorted = [...counts].sort((a, b) => b[1] - a[1])
+  const clauses = sorted.slice(0, 3).map(([kind, count]) => {
+    const noun = nouns[kind]
+    return `${verbs[kind][0].toLowerCase()} ${count} ${count === 1 ? noun : (plurals[noun] ?? `${noun}s`)}`
+  })
+  // Three clauses are as many as the sentence carries; the steps of the kinds
+  // past them are still counted, so the summary never says fewer steps than
+  // the group holds.
+  const rest = sorted.slice(3).reduce((total, [, count]) => total + count, 0)
+  if (rest > 0) clauses.push(`${rest} more`)
   const joined =
     clauses.length > 1 ? `${clauses.slice(0, -1).join(', ')} and ${clauses.at(-1)}` : clauses[0] || 'No tool calls'
   return joined[0].toUpperCase() + joined.slice(1)
