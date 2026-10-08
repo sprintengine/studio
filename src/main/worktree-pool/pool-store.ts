@@ -15,6 +15,7 @@ import {
   type WorktreePoolSlotState,
 } from '../../shared/ipc/worktree-pool'
 import { comparablePath, distroOfUncPath } from '../../shared/host-paths'
+import { isRecord } from '../../shared/records'
 
 /**
  * The pool's durable records: one JSON file per pool under
@@ -137,10 +138,6 @@ export function poolIdFor(commonDir: string, hostId: string): string {
     .update(`${comparablePath(commonDir)}\0${hostId}`)
     .digest('hex')
     .slice(0, 16)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 const SLOT_STATES = new Set<WorktreePoolSlotState>([
