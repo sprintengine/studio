@@ -162,6 +162,12 @@ export class SshEnvironment {
     settle(attempt: Promise<SshServerConnection>): void
   } | null = null
   private upgradeAsked = false
+  /**
+   * The person disconnected the machine or stopped its server: nothing in the
+   * background (a chat, the explorer, a pane) connects again until they
+   * connect in Settings, or it would undo what they just did.
+   */
+  private heldByPerson = false
   private readonly timing: typeof DEFAULT_TIMING
   private readonly now: () => number
   private readonly log: (message: string) => void
@@ -204,6 +210,11 @@ export class SshEnvironment {
    * need ends at needs-sign-in.
    */
   connect(options: { interactive: boolean } = { interactive: false }): Promise<SshServerConnection> {
+    if (options.interactive) this.heldByPerson = false
+    else if (this.heldByPerson)
+      return Promise.reject(
+        new Error(`${this.deps.label()} was disconnected in Settings › Machines. Connect it there to use it again.`),
+      )
     if (this.connection && this.endpoint && !this.endpoint.closed) return Promise.resolve(this.connection)
     if (this.running) return this.running
     // A background caller (a chat, the explorer, the pane) never jumps the
@@ -604,6 +615,7 @@ export class SshEnvironment {
 
   /** Let the session go. The managed server keeps running (its idle rule ends it). */
   disconnect(): void {
+    this.heldByPerson = true
     this.intentional = true
     this.clearReconnect()
     this.lostAt = null
@@ -622,8 +634,30 @@ export class SshEnvironment {
     return this.connect({ interactive: true })
   }
 
-  /** Drain and stop the managed server ("Stop server on build-box"). */
+  /**
+   * Drain and stop the managed server ("Stop server on build-box"). Run as
+   * the machine's one operation in flight: a connect under way ends first,
+   * and one asked for meanwhile joins the stop rather than starting the
+   * server again under it.
+   */
   async stopServer(): Promise<void> {
+    this.heldByPerson = true
+    await this.running?.catch(() => undefined)
+    const stopping = this.stopNow()
+    const joined = stopping.then(
+      () => Promise.reject(new Error(`The Studio server on ${this.deps.label()} was stopped.`)),
+      (error: unknown) => Promise.reject(error),
+    )
+    joined.catch(() => undefined)
+    this.running = joined
+    try {
+      await stopping
+    } finally {
+      if (this.running === joined) this.running = null
+    }
+  }
+
+  private async stopNow(): Promise<void> {
     const label = this.deps.label()
     this.disconnect()
     this.set({ state: 'connecting', stateText: `Stopping the Studio server on ${label}…`, working: true })
