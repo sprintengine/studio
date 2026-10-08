@@ -62,6 +62,4 @@ export function serveRelay(options: {
   via?: string
   client?: string | null
   log?: (message: string) => void
-  /** How a tcp stream's host is resolved on this machine (tests); `dns.lookup` with `all`. */
-  resolve?: (host: string) => Promise<Array<{ address: string; family: number }>>
 }): { endpoint: MuxEndpoint; stats: RelayStats }

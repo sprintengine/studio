@@ -25,8 +25,7 @@
 // Each stream has its own credit window both ways, so a page that stops
 // reading cannot hold up the Studio protocol beside it on the same pipe.
 
-import { lookup } from 'node:dns/promises'
-import { connect, isIP } from 'node:net'
+import { connect } from 'node:net'
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -462,31 +461,7 @@ const HOST = /^[A-Za-z0-9._:[\]%-]{1,255}$/u
  * and port resolved here, on the remote, as the person. Counts streams,
  * targets and bytes for diagnostics; records no content.
  */
-/** Whether an address is this machine's loopback, or the unspecified address, which reaches it too. */
-function loopbackAddress(address) {
-  const bare = address.replace(/^\[(.*)\]$/u, '$1').toLowerCase()
-  if (isIP(bare) === 4) return bare.startsWith('127.') || bare.startsWith('0.')
-  if (isIP(bare) !== 6) return false
-  if (/^(?:0{0,4}:){2,7}0{0,3}[01]?$/u.test(bare)) return true
-  const mapped = /^(?:0{0,4}:){1,5}ffff:(\d+\.\d+\.\d+\.\d+)$/u.exec(bare)
-  return mapped ? loopbackAddress(mapped[1]) : false
-}
-
-/** Whether a name says it is the loopback: `localhost`, a `.localhost` name, or a loopback address. */
-function loopbackName(host) {
-  const bare = host.toLowerCase()
-  return bare === 'localhost' || bare.endsWith('.localhost') || loopbackAddress(bare)
-}
-
-export function serveRelay({
-  input,
-  output,
-  runDir,
-  via = 'ssh-relay',
-  client = null,
-  log = () => undefined,
-  resolve = (host) => lookup(host, { all: true }),
-}) {
+export function serveRelay({ input, output, runDir, via = 'ssh-relay', client = null, log = () => undefined }) {
   const stats = { owner: 0, tcp: 0, refused: 0, bytesIn: 0, bytesOut: 0, targets: new Set() }
   let tcpOpen = 0
   const endpoint = new MuxEndpoint({
@@ -529,38 +504,8 @@ export function serveRelay({
           throw refusal('limit', `The relay carries at most ${MAX_TCP_STREAMS} connections.`)
         tcpOpen++
         stream.once('close', () => tcpOpen--)
-        // A name that says it is somewhere else is resolved here, and refused
-        // when it resolves to this machine's loopback (a rebinding site): the
-        // desktop's pane guard judged it by its name, and let a foreign page
-        // ask for it. The connection then uses those addresses, not a second
-        // lookup that could answer differently.
-        let addresses = null
-        if (!loopbackName(host)) {
-          addresses = await resolve(host).then(
-            (found) => (Array.isArray(found) ? found : [found]),
-            (error) => {
-              stats.refused++
-              throw tcpRefusal(error)
-            },
-          )
-          if (addresses.length === 0 || addresses.some((entry) => loopbackAddress(entry.address))) {
-            stats.refused++
-            throw refusal('refused', `${host} resolves to this machine's own loopback. Open it as localhost instead.`)
-          }
-        }
-        const resolved = addresses
         const socket = await new Promise((resolve, reject) => {
-          const opened = connect({
-            host,
-            port,
-            allowHalfOpen: true,
-            ...(resolved
-              ? {
-                  lookup: (_name, options, callback) =>
-                    options?.all ? callback(null, resolved) : callback(null, resolved[0].address, resolved[0].family),
-                }
-              : {}),
-          })
+          const opened = connect({ host, port, allowHalfOpen: true })
           const timer = setTimeout(() => {
             opened.destroy()
             reject(refusal('timeout', 'The connection timed out.'))

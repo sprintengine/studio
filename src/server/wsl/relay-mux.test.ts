@@ -135,44 +135,6 @@ test('a refusal carries its code and words, and a pipe that closes ends every st
   await assert.rejects(near.open({ kind: 'tcp', host: 'yes', port: 1 }), /not connected|closed/u)
 })
 
-test("a name that resolves to the relay machine's loopback is refused; localhost and other names are not", async () => {
-  const echo: Server = createServer((socket) => socket.pipe(socket))
-  await new Promise<void>((resolve) => echo.listen(0, '127.0.0.1', resolve))
-  const port = (echo.address() as AddressInfo).port
-  try {
-    const toRelay = new PassThrough()
-    const fromRelay = new PassThrough()
-    const answers: Record<string, Array<{ address: string; family: number }>> = {
-      'rebound.example': [{ address: '127.0.0.1', family: 4 }],
-      'mapped.example': [{ address: '::ffff:127.0.0.1', family: 6 }],
-      'mixed.example': [
-        { address: '192.0.2.10', family: 4 },
-        { address: '::1', family: 6 },
-      ],
-      'unspecified.example': [{ address: '0.0.0.0', family: 4 }],
-    }
-    serveRelay({
-      input: toRelay,
-      output: fromRelay,
-      runDir: '/nonexistent',
-      resolve: async (host) => answers[host] ?? Promise.reject(Object.assign(new Error(host), { code: 'ENOTFOUND' })),
-    })
-    const desktop = new MuxEndpoint({ input: fromRelay, output: toRelay })
-    for (const host of Object.keys(answers))
-      await assert.rejects(desktop.open({ kind: 'tcp', host, port }), (error: Error & { code?: string }) => {
-        assert.equal(error.code, 'refused', host)
-        assert.match(error.message, /resolves to this machine's own loopback/u)
-        return true
-      })
-    // Named as the loopback, it is the loopback.
-    const named = (await desktop.open({ kind: 'tcp', host: 'localhost', port })) as Duplex
-    named.destroy()
-    await assert.rejects(desktop.open({ kind: 'tcp', host: 'host.invalid', port: 80 }), { code: 'unreachable' })
-  } finally {
-    echo.close()
-  }
-})
-
 test("the relay's tcp streams: opened, a closed port refused, localhost resolved there, the limit", async () => {
   const echo: Server = createServer({ allowHalfOpen: true }, (socket) => {
     socket.on('data', (chunk) => socket.write(chunk))
