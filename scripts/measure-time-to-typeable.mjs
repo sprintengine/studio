@@ -62,6 +62,12 @@ async function launch(profileDir) {
   for (const key of PASSTHROUGH_ENV_KEYS) if (process.env[key] !== undefined) env[key] = process.env[key]
   env.SPRINTENGINE_USER_DATA_DIR = profileDir
   env.SPRINTENGINE_ALLOW_MULTI_INSTANCE = '1'
+  // A fresh profile on a machine with Claude Code or Codex sessions opens on
+  // the import offer instead of New chat. Pointing both CLIs' state at empty
+  // directories inside the profile keeps the scan from finding the machine's
+  // own sessions, so what is measured does not depend on whose machine it is.
+  env.CLAUDE_CONFIG_DIR = join(profileDir, 'claude-config')
+  env.CODEX_HOME = join(profileDir, 'codex-home')
   // The boot timeline says when main revealed the window (the splash covers
   // it until then); see src/shared/startup-timeline.ts.
   env.SPRINTENGINE_STARTUP_TIMELINE = '1'
@@ -88,6 +94,18 @@ async function launch(profileDir) {
 
 const REAL_FIELD = '#root [data-composer-field] .cm-content'
 
+// The import offer, if it is shown anyway, waits on "Not now" before New chat
+// opens; this answers it so the rest of the run starts from New chat.
+async function dismissImportOffer(page) {
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline) {
+    if (await page.locator('#root [data-composer-field]').count()) return
+    const notNow = page.getByRole('button', { name: 'Not now' })
+    if (await notNow.count()) await notNow.first().click()
+    await page.waitForTimeout(200)
+  }
+}
+
 // The first launch of a fresh profile: New chat opens (no chats), and if it
 // opened on a plain shell — which takes no prompt and so records no box — it
 // is switched to a conversation, which is remembered. The panel records the
@@ -95,6 +113,7 @@ const REAL_FIELD = '#root [data-composer-field] .cm-content'
 async function prepare(profileDir) {
   const { app, page } = await launch(profileDir)
   try {
+    await dismissImportOffer(page)
     await page.waitForSelector('#root [data-composer-field]', { timeout: 30_000 })
     const toConversation = page.locator('[aria-label="Start as a conversation instead of terminal"]')
     if (await toConversation.count()) await toConversation.first().click()

@@ -5,6 +5,7 @@ import {
   cronFromEditorState,
   editorStateFromCron,
   formatRunTimes,
+  formatScheduleTime,
   parseScheduleTime,
   switchTab,
 } from './scheduleEditor'
@@ -69,7 +70,7 @@ test('run times read as today, tomorrow, or the date, and repeat no shared day',
   const now = Date.UTC(2026, 8, 30, 12, 10)
   assert.deepEqual(
     formatRunTimes([Date.UTC(2026, 8, 30, 13, 0), Date.UTC(2026, 9, 1, 9, 0), Date.UTC(2026, 9, 1, 13, 0)], 'UTC', now),
-    ['Today 13:00', 'Tomorrow 09:00', '13:00'],
+    ['Today 1:00 PM', 'Tomorrow 9:00 AM', '1:00 PM'],
   )
   assert.deepEqual(
     formatRunTimes(
@@ -77,6 +78,19 @@ test('run times read as today, tomorrow, or the date, and repeat no shared day',
       'UTC',
       now,
     ),
-    ['Sun 4 Oct 21:00', 'Sun 11 Oct', 'Sun 18 Oct'],
+    ['Sun 4 Oct 9:00 PM', 'Sun 11 Oct', 'Sun 18 Oct'],
   )
+})
+
+test('a run time reads its clock as the time field does', () => {
+  const now = Date.UTC(2026, 8, 30, 12, 10)
+  const nine = formatScheduleTime(9 * 60)
+  assert.deepEqual(formatRunTimes([Date.UTC(2026, 9, 1, 9, 0)], 'UTC', now), [
+    `Tomorrow ${nine.clock} ${nine.meridiem}`,
+  ])
+  // Midnight and noon are the two a 12-hour clock gets wrong first.
+  assert.deepEqual(formatRunTimes([Date.UTC(2026, 9, 1, 0, 0), Date.UTC(2026, 9, 1, 12, 0)], 'UTC', now), [
+    'Tomorrow 12:00 AM',
+    '12:00 PM',
+  ])
 })

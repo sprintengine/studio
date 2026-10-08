@@ -142,6 +142,24 @@ test('focus opens it only when focus is visible, so a click or a window activati
   assert.ok(harness.tooltip(), 'keyboard focus still opens it at once')
 })
 
+test('focus handed back to a control the pointer last steered does not open it', async () => {
+  const trigger = await harness.render(await button())
+  const root = harness.dom.window.document.documentElement
+  // Settings, opened with a click on the gear, closes on Escape and gives the
+  // gear its focus back. The browser calls that focus visible (the last input
+  // was a key), but the pointer was the last thing to move focus, so no ring
+  // is drawn and nobody asked what the gear is.
+  root.dataset.focusSource = 'pointer'
+  harness.act(() => trigger.focus())
+  assert.ok(harness.tooltip() === null, 'a focus restored by a dismissed surface draws nothing')
+  harness.act(() => trigger.blur())
+
+  root.dataset.focusSource = 'keyboard'
+  harness.act(() => trigger.focus())
+  assert.ok(harness.tooltip(), 'focus the keyboard moved still opens it')
+  delete root.dataset.focusSource
+})
+
 test('a menu the trigger portals out does not count as the trigger', async () => {
   const React = await import('react')
   const { createPortal } = await import('react-dom')

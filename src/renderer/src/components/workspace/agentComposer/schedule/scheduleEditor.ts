@@ -92,7 +92,7 @@ export function switchTab(state: ScheduleEditorState, tab: ScheduleTab): Schedul
   return { ...state, tab }
 }
 
-/** "9:00 AM", for a time field and the words beside it. */
+/** "9:00 AM", for a time field, the words beside it and the run times under it. */
 export function formatScheduleTime(time: ScheduleTime): { clock: string; meridiem: 'AM' | 'PM' } {
   const hour = Math.floor(time / 60)
   const minute = time % 60
@@ -120,13 +120,20 @@ export function parseScheduleTime(text: string, meridiem: 'AM' | 'PM'): Schedule
   return hour * 60 + minute
 }
 
+function clockText(time: ScheduleTime): string {
+  const { clock, meridiem } = formatScheduleTime(time)
+  return `${clock} ${meridiem}`
+}
+
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /**
  * A run time as the schedule readout says it, in the schedule's own zone:
- * "Today 13:00", "Tomorrow 09:00", "Sun 4 Oct 21:00". Each after the first
- * drops what it shares with the one before: "Sun 4 Oct 21:00 · Sun 11 Oct".
+ * "Today 1:00 PM", "Tomorrow 9:00 AM", "Sun 4 Oct 9:00 PM". Each after the
+ * first drops what it shares with the one before: "Sun 4 Oct 9:00 PM · Sun 11
+ * Oct". The clock is the one the time fields and the schedule's words use, so
+ * the chip reading "9:00 AM" is not followed by a next run at "09:00".
  */
 export function formatRunTimes(instants: number[], timeZone: string, now: number): string[] {
   const parts = (instant: number) => {
@@ -146,7 +153,7 @@ export function formatRunTimes(instants: number[], timeZone: string, now: number
       weekday: WEEKDAY_SHORT.indexOf(get('weekday')),
       day: Number(get('day')),
       month: Number(get('month')),
-      clock: `${get('hour')}:${get('minute')}`,
+      clock: clockText(Number(get('hour')) * 60 + Number(get('minute'))),
     }
   }
   const today = parts(now).date

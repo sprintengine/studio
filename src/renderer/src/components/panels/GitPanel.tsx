@@ -1501,7 +1501,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   const handlePush = async () => {
     if (!repoRoot) return
-    const result = await runAction('Pushing', () => window.api.pushGitBranch(repoRoot), 'Pushing branch...')
+    const result = await runAction('Pushing', () => window.api.pushGitBranch(repoRoot), 'Pushing branch…')
     if (result?.ok) setMessage({ tone: 'success', text: pushedCommitMessage(result) })
   }
 

@@ -149,6 +149,18 @@ function isFocusVisible(target: EventTarget): boolean {
   }
 }
 
+// `:focus-visible` alone still lets a programmatic focus through: Chromium
+// lends it whatever key was pressed last, so Settings closing on Escape and
+// handing focus back to the gear stood the gear's tooltip up again. The root's
+// `data-focus-source` (utils/focusSource) is the app's answer to "did the
+// keyboard move focus?" — the same one that decides whether a focus ring is
+// drawn — so a focus the pointer last steered opens no tooltip, as it draws no
+// ring. A document without the stamp (a test DOM) leaves it to the selector.
+function pointerSteeredFocus(target: EventTarget): boolean {
+  const doc = (target as Partial<Node>).ownerDocument
+  return doc?.documentElement?.dataset.focusSource === 'pointer'
+}
+
 export function Tooltip({
   content,
   placement = 'top',
@@ -261,7 +273,7 @@ export function Tooltip({
   const handleFocus = useCallback(
     (event: React.FocusEvent) => {
       childProps.onFocus?.(event)
-      if (!isFocusVisible(event.target)) return
+      if (!isFocusVisible(event.target) || pointerSteeredFocus(event.target)) return
       clearTimer()
       setOpen(true)
     },

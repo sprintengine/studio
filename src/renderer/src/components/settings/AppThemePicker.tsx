@@ -109,7 +109,9 @@ function AppThemePicker({ value, onChange }: AppThemePickerProps) {
 }
 
 // The round swatch: the canvas as the outer ring, the surface as the disc
-// inside it, the accent as one dot, and the scheme glyph on the corner. Solid
+// inside it, the accent as one dot, and the scheme glyph on the corner. The dot
+// sits on the ring's upper right, clear of the glyph on the lower right that
+// used to cover it. Solid
 // fills, no gradient — the ramp reads as two concentric surfaces, which is
 // what it is. The hex values are the theme's own (types/appTheme.ts): the
 // picker paints every theme while the document wears one of them, so it
@@ -124,7 +126,7 @@ function ThemeSwatch({ swatches, scheme }: { swatches: ThemeSwatches; scheme: 'l
         <span className="block size-10 rounded-full" style={{ backgroundColor: swatches.bgSurface }} />
       </span>
       <span
-        className="absolute bottom-2 right-2 block size-2.5 rounded-full"
+        className="absolute right-2 top-2 block size-2.5 rounded-full"
         style={{ backgroundColor: swatches.accent }}
       />
       <span className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)]">

@@ -58,7 +58,11 @@ delay already does the pacing a fade would be reaching for.
 **Both paths, always.** Shown on pointer-over **and** on `:focus-visible`.
 Hover-only fails the same progressive-disclosure clause that governs row
 actions. `:focus-visible` and not `:focus`: clicking a control must not draw a
-tooltip over the thing that was just clicked.
+tooltip over the thing that was just clicked. Nor must focus handed back to it
+— a dialog closing on Escape returns focus to the control that opened it, and
+the browser calls that visible because the last input was a key; where the
+consumer knows which input last moved focus, a focus the pointer steered draws
+no tooltip, as it draws no ring.
 
 **The delay is asymmetric on purpose.** A short delay on pointer, so crossing a
 list does not fire every row in turn; none on keyboard focus, because there is

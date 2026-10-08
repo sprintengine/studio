@@ -537,87 +537,98 @@ export function VersionControlSections({ githubToken }: { githubToken: React.Rea
   }, [runProbe])
 
   return (
-    <div className="space-y-6">
-      {sections.map((section, index) => (
-        <section key={section.id} aria-labelledby={`version-control-${section.id}`} className="space-y-2">
-          <SettingsSectionTitle
-            id={`version-control-${section.id}`}
-            // One chrome row for the whole page: both sections read from the same
-            // round-trip, so the control that refreshes it belongs to the first
-            // band, not to each one.
-            action={
-              index === 0 ? (
-                <Tooltip content="Re-check now">
-                  <IconButton aria-label="Re-check now" disabled={checking} onClick={() => void runProbe()}>
-                    {checking ? <Spinner className="icon-sm" /> : <RefreshIcon />}
-                  </IconButton>
-                </Tooltip>
-              ) : null
-            }
+    <div>
+      {/* The page header every other tab draws. The first band IS the page —
+          its title would only repeat the header — so it is labelled by the
+          header and draws no title of its own; the later bands keep theirs.
+          One chrome row for the whole page: both sections read from the same
+          round-trip, so the control that refreshes it sits in the header. */}
+      <SettingsPageHeader
+        id="version-control-page"
+        title="Version control"
+        actions={
+          <Tooltip content="Re-check now">
+            <IconButton aria-label="Re-check now" disabled={checking} onClick={() => void runProbe()}>
+              {checking ? <Spinner className="icon-sm" /> : <RefreshIcon />}
+            </IconButton>
+          </Tooltip>
+        }
+      />
+      <div className="space-y-6">
+        {sections.map((section, index) => (
+          <section
+            key={section.id}
+            aria-labelledby={index === 0 ? 'version-control-page' : `version-control-${section.id}`}
+            className="space-y-2"
           >
-            {section.title}
-          </SettingsSectionTitle>
+            {index === 0 ? null : (
+              <SettingsSectionTitle id={`version-control-${section.id}`}>{section.title}</SettingsSectionTitle>
+            )}
 
-          {/* The app's one error card, not a tone-bar: a 1px hairline, the soft
+            {/* The app's one error card, not a tone-bar: a 1px hairline, the soft
               tint, and the tone glyph, with the raw message behind "Show
               details" rather than inline. No action of its own — the re-check
-              control that would retry it sits in this section's own band, two
-              lines up. */}
-          {index === 0 && probeStatus === 'error' ? (
-            <InlineNotice tone="warn" title="Version control could not be checked." detail={probeError ?? undefined} />
-          ) : null}
+              control that would retry it sits in the page header above. */}
+            {index === 0 && probeStatus === 'error' ? (
+              <InlineNotice
+                tone="warn"
+                title="Version control could not be checked."
+                detail={probeError ?? undefined}
+              />
+            ) : null}
 
-          {/* The list card (setting-row → The list card, 2026-09-15): the band
+            {/* The list card (setting-row → The list card, 2026-09-15): the band
               above names the group, the card is its one edge, and the rows sit
               full-bleed inside it — as the Remote tab's machines do. */}
-          <SettingCard as="ul" ariaLabel={section.title}>
-            {section.providers.map((spec) => {
-              const view = resolveVersionControlRow(spec, probes[spec.id], probeStatus, platform)
-              // Only GitHub has per-instance configuration to reveal (the app's own
-              // access token). ProviderRow draws no chevron for a row with nothing
-              // behind it, so git renders as a plain row rather than an empty
-              // disclosure.
-              const detail = spec.id === 'gh' ? githubToken : null
-              // One row per machine for git: this one, then each WSL machine.
-              const others = spec.id === 'git' ? machineProbes : []
-              return (
-                <React.Fragment key={spec.id}>
-                  <ProviderRow
-                    as="li"
-                    surface="card"
-                    icon={<VersionControlMark monogram={spec.monogram} />}
-                    health={view.tone}
-                    name={others.length > 0 ? `${spec.label} — This PC (Windows)` : spec.label}
-                    version={view.version}
-                    stateLine={<VersionControlStateLine view={view} />}
-                    expanded={expandedId === spec.id}
-                    onExpandedChange={(next) => setExpandedId(next ? spec.id : null)}
-                  >
-                    {detail}
-                  </ProviderRow>
-                  {others.map((probe) => {
-                    // A distribution has no install command this app can name
-                    // (apt, dnf, pacman…), so a missing git names the binary.
-                    const machineView = resolveVersionControlRow(spec, probe, probeStatus, 'linux')
-                    return (
-                      <ProviderRow
-                        key={`${spec.id}:${probe.machine?.hostId}`}
-                        as="li"
-                        surface="card"
-                        icon={<VersionControlMark monogram={spec.monogram} />}
-                        health={machineView.tone}
-                        name={`${spec.label} — ${probe.machine?.label ?? ''}`}
-                        version={machineView.version}
-                        stateLine={<VersionControlStateLine view={machineView} />}
-                      />
-                    )
-                  })}
-                </React.Fragment>
-              )
-            })}
-          </SettingCard>
-        </section>
-      ))}
+            <SettingCard as="ul" ariaLabel={section.title}>
+              {section.providers.map((spec) => {
+                const view = resolveVersionControlRow(spec, probes[spec.id], probeStatus, platform)
+                // Only GitHub has per-instance configuration to reveal (the app's own
+                // access token). ProviderRow draws no chevron for a row with nothing
+                // behind it, so git renders as a plain row rather than an empty
+                // disclosure.
+                const detail = spec.id === 'gh' ? githubToken : null
+                // One row per machine for git: this one, then each WSL machine.
+                const others = spec.id === 'git' ? machineProbes : []
+                return (
+                  <React.Fragment key={spec.id}>
+                    <ProviderRow
+                      as="li"
+                      surface="card"
+                      icon={<VersionControlMark monogram={spec.monogram} />}
+                      health={view.tone}
+                      name={others.length > 0 ? `${spec.label} — This PC (Windows)` : spec.label}
+                      version={view.version}
+                      stateLine={<VersionControlStateLine view={view} />}
+                      expanded={expandedId === spec.id}
+                      onExpandedChange={(next) => setExpandedId(next ? spec.id : null)}
+                    >
+                      {detail}
+                    </ProviderRow>
+                    {others.map((probe) => {
+                      // A distribution has no install command this app can name
+                      // (apt, dnf, pacman…), so a missing git names the binary.
+                      const machineView = resolveVersionControlRow(spec, probe, probeStatus, 'linux')
+                      return (
+                        <ProviderRow
+                          key={`${spec.id}:${probe.machine?.hostId}`}
+                          as="li"
+                          surface="card"
+                          icon={<VersionControlMark monogram={spec.monogram} />}
+                          health={machineView.tone}
+                          name={`${spec.label} — ${probe.machine?.label ?? ''}`}
+                          version={machineView.version}
+                          stateLine={<VersionControlStateLine view={machineView} />}
+                        />
+                      )
+                    })}
+                  </React.Fragment>
+                )
+              })}
+            </SettingCard>
+          </section>
+        ))}
+      </div>
     </div>
   )
 }

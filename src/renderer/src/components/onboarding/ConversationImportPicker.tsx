@@ -4,7 +4,8 @@ import type { ConversationImportFolder } from '../../../../shared/electron-api'
 import type { ConversationImportScan } from './useConversationImportScan'
 import { showToast } from '../../store/toastStore'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
-import { Checkbox, GhostButton, Spinner } from '../ui'
+import { ChevronDownIcon } from '../AppIcons'
+import { Checkbox, IconButton, Spinner, Tooltip } from '../ui'
 import {
   IMPORT_SOURCE_LABEL,
   countNoun,
@@ -106,13 +107,22 @@ export function ConversationImportPicker({
               <span className="shrink-0 text-meta text-[color:var(--text-subtle)]">
                 {formatRelativeMsAgo(folder.lastActiveAt, now)}
               </span>
-              <GhostButton
-                size="xs"
-                aria-expanded={open}
-                onClick={() => setOpenFolder(open ? null : folder.folderPath)}
-              >
-                {open ? 'Hide' : 'Choose'}
-              </GhostButton>
+              {/* A glyph of one width, not "Choose" / "Hide": two words of two
+                  widths moved the timestamp beside them on every toggle. */}
+              <Tooltip content={open ? 'Hide sessions' : 'Choose sessions'}>
+                <IconButton
+                  size="xs"
+                  aria-expanded={open}
+                  aria-label={`${open ? 'Hide' : 'Choose'} sessions in ${folder.name}`}
+                  onClick={() => setOpenFolder(open ? null : folder.folderPath)}
+                >
+                  <ChevronDownIcon
+                    className={`size-icon-xs transition-transform duration-[var(--motion-fast)] ease-[var(--motion-ease)] motion-reduce:transition-none ${
+                      open ? 'rotate-180' : ''
+                    }`}
+                  />
+                </IconButton>
+              </Tooltip>
             </div>
             {open ? (
               <ul className="mb-2 ml-6 space-y-0.5" aria-label={`Sessions in ${folder.name}`}>
@@ -138,6 +148,9 @@ export function ConversationImportPicker({
                           ? 'Imported'
                           : `${IMPORT_SOURCE_LABEL[session.source]} · ${formatRelativeMsAgo(session.updatedAt, now)}`}
                       </span>
+                      {/* The folder row's toggle column, held empty, so a
+                          session's time ends where its folder's does. */}
+                      <span aria-hidden="true" className="w-[var(--hit-target-min)] shrink-0" />
                     </li>
                   )
                 })}

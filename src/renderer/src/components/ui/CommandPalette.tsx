@@ -119,12 +119,12 @@ const PALETTE_SCOPE_TABS: TabItem<PaletteScope>[] = PALETTE_SCOPE_ORDER.map((sco
 
 /** The one sentence the input asks for, per scope. */
 const PALETTE_PLACEHOLDER: Record<PaletteScope, string> = {
-  all: 'Search chats, skills, plugins, files, text, actions...',
-  skills: 'Filter installed skills...',
-  conversations: 'Search chats and workspaces by title or folder...',
-  files: 'Search file names...',
-  text: 'Search text in files...',
-  actions: 'Search commands and actions...',
+  all: 'Search chats, skills, plugins, files, text, actions…',
+  skills: 'Filter installed skills…',
+  conversations: 'Search chats and workspaces by title or folder…',
+  files: 'Search file names…',
+  text: 'Search text in files…',
+  actions: 'Search commands and actions…',
 }
 
 const PALETTE_INPUT_LABEL: Record<PaletteScope, string> = {
@@ -448,7 +448,7 @@ export default function CommandPalette({
       ? [
           {
             id: 'panel.files.toggle',
-            label: 'Toggle File Explorer',
+            label: 'Toggle file explorer',
             searchLabel: 'File Explorer',
             shortcut: shortcutFor('panel.files.toggle'),
             run: () => {
@@ -459,7 +459,7 @@ export default function CommandPalette({
           },
           {
             id: 'panel.editor.toggle',
-            label: 'Toggle Code Editor',
+            label: 'Toggle code editor',
             searchLabel: 'Code Editor',
             shortcut: shortcutFor('panel.editor.toggle'),
             run: () => {
@@ -469,7 +469,7 @@ export default function CommandPalette({
           },
           {
             id: 'panel.git.toggle',
-            label: 'Toggle Git Panel',
+            label: 'Toggle Git panel',
             searchLabel: 'Git Panel',
             shortcut: shortcutFor('panel.git.toggle'),
             run: () => {
@@ -483,7 +483,7 @@ export default function CommandPalette({
             ? [
                 {
                   id: 'panel.agents.toggle',
-                  label: 'Toggle Agents',
+                  label: 'Toggle agents',
                   searchLabel: 'Agents',
                   shortcut: shortcutFor('panel.agents.toggle'),
                   run: () => {
@@ -504,7 +504,7 @@ export default function CommandPalette({
             ? [
                 {
                   id: 'panel.canvas.toggle',
-                  label: 'Toggle Canvas',
+                  label: 'Toggle canvas',
                   searchLabel: 'Canvas',
                   shortcut: shortcutFor('panel.canvas.toggle'),
                   run: () => {
@@ -521,7 +521,7 @@ export default function CommandPalette({
             ? [
                 {
                   id: 'panel.knowledge-graph.toggle',
-                  label: 'Toggle Knowledge Graph',
+                  label: 'Toggle knowledge graph',
                   searchLabel: 'Knowledge Graph',
                   shortcut: shortcutFor('panel.knowledge-graph.toggle'),
                   run: () => {
