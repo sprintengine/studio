@@ -10,6 +10,7 @@ import { SegmentedControl } from '../../ui/SegmentedControl'
 import { Spinner } from '../../ui/Spinner'
 import { Switch } from '../../ui/Switch'
 import { Tooltip } from '../../ui/Tooltip'
+import { FOCUS_RING_INSET_CLASS } from '../../ui/tokens'
 import { PauseGlyph, PlayGlyph } from '../../ui/TourGlyphs'
 import { TourProgress, type TourProgressMark } from '../../ui/TourStrip'
 import { createConversationProjectionState, syncConversationProjection } from './incrementalConversationProjection'
@@ -239,7 +240,7 @@ function ReplayPlayer({
     for (const id of enteredRef.current) if (!ids.has(id)) enteredRef.current.delete(id)
   }, [rows])
 
-  const { scrollerRef, endRef, anchorId, anchorRef, onManualScroll, follow } = useReplayFollow(rows)
+  const { scrollerRef, endRef, anchorId, anchorRef, onScroll, onManualScroll, follow } = useReplayFollow(rows)
   const act = (action: ReplayAction) => {
     if (action.type !== 'pause' && action.type !== 'speed' && action.type !== 'continuous') follow()
     dispatch(action)
@@ -332,14 +333,19 @@ function ReplayPlayer({
       </ReplayBand>
 
       <SubagentTypesProvider value={projection.agentTypes}>
+        {/* A tab stop so the replay scrolls from the keyboard too, ringed as the
+            live transcript is: inset, on keyboard focus only. The player keeps
+            its arrows, Space, Home and End; Page Up and Page Down are the log's. */}
         <div
           ref={scrollerRef}
           role="log"
+          tabIndex={0}
           aria-label={`${title} conversation, replayed`}
           aria-live="off"
+          onScroll={onScroll}
           onWheel={onManualScroll}
           onTouchMove={onManualScroll}
-          className="chat-column-gutter relative min-h-0 flex-1 overflow-y-auto py-4"
+          className={`chat-column-gutter relative min-h-0 flex-1 overflow-y-auto py-4 focus:outline-none ${FOCUS_RING_INSET_CLASS}`}
         >
           <div className="space-y-1">
             {rows.map((row) => (
@@ -368,11 +374,17 @@ function noop(): void {}
  * Keep the replay in view: the newest message at the top of the view, then the
  * end of its reply as it grows past the bottom — until the person scrolls
  * themselves, which hands the view to them until they next move the replay.
+ * However they scroll counts — a wheel, a drag of the scrollbar, Page Down —
+ * so it is the scroll itself that is read, less the replay's own.
  */
 function useReplayFollow(rows: readonly { id: string; kind: string }[]) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const endRef = useRef<HTMLDivElement | null>(null)
   const followingRef = useRef(true)
+  // Where the replay is scrolling itself to, and how far off it still is,
+  // until it gets there: a smooth scroll raises a scroll event a frame on its
+  // way, none of them the person's.
+  const ownScrollRef = useRef<{ to: number; distance: number } | null>(null)
   // The newest message's row, and which message that was at the last layout.
   const anchorRef = useRef<HTMLDivElement | null>(null)
   const anchorSeenRef = useRef<string | null>(null)
@@ -384,8 +396,12 @@ function useReplayFollow(rows: readonly { id: string; kind: string }[]) {
     anchorSeenRef.current = anchorId
     if (movedOn) followingRef.current = true
     if (!scroller || !end || !followingRef.current) return
-    const top = Math.max(anchorRef.current?.offsetTop ?? 0, end.offsetTop - scroller.clientHeight)
-    if (Math.abs(scroller.scrollTop - top) < 1) return
+    const wanted = Math.max(anchorRef.current?.offsetTop ?? 0, end.offsetTop - scroller.clientHeight)
+    // Where the scroll will actually stop, so the replay knows it has arrived.
+    const top = Math.max(0, Math.min(wanted, scroller.scrollHeight - scroller.clientHeight))
+    const distance = Math.abs(scroller.scrollTop - top)
+    if (distance < 1) return
+    ownScrollRef.current = { to: top, distance }
     // A new message glides up; a reply growing a line at a time does not.
     scroller.scrollTo({ top, behavior: movedOn && !prefersReducedMotion() ? 'smooth' : 'auto' })
   }, [rows, anchorId])
@@ -394,7 +410,25 @@ function useReplayFollow(rows: readonly { id: string; kind: string }[]) {
     endRef,
     anchorId,
     anchorRef,
+    onScroll: () => {
+      const scroller = scrollerRef.current
+      const own = ownScrollRef.current
+      if (scroller && own) {
+        // Closer to where the replay sent it than the step before: still the
+        // replay's glide, done once it is there. A step back the other way is
+        // the person taking the scroll over mid-glide.
+        const distance = Math.abs(scroller.scrollTop - own.to)
+        if (distance < 1) ownScrollRef.current = null
+        else if (distance < own.distance) ownScrollRef.current = { to: own.to, distance }
+        if (distance < own.distance) return
+        ownScrollRef.current = null
+      }
+      followingRef.current = false
+    },
+    // A wheel or a finger is the person's whichever way it goes, the replay's
+    // own glide included.
     onManualScroll: () => {
+      ownScrollRef.current = null
       followingRef.current = false
     },
     follow: () => {
