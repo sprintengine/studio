@@ -44,6 +44,7 @@ import {
 } from '../../../utils/imageFileTransfer'
 import { workspaceRunsHere } from '../../../utils/attachedFiles'
 import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
+import { attachmentRejection, MAX_ATTACHMENTS_PER_TURN } from '../../panels/agentChat/imageAttachments'
 import {
   ComposerField,
   isImeKey,
@@ -1116,25 +1117,39 @@ export default function NewAgentPanel({
     promptRef.current?.focus()
   }
 
+  // A chat's first message carries at most so many images, as every later one
+  // does: refused here, with the reason, rather than by the chat once it has
+  // started. Counted against what is staged and what is still being read.
   const attachDroppedFiles = async (files: File[]) => {
-    setAttachNote(null)
+    let refusal: string | null = null
+    const readable: File[] = []
     for (const file of files) {
+      const rejection = attachmentRejection(file, images.length + attachingCount + readable.length)
+      if (rejection) refusal ??= rejection
+      else readable.push(file)
+    }
+    setAttachNote(refusal)
+    for (const file of readable) {
       const existingPath = window.api.getPathForFile(file)
       setAttachingCount((count) => count + 1)
       try {
         const { mediaType, dataBase64 } = await readFileAsBase64(file)
         const path = existingPath || (await window.api.saveDroppedImage({ mediaType, dataBase64 }))
-        setImages((current) => [
-          ...current,
-          {
-            id: `${Date.now()}-${current.length}-${file.name}`,
-            mediaType,
-            dataBase64,
-            byteLength: file.size,
-            ...(file.name ? { name: file.name } : {}),
-            path,
-          },
-        ])
+        // The slice holds the cap under overlapping batches (a paste landing
+        // while a drop is still reading); the check above already said why.
+        setImages((current) =>
+          [
+            ...current,
+            {
+              id: `${Date.now()}-${current.length}-${file.name}`,
+              mediaType,
+              dataBase64,
+              byteLength: file.size,
+              ...(file.name ? { name: file.name } : {}),
+              path,
+            },
+          ].slice(0, MAX_ATTACHMENTS_PER_TURN),
+        )
       } catch (error) {
         // Shown verbatim under the box.
         setAttachNote(error instanceof Error ? error.message : 'Could not attach that image.')

@@ -614,6 +614,37 @@ test('NewAgentPanel interaction', async () => {
       view.unmount()
     })
 
+    await check('staging stops at the images one message can carry, and says why', async () => {
+      seedStore()
+      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      const { MAX_ATTACHMENTS_PER_TURN } = await import('../../panels/agentChat/imageAttachments')
+      resetNewChatDraftsForTests()
+      writeNewChatDraft('win-full', {
+        images: Array.from({ length: MAX_ATTACHMENTS_PER_TURN - 1 }, (_, index) => ({
+          id: `img-${index}`,
+          mediaType: 'image/png',
+          dataBase64: 'iVBORw0K',
+          byteLength: 4,
+          path: `/tmp/${index}.png`,
+        })),
+      })
+      const view = await render({ draftKey: 'win-full', initialSelection: { kind: 'conversation' } })
+      const staged = () => view.container.querySelectorAll('img[src^="data:image/png"]').length
+      assert.equal(staged(), MAX_ATTACHMENTS_PER_TURN - 1)
+      const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')!
+      const png = (name: string) =>
+        new dom.window.File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' })
+      Object.defineProperty(input, 'files', { value: [png('a.png'), png('b.png')], configurable: true })
+      await act(async () => {
+        input.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+      })
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 20)))
+      assert.equal(staged(), MAX_ATTACHMENTS_PER_TURN, 'the one that fits is staged, the one past it is not')
+      assert.match(view.text(), new RegExp(`at most ${MAX_ATTACHMENTS_PER_TURN} images`), 'and the box says why')
+      view.unmount()
+      resetNewChatDraftsForTests()
+    })
+
     await check(
       'a document picked through Attach files is a card, and rides the launch beside the prompt',
       async () => {
