@@ -2649,6 +2649,60 @@ code {
   cursor: default;
 }
 
+/* ── Radio mark (2026-10-08) ─────────────────────────────────────────────
+ * The box's single-answer twin: the same size, border, well and accent
+ * fill, fully round, with a disc where the tick would be. Only the picture:
+ * the row it sits in is the `role="radio"` and carries `aria-checked`, so the
+ * mark is aria-hidden and never met twice. There is no radio control here — a
+ * choose-one list of rows is a radiogroup of rows. */
+.ds-radio-mark {
+  display: inline-flex;
+  flex: none;
+  box-sizing: border-box;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-app);
+  color: var(--sem-color-text-on-accent);
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-radio-mark--checked {
+  border-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-accent-primary);
+}
+
+.ds-radio-mark-disc {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* The demo's row: the mark and its label, the row being the control. */
+.ds-radio-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+  cursor: pointer;
+}
+
+.ds-radio-row:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-radio-mark {
+    transition: none;
+  }
+}
+
 /* components/chip-button/component.css */
 /* Chip button — a content-height pill that toggles, filters or names one thing.
  * Extracted from the shipped `ChipButton` primitive
@@ -18715,6 +18769,21 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       </li>
     </ul>
   </div>
+  <p class="demo-label">Radio mark — a choose-one row's picture. The row is the radio and carries aria-checked; the mark is aria-hidden.</p>
+  <div class="demo-pane">
+    <div class="demo-stack" role="radiogroup" aria-label="Line height">
+      <div class="ds-radio-row" role="radio" aria-checked="true" tabindex="0">
+        <span class="ds-radio-mark ds-radio-mark--checked" aria-hidden="true">
+          <svg class="ds-radio-mark-disc" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3.5" /></svg>
+        </span>
+        Comfortable
+      </div>
+      <div class="ds-radio-row" role="radio" aria-checked="false" tabindex="-1">
+        <span class="ds-radio-mark" aria-hidden="true"></span>
+        Compact
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="demo-stage" data-mode="dark">
@@ -18802,6 +18871,21 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       </li>
     </ul>
   </div>
+  <p class="demo-label">Radio mark, dark — the same well and the same accent fill as the box.</p>
+  <div class="demo-pane">
+    <div class="demo-stack" role="radiogroup" aria-label="Line height">
+      <div class="ds-radio-row" role="radio" aria-checked="false" tabindex="-1">
+        <span class="ds-radio-mark" aria-hidden="true"></span>
+        Comfortable
+      </div>
+      <div class="ds-radio-row" role="radio" aria-checked="true" tabindex="0">
+        <span class="ds-radio-mark ds-radio-mark--checked" aria-hidden="true">
+          <svg class="ds-radio-mark-disc" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3.5" /></svg>
+        </span>
+        Compact
+      </div>
+    </div>
+  </div>
 </div>
 </div>
 <div class="catalog-doc">
@@ -18814,6 +18898,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>The <strong>drawn box is unchanged</strong> — same <code>radius.chip</code> box, same <code>accent.primary</code> checked fill, same mark. A task list that invented its own tick is exactly how five surfaces came to draw five checkboxes.</p>
 <h4>Shipped implementation</h4>
 <p><code>src/renderer/src/components/ui/Checkbox.tsx</code>, exporting <code>Checkbox</code> with <code>indeterminate</code>, <code>size</code> and <code>readOnly</code>.</p>
+<h4>Radio mark (2026-10-08)</h4>
+<p><code>RadioMark</code>, exported beside <code>CheckboxBox</code>: the box's single-answer twin. Same <code>icon.size.sm</code> square, same <code>border.default</code> edge on the <code>bg.app</code> well, same <code>accent.primary</code> fill once chosen — fully round (<code>radius.pill</code>), with a disc where the tick would be. A question's choose-one rows had drawn their own, and a round mark hand-rolled outside the system is a status dot by another name.</p>
+<p><strong>Anatomy.</strong> One round well; when checked, the accent fill and a disc in <code>text.on-accent</code>. No input.</p>
+<p><strong>States.</strong> Unchecked, checked, and disabled (the box's 45% fade).</p>
+<p><strong>Usage.</strong> Only as the picture of a choice another element owns: a row with <code>role=&quot;radio&quot;</code> in a <code>radiogroup</code>, which is the tab stop and carries <code>aria-checked</code>. There is no radio control in the kit. A value picked from a closed list is a [select](../select/component.md) or a segmented control; a choose-many list of rows takes <code>CheckboxBox</code>.</p>
+<p><strong>Accessibility.</strong> Always <code>aria-hidden</code>. The row announces the state; the mark is only its picture and must never be met twice.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/checkbox/component.css</summary><pre><code>/* Checkbox — the one-of-a-set form control: a value the person marks now and
@@ -18960,6 +19050,60 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * state is real; it is simply not yours to change here. */
 .ds-checkbox-input[aria-readonly='true'] {
   cursor: default;
+}
+
+/* ── Radio mark (2026-10-08) ─────────────────────────────────────────────
+ * The box's single-answer twin: the same size, border, well and accent
+ * fill, fully round, with a disc where the tick would be. Only the picture:
+ * the row it sits in is the `role=&quot;radio&quot;` and carries `aria-checked`, so the
+ * mark is aria-hidden and never met twice. There is no radio control here — a
+ * choose-one list of rows is a radiogroup of rows. */
+.ds-radio-mark {
+  display: inline-flex;
+  flex: none;
+  box-sizing: border-box;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-app);
+  color: var(--sem-color-text-on-accent);
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-radio-mark--checked {
+  border-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-accent-primary);
+}
+
+.ds-radio-mark-disc {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* The demo's row: the mark and its label, the row being the control. */
+.ds-radio-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+  cursor: pointer;
+}
+
+.ds-radio-row:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-radio-mark {
+    transition: none;
+  }
 }
 </code></pre></details>
 <details class="catalog-source"><summary>components/checkbox/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
@@ -19178,6 +19322,21 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       &lt;/li&gt;
     &lt;/ul&gt;
   &lt;/div&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Radio mark — a choose-one row's picture. The row is the radio and carries aria-checked; the mark is aria-hidden.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-stack&quot; role=&quot;radiogroup&quot; aria-label=&quot;Line height&quot;&gt;
+      &lt;div class=&quot;ds-radio-row&quot; role=&quot;radio&quot; aria-checked=&quot;true&quot; tabindex=&quot;0&quot;&gt;
+        &lt;span class=&quot;ds-radio-mark ds-radio-mark--checked&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg class=&quot;ds-radio-mark-disc&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;currentColor&quot;&gt;&lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;3.5&quot; /&gt;&lt;/svg&gt;
+        &lt;/span&gt;
+        Comfortable
+      &lt;/div&gt;
+      &lt;div class=&quot;ds-radio-row&quot; role=&quot;radio&quot; aria-checked=&quot;false&quot; tabindex=&quot;-1&quot;&gt;
+        &lt;span class=&quot;ds-radio-mark&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+        Compact
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
 &lt;/div&gt;
 
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
@@ -19264,6 +19423,21 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
         Swap the call sites onto it
       &lt;/li&gt;
     &lt;/ul&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Radio mark, dark — the same well and the same accent fill as the box.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-stack&quot; role=&quot;radiogroup&quot; aria-label=&quot;Line height&quot;&gt;
+      &lt;div class=&quot;ds-radio-row&quot; role=&quot;radio&quot; aria-checked=&quot;false&quot; tabindex=&quot;-1&quot;&gt;
+        &lt;span class=&quot;ds-radio-mark&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+        Comfortable
+      &lt;/div&gt;
+      &lt;div class=&quot;ds-radio-row&quot; role=&quot;radio&quot; aria-checked=&quot;true&quot; tabindex=&quot;0&quot;&gt;
+        &lt;span class=&quot;ds-radio-mark ds-radio-mark--checked&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg class=&quot;ds-radio-mark-disc&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;currentColor&quot;&gt;&lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;3.5&quot; /&gt;&lt;/svg&gt;
+        &lt;/span&gt;
+        Compact
+      &lt;/div&gt;
+    &lt;/div&gt;
   &lt;/div&gt;
 &lt;/div&gt;
 

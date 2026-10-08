@@ -187,3 +187,36 @@ export function CheckboxBox({
     </span>
   )
 }
+
+/**
+ * THE RADIO MARK — `CheckboxBox`'s single-answer twin: the same size, border,
+ * ground and accent fill, round, with a disc in place of the tick. Added
+ * 2026-10-08 for a question's choose-one rows, which had drawn their own.
+ *
+ * Like the box it is only the picture: always `aria-hidden`, the state carried
+ * by whatever owns it (a row's `aria-checked` on `role="radio"`). There is no
+ * radio control in the kit — a choose-one list of rows is a `radiogroup` of
+ * rows, and a value picked from a closed list is a `Select` or a
+ * `SegmentedControl`.
+ */
+export function RadioMark({ checked, disabled = false }: { checked: boolean; disabled?: boolean }): JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      data-radio-mark=""
+      className={[
+        'inline-flex size-icon-sm shrink-0 items-center justify-center rounded-[var(--sem-radius-pill)] border transition-colors',
+        disabled ? 'opacity-45' : '',
+        checked
+          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
+          : 'border-[color:var(--border-default)] bg-[color:var(--bg-app)]',
+      ].join(' ')}
+    >
+      {checked ? (
+        <svg viewBox="0 0 16 16" className="size-icon-xs" fill="currentColor">
+          <circle cx="8" cy="8" r="3.5" />
+        </svg>
+      ) : null}
+    </span>
+  )
+}
