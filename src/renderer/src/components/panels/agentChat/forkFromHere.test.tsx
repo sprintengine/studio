@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { Model, TabNode, TabSetNode } from 'flexlayout-react'
 
 import type { ConversationForkInput } from '../../../../../shared/conversation-runtime'
@@ -139,6 +139,54 @@ test('a message forked before goes to the fork’s composer with its images, han
   expect(takeForkedAttachments(WS, 'parent')).toEqual([])
   expect(takeForkedAttachments(WS, forkId)).toEqual([image])
   expect(takeForkedAttachments(WS, forkId)).toEqual([])
+})
+
+test('a fork’s images are let go when nobody takes them: its chat removed, an hour gone, or newer forks past four', async () => {
+  const t = setup()
+  const image = { id: 'img-1', mediaType: 'image/png', dataBase64: 'iVBORw0KGgo=', byteLength: 8, name: 'layout.png' }
+  const fork = async () => {
+    await forkChat({
+      transport: t.transport,
+      key: t.key,
+      target: {
+        side: 'user',
+        turnSeq: 4,
+        draft: { text: 'what is wrong here?', skillIds: [], mentions: [] },
+        attachments: [image],
+      },
+    })
+    return t.forks.at(-1)!.newAgentId
+  }
+  const removeAgent = (agentId: string) =>
+    useWorkspaceStore.setState((state) => ({
+      workspaces: state.workspaces.map((workspace) => {
+        const { [agentId]: _removed, ...agents } = workspace.agents
+        return { ...workspace, agents }
+      }),
+    }))
+
+  // Its chat closed before its view ever mounted.
+  const removed = await fork()
+  removeAgent(removed)
+  const kept = await fork()
+  expect(takeForkedAttachments(WS, removed)).toEqual([])
+  expect(takeForkedAttachments(WS, kept)).toEqual([image])
+
+  // Left unopened past the hour.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  try {
+    const late = await fork()
+    vi.setSystemTime(Date.now() + 61 * 60 * 1000)
+    expect(takeForkedAttachments(WS, late)).toEqual([])
+  } finally {
+    vi.useRealTimers()
+  }
+
+  // Only the newest four wait.
+  const forks: string[] = []
+  for (let index = 0; index < 5; index++) forks.push(await fork())
+  expect(takeForkedAttachments(WS, forks[0]!)).toEqual([])
+  for (const id of forks.slice(1)) expect(takeForkedAttachments(WS, id)).toEqual([image])
 })
 
 test('a refused fork opens nothing', async () => {

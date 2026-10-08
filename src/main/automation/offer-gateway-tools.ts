@@ -21,6 +21,10 @@ export const BUILT_IN_TOOL_TIMEOUTS_MS: Readonly<Record<string, number>> = {
   'browser.open': 30_000,
   'browser.wait_for': 40_000,
   'browser.evaluate': 40_000,
+  // A start makes its file (on a WSL share, at that share's pace), gives the
+  // tab 10 s to begin capturing, and a capture that ended while it began is
+  // then stopped (up to 10 s more) and its file discarded.
+  'browser.record_start': 40_000,
   // A stop waits for the window's last second of video, then writes a file of
   // up to 60 MB with its length in it.
   'browser.record_stop': 60_000,

@@ -117,7 +117,6 @@ export function registerMeshIpc(ipcMain: IpcMain, service: AutomationService): v
     return service.mesh().visitConversation({
       connectionId: record.connectionId,
       workspaceId: record.workspaceId,
-      visitedAt: record.visitedAt,
     })
   })
   ipcMain.handle(MESH_WORKSPACE_CHECKOUT_CHANNEL, (_event, input: unknown) => {

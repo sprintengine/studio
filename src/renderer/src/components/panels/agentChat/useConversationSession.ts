@@ -8,6 +8,7 @@ import type {
 } from '../../../../../shared/conversation-runtime'
 import { useWindowPageVisible } from '../../../utils/windowActivity'
 import { useConversationTransport, type ConversationTransport } from './conversationTransport'
+import { retryLabel } from './conversationTimeline'
 import { compactTokenRuns, SeqRanges } from './sessionEventLog'
 
 const TURN_LIMIT = 10
@@ -44,6 +45,26 @@ type Session = {
   // Subscribe again from the cursor: a retry, or a chat opened again while it
   // was still held.
   resume: () => void
+  // The provider retry last said aloud: its turn and what went wrong.
+  retrySaid: { turnId: unknown; reason: string } | null
+}
+
+/**
+ * What to say when the provider retries a failed call: its first retry in a
+ * turn, and again only when what went wrong changes. A rate limit retried ten
+ * times is one thing to hear, not ten.
+ */
+function retryAnnouncement(session: Session, payload: Record<string, unknown> | undefined): string | null {
+  const attempt = typeof payload?.attempt === 'number' ? payload.attempt : undefined
+  const maxAttempts = typeof payload?.maxAttempts === 'number' ? payload.maxAttempts : undefined
+  if (attempt === undefined || maxAttempts === undefined) return null
+  const error = typeof payload?.error === 'string' ? payload.error : undefined
+  const status = typeof payload?.status === 'number' ? payload.status : undefined
+  const reason = `${error ?? ''}|${status ?? ''}`
+  const said = session.retrySaid
+  if (said && said.turnId === payload?.turnId && said.reason === reason && attempt > 1) return null
+  session.retrySaid = { turnId: payload?.turnId, reason }
+  return retryLabel({ attempt, maxAttempts, error, status })
 }
 const emptyState = (): SessionState => ({
   events: [],
@@ -273,6 +294,7 @@ function openSharedSession(transport: ConversationTransport, key: ConversationKe
     retryTimer: null,
     unsubscribe: () => {},
     resume: () => subscribe(true),
+    retrySaid: null,
   }
   const shared: SharedSession = { session, snapshot: null, listeners: new Set(), readers: 1 }
   byKey.set(id, shared)
@@ -322,6 +344,10 @@ function openSharedSession(transport: ConversationTransport, key: ConversationKe
             else if (frame.event.type === 'turn_completed') session.state.announcement = 'Assistant reply complete.'
             else if (frame.event.type === 'turn_failed') session.state.announcement = 'Assistant reply stopped.'
             else if (frame.event.type === 'user_message') session.state.announcement = 'Message sent.'
+            else if (frame.event.type === 'turn_retrying') {
+              const said = retryAnnouncement(session, frame.event.payload)
+              if (said) session.state.announcement = said
+            }
           }
           break
         case 'synchronized':

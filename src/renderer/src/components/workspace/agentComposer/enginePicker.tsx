@@ -4,6 +4,7 @@ import CliIcon from '../../CliIcon'
 import { ChipButton, CliModelPopoverSurface, Popover, Tooltip, TruncatedText } from '../../ui'
 import type { CliRuntimeOption } from '../../ui/CliModelPicker'
 import type { AgentCli } from '../../../types/workspace'
+import { ChipCaretGlyph } from './agentSpawnShared'
 import { engineNames } from './useAgentComposer'
 
 // The engine chip: the CLI's own mark and the model's name, opening the model
@@ -100,7 +101,7 @@ export function EnginePickerChip({
             <CliIcon cli={cli} className="icon-xs" />
             <TruncatedText as="span" text={label} className="max-w-[150px]" />
             {reasoning ? <span className="text-[color:var(--text-subtle)]">· {reasoning}</span> : null}
-            <ChevronGlyph />
+            <ChipCaretGlyph />
           </ChipButton>
         )
         const tip = shortcutLabel ? `Model and permissions (${shortcutLabel})` : null
@@ -132,19 +133,5 @@ export function EnginePickerChip({
         {...(groupNote ? { groupNote } : {})}
       />
     </Popover>
-  )
-}
-
-function ChevronGlyph(): JSX.Element {
-  return (
-    <svg className="icon-xs text-[color:var(--text-subtle)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="m4 6.5 4 3.5 4-3.5"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   )
 }

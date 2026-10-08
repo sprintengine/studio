@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import type { Duplex } from 'node:stream'
+import type { Duplex, Readable } from 'node:stream'
 
 import type { WslListing } from '../../main/hosts/wsl-distro'
 import {
@@ -7,12 +7,14 @@ import {
   buildLaunchScript,
   serverTreeName,
   tarArgs,
-  type AppPayload,
+  type StreamedPayload,
   type NeedReport,
 } from '../../main/hosts/wsl-install'
 import type { WslRunner } from '../../main/hosts/wsl-runner'
 import { WslSetupError } from '../../main/hosts/wsl-setup-error'
 import type { ServerBootstrapEnvelope } from '../bootstrap/envelope'
+import { backoffDelayMs } from '../../shared/exponentialBackoff'
+import { chatsAreWorking } from '../core/chats-working'
 import { connectRemoteConversationBackend, type RemoteConversationBackend } from './backend-wire'
 import { connectLoopback, openBridge } from './front-door-client'
 import { enterFrontDoor, ownerTokenHash, type FrontDoorPurpose } from './front-door-proof'
@@ -86,7 +88,7 @@ export type WslEnvironmentManagerDeps = {
   /** The Windows profile's id; `isDefault` for the installed app's own profile (`data/`, decision R68). */
   profile: { id: string; isDefault: boolean }
   /** The server tree this build ships, packed; null when it shipped none. */
-  payload(): AppPayload | null
+  payload(): StreamedPayload | null
   /**
    * The build identity in that tree's `build.json`, which the server's `boot`
    * must repeat. Null (a tree from before the file) skips the check; the
@@ -98,7 +100,7 @@ export type WslEnvironmentManagerDeps = {
   installNode(distro: string, report: NeedReport): Promise<void>
   install(
     distro: string,
-    input: { kind: 'server'; digest: string; argv: (id: string) => string[]; body: () => Buffer },
+    input: { kind: 'server'; digest: string; argv: (id: string) => string[]; body: () => Readable },
   ): Promise<void>
   /** `auto` tries loopback first; `stdio` always uses the bridge (`ExecutionHostSettings.serverTransport`). */
   transportFor(distro: string): 'auto' | 'stdio'
@@ -132,6 +134,9 @@ const DEFAULT_PING_MS = 15_000
 const QUIT_DRAIN_MS = 10_000
 const CRASH_BACKOFF_BASE_MS = 2_000
 const CRASH_BACKOFF_MAX_MS = 30_000
+// A server that ran this long before it crashed was healthy: its crash starts
+// the backoff again from the bottom, rather than counting as one in a row.
+const HEALTHY_RUN_MS = 5 * 60_000
 // How long a server whose wire closed has to answer a ping before it is taken
 // for hung, and stopped with every chat it runs. A dead one is known sooner,
 // by its exit, so this is only ever waited out by a server that is alive but
@@ -158,6 +163,8 @@ type Handle = {
   token: string | null
   crashes: number
   retryAt: number
+  /** When the running server's start succeeded, for telling a crash in a row from one after a healthy run. */
+  startedAt: number
   idleTimer: ReturnType<typeof setTimeout> | null
   pingTimer: ReturnType<typeof setInterval> | null
   stopping: boolean
@@ -189,6 +196,7 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
         token: null,
         crashes: 0,
         retryAt: 0,
+        startedAt: 0,
         idleTimer: null,
         pingTimer: null,
         stopping: false,
@@ -215,18 +223,10 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     handle.pingTimer = null
   }
 
-  const busy = (handle: Handle): boolean => {
-    const listed = handle.connection?.backend.listSessions()
-    if (!listed?.ok) return false
-    return listed.sessions.some(
-      (session) =>
-        session.status === 'starting' ||
-        session.status === 'active' ||
-        session.status === 'awaiting_approval' ||
-        session.turnStartedAt !== undefined ||
-        (session.backgroundAgents ?? 0) > 0,
-    )
-  }
+  // A server whose wire is being reconnected, or that is still starting,
+  // cannot say what its chats are doing: it is taken as working, not idle.
+  const busy = (handle: Handle): boolean =>
+    !handle.connection || handle.starting !== null || chatsAreWorking(handle.connection.backend)
 
   const armIdle = (handle: Handle): void => {
     if (handle.idleTimer) clearTimeout(handle.idleTimer)
@@ -241,7 +241,7 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       log(
         `Stopping the Studio server in ${handle.distro}: nothing has used it for ${Math.round(idleMs / 60_000)} minutes.`,
       )
-      void stopHandle(handle, { budgetMs: QUIT_DRAIN_MS })
+      void stopHandle(handle, { budgetMs: QUIT_DRAIN_MS, idle: true })
     }, idleMs)
     handle.idleTimer.unref?.()
   }
@@ -453,8 +453,11 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       })
       return
     }
+    if (now() - handle.startedAt >= HEALTHY_RUN_MS) handle.crashes = 0
     handle.crashes++
-    const wait = Math.min(CRASH_BACKOFF_MAX_MS, CRASH_BACKOFF_BASE_MS * 2 ** (handle.crashes - 1))
+    const wait =
+      backoffDelayMs(handle.crashes - 1, { baseMs: CRASH_BACKOFF_BASE_MS, maxMs: CRASH_BACKOFF_MAX_MS }) ??
+      CRASH_BACKOFF_MAX_MS
     handle.retryAt = now() + wait
     // Why, as the exit says it: what the server printed while it worked
     // (a library's warnings) is not why it stopped.
@@ -502,7 +505,7 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
               kind: 'server',
               digest: payload.digest,
               argv: (id) => tarArgs('app', id),
-              body: () => payload.tarGz,
+              body: () => payload.body(),
             })
         },
         prewarm: async () => {
@@ -517,7 +520,9 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       handle.pingTimer = setInterval(() => server.ping(), pingMs)
       handle.pingTimer.unref?.()
       const connection = await connectBackend(handle)
-      handle.crashes = 0
+      // Not a reset of the crash count: a server that crashes again soon after
+      // starting is the next crash in a row, and waits longer.
+      handle.startedAt = now()
       armIdle(handle)
       // What WSL calls a running distribution, in this PC's language, read
       // while this one surely runs; listing does not start the VM.
@@ -547,10 +552,19 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     }
   }
 
-  async function stopHandle(handle: Handle, options: { budgetMs?: number } = {}): Promise<void> {
+  async function stopHandle(handle: Handle, options: { budgetMs?: number; idle?: boolean } = {}): Promise<void> {
     await handle.starting?.catch(() => undefined)
     const server = handle.server
     if (!server) return
+    // An idle stop that waited for a start or a reconnect looks again: the
+    // server may have been used meanwhile, or a chat begun working there.
+    if (options.idle) {
+      if (handle.idleTimer) return
+      if (busy(handle)) {
+        armIdle(handle)
+        return
+      }
+    }
     handle.stopping = true
     clearTimers(handle)
     try {

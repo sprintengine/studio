@@ -19,9 +19,10 @@ import {
   type ExecutionHostId,
   type ExecutionHostSummary,
 } from '../../../../../shared/execution-host'
-import { distroOfUncPath } from '../../../../../shared/host-paths'
+import { distroOfUncPath, isWindowsPath, toWslPath } from '../../../../../shared/host-paths'
 import type { AgentCliAvailabilityMap } from '../../../../../shared/electron-api'
 import { useExecutionHosts } from '../../../hooks/useExecutionHosts'
+import { useFileDropTarget } from '../../../hooks/useFileDropTarget'
 import type { SshEnvironmentSummary } from '../../../../../shared/ssh-environments'
 import { useSshMachines } from '../../settings/SshMachinesSection'
 import { FolderIdentityIcon } from '../FolderIdentityIcon'
@@ -43,7 +44,12 @@ import {
 } from '../../../utils/imageFileTransfer'
 import { workspaceRunsHere } from '../../../utils/attachedFiles'
 import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
-import { ComposerField, type ComposerFieldHandle, type ComposerKeyEvent } from '../../panels/agentChat/ComposerField'
+import {
+  ComposerField,
+  isImeKey,
+  type ComposerFieldHandle,
+  type ComposerKeyEvent,
+} from '../../panels/agentChat/ComposerField'
 import { basename } from '../../../utils/paths'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
@@ -77,12 +83,12 @@ import { MENU_GROUP_LABEL_CLASS } from '../../ui/menuClasses'
 import type { MachineRef } from '../../../../../shared/machine-identity'
 import { hostMachineRef, sshMachineRef, useMachineIdentity } from '../../../hooks/useMachineIdentity'
 import { CliInstallCta } from '../cliInstallRoute'
-import { menuRadioRowKeyDown } from './agentSpawnShared'
+import { ChipCaretGlyph, menuRadioRowKeyDown } from './agentSpawnShared'
 import { SpawnPermissionFooter } from './spawnFooter'
 import { EnginePickerChip } from './enginePicker'
 import { ProjectScopePicker } from './ProjectScopePicker'
 import { remoteProjectOfWorkspace, remoteProjectsOf, type RemoteProject } from './remoteProjects'
-import { type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
+import { focusProjectSearch, type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
 import { mergeDraftConnectors, readNewChatDraft, writeNewChatDraft, type NewChatDraftImage } from './newChatDraft'
 import {
   bootComposerRect,
@@ -652,10 +658,13 @@ export default function NewAgentPanel({
     // is the exception, not the rule. The door only (the one with a parked
     // draft); a scheduled agent or an extension opens with it off, and the
     // pane's "+" spawns beside a workspace that already has its folder.
+    // A parked draft opens the chip as the person left it, name and all.
     initialWorktreeName: editing
       ? (editing.worktree?.name ?? null)
       : draftKey && initialMode !== 'scheduled' && initialMode !== 'extension'
-        ? ''
+        ? draft?.worktreeName !== undefined
+          ? draft.worktreeName
+          : ''
         : null,
     // The engine a parked draft was made on, when whoever made it stored none —
     // a card's `Go` picker, which must not move this door's remembered engine
@@ -1021,8 +1030,6 @@ export default function NewAgentPanel({
   // screenshot (or an image dragged out of a browser) exists only as bytes and
   // is saved to a temp file first. Either way the box shows the image, not the
   // path: the thumbnail is the attachment.
-  const [dropActive, setDropActive] = React.useState(false)
-  const dragDepthRef = React.useRef(0)
   const [attachNote, setAttachNote] = React.useState<string | null>(null)
   const [images, setImages] = React.useState<PromptImage[]>(() => draft?.images ?? [])
   // Files attached by path: cards in the box. A chat on this computer sends
@@ -1061,8 +1068,19 @@ export default function NewAgentPanel({
       engine: composer.openingEngine,
       skills: composer.skills,
       mcpServers: composer.mcpServers,
+      worktreeName: composer.worktreeName,
     })
-  }, [draftKey, prompt, images, files, selection, composer.openingEngine, composer.skills, composer.mcpServers])
+  }, [
+    draftKey,
+    prompt,
+    images,
+    files,
+    selection,
+    composer.openingEngine,
+    composer.skills,
+    composer.mcpServers,
+    composer.worktreeName,
+  ])
 
   const insertPromptPath = (dropped: string) => {
     // A file from the SSH machine this chat starts on is typed as that
@@ -1154,7 +1172,9 @@ export default function NewAgentPanel({
   const removeFile = (path: string) => setFiles((current) => current.filter((entry) => entry !== path))
   // The words with the file cards typed after them as their paths, for a start
   // that carries text alone: a terminal agent, a schedule, another machine.
-  const typedFiles = (words: string) => [words, ...files.map(quotePath)].filter(Boolean).join(' ')
+  // `spell` writes each path as the machine the agent runs on reads it.
+  const typedFiles = (words: string, spell: (path: string) => string = (path) => path) =>
+    [words, ...files.map((path) => quotePath(spell(path)))].filter(Boolean).join(' ')
 
   // A plain shell launches no CLI, so it wears no CLI chip. A chat agent is a
   // CLI too — the same one, driven as a chat — so it wears the same chip and
@@ -1507,17 +1527,25 @@ export default function NewAgentPanel({
   // Should the host say nothing started (a worktree that could not be made,
   // which says why itself), the prompt comes back, unless the person has
   // already typed the next one.
+  //
+  // A worktree NAME belongs to the chat it was typed for: the next one asking
+  // for the same name would collide with it. The chip stays on, made up at
+  // start, until the person names the next one.
   const keepOnNewChat = (started: void | Promise<boolean>, sentPrompt: string, sentImages: PromptImage[]) => {
     const sentFiles = files
+    const sentWorktreeName = composer.worktreeName
+    const setWorktreeName = composer.setWorktreeName
     setPrompt('')
     setImages([])
     setFiles([])
+    if (sentWorktreeName) setWorktreeName('')
     window.requestAnimationFrame(() => promptRef.current?.focus())
     void Promise.resolve(started).then((ok) => {
       if (ok !== false) return
       setPrompt((current) => (current === '' ? sentPrompt : current))
       setImages((current) => (current.length === 0 ? sentImages : current))
       setFiles((current) => (current.length === 0 ? sentFiles : current))
+      if (sentWorktreeName) setWorktreeName((current) => (current === '' ? sentWorktreeName : current))
     })
   }
 
@@ -1567,11 +1595,14 @@ export default function NewAgentPanel({
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
       const confirm = buildLaunchConfirm(selection)
       if (confirm.kind !== 'conversation') return
-      // A chat's skills are this machine's and its images are local files;
-      // neither has a way over yet, so their chips refuse rather than vanish.
+      // A chat's skills are this machine's and its images and files are local
+      // files: none has a way over yet, and a path on this disk typed into
+      // that machine's prompt names nothing there, so their chips refuse
+      // rather than vanish.
       const stranded = [
         confirm.skills?.length ? 'the skills' : null,
         images.length > 0 ? 'the attached images' : null,
+        files.length > 0 ? 'the attached files' : null,
       ].filter((entry): entry is string => entry !== null)
       if (stranded.length > 0) {
         showToast({
@@ -1588,7 +1619,7 @@ export default function NewAgentPanel({
         remoteWorkspaceId: remoteTarget.picked.workspaceId,
         remoteWorkspaceName: remoteTarget.picked.name,
         remoteWorkspaceRoot: remoteTarget.picked.folderPath,
-        prompt: typedFiles(text.trim()),
+        prompt: text.trim(),
         cli: confirm.cli,
         cliModel: confirm.model ?? null,
         permissionPreset: effectivePreset,
@@ -1607,14 +1638,20 @@ export default function NewAgentPanel({
     // the path needs it — the terminal drop idiom.
     const imagePaths = images.map((image) => image.path)
     const asImages = confirm.kind === 'conversation' && imagePaths.length > 0
-    const words = [text.trim(), ...(asImages ? [] : imagePaths.map(quotePath))].filter(Boolean).join(' ')
+    // A path typed for an agent in a WSL distribution is spelled as Linux
+    // sees this computer's drives (`C:\…` is `/mnt/c/…` there); a chat's
+    // images are read here, so they keep this computer's spelling.
+    const spell = (path: string) => (isWslHostId(hostId) && isWindowsPath(path) ? toWslPath(path) : path)
+    const words = [text.trim(), ...(asImages ? [] : imagePaths.map((path) => quotePath(spell(path))))]
+      .filter(Boolean)
+      .join(' ')
     // A chat on this computer sends its files beside the words, as its first
     // message's `files`, and its bubble draws them as cards; anything else (a
     // terminal agent, a chat on a WSL distribution) is typed them after the
     // words on the same line, as a dropped path would be — a blank line could
     // end a terminal's prompt early.
     const filesBeside = confirm.kind === 'conversation' && filesAsCards
-    const prompt = filesBeside ? words : typedFiles(words)
+    const prompt = filesBeside ? words : typedFiles(words, spell)
     if (confirm.kind === 'conversation') {
       // The picker's CLI and model, mapped onto the conversation provider that
       // drives that CLI as a chat. The CLI's own default row asks for no model.
@@ -1690,11 +1727,23 @@ export default function NewAgentPanel({
   // opens, but a first-run auto-open can mount it UNDER a door that is already
   // up, inert. An Escape meant for that door must not close this on purpose
   // (and take its parked draft with it).
+  //
+  // Only an Escape pressed on this surface: the tab strip's "+" shares the
+  // window with other panes, and an Escape in one of them is theirs. The door
+  // covers the stage, so there an Escape with nothing focused is its too. An
+  // Escape that drops an input method's candidates belongs to the input method.
   const rootRef = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
-      if (rootRef.current?.closest('[inert], [aria-hidden="true"]')) return
+      if (event.key !== 'Escape' || event.defaultPrevented || isImeKey(event)) return
+      const root = rootRef.current
+      if (!root || root.closest('[inert], [aria-hidden="true"]')) return
+      const target = event.target instanceof Node ? event.target : null
+      const onSurface =
+        (target !== null && root.contains(target)) ||
+        (root.closest('[data-new-chat-door]') !== null &&
+          (target === null || target === document.body || target === document.documentElement || target === document))
+      if (!onSurface) return
       event.preventDefault()
       onClose()
     }
@@ -1711,7 +1760,7 @@ export default function NewAgentPanel({
     bootLaunchPendingRef.current = null
     // The Enter that commits an input method's composition belongs to the
     // input method: it picks the characters, it does not send them half-typed.
-    if (event.nativeEvent.isComposing) return
+    if (isImeKey(event)) return
     if (slashQuery !== null) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         if (slashRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
@@ -1784,6 +1833,14 @@ export default function NewAgentPanel({
   // same install route either way, because installing a CLI is the answer to
   // both.
   const terminalUnavailable = (composer.noAgentCliInstalled && localHosts.length <= 1) || chatUnavailable
+  // A drag holding files lights the box as where they will land; a plain shell
+  // takes none.
+  const { active: dropActive, handlers: dropHandlers } = useFileDropTarget({
+    enabled: !isTerminalLaunch,
+    accepts: dataTransferHasDroppableFiles,
+    onDrop: dropFiles,
+  })
+  const boxHasContent = prompt.trim() !== '' || images.length > 0 || files.length > 0 || attachingCount > 0
 
   // The capture: this panel, untouched, in a window with no chats, is what
   // the next launch opens on. Taken after paint and again whenever the region
@@ -1846,35 +1903,71 @@ export default function NewAgentPanel({
     }
     return kinds
   }, [chatAvailable, editing, extensionMode])
-  const startAs = (kind: StartAs): void => {
-    // A scheduled agent's runs are chats: a terminal needs someone at it, so
-    // choosing one stops scheduling rather than lying about what would run.
-    if (kind !== 'conversation' && mode === 'scheduled' && !editing) setMode('chat')
-    const next: AgentComposerSelection = { kind } as AgentComposerSelection
-    composer.setSelection(next)
-    setLastNewChatAgent(next)
-  }
+  // Everything handed to the "+" is held steady across renders: the menu is
+  // memoized, and a fresh callback or object on each keystroke redrew it with
+  // every letter typed.
+  const setComposerSelection = composer.setSelection
+  const startAs = React.useCallback(
+    (kind: StartAs): void => {
+      // A scheduled agent's runs are chats: a terminal needs someone at it, so
+      // choosing one stops scheduling rather than lying about what would run.
+      if (kind !== 'conversation' && mode === 'scheduled' && !editing) setMode('chat')
+      const next: AgentComposerSelection = { kind } as AgentComposerSelection
+      setComposerSelection(next)
+      setLastNewChatAgent(next)
+    },
+    [editing, mode, setComposerSelection, setLastNewChatAgent],
+  )
+  const plusStartAs = React.useMemo(
+    () => ({ kind: selection.kind, offered: offeredKinds, onStartAs: startAs }),
+    [offeredKinds, selection.kind, startAs],
+  )
+  const attachFiles = React.useCallback(() => {
+    fileInputRef.current?.click()
+  }, [])
   // What the launch reads skills and MCP servers through: nothing for a plain shell.
   const skillsOffered = selection.kind !== 'terminal'
-  const scheduleOption =
-    scheduleOffered || editing
-      ? {
-          on: scheduled,
-          disabled: editing
-            ? 'A scheduled agent stays one'
-            : selection.kind !== 'conversation'
-              ? 'Only a conversation can run on a schedule'
-              : null,
-          onToggle: () => {
-            if (scheduled) {
-              setMode('chat')
-              return
-            }
-            setOnce(defaultSendAt(Date.now()))
-            setMode('scheduled')
-          },
-        }
-      : undefined
+  const { skills: pickedSkills, setSkills, mcpServers: pickedMcpServers, setMcpServers } = composer
+  const plusSkills = React.useMemo(
+    () =>
+      skillsOffered
+        ? {
+            workspaceRoot,
+            // A chat stages skills itself rather than through the CLI's own
+            // skill directory, so the workspace-wide inventory is its list.
+            pluginId: commandCli,
+            skills: pickedSkills,
+            onSkillsChange: setSkills,
+            mcpServers: pickedMcpServers,
+            onMcpServersChange: setMcpServers,
+          }
+        : undefined,
+    [commandCli, pickedMcpServers, pickedSkills, setMcpServers, setSkills, skillsOffered, workspaceRoot],
+  )
+  const scheduleShown = scheduleOffered || editing !== null
+  const scheduleDisabled = editing
+    ? 'A scheduled agent stays one'
+    : selection.kind !== 'conversation'
+      ? 'Only a conversation can run on a schedule'
+      : null
+  const scheduleOption = React.useMemo(
+    () =>
+      scheduleShown
+        ? {
+            on: scheduled,
+            disabled: scheduleDisabled,
+            onToggle: () => {
+              if (scheduled) {
+                setMode('chat')
+                return
+              }
+              setOnce(defaultSendAt(Date.now()))
+              setMode('scheduled')
+            },
+          }
+        : undefined,
+    [scheduleDisabled, scheduleShown, scheduled],
+  )
 
   // ── The context strip ─────────────────────────────────────────────────────
   // Where the launch runs: the machine, the project, the worktree and the
@@ -2018,33 +2111,11 @@ export default function NewAgentPanel({
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           data-new-chat-composer="true"
-          onDragEnter={(event) => {
-            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-            dragDepthRef.current += 1
-            setDropActive(true)
-          }}
-          onDragOver={(event) => {
-            // Claiming the drag is what stops the window from navigating to the
-            // dropped file, so it has to happen on every dragover.
-            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-            event.preventDefault()
-          }}
-          onDragLeave={(event) => {
-            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-            if (dragDepthRef.current === 0) setDropActive(false)
-          }}
-          onDrop={(event) => {
-            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-            event.preventDefault()
-            dragDepthRef.current = 0
-            setDropActive(false)
-            dropFiles(event.dataTransfer)
-          }}
+          {...dropHandlers}
         >
           {/* Opaque, not a scrim: the field's own text ghosting through the
               drop state reads as a rendering artifact rather than a state. */}
-          {dropActive && !isTerminalLaunch ? (
+          {dropActive ? (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[var(--sem-radius-composer)] bg-[color:var(--bg-app)] text-meta font-medium text-[color:var(--accent-primary)]">
               Drop to attach
             </div>
@@ -2137,30 +2208,10 @@ export default function NewAgentPanel({
             <HiddenFileInput ref={fileInputRef} onFiles={(files) => takeFiles(sortFiles(files, fileSorting))} />
             <ComposerPlusMenu
               placement="bottom-start"
-              startAs={{ kind: selection.kind, offered: offeredKinds, onStartAs: startAs }}
-              onAttach={
-                isTerminalLaunch
-                  ? undefined
-                  : () => {
-                      fileInputRef.current?.click()
-                    }
-              }
+              startAs={plusStartAs}
+              onAttach={isTerminalLaunch ? undefined : attachFiles}
               schedule={scheduleOption}
-              skills={
-                skillsOffered
-                  ? {
-                      workspaceRoot,
-                      // A chat stages skills itself rather than through the
-                      // CLI's own skill directory, so the workspace-wide
-                      // inventory is its list.
-                      pluginId: commandCli,
-                      skills: composer.skills,
-                      onSkillsChange: composer.setSkills,
-                      mcpServers: composer.mcpServers,
-                      onMcpServersChange: composer.setMcpServers,
-                    }
-                  : undefined
-              }
+              skills={plusSkills}
             />
 
             {/* The tags: each choice the "+" made that is not the default. */}
@@ -2435,7 +2486,10 @@ export default function NewAgentPanel({
         {editing && scheduled && onOpenScheduledRun ? (
           <ScheduledRuns runs={scheduledRuns} onOpen={onOpenScheduledRun} />
         ) : null}
-        {terminalUnavailable || isTerminalLaunch || scheduled || extensionMode ? null : (
+        {/* The cards are for an empty box: each starts its own prompt, so
+            beside words or attachments of the person's one would throw the
+            words away and send the attachments with a stranger's text. */}
+        {terminalUnavailable || isTerminalLaunch || scheduled || extensionMode || boxHasContent ? null : (
           <div className="mt-6 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
             {suggestions.map((entry) => (
               <SuggestionCard
@@ -2453,20 +2507,6 @@ export default function NewAgentPanel({
 }
 
 // ── Pieces ─────────────────────────────────────────────────────────────────
-
-function ChevronGlyph() {
-  return (
-    <svg className="icon-xs text-[color:var(--text-subtle)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="m4 6.5 4 3.5 4-3.5"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
 
 /**
  * A machine's mark in a menu row's leading slot, or the empty slot the width of
@@ -2597,7 +2637,7 @@ function MachineScopePicker({
               : selectedHost && hostRows.length > 0
                 ? selectedHost.label
                 : 'This device'}
-          <ChevronGlyph />
+          <ChipCaretGlyph />
         </ChipButton>
       )}
     >
@@ -2825,6 +2865,7 @@ function RemoteProjectPicker({
       popupRole="menu"
       placement="bottom-start"
       surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
+      onOpenAutoFocus={focusProjectSearch}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         // The same stable hook the local chip carries: the two never render
         // together, so a pass looking for "the project control on the scope
@@ -2834,7 +2875,7 @@ function RemoteProjectPicker({
               reading THIS disk, and the folder is on another machine. */}
           <FolderTypeIcon className="icon-xs shrink-0" color={color} unfiled={unfiled} />
           {label}
-          <ChevronGlyph />
+          <ChipCaretGlyph />
         </ChipButton>
       )}
     >

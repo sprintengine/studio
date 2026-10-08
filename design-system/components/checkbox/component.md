@@ -40,3 +40,25 @@ five surfaces came to draw five checkboxes.
 
 `src/renderer/src/components/ui/Checkbox.tsx`, exporting `Checkbox` with
 `indeterminate`, `size` and `readOnly`.
+
+## Radio mark (2026-10-08)
+
+`RadioMark`, exported beside `CheckboxBox`: the box's single-answer twin. Same
+`icon.size.sm` square, same `border.default` edge on the `bg.app` well, same
+`accent.primary` fill once chosen — fully round (`radius.pill`), with a disc
+where the tick would be. A question's choose-one rows had drawn their own, and
+a round mark hand-rolled outside the system is a status dot by another name.
+
+**Anatomy.** One round well; when checked, the accent fill and a disc in
+`text.on-accent`. No input.
+
+**States.** Unchecked, checked, and disabled (the box's 45% fade).
+
+**Usage.** Only as the picture of a choice another element owns: a row with
+`role="radio"` in a `radiogroup`, which is the tab stop and carries
+`aria-checked`. There is no radio control in the kit. A value picked from a
+closed list is a [select](../select/component.md) or a segmented control; a
+choose-many list of rows takes `CheckboxBox`.
+
+**Accessibility.** Always `aria-hidden`. The row announces the state; the mark
+is only its picture and must never be met twice.

@@ -102,10 +102,14 @@ export function withProjectUse(usage: ProjectUsageMap, folderPath: string, at: n
   const next: ProjectUsageMap = { ...usage, [key]: recordProjectUse(usage[key], at) }
   const keys = Object.keys(next)
   if (keys.length <= PROJECT_USAGE_LIMIT) return next
-  // Drop the lowest scores as of this use; the one just recorded scores at
-  // least 1 and is never the one dropped.
-  const ranked = keys.sort((left, right) => projectFrecency(next[right], at) - projectFrecency(next[left], at))
-  for (const dropped of ranked.slice(PROJECT_USAGE_LIMIT)) delete next[dropped]
+  // Drop the lowest scores as of this use, from every project but the one just
+  // used. Its score is no guarantee: it can be 1 beside a hundred others that
+  // also score 1 (a tie keeps whichever came first, and it came last), or
+  // beside entries stamped ahead of this clock, which do not decay here.
+  const ranked = keys
+    .filter((other) => other !== key)
+    .sort((left, right) => projectFrecency(next[right], at) - projectFrecency(next[left], at))
+  for (const dropped of ranked.slice(PROJECT_USAGE_LIMIT - 1)) delete next[dropped]
   return next
 }
 

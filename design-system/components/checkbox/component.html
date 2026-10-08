@@ -214,6 +214,21 @@
       </li>
     </ul>
   </div>
+  <p class="demo-label">Radio mark — a choose-one row's picture. The row is the radio and carries aria-checked; the mark is aria-hidden.</p>
+  <div class="demo-pane">
+    <div class="demo-stack" role="radiogroup" aria-label="Line height">
+      <div class="ds-radio-row" role="radio" aria-checked="true" tabindex="0">
+        <span class="ds-radio-mark ds-radio-mark--checked" aria-hidden="true">
+          <svg class="ds-radio-mark-disc" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3.5" /></svg>
+        </span>
+        Comfortable
+      </div>
+      <div class="ds-radio-row" role="radio" aria-checked="false" tabindex="-1">
+        <span class="ds-radio-mark" aria-hidden="true"></span>
+        Compact
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="demo-stage" data-mode="dark">
@@ -300,6 +315,21 @@
         Swap the call sites onto it
       </li>
     </ul>
+  </div>
+  <p class="demo-label">Radio mark, dark — the same well and the same accent fill as the box.</p>
+  <div class="demo-pane">
+    <div class="demo-stack" role="radiogroup" aria-label="Line height">
+      <div class="ds-radio-row" role="radio" aria-checked="false" tabindex="-1">
+        <span class="ds-radio-mark" aria-hidden="true"></span>
+        Comfortable
+      </div>
+      <div class="ds-radio-row" role="radio" aria-checked="true" tabindex="0">
+        <span class="ds-radio-mark ds-radio-mark--checked" aria-hidden="true">
+          <svg class="ds-radio-mark-disc" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3.5" /></svg>
+        </span>
+        Compact
+      </div>
+    </div>
   </div>
 </div>
 

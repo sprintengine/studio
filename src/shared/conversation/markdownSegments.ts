@@ -44,6 +44,16 @@ const LONG_HTML_BLOCK = /<\?|<![A-Za-z[]/u
 const BLANK = /^[ \t]*$/u
 const FENCE_OPENER = /^( {0,3})(`{3,}|~{3,})(.*)$/u
 const FENCE_CLOSER = /^ {0,3}(`+|~+)[ \t]*$/u
+// A display math block, read as the chat's math parser reads one
+// (renderer/src/utils/markdownMath.tsx): `$$` alone on a line opens and closes
+// it; `\[` opens a line and an unescaped `\]` ending a line closes it, the
+// opening line included. A `\]` with text after it is a sentence's bracket,
+// and the block it was in is no block at all.
+const DOLLAR_MATH = /^ {0,3}\$\$[ \t]*$/u
+const DOLLAR_MATH_CLOSER = /^[ \t]*\$\$[ \t]*$/u
+const BRACKET_MATH_OPENER = /^ {0,3}\\\[/u
+const BRACKET_MATH_CLOSER = /(?:^|[^\\])(?:\\\\)*\\\][ \t]*$/u
+const BRACKET_MATH_BROKEN = /(?:^|[^\\])(?:\\\\)*\\\](?![ \t]*$)/u
 const TAG = /<\/?([a-z][a-z0-9-]*)\b[^>]*>/giu
 // How much of a tag cut by a line break is kept while its end streams in.
 const MAX_CARRIED_TAG = 1_000
@@ -80,6 +90,9 @@ function boundaryBefore(line: string, complete: boolean): 'split' | 'no' | 'unde
 
 type Fence = { char: string; width: number; indented: boolean }
 
+/** Whether a `\[` block's line, or what follows its opener, ends it — closed, or broken and so never math. */
+const bracketMathEnds = (text: string) => BRACKET_MATH_CLOSER.test(text) || BRACKET_MATH_BROKEN.test(text)
+
 /**
  * Splits a streaming message into segments that can be parsed apart and read
  * exactly as the whole message does, so a new token re-parses only the last
@@ -88,7 +101,9 @@ type Fence = { char: string; width: number; indented: boolean }
  *  - before a line that follows a blank line, outside a fence, when that line
  *    starts at the margin with something other than a list marker (a
  *    paragraph, a heading, a quote, a table, a fence, a rule).
- * Nothing splits while raw HTML is open (it swallows what follows), and a
+ * Nothing splits inside a display math block, whose TeX may hold blank lines
+ * (split there, neither half closes, and both read as text), nor while raw
+ * HTML is open (it swallows what follows), and a
  * message holding a definition, a carriage return or a byte order mark is not
  * split at all.
  *
@@ -103,6 +118,7 @@ export function createMarkdownSplitter(): (source: string) => MarkdownSegments {
   let segmentStart = 0
   let lineStart = 0
   let fence: Fence | null = null
+  let math: 'dollar' | 'bracket' | null = null
   let awaitingBlank = false
   let blankBefore = false
   let blocked = false
@@ -116,6 +132,7 @@ export function createMarkdownSplitter(): (source: string) => MarkdownSegments {
     segmentStart = 0
     lineStart = 0
     fence = null
+    math = null
     awaitingBlank = false
     blankBefore = false
     blocked = false
@@ -174,13 +191,16 @@ export function createMarkdownSplitter(): (source: string) => MarkdownSegments {
         blocked = true
         return
       }
-      if (blankBefore && !fence && boundaryBefore(line, true) === 'split') freezeAt(position)
+      if (blankBefore && !fence && !math && boundaryBefore(line, true) === 'split') freezeAt(position)
       const blank = BLANK.test(line)
       if (awaitingBlank) {
         if (blank) freezeAt(next)
         awaitingBlank = false
       }
-      if (fence) {
+      if (math) {
+        if (math === 'dollar' ? DOLLAR_MATH_CLOSER.test(line) : bracketMathEnds(line)) math = null
+        blankBefore = false
+      } else if (fence) {
         const closer = FENCE_CLOSER.exec(line)
         if (closer && closer[1][0] === fence.char && closer[1].length >= fence.width) {
           awaitingBlank = !fence.indented
@@ -189,10 +209,13 @@ export function createMarkdownSplitter(): (source: string) => MarkdownSegments {
         blankBefore = false
       } else {
         const opener = FENCE_OPENER.exec(line)
+        const bracketMath = BRACKET_MATH_OPENER.exec(line)
         if (opener && (opener[2][0] === '~' || !opener[3].includes('`'))) {
           fence = { char: opener[2][0], width: opener[2].length, indented: opener[1].length > 0 }
-        } else readHtml(withoutCodeSpans(line))
-        blankBefore = !fence && blank
+        } else if (DOLLAR_MATH.test(line)) math = 'dollar'
+        else if (bracketMath && !bracketMathEnds(line.slice(bracketMath[0].length))) math = 'bracket'
+        else readHtml(withoutCodeSpans(line))
+        blankBefore = !fence && !math && blank
       }
       if (blocked) return
       position = next
@@ -205,7 +228,7 @@ export function createMarkdownSplitter(): (source: string) => MarkdownSegments {
       blocked = true
       return
     }
-    if (blankBefore && !fence && boundaryBefore(partial, false) === 'split') freezeAt(position)
+    if (blankBefore && !fence && !math && boundaryBefore(partial, false) === 'split') freezeAt(position)
   }
 
   return (source: string) => {

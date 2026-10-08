@@ -3,7 +3,11 @@ import {
   conversationStartedBy,
   createStudioConversationBackend,
 } from '../../main/studio-rpc/studio-conversation-backend'
-import { createStudioRpcService, type StudioRpcService } from '../../main/studio-rpc/studio-rpc-service'
+import {
+  createStudioRpcService,
+  type StudioRpcService,
+  type StudioRpcServiceOptions,
+} from '../../main/studio-rpc/studio-rpc-service'
 import { canvasBoardStoreDir } from '../../main/canvas/canvas-board-store'
 import { createStudioFiles } from '../rpc/studio-files'
 import { isMachinePath } from '../../shared/machine-paths'
@@ -18,8 +22,13 @@ import type { StudioGateway } from './studio-gateway'
 // it is wired once; each starts it beside its gateway and stops it first. Its
 // paths, version and the push to Settings are the core's platform's.
 
-export function createStudioRpc(core: StudioCore, gateway: StudioGateway): StudioRpcService {
+export function createStudioRpc(
+  core: StudioCore,
+  gateway: StudioGateway,
+  options: { hostKind?: StudioRpcServiceOptions['hostKind'] } = {},
+): StudioRpcService {
   const service = createStudioRpcService({
+    ...(options.hostKind ? { hostKind: options.hostKind } : {}),
     paths: core.platform.paths,
     identity: core.platform.identity,
     clients: core.platform.clients,

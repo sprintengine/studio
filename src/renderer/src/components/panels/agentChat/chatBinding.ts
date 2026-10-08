@@ -1,5 +1,6 @@
 import type React from 'react'
 import { useCallback, useMemo } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 
 import { conversationWorkingRoot, type AgentState } from '../../../../../shared/agent-state'
 import type { ConversationSessionSummary } from '../../../../../shared/conversation-runtime'
@@ -26,11 +27,23 @@ export type ChatAgentFields = Pick<
   | 'chatStartupFiles'
 > & { conversation: NonNullable<AgentState['conversation']> }
 
+/**
+ * What a chat reads of the workspace it sits in: its name, its folder, and the
+ * machine and worktree it runs in. Only these, so the chat redraws when one of
+ * them changes and not when the workspace record does — which it does every
+ * few seconds while the chat is on screen (the visit stamp), and on every tab,
+ * layout and draft change besides.
+ */
+export type ChatWorkspace = Pick<
+  Workspace,
+  'id' | 'name' | 'folderPath' | 'environment' | 'remoteOrigin' | 'hostId' | 'worktree'
+>
+
 export type ChatBinding = {
   agent: ChatAgentFields
   update(patch: Partial<ChatAgentFields>): void
-  /** The workspace here, for a local chat: its name, folder and other agents. */
-  workspace: Workspace | null
+  /** The workspace here, for a local chat: its name, folder and machine. */
+  workspace: ChatWorkspace | null
   /** This machine's folder the chat works in; null for one on another machine. */
   workspaceRoot: string | null
   /**
@@ -59,7 +72,24 @@ export type ChatBinding = {
 /** A local chat's binding: its agent record in the workspace store. Null until that record has a conversation. */
 export function useLocalChatBinding(workspaceId: string, agentId: string): ChatBinding | null {
   const agent = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId])
-  const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
+  // A fresh object each read, handed back as the last one while every field is
+  // the same (`useShallow`).
+  const workspace = useWorkspaceStore(
+    useShallow((s): ChatWorkspace | null => {
+      const found = s.workspaces.find((w) => w.id === workspaceId)
+      return found
+        ? {
+            id: found.id,
+            name: found.name,
+            folderPath: found.folderPath,
+            environment: found.environment,
+            remoteOrigin: found.remoteOrigin,
+            hostId: found.hostId,
+            worktree: found.worktree,
+          }
+        : null
+    }),
+  )
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const recordWorkspaceUserMessage = useWorkspaceStore((s) => s.recordWorkspaceUserMessage)
   const rememberModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)

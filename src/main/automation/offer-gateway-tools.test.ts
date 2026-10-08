@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import type { McpConnectionContext, McpToolRegistration } from '../../shared/modules/mcp-tools'
-import { connectionContextOf, gatewayToolDefinitions } from './offer-gateway-tools'
+import { RECORDING_LIMITS } from '../browser/browser-recorder'
+import { connectionContextOf, gatewayToolDefinitions, gatewayToolTimeoutMs } from './offer-gateway-tools'
 
 const registration = (name: string, seen: McpConnectionContext[] = []): McpToolRegistration => ({
   name,
@@ -37,6 +38,13 @@ test('today’s registrations become a toolset with the gateway’s own classifi
     ],
   )
   assert.throws(() => gatewayToolDefinitions('browser', [registration('canvas.list')]), /not a browser tool/)
+})
+
+test('a recording start is given longer than its own start and stop deadlines', () => {
+  const [start] = gatewayToolDefinitions('browser', [registration('browser.record_start')])
+  assert.ok(start.timeoutMs !== undefined)
+  assert.ok(start.timeoutMs > RECORDING_LIMITS.startTimeoutMs + RECORDING_LIMITS.stopTimeoutMs)
+  assert.equal(gatewayToolTimeoutMs('browser.record_start'), start.timeoutMs)
 })
 
 test('a handler reads the connection its call came on, as the gateway gave it', async () => {

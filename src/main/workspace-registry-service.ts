@@ -448,6 +448,9 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
             createdAt: input.imported.startedAt,
             lastUserMessageAt: input.imported.lastActiveAt,
             lastTurnEndedAt: input.imported.lastActiveAt,
+            // Seen as of its last move: the person ran that session, and an
+            // import of weeks of history is not weeks of unread finishes.
+            lastVisitedAt: input.imported.lastActiveAt,
           }
         : {}),
     }

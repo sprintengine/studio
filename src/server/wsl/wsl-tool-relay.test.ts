@@ -386,3 +386,55 @@ test('a tools stream that closes while the server stays up is opened again, and 
   await waitFor(() => offered.length === 2, 5_000)
   assert.equal(ends.length, 2)
 })
+
+test('a tools stream that fails to open is tried again while the server is up, and its close is heard once', async () => {
+  const offered: string[] = []
+  const ends: Array<() => void> = []
+  let attempts = 0
+  let closeListeners = 0
+  let backendOpen = true
+  const registry = {
+    visibleTools: () => [definition('browser', 'navigate')],
+    subscribe: () => () => undefined,
+    call: async () => ({ result: { content: [] } }),
+  } as unknown as ClientToolRegistry
+  let connected: (connection: WslServerConnection) => void = () => undefined
+  relayShellToolsets({
+    onConnected: (listener) => (connected = listener),
+    registry,
+    connectClient: (async () => {
+      if (++attempts < 3) throw new Error('the server was busy')
+      return {
+        tools: {
+          offer: async (toolset: ToolsetInput) => {
+            offered.push(toolset.name)
+            return { name: toolset.name, wireNames: [], state: 'offered', withdraw: async () => undefined }
+          },
+        },
+        close: () => undefined,
+        closed: new Promise<void>((resolve) => ends.push(resolve)),
+      }
+    }) as unknown as typeof connect,
+  })
+  connected({
+    distro: 'Ubuntu',
+    backend: {
+      isOpen: () => backendOpen,
+      onClose: () => void closeListeners++,
+    } as unknown as WslServerConnection['backend'],
+    driveMountRoot: '/mnt/',
+    environmentId: 'env',
+    open: async () => assert.fail('the fake client opens nothing'),
+  })
+  // Two failures, a second and two seconds apart, then the stream opens.
+  await waitFor(() => offered.length === 1, 8_000)
+  assert.equal(attempts, 3)
+  ends[0]()
+  await waitFor(() => offered.length === 2, 5_000)
+  assert.equal(closeListeners, 1, 'one close listener for the server, however often its stream is opened')
+  // Once the server's wire is down, nothing is tried again.
+  backendOpen = false
+  ends[1]()
+  await new Promise((resolve) => setTimeout(resolve, 1_500))
+  assert.equal(attempts, 4)
+}, 20_000)

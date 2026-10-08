@@ -17,6 +17,7 @@ import {
   focusActivePresetRow,
   PermissionPresetMenuRows,
   PresetGlyph,
+  selectedPermissionOption,
   type PermissionModeOption,
 } from './agentSpawnShared'
 import type { AgentCli, CliPermissionPreset } from '../../../types/workspace'
@@ -275,7 +276,7 @@ export function PermissionFooter({
       heading="Permissions"
       label={
         <>
-          <PresetGlyph preset={preset} />
+          <PresetGlyph preset={preset} mode={selectedPermissionOption(options, preset, mode)?.mode} />
           {/* The chip names the mode, not the sentence behind it — the surface
               carries no explanatory copy (owner, 2026-08-04). */}
           {agentPermissionChipLabel(options, preset, mode)}

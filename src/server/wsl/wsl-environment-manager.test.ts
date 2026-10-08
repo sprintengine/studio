@@ -17,7 +17,7 @@ import { afterAll, afterEach, beforeAll, test } from 'vitest'
 
 import type { HelperProcess } from '../../main/hosts/wsl-helper-client'
 import type { WslListing } from '../../main/hosts/wsl-distro'
-import { buildAppPayload, WSL_DATA_REL, type AppPayload } from '../../main/hosts/wsl-install'
+import { streamedAppPayload, WSL_DATA_REL, type StreamedPayload } from '../../main/hosts/wsl-install'
 import { installTree, wslNodeDigests } from '../../main/hosts/wsl-helper-runtime'
 import { WSL_NODE_VERSION } from '../../main/hosts/wsl-node-runtime'
 import type { WslRunner } from '../../main/hosts/wsl-runner'
@@ -50,7 +50,7 @@ const ROOT = join(__dirname, '..', '..', '..')
 const VERSION = (JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { version: string }).version
 
 let scratch = ''
-let payload: AppPayload
+let payload: StreamedPayload
 let treeBuild: { builtAt: string } | null = null
 
 beforeAll(() => {
@@ -61,7 +61,7 @@ beforeAll(() => {
     cwd: ROOT,
     stdio: 'pipe',
   })
-  payload = buildAppPayload([{ dir: tree, into: '' }])
+  payload = streamedAppPayload([{ dir: tree, into: '' }])
   treeBuild = readTreeBuild(tree)
 })
 
@@ -145,6 +145,7 @@ function manager(options: {
   closeDelayMs?: number
   log?: (message: string) => void
   now?: () => number
+  idleMs?: number
 }) {
   const runner = fakeRunner(options.homes, options.closeDelayMs)
   const listing =
@@ -169,6 +170,7 @@ function manager(options: {
     ...(options.maxAttempts ? { start: { maxAttempts: options.maxAttempts } } : {}),
     ...(options.log ? { log: options.log } : {}),
     ...(options.now ? { now: options.now } : {}),
+    ...(options.idleMs ? { idleMs: options.idleMs } : {}),
   })
   cleanups.push(() => created.shutdown({ budgetMs: 5_000 }))
   return { manager: created, runner }
@@ -374,6 +376,33 @@ test('a lost wire to a server too busy to answer at once is reconnected when it 
   assert.equal(connections.length, 2)
 }, 30_000)
 
+test('a server whose wire is being reconnected is not stopped for being idle once it is back', async () => {
+  const home = fakeHome('idle-reconnect')
+  const statuses: WslServerStatus[] = []
+  const { manager: wsl } = manager({ homes: { Ubuntu: home }, statuses, idleMs: 1_000 })
+  const first = await wsl.connect('Ubuntu')
+  const pid = readServerPid(home)
+  // Its idle clock runs out while the reconnect waits on a server slow to answer.
+  process.kill(pid, 'SIGSTOP')
+  try {
+    first.backend.close()
+    await new Promise((resolve) => setTimeout(resolve, 2_500))
+  } finally {
+    process.kill(pid, 'SIGCONT')
+  }
+  const second = await wsl.connect('Ubuntu')
+  assert.notEqual(second, first)
+  // Used right away: the idle clock starts again, and nothing stops it under the chat.
+  wsl.touch('Ubuntu')
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  assert.equal(wsl.status('Ubuntu').state, 'ready')
+  assert.equal(readServerPid(home), pid)
+  assert.equal(
+    statuses.some((status) => status.state === 'stopped'),
+    false,
+  )
+}, 30_000)
+
 test('a WSL 1 distribution is refused with the command that converts it, and nothing is started', async () => {
   const home = fakeHome('wsl1')
   const { manager: wsl, runner } = manager({
@@ -423,6 +452,30 @@ test('a server killed under a running distribution is a crash; under a stopped o
   await waitFor(() => shutDown.status('Ubuntu').state === 'shut-down')
   assert.match(shutDown.status('Ubuntu').reason ?? '', /WSL was shut down/u)
 })
+
+test('crashes in a row wait longer each time, and one after a healthy run starts the wait over', async () => {
+  const home = fakeHome('crash-backoff')
+  let clock = 1_000_000
+  const { manager: wsl } = manager({ homes: { Ubuntu: home }, now: () => clock })
+  const crash = async () => {
+    process.kill(readServerPid(home), 'SIGKILL')
+    await waitFor(() => wsl.status('Ubuntu').state === 'unavailable')
+  }
+  await wsl.connect('Ubuntu')
+  await crash()
+  await assert.rejects(wsl.connect('Ubuntu'), /tried again in 2 s/u)
+  clock += 2_000
+  await wsl.connect('Ubuntu')
+  // Started, and down again at once: the next crash in a row.
+  await crash()
+  await assert.rejects(wsl.connect('Ubuntu'), /tried again in 4 s/u)
+  clock += 4_000
+  await wsl.connect('Ubuntu')
+  // A run long enough to call healthy.
+  clock += 10 * 60_000
+  await crash()
+  await assert.rejects(wsl.connect('Ubuntu'), /tried again in 2 s/u)
+}, 60_000)
 
 test('a server started again while a crash is being looked into is not then said to have stopped', async () => {
   const home = fakeHome('crash-restart')

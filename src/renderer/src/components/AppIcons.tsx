@@ -347,6 +347,21 @@ export function SparkGlyph({ className }: IconProps) {
   )
 }
 
+// A shield: the agent never stops to ask, and is held to the rules it was
+// given — whatever they do not allow, it refuses (Claude Code's Don't ask).
+export function RuleShieldGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <path
+        d="M8 2.2l5 1.9v3.5c0 3-2.1 5-5 6.1-2.9-1.1-5-3.1-5-6.1V4.1l5-1.9Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 // An open shackle, the twin of LockGlyph: the agent is NOT stopping to ask.
 export function UnlockedGlyph({ className }: IconProps) {
   return (

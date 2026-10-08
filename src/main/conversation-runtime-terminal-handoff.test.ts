@@ -399,3 +399,15 @@ test('a handoff refused for any other reason leaves a working chat running', asy
   assert.equal(chat.record.interrupts, 0)
   assert.equal(chat.summary().status, 'active')
 })
+
+test('while a handoff is under way, a second one is refused before it stops anything', async () => {
+  const chat = await setup()
+  await chat.send('one')
+  const sessionId = sessionOf(chat.runtime)
+  assert.equal((await chat.runtime.stopForTerminalHandoff({ sessionId })).ok, true)
+  const second = await chat.runtime.terminalHandoffTarget({ sessionId })
+  assert.equal(second.ok, false)
+  assert.match(!second.ok ? second.message : '', /already moving to a terminal/u)
+  chat.runtime.endTerminalHandoff({ sessionId })
+  assert.equal((await chat.runtime.terminalHandoffTarget({ sessionId })).ok, true)
+})

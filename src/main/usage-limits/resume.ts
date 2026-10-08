@@ -183,6 +183,10 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
   const unsubscribers: Array<() => void> = []
   let timer: unknown = null
   let running = false
+  // Until the file is read nothing is written: what is in memory then is a
+  // hit heard during the read, and writing it would replace the file's
+  // setting, schedules and remembered hits with an empty start's.
+  let loaded = false
   // No resume goes out before this: the start's grace, then the stagger.
   let quietUntil = 0
   let writing: Promise<void> = Promise.resolve()
@@ -193,6 +197,7 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
   // ── Keeping ──────────────────────────────────────────────────────────────
 
   function persist(): void {
+    if (!loaded) return
     const body = JSON.stringify({
       version: FORMAT_VERSION,
       autoResume,
@@ -460,11 +465,27 @@ export function createUsageLimitResumer(deps: UsageLimitResumerDeps): UsageLimit
     unsubscribers.push(deps.onLimitHit(onLimitHit), deps.onConversationEvent(onConversationEvent))
     const saved = readSaved(await deps.storage.read().catch(() => null))
     if (!running) return
+    loaded = true
     autoResume = saved.autoResume
     resumed = saved.resumed
-    // A hit heard while the file was being read is newer than the file.
+    // A hit heard while the file was being read is newer than the file. It was
+    // heard before the setting was known: scheduled now if the setting says
+    // so, and dropped if the file remembers it as resumed already.
+    const at = now()
+    const heard = pending.size > 0
+    for (const [key, entry] of pending) {
+      if (wasResumed(entry, entry.hitAt)) pending.delete(key)
+      else if (
+        autoResume &&
+        entry.fireAt === null &&
+        entry.failure === undefined &&
+        entry.resetsAt !== null &&
+        entry.resetsAt > at
+      )
+        entry.fireAt = fireTimeFor(entry.resetsAt)
+    }
     for (const entry of saved.pending) if (!pending.has(chatKey(entry))) pending.set(chatKey(entry), entry)
-    if (dropStale(now())) persist()
+    if (dropStale(at) || heard) persist()
     const next = state()
     for (const listener of [...listeners]) listener(next)
     arm()

@@ -30,7 +30,7 @@ import { createAttachedFileRegistry, createAttachedFiles, createAttachedFileThum
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
 import { registerGitRepoWatchIpc } from './ipc/git-repo-watch-ipc'
-import { getTerminalSessionById, listLiveTerminalSessions } from './terminal-runtime'
+import { getTerminalSessionById } from './terminal-runtime'
 import { createFolderOpenIpcDependencies, registerFolderOpenIpc } from './ipc/folder-open-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerWorktreePoolIpc } from './ipc/worktree-pool-ipc'
@@ -229,15 +229,8 @@ export function registerCoreIpc(
       onChangelistsChanged: services.broadcastGitChangelistsChanged,
       // Settled chats included: a worktree holding a chat's history is kept.
       knownWorkspaceIds: () => chatIdsOnRecord(services.workspaceSyncService.getSnapshot().state.workspaces),
-      // A chat's live provider session works in its folder as a terminal does.
-      livePaths: async () => [
-        ...listLiveTerminalSessions().flatMap((session) =>
-          [session.cwd, session.observedCheckout?.cwd, session.observedCheckout?.gitRoot].filter(
-            (path): path is string => typeof path === 'string' && path.length > 0,
-          ),
-        ),
-        ...(await services.conversations.liveConversationWorkspaceRoots().catch(() => [])),
-      ],
+      // Terminals and chats' live provider sessions, the list the pool uses too.
+      livePaths: services.liveWorkPaths,
     },
   )
   registerGitRepoWatchIpc(machineIpc)

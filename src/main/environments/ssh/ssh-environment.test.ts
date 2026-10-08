@@ -206,6 +206,30 @@ test('a newer server on the machine is left alone: version-blocked, in words', a
   assert.equal(readFileSync(join(run, 'server.json'), 'utf8').includes('99.0.0'), true, 'never replaced')
 })
 
+test('Stop server never signals the pid in a lock another machine holds', async () => {
+  const home = join(scratch, 'shared-home')
+  const run = join(home, '.local', 'share', 'sprintengine-studio', 'data', 'run')
+  mkdirSync(run, { recursive: true, mode: 0o700 })
+  // A home shared over NFS: the lock is another machine's, and its pid here is someone else's process.
+  const bystander = spawn('sleep', ['30'], { stdio: 'ignore' })
+  pids.add(bystander.pid!)
+  writeFileSync(
+    join(run, 'studio.lock'),
+    JSON.stringify({ role: 'server', pid: bystander.pid, hostname: 'other-box', startedAt: '', token: 't' }),
+  )
+  writeFileSync(
+    join(run, 'server.json'),
+    JSON.stringify({ v: 1, pid: bystander.pid, version: VERSION, origin: 'bootstrap', hostId: 'x' }),
+  )
+  const machine = harness(home)
+  await assert.rejects(machine.env.stopServer(), /runs on other-box, not build-box/u)
+  assert.equal(machine.env.summary().state, 'failed')
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  assert.equal(bystander.exitCode, null, 'still running')
+  assert.equal(bystander.signalCode, null)
+  bystander.kill('SIGKILL')
+})
+
 /** A stand-in for ssh that fails as ssh does: its words on stderr, exit 255. */
 function failingSsh(stderr: string): (interactive: boolean) => SessionProcess {
   return () =>

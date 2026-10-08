@@ -71,12 +71,17 @@ export type ConversationImportService = {
 }
 
 const SOURCE_CLI: Record<ConversationImportSource, string> = { 'claude-code': 'claude-code', codex: 'codex' }
+const SOURCE_NAME: Record<ConversationImportSource, string> = { 'claude-code': 'Claude Code', codex: 'Codex' }
 
 export function createConversationImportService(deps: ConversationImportServiceDeps): ConversationImportService {
   const home = () => deps.homeDir?.() ?? homedir()
   const env = () => deps.env?.() ?? process.env
   const now = deps.now ?? Date.now
   const newAgentSuffix = deps.newAgentSuffix ?? newAgentIdSuffix
+  // The sessions an import is making into chats right now, by `source:id`.
+  // A chat is only on record once its history is read, so without this two
+  // imports racing would each read the session and each make a chat of it.
+  const importing = new Set<string>()
 
   const sources: Array<{
     source: ConversationImportSource
@@ -117,11 +122,18 @@ export function createConversationImportService(deps: ConversationImportServiceD
     const sessions: ScannedSession[] = []
     const seen = new Set<string>()
     const folders = new Map<string, Promise<boolean>>()
+    const unreadable: string[] = []
     for (const entry of sources) {
       const root = entry.root()
       if (!(await isFolder(root))) continue
       found.push(entry.source)
-      for (const session of await entry.scan(root).catch(() => [])) {
+      const scanned = await entry.scan(root).catch((error: unknown) => {
+        unreadable.push(
+          `${SOURCE_NAME[entry.source]}'s sessions in ${root} (${error instanceof Error ? error.message : String(error)})`,
+        )
+        return []
+      })
+      for (const session of scanned) {
         const key = `${session.source}:${session.sessionId}`
         if (seen.has(key) || resumed.has(session.sessionId)) continue
         seen.add(key)
@@ -129,6 +141,9 @@ export function createConversationImportService(deps: ConversationImportServiceD
         if (await folders.get(session.folderPath)) sessions.push(session)
       }
     }
+    // Nothing found because a CLI's home could not be read is not "no
+    // sessions": the person may have many, behind a permission.
+    if (sessions.length === 0 && unreadable.length > 0) throw new Error(`no access to ${unreadable.join('; ')}`)
     return { sessions, found }
   }
 
@@ -180,7 +195,7 @@ export function createConversationImportService(deps: ConversationImportServiceD
       const key = `${source}:${sessionId}`
       // Read again for each session, so two imports racing, or a session
       // asked for twice, still make one chat.
-      if (knownSessions().imported.has(key)) {
+      if (knownSessions().imported.has(key) || importing.has(key)) {
         result.skipped += 1
         continue
       }
@@ -189,7 +204,13 @@ export function createConversationImportService(deps: ConversationImportServiceD
         result.failed.push({ source, sessionId, title: sessionId, message: 'The session is no longer on disk.' })
         continue
       }
-      const made = await importOne(session, settings)
+      importing.add(key)
+      let made: Awaited<ReturnType<typeof importOne>>
+      try {
+        made = await importOne(session, settings)
+      } finally {
+        importing.delete(key)
+      }
       if (made.ok) result.imported.push({ source, sessionId, workspaceId: made.workspaceId, agentId: made.agentId })
       else
         result.failed.push({
@@ -230,7 +251,9 @@ export function createConversationImportService(deps: ConversationImportServiceD
       ...(permission.mode ? { cliPermissionMode: permission.mode } : {}),
       importedFrom: { source: session.source, sessionId: session.sessionId },
     }
-    const lastActiveAt = Math.min(Math.max(history.updatedAt, session.updatedAt), now())
+    // The history's own last time, which falls back to the scan's: a file's
+    // modified time is moved by a copy or a backup, not only by the session.
+    const lastActiveAt = Math.min(history.updatedAt, now())
     const created = deps.createWorkspace({
       name: title,
       folderPath: session.folderPath,

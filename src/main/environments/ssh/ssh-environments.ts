@@ -231,7 +231,8 @@ export class SshEnvironments {
   }
 
   private askpass(): Promise<AskpassBroker> {
-    this.broker ??= sshVersion(this.ssh()).then((version) => {
+    if (this.broker) return this.broker
+    const broker = sshVersion(this.ssh()).then((version) => {
       // Before OpenSSH 8.4 a remote's question is not marked as the remote's.
       const remoteMarked = marksRemotePrompts(version)
       if (!remoteMarked)
@@ -242,9 +243,15 @@ export class SshEnvironments {
         ask: (request, signal) => this.ask(request, signal),
         remoteMarked: () => remoteMarked,
         log: this.log,
-      }).then((broker) => (this.brokerReady = broker))
+      }).then((ready) => (this.brokerReady = ready))
     })
-    return this.broker
+    // A broker that could not start (no ssh found, its socket refused) is
+    // tried again by the next connect, not refused for the rest of the run.
+    broker.catch(() => {
+      if (this.broker === broker) this.broker = null
+    })
+    this.broker = broker
+    return broker
   }
 
   /** Show ssh's question in every window; the first answer wins, the others close. */
@@ -426,8 +433,8 @@ export class SshEnvironments {
     const machine = this.machine(id)
     if (!machine) return { ok: false, message: 'That SSH machine is no longer saved.' }
     // The person asked: ssh may ask them things, so the broker listens first.
-    await this.askpass()
     try {
+      await this.askpass()
       await machine.connect({ interactive: true })
       return { ok: true }
     } catch (error) {
@@ -443,8 +450,8 @@ export class SshEnvironments {
   async stopServer(id: string): Promise<SshEnvironmentResult> {
     const machine = this.machine(id)
     if (!machine) return { ok: false, message: 'That SSH machine is no longer saved.' }
-    await this.askpass()
     try {
+      await this.askpass()
       await machine.stopServer()
       return { ok: true }
     } catch (error) {
@@ -456,8 +463,8 @@ export class SshEnvironments {
   async upgradeServer(id: string): Promise<SshEnvironmentResult> {
     const machine = this.machine(id)
     if (!machine) return { ok: false, message: 'That SSH machine is no longer saved.' }
-    await this.askpass()
     try {
+      await this.askpass()
       await machine.upgradeOnce()
       return { ok: true }
     } catch (error) {
@@ -508,7 +515,11 @@ export class SshEnvironments {
       return { ok: false, message: `${saved.label} is not connected. Connect it in Settings › Machines.` }
     const connection = this.connection(id)
     if (!connection) return { ok: false, message: `${saved.label} is not connected.` }
-    await this.askpass()
+    try {
+      await this.askpass()
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
     const started = await connection.backend.signIn({ op: 'start', cli })
     if (!started.ok) return { ok: false, message: `${started.message} ${over}` }
     const finished = new AbortController()
@@ -618,6 +629,9 @@ export class SshEnvironments {
   shutdown(): void {
     for (const machine of this.machines.values()) machine.disconnect()
     for (const prompt of this.prompts.values()) prompt.resolve(null)
-    void this.broker?.then((broker) => broker.close())
+    void this.broker?.then(
+      (broker) => broker.close(),
+      () => undefined,
+    )
   }
 }

@@ -236,10 +236,16 @@ export function toWorkspaceRegistryRecord(
  * write, no subscriber wake — the same rule the launch-settings mirror applies.
  */
 export function workspaceRegistryContentEqual(left: WorkspaceRegistryFile, right: WorkspaceRegistryFile): boolean {
-  return serializeRegistryContent(left) === serializeRegistryContent(right)
+  return serializeWorkspaceRegistryContent(left) === serializeWorkspaceRegistryContent(right)
 }
 
-function serializeRegistryContent(file: WorkspaceRegistryFile): string {
+/**
+ * The comparison key behind `workspaceRegistryContentEqual`. Exposed so the
+ * store can keep the key of what it last wrote and stringify only the new side
+ * of each commit: a large profile's registry is a megabyte or more, and the
+ * authority persists after every accepted mutation.
+ */
+export function serializeWorkspaceRegistryContent(file: WorkspaceRegistryFile): string {
   return JSON.stringify({
     workspaces: file.workspaces.map(({ revision: _revision, ...record }) => record),
     workspaceWindows: file.workspaceWindows,

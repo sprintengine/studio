@@ -1,3 +1,4 @@
+import type { WorktreeDependencyInstallView } from '../../shared/ipc/worktree-pool'
 import { toolError, toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { workspaceProjectRootOf } from '../../shared/worktree-paths'
 import type { WorktreePoolService } from './worktree-pool-service'
@@ -26,6 +27,33 @@ export type WorktreePoolToolsDeps = {
   pool: Pick<WorktreePoolService, 'lease' | 'release' | 'leaseAt'>
   /** The folder and project the calling agent's workspace is on, or null when the registry has no such workspace. */
   findWorkspace(workspaceId: string): { folderPath?: string | null; worktree?: { repoRoot?: string } | null } | null
+  /**
+   * The project's dependency install in the leased worktree, waited for, when
+   * the project opted in (Settings ▸ Worktrees) and its lockfile changed since
+   * that worktree last installed: what a chat's own leased worktree gets
+   * (git.ts `withDependencyInstall`). Null when none ran; left out, none runs.
+   */
+  installDependencies?: (input: {
+    repoRoot: string
+    path: string
+    branch: string
+  }) => Promise<WorktreeDependencyInstallView | null>
+}
+
+/** What the agent is told about the worktree's dependencies. */
+function dependenciesNote(install: WorktreeDependencyInstallView | null): string {
+  if (!install) {
+    return (
+      'Not installed for you this time (the project has not turned installs on, or nothing changed since the last ' +
+      'one). A reused worktree keeps the previous agent’s ignored files; run the install if they are missing or ' +
+      'the lockfile changed.'
+    )
+  }
+  if (install.state === 'succeeded') return `Installed: \`${install.command}\` succeeded.`
+  return (
+    `\`${install.command}\` ${install.state === 'timed-out' ? 'timed out' : install.state}` +
+    `${install.lastLine ? ` (${install.lastLine})` : ''}; run the install yourself before relying on dependencies.`
+  )
 }
 
 function callingAgent(context: Parameters<McpToolRegistration['handler']>[1]) {
@@ -47,9 +75,10 @@ export function createWorktreePoolTools(deps: WorktreePoolToolsDeps): McpToolReg
         '(origin/main, fetched now). Use this instead of `git worktree add` whenever you want to work apart from ' +
         'the checkout you were started in. The worktree may be one an earlier agent used: it is clean and on the ' +
         "default branch, but its ignored files (node_modules, build output, a virtual environment) are that agent's. " +
-        'Studio never installs dependencies, so run the project install yourself if they are missing or the ' +
-        'lockfile changed. Work in the returned path; the worktree stays yours while you exist, and you can give ' +
-        'it back early with worktree.release.',
+        'When the project has turned dependency installs on, Studio runs the install before answering if the ' +
+        'lockfile changed; the answer says whether it did, and otherwise run the project install yourself if ' +
+        'dependencies are missing or the lockfile changed. Work in the returned path; the worktree stays yours ' +
+        'while you exist, and you can give it back early with worktree.release.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -87,15 +116,21 @@ export function createWorktreePoolTools(deps: WorktreePoolToolsDeps): McpToolReg
                 : 'unavailable'
           return toolError(code, leased.message)
         }
+        // An install that cannot even start is the agent's to run, as with no install at all.
+        const install = deps.installDependencies
+          ? await deps
+              .installDependencies({ repoRoot: leased.repoRoot, path: leased.path, branch: leased.branch })
+              .catch(() => null)
+          : null
         return toolSuccess({
           path: leased.path,
           branch: leased.branch,
           baseRef: leased.baseRef,
           baseCommit: leased.baseSha,
+          // Offline, or the fetch failed: the base may be behind the remote.
+          ...(leased.baseNote ? { baseNote: leased.baseNote } : {}),
           reused: !leased.created,
-          dependencies:
-            'Not installed by Studio. A reused worktree keeps the previous agent’s ignored files; run the install ' +
-            'if they are missing or the lockfile changed.',
+          dependencies: dependenciesNote(install),
         })
       },
     },

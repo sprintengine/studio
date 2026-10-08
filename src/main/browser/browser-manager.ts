@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -38,7 +38,7 @@ import {
 } from '../../shared/browser-devices'
 import { safeExternalUrl } from '../ipc/external-url'
 import { parsePsTree, type ProcRow } from '../terminal-subtree-probe'
-import { workspaceSidecarPath } from '../workspace-sidecar'
+import { ensureSidecarDirNoLinks } from '../workspace-sidecar'
 
 // The embedded browser's main-process half (browser-pane epic). The renderer
 // owns the `<webview>` elements; this owns everything the renderer must not:
@@ -933,12 +933,10 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
           image = full.crop(crop)
         }
         const size = image.getSize()
-        const directory = resolve(workspaceSidecarPath(workspaceRoot, 'browser'))
-        await mkdir(directory, { recursive: true })
         // The folder ignores itself, so a project that does not list it in
-        // its own .gitignore still never sees screenshots in `git status`.
-        const ignore = join(directory, '.gitignore')
-        if (!existsSync(ignore)) await writeFile(ignore, '*\n', 'utf8')
+        // its own .gitignore still never sees screenshots in `git status`;
+        // and it is never made or written through a link the project holds.
+        const directory = await ensureSidecarDirNoLinks(resolve(workspaceRoot), 'browser')
         const file = join(directory, `${input.kind}-${hostSlug(tab.state.url)}-${fileStamp()}.png`)
         await writeFile(file, image.toPNG())
         return { ok: true, path: file, width: size.width, height: size.height }

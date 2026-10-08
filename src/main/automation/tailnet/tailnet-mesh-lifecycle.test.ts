@@ -93,21 +93,16 @@ test('a machine that keeps its chats’ rest is asked to settle one, and its ans
   }
 })
 
-test('a visit carries its time, and the machine’s clock comes back', async () => {
+test('a visit sends no time of this machine’s, and the far machine’s own clock comes back', async () => {
   const machine = await pairedMachine(['conversations', 'conversation-lifecycle'], (call) =>
-    success({ ok: true, workspaceId: call.arguments.workspaceId, lastVisitedAt: call.arguments.visitedAt }),
+    success({ ok: true, workspaceId: call.arguments.workspaceId, lastVisitedAt: 7_000 }),
   )
   try {
-    const visited = await machine.mesh.visitConversation({
-      connectionId: machine.connectionId,
-      workspaceId: 'ws-1',
-      visitedAt: 7_000,
-    })
+    const visited = await machine.mesh.visitConversation({ connectionId: machine.connectionId, workspaceId: 'ws-1' })
     assert.deepEqual(visited, { ok: true, workspaceId: 'ws-1', lastVisitedAt: 7_000 })
-    assert.deepEqual(machine.toolCalls[0], {
-      name: 'conversation.visit',
-      arguments: { workspaceId: 'ws-1', visitedAt: 7_000 },
-    })
+    // A clock here that runs behind the far machine's would stamp a visit
+    // before a finish there, and never clear it; that machine uses its own now.
+    assert.deepEqual(machine.toolCalls[0], { name: 'conversation.visit', arguments: { workspaceId: 'ws-1' } })
   } finally {
     await machine.close()
   }
@@ -123,6 +118,7 @@ test('a machine whose list leaves the capability out is not asked, and says why'
     assert.match(!settled.ok ? settled.message : '', /Update SprintEngine Studio there/)
     const visited = await machine.mesh.visitConversation({ connectionId: machine.connectionId, workspaceId: 'ws-1' })
     assert.equal(!visited.ok && visited.code, 'lifecycle_unsupported')
+    assert.match(!visited.ok ? visited.message : '', /read state/, 'a visit is not told about settling')
     assert.deepEqual(machine.toolCalls, [])
   } finally {
     await machine.close()

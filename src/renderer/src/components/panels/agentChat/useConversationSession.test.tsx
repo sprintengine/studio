@@ -827,3 +827,82 @@ test('a chat read ahead of its open is drawn at once by the open, over one read'
     }
   }
 })
+
+test('a provider retry is said aloud on its first attempt and when its reason changes, not on every attempt', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  const receivers: ((frame: ConversationSessionFrame) => void)[] = []
+  Object.assign(dom.window, {
+    api: {
+      onConversationSession: (
+        _input: ConversationSubscribeInput,
+        receive: (frame: ConversationSessionFrame) => void,
+      ) => {
+        receivers.push(receive)
+        return () => undefined
+      },
+    },
+  })
+  installStudioLoopback(dom.window as unknown as { api: Record<string, unknown> })
+  let seq = 0
+  const event = (type: ConversationEvent['type'], payload: Record<string, unknown>): ConversationEvent => ({
+    seq: ++seq,
+    id: `event-${seq}`,
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    sessionId: 'session',
+    providerId: 'mock',
+    modelId: 'mock',
+    createdAt: seq,
+    type,
+    payload,
+  })
+  const { act, createElement } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { useConversationSession } = await import('./useConversationSession')
+  let hook!: ReturnType<typeof useConversationSession>
+  function Reader() {
+    hook = useConversationSession('/Users/dev/retries', 'workspace', 'agent')
+    return null
+  }
+  const root = createRoot(document.createElement('div'))
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+  const receive = async (frame: ConversationSessionFrame) => {
+    await act(async () => receivers.at(-1)!(frame))
+    await settle()
+  }
+  const retrying = (attempt: number, extra: Record<string, unknown>) =>
+    receive({
+      type: 'event',
+      event: event('turn_retrying', { turnId: 't', attempt, maxAttempts: 10, retryInMs: 1000, ...extra }),
+    })
+  try {
+    await act(async () => root.render(createElement(Reader)))
+    await settle()
+    await receive({ type: 'snapshot', page: { events: [], hasMore: false, beforeCursor: null } })
+    await receive({ type: 'synchronized', seq: 0 })
+    await receive({ type: 'event', event: event('turn_started', { turnId: 't' }) })
+    expect(hook.announcement).toBe('Assistant is replying.')
+
+    await retrying(1, { error: 'rate_limit', status: 429 })
+    expect(hook.announcement).toBe('Rate limited · retrying (1 of 10)…')
+    await retrying(2, { error: 'rate_limit', status: 429 })
+    await retrying(3, { error: 'rate_limit', status: 429 })
+    expect(hook.announcement, 'the same trouble again is not said again').toBe('Rate limited · retrying (1 of 10)…')
+    await retrying(4, { error: 'overloaded', status: 529 })
+    expect(hook.announcement).toBe('Service overloaded · retrying (4 of 10)…')
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})

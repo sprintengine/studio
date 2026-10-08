@@ -146,8 +146,11 @@ export function CreatePullRequestControl({
       setProgress({ step: 'failed', message: created.message })
       return
     }
-    if (created.kind === 'page') {
-      // The forge opens it from its own page; nothing exists to record yet.
+    if (created.kind === 'page' || created.kind === 'existing') {
+      // A page: the forge opens it from there, and nothing exists to record
+      // yet. An existing one: the branch had it already, perhaps a
+      // teammate's, so it is shown, not claimed for this chat (whose merge
+      // would then settle it).
       void api.openExternal?.(created.url)
       setProgress(null)
       onSettled()

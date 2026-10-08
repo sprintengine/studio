@@ -19,6 +19,7 @@ import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
 import { createDesktopSsh, type DesktopSsh } from './environments/ssh/desktop-ssh'
 import { isMachinePath } from '../shared/machine-paths'
 import { workspaceProjectRootOf } from '../shared/worktree-paths'
+import { dependencyInstallSettingFor } from '../shared/ipc/worktree-pool'
 import type { WorkspaceEnvironmentRef } from '../renderer/src/types/workspace'
 import { sessionSshPreview } from './environments/ssh/ssh-preview'
 import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../server/wsl/wsl-tool-relay'
@@ -84,7 +85,6 @@ import {
 } from './workspace-skills-service'
 import type { HostAgentIntegration } from './hosts/execution-host'
 import { hostRegistry } from './hosts/host-registry'
-import { effectiveAgentLaunchSettings } from '../shared/launch-settings'
 import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
 import {
   configureCliVersionService,
@@ -154,6 +154,8 @@ import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canv
 import { broadcastToWorkspaceWindows, isBrowserHostWebContents, listWorkspaceWindows } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchNotices } from './agent-launch-notices'
+import { powerActivity } from './power-activity'
+import { isSettledWorkspace } from '../shared/workspace-lifecycle'
 import { forwardStatusLineRateLimits, usageLimitsStore, usageRateLimit } from './usage-limits/store'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
@@ -165,7 +167,7 @@ import { sendSplashProgress, showUpdateProgressWindow } from './splash-window'
 import { GitHubTokenStore } from './github-token-store'
 import { installSharedCredentialStore } from './secret-store'
 import { createWorkspaceBackupService } from './workspace-backup'
-import { writeDiagnosticLog } from './diagnostics-service'
+import { diagnosticLogger, writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
 import { declaredPermissionPresets } from './plugin-render'
 import { createStudioPluginService } from './studio-plugin-service'
@@ -186,7 +188,7 @@ import { createStudioCore, studioBridgeScriptPath } from '../server/core/studio-
 import { createStudioGateway } from '../server/core/studio-gateway'
 import { createStudioRpc } from '../server/core/studio-rpc'
 import type { StudioRpcService } from './studio-rpc/studio-rpc-service'
-import { createServerGatewayBackends } from '../server/desktop/gateway-backends'
+import { createServerGatewayBackends, launchSettingsGatewayDeps } from '../server/desktop/gateway-backends'
 import { SERVER_EVENTS, SERVER_METHODS, SHELL_METHODS } from '../server/desktop/server-methods'
 import {
   createRemoteCore,
@@ -668,14 +670,15 @@ export function createAppServices(
             ...(gateway.envVarNames?.length ? { envVarNames: gateway.envVarNames } : {}),
           }
         },
-        // The live session objects, not `listTerminals()` snapshots: only four
-        // fields are read, and a snapshot of every session is not cheap.
+        // The live session objects, not `listTerminals()` snapshots: only a
+        // few fields are read, and a snapshot of every session is not cheap.
         listTerminalSessions: () =>
           listLiveTerminalSessions().map((session) => ({
             kind: session.kind,
             workspaceId: session.workspaceId,
             agentId: session.agentId,
             processAlive: isTerminalProcessAlive(session),
+            activity: session.activity,
             agentRecord: session.agentRecord,
           })),
         // A distribution turned on or off adds or drops its CLI updates.
@@ -878,6 +881,7 @@ export function createAppServices(
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
     logMainPerfEvent,
+    isAppFocused: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
     // The runtime asks where an agent is at every turn end and session start.
     // That is also the moment its checkout's working tree most likely moved,
     // which git's own files do not show until something is staged: tell the
@@ -1054,9 +1058,18 @@ export function createAppServices(
     onUsageLimitsChanged: (listener) => {
       usageLimitsStore().onChanged(listener)
     },
+    isSettled: (workspaceId) => {
+      const record = workspaceRegistry.getRecord(workspaceId)
+      return record ? isSettledWorkspace(record) : false
+    },
     log: (message) => {
       void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Launch notices', message })
     },
+  })
+  // A hold's timer stood still while the computer slept; waking reads the clock again.
+  powerActivity.onResume(() => agentLaunchNotices.wake())
+  powerActivity.onScreenLockChange((locked) => {
+    if (!locked) agentLaunchNotices.wake()
   })
   terminalRuntime.registerAgentPhaseListener((event) => agentLaunchNotices.onAgentPhase(event))
   terminalRuntime.registerAgentSessionExitListener((event) => agentLaunchNotices.onAgentSessionExit(event))
@@ -1392,14 +1405,23 @@ export function createAppServices(
   // worktree cleanup hands back the slots nothing uses. It does nothing on its
   // own: reading its records is all that happens here, and a pool recovers
   // from an interrupted run the first time it is used.
+  // Where live work sits, for the pool and the agent worktree cleanup alike:
+  // every live terminal, the checkout it observes, and the folder of every chat
+  // whose provider session is working now. One list, so neither recycles a
+  // folder the other would have kept.
+  const liveWorkPaths = async (): Promise<string[]> => [
+    ...listLiveTerminalSessions().flatMap((session) =>
+      [session.cwd, session.observedCheckout?.cwd, session.observedCheckout?.gitRoot].filter(
+        (path): path is string => typeof path === 'string' && path.length > 0,
+      ),
+    ),
+    ...(await conversations.liveConversationWorkspaceRoots().catch(() => [])),
+  ]
   const worktreePool = createWorktreePoolService({
     store: createPoolStore(app.getPath('userData')),
-    livePaths: () =>
-      listLiveTerminalSessions().flatMap((session) =>
-        [session.cwd, session.observedCheckout?.cwd].filter(
-          (path): path is string => typeof path === 'string' && path.length > 0,
-        ),
-      ),
+    livePaths: liveWorkPaths,
+    // Recovery, holds and evictions are what a person asks about later.
+    log: diagnosticLogger('worktree-pool'),
     onChange: broadcastWorktreePoolChanged,
     seedIncludedFiles: seedWorktreeIncludedFiles,
     // Settled chats included: a slot holding a chat's history is never removed.
@@ -1416,6 +1438,7 @@ export function createAppServices(
   const dependencyInstaller = createDependencyInstaller({
     env: () => dependencyInstallEnv.read(),
     forgetEnv: () => dependencyInstallEnv.forget(),
+    log: diagnosticLogger('worktree-install'),
     onChange: (view) => broadcastToWorkspaceWindows(WORKTREE_INSTALL_CHANGED_CHANNEL, view),
   })
   installDependencyInstaller(dependencyInstaller)
@@ -1425,6 +1448,12 @@ export function createAppServices(
     pool: worktreePool,
     findWorkspace: (workspaceId) =>
       workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ?? null,
+    // The install a chat's own leased worktree gets, when the project opted in.
+    installDependencies: async (request) =>
+      dependencyInstaller.prepare({
+        ...request,
+        setting: dependencyInstallSettingFor(await worktreePool.getSettings(), request.repoRoot),
+      }),
   })
 
   const canvasSubscribers = createCanvasSubscriberRegistry()
@@ -1611,9 +1640,7 @@ export function createAppServices(
               resolveAgentPermissionPreset,
               createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
               getScheduledAgents: () => resolveScheduledAgents(),
-              defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
-              projectUsage: () => agentLaunchSettings.get().projectUsage,
-              userCliModels: (cli) => agentLaunchSettings.get().cliRuntimes[cli]?.models,
+              ...launchSettingsGatewayDeps(agentLaunchSettings),
               // module.*/marketplace.*. The registry snapshot is the
               // renderer's mirror — main's own module list omits every renderer-only
               // module, so reporting from it would be wrong by construction. Trust
@@ -1767,8 +1794,9 @@ export function createAppServices(
                   message: 'Workspaces are created by the Studio server.',
                 }),
                 getScheduledAgents: () => null,
-                defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
-                projectUsage: () => agentLaunchSettings.get().projectUsage,
+                // Its ids for each CLI too, though the shell's terminal and
+                // agent tools do not read them: the three are kept as one.
+                ...launchSettingsGatewayDeps(agentLaunchSettings),
                 getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
                 listInstalledThirdPartyModules: async () => ({ modules: [], rejected: [] }),
                 listModuleContributedTools: () => [],
@@ -2083,6 +2111,7 @@ export function createAppServices(
     canvasService,
     canvasSubscribers,
     worktreePool,
+    liveWorkPaths,
     dependencyInstaller,
     automationService,
     studioRpcService,
@@ -2144,6 +2173,11 @@ export function createAppServices(
     localServers: server
       ? null
       : { flush: () => core.localServers.flush(), dispose: () => core.localServers.dispose() },
+    // In process, the core's resumes after a usage limit and the messages a
+    // person scheduled stop before the chats; out of process the server stops
+    // them in its own legs.
+    usageLimitResumes: server ? null : { dispose: () => core.stopUsageLimitResumes() },
+    scheduledMessages: server ? null : { dispose: () => core.stopScheduledMessages() },
     broadcastGitChangelistsChanged,
     updateService,
     withIpcDiagnostics,

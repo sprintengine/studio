@@ -14,6 +14,7 @@ import type { BacklogDependencyState, BacklogEpicBlockedRollup } from '../../uti
 import { getHighlightSwatch } from '../../utils/highlight'
 import { CRITICALITY_LABEL, DIFFICULTY_LABEL, DIFFICULTY_WORD } from '../../utils/backlogTriage'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
+import { useRelativeNowFor } from '../../hooks/useRelativeNow'
 
 // Backlog readiness → the shared lifecycle vocabulary. The pre-work states
 // (idea / ready) are calm, not blockers; only `needs_input` — an agent working
@@ -65,9 +66,9 @@ export const BACKLOG_BLOCKED_LABEL = 'Blocked'
 // earns a glyph, and the excerpt is dropped — at this width it only ever showed
 // a few clipped words, so its space goes to the title instead.
 // React.memo so a panel re-render only reconciles rows whose props actually
-// changed. `item` is referentially stable between scans and `now` ticks every
-// 30s, so the default shallow comparison lets unchanged rows skip rendering
-// entirely. See backlog item Task 2.
+// changed. `item` is referentially stable between scans, and a row left without
+// a `now` keeps its own age label current on the shared clock, so the default
+// shallow comparison lets unchanged rows skip rendering entirely.
 // A small dot in an epic's identity colour (or a dashed neutral ring when the
 // epic has no `color:` set). Shared by the row's member chip, the detail crumb,
 // and the children roll-up so the epic always reads the same. The hex comes from
@@ -149,7 +150,10 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   onOpenEpic,
 }: {
   item: BacklogItem
-  now: number
+  /** A fixed reading of the clock. Left out, the age label follows the shared
+   *  clock itself and redraws only when its text changes, so a list does not
+   *  re-render every row on each tick. */
+  now?: number
   /** Derived dependency marker (never persisted; see backlogDependencies).
    *  'blocked' replaces the Ready presentation — glyph, label, and a "Blocked"
    *  badge — because unresolved prerequisites falsify the readiness claim.
@@ -279,12 +283,23 @@ export const BacklogRowContent = memo(function BacklogRowContent({
         <span
           className={`${epicMeta && !item.isEpic ? 'pl-2' : 'ml-auto'} shrink-0 tabular-nums text-[color:var(--text-subtle)]`}
         >
-          {formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}
+          {now === undefined ? <BacklogItemAge modifiedAt={item.modifiedAt} /> : backlogRowAge(item.modifiedAt, now)}
         </span>
       </div>
     </>
   )
 })
+
+function backlogRowAge(modifiedAt: number, now: number): string {
+  return formatRelativeMsAgo(modifiedAt, now) || 'unknown'
+}
+
+/** How long ago an item was touched, on the shared clock: it redraws only when
+ *  the label changes, not on every tick. */
+export function BacklogItemAge({ modifiedAt }: { modifiedAt: number }): JSX.Element {
+  const label = (now: number): string => backlogRowAge(modifiedAt, now)
+  return <>{label(useRelativeNowFor(label))}</>
+}
 
 // The epic completion readout: a slim identity-coloured fill bar beside the
 // `done/total` fraction. The numbers are the signal (the bar is decorative and

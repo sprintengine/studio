@@ -7,6 +7,7 @@ import {
   serverExitRetryable,
   type ServerBootstrapEnvelope,
 } from './envelope'
+import { headlessServerOptions } from './headless'
 
 function envelope(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const base: ServerBootstrapEnvelope = {
@@ -30,6 +31,15 @@ function envelope(overrides: Record<string, unknown> = {}): Record<string, unkno
   }
   return { ...base, ...overrides }
 }
+
+test('a headless server says where it runs: in a WSL distribution, detached on an SSH machine, or here', () => {
+  const headless = envelope({ role: 'headless', secrets: { kind: 'key-file' } }) as ServerBootstrapEnvelope
+  const kind = (overrides: Partial<ServerBootstrapEnvelope>) =>
+    headlessServerOptions({ ...headless, ...overrides }, () => undefined).hostKind
+  assert.equal(kind({}), 'local')
+  assert.equal(kind({ wsl: { distro: 'Ubuntu' } }), 'wsl')
+  assert.equal(kind({ detached: { idleMs: null, origin: 'bootstrap', startedBy: 'Studio on dev-macbook-air' } }), 'ssh')
+})
 
 test('a complete envelope is accepted as it is', () => {
   const parsed = parseServerBootstrapEnvelope(envelope())

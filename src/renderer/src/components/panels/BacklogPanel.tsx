@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import {
   backlogOrWorkspacePath,
   backlogRootOf,
@@ -34,10 +34,8 @@ import type { AgentState } from '../../types/workspace'
 import type { BacklogLocationInfo } from '../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectBacklogProjectView, useBacklogViewStore } from '../../store/backlogViewStore'
-import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { useSharedBacklogScan } from '../../hooks/useSharedBacklogScan'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { renderMarkdown } from '../../utils/markdown'
 import { basename, parentPath, slugify } from '../../utils/paths'
 import { isEditableTarget } from '../../utils/keyboard'
@@ -131,6 +129,7 @@ import {
 import { BacklogCreateDialog, type BacklogDraft } from './BacklogCreateDialog'
 import {
   BacklogEpicHeaderContent,
+  BacklogItemAge,
   BacklogRowContent,
   BacklogRowHoverCard,
   BACKLOG_BLOCKED_LABEL,
@@ -246,7 +245,6 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
   const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
   const setBacklogViewState = useWorkspaceStore((state) => state.setBacklogViewState)
   const dialog = useConfirmDialog()
-  const now = useRelativeNow()
 
   // Snapshot the persisted Backlog view state once at mount so the lens/sort/
   // search restore immediately; selection is keyed by relativePath and resolved
@@ -415,8 +413,11 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     return { dependencyStateById: stateById, blockedPaths: blocked }
   }, [dependencyGraph, epicBlockedBySlug])
 
+  // The list filters on a deferred copy of the query, so typing stays with the
+  // field and a long backlog re-filters and re-renders behind it.
+  const deferredSearch = useDeferredValue(search)
   const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase()
+    const query = deferredSearch.trim().toLowerCase()
     const matched = items.filter((item) => {
       // Roadmap objects live in the backlog store (backlog/roadmaps/) but are
       // not backlog work items: they are ordered plans, authored as files. The
@@ -450,7 +451,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     // acted on); the accessor keys off relativePath, the one identity field the
     // comparator's Triageable view carries.
     return matched.sort((a, b) => compareBacklogItems(a, b, sort, (entry) => blockedPaths.has(entry.relativePath)))
-  }, [items, search, view, sort, dependencyGraph, blockedPaths])
+  }, [items, deferredSearch, view, sort, dependencyGraph, blockedPaths])
 
   // Epic grouping is an orthogonal axis layered over the filtered+sorted list.
   // `none` keeps the flat list untouched (groupedRows stays null → the panel
@@ -1708,7 +1709,6 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
       // text hint; a refresh over existing items keeps the current rows visible.
       skeleton={loading && !scan}
       emptyHint={listEmptyHint(scan, items.length, filtered.length, loading)}
-      now={now}
       epicMetaBySlug={epicMeta}
       epicProgressBySlug={epicProgress}
       dependencyStateById={dependencyStateById}
@@ -1724,7 +1724,6 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
       loading={loading}
       folderPath={folderPath}
       selected={detailItem}
-      now={now}
       hasItems={items.length > 0}
       externalActions={externalActions}
       workspaceId={workspaceId}
@@ -1970,7 +1969,6 @@ function BacklogList({
   onItemContextMenu,
   skeleton,
   emptyHint,
-  now,
   epicMetaBySlug,
   epicProgressBySlug,
   dependencyStateById,
@@ -1992,7 +1990,6 @@ function BacklogList({
   onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
   skeleton: boolean
   emptyHint: string | null
-  now: number
   // slug -> epic identity, for the row tint + the flat-view member chip.
   epicMetaBySlug: ReadonlyMap<string, BacklogEpicMeta>
   // slug -> true full-scan completion, for epic rows and group headers.
@@ -2067,7 +2064,6 @@ function BacklogList({
                 onSelect={onSelect}
                 onItemDragStart={onItemDragStart}
                 onItemContextMenu={onItemContextMenu}
-                now={now}
                 epicMeta={row.item.epic ? epicMetaBySlug.get(row.item.epic) : undefined}
                 dependencyState={dependencyStateById?.get(row.item.id) ?? null}
               />
@@ -2082,7 +2078,6 @@ function BacklogList({
               onSelect={onSelect}
               onItemDragStart={onItemDragStart}
               onItemContextMenu={onItemContextMenu}
-              now={now}
               // A member row resolves its PARENT epic's identity; an epic row
               // resolves its OWN, so the banner treatment (tinted glyph, meter
               // colour, full-row wash) rides the same prop.
@@ -2107,7 +2102,9 @@ function BacklogList({
 // override); a derived color tints the stripe alone so the ambient heat never
 // competes with selection. `indented` nests the row under a group header; at the
 // default (false) the class string is byte-identical to the pre-grouping row.
-function BacklogOptionRow({
+// Memoized: every prop is stable while the row's own data is, so a keystroke in
+// the search or a selection change re-renders only the rows it touches.
+const BacklogOptionRow = memo(function BacklogOptionRow({
   item,
   optionIndex,
   selected,
@@ -2115,7 +2112,6 @@ function BacklogOptionRow({
   onSelect,
   onItemDragStart,
   onItemContextMenu,
-  now,
   epicMeta,
   epicProgress,
   dependencyState,
@@ -2129,7 +2125,6 @@ function BacklogOptionRow({
   onSelect: (id: string, modifiers?: { toggle?: boolean; range?: boolean }) => void
   onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
   onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
-  now: number
   // The row's epic identity: a member's parent epic, or an epic row's own.
   // Drives the option-C full-row tint and, in the flat (ungrouped) list, the
   // member's epic chip / the epic's banner treatment.
@@ -2185,7 +2180,6 @@ function BacklogOptionRow({
         <div>
           <BacklogRowContent
             item={item}
-            now={now}
             dependencyState={dependencyState}
             epicBlocked={epicBlocked}
             epicMeta={indented ? undefined : epicMeta}
@@ -2198,7 +2192,7 @@ function BacklogOptionRow({
       </Tooltip>
     </li>
   )
-}
+})
 
 // An epic/unknown/no-epic group header row. It is a navigable `role="option"` so
 // j/k can reach it and Enter can collapse it. An epic header borrows the epic
@@ -2302,7 +2296,6 @@ export function BacklogDetail({
   loading,
   folderPath,
   selected,
-  now,
   hasItems,
   externalActions,
   workspaceId,
@@ -2333,7 +2326,6 @@ export function BacklogDetail({
   loading: boolean
   folderPath: string | null
   selected: BacklogItem | null
-  now: number
   hasItems: boolean
   externalActions: Array<{ action: BacklogItemAction; label: string; disabled: boolean; run: () => void }>
   workspaceId: string
@@ -2616,7 +2608,7 @@ export function BacklogDetail({
             )}
             <Tooltip content={modifiedAbsolute} placement="top" wrapperClassName="inline-flex">
               <span className="whitespace-nowrap tabular-nums">
-                {formatRelativeMsAgo(selected.modifiedAt, now) || 'unknown'}
+                <BacklogItemAge modifiedAt={selected.modifiedAt} />
               </span>
             </Tooltip>
             <OverflowMenu

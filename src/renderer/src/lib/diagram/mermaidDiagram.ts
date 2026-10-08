@@ -433,6 +433,36 @@ function themeVariables(): Record<string, string | boolean> {
   return variables
 }
 
+// ---- One drawing, many copies ------------------------------------------------
+
+/**
+ * The drawing with every id it declares moved under `scope`, and every
+ * reference to one of them with it: a `url(#…)` (the arrowheads, markers and
+ * gradients), an `aria-labelledby` or `aria-describedby`, and a `#…` selector
+ * in its own stylesheet. A drawing is kept once and shown wherever its source
+ * is (the same diagram in two replies, a reply and its search result), and
+ * copies sharing ids share the first copy's markers: hide that one and every
+ * other copy's arrowheads go with it.
+ */
+export function scopeDiagramIds(svg: string, scope: string): string {
+  const ids = new Set<string>()
+  for (const match of svg.matchAll(/\sid="([^"]+)"/gu)) ids.add(match[1])
+  if (!ids.size) return svg
+  const scoped = (id: string) => (ids.has(id) ? `${scope}-${id}` : id)
+  return svg
+    .replace(/(\sid=")([^"]+)"/gu, (_, open: string, id: string) => `${open}${scoped(id)}"`)
+    .replace(/(url\(\s*(?:['"]|&quot;)?#)([^)'"&\s]+)/gu, (_, open: string, id: string) => open + scoped(id))
+    .replace(
+      /(\saria-(?:labelledby|describedby)=")([^"]*)"/gu,
+      (_, open: string, list: string) => `${open}${list.split(/\s+/u).map(scoped).join(' ')}"`,
+    )
+    .replace(
+      /(<style[^>]*>)([\s\S]*?)(<\/style>)/gu,
+      (_, open: string, css: string, close: string) =>
+        open + css.replace(/#([\w-]+)/gu, (whole, id: string) => (ids.has(id) ? `#${scoped(id)}` : whole)) + close,
+    )
+}
+
 // ---- Drawing, one at a time --------------------------------------------------
 
 // Bounded, least recently used out: an SVG is tens of kilobytes, and a window

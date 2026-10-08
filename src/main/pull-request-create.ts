@@ -47,6 +47,8 @@ const LOOKUP_HOLD_MS = 30_000
 const MAX_PATCH_READ_CHARS = 60_000
 /** How long `gh pr create` may take. */
 const GH_CREATE_TIMEOUT_MS = 60_000
+/** gh's refusal to open a second pull request for a branch. */
+const GH_ALREADY_EXISTS = /\ba pull request for branch\b[^\n]*\balready exists\b/i
 /** Where a repository keeps its pull request template, in the order a forge looks. */
 const TEMPLATE_PATHS = [
   '.github/pull_request_template.md',
@@ -278,8 +280,10 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
     // Only the branch's own namesake on the push remote is "already pushed".
     const pushedRef = `refs/remotes/${remote}/${facts.branch}`
     if (await out(gitRoot, ['rev-parse', '--verify', '--quiet', pushedRef])) {
-      const ahead = Number.parseInt((await out(gitRoot, ['rev-list', '--count', `${pushedRef}..HEAD`])) ?? '0', 10)
-      if (!(ahead > 0)) return { ok: true, pushed: false }
+      const counted = await out(gitRoot, ['rev-list', '--count', `${pushedRef}..HEAD`])
+      const ahead = counted === null ? Number.NaN : Number.parseInt(counted, 10)
+      // A count git could not give is no proof the remote has it all: push.
+      if (Number.isFinite(ahead) && ahead <= 0) return { ok: true, pushed: false }
     }
     const pushed = await git(gitRoot, ['push', ...(target.setUpstream ? ['-u'] : []), remote, refspec])
     return pushed.ok ? { ok: true, pushed: true } : { ok: false, message: gitFailure('push', pushed) }
@@ -337,8 +341,9 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
       const output = `${result.stdout}\n${result.stderr}`
       const url = firstPullRequestUrl(output)
       if (result.code === 0 && url) return { ok: true, kind: 'created', url }
-      // The branch already has one: that is the pull request to show.
-      if (url && /already exists/i.test(output)) return { ok: true, kind: 'existing', url }
+      // The branch already has one, whoever opened it: shown, not claimed.
+      // Only gh's own refusal says so, not the words in a title it echoed.
+      if (url && result.code !== 0 && GH_ALREADY_EXISTS.test(output)) return { ok: true, kind: 'existing', url }
       return { ok: false, message: lastLines(result.stderr || result.stdout) || `gh exited ${result.code}.` }
     } finally {
       await rm(scratch, { recursive: true, force: true }).catch(() => undefined)

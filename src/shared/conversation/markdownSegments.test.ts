@@ -119,12 +119,42 @@ test('freezes before a line that starts a new block at the margin after a blank 
   }
 })
 
+test('a display math block is never split, however many blank lines its TeX holds', () => {
+  const cases: Array<[string, string[]]> = [
+    ['$$\na\n\nb\n$$', []],
+    ['$$\na\n\nb', []],
+    ['  $$\na\n\nb\n  $$', []],
+    ['before\n\n$$\na\n\nb\n$$\n\nafter', ['before\n\n', '$$\na\n\nb\n$$\n\n']],
+    ['\\[\na\n\nb\n\\]', []],
+    ['\\[ a\n\nb \\]\n\nafter', ['\\[ a\n\nb \\]\n\n']],
+    // A block of one line holds nothing open.
+    ['\\[ E = mc^2 \\]\n\nafter', ['\\[ E = mc^2 \\]\n\n']],
+    ['\\[1\\]\n\nafter', ['\\[1\\]\n\n']],
+    // A `\]` with words after it is a sentence's bracket, and nothing was math:
+    // what came before it stays in one segment, which reads the same, and the
+    // splits resume after it.
+    ['\\[ a\n\nb \\] and on\n\nafter', ['\\[ a\n\nb \\] and on\n\n']],
+    // `$$$` and a `$$` with words beside it open nothing.
+    ['$$$\n\nafter', ['$$$\n\n']],
+    ['$$ x\n\nafter', ['$$ x\n\n']],
+    // In a fence it is code; inside math a fence is TeX.
+    ['```\n$$\n```\n\nafter', ['```\n$$\n```\n\n']],
+    ['$$\n```\n\nb\n$$\n\nafter', ['$$\n```\n\nb\n$$\n\n']],
+  ]
+  for (const [source, frozen] of cases) {
+    const parts = splitMarkdownSegments(source)
+    assert.deepEqual(parts.frozen, frozen, JSON.stringify(source))
+    assert.equal(parts.frozen.join('') + parts.tail, source, JSON.stringify(source))
+  }
+})
+
 test('a splitter fed a growing message agrees with a fresh split at every length', () => {
   const messages = [
     'Intro paragraph.\n\n## Plan\n\n1. first\n2. second\n\n- loose\n\n- list\n\nAfter.\n\n```ts\nconst a = 1\n\nconst b = 2\n```\n\n> quote\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nEnd.',
     '<div>\nraw\n</div>\n\ntext <!-- c\n\n --> more\n\n    code\n\n    code\n\ndone\n\n12. twelve\n\n12 apples',
     'para\n\n[ref]: /x\n\nmore',
     'a\r\n\r\nb\n\nc',
+    'Energy:\n\n$$\nE = mc^2\n\n\\text{and}\n$$\n\nThen\n\n\\[\nx\n\ny\n\\]\n\nDone.',
   ]
   for (const message of messages) {
     const split = createMarkdownSplitter()

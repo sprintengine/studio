@@ -38,6 +38,8 @@ import { writeFileAtomically } from '../../main/config-file-write'
 const STORE_DIR = 'local-servers'
 const STORE_FILE = 'linked.json'
 const STORE_VERSION = 1
+/** How long after a write of the record fails it is tried again. */
+const WRITE_RETRY_MS = 5_000
 
 /** The most servers one conversation keeps linked; its oldest link goes first. */
 export const MAX_SERVERS_PER_CONVERSATION = 20
@@ -101,6 +103,8 @@ export type LocalServerRecord = {
   get(id: string): LinkedLocalServer | undefined
   /** Forget a link; the entry, or null when there was none. */
   remove(id: string): LinkedLocalServer | null
+  /** Forget every link in a workspace (it was removed); the entries that went. */
+  forgetWorkspace(workspaceId: string): LinkedLocalServer[]
   /** A conversation's links, newest first. */
   forConversation(key: LocalServerConversationKey): LinkedLocalServer[]
   /** Every link in a workspace, newest first. */
@@ -198,6 +202,7 @@ export function createLocalServerRecord(options: LocalServerRecordOptions): Loca
   let writes: Promise<void> = Promise.resolve()
   let dirty = false
   let disposed = false
+  let writeRetry: ReturnType<typeof setTimeout> | null = null
   // The file is there but could not be read (locked by a scanner, a
   // permission): nothing is written over it this run, or the next change
   // would replace every stored link with what this run knows.
@@ -288,6 +293,15 @@ export function createLocalServerRecord(options: LocalServerRecordOptions): Loca
           await writeFileAtomically(path, `${JSON.stringify(snapshot, null, 2)}\n`)
         } catch (error) {
           log('could not write the local server record', error)
+          // Still to write: tried again, or what changed is lost until something else does.
+          dirty = true
+          if (!writeRetry && !disposed) {
+            writeRetry = setTimeout(() => {
+              writeRetry = null
+              if (dirty) persist()
+            }, WRITE_RETRY_MS)
+            writeRetry.unref?.()
+          }
         }
       },
       () => undefined,
@@ -356,6 +370,13 @@ export function createLocalServerRecord(options: LocalServerRecordOptions): Loca
       persist()
       return entry
     },
+    forgetWorkspace(workspaceId) {
+      const gone = [...entries.values()].filter((entry) => entry.workspaceId === workspaceId)
+      if (gone.length === 0) return []
+      for (const entry of gone) entries.delete(entry.id)
+      persist()
+      return gone
+    },
     forConversation: (key) => newestFirst([...entries.values()].filter((entry) => sameConversation(entry, key))),
     forWorkspace: (workspaceId) =>
       newestFirst([...entries.values()].filter((entry) => entry.workspaceId === workspaceId)),
@@ -366,6 +387,8 @@ export function createLocalServerRecord(options: LocalServerRecordOptions): Loca
     },
     dispose() {
       disposed = true
+      if (writeRetry) clearTimeout(writeRetry)
+      writeRetry = null
     },
   }
 }

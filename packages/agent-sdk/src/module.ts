@@ -101,16 +101,26 @@ export function fromModuleConversationService(
       // its cursor kept as frames arrive and handed on as each is read.
       let cursor: StudioCursor | null = options.cursor ?? null
       let unfollow: (() => void) | null = null
-      const queue = createFrameQueue({ onClose: () => unfollow?.() })
-      unfollow = module.follow(
+      // The stream ends on an error frame, and the follow behind it with it.
+      let ended = false
+      const stopFollowing = () => {
+        const stop = unfollow
+        unfollow = null
+        stop?.()
+      }
+      const queue = createFrameQueue({ onClose: stopFollowing })
+      const following = module.follow(
         ref,
         {
           ...(options.cursor ? { afterSeq: options.cursor.afterSeq, generation: options.cursor.generation } : {}),
           ...(options.turnLimit === undefined ? {} : { turnLimit: options.turnLimit }),
         },
         (frame) => {
+          if (ended) return
           if (frame.type === 'error') {
+            ended = true
             queue.fail(new StudioError('unavailable', frame.message))
+            stopFollowing()
             return
           }
           if (frame.type === 'snapshot') cursor = null
@@ -121,6 +131,9 @@ export function fromModuleConversationService(
           queue.push(frame, frame.type === 'snapshot' ? null : cursor ? { ...cursor } : undefined)
         },
       )
+      // An error frame can come before the follow has returned its stop.
+      if (ended) following()
+      else unfollow = following
       options.signal?.addEventListener('abort', () => queue.stream.close(), { once: true })
       return queue.stream
     },

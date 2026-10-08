@@ -628,7 +628,9 @@ export function WorkspaceIdentity({
             <GhostButton
               size="inline"
               onClick={onToggleSidebar}
-              aria-label={sidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
+              // The visible name leads the accessible one (label-in-name): a
+              // voice user says what they see, and "Open sidebar" alone hid it.
+              aria-label={`${activeWorkspace.name}, ${sidebarCollapsed ? 'open sidebar' : 'close sidebar'}`}
               className="app-no-drag min-w-0"
             >
               <span className="min-w-0 truncate text-body font-semibold text-[color:var(--text-strong)]">

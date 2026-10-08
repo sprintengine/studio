@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { isMachinePath } from '../../shared/machine-paths'
+import { isWorkspaceTombstoned } from '../../shared/workspace-registry'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import { gitHostIdForPath, type ExecutionHostId, type ExecutionHostSettings } from '../../shared/execution-host'
 import { ensureSkillInstalled } from '../../main/builtin-skills'
@@ -38,8 +39,8 @@ import { getSharedCredentialStore } from '../../main/secret-store'
 import { createWorkspaceRegistryService } from '../../main/workspace-registry-service'
 import { createWorkspaceRegistryStore } from '../../main/workspace-registry-store'
 import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
-import { createConversationLifecycle } from '../../main/automation/conversation-lifecycle'
-import { conversationSummaryPhase } from '../../shared/conversation/phase'
+import { createConversationLifecycle, latestTurnEnd } from '../../main/automation/conversation-lifecycle'
+import { conversationSessionWorking, terminalAgentWorking } from '../../shared/conversation/phase'
 import type { ConversationMessageOrigin, ConversationSessionSummary } from '../../shared/conversation-runtime'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
@@ -101,6 +102,8 @@ export type StudioCoreOptions = {
     workspaceId?: string
     agentId?: string
     processAlive: boolean
+    /** What the terminal is doing, for Settle from another device: one mid-turn is working. */
+    activity?: { kind: string }
     agentRecord?: { cliPermissionPreset?: unknown }
   }>
   /** A machine's settings changed (a distribution turned on or off). */
@@ -411,6 +414,9 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       const sessionRoot = latest ? conversations.sessionWorkspaceRoot(latest.sessionId) : null
       return localFolder(sessionRoot) ?? localFolder(workspaceRegistry.getRecord(key.workspaceId)?.folderPath)
     },
+    // Read from the registry's tombstones rather than from a missing record:
+    // a registry that failed to load is not a person removing every workspace.
+    workspaceRemoved: (workspaceId) => isWorkspaceTombstoned(workspaceRegistry.getTombstones(), workspaceId),
     log: (message, error) => {
       void writeDiagnosticLog({
         level: 'warning',
@@ -423,6 +429,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       })
     },
   })
+  // A removed workspace's servers go with it, whichever door removed it.
+  const stopPruningLocalServers = workspaceRegistry.subscribe(() => void localServers.prune())
 
   // What an agent of this app is running on now, for the gateway's launch cap:
   // an agent may start agents only at its own preset or stricter.
@@ -453,8 +461,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     ...(sshServers?.machineOf ? { sshMachineOf: (id: string) => sshServers.machineOf?.(id) ?? null } : {}),
   })
   const listMarks = {
-    machineOf: (workspaceId: string) =>
-      conversationHostOf(workspaceRegistry.getRecord(workspaceId) ?? null, machineContext()),
+    machineReader: () => {
+      const context = machineContext()
+      return (workspaceId: string) => conversationHostOf(workspaceRegistry.getRecord(workspaceId) ?? null, context)
+    },
     pullRequestsOf: async (keys: Array<{ workspaceId: string; agentId: string }>) => {
       const found = await pullRequests.list({ conversations: keys })
       return new Map(
@@ -467,9 +477,11 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     selfMachine: () => tailnetSelfMachine(machineContext()),
   }
   // A chat's rest and its person-clocks, written for a paired device to the
-  // same record the sidebar writes (conversation-lifecycle.ts). Busy is the
-  // row menu's rule for the chats main holds: a turn running, or an agent the
-  // chat launched still working in the background.
+  // same record the sidebar writes (conversation-lifecycle.ts). Busy is
+  // anything ending the chat's processes would cut short: a chat's turn
+  // starting, running or waiting on the person, an agent it launched still
+  // working in the background under any parent phase, or one of its agent
+  // terminals mid-turn (`conversationSessionWorking`, `terminalAgentWorking`).
   const conversationLifecycle = createConversationLifecycle({
     getRecord: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
     updateWorkspaceFields: (workspaceId, patch, actor) =>
@@ -477,24 +489,15 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     rewindVisit: (workspaceId, lastVisitedAt, actor) =>
       workspaceSyncService.rewindVisit(workspaceId, lastVisitedAt, actor),
     isWorking: (workspaceId) => {
-      const listed = conversations.listSessions()
-      return (
-        listed.ok &&
-        listed.sessions.some((session) => {
-          if (session.workspaceId !== workspaceId || session.status === 'stopped') return false
-          const phase = conversationSummaryPhase(session)
-          return phase === 'running' || phase === 'starting'
-        })
+      const listed = conversations.listSessions({ workspaceId })
+      if (listed.ok && listed.sessions.some(conversationSessionWorking)) return true
+      return (options.listTerminalSessions?.() ?? []).some(
+        (session) => session.kind === 'agent' && session.workspaceId === workspaceId && terminalAgentWorking(session),
       )
     },
     latestChatTurnEnd: (workspaceId) => {
-      const listed = conversations.listSessions()
-      if (!listed.ok) return undefined
-      let latest: number | undefined
-      for (const session of listed.sessions)
-        if (session.workspaceId === workspaceId && (session.lastTurnEndedAt ?? -1) > (latest ?? -1))
-          latest = session.lastTurnEndedAt
-      return latest
+      const listed = conversations.listSessions({ workspaceId })
+      return listed.ok ? latestTurnEnd(listed.sessions, { workspaceId }) : undefined
     },
   })
   // `origin` is for Studio's own sends (a resume after a usage limit): they
@@ -593,6 +596,20 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     workspaceRegistry.subscribe(() => scheduledMessages.prune()),
   ]
 
+  // Both of Studio's own sends stop before the chats do, listeners first, so
+  // none comes due on the way out and starts an agent the quit then has to
+  // stop (or, stopped already, would be recorded as sent). The desktop's quit
+  // runs these as legs of its own; `shutdown` below for a process that owns
+  // nothing else.
+  function stopUsageLimitResumes(): Promise<void> {
+    for (const stop of stopFollowingResumes.splice(0)) stop()
+    return usageLimitResumes.dispose()
+  }
+  function stopScheduledMessages(): Promise<void> {
+    for (const stop of stopFollowingScheduledMessages.splice(0)) stop()
+    return scheduledMessages.dispose()
+  }
+
   /**
    * The core's own end, for a process that owns nothing else: the registry
    * flushed around the chats' end, the machines' helpers told to stop, the
@@ -610,18 +627,15 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       () => pullRequests.flush(),
       () => localServers.flush(),
       () => conversationRuntime.flushTranscripts(),
+      stopUsageLimitResumes,
+      stopScheduledMessages,
       () => conversationOwner.shutdown(),
       () => pullRequests.dispose(),
       // The servers the Studio itself started stop with it: nothing would be
       // left to stop them from.
-      () => localServers.dispose(),
       () => {
-        for (const stop of stopFollowingResumes) stop()
-        return usageLimitResumes.dispose()
-      },
-      () => {
-        for (const stop of stopFollowingScheduledMessages) stop()
-        return scheduledMessages.dispose()
+        stopPruningLocalServers()
+        return localServers.dispose()
       },
       () => workspaceSyncService.flush(),
       () => hosts.dispose(),
@@ -662,6 +676,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     localServers,
     usageLimitResumes,
     scheduledMessages,
+    stopUsageLimitResumes,
+    stopScheduledMessages,
     shutdown,
   }
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
-import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { isAbsolute, join } from 'path'
-import { workspaceSidecarPath, workspaceSidecarRoot } from '../workspace-sidecar'
+import { sidecarLinkOnPath, workspaceSidecarPath, workspaceSidecarRoot } from '../workspace-sidecar'
 
 // Per-module, per-workspace JSON storage for capability modules (SDK
 // getModuleStorage). The host owns file placement so modules stop inventing
@@ -97,27 +97,16 @@ export function createModuleStorageRegistry(options: { userDataDir: () => string
     return { ok: true, dir: join(options.userDataDir(), 'module-storage', moduleId), linkRoot: null }
   }
 
-  // A workspace folder is a cloned repository's to fill, so any folder from
-  // `.sprintengine` down to the module's own (or a stored file) could be a
-  // link it committed, and a value written or read through it would land
-  // wherever it points. What is not there yet is made real by the write.
+  // Any folder from `.sprintengine` down to the module's own (or a stored
+  // file) could be a link the cloned repository committed.
   const throughLink = async (
     linkRoot: string | null,
     path: string,
   ): Promise<{ ok: false; code: ModuleStorageErrorCode; message: string } | null> => {
-    if (!linkRoot) return null
-    let at = linkRoot
-    for (const segment of ['', ...path.slice(linkRoot.length).split(/[\\/]/).filter(Boolean)]) {
-      at = segment ? join(at, segment) : at
-      try {
-        if ((await lstat(at)).isSymbolicLink()) {
-          return { ok: false, code: 'io_error', message: `${at} is a link; module storage is not kept through one.` }
-        }
-      } catch {
-        return null
-      }
-    }
-    return null
+    const link = linkRoot ? await sidecarLinkOnPath(linkRoot, path) : null
+    return link
+      ? { ok: false, code: 'io_error', message: `${link} is a link; module storage is not kept through one.` }
+      : null
   }
 
   const validateKey = (key: string): string | null => {

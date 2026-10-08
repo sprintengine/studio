@@ -125,13 +125,15 @@ export function createIpcTunnel(options: { log?: (message: string) => void } = {
     },
   }
 
-  function post(entry: Attached, message: unknown): void {
+  /** Post one frame; answers why it could not be posted (a value that does not clone), or null. */
+  function post(entry: Attached, message: unknown): string | null {
     try {
       entry.port.postMessage(message)
+      return null
     } catch (error) {
-      options.log?.(
-        `push to ${entry.client.clientId} failed: ${error instanceof Error ? error.message : String(error)}`,
-      )
+      const why = error instanceof Error ? error.message : String(error)
+      options.log?.(`push to ${entry.client.clientId} failed: ${why}`)
+      return why
     }
   }
 
@@ -240,7 +242,17 @@ export function createIpcTunnel(options: { log?: (message: string) => void } = {
         }
       }
     }
-    if (attached.get(entry.client.clientId) === entry) post(entry, reply)
+    if (attached.get(entry.client.clientId) !== entry) return
+    // A result that does not clone (a function, a class instance with one)
+    // still answers the window's invoke, which would otherwise wait forever.
+    const why = post(entry, reply)
+    if (why !== null)
+      post(entry, {
+        t: 'ipc.result',
+        id,
+        ok: false,
+        error: { name: 'Error', message: `${channel}'s answer could not be sent to the window: ${why}` },
+      })
   }
 
   function deliver(entry: Attached, channel: unknown, args: unknown): void {

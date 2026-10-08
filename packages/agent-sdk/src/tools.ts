@@ -2,6 +2,7 @@ import { StudioError } from './errors.js'
 import {
   STUDIO_CLIENT_TOOLS_CAPABILITY,
   STUDIO_MAX_TOOL_RESULT_BYTES,
+  parseStudioToolResult,
   parseStudioToolsetOffer,
   studioUtf8Length,
   type StudioCallFrame,
@@ -321,8 +322,18 @@ export function createClientTools(deps: {
     }
     let body: Record<string, unknown>
     try {
-      const result = normalise(await definition.handler(frame.input, call))
-      body = { ok: true, result }
+      // A handler is untyped at run time: what Studio could not read would be
+      // dropped there and the agent left to the call's deadline, so it fails here.
+      const result = parseStudioToolResult(normalise(await definition.handler(frame.input, call)))
+      body = result
+        ? { ok: true, result }
+        : {
+            ok: false,
+            error: {
+              code: 'invalid_result',
+              message: `${frame.toolset}.${frame.tool} returned something that is not a tool result: return a string, or { content } of text and image parts.`,
+            },
+          }
     } catch (error) {
       body =
         error instanceof StudioToolError

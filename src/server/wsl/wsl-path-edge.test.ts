@@ -16,6 +16,14 @@ test('a root inside the distribution and one on a drive cross as Linux paths, un
   assert.throws(() => edge.rootIn('\\\\fileserver\\share\\repo'), /network share/u)
 })
 
+test('a root typed with a separator at its end crosses without it, and its paths read back in its own spelling', () => {
+  const edge = createWslPathEdge({ distro: 'Ubuntu', driveMountRoot: '/mnt/' })
+  assert.equal(edge.rootIn('C:\\Users\\dev\\repo\\'), '/mnt/c/Users/dev/repo')
+  assert.equal(edge.rootIn('\\\\wsl$\\Ubuntu\\home\\dev\\other\\'), '/home/dev/other')
+  assert.equal(edge.pathOut('/home/dev/other/src/a.ts'), '\\\\wsl$\\Ubuntu\\home\\dev\\other\\src\\a.ts')
+  assert.equal(edge.pathOut('/mnt/c/Users/dev/repo'), 'C:\\Users\\dev\\repo\\')
+})
+
 test('a drive path is refused in words when the distribution mounts no drives', () => {
   const edge = createWslPathEdge({ distro: 'Ubuntu', driveMountRoot: null })
   assert.throws(

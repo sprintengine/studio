@@ -4722,3 +4722,22 @@ test('terminal-runtime', async () => {
 
   await suiteRun
 })
+
+test('the reap sweep runs every tick while focused, and one in a few while no window is', async () => {
+  const { reapSweepTick, UNFOCUSED_REAP_SWEEP_EVERY } = await import('./terminal-runtime')
+  const runs = (focus: boolean[]) => {
+    let skipped = 0
+    return focus.map((focused) => {
+      const tick = reapSweepTick(focused, skipped)
+      skipped = tick.skipped
+      return tick.run
+    })
+  }
+  assert.deepEqual(runs([true, true, true]), [true, true, true])
+  const away = Array.from({ length: UNFOCUSED_REAP_SWEEP_EVERY * 2 }, () => false)
+  const ran = runs(away)
+  assert.equal(ran.filter(Boolean).length, 2)
+  assert.equal(ran.at(-1), true)
+  // Focus coming back runs at once, and the count starts over.
+  assert.deepEqual(runs([false, true, false]), [false, true, false])
+})

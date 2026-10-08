@@ -206,6 +206,11 @@ test('sizes read the way a person says them', () => {
   expect(formatBytes(2048)).toBe('2 KB')
 })
 
+test('an empty category reads 0 KB, while a few bytes still read as something', () => {
+  expect(formatBytes(0)).toBe('0 KB')
+  expect(formatBytes(100)).toBe('1 KB')
+})
+
 test('a worktree an agent of an open chat was spawned into is in use, not free to remove', () => {
   const spawned: WorktreeInventory = {
     measuredAt: NOW,

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, beforeEach, expect, test } from 'vitest'
-import { drawDiagram, LOADS_FROM_ELSEWHERE, withoutRemoteImages } from './mermaidDiagram'
+import { drawDiagram, LOADS_FROM_ELSEWHERE, scopeDiagramIds, withoutRemoteImages } from './mermaidDiagram'
 
 // The real renderer, not a stand-in: what matters is what Mermaid adds to the
 // page while it measures a diagram, before anything of ours sees the SVG.
@@ -158,6 +158,35 @@ test('while a diagram is drawn, an image it adds may not point off the page', as
     expect(later.getAttribute('src')).toBe('https://example.com/after.png')
   } finally {
     scratch.remove()
+  }
+})
+
+test('two copies of one drawing share no id, and each copy’s markers and styles point at its own', async () => {
+  for (const source of ['graph TD\n  Start --> Finish', 'sequenceDiagram\n  A->>B: hi\n  B-->>A: done']) {
+    const { result } = await drawnWhileWatched(source)
+    const { svg } = result as { svg: string }
+    const parse = (markup: string) => {
+      const holder = document.createElement('div')
+      holder.innerHTML = markup
+      return holder
+    }
+    const copies = ['diagram-copy-1', 'diagram-copy-2'].map((scope) => parse(scopeDiagramIds(svg, scope)))
+    const idsOf = (copy: Element) => [...copy.querySelectorAll('[id]')].map((element) => element.id)
+    const [first, second] = copies.map(idsOf)
+    expect(first.length, source).toBeGreaterThan(0)
+    expect(
+      first.filter((id) => second.includes(id)),
+      source,
+    ).toEqual([])
+    for (const copy of copies) {
+      const own = new Set(idsOf(copy))
+      const markup = copy.innerHTML
+      const referenced = [...markup.matchAll(/url\((?:&quot;|["'])?#([^)"'&]+)/gu)].map((match) => match[1])
+      expect(referenced.length, source).toBeGreaterThan(0)
+      for (const id of referenced) expect(own.has(id), `${source}: url(#${id})`).toBe(true)
+      const svgId = copy.querySelector('svg')!.id
+      expect(copy.querySelector('style')?.textContent ?? '', source).toContain(`#${svgId}`)
+    }
   }
 })
 

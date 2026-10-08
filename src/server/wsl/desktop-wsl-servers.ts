@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import { listWslDistros } from '../../main/hosts/wsl-distro'
 import { installNodeInto, installTree, wslNodeDigests, wslProfileId } from '../../main/hosts/wsl-helper-runtime'
-import { buildAppPayload, type AppPayload } from '../../main/hosts/wsl-install'
+import { streamedAppPayload, type StreamedPayload } from '../../main/hosts/wsl-install'
 import { wslExeRunner } from '../../main/hosts/wsl-runner'
 import {
   DEFAULT_WSL_CHAT_SERVER,
@@ -71,7 +71,7 @@ export function readTreeBuild(dir: string): { builtAt: string } | null {
 export function createDesktopWslServers(options: DesktopWslServersOptions): WslServers {
   const connectedListeners: Array<(connection: WslServerConnection) => void> = []
   const statusListeners: Array<(status: WslServerStatus) => void> = []
-  let payload: AppPayload | null = null
+  let payload: StreamedPayload | null = null
   let treeBuild: { builtAt: string } | null | undefined
   const settingsOf = (distro: string) => options.readHostSettings()[wslHostId(distro)]
   const manager = createWslEnvironmentManager({
@@ -87,8 +87,9 @@ export function createDesktopWslServers(options: DesktopWslServersOptions): WslS
     payload: () => {
       if (payload) return payload
       const dir = wslServerTreeDir(options)
-      // Packed once per run: the digest is what the launch script checks.
-      payload = dir ? buildAppPayload([{ dir, into: '' }]) : null
+      // Packed once per run: the digest is what the launch script checks, and
+      // the tree is gzipped only for an install.
+      payload = dir ? streamedAppPayload([{ dir, into: '' }]) : null
       return payload
     },
     treeBuild: () => {

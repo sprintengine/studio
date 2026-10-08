@@ -1,10 +1,10 @@
-import { access, appendFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { access, appendFile, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
 import { distroOfUncPath, toWslPath } from '../../shared/host-paths'
 import { isMachinePath, parseMachinePath } from '../../shared/machine-paths'
 import { sidecarRelativePath } from '../../shared/workspace-sidecar'
-import { workspaceSidecarPath } from '../workspace-sidecar'
+import { ensureSidecarDirNoLinks, workspaceSidecarPath } from '../workspace-sidecar'
 import type { RecordingFailure, RecordingOutput, RecordingOutputs } from './browser-recorder'
 import { withWebmDuration } from './webm-duration'
 
@@ -45,7 +45,6 @@ const MAX_NAME_ATTEMPTS = 1_000
 // Every check is asynchronous: a WSL workspace is a `\\wsl.localhost\…` share,
 // and a synchronous call on it would hold main while the distribution answers.
 export type RecordingFs = {
-  mkdir(path: string): Promise<void>
   exists(path: string): Promise<boolean>
   writeFile(path: string, data: Uint8Array | string): Promise<void>
   /** Make an empty file, or answer false when one is already there. */
@@ -58,7 +57,6 @@ export type RecordingFs = {
 }
 
 const nodeFs: RecordingFs = {
-  mkdir: async (path) => void (await mkdir(path, { recursive: true })),
   exists: (path) =>
     access(path).then(
       () => true,
@@ -114,14 +112,12 @@ export function createWorkspaceRecordingOutputs(deps: WorkspaceRecordingOutputsD
         return fail('no_workspace_folder', 'The workspace folder is not available to save a recording in.')
       }
 
-      const browserDir = workspaceSidecarPath(root, BROWSER_SIDECAR)
-      const directory = join(browserDir, RECORDINGS_FOLDER)
+      const directory = workspaceSidecarPath(root, BROWSER_SIDECAR, RECORDINGS_FOLDER)
       let name: string | null = null
       try {
-        await fs.mkdir(directory)
-        // The folder ignores itself, as it does for the pane's screenshots.
-        const ignore = join(browserDir, '.gitignore')
-        if (!(await fs.exists(ignore))) await fs.writeFile(ignore, '*\n')
+        // The folder ignores itself, as it does for the pane's screenshots,
+        // and none of it is made or written through a link the project holds.
+        await ensureSidecarDirNoLinks(root, BROWSER_SIDECAR, RECORDINGS_FOLDER)
         // A second recording in the same second takes the next free name. The
         // partial file is made exclusively, so two recordings starting
         // together never both take one name.

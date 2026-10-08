@@ -11,7 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import type { StudioLocalServer } from '../../../../../packages/studio-protocol/src/public'
 
-type Listener = { onPayload: () => void }
+type Listener = { onPayload: (payload?: unknown) => void }
 
 const studio = vi.hoisted(() => ({
   supports: true,
@@ -105,8 +105,8 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 5; i += 1) await act(async () => await Promise.resolve())
 }
 
-function push(topic = 'localServers.changed'): void {
-  for (const listener of studio.topics.get(topic) ?? []) listener.onPayload()
+function push(topic = 'localServers.changed', payload?: unknown): void {
+  for (const listener of studio.topics.get(topic) ?? []) listener.onPayload(payload)
 }
 
 /** The conversation's answer, from a table the test edits. */
@@ -313,6 +313,47 @@ test('workspaces are asked about by id, and an unchanged workspace keeps its lis
   expect(next).not.toBe(first)
   expect(next['ws-1']).toBe(first['ws-1'])
   expect(next['ws-2'][0].state).toBe('stopped')
+})
+
+test('a push about other workspaces asks nothing; one naming a shown workspace asks', async () => {
+  studio.answer = () => ({ workspaces: {}, conversations: [] })
+  function Probe() {
+    useWorkspaceLocalServers(['ws-1', 'ws-2'])
+    return null
+  }
+  await render(<Probe />)
+  await settle()
+  const before = studio.requests.length
+
+  vi.useFakeTimers()
+  push('localServers.changed', { workspaceIds: ['ws-9'], conversations: [{ workspaceId: 'ws-9', agentId: 'a' }] })
+  await act(async () => vi.advanceTimersByTime(300))
+  expect(studio.requests.length).toBe(before)
+
+  push('localServers.changed', { workspaceIds: ['ws-9', 'ws-2'], conversations: [] })
+  await act(async () => vi.advanceTimersByTime(300))
+  vi.useRealTimers()
+  await settle()
+  expect(studio.requests.length).toBe(before + 1)
+})
+
+test('a push about another conversation asks nothing; one naming this conversation asks', async () => {
+  answerConversation(() => [server()])
+  await render(<ConversationProbe conversation={CONVERSATION} seen={[]} />)
+  await settle()
+  const before = studio.requests.length
+
+  vi.useFakeTimers()
+  // The same workspace, another agent: not this strip's servers.
+  push('localServers.changed', { workspaceIds: ['ws-1'], conversations: [{ workspaceId: 'ws-1', agentId: 'agent-2' }] })
+  await act(async () => vi.advanceTimersByTime(300))
+  expect(studio.requests.length).toBe(before)
+
+  push('localServers.changed', { workspaceIds: ['ws-1'], conversations: [CONVERSATION] })
+  await act(async () => vi.advanceTimersByTime(300))
+  vi.useRealTimers()
+  await settle()
+  expect(studio.requests.length).toBe(before + 1)
 })
 
 test('run, stop and remove name the conversation and the server', async () => {

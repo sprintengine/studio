@@ -49,6 +49,8 @@ export type ScheduledAgentsSchedulerDeps = {
   isRunWorking?: (workspaceId: string) => boolean
   /** A time came round and its run was skipped, and why. */
   onSkipped?: (agent: ScheduledAgent, reason: Exclude<ScheduledAgentRunRefusal, 'unknown'>) => void
+  /** Something went wrong around a run that has no caller to tell: recording it, or saying it ran. */
+  log?: (message: string) => void
   now?: () => number
   setTimer?: (callback: () => void, ms: number) => unknown
   clearTimer?: (handle: unknown) => void
@@ -76,6 +78,7 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
   // would be skipped the moment the computer woke and refreshed.
   const dueAt = new Map<string, { at: number | null; cron: string; timezone: string; once: number | undefined }>()
   const inFlight = new Set<string>()
+  const describe = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
   const dueFor = (agent: ScheduledAgent, after: number): number | null =>
     agent.schedule.once !== undefined ? scheduledAgentOnceDue(agent) : nextScheduledAgentRun(agent.schedule, after)
@@ -129,7 +132,11 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
       }))
       // A scheduled agent closed while its run was starting is gone; its run
       // is not recorded against nothing.
-      if (deps.list().some((candidate) => candidate.id === agent.id)) await deps.recordRun(agent.id, run)
+      // The run happened whether or not it could be written down.
+      if (deps.list().some((candidate) => candidate.id === agent.id))
+        await deps.recordRun(agent.id, run).catch((error: unknown) => {
+          deps.log?.(`A scheduled agent's run could not be recorded: ${describe(error)}`)
+        })
       deps.onRan?.(agent, run)
       return { ok: true, run }
     } finally {
@@ -148,9 +155,13 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
       // The next time counts from now, so every time missed in a long sleep
       // collapses into the one run below. A one-time schedule has no next.
       entry.at = agent.schedule.once !== undefined ? null : dueFor(agent, at)
-      void fire(agent).then((fired) => {
-        if (!fired.ok && fired.refused !== 'unknown') deps.onSkipped?.(agent, fired.refused)
-      })
+      // Nobody awaits a timed run: whatever goes wrong around it is logged,
+      // never left as an unhandled rejection.
+      void fire(agent)
+        .then((fired) => {
+          if (!fired.ok && fired.refused !== 'unknown') deps.onSkipped?.(agent, fired.refused)
+        })
+        .catch((error: unknown) => deps.log?.(`A scheduled agent's run went wrong: ${describe(error)}`))
     }
     arm()
   }

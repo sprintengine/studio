@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+
 import type { WebContents } from 'electron'
 
 import type { BrowserPointerEvent } from '../../shared/browser'
@@ -526,6 +528,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
     awaitPromise = true,
     timeoutMs = MAX_EVALUATE_MS,
   ): Promise<{ value: unknown; exception: string | null }> {
+    stopIfAbandoned()
     const result = (await withDeadline(
       s.wc.debugger.sendCommand('Runtime.evaluate', {
         expression,
@@ -540,6 +543,8 @@ export function createBrowserControl(manager: BrowserControlManager) {
       result: { value?: unknown; type?: string; description?: string }
       exceptionDetails?: { text?: string; exception?: Record<string, unknown> }
     }
+    // The page may have answered only because a dialog it held for was closed.
+    stopIfAbandoned()
     if (result.exceptionDetails) {
       const ex = result.exceptionDetails
       return {
@@ -587,13 +592,20 @@ export function createBrowserControl(manager: BrowserControlManager) {
     const keepLit = setInterval(() => manager.noteAgentActivity(tabId), 1_000)
     // A dialog the action makes the page open holds the page, and the action
     // with it: the agent is told at once rather than at the action's deadline.
+    // The action itself keeps running past that report, parked on a page call
+    // the dialog holds; once it is answered the call returns, and without the
+    // token the old action would go on typing or submitting under the next one.
+    const token: ActToken = { abandoned: false }
     let stopWaiting: ((dialog: BrowserDialog) => void) | null = null
     const opened = new Promise<BrowserControlError>((resolve) => {
-      stopWaiting = (dialog) => resolve(dialogOpen(dialog, true))
+      stopWaiting = (dialog) => {
+        token.abandoned = true
+        resolve(dialogOpen(dialog, true))
+      }
       s.onDialog.add(stopWaiting)
     })
     try {
-      const out = await Promise.race([fn(s, checkpoint), opened])
+      const out = await Promise.race([acting.run(token, () => fn(s, checkpoint)), opened])
       if (out.ok) {
         // A yielded action does not re-light the badge: the person has the page.
         manager.noteAgentActivity(tabId)
@@ -623,6 +635,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
 
   /** Synthetic input, bracketed so the manager's human-epoch does not count it. */
   async function input(s: Session, method: string, params: Record<string, unknown>): Promise<void> {
+    stopIfAbandoned()
     manager.noteAgentInput(s.tabId, 1)
     try {
       await s.wc.debugger.sendCommand(method, params)
@@ -675,6 +688,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
     y: number,
     extra: Record<string, unknown> = {},
   ): Promise<void> {
+    stopIfAbandoned()
     // The overlay hears where the pointer is going BEFORE the page does, so the
     // cursor is already there when the click lands.
     const kind =
@@ -1043,6 +1057,20 @@ export function createBrowserControl(manager: BrowserControlManager) {
 export type BrowserControl = ReturnType<typeof createBrowserControl>
 
 class DeadlineError extends Error {}
+
+/** One `act` call. Abandoned when a dialog ended it while its work was still in flight. */
+type ActToken = { abandoned: boolean }
+
+// The token of the act whose work is running, carried through its awaits so
+// the page calls it makes can tell they belong to an action already reported.
+const acting = new AsyncLocalStorage<ActToken>()
+
+/** Thrown into an abandoned action's own chain; nobody is waiting on it any more. */
+class AbandonedError extends Error {}
+
+function stopIfAbandoned(): void {
+  if (acting.getStore()?.abandoned) throw new AbandonedError('The action was abandoned when the page opened a dialog.')
+}
 
 function withDeadline<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {

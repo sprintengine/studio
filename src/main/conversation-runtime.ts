@@ -435,11 +435,12 @@ export class ConversationRuntime {
   // The highest such number is also recorded beside the transcript, so the
   // next run numbers above it rather than reusing numbers a client has seen.
   private readonly nonDurableLogs = new Map<string, NonDurableLog>()
-  // Per tool detail path: the detail being built, its streamed output, and
-  // the write in flight.
+  // Per tool detail path: the detail being built, its streamed output, the
+  // newest write, and the write still waiting its turn that later details join.
   private readonly toolDetails = new Map<string, ConversationToolDetail>()
   private readonly toolStreams = new Map<string, ToolOutputStream>()
   private readonly toolDetailWrites = new Map<string, Promise<void>>()
+  private readonly queuedToolDetailWrites = new Map<string, QueuedToolDetailWrite>()
   private readonly toolPreviews = new Map<string, ToolPreviewThrottle>()
   private readonly toolPreviewIntervalMs: number
   private eventSequence = 0
@@ -820,6 +821,13 @@ export class ConversationRuntime {
         input.commandId,
         () => this.sendTurn({ ...input, sourceCommandId: input.commandId, commandId: undefined }),
         input.commandFingerprint,
+        // A send turned away busy runs nothing, so it is answered before an
+        // intent is written: a phone tries again every second while a turn
+        // runs, and each try was a receipts write and then its removal.
+        () => {
+          const session = this.sessions.get(input.sessionId)
+          return session && !input.steer && isSessionBusy(session) ? busyRefusal(session) : null
+        },
       )
     const session = this.sessions.get(input.sessionId)
     if (!session) return sessionNotFound()
@@ -835,18 +843,7 @@ export class ConversationRuntime {
     if (this.terminalHandoffs.has(session.sessionId))
       return { ok: false, message: 'This conversation is moving to a terminal, so the message was not sent.' }
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
-    // Busy, not failed: a send from another device (a phone, while a turn
-    // started here runs) is held there and sent again once the turn is over.
-    if (isSessionBusy(session) && !input.steer) {
-      return {
-        ok: false,
-        code: 'busy',
-        retryAfterMs: TURN_BUSY_RETRY_MS,
-        message: session.pendingRequestId
-          ? 'Conversation turn is awaiting approval.'
-          : 'Conversation turn is already in progress.',
-      }
-    }
+    if (isSessionBusy(session) && !input.steer) return busyRefusal(session)
     // One message, whatever separators the text that typed it used.
     const message = plainLineBreaks(input.message).trim()
     const attachments = input.attachments ?? []
@@ -1737,6 +1734,9 @@ export class ConversationRuntime {
   }): Promise<{ ok: true; target: ConversationTerminalHandoffTarget } | { ok: false; message: string }> {
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    // One handoff at a time: a second would open a second terminal on the session.
+    if (this.terminalHandoffs.has(session.sessionId))
+      return { ok: false, message: 'This chat is already moving to a terminal.' }
     if (!session.stateful)
       return { ok: false, message: 'This chat has no CLI session behind it for a terminal to resume.' }
     // Still opening, it has no settled CLI session to hand over yet.
@@ -2427,6 +2427,12 @@ export class ConversationRuntime {
     commandId: string,
     action: () => Promise<ConversationSessionActionResult>,
     fingerprint?: string,
+    /**
+     * A refusal known before anything runs, asked once a retry of a command
+     * already carried out has been answered from its receipt: a command it
+     * turns away is answered without an intent written for it.
+     */
+    refuseEarly?: () => ConversationSessionActionResult | null,
   ): Promise<ConversationSessionActionResult> {
     const session = this.sessions.get(sessionId)
     if (!session) return Promise.resolve(sessionNotFound())
@@ -2447,6 +2453,8 @@ export class ConversationRuntime {
       }
       const prior = receipts.get(commandId)
       if (prior) return conflict(receiptFingerprint(prior)) ? commandIdConflict() : withoutFingerprint(prior)
+      const refused = refuseEarly?.()
+      if (refused) return refused
       const persist = async () => {
         while (receipts.size > 256) receipts.delete(receipts.keys().next().value!)
         const serialized = JSON.stringify(Array.from(receipts))
@@ -2940,7 +2948,7 @@ export class ConversationRuntime {
    */
   private async prepareToolEvent(session: RuntimeSession, event: ConversationEvent): Promise<ConversationEvent> {
     if (event.type !== 'tool_started' && event.type !== 'tool_output') return event
-    const payload = redactConversationValue({ ...event.payload })
+    const payload = redactToolPayload(event.payload)
     const toolUseId =
       typeof payload.toolUseId === 'string'
         ? payload.toolUseId
@@ -3048,6 +3056,11 @@ export class ConversationRuntime {
    * Write a detail file behind any earlier write for the same tool. A detail
    * whose input was never seen this run (the tool started before a restart)
    * keeps the input already on disk.
+   *
+   * A write that has not started yet takes the newer detail instead of a
+   * second write queueing behind it: a provider that re-sends a running
+   * tool's whole output on every update would otherwise rewrite the file once
+   * per update, each copy larger than the last, and only the newest is read.
    */
   private queueToolDetailWrite(
     session: RuntimeSession,
@@ -3055,15 +3068,26 @@ export class ConversationRuntime {
     detail: ConversationToolDetail,
     mergeInput = false,
   ): Promise<void> {
+    const waiting = this.queuedToolDetailWrites.get(path)
+    if (waiting) {
+      waiting.detail = detail
+      waiting.mergeInput ||= mergeInput
+      return waiting.write
+    }
+    const queued: QueuedToolDetailWrite = { detail, mergeInput, write: Promise.resolve() }
     const write = (this.toolDetailWrites.get(path) ?? Promise.resolve())
       .catch(() => undefined)
       .then(async () => {
-        if (mergeInput) {
+        // Started: a newer detail now queues behind this write.
+        if (this.queuedToolDetailWrites.get(path) === queued) this.queuedToolDetailWrites.delete(path)
+        if (queued.mergeInput) {
           const previous = await readToolDetail(session.workspaceRoot, path)
-          if (previous.ok) detail.input = previous.detail.input
+          if (previous.ok) queued.detail.input = previous.detail.input
         }
-        await writeToolDetail(session.workspaceRoot, path, detail)
+        await writeToolDetail(session.workspaceRoot, path, queued.detail)
       })
+    queued.write = write
+    this.queuedToolDetailWrites.set(path, queued)
     this.toolDetailWrites.set(path, write)
     void write
       .finally(() => {
@@ -4037,6 +4061,21 @@ function isInterruptedTurn(event: ConversationEvent): boolean {
   return event.payload?.reason === 'interrupted' || event.payload?.message === 'interrupted'
 }
 
+/**
+ * Busy, not failed: a send from another device (a phone, while a turn started
+ * here runs) is held there and sent again once the turn is over.
+ */
+function busyRefusal(session: RuntimeSession): ConversationSessionActionResult {
+  return {
+    ok: false,
+    code: 'busy',
+    retryAfterMs: TURN_BUSY_RETRY_MS,
+    message: session.pendingRequestId
+      ? 'Conversation turn is awaiting approval.'
+      : 'Conversation turn is already in progress.',
+  }
+}
+
 function isSessionBusy(session: RuntimeSession): boolean {
   return session.activeTurnId !== null || session.pendingRequestId !== null
 }
@@ -4351,6 +4390,25 @@ function importedToolPayload(
   if (typeof payload.exitCode === 'number') detail.exitCode = payload.exitCode
   if (mime !== undefined) detail.mime = mime
   return payload
+}
+
+type QueuedToolDetailWrite = { detail: ConversationToolDetail; mergeInput: boolean; write: Promise<void> }
+
+/**
+ * A tool event's payload, redacted. Redaction goes by key, so output that is
+ * only text (a string, or the list of text blocks some providers send) has
+ * nothing in it to redact; it is set aside and put back rather than taken
+ * through a JSON round trip, which a provider re-sending the whole output on
+ * every update would pay again for each one.
+ */
+function redactToolPayload(payload: ConversationEvent['payload']): Record<string, unknown> {
+  const output = payload?.output
+  const plainText =
+    typeof output === 'string' || (Array.isArray(output) && output.every((entry) => typeof entry === 'string'))
+  if (!plainText) return redactConversationValue({ ...payload })
+  const redacted: Record<string, unknown> = redactConversationValue({ ...payload, output: '' })
+  redacted.output = output
+  return redacted
 }
 
 function redactEvent(event: ConversationEvent): ConversationEvent {

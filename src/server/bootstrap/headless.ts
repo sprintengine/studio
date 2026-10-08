@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { captureLoginEnv } from '../../../resources/wsl-helper/lib/login-env.mjs'
 import { readStudioEnvironmentId } from '../../main/studio-rpc/studio-rpc-service'
 import { driveMountRootFromMounts, driveMountRootFromWslConf } from '../../shared/host-paths'
+import { chatsAreWorking } from '../core/chats-working'
 import { startStudioServer, type StudioServer, type StudioServerOptions } from '../studio-server'
 import { BACKEND_WIRE_VERSION, serveConversationBackend } from '../wsl/backend-wire'
 import type { SignIns } from '../machine/machine-sign-in'
@@ -38,6 +39,8 @@ export function headlessServerOptions(
     resourcesDir: envelope.paths.resourcesDir,
     appRoot: envelope.paths.appPath,
     listen: envelope.listeners.gateway,
+    // A detached server is an SSH machine's: one the desktop reaches over SSH.
+    hostKind: envelope.wsl ? 'wsl' : envelope.detached ? 'ssh' : 'local',
     log,
   }
 }
@@ -107,22 +110,6 @@ async function adoptLoginEnvironment(log: (message: string) => void): Promise<vo
   const took = Date.now() - started
   if (took > 7_000)
     log(`The login profile took ${Math.round(took / 1000)} s to read; chats use what it had set by then.`)
-}
-
-type Sessions = Pick<StudioServer['core']['conversations'], 'listSessions'>
-
-/** Whether a chat is working: starting, mid-turn, waiting on a person, or running background agents. */
-export function chatsAreWorking(conversations: Sessions): boolean {
-  const listed = conversations.listSessions()
-  if (!listed.ok) return false
-  return listed.sessions.some(
-    (session) =>
-      session.status === 'starting' ||
-      session.status === 'active' ||
-      session.status === 'awaiting_approval' ||
-      session.turnStartedAt !== undefined ||
-      (session.backgroundAgents ?? 0) > 0,
-  )
 }
 
 /**

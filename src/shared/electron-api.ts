@@ -939,11 +939,7 @@ export type ElectronApi = {
     settled?: boolean
   }) => Promise<MeshSettleConversationResult>
   /** Say a chat on a paired machine is on screen here (`conversation.visit` there). */
-  meshVisitConversation: (input: {
-    connectionId: string
-    workspaceId: string
-    visitedAt?: number
-  }) => Promise<MeshVisitConversationResult>
+  meshVisitConversation: (input: { connectionId: string; workspaceId: string }) => Promise<MeshVisitConversationResult>
   /** A remote workspace's checkout facts — branch, trunk, branches, worktrees — for the launch panel's checkout · branch segments. */
   meshWorkspaceCheckout: (connectionId: string, workspaceId: string) => Promise<MeshWorkspaceCheckoutResult>
   /**

@@ -5,7 +5,7 @@ import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import type { ConversationJsonValue } from '../../shared/conversation-runtime'
 import { asRecord } from '../../shared/records'
 import { ImportedTranscriptBuilder, recordTime, type ImportedConversation } from './imported-transcript'
-import { readJsonLines, readJsonLinesWindow, stringField, type ScannedSession } from './session-files'
+import { newestRecordTime, readJsonLines, readJsonLinesWindow, stringField, type ScannedSession } from './session-files'
 
 // Codex saves each session as `<home>/sessions/YYYY/MM/DD/rollout-*.jsonl`.
 // Its first record (`session_meta`) names the session, the folder it ran in
@@ -24,6 +24,8 @@ export function codexHomeDir(homeDir: string, env: NodeJS.ProcessEnv): string {
 // The session meta carries Codex's whole system prompt, so the opening read
 // is long enough for it and the first message after it.
 const HEAD_BYTES = [256 * 1024, 2 * 1024 * 1024]
+/** The end of a session, read for when it was last active. */
+const TAIL_BYTES = 64 * 1024
 
 /** Every session Codex saved that a person typed into, newest first. */
 export async function scanCodexSessions(codexHome: string): Promise<ScannedSession[]> {
@@ -42,7 +44,10 @@ async function rolloutFiles(root: string, depth = 0): Promise<string[]> {
   let names: string[]
   try {
     names = await readdir(root)
-  } catch {
+  } catch (error) {
+    // The sessions folder itself unreadable is said, not passed off as empty;
+    // one day's folder that cannot be read is skipped.
+    if (depth === 0 && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     return []
   }
   const files: string[] = []
@@ -82,6 +87,7 @@ async function scanRollout(path: string): Promise<ScannedSession | null> {
     const firstPrompt = prompts.events[0] ?? prompts.model[0] ?? null
     if (!firstPrompt && info.size > bytes) continue
     if (!firstPrompt) return null
+    const tail = info.size > bytes ? await readJsonLinesWindow(path, info.size - TAIL_BYTES, TAIL_BYTES) : records
     return {
       source: 'codex',
       sessionId,
@@ -90,7 +96,7 @@ async function scanRollout(path: string): Promise<ScannedSession | null> {
       title: null,
       firstPrompt,
       startedAt: recordTime(meta.timestamp) ?? recordTime(records[0]?.timestamp) ?? info.mtimeMs,
-      updatedAt: info.mtimeMs,
+      updatedAt: newestRecordTime(tail) ?? info.mtimeMs,
     }
   }
   return null

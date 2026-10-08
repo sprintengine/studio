@@ -18,6 +18,8 @@ import type { WorktreeDiskUsage } from '../../shared/ipc/worktree-pool'
 const NAMED_PARTS = 4
 const DU_TIMEOUT_MS = 120_000
 const WALK_CONCURRENCY = 16
+/** Trees measured at once by a caller measuring many: each `du` reads many thousand files. */
+export const MEASURE_CONCURRENCY = 3
 
 /** `signal` stops a measurement part-way (quitting): the answer is then null. */
 export type MeasureDiskUsage = (path: string, signal?: AbortSignal) => Promise<WorktreeDiskUsage | null>
