@@ -507,7 +507,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   // `origin` is for Studio's own sends (a resume after a usage limit): they
   // are not the person writing, so each is recorded as Studio's and the chat
   // keeps its place in the lists ordered by when the person last did.
-  const createConversationHost = (hostOptions: { origin?: ConversationMessageOrigin } = {}) =>
+  // `lifecycleList` is for the door that advertises `conversation-lifecycle`
+  // (the tailnet lane): its list leaves settled chats out, in the sidebar's
+  // order. The Studio RPC's lists every chat by `updatedAt`, as it always has.
+  const createConversationHost = (hostOptions: { origin?: ConversationMessageOrigin; lifecycleList?: boolean } = {}) =>
     createConversationGatewayHost(
       conversations,
       (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
@@ -536,6 +539,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       listMarks,
       {
         workspaceOf: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
+        ...(hostOptions.lifecycleList ? { lifecycleList: true } : {}),
         ...(hostOptions.origin
           ? { sendOrigin: hostOptions.origin }
           : {

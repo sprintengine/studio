@@ -177,7 +177,9 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
     ...(options.onTailnetEvent ? { onTailnetEvent: options.onTailnetEvent } : {}),
     ...(options.onMeshEvent ? { onMeshEvent: options.onMeshEvent } : {}),
     ...(options.hasWindow ? { hasWindow: options.hasWindow } : {}),
-    resolveConversationHost: core.createConversationHost,
+    // The tailnet lane advertises `conversation-lifecycle`, so its list is
+    // the one that keeps the capability's promise.
+    resolveConversationHost: () => core.createConversationHost({ lifecycleList: true }),
     // The run lock's holder removes a stale socket; nobody else does. A desktop
     // that could not take the lock still may, as builds before it did: its
     // single-instance lock already rules out a second app on this profile.
