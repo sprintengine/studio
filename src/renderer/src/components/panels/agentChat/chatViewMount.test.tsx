@@ -2117,7 +2117,10 @@ function answeredTurn(turnId: string, question: string, answer: string): Convers
 }
 
 test('Load earlier does not call the older replies it loads new; a reply finishing after it is', async () => {
-  const older = [...answeredTurn('o1', 'Old one', 'Old answer one.'), ...answeredTurn('o2', 'Old two', 'Old answer two.')]
+  const older = [
+    ...answeredTurn('o1', 'Old one', 'Old answer one.'),
+    ...answeredTurn('o2', 'Old two', 'Old answer two.'),
+  ]
   const recent = answeredTurn('n1', 'New one', 'New answer.')
   // Opened at its end, as a chat read to the end was left: a place remembered
   // mid-history from another test would page the history in by itself.
