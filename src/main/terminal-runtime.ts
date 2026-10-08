@@ -205,6 +205,9 @@ type TerminalRuntimeOptions = {
   // sidecar sweep, for the conversation peek. Absent in tests: prompts then
   // live on the session (and its sidecar) only, as they always did.
   agentPrompts?: AgentPromptStore
+  // Whether any app window has focus. While none has, the reap sweep runs one
+  // tick in `UNFOCUSED_REAP_SWEEP_EVERY` (see there). Absent (tests): focused.
+  isAppFocused?(): boolean
   // Persists reaper decisions to the daily diagnostics JSONL: every reap
   // action, plus rate-limited "parked past threshold by gate X" skips. The
   // in-memory ring buffer (terminal-reap-log) dies with the process; the
@@ -370,6 +373,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   snapshotSidecars = options.snapshotSidecars
   agentPrompts = options.agentPrompts
   logReapDiagnostic = options.logDiagnostic
+  isAppFocused = options.isAppFocused
   onAgentLaunched = options.onAgentLaunched
   onAgentFileEdit = options.onAgentFileEdit
   onObservedCheckoutResolved = options.onObservedCheckoutResolved
@@ -1362,16 +1366,33 @@ export function setTerminalReapExempt(sessionId: string, exempt: boolean): void 
 }
 
 let staleTerminalSweepTimer: ReturnType<typeof setInterval> | undefined
+let isAppFocused: TerminalRuntimeOptions['isAppFocused']
+
+// While no app window is focused the reap sweep runs one tick in this many.
+// Its guard reads `ps` and a machine-wide `lsof` whenever anything is up for
+// reaping, which on a laptop nobody is looking at is charge spent every three
+// minutes; an idle agent suspended a few minutes later is not something anyone
+// is there to see. Focus coming back does not wait: the next tick runs.
+export const UNFOCUSED_REAP_SWEEP_EVERY = 3
+
+/** Whether this tick of the sweep runs, and the unfocused ticks skipped since one last did. */
+export function reapSweepTick(focused: boolean, skipped: number): { run: boolean; skipped: number } {
+  if (focused || skipped + 1 >= UNFOCUSED_REAP_SWEEP_EVERY) return { run: true, skipped: 0 }
+  return { run: false, skipped: skipped + 1 }
+}
 
 function startStaleTerminalSweep(): void {
   if (staleTerminalSweepTimer) clearInterval(staleTerminalSweepTimer)
+  let skipped = 0
   staleTerminalSweepTimer = setInterval(() => {
+    const tick = reapSweepTick(isAppFocused?.() ?? true, skipped)
+    skipped = tick.skipped
     // 24h coarse backstop (catches anything ancient), then the recency policy
     // sweep that suspends idle agent terminals (hook-state-driven) within a
     // session. Guarded: sessions whose pty subtree holds live work (background
     // shells, dev servers, busy builds) or whose agent has a pending
     // self-scheduled wakeup are held — killing the CLI would abort that work.
-    void runGuardedTerminalReapSweeps().catch(() => undefined)
+    if (tick.run) void runGuardedTerminalReapSweeps().catch(() => undefined)
     // Reclaim snapshot sidecars past their TTL (painted history nobody
     // reopened). Piggybacked here rather than owning another timer.
     snapshotSidecars?.sweepExpired()

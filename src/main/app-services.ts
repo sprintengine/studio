@@ -878,6 +878,7 @@ export function createAppServices(
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
     logMainPerfEvent,
+    isAppFocused: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
     // The runtime asks where an agent is at every turn end and session start.
     // That is also the moment its checkout's working tree most likely moved,
     // which git's own files do not show until something is staged: tell the
