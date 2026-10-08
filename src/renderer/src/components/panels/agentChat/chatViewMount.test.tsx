@@ -368,6 +368,28 @@ test('the launcher’s prompt is sent as the first message the moment the chat i
   }
 })
 
+// The launcher's prompt is on screen as its pending bubble before it is sent;
+// its row takes that bubble's place without the entrance a new row plays.
+test('the launcher’s prompt lands in place of its pending bubble, while a typed message slides in', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({ agent: { chatStartupPrompt: 'hi' }, sendTurn })
+  const userFrame = (text: string) =>
+    Array.from(chat.host.querySelectorAll('[data-conversation-row-kind="user"]')).find((row) =>
+      row.textContent?.includes(text),
+    )?.parentElement
+  try {
+    await chat.act(async () => undefined)
+    expect(userFrame('hi'), 'the first message is drawn').toBeDefined()
+    expect(userFrame('hi')?.className ?? '').not.toContain('conversation-row-enter')
+
+    await chat.act(async () => chat.type('and again'))
+    await chat.act(async () => void chat.enter())
+    expect(userFrame('and again')?.className).toContain('conversation-row-enter')
+  } finally {
+    await chat.unmount()
+  }
+})
+
 // The launcher holds a staged screenshot as a file; macOS's own thumbnail sits
 // in a temporary folder like this one.
 const LAUNCH_SHOT = '/var/folders/x1/T/TemporaryItems/NSIRD_screencaptureui_ab12/Screenshot 2026-10-04 at 12.15.13.png'

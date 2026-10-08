@@ -1234,6 +1234,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       // Anything else refused (the startup prompt, Retry, Compact) lands in
       // the composer only when it is empty, so a draft never grows a prefix.
       restoreAhead = false,
+      // The message is already on screen as the chat's pending first bubble
+      // (PendingFirstMessage): its row takes that one's place where it stands,
+      // without the entrance a new row plays, which read as the bubble jumping.
+      inPlace = false,
     ) => {
       const metadata = supportsSkills ? requestedMetadata : { ...requestedMetadata, skillIds: [] }
       const text = message.trim()
@@ -1266,6 +1270,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       // its CLI starting before it showed at all.
       if (transport.capabilities.optimisticTurns) {
         pendingUserScrollIdRef.current = `user:${localTurnId}`
+        if (inPlace) animatedRowIds.current.add(`user:${localTurnId}`)
         setUserTurns((current) => [
           ...current,
           {
@@ -1567,11 +1572,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     if (!startupTakesImages) {
       const withPaths = [text, ...paths.map(quotePromptPath)].filter(Boolean).join(' ')
       if (readiness.kind !== 'ready') keepAsDraft(withPaths)
-      else void sendTurn(withPaths, [], metadata)
+      else void sendTurn(withPaths, [], metadata, false, false, true)
       return
     }
     if (paths.length === 0) {
-      void sendTurn(text, [], metadata)
+      void sendTurn(text, [], metadata, false, false, true)
       return
     }
     void (async () => {
@@ -1596,7 +1601,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         setActionError(failure)
         return
       }
-      void sendTurn(text, turnAttachments, metadata)
+      void sendTurn(text, turnAttachments, metadata, false, false, true)
     })()
   }, [
     startupPrompt,
