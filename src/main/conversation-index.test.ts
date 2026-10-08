@@ -57,7 +57,7 @@ test('missing, corrupt and old-version caches rebuild from authoritative events'
       await writeFile(cache, invalid)
       expect((await index.list(key))[0]?.title).toBe('Build a useful chat')
     }
-    expect(JSON.parse(await readFile(cache, 'utf8')).version).toBe(3)
+    expect(JSON.parse(await readFile(cache, 'utf8')).version).toBe(4)
   }))
 
 test('conversation cost includes old turns and deduplicates completion records', async () =>
@@ -382,6 +382,26 @@ test('a row says when its agent last finished a turn, a steered end aside, and k
     expect(first?.updatedAt).toBe(5000)
     await appendFile(path, lines([event(6, 'turn_failed', { turnId: 'two' })]))
     expect((await index.list(key))[0]?.lastTurnEndedAt).toBe(6000)
+  }))
+
+test('a chat keeps the opening of its last reply, cleared when the person writes again', async () =>
+  fixture(async (key, path) => {
+    await writeFile(
+      path,
+      lines([
+        event(1, 'user_message', { turnId: 'one', text: 'Question' }),
+        event(2, 'content_delta', { turnId: 'one', text: 'The answer ' }),
+        event(3, 'content_delta', { turnId: 'one', text: 'is here.' }),
+        event(4, 'turn_completed', { turnId: 'one' }),
+      ]),
+    )
+    const index = new ConversationIndex()
+    expect((await index.list(key))[0]?.lastAssistantText).toBe('The answer is here.')
+    await appendFile(path, lines([event(5, 'user_message', { turnId: 'two', text: 'And then?' })]))
+    expect((await index.list(key))[0]?.lastAssistantText).toBe('')
+    // The opening only, as the runtime's session keeps it.
+    await appendFile(path, lines([event(6, 'content_delta', { turnId: 'two', text: 'x'.repeat(300) })]))
+    expect((await index.list(key))[0]?.lastAssistantText).toHaveLength(240)
   }))
 
 test('a chat whose agent never finished a turn names no turn end', async () =>

@@ -96,6 +96,10 @@ export type RemoteSessionRow = {
   repository: RepositoryIdentity | null
   status: { label: string; tone: Tone }
   activity: RemoteRowActivity
+  /** The phase the machine listed, which words the line: a wait for approval and a question are two waits. */
+  phase: MeshConversation['phase']
+  /** The opening of the agent's last reply, as its machine listed it; null from a machine that does not say. */
+  replyPreview: string | null
   /** Epoch ms the activity began — how long it has worked, or sat idle. Null when the remote did not say. */
   since: number | null
   /** The workspace here whose pane is attached to this session, when one is. */
@@ -166,6 +170,19 @@ export type RemoteConversation = {
   stale: boolean
   /** Its row's place in the list; see `RemoteSessionRow.recencyAt`. */
   recencyAt: number
+}
+
+/**
+ * The agent finished a turn nobody has had on screen since, on any device:
+ * the green "finished while you were away" row a local chat wears. Only a
+ * machine that keeps its chats' read state can say so, and a chat with no
+ * visit recorded reads as seen, as the list's contract has it.
+ */
+export function remoteFinishUnseen(
+  row: Pick<RemoteSessionRow, 'activity' | 'lastTurnEndedAt' | 'lastVisitedAt'>,
+): boolean {
+  if (row.activity !== 'idle' || row.lastTurnEndedAt === null || row.lastVisitedAt === null) return false
+  return row.lastTurnEndedAt > row.lastVisitedAt
 }
 
 /** What opening a row asks the app to do: focus the attached workspace, or follow the chat in a new one. */
@@ -287,6 +304,8 @@ function remoteChatRowOf(
             ? { label: 'Failed', tone: 'error' }
             : { label: 'Done', tone: 'neutral' },
     activity: presence === 'running' ? 'working' : presence === 'needs-input' ? 'needs-input' : 'idle',
+    phase: conversation.phase,
+    replyPreview: conversation.lastAssistantText ?? null,
     since: conversation.updatedAt,
     attachedWorkspaceId: attached?.id ?? null,
     recencyAt: conversation.lastUserMessageAt ?? conversation.updatedAt,

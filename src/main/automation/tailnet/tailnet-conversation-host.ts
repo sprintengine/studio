@@ -1,5 +1,6 @@
 import {
   CONVERSATION_DEFAULT_MODEL_ID,
+  CONVERSATION_MAX_REPLY_PREVIEW,
   type ConversationCommand,
   type ConversationThread,
   type ConversationWireErrorCode,
@@ -246,6 +247,23 @@ function lifecycleOf(
     // Read only from the record, which only Mark unread's own command stamps.
     ...(epoch(record?.visitRewoundAt) ? { visitRewoundAt: record.visitRewoundAt } : {}),
   }
+}
+
+/**
+ * The opening of a chat's last reply, the line its row previews. The newest
+ * session this run holds says it freshest, empty once the person has written
+ * again; the transcript's index says it for a chat no session holds.
+ */
+function replyPreviewOf(
+  sessions: readonly ConversationSessionSummary[],
+  indexed?: string,
+): Pick<ConversationThread, 'lastAssistantText'> {
+  let newest: ConversationSessionSummary | null = null
+  for (const session of sessions)
+    if (typeof session.lastAssistantText === 'string' && (!newest || session.updatedAt > newest.updatedAt))
+      newest = session
+  const preview = (newest ? newest.lastAssistantText : indexed)?.slice(0, CONVERSATION_MAX_REPLY_PREVIEW)
+  return preview?.trim() ? { lastAssistantText: preview } : {}
 }
 
 /**
@@ -590,6 +608,7 @@ export function createConversationGatewayHost(
             ...(models ? { models } : {}),
             ...(summary ? { sessionId: summary.sessionId, capabilities: wireCapabilities(summary) } : {}),
             ...lifecycleOf(recordOf(workspace.workspaceId), latestTurnEnd(sessions, key, thread.lastTurnEndedAt)),
+            ...replyPreviewOf(sessions, thread.lastAssistantText),
           })
         }
       }
@@ -615,6 +634,7 @@ export function createConversationGatewayHost(
           sessionId: summary.sessionId,
           capabilities: wireCapabilities(summary),
           ...lifecycleOf(recordOf(summary.workspaceId), latestTurnEnd(sessions, summary)),
+          ...replyPreviewOf(sessions),
         })
       }
       // In the order the desktop's sidebar draws them: by when the person last

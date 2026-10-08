@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockup: chats on a paired machine, in the sidebar</title>
+<!-- A static before/after of the sidebar's rows for chats that run on a paired
+     machine and are not open here, in the flat stream (the rail's default
+     shape). Drawn with the design system's own tokens so it reads like the
+     app; every name, project and reply in it is made up. Open it straight
+     from disk. Each column shows the same three rows; the middle one is
+     drawn hovered, so its revealed actions show. -->
+<link rel="stylesheet" href="../../../design-system/foundations/tokens.css" />
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .stage { display: flex; gap: var(--sem-space-3xl); padding: var(--sem-space-3xl); justify-content: center; }
+  .column h2 {
+    margin: 0 0 var(--sem-space-sm); font-size: var(--sem-font-size-heading);
+    color: var(--sem-color-text-primary); font-weight: var(--sem-font-weight-emphasis);
+  }
+  .column p.caption { margin: 0 0 var(--sem-space-lg); max-width: 300px; color: var(--sem-color-text-subtle); font-size: var(--sem-font-size-meta); }
+  .rail {
+    width: 300px; padding: var(--sem-space-sm) 0;
+    background: var(--sem-color-bg-surface);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell-lg);
+  }
+  .row {
+    position: relative; margin: 2px 6px; padding: 4px 6px; border-radius: 6px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .row.hover { background: var(--sem-color-bg-surface-raised); color: var(--sem-color-text-primary); }
+  .row.wants { background: var(--sem-color-status-warn-soft); }
+  .line { display: flex; align-items: center; gap: 6px; height: 20px; min-width: 0; font-size: var(--sem-font-size-meta); color: var(--sem-color-text-subtle); }
+  .title { font-size: var(--sem-font-size-heading); height: 24px; display: flex; align-items: center; color: var(--sem-color-text-default); }
+  .title.bold { font-weight: var(--sem-font-weight-emphasis); }
+  .title.quiet { color: var(--sem-color-text-subtle); }
+  .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  .seat { margin-left: auto; min-width: 44px; display: flex; justify-content: flex-end; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; }
+  .folder { width: 12px; height: 12px; flex-shrink: 0; }
+  .machine { width: 13px; height: 13px; flex-shrink: 0; color: var(--sem-color-accent-primary); }
+  .mark {
+    width: 18px; height: 18px; flex-shrink: 0; border-radius: 999px;
+    border: 1px solid var(--sem-color-border-subtle); background: var(--sem-color-bg-surface-raised);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mark svg { width: 11px; height: 11px; }
+  .btn {
+    width: 22px; height: 22px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center;
+    color: var(--sem-color-text-muted);
+  }
+  .btn:first-child { background: var(--sem-color-bg-hover); }
+  .btn svg { width: 12px; height: 12px; }
+  .tip {
+    position: absolute; right: 8px; top: -26px; padding: 2px 8px; border-radius: 5px;
+    background: var(--sem-color-bg-surface-raised); border: 1px solid var(--sem-color-border-default);
+    font-size: var(--sem-font-size-meta); color: var(--sem-color-text-default);
+  }
+  .note { margin-top: var(--sem-space-lg); max-width: 300px; font-size: var(--sem-font-size-meta); color: var(--sem-color-text-muted); }
+  .note li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="folder" viewBox="0 0 16 16"><path d="M1.5 4.5a1 1 0 0 1 1-1h3.6l1.4 1.5h6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="laptop" viewBox="0 0 16 16"><rect x="3" y="3.5" width="10" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M1.5 12.5h13" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+  <symbol id="claude" viewBox="0 0 16 16"><g stroke="#d97757" stroke-width="1.6" stroke-linecap="round"><path d="M8 1.5v13M1.5 8h13M3.4 3.4l9.2 9.2M12.6 3.4l-9.2 9.2"/></g></symbol>
+  <symbol id="dots" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="1.2" fill="currentColor"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/><circle cx="12.5" cy="8" r="1.2" fill="currentColor"/></symbol>
+  <symbol id="tick" viewBox="0 0 16 16"><path d="M3.75 8.5L6.5 11.25L12.25 5.25" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<div class="stage">
+  <!-- ── Before ─────────────────────────────────────────────────────────── -->
+  <section class="column">
+    <h2>Before</h2>
+    <p class="caption">A local chat, then two chats on the Mini that no window here has open.</p>
+    <div class="rail">
+      <div class="row">
+        <div class="line"><svg class="folder" style="color:#3fb8af"><use href="#folder"/></svg><span>notes-app</span><span class="seat">2h</span></div>
+        <div class="title quiet"><span class="truncate">Draft the release notes for the importer</span></div>
+      </div>
+      <div class="row hover">
+        <div class="line"><svg class="folder" style="color:#a78bfa"><use href="#folder"/></svg><span>home-lab</span><svg class="machine"><use href="#laptop"/></svg>
+          <span class="seat"><span class="btn"><svg><use href="#dots"/></svg></span></span></div>
+        <div class="title"><span class="truncate">How is this project?</span></div>
+        <div class="line"><span class="mark"><svg><use href="#claude"/></svg></span></div>
+      </div>
+      <div class="row">
+        <div class="line"><svg class="folder" style="color:#60a5fa"><use href="#folder"/></svg><span>studio</span><svg class="machine"><use href="#laptop"/></svg></div>
+        <div class="title"><span class="truncate">Say hi</span></div>
+        <div class="line"><span class="mark"><svg><use href="#claude"/></svg></span></div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>No Settle tick: only <b>···</b>, and Settle hidden inside it.</li>
+      <li>No clock, and no word of what the agent said or is waiting on: the provider mark stands alone.</li>
+      <li>A chat waiting on a question looks the same as an idle one.</li>
+    </ul>
+  </section>
+
+  <!-- ── After ──────────────────────────────────────────────────────────── -->
+  <section class="column">
+    <h2>After</h2>
+    <p class="caption">The same three rows. The remote ones differ from the local one by the machine glyph alone.</p>
+    <div class="rail">
+      <div class="row">
+        <div class="line"><svg class="folder" style="color:#3fb8af"><use href="#folder"/></svg><span>notes-app</span><span class="seat">2h</span></div>
+        <div class="title quiet"><span class="truncate">Draft the release notes for the importer</span></div>
+      </div>
+      <div class="row hover">
+        <span class="tip">Settle</span>
+        <div class="line"><svg class="folder" style="color:#a78bfa"><use href="#folder"/></svg><span>home-lab</span><svg class="machine"><use href="#laptop"/></svg>
+          <span class="seat"><span class="btn"><svg><use href="#dots"/></svg></span><span class="btn"><svg><use href="#tick"/></svg></span></span></div>
+        <div class="title"><span class="truncate">How is this project?</span></div>
+        <div class="line"><span class="mark"><svg><use href="#claude"/></svg></span><span class="truncate">Healthy. The build is green and the backlog is short.</span></div>
+      </div>
+      <div class="row wants">
+        <div class="line"><svg class="folder" style="color:#60a5fa"><use href="#folder"/></svg><span>studio</span><svg class="machine"><use href="#laptop"/></svg><span class="seat"></span></div>
+        <div class="title bold"><span class="truncate">Say hi</span></div>
+        <div class="line"><span class="mark"><svg><use href="#claude"/></svg></span><span class="truncate">Asked a question</span></div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>The local row's seat: <b>···</b> and the Settle tick on hover, its clock (idle since the agent last finished) otherwise. Settle asks the Mini, which owns the chat.</li>
+      <li>The line says what a local chat's line says: the opening of the last reply, or the wait.</li>
+      <li>Gold for a chat waiting on you, green for a finish nobody has seen, as on a local row.</li>
+      <li>Hovering the machine glyph names the machine.</li>
+    </ul>
+  </section>
+</div>
+</body>
+</html>

@@ -261,6 +261,39 @@ test('terminalLines', async () => {
     assert.equal(working.idleSince, null)
   }
 
+  // …and it SAYS what a local chat's line says: the opening of the agent's
+  // last reply, read through the same preview, or the wait that needs a
+  // person. An idle line counts from the agent's last finish, not from the
+  // last time anything about the chat moved.
+  {
+    const row = {
+      sessionId: 'r2',
+      title: 'Gael Corry',
+      cli: 'claude',
+      activity: 'idle',
+      phase: 'completed',
+      replyPreview: '## Done\n\nThe **tests** pass now.',
+      since: 900,
+      lastTurnEndedAt: 700,
+    } as RemoteSessionRow
+    const line = lineOfRemoteRow(row)
+    assert.equal(line.text, 'Done The tests pass now.', 'the reply as one line of prose, its markdown gone')
+    assert.equal(line.idleSince, 700, 'idle since the agent last finished')
+    assert.equal(lineOfRemoteRow({ ...row, replyPreview: null }).text, 'Ready', 'a machine that sends no preview')
+    assert.equal(lineOfRemoteRow({ ...row, phase: 'running', activity: 'working' }).text, 'Thinking')
+    assert.equal(
+      lineOfRemoteRow({ ...row, phase: 'waiting_for_approval', activity: 'needs-input' }).text,
+      'Needs approval',
+    )
+    assert.equal(
+      lineOfRemoteRow({ ...row, phase: 'waiting_for_input', activity: 'needs-input' }).text,
+      'Asked a question',
+    )
+    const failed = lineOfRemoteRow({ ...row, phase: 'failed' })
+    assert.equal(failed.text, 'Failed')
+    assert.equal(failed.failed, true, 'a failure wears the failure mark, as a local line does')
+  }
+
   // The numbers are the CHECKOUT's, whatever the agents' ledgers say (owner
   // ruling 2026-09-09, REVERSING "no git for a session that has a ledger"): the
   // hook ledger counts work done, which is not the outstanding diff. Two agents

@@ -9,6 +9,7 @@ import type { Workspace } from '../../types/workspace'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { agentCheckoutOf, agentCheckoutProbePath } from './agentCheckout'
 import type { RemoteSessionRow } from './remoteBand/remoteSessionsModel'
+import { chatLineText } from './sidebar/conversationLines'
 import { checkoutPathFor } from './useSidebarGitSummaries'
 import type { PromptCacheReading } from '../../../../shared/prompt-cache'
 
@@ -262,6 +263,12 @@ export type TerminalLine = {
   name: string | null
   /** The machine a remote pane lives on; the glyph beside the name says so. */
   machineName: string | null
+  /**
+   * What a chat's line says after its mark, as a local chat line does: the
+   * wait that needs a person, else the opening of the agent's last reply.
+   * Absent for a terminal, whose line has no words of its own.
+   */
+  text?: string
   branch: string | null
   /** A linked worktree of the terminal's own: the branch reads at full strength. */
   worktree: boolean
@@ -481,9 +488,11 @@ function lineOfMeshPane(
 /**
  * One chat agent on a paired machine, as the line of its conversation's row.
  *
- * The name rides the line's mark tooltip, exactly as a local agent's does.
- * The conversation list carries no checkout reading — no branch, no diff, no
- * file breakdown — so a remote line draws none rather than a confident zero.
+ * The name rides the line's mark tooltip, exactly as a local agent's does,
+ * and the line says what a local chat's line says: the wait, else the
+ * opening of the agent's last reply. The conversation list carries no
+ * checkout reading — no branch, no diff, no file breakdown — so a remote
+ * line draws none rather than a confident zero.
  */
 export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
   return {
@@ -491,6 +500,7 @@ export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
     kind: 'remote',
     cli: row.cli,
     name: row.title,
+    text: chatLineText(row.phase, { lastAssistantText: row.replyPreview }),
     machineName: null,
     branch: null,
     worktree: false,
@@ -508,8 +518,10 @@ export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
     working: row.activity === 'working',
     workingSince: row.activity === 'working' ? row.since : null,
     needsInput: row.activity === 'needs-input',
-    failed: false,
-    idleSince: row.activity === 'working' ? null : row.since,
+    failed: row.phase === 'failed',
+    // Idle since the agent last finished, the clock a local chat's line
+    // reads; a chat whose machine does not say counts from when it last moved.
+    idleSince: row.activity === 'working' ? null : (row.lastTurnEndedAt ?? row.since),
     idleLabel: 'Idle',
   }
 }

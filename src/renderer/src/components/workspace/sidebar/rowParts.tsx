@@ -287,6 +287,25 @@ export function ProjectLine({
   )
 }
 
+/**
+ * Settle's one-click mark on a row's seat: `CheckIcon`'s geometry (24-grid,
+ * M5 12.5L10 17L19 7.5) brought onto the 16-grid at its 1.4 stroke and inset
+ * to the 12×12 live area. One drawing for a chat here and a chat on a paired
+ * machine, which settle by the same gesture. An element rather than a
+ * component: it has no state, and a row re-rendering need not render it too.
+ */
+export const SETTLE_TICK_GLYPH = (
+  <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+    <path
+      d="M3.75 8.5L6.5 11.25L12.25 5.25"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
+
 export function WorkingElapsed({ since }: { since: number }) {
   // Seconds for the turn's first minute, the sidebar's coarse scale after.
   // Both beats are the window's shared clocks, so every working row ticks on
