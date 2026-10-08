@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
+import { bindGatewayConversation } from '../tools/client-tool-gateway'
 import { localOnlyGatewayToolReason } from '../../main/automation/tailnet/tailnet-scopes'
 import type { NoteOpenedOutcome, PullRequestConversationKey } from './pull-request-record'
 import { createPullRequestTools, PULL_REQUEST_LINK_TOOL } from './pull-request-tools'
@@ -10,6 +11,9 @@ import { createPullRequestTools, PULL_REQUEST_LINK_TOOL } from './pull-request-t
 const AGENT: McpConnectionContext = {
   metadata: { kind: 'studio-agent', workspaceId: 'ws-1', agentId: 'agent-1', cliId: 'claude-code' },
 }
+// What the gateway's token check does for a connection whose launch token a
+// live launch holds.
+bindGatewayConversation(AGENT, { workspaceId: 'ws-1', agentId: 'agent-1' })
 
 function toolOver(answer: (key: PullRequestConversationKey, url: string) => NoteOpenedOutcome) {
   const calls: Array<{ key: PullRequestConversationKey; input: { url: string; title?: string } }> = []
@@ -82,6 +86,9 @@ test('pull_request.link refuses whatever is not an agent, and passes the recordâ
     { metadata: { kind: 'external-local' as const } },
     { metadata: { kind: 'remote-tailnet' as const, deviceId: 'dev-1', deviceName: 'android-phone' } },
     { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1' } },
+    // An agent declared without a launch token proves nothing: anything that
+    // can reach the socket can declare one.
+    { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-1' } },
   ]) {
     const refused = await tool.handler({ url: 'https://github.com/acme/app/pull/1' }, context)
     assert.equal(refused.isError, true)
