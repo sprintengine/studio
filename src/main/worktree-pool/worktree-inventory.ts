@@ -254,5 +254,3 @@ export function createWorktreeInventory(deps: WorktreeInventoryDeps) {
 
   return { read, removeOther }
 }
-
-export type WorktreeInventoryService = ReturnType<typeof createWorktreeInventory>

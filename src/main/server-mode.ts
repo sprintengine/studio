@@ -58,10 +58,6 @@ export function setSessionServerMode(mode: ServerMode): void {
   sessionMode = mode
 }
 
-export function sessionServerMode(): ServerMode {
-  return sessionMode
-}
-
 /** The switch every app window's renderer is started with, which its preload's router reads. */
 export function serverModeWindowArguments(): string[] {
   return [`${SERVER_MODE_ARGUMENT}${sessionMode}`]

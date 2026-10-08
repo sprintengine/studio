@@ -1,6 +1,5 @@
-import type { AgentPhaseEvent } from '../../shared/agent-runtime'
 import type { AgentLaunchSettings, AgentLaunchSettingsRecord } from '../../shared/launch-settings'
-import type { WorkspaceSyncEvent, WorkspaceSyncSnapshot, WorkspaceSyncState } from '../../shared/workspace-sync'
+import type { WorkspaceSyncSnapshot, WorkspaceSyncState } from '../../shared/workspace-sync'
 
 // What the shell and its out-of-process server say to each other on the
 // control channel beyond the bootstrap frames and the ShellBridge (phase 6
@@ -111,13 +110,6 @@ export type ServerMirrorRegistry = {
 export type ServerMirrorLaunchSettings = { settings: AgentLaunchSettings; record: AgentLaunchSettingsRecord | null }
 
 export type ServerMirrorState = ServerMirrorRegistry & { launchSettings: ServerMirrorLaunchSettings }
-
-export type ServerMirrorEvents = {
-  registry: ServerMirrorRegistry
-  workspaceEvent: WorkspaceSyncEvent
-  launchSettings: ServerMirrorLaunchSettings
-  attention: AgentPhaseEvent
-}
 
 export type PowerHint = 'suspend' | 'resume' | 'lock' | 'unlock' | 'battery' | 'ac'
 
