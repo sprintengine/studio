@@ -12,7 +12,7 @@ import { toolSuccess, type McpToolRegistration } from '../../../shared/modules/m
 import { isStudioGatewayMutation } from '../studio-gateway-tools'
 import {
   createGatewayAuditStore,
-  isAlwaysAudited,
+  isAuditedCall,
   STUDIO_GATEWAY_AUDIT_FILENAME,
   TAILNET_PEER_REFUSED_AUDIT_TOOL,
   type GatewayAuditRecord,
@@ -94,7 +94,7 @@ async function withGateway(
     // The app's own filter, so a refusal that would not reach the real audit
     // does not reach this one either.
     onToolCall: ({ context, tool: name, args, durationMs, result, error }) => {
-      if (!isStudioGatewayMutation(name) && !isAlwaysAudited(name)) return
+      if (!isAuditedCall(name, isStudioGatewayMutation(name))) return
       audit.record({ connection: context.metadata, tool: name, args, durationMs, result, error })
     },
   })

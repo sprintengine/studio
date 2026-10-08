@@ -28,7 +28,8 @@ import {
  * into, stop and approve this machine's chats (tailnet-scopes.ts maps the
  * `conversation.` family by this classification). Settling one, saying it was
  * looked at and marking it unread write the desktop's own record of the chat,
- * so they need the same grant.
+ * so they need the same grant. A visit is left out of the audit all the same
+ * (`isAuditedCall`): one is stamped every few seconds while a chat is on screen.
  */
 export const CONVERSATION_MUTATION_TOOL_NAMES: readonly string[] = [
   'conversation.create',
