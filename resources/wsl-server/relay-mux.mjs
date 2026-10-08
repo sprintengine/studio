@@ -26,7 +26,7 @@
 // reading cannot hold up the Studio protocol beside it on the same pipe.
 
 import { lookup } from 'node:dns/promises'
-import { connect, isIP } from 'node:net'
+import { BlockList, connect, isIP } from 'node:net'
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -472,6 +472,28 @@ function loopbackAddress(address) {
   return mapped ? loopbackAddress(mapped[1]) : false
 }
 
+// Addresses no dev server answers on but a page must never be pointed at: the
+// link-local range, where a cloud machine's metadata service hands out its
+// credentials (169.254.169.254, fe80::), and the loopback or link-local
+// carried inside a NAT64 or 6to4 address. Private networks stay reachable: a
+// pane on a machine is how its intranet and tailnet dev names are opened.
+const NEVER_BY_NAME = new BlockList()
+NEVER_BY_NAME.addSubnet('169.254.0.0', 16, 'ipv4')
+NEVER_BY_NAME.addSubnet('::ffff:a9fe:0', 112, 'ipv6')
+NEVER_BY_NAME.addSubnet('fe80::', 10, 'ipv6')
+NEVER_BY_NAME.addSubnet('64:ff9b::7f00:0', 104, 'ipv6')
+NEVER_BY_NAME.addSubnet('64:ff9b::a9fe:0', 112, 'ipv6')
+NEVER_BY_NAME.addSubnet('2002:7f00::', 24, 'ipv6')
+NEVER_BY_NAME.addSubnet('2002:a9fe::', 32, 'ipv6')
+
+/** Whether a name may not resolve to this address: the loopback, or the ranges above. */
+function refusedAddress(address) {
+  if (loopbackAddress(address)) return true
+  const bare = address.replace(/^\[(.*)\]$/u, '$1').toLowerCase()
+  const family = isIP(bare)
+  return family !== 0 && NEVER_BY_NAME.check(bare, family === 4 ? 'ipv4' : 'ipv6')
+}
+
 /** Whether a name says it is the loopback: `localhost`, a `.localhost` name, or a loopback address. */
 function loopbackName(host) {
   const bare = host.toLowerCase()
@@ -530,7 +552,8 @@ export function serveRelay({
         tcpOpen++
         stream.once('close', () => tcpOpen--)
         // A name that says it is somewhere else is resolved here, and refused
-        // when it resolves to this machine's loopback (a rebinding site): the
+        // when it resolves to this machine's loopback or a link-local address
+        // (a rebinding site, or a cloud metadata service): the
         // desktop's pane guard judged it by its name, and let a foreign page
         // ask for it. The connection then uses those addresses, not a second
         // lookup that could answer differently.
@@ -546,6 +569,13 @@ export function serveRelay({
           if (addresses.length === 0 || addresses.some((entry) => loopbackAddress(entry.address))) {
             stats.refused++
             throw refusal('refused', `${host} resolves to this machine's own loopback. Open it as localhost instead.`)
+          }
+          if (addresses.some((entry) => refusedAddress(entry.address))) {
+            stats.refused++
+            throw refusal(
+              'refused',
+              `${host} resolves to a link-local address, or the loopback in another form, which a pane does not open.`,
+            )
           }
         }
         const resolved = addresses

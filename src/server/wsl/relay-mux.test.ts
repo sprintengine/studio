@@ -173,6 +173,31 @@ test("a name that resolves to the relay machine's loopback is refused; localhost
   }
 })
 
+test('a name that resolves to a link-local address (a cloud metadata service) is refused', async () => {
+  const toRelay = new PassThrough()
+  const fromRelay = new PassThrough()
+  const answers: Record<string, Array<{ address: string; family: number }>> = {
+    'metadata.example': [{ address: '169.254.169.254', family: 4 }],
+    'mapped-metadata.example': [{ address: '::ffff:169.254.169.254', family: 6 }],
+    'link-local.example': [{ address: 'fe80::1', family: 6 }],
+    'nat64-loopback.example': [{ address: '64:ff9b::7f00:1', family: 6 }],
+    'six-to-four.example': [{ address: '2002:a9fe:a9fe::1', family: 6 }],
+  }
+  serveRelay({
+    input: toRelay,
+    output: fromRelay,
+    runDir: '/nonexistent',
+    resolve: async (host) => answers[host] ?? Promise.reject(Object.assign(new Error(host), { code: 'ENOTFOUND' })),
+  })
+  const desktop = new MuxEndpoint({ input: fromRelay, output: toRelay })
+  for (const host of Object.keys(answers))
+    await assert.rejects(desktop.open({ kind: 'tcp', host, port: 80 }), (error: Error & { code?: string }) => {
+      assert.equal(error.code, 'refused', host)
+      assert.match(error.message, /resolves to a link-local address, or the loopback in another form/u)
+      return true
+    })
+})
+
 test("the relay's tcp streams: opened, a closed port refused, localhost resolved there, the limit", async () => {
   const echo: Server = createServer({ allowHalfOpen: true }, (socket) => {
     socket.on('data', (chunk) => socket.write(chunk))

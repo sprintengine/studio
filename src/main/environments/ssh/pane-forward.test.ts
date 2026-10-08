@@ -267,7 +267,7 @@ test('a plain request body is framed by its Content-Length, or not passed on', (
   assert.equal(closingResponseHead(Buffer.from('nonsense\r\n\r\n'), false), 'bad')
 })
 
-test("loopback mode's direct connections refuse a name that resolves to this computer's loopback", async () => {
+test("loopback mode's direct connections refuse a name that resolves to this computer's loopback or a link-local address", async () => {
   const server: Server = createServer((socket) => socket.end())
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const port = (server.address() as AddressInfo).port
@@ -279,6 +279,9 @@ test("loopback mode's direct connections refuse a name that resolves to this com
         { address: '192.0.2.10', family: 4 },
         { address: '::1', family: 6 },
       ],
+      'metadata.example': [{ address: '169.254.169.254', family: 4 }],
+      'link-local.example': [{ address: 'fe80::1', family: 6 }],
+      'six-to-four.example': [{ address: '2002:7f00:1::', family: 6 }],
     }
     const resolveHost = async (host: string) => answers[host] ?? []
     for (const host of Object.keys(answers))
