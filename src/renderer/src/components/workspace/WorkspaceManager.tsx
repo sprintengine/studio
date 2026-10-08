@@ -195,6 +195,7 @@ import {
   conversationTitleOffers,
   getSessionItems,
   getWorkspaceActivity,
+  showsNoWorkspaceState,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
 import { residentAgentWorkspaceIds } from '../../utils/workspaceResidency'
@@ -4936,9 +4937,11 @@ export default function WorkspaceManager() {
                     inert={activeGlobalSurfaceEntry !== null}
                   >
                     <>
-                      {railWorkspaces.length === 0 && !activeWorkspace && (
-                        <EmptyState onNew={() => openNewChatPanel()} />
-                      )}
+                      {showsNoWorkspaceState({
+                        railWorkspaceCount: railWorkspaces.length,
+                        hasActiveWorkspace: Boolean(activeWorkspace),
+                        newChatPanelOpen: newChatPanelState !== null,
+                      }) && <EmptyState onNew={() => openNewChatPanel()} />}
                       {renderedWorkspaceIds.map((workspaceId) => {
                         const active = workspaceId === windowActiveWorkspaceId
                         // Cold = retained but neither active nor warm. Cold layers keep

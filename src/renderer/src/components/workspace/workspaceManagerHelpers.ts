@@ -472,3 +472,14 @@ export function conversationTitleOffers(
   }
   return offers
 }
+
+// Whether the canvas draws "No workspace open" and its New chat button. Not
+// under the New chat panel: the panel covers it, and the covered button was
+// still a Tab stop and the covered title was still read aloud.
+export function showsNoWorkspaceState(input: {
+  railWorkspaceCount: number
+  hasActiveWorkspace: boolean
+  newChatPanelOpen: boolean
+}): boolean {
+  return input.railWorkspaceCount === 0 && !input.hasActiveWorkspace && !input.newChatPanelOpen
+}
