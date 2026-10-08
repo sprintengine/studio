@@ -463,6 +463,7 @@ async function mountPendingChat(options: {
   startAttempt: boolean
   sendTurn: SendTurn
   conversationSessionStart: ReturnType<typeof vi.fn>
+  conversationProvidersList?: ReturnType<typeof vi.fn>
 }) {
   const { prepareNewChatWorktree } = await import('../../../utils/newChatWorktree')
   return mountChat({
@@ -477,6 +478,7 @@ async function mountPendingChat(options: {
       getGitRepoRoot: async () => PENDING_PROJECT,
       createGitWorktree: options.createGitWorktree,
       conversationSessionStart: options.conversationSessionStart,
+      ...(options.conversationProvidersList ? { conversationProvidersList: options.conversationProvidersList } : {}),
     },
     // The confirm starts the attempt as it creates the chat, before its first frame.
     beforeRender: options.startAttempt ? () => void prepareNewChatWorktree('workspace') : undefined,
@@ -539,6 +541,55 @@ test('a chat waiting on its worktree shows the prompt as its bubble and starts n
     for (const [input] of conversationSessionStart.mock.calls) {
       expect(input.workspaceRoot, 'the agent starts in the worktree, never the project').toBe(PENDING_WORKTREE)
     }
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chat waiting on its worktree checks its provider meanwhile, and starts its session beside its history', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const conversationSessionStart = sessionStartSpy()
+  const conversationProvidersList = vi.fn(async () => ({
+    ok: true,
+    providers: [
+      {
+        id: 'mock',
+        displayName: 'Mock',
+        providerType: 'model-provider',
+        models: [{ id: 'mock-model' }],
+        capabilities: {},
+      },
+    ],
+  }))
+  const worktree = deferredWorktree()
+  const chat = await mountPendingChat({
+    createGitWorktree: worktree.createGitWorktree,
+    startAttempt: true,
+    sendTurn,
+    conversationSessionStart,
+    conversationProvidersList,
+  })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(conversationProvidersList, 'the provider is checked while the worktree is made').toHaveBeenCalledOnce()
+    expect(chat.host.querySelector('[data-pending-first-message]')?.textContent).toContain('Preparing worktree…')
+    expect(conversationSessionStart).not.toHaveBeenCalled()
+
+    await chat.act(async () => worktree.settle('ok'))
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(conversationProvidersList, 'the folder landing does not check it again').toHaveBeenCalledOnce()
+    // The transcript has not loaded, and the session is already starting.
+    expect(conversationSessionStart).toHaveBeenCalledOnce()
+    expect(conversationSessionStart.mock.calls[0][0].workspaceRoot).toBe(PENDING_WORKTREE)
+    expect(sendTurn).not.toHaveBeenCalled()
+
+    await chat.act(async () => {
+      chat.emit({ type: 'snapshot', page: { events: [], hasMore: false, beforeCursor: null } })
+      chat.emit({ type: 'synchronized', seq: 0 })
+    })
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(sendTurn).toHaveBeenCalledOnce()
+    expect(conversationSessionStart, 'the message goes on the session started for it').toHaveBeenCalledOnce()
   } finally {
     await chat.unmount()
   }

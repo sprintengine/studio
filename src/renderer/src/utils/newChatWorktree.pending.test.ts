@@ -26,6 +26,7 @@ vi.mock('./diagnostics', () => ({ publishDiagnosticSync: () => undefined }))
 
 const {
   newChatWorktreeAttemptRunning,
+  newChatWorktreeStage,
   pendingNewChatWorktreeFailure,
   prepareNewChatWorktree,
   startPendingNewChatInProject,
@@ -172,4 +173,86 @@ test('a worktree that could not be made leaves nothing to give back', async () =
   await worktree.land({ ok: false, message: 'Could not fetch origin.' })
   assert.equal(await attempt, false)
   assert.deepEqual(givenBack, [])
+})
+
+test('the wait says when the worktree is installing its dependencies, heard from the install on its branch', async () => {
+  state.workspaces = [pendingChat()]
+  let land: (value: unknown) => void = () => undefined
+  let branchAsked = ''
+  let hear: (view: unknown) => void = () => undefined
+  let unsubscribed = 0
+  ;(globalThis as { window?: unknown }).window = {
+    api: {
+      getGitRepoRoot: async () => PROJECT,
+      createGitWorktree: (input: { branchName: string }) => {
+        branchAsked = input.branchName
+        return new Promise((resolve) => (land = resolve))
+      },
+      onWorktreeInstallChanged: (listener: (view: unknown) => void) => {
+        hear = listener
+        return () => (unsubscribed += 1)
+      },
+    },
+  }
+  const install = (branch: string, status = 'running') => ({
+    branch,
+    state: status,
+    path: `${PROJECT}-wt`,
+    repoRoot: PROJECT,
+  })
+  const attempt = prepareNewChatWorktree('chat')
+  assert.equal(newChatWorktreeStage('chat'), 'preparing')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.ok(branchAsked.startsWith('agent/'), 'the attempt named its branch')
+
+  hear(install('agent/someone-else'))
+  assert.equal(newChatWorktreeStage('chat'), 'preparing', "another chat's install is not this one's")
+  hear(install(branchAsked, 'succeeded'))
+  assert.equal(newChatWorktreeStage('chat'), 'preparing', 'only a running install moves it on')
+  hear(install(`refs/heads/${branchAsked}`))
+  assert.equal(newChatWorktreeStage('chat'), 'installing')
+
+  land({ ok: true, data: { path: `${PROJECT}-wt`, branch: branchAsked, baseRef: 'main' } })
+  assert.equal(await attempt, true)
+  assert.equal(newChatWorktreeStage('chat'), null, 'no attempt, no stage')
+  assert.equal(unsubscribed, 1, 'it stops listening when the attempt settles')
+})
+
+test("a terminal agent's prompt survives a restart while its worktree is pending, and goes when a retry lands", async () => {
+  const { normalizeWorkspaceForRegistry } = await import('../../../shared/workspace-registry')
+  // Before the restart: the prompt on the agent and on its pending record.
+  const before = {
+    ...pendingChat(),
+    agents: {
+      agent: {
+        cli: 'claude-code',
+        cliStartupPrompt: 'fix the login',
+        chatPendingWorktree: { name: '', projectFolder: PROJECT, prompt: 'fix the login' },
+      },
+    },
+  }
+  // Persisted and read back: the agent's own startup prompt is one-shot and
+  // gone; the record is durable.
+  const reloaded = normalizeWorkspaceForRegistry(before as never) as unknown as FakeWorkspace
+  const agent = reloaded.agents.agent as FakeAgent & { cliStartupPrompt?: string }
+  assert.equal(agent.cliStartupPrompt, undefined)
+  assert.equal(agent.chatPendingWorktree?.['prompt' as never], 'fix the login')
+  state.workspaces = [reloaded]
+  // No attempt runs after a restart: it reads as failed, and Retry makes it.
+  assert.notEqual(pendingNewChatWorktreeFailure('chat', agent.chatPendingWorktree!), null)
+  stubWorktree(async () => ({ ok: true, data: { path: `${PROJECT}-wt`, branch: 'agent/chat-3', baseRef: 'main' } }))
+  assert.equal(await prepareNewChatWorktree('chat'), true)
+  assert.equal(agent.cliStartupPrompt, 'fix the login', 'the launch has its prompt again')
+  assert.equal(agent.chatPendingWorktree, undefined)
+})
+
+test('Start in the project gives a terminal agent its prompt back too', () => {
+  state.workspaces = [
+    {
+      ...pendingChat(),
+      agents: { agent: { chatPendingWorktree: { name: '', projectFolder: PROJECT, prompt: 'add a test' } as never } },
+    },
+  ]
+  assert.equal(startPendingNewChatInProject('chat'), true)
+  assert.equal((state.workspaces[0]!.agents.agent as { cliStartupPrompt?: string }).cliStartupPrompt, 'add a test')
 })

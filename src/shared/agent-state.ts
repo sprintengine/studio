@@ -217,7 +217,16 @@ export type AgentState = {
   // New chat stood on, whose git makes the worktree. Cleared once the folder
   // is set. Rides the registry, so a chat still pending when the app went away
   // comes back failed rather than waiting on an attempt that no longer exists.
-  chatPendingWorktree?: { name: string; projectFolder: string; hostId?: ExecutionHostId; failure?: string }
+  // `prompt` is a terminal agent's first prompt, kept here because
+  // `cliStartupPrompt` does not survive a restart and this record does: it is
+  // set as the agent's startup prompt again when the folder lands.
+  chatPendingWorktree?: {
+    name: string
+    projectFolder: string
+    hostId?: ExecutionHostId
+    failure?: string
+    prompt?: string
+  }
   // The Backlog item this agent was last handed (drag-drop or send-to-agent).
   // Powers the top-right glyph on the agent terminal that navigates back to the
   // item. Latest-wins: one ref per agent, mirroring the most-recent-wins

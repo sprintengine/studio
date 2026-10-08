@@ -178,6 +178,7 @@ import { editFromHereDraft, type EditFromHereDraft } from './agentChat/editFromH
 import { forkChat, takeForkedAttachments, type ForkFromHereTarget } from './agentChat/forkFromHere'
 import { EmptyChatState, ReadinessState, readinessLabel, type ChatReadiness } from './agentChat/chatStates'
 import { PendingFirstMessage } from './agentChat/pendingFirstMessage'
+import { noteNewChatStage } from '../../utils/newChatTimings'
 import { ComposerActionButton, ComposerContextMenu, type ComposerMenuState } from './agentChat/composerControls'
 export { ComposerContextMenu, editingShortcut } from './agentChat/composerControls'
 export type { ComposerMenuState } from './agentChat/composerControls'
@@ -342,6 +343,9 @@ function composerErrorMessage(error: ComposerActionError | null): string | null 
 // No mode of the CLI's own: what a chat whose runtime names none offers.
 const NO_MODES: readonly string[] = []
 
+/** A session start's answer; null when this view cannot start one. */
+type SessionStart = { ok: true; sessionId: string } | { ok: false; message: string } | null
+
 export default function AgentChatView({ workspaceId, agentId }: Props) {
   const binding = useLocalChatBinding(workspaceId, agentId)
   if (!binding)
@@ -399,6 +403,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // machine's provider check, which says nothing about a provider over there.
   const hostReadiness = binding.readiness
   const readiness = hostReadiness ?? localReadiness
+  // A New chat waiting on its worktree shows that wait, but its provider is
+  // this machine's like any other chat's: checked meanwhile, so the seconds the
+  // worktree takes are not followed by the check's own.
+  const awaitingWorktree = binding.awaitingWorktree === true
+  const checksProvider = !hostReadiness || awaitingWorktree
+  // Whether the chat has, or is about to have, a folder to start in. Not the
+  // folder itself: its landing must not run the check a second time.
+  const hasRootOrWillHave = Boolean(workspaceRoot) || awaitingWorktree
   const [providers, setProviders] = useState<ConversationProviderListEntry[]>([])
   // Live model catalogs keyed by providerId, fetched lazily as the user opens
   // the picker or filters to a provider — never a blanket prefetch. A non-empty
@@ -549,8 +561,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Resolve provider/model/key readiness from the conversation IPC.
   useEffect(() => {
     let cancelled = false
-    if (!conversation || hostReadiness) return
-    if (!workspaceRoot) {
+    if (!conversation || !checksProvider) return
+    if (!hasRootOrWillHave) {
       setReadiness({ kind: 'no-workspace-folder' })
       return
     }
@@ -603,6 +615,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           return
         }
         setReadiness({ kind: 'ready' })
+        noteNewChatStage(workspaceId, 'provider-ready')
       } catch (err) {
         if (!cancelled)
           setReadiness({ kind: 'error', message: err instanceof Error ? err.message : 'Provider check failed.' })
@@ -611,7 +624,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     return () => {
       cancelled = true
     }
-  }, [conversation, workspaceRoot, cliRuntimes, hostReadiness, transport])
+  }, [conversation, hasRootOrWillHave, cliRuntimes, checksProvider, transport, workspaceId])
 
   // Fetch one provider's live catalog and key status on demand, caching both.
   // Called for the active provider on mount and for whichever provider the user
@@ -1098,9 +1111,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Start the chat's session: before its first send, and again when the one
   // this view held is gone (its server restarted under an open window), which
   // resumes it from its transcript as an app restart does.
-  const startSession = useCallback(async (): Promise<
-    { ok: true; sessionId: string } | { ok: false; message: string } | null
-  > => {
+  const startSessionNow = useCallback(async (): Promise<SessionStart> => {
     if (!conversation || !workspaceRoot || !transport.capabilities.startSession || !transport.startSession) return null
     try {
       if (!(await ensureChatWorktree(workspaceId))) return { ok: false, message: WORKTREE_NOT_BACK }
@@ -1119,11 +1130,24 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       })
       if (!result.ok) return { ok: false, message: result.message }
       setSession(result.session)
+      noteNewChatStage(workspaceId, 'session-started')
       return { ok: true, sessionId: result.session.sessionId }
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : 'Could not start the conversation.' }
     }
   }, [agentId, cliRuntimes, conversation, permissionMode, permissionPreset, workspaceId, workspaceRoot, transport])
+  // One start at a time: a start made ahead of the first message (below) is
+  // the one that message's send waits on, rather than a second session.
+  const startingSessionRef = useRef<Promise<SessionStart> | null>(null)
+  const startSession = useCallback((): Promise<SessionStart> => {
+    const running = startingSessionRef.current
+    if (running) return running
+    const started = startSessionNow().finally(() => {
+      if (startingSessionRef.current === started) startingSessionRef.current = null
+    })
+    startingSessionRef.current = started
+    return started
+  }, [startSessionNow])
   const ensureSession = useCallback(async (): Promise<string | null> => {
     // A settled chat whose worktree the cleanup gave back has it checked out
     // again before a turn runs in it (chatWorktreeRestore.ts) — including a
@@ -1340,6 +1364,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           },
         })
         finishDraftSend(draftSend, result.ok)
+        if (result.ok) noteNewChatStage(workspaceId, 'first-message-sent')
         // A failed send keeps the mode and effort the user chose. Rolling them
         // back would quietly turn a plan-mode resend into one that can write.
         if (!result.ok) {
@@ -1391,6 +1416,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       finishDraftSend,
       setDraft,
       setDraftMetadata,
+      workspaceId,
     ],
   )
 
@@ -1606,13 +1632,24 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // root, so no history to hydrate); one whose worktree could not be made
   // gives it back to the composer, as a chat whose provider cannot start does.
   const worktreeFailed = readiness.kind === 'worktree-failed'
+  const startupMessagePending = Boolean(startupPrompt || startupImages?.length || startupFiles?.length)
+  // The session the first message needs is started as soon as the chat has a
+  // folder and a provider, alongside its history loading rather than after it:
+  // the agent's process start is the longest step left once a New chat's
+  // worktree lands. The message waits for this start to settle, so it is sent
+  // on the session it made rather than racing it into a second.
+  const [warmingSession, setWarmingSession] = useState(false)
+  const warmedSessionRef = useRef(false)
   useEffect(() => {
-    if (
-      (!startupPrompt && !startupImages?.length && !startupFiles?.length) ||
-      startupHandledRef.current ||
-      (!hydrated && !worktreeFailed)
-    )
-      return
+    if (warmedSessionRef.current || !startupMessagePending || startupHandledRef.current) return
+    if (!workspaceRoot || readiness.kind !== 'ready' || sessionId || !transport.capabilities.startSession) return
+    warmedSessionRef.current = true
+    setWarmingSession(true)
+    // A start that fails is tried again by the send, which says why.
+    void startSession().finally(() => setWarmingSession(false))
+  }, [startupMessagePending, workspaceRoot, readiness.kind, sessionId, transport, startSession])
+  useEffect(() => {
+    if (!startupMessagePending || startupHandledRef.current || (!hydrated && !worktreeFailed) || warmingSession) return
     if (readiness.kind === 'loading' || readiness.kind === 'preparing-worktree') return
     startupHandledRef.current = true
     updateBinding({ chatStartupPrompt: undefined, chatStartupImages: undefined, chatStartupFiles: undefined })
@@ -1669,9 +1706,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     startupPrompt,
     startupImages,
     startupFiles,
+    startupMessagePending,
     startupTakesImages,
     hydrated,
     worktreeFailed,
+    warmingSession,
     readiness.kind,
     userTurns.length,
     shape.hasUserMessage,
@@ -3042,7 +3081,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 <PendingFirstMessage
                   text={startupPrompt ?? ''}
                   files={[...(startupImages ?? []), ...(startupFiles ?? [])]}
-                  label={ready ? 'Sending…' : readinessLabel(readiness)}
+                  // Its stages in turn: the worktree, its install, the
+                  // agent's process starting, then the send itself.
+                  label={ready ? (warmingSession ? 'Starting the agent…' : 'Sending…') : readinessLabel(readiness)}
                 />
               ) : !ready ? (
                 <ReadinessState

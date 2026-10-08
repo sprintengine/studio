@@ -51,10 +51,16 @@ export function createNewChatStay(now: () => number = Date.now) {
     review(
       activityByWorkspaceId: Readonly<Record<string, WorkspaceActivity>>,
       isOnScreen: (workspaceId: string) => boolean,
+      // Its worktree is still being made: its agent cannot start yet, so its
+      // first minute has not begun. Counted from when the folder lands, a
+      // worktree slower than a minute does not let the chat go before its
+      // agent could start.
+      isWaitingOnWorktree: (workspaceId: string) => boolean = () => false,
     ): NewChatStayReview {
       const failed: string[] = []
       const at = now()
       for (const [workspaceId, watch] of watched) {
+        if (isWaitingOnWorktree(workspaceId)) watch.startedAt = at
         const activity = activityByWorkspaceId[workspaceId]
         if (activity === 'failed') {
           watched.delete(workspaceId)

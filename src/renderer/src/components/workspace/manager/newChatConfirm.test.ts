@@ -45,8 +45,9 @@ function harness(worktree: NewChatWorktreeResult = { ok: false, message: 'unused
       started.push({ kind: 'terminal', folderPath })
       return 'ws-terminal'
     },
-    startGeneral: (_confirm, folderPath) => {
+    startGeneral: (_confirm, folderPath, _prompt, worktree, _background, pending) => {
       started.push({ kind: 'general', folderPath })
+      opened.push({ worktree, pending })
       return 'ws-general'
     },
     startConversation: (_confirm, folderPath, _prompt, worktree, _images, _files, _background, pending) => {
@@ -187,25 +188,45 @@ test('a conversation, a terminal agent and a plain terminal each count once as a
   }
 })
 
-test('a chat on a worktree counts the checkout it was cut from, not the worktree', async () => {
-  const { host, started, projectUses } = harness({
-    ok: true,
-    folderPath: WORKTREE,
-    worktree: { branch: 'agent/chat-ab12', repoRoot: PROJECT },
-  })
-  await confirmNewChatWith(host, {
-    confirm: { kind: 'general', cli: 'claude-code', worktree: { name: '' } },
+test('a terminal agent on a worktree opens at once too, folderless and waiting on its worktree', async () => {
+  const { host, started, opened, prepared, titled, projectUses, closed, worktreesMade } = harness()
+  const created = await confirmNewChatWith(host, {
+    confirm: { kind: 'general', cli: 'claude-code', worktree: { name: 'fix-login' } },
     scopedFolder: PROJECT,
+    startupPrompt: 'fix the login',
   })
-  assert.deepEqual(started, [{ kind: 'general', folderPath: WORKTREE }])
-  assert.deepEqual(projectUses(), [PROJECT])
+  assert.equal(created, 'ws-general')
+  assert.equal(worktreesMade(), 0, 'the door waits on no worktree')
+  assert.deepEqual(started, [{ kind: 'general', folderPath: null }], 'no folder, so its terminal cannot start')
+  assert.deepEqual(opened, [
+    {
+      worktree: { repoRoot: PROJECT },
+      // The prompt rides the record, which survives a restart where the agent's own does not.
+      pending: { name: 'fix-login', projectFolder: PROJECT, prompt: 'fix the login' },
+    },
+  ])
+  assert.deepEqual(prepared, ['ws-general'], 'the worktree is made behind the open chat')
+  assert.deepEqual(titled, [['ws-general', 'fix the login']])
+  assert.deepEqual(projectUses(), [PROJECT], 'the checkout it is cut from, not the worktree')
+  assert.equal(closed(), 1)
 })
 
-test('a worktree that could not be made starts nothing, counts nothing and leaves the door open', async () => {
-  const { host, started, projectUses, closed } = harness({ ok: false, message: 'fetch timed out' })
+test('a terminal agent made from inside a worktree is cut from the project behind it', async () => {
+  const { host, opened } = harness()
+  await confirmNewChatWith(host, {
+    confirm: { kind: 'general', cli: 'claude-code', worktree: { name: '' } },
+    scopedFolder: WORKTREE,
+  })
+  assert.deepEqual(opened, [
+    { worktree: { repoRoot: '/Users/dev/app' }, pending: { name: '', projectFolder: '/Users/dev/app' } },
+  ])
+})
+
+test('a worktree with no project to cut it from starts nothing, counts nothing and leaves the door open', async () => {
+  const { host, started, projectUses, closed } = harness({ ok: false, message: 'Choose a project folder first.' })
   const created = await confirmNewChatWith(host, {
     confirm: { kind: 'general', cli: 'claude-code', worktree: { name: '' } },
-    scopedFolder: PROJECT,
+    scopedFolder: null,
     startupPrompt: 'fix the login',
   })
   assert.equal(created, null, 'null hands the prompt back to the panel')

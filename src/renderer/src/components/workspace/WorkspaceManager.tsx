@@ -128,7 +128,12 @@ import { setBuildExtensionOpener } from '../extensions/buildExtensionHost'
 import { extensionBriefMarkdown } from '../../../../shared/extension-scaffold'
 import { createWorkspaceChatOpener } from './manager/workspaceChatOpener'
 import { confirmNewChatWith, type NewChatExtension } from './manager/newChatConfirm'
-import { createNewChatWorktree, prepareNewChatWorktree } from '../../utils/newChatWorktree'
+import {
+  createNewChatWorktree,
+  newChatWorktreeAttemptRunning,
+  prepareNewChatWorktree,
+} from '../../utils/newChatWorktree'
+import { newChatConfirmStarted, noteNewChatOpened } from '../../utils/newChatTimings'
 import type { AgentState } from '../../../../shared/agent-state'
 import { openChatLink } from './manager/chatLinkOpener'
 import {
@@ -1427,6 +1432,10 @@ export default function WorkspaceManager() {
       promptSkillId?: string,
       // ⌘⏎ from New chat: created without coming to the front.
       background?: boolean,
+      // Opened before its worktree: `folderPath` is null, the marker names the
+      // project alone, and the agent's terminal waits on this
+      // (utils/newChatWorktree.ts).
+      pendingWorktree?: NonNullable<AgentState['chatPendingWorktree']>,
     ): { workspaceId: WorkspaceId; agentId: AgentId } | null => {
       const chosenCli = cli && cli.trim() ? cli.trim() : null
       // A plain New chat rides the app's remembered CLI unless the caller named
@@ -1457,8 +1466,13 @@ export default function WorkspaceManager() {
         templateAgentCli,
         ...(worktree ? { worktree } : {}),
         ...(background ? { background } : {}),
+        // With no folder yet, the machine is the one the project is on.
+        ...(pendingWorktree
+          ? { hostId: pendingWorktree.hostId ?? hostIdForFolder(pendingWorktree.projectFolder) }
+          : {}),
         seedAgent: {
           agentPatch: {
+            ...(pendingWorktree ? { chatPendingWorktree: pendingWorktree } : {}),
             ...(cliModel ? { cliModel } : {}),
             ...(cliReasoning ? { cliReasoning } : {}),
             cliPermissionPreset: resolveCliPermissionPreset(templateAgentCli, agentSpawnPermissionPreset),
@@ -2494,6 +2508,7 @@ export default function WorkspaceManager() {
     const { failed, starting } = newChatStay.review(
       activityByWorkspaceId,
       (workspaceId) => workspaceId === windowActiveWorkspaceId && !newChatPanelOpen && !activeGlobalSurface,
+      newChatWorktreeAttemptRunning,
     )
     setStartingInBackgroundIds((current) =>
       current.length === starting.length && current.every((workspaceId, index) => workspaceId === starting[index])
@@ -2520,12 +2535,13 @@ export default function WorkspaceManager() {
     newChatStayReadAt,
   ])
   // A chat that never gets under way is let go when its first minute ends,
-  // which no activity announces: read again then.
+  // which no activity announces: read again then, and again after that while
+  // any is still held (one waiting on its worktree has not started its minute).
   useEffect(() => {
     if (startingInBackgroundIds.length === 0) return
     const timer = window.setTimeout(() => setNewChatStayReadAt(Date.now()), NEW_CHAT_STAY_WATCH_MS + 1_000)
     return () => window.clearTimeout(timer)
-  }, [startingInBackgroundIds])
+  }, [startingInBackgroundIds, newChatStayReadAt])
 
   // Create the git worktree an agent spawn requested ("+ Worktree" in the
   // agent composer): placed under the shared worktree container on branch
@@ -2770,6 +2786,7 @@ export default function WorkspaceManager() {
     selectedModel?: string | null,
     selectedReasoning?: string | null,
     background?: boolean,
+    pendingWorktree?: NonNullable<AgentState['chatPendingWorktree']>,
   ) =>
     createNewChat(
       folderPath,
@@ -2781,6 +2798,7 @@ export default function WorkspaceManager() {
       selectedReasoning,
       undefined,
       background,
+      pendingWorktree,
     )
 
   const openTerminalInNewChat = (folderPath?: string | null, background?: boolean): WorkspaceId | null =>
@@ -2887,6 +2905,7 @@ export default function WorkspaceManager() {
     selectedModel?: string | null,
     selectedReasoning?: string | null,
     background?: boolean,
+    pendingWorktree?: NonNullable<AgentState['chatPendingWorktree']>,
   ): WorkspaceId | null => {
     setLastNewChatAgent({ kind: 'general' })
     return (
@@ -2899,6 +2918,7 @@ export default function WorkspaceManager() {
         selectedModel,
         selectedReasoning,
         background,
+        pendingWorktree,
       )?.workspaceId ?? null
     )
   }
@@ -3646,8 +3666,9 @@ export default function WorkspaceManager() {
     startupImages?: string[],
     startupFiles?: string[],
     background?: boolean,
-  ): Promise<WorkspaceId | null> =>
-    confirmNewChatWith(
+  ): Promise<WorkspaceId | null> => {
+    const confirmedAt = newChatConfirmStarted()
+    const created = await confirmNewChatWith(
       {
         makeExtension: async ({ id, folder }, prompt) => {
           const made = await window.api
@@ -3666,7 +3687,7 @@ export default function WorkspaceManager() {
         },
         makeWorktree: (folder, name) => createNewChatWorktree(folder, name, newChatHostRef.current),
         startTerminal: pickNewChatTerminal,
-        startGeneral: (general, folderPath, prompt, worktree, inBackground) =>
+        startGeneral: (general, folderPath, prompt, worktree, inBackground, pending) =>
           pickNewChatGeneral(
             general.cli,
             folderPath,
@@ -3676,6 +3697,7 @@ export default function WorkspaceManager() {
             general.model,
             general.reasoning,
             inBackground,
+            pending,
           ),
         startConversation: (conversation, folderPath, prompt, worktree, images, files, inBackground, pending) => {
           setLastNewChatAgent({ kind: 'conversation' })
@@ -3707,6 +3729,9 @@ export default function WorkspaceManager() {
         hostId: newChatHostRef.current,
       },
     )
+    if (created) noteNewChatOpened(created, confirmedAt, { kind: confirm.kind, worktree: Boolean(confirm.worktree) })
+    return created
+  }
 
   // ⌘⏎ from New chat started `workspaceId` out of sight (or did not, and has
   // said why): the toast is the way to it for the person who wants to look

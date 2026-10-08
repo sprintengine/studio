@@ -46,6 +46,8 @@ export type NewChatConfirmHost = {
     startupPrompt: string | undefined,
     worktree: WorkspaceWorktree | undefined,
     background?: boolean,
+    /** Opened before its worktree: no folder yet, and this on its agent, whose terminal waits on it. */
+    pendingWorktree?: PendingNewChatWorktree,
   ) => WorkspaceId | null
   startConversation: (
     confirm: Extract<AgentComposerConfirm, { kind: 'conversation' }>,
@@ -77,30 +79,54 @@ export async function confirmNewChatWith(
   request: NewChatConfirmRequest,
 ): Promise<WorkspaceId | null> {
   const { confirm, scopedFolder, startupPrompt, extension, startupImages, startupFiles, background } = request
-  // A chat agent asked for a worktree opens at once, before the worktree
-  // exists: the seconds the worktree takes are spent in the chat, which shows
-  // its prompt waiting and says what it is waiting on, not on New chat with
-  // nothing moving. It has no folder until the worktree lands, so nothing in it
-  // can start in the checkout the person asked to keep clean
-  // (utils/newChatWorktree.ts).
-  if (!extension && confirm.kind === 'conversation' && confirm.worktree && scopedFolder) {
+  // An agent asked for a worktree opens at once, before the worktree exists:
+  // the seconds the worktree takes are spent in the chat, which says what it is
+  // waiting on, not on New chat with nothing moving. It has no folder until the
+  // worktree lands, so nothing in it can start in the checkout the person asked
+  // to keep clean (utils/newChatWorktree.ts). A chat agent shows its prompt
+  // waiting; a terminal agent's pane holds its launch, prompt and all, until
+  // the folder is there (TerminalView).
+  if (
+    !extension &&
+    (confirm.kind === 'conversation' || confirm.kind === 'general') &&
+    confirm.worktree &&
+    scopedFolder
+  ) {
     const projectFolder = workspaceProjectRootOf({ folderPath: scopedFolder }) ?? scopedFolder
-    const created = host.startConversation(
-      confirm,
-      null,
-      startupPrompt,
-      { repoRoot: projectFolder },
-      startupImages,
-      startupFiles,
-      background,
-      { name: confirm.worktree.name, projectFolder, ...(request.hostId ? { hostId: request.hostId } : {}) },
-    )
+    const pending: PendingNewChatWorktree = {
+      name: confirm.worktree.name,
+      projectFolder,
+      ...(request.hostId ? { hostId: request.hostId } : {}),
+    }
+    const created =
+      confirm.kind === 'conversation'
+        ? host.startConversation(
+            confirm,
+            null,
+            startupPrompt,
+            { repoRoot: projectFolder },
+            startupImages,
+            startupFiles,
+            background,
+            pending,
+          )
+        : // A terminal agent's prompt rides the record too: its own startup
+          // prompt is not kept across a restart, and the record is.
+          host.startGeneral(
+            confirm,
+            null,
+            startupPrompt,
+            { repoRoot: projectFolder },
+            background,
+            startupPrompt?.trim() ? { ...pending, prompt: startupPrompt } : pending,
+          )
     if (created) {
       host.prepareWorktree(created)
       host.recordProjectUse(projectFolder)
       // Its message waits on the worktree, so the chat is named from it now
       // rather than reading "Chat" in the header and the sidebar until it is
-      // sent. The name is locked by it, so the send names nothing again.
+      // sent. The name is locked by it, so the send names nothing again; a
+      // terminal agent's first prompt, heard from its CLI, finds it named.
       if (startupPrompt?.trim()) host.titleFromPrompt(created, startupPrompt)
     }
     if (!background) host.closePanel()
@@ -121,6 +147,7 @@ export async function confirmNewChatWith(
     if (!made) return null
     folderPath = made
   } else if ((confirm.kind === 'general' || confirm.kind === 'conversation') && confirm.worktree) {
+    // Only without a project to cut it from, which the worktree refuses with why.
     const made = await host.makeWorktree(scopedFolder, confirm.worktree.name)
     if (!made.ok) return null
     folderPath = made.folderPath
