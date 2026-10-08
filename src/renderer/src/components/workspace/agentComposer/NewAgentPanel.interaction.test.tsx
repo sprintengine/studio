@@ -2,7 +2,22 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 import { composerDisabled, composerField, composerText, typeIntoComposer } from '../../../../../../tests/composer-field'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+
+// The "+" menu as the panel renders it, counted: a pass-through behind the
+// same memo, so a count that moves is a prop that changed identity.
+const plusMenuRenders = vi.hoisted(() => ({ count: 0 }))
+vi.mock('./ComposerPlusMenu', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ComposerPlusMenu')>()
+  const React = (await import('react')).default
+  return {
+    ...actual,
+    ComposerPlusMenu: React.memo(function CountedPlusMenu(props: React.ComponentProps<typeof actual.ComposerPlusMenu>) {
+      plusMenuRenders.count += 1
+      return React.createElement(actual.ComposerPlusMenu, props)
+    }),
+  }
+})
 
 test('NewAgentPanel interaction', async () => {
   // The launch surface behind the tab strip's "+". Rendered for real,
@@ -550,6 +565,17 @@ test('NewAgentPanel interaction', async () => {
       assert.equal(dom.window.document.querySelector('[role="dialog"]'), null, 'Escape closes it')
       assert.equal(view.closed(), 0, 'and not the panel')
       assert.ok(dom.window.document.activeElement === plusOf(view), 'focus is back on the "+"')
+      view.unmount()
+    })
+
+    await check('typing in the prompt does not redraw the "+" menu', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' }, draftKey: 'win-plus' })
+      await settle()
+      const before = plusMenuRenders.count
+      for (const text of ['r', 're', 'rev', 'review the diff']) await typeInto(view, text)
+      await settle()
+      assert.equal(plusMenuRenders.count, before, 'its props held steady through every keystroke')
       view.unmount()
     })
 

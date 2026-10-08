@@ -1886,35 +1886,71 @@ export default function NewAgentPanel({
     }
     return kinds
   }, [chatAvailable, editing, extensionMode])
-  const startAs = (kind: StartAs): void => {
-    // A scheduled agent's runs are chats: a terminal needs someone at it, so
-    // choosing one stops scheduling rather than lying about what would run.
-    if (kind !== 'conversation' && mode === 'scheduled' && !editing) setMode('chat')
-    const next: AgentComposerSelection = { kind } as AgentComposerSelection
-    composer.setSelection(next)
-    setLastNewChatAgent(next)
-  }
+  // Everything handed to the "+" is held steady across renders: the menu is
+  // memoized, and a fresh callback or object on each keystroke redrew it with
+  // every letter typed.
+  const setComposerSelection = composer.setSelection
+  const startAs = React.useCallback(
+    (kind: StartAs): void => {
+      // A scheduled agent's runs are chats: a terminal needs someone at it, so
+      // choosing one stops scheduling rather than lying about what would run.
+      if (kind !== 'conversation' && mode === 'scheduled' && !editing) setMode('chat')
+      const next: AgentComposerSelection = { kind } as AgentComposerSelection
+      setComposerSelection(next)
+      setLastNewChatAgent(next)
+    },
+    [editing, mode, setComposerSelection, setLastNewChatAgent],
+  )
+  const plusStartAs = React.useMemo(
+    () => ({ kind: selection.kind, offered: offeredKinds, onStartAs: startAs }),
+    [offeredKinds, selection.kind, startAs],
+  )
+  const attachFiles = React.useCallback(() => {
+    fileInputRef.current?.click()
+  }, [])
   // What the launch reads skills and MCP servers through: nothing for a plain shell.
   const skillsOffered = selection.kind !== 'terminal'
-  const scheduleOption =
-    scheduleOffered || editing
-      ? {
-          on: scheduled,
-          disabled: editing
-            ? 'A scheduled agent stays one'
-            : selection.kind !== 'conversation'
-              ? 'Only a conversation can run on a schedule'
-              : null,
-          onToggle: () => {
-            if (scheduled) {
-              setMode('chat')
-              return
-            }
-            setOnce(defaultSendAt(Date.now()))
-            setMode('scheduled')
-          },
-        }
-      : undefined
+  const { skills: pickedSkills, setSkills, mcpServers: pickedMcpServers, setMcpServers } = composer
+  const plusSkills = React.useMemo(
+    () =>
+      skillsOffered
+        ? {
+            workspaceRoot,
+            // A chat stages skills itself rather than through the CLI's own
+            // skill directory, so the workspace-wide inventory is its list.
+            pluginId: commandCli,
+            skills: pickedSkills,
+            onSkillsChange: setSkills,
+            mcpServers: pickedMcpServers,
+            onMcpServersChange: setMcpServers,
+          }
+        : undefined,
+    [commandCli, pickedMcpServers, pickedSkills, setMcpServers, setSkills, skillsOffered, workspaceRoot],
+  )
+  const scheduleShown = scheduleOffered || editing !== null
+  const scheduleDisabled = editing
+    ? 'A scheduled agent stays one'
+    : selection.kind !== 'conversation'
+      ? 'Only a conversation can run on a schedule'
+      : null
+  const scheduleOption = React.useMemo(
+    () =>
+      scheduleShown
+        ? {
+            on: scheduled,
+            disabled: scheduleDisabled,
+            onToggle: () => {
+              if (scheduled) {
+                setMode('chat')
+                return
+              }
+              setOnce(defaultSendAt(Date.now()))
+              setMode('scheduled')
+            },
+          }
+        : undefined,
+    [scheduleDisabled, scheduleShown, scheduled],
+  )
 
   // ── The context strip ─────────────────────────────────────────────────────
   // Where the launch runs: the machine, the project, the worktree and the
@@ -2177,30 +2213,10 @@ export default function NewAgentPanel({
             <HiddenFileInput ref={fileInputRef} onFiles={(files) => takeFiles(sortFiles(files, fileSorting))} />
             <ComposerPlusMenu
               placement="bottom-start"
-              startAs={{ kind: selection.kind, offered: offeredKinds, onStartAs: startAs }}
-              onAttach={
-                isTerminalLaunch
-                  ? undefined
-                  : () => {
-                      fileInputRef.current?.click()
-                    }
-              }
+              startAs={plusStartAs}
+              onAttach={isTerminalLaunch ? undefined : attachFiles}
               schedule={scheduleOption}
-              skills={
-                skillsOffered
-                  ? {
-                      workspaceRoot,
-                      // A chat stages skills itself rather than through the
-                      // CLI's own skill directory, so the workspace-wide
-                      // inventory is its list.
-                      pluginId: commandCli,
-                      skills: composer.skills,
-                      onSkillsChange: composer.setSkills,
-                      mcpServers: composer.mcpServers,
-                      onMcpServersChange: composer.setMcpServers,
-                    }
-                  : undefined
-              }
+              skills={plusSkills}
             />
 
             {/* The tags: each choice the "+" made that is not the default. */}
