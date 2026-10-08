@@ -64,7 +64,7 @@ function hostFor(input: {
     (key) => `Agent of ${key.workspaceId}`,
     async () => null,
     {},
-    input.registry ?? { workspaceOf: (workspaceId) => input.records[workspaceId] ?? null },
+    input.registry ?? { workspaceOf: (workspaceId) => input.records[workspaceId] ?? null, lifecycleList: true },
   )
 }
 
@@ -176,6 +176,7 @@ test('a failed record read lists the chats as an older desktop would, with nothi
     threads: { chat: [indexed('agent-1')] },
     records: {},
     registry: {
+      lifecycleList: true,
       workspaceOf: () => {
         throw new Error('registry unavailable')
       },
