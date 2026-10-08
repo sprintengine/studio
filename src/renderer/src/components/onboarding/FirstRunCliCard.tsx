@@ -5,6 +5,7 @@ import { CliProviderStateLine, GhostButton, PrimaryButton, ProviderRow, Spinner,
 import CliIcon from '../CliIcon'
 import { CliInstallControl, type CliInstallProgress } from '../settings/CliInstallControl'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
+import { useHoldCliUpdateToasts } from '../workspace/manager/cliUpdateToast'
 
 // The one question that survived the onboarding wizard.
 //
@@ -24,6 +25,9 @@ import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWork
 // ProviderRow, same health dot, same install flow. The first list a user ever
 // sees is the list they come back to.
 export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }) {
+  // Like the import card: an update offer for a WSL machine's CLI waits until
+  // this is answered rather than landing on its buttons.
+  useHoldCliUpdateToasts()
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
