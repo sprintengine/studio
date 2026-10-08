@@ -18,7 +18,7 @@
 // (`knownCliAvailability`) against the registry, so it starts no process, never
 // starts a stopped WSL distribution, and never asks about a CLI that is not
 // installed.
-import { app, BrowserWindow } from 'electron'
+import { app } from 'electron'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
@@ -39,6 +39,7 @@ import type { PluginManifest } from '../shared/plugin-manifest'
 import { detectAgentCliAvailability, knownCliAvailability, recordCliDetection } from './cli-availability'
 import { fetchNpmLatestVersion, outdatedClis, resolveCliVersionAdvisories } from './cli-version-advisory'
 import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-instance'
+import { broadcastToAllWindows } from './window-broadcast'
 
 const CLI_VERSION_ADVISORIES_CHANGED_CHANNEL = 'cli-version:advisories-changed'
 
@@ -91,11 +92,8 @@ export type CliVersionServiceDeps = {
 // with a toast, on disk so a restart does not repeat them.
 const CLI_UPDATE_NOTICES_FILENAME = 'cli-update-notices.json'
 
-const defaultBroadcast: CliVersionAdvisoryBroadcast = (result) => {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send(CLI_VERSION_ADVISORIES_CHANGED_CHANNEL, result)
-  }
-}
+const defaultBroadcast: CliVersionAdvisoryBroadcast = (result) =>
+  broadcastToAllWindows(CLI_VERSION_ADVISORIES_CHANGED_CHANNEL, result)
 
 function defaultDeps(): CliVersionServiceDeps {
   return {

@@ -196,6 +196,7 @@ import {
   createRemoteGitHubTokenStore,
   type ShellServerLink,
 } from './server-supervisor/remote-core'
+import { anyWindowFocused, broadcastToAllWindows } from './window-broadcast'
 
 // How long the quit gives the session integrations' removal. What it does not
 // reach stays listed, and the next quit takes it out.
@@ -844,12 +845,9 @@ export function createAppServices(
   // a list moved by an agent and a list renamed by a person reach the other
   // windows the same way.
   const broadcastGitChangelistsChanged = (repoRoot: string): void => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-      // Same shape and same spelling the preload subscribes to
-      // (`onGitChangelistsChanged`); the renderer re-reads for a matching root.
-      window.webContents.send('git:changelists-changed', { repoRoot })
-    }
+    // Same shape and same spelling the preload subscribes to
+    // (`onGitChangelistsChanged`); the renderer re-reads for a matching root.
+    broadcastToAllWindows('git:changelists-changed', { repoRoot })
   }
   const agentChangelistFeed = createAgentChangelistFeed({
     userDataDir: app.getPath('userData'),
@@ -881,7 +879,7 @@ export function createAppServices(
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
     logMainPerfEvent,
-    isAppFocused: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+    isAppFocused: () => anyWindowFocused(),
     // The runtime asks where an agent is at every turn end and session start.
     // That is also the moment its checkout's working tree most likely moved,
     // which git's own files do not show until something is staged: tell the
@@ -1308,11 +1306,7 @@ export function createAppServices(
     // 2026-09-06). One resolver, so a build that ships the plugin can never
     // fail to seed the catalogue that lists it.
     studioMarketplaceSeedRoot: getBundledStudioPluginRoot,
-    broadcastSourceUpdates: (check) => {
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) win.webContents.send(SKILL_SOURCES_UPDATED_CHANNEL, check)
-      }
-    },
+    broadcastSourceUpdates: (check) => broadcastToAllWindows(SKILL_SOURCES_UPDATED_CHANNEL, check),
   })
   // The `tailnet.*` tools configure the service that (transitively) owns them,
   // so the tool set cannot capture it at construction. Assigned immediately
@@ -1506,13 +1500,8 @@ export function createAppServices(
       return launched.ok ? { ok: true, agentId: launched.agentId } : { ok: false, message: launched.message }
     },
     broadcastToWorkspaceWindows,
-    broadcastToViewers: (channel, payload) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (window.isDestroyed() || window.webContents.isDestroyed() || isCanvasWorkerWindow(window)) continue
-        window.webContents.send(channel, payload)
-      }
-    },
-    isAppFocused: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+    broadcastToViewers: (channel, payload) => broadcastToAllWindows(channel, payload, { skipCanvasWorker: true }),
+    isAppFocused: () => anyWindowFocused(),
   })
   const tourService = tours.service
   terminalRuntime.registerAgentPhaseListener((event) => tourService.onAgentPhase(event))
@@ -1573,7 +1562,7 @@ export function createAppServices(
       agentWrittenFiles,
       broker: editorRevealBroker,
       userDataDir: () => app.getPath('userData'),
-      isAppFocused: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+      isAppFocused: () => anyWindowFocused(),
     }),
   )
   const tourTools = createTourTools({
@@ -1594,17 +1583,11 @@ export function createAppServices(
         // pairing, and connection changes the moment main does — the fix for pair
         // requests that could expire while only Settings, if open, would show them.
         onTailnetEvent: (payload) => {
-          for (const window of BrowserWindow.getAllWindows()) {
-            if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-            window.webContents.send(TAILNET_EVENT_CHANNEL, payload)
-          }
+          broadcastToAllWindows(TAILNET_EVENT_CHANNEL, payload)
           tailnetNotifier?.onTailnetEvent(payload)
         },
         onMeshEvent: (event) => {
-          for (const window of BrowserWindow.getAllWindows()) {
-            if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-            window.webContents.send(MESH_EVENT_CHANNEL, event)
-          }
+          broadcastToAllWindows(MESH_EVENT_CHANNEL, event)
           tailnetNotifier?.onMeshEvent(event)
         },
         // A window someone could be looking at: the mesh's reachability timer and
@@ -1710,9 +1693,7 @@ export function createAppServices(
   // front of them when more than one desktop offers a toolset.
   const desktopFocus = {
     current: () => ({
-      focused: BrowserWindow.getAllWindows().some(
-        (window) => !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isFocused(),
-      ),
+      focused: anyWindowFocused({ skipCanvasWorker: true }),
       // A desktop shows every workspace it holds, each a tab away.
       workspaceIds: workspaceSyncService
         .getSnapshot()
