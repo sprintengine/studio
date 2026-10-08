@@ -405,6 +405,12 @@ export class ConversationRuntime {
   // Sessions whose CLI session is being handed to a terminal; a send waits for
   // the terminal rather than respawning the child it was just stopped in.
   private readonly terminalHandoffs = new Set<string>()
+  // Chats (workspace and agent) whose CLI session a terminal took over. A
+  // terminal now drives that session, so Studio's own sends (a launched
+  // agent's notice, a resume after a usage limit) would respawn the chat's
+  // child beside it; they are refused until the person writes to the chat
+  // again, which is them taking it back.
+  private readonly handedToTerminal = new Set<string>()
   // Transcripts being taken back to an earlier message; a send waits for it.
   private readonly rewindingTranscripts = new Set<string>()
   // The MCP servers a fork's session starts with when its start names none:
@@ -834,6 +840,11 @@ export class ConversationRuntime {
     // terminal opening the same CLI session.
     if (this.terminalHandoffs.has(session.sessionId))
       return { ok: false, message: 'This conversation is moving to a terminal, so the message was not sent.' }
+    const chat = `${session.workspaceId}\0${session.agentId}`
+    if (readConversationMessageOrigin(input.origin)) {
+      if (this.handedToTerminal.has(chat))
+        return { ok: false, message: 'This conversation continues in a terminal, so Studio did not send it this message.' }
+    } else this.handedToTerminal.delete(chat)
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
     // Busy, not failed: a send from another device (a phone, while a turn
     // started here runs) is held there and sent again once the turn is over.
@@ -1829,10 +1840,12 @@ export class ConversationRuntime {
     this.terminalHandoffs.delete(input.sessionId)
   }
 
-  // Tell the chat where its conversation went, in its own tray.
+  // Tell the chat where its conversation went, in its own tray. Said only of
+  // a handoff that happened: from here the terminal drives the session.
   async noteTerminalHandoff(input: { sessionId: string; notice: string }): Promise<void> {
     const session = this.sessions.get(input.sessionId)
     if (!session) return
+    this.handedToTerminal.add(`${session.workspaceId}\0${session.agentId}`)
     await this.emit(session, this.eventForSession(session, 'session_updated', { notice: input.notice }))
   }
 
