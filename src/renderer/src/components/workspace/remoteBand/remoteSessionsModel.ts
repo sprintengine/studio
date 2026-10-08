@@ -302,10 +302,34 @@ function remoteChatRowOf(
  * used to sort working first, then waiting, then idle, then by name, so a
  * remote row jumped whenever its agent started or stopped. The marks say what
  * an agent is doing; the order never does. Ties keep the order the machine
- * listed them in, which is its own sidebar's.
+ * listed them in.
  */
 function compareByRecency(a: { recencyAt: number }, b: { recencyAt: number }): number {
   return b.recencyAt - a.recencyAt
+}
+
+/**
+ * Several machines' rows as one list, most recently written to first, with
+ * each machine's own rows kept in the order it gave them. A machine that
+ * keeps its chats' rest lists them in its sidebar's order, by a key of its
+ * own (a chat never written to counts from its creation there, not from when
+ * it last moved), and re-sorting them here by `recencyAt` drew them in an
+ * order that machine's own sidebar does not.
+ */
+function mergeByRecency<T extends { recencyAt: number }>(lists: ReadonlyArray<readonly T[]>): T[] {
+  const queues = lists.map((list) => ({ list, next: 0 }))
+  const merged: T[] = []
+  for (;;) {
+    let pick: { list: readonly T[]; next: number } | null = null
+    for (const queue of queues) {
+      const head = queue.list[queue.next]
+      // The first machine wins a tie, as a stable sort of the groups in order would.
+      if (head !== undefined && (pick === null || head.recencyAt > pick.list[pick.next]!.recencyAt)) pick = queue
+    }
+    if (!pick) return merged
+    merged.push(pick.list[pick.next]!)
+    pick.next += 1
+  }
 }
 
 export function openSpecOf(row: RemoteSessionRow): RemoteSessionOpenSpec {
@@ -352,12 +376,14 @@ export function buildRemoteBand(input: {
           .filter((workspace) => typeof workspace.settledAt === 'number')
           .map((workspace) => workspace.id),
       )
-      const rows = (entry?.conversations ?? [])
+      // A machine that keeps its chats' rest lists them in its own sidebar's
+      // order, which is kept; one from before that is ordered here.
+      const listed = (entry?.conversations ?? [])
         .filter((conversation) => !resting.has(conversation.workspaceId))
         .map((conversation) =>
           remoteChatRowOf(connection, conversation, browse, workspaces, remoteLifecycleWritable(entry)),
         )
-        .sort(compareByRecency)
+      const rows = entry?.lifecycle === true ? listed : listed.sort(compareByRecency)
       const attachedIds = new Set(rows.map((row) => row.attachedWorkspaceId).filter((id): id is string => id !== null))
       const parked = workspaces.filter(
         (workspace) => workspace.remoteOrigin?.connectionId === connection.id && !attachedIds.has(workspace.id),
@@ -444,16 +470,15 @@ export function unattachedConversations(
   workspaces: readonly Workspace[],
 ): RemoteConversation[] {
   if (!listening) return []
-  const rows: RemoteConversation[] = []
-  for (const group of groups) {
-    for (const conversation of conversationsOf(group)) {
-      const attached =
-        conversation.attachedWorkspaceId !== null &&
-        workspaces.some((candidate) => candidate.id === conversation.attachedWorkspaceId)
-      if (!attached) rows.push(conversation)
-    }
-  }
-  return rows.sort(compareByRecency)
+  return mergeByRecency(
+    groups.map((group) =>
+      conversationsOf(group).filter(
+        (conversation) =>
+          conversation.attachedWorkspaceId === null ||
+          !workspaces.some((candidate) => candidate.id === conversation.attachedWorkspaceId),
+      ),
+    ),
+  )
 }
 
 /** What opening a conversation attaches to: its loudest agent — the one you came for. */
