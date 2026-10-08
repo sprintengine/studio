@@ -18,6 +18,7 @@ import {
   insideAny,
   pathInside,
   pathSpellings,
+  worktreeLastUsedAt,
 } from './agent-worktree-keep-checks'
 
 /**
@@ -31,10 +32,8 @@ import {
  * A worktree is removed only when ALL of these hold:
  *
  * 1. **It is an agent worktree.** Its branch is `agent/<slug>` and it lives in
- *    the app's own worktree container (`.sprintengine-worktrees`). A worktree
- *    the person made in the Worktree manager (`sprintengine/<slug>`), one made
- *    outside the app, and the automation runs' worktrees (removed by their own
- *    finalize step) are never candidates.
+ *    the app's own worktree container (`.sprintengine-worktrees`). Every other
+ *    worktree goes by the stricter rules for other worktrees below.
  * 2. **Nothing uses it.** No path the caller protects — every workspace's
  *    folder and worktree, every agent still holding one — and no live terminal
  *    session sits in it. Paths are compared with symlinks resolved on both
@@ -68,6 +67,10 @@ import {
  *    branch would produce the default branch's own tree, so its changes are
  *    already there (`changesAlreadyIn`). On a git too old for that test the
  *    ancestry rule alone decides, and a squash-merged branch is kept.
+ *    An agent worktree nothing uses is taken unmerged too (owner ruling
+ *    2026-10-08: a settled chat counts as deleted): its commits stay on its
+ *    `agent/` branch, which the branch cleanup below never deletes while
+ *    unmerged, exactly as a pool slot's do when the pool takes it back.
  * 8. **Nothing git does not show would be lost.** No tracked file is hidden
  *    from `status` by `--assume-unchanged` or `--skip-worktree`, and every
  *    ignored file is either rebuildable output (dependencies, build output,
@@ -79,6 +82,30 @@ import {
  * cleanliness again at the moment of removal: anything written between the
  * check above and the removal makes git refuse, and the sweep reports the
  * refusal. The branch itself is kept by the removal.
+ *
+ * **Every other worktree of the repository** (owner ruling 2026-10-08): one
+ * made by hand, by an agent CLI on its own (`.claude/worktrees/…`), in the
+ * Worktree manager, or by an automation run that never finished. They used to
+ * be left alone for good, and a busy repository gathered dozens of them, each
+ * a full checkout. Such a worktree goes by rules 2 and 4 to 8 like an agent
+ * worktree, with these differences:
+ *
+ * - **Any lock keeps it.** Nothing here locked it, so nobody here may lift it.
+ * - **It was last used more than a day ago** (`OTHER_WORKTREE_MIN_IDLE_MS`),
+ *   by its index and HEAD (`worktreeLastUsedAt`), on top of rule 5. A person
+ *   who just merged a branch may still be reading it.
+ * - **Unmerged work goes too, after a week unused**
+ *   (`UNMERGED_WORKTREE_MIN_IDLE_MS`), when its HEAD is on a branch, or on a
+ *   commit some branch or remote branch holds. Removing a worktree never
+ *   deletes its branch (this sweep deletes only merged `agent/` branches), so
+ *   every commit stays where it was and the branch can be checked out again;
+ *   what a removal could lose (uncommitted, hidden and ignored work) keeps it
+ *   by rules 6 and 8 as before. A detached HEAD on commits no ref holds is kept.
+ * - **It is never locked for being in use.** Being found in use keeps it.
+ *
+ * It is taken unattended too: the lock rule in 3 exists to tell one Studio
+ * profile's agent worktrees from another's, and no profile owns these. The
+ * main checkout, and any worktree it sits inside, is never one.
  *
  * **Worktree pool slots** (worktree-pool/) are never removed here. The pool
  * owns them: a slot nobody uses is handed back to it, which detaches it and
@@ -105,6 +132,8 @@ export type AgentWorktreeCleanupDeps = {
   livePaths?: () => string[] | Promise<string[]>
   /** When git last wrote the worktree's admin directory, in ms since the epoch; null when unknown. */
   lastWrittenAt?: (worktreePath: string) => Promise<number | null>
+  /** When the worktree was last used (its index or HEAD moved), in ms since the epoch; null when unknown. */
+  lastUsedAt?: (worktreePath: string) => Promise<number | null>
   /** The worktree pool, which takes back its own slots instead of the sweep removing them. */
   pool?: {
     /** Reads the pool's records; nothing is known to be a slot before it settles. */
@@ -115,8 +144,9 @@ export type AgentWorktreeCleanupDeps = {
   now?: () => number
   log?: (line: string) => void
   /**
-   * The ids of every chat on record, settled ones included, or null when
+   * The ids of every chat on record that is not settled, or null when
    * unknown: a worktree holding one's history is kept (agent-worktree-keep-checks.ts).
+   * A settled chat counts as deleted, and its history keeps nothing.
    */
   knownWorkspaceIds?: () => Iterable<string> | null
 }
@@ -125,6 +155,10 @@ const AGENT_BRANCH_PREFIX = 'agent/'
 const DEFAULT_REF_CANDIDATES = ['origin/main', 'origin/master', 'main', 'master']
 /** How long git must have left a worktree alone before the sweep may take it. */
 export const AGENT_WORKTREE_MIN_IDLE_MS = 60 * 60_000
+/** How long a worktree the app did not make must have gone unused before the sweep may take it. */
+const OTHER_WORKTREE_MIN_IDLE_MS = 24 * 60 * 60_000
+/** How long such a worktree holding work the default branch lacks must have gone unused. */
+const UNMERGED_WORKTREE_MIN_IDLE_MS = 7 * 24 * 60 * 60_000
 
 function listed(paths: readonly string[]): string {
   const shown = paths.slice(0, 3).join(', ')
@@ -142,6 +176,23 @@ async function resolveDefaultRef(
     if (verified.ok && verified.stdout.trim()) return candidate
   }
   return null
+}
+
+/** Some local or remote branch holds `head`, so removing a detached worktree loses none of its commits. */
+async function headOnSomeRef(
+  cwd: string,
+  head: string,
+  runGit: NonNullable<AgentWorktreeCleanupDeps['runGit']>,
+): Promise<boolean> {
+  const refs = await runGit(cwd, [
+    'for-each-ref',
+    '--count=1',
+    '--format=%(refname)',
+    `--contains=${head}`,
+    'refs/heads',
+    'refs/remotes',
+  ])
+  return refs.ok && refs.stdout.trim().length > 0
 }
 
 /**
@@ -203,17 +254,18 @@ export async function cleanupAgentWorktrees(
   // A slot the pool's records were not yet read for would look like any other
   // agent worktree here, and be removed from under its lease.
   await pool?.load()
+  const isAgentWorktree = (worktree: GitWorktreeEntry): boolean =>
+    worktree.branch?.startsWith(AGENT_BRANCH_PREFIX) === true && repoRootFromWorktreePath(worktree.path) !== null
+  // Git lists the main working tree first, whichever checkout asked: a sweep
+  // run from a workspace opened on a worktree still never takes the main one.
   const candidates = worktrees.filter(
-    (worktree) =>
-      !worktree.bare &&
-      worktree.branch?.startsWith(AGENT_BRANCH_PREFIX) === true &&
-      repoRootFromWorktreePath(worktree.path) !== null &&
-      !pathInside(root, worktree.path) &&
-      !pool?.ownsPath(worktree.path),
+    (worktree, index) =>
+      index > 0 && !worktree.bare && !pathInside(root, worktree.path) && !pool?.ownsPath(worktree.path),
   )
 
   const defaultRef = await resolveDefaultRef(root, runGit)
   const lastWrittenAt = deps.lastWrittenAt ?? ((path: string) => adminDirWrittenAt(path, runGit))
+  const lastUsedAt = deps.lastUsedAt ?? ((path: string) => worktreeLastUsedAt(path, runGit))
   const now = deps.now ?? Date.now
   // Read after the listing, so a worktree listed above was either created
   // before these were read (and is in them if it is used) or is too new to
@@ -236,6 +288,7 @@ export async function cleanupAgentWorktrees(
 
   for (const worktree of candidates) {
     const base = { path: worktree.path, branch: worktree.branch }
+    const agent = isAgentWorktree(worktree)
     // Something sits IN it. A protected path that merely contains it (a
     // workspace opened on a parent folder) does not use it.
     const worktreeSpellings = await pathSpellings(worktree.path)
@@ -243,7 +296,7 @@ export async function cleanupAgentWorktrees(
       // A worktree this profile uses that carries no lock (made before
       // creation locked them, or its lock failed) is locked now, so that it is
       // protected from other profiles and can be released like any other.
-      if (!worktree.locked && !dryRun) {
+      if (agent && !worktree.locked && !dryRun) {
         await lockAgentWorktree(root, worktree.path, worktree.branch ?? 'adopted', runGit)
       }
       record({ ...base, verdict: 'in-use' })
@@ -251,7 +304,7 @@ export async function cleanupAgentWorktrees(
     }
     // This profile's own in-use lock on a path its records no longer use is a
     // released one; every other lock is somebody else's to lift.
-    const ownLock = worktree.locked && worktree.agentLock === 'this-profile'
+    const ownLock = agent && worktree.locked && worktree.agentLock === 'this-profile'
     if (worktree.locked && !ownLock) {
       record({ ...base, verdict: 'locked', detail: worktree.lockedReason ?? undefined })
       continue
@@ -260,7 +313,7 @@ export async function cleanupAgentWorktrees(
     // An unlocked one may belong to another profile running an older build, or
     // to anything outside the app, and nothing on disk says which: it is left
     // for a person to judge from the Worktree manager's cleanup report.
-    if (input.ownedOnly === true && !ownLock) {
+    if (agent && input.ownedOnly === true && !ownLock) {
       record({ ...base, verdict: 'not-owned', detail: 'not locked by this profile; left to a manual cleanup' })
       continue
     }
@@ -276,6 +329,19 @@ export async function cleanupAgentWorktrees(
     if (now() - writtenAt < AGENT_WORKTREE_MIN_IDLE_MS) {
       record({ ...base, verdict: 'recent', detail: 'git used it within the last hour' })
       continue
+    }
+    let otherUsedAt: number | null = null
+    if (!agent) {
+      const usedAt = await lastUsedAt(worktree.path)
+      otherUsedAt = usedAt
+      if (usedAt === null) {
+        record({ ...base, verdict: 'error', detail: 'could not read when it was last used' })
+        continue
+      }
+      if (now() - usedAt < OTHER_WORKTREE_MIN_IDLE_MS) {
+        record({ ...base, verdict: 'recent', detail: 'used within the last day' })
+        continue
+      }
     }
     const status = await runGit(worktree.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
     if (!status.ok) {
@@ -302,8 +368,18 @@ export async function cleanupAgentWorktrees(
     // a squash merge lands the same changes as one new commit.
     const mergedByContent = uniqueCommits > 0 && (await changesAlreadyIn(worktree.path, defaultRef, head, runGit))
     if (uniqueCommits > 0 && !mergedByContent) {
-      record({ ...base, verdict: 'unmerged', uniqueCommits })
-      continue
+      // The commits outlive the worktree on its branch. An agent worktree
+      // nothing uses any more (its chat settled or was deleted) goes now, as a
+      // pool slot does; another worktree once it has gone unused for a week,
+      // and never with commits only its detached HEAD holds.
+      const idleLongEnough = otherUsedAt !== null && now() - otherUsedAt >= UNMERGED_WORKTREE_MIN_IDLE_MS
+      const kept = agent
+        ? !worktree.branch
+        : !idleLongEnough || !(worktree.branch || (await headOnSomeRef(worktree.path, head, runGit)))
+      if (kept) {
+        record({ ...base, verdict: 'unmerged', uniqueCommits })
+        continue
+      }
     }
     // What `status` cannot see and `worktree remove` would still delete.
     const hidden = await hiddenEditPaths(worktree.path, runGit)
@@ -326,7 +402,11 @@ export async function cleanupAgentWorktrees(
       record({ ...base, verdict: 'ignored-files', changedPaths: ignored.paths.length, detail: listed(ignored.paths) })
       continue
     }
-    const how = mergedByContent ? 'changes already on the default branch (squash-merged)' : undefined
+    const how = mergedByContent
+      ? 'changes already on the default branch (squash-merged)'
+      : uniqueCommits > 0
+        ? `unused for a week; its ${uniqueCommits} commit(s) stay on ${worktree.branch ?? 'the branches that hold them'}`
+        : undefined
     if (dryRun) {
       record({ ...base, verdict: 'removed', detail: how })
       continue

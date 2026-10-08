@@ -594,8 +594,9 @@ test('what the app and the agent CLIs wrote, and a linked node_modules, do not k
   assert.equal(await exists(join(shared, 'left-pad')), true, 'the linked folder itself is untouched')
 })
 
-test('a slot given back by a settled chat keeps that chat’s history until the chat is gone', async () => {
+test('a slot keeps the history of a chat that is not settled, and lets it go once the chat settles', async () => {
   await appendFile(join(repo, '.git', 'info', 'exclude'), '.sprintengine/\nnode_modules/\n')
+  // The chats not settled (chatIdsOnRecord): a settled chat counts as deleted.
   const onRecord = ['settled-chat', 'another-chat']
   const harness = makeService({ knownWorkspaceIds: () => onRecord })
   const first = await lease(harness, 'first')
@@ -603,13 +604,13 @@ test('a slot given back by a settled chat keeps that chat’s history until the 
   await mkdir(history, { recursive: true })
   await writeFile(join(history, 'agent-1.jsonl'), '{"type":"user_message"}\n')
   await mkdir(join(first.path, 'node_modules', 'pkg'), { recursive: true })
-  // The chat settled and its slot went back to the pool; the chat stays.
+  // Its slot went back to the pool (its agent was removed) while the chat stays open.
   await returnAll(harness)
   assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
 
   await harness.service.updateSettings({ keepIdle: 0 })
   assert.equal(await exists(join(history, 'agent-1.jsonl')), true, 'the idle limit leaves it')
-  assert.match((await slotAt(harness, 'pool-01')).kept ?? '', /history of a chat still on record/)
+  assert.match((await slotAt(harness, 'pool-01')).kept ?? '', /history of a chat not settled/)
   const asked = await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })
   assert.equal(asked.ok, false)
   assert.match(asked.message ?? '', /history of a chat/)
@@ -618,7 +619,7 @@ test('a slot given back by a settled chat keeps that chat’s history until the 
   assert.equal(await exists(join(first.path, 'node_modules')), false)
   assert.equal(await exists(join(history, 'agent-1.jsonl')), true)
 
-  // Deleted, the chat's history is a leftover, and the slot goes.
+  // Settled (or deleted), the chat's history is a leftover, and the slot goes.
   onRecord.splice(0, 1)
   assert.equal((await harness.service.action({ kind: 'evict', repoRoot: repo, slotId: 'pool-01' })).ok, true)
   assert.equal(await exists(first.path), false)
@@ -1805,4 +1806,27 @@ test('the inventory lists every worktree but the checkout, with pool slots, merg
   // Sizes stay known after, without measuring again.
   const again = await inventory.read({ repoRoots: [repo] })
   assert.equal(again.projects[0].worktrees.find((entry) => entry.path === merged)?.size?.bytes, 2 * GB)
+})
+
+test('a ready slot unused for a day goes, kept number or not; one in use never does', async () => {
+  const harness = makeService()
+  const idle = await lease(harness, 'idle')
+  const busy = await lease(harness, 'busy')
+  harness.clock.offset += 2 * HOUR
+  await harness.service.returnUnused({ repoRoot: repo, protectedPaths: [busy.path], agentIds: new Set() })
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle', 'within keepIdle, it stays for now')
+
+  harness.clock.offset += 23 * HOUR
+  await harness.service.returnUnused({ repoRoot: repo, protectedPaths: [busy.path], agentIds: new Set() })
+  assert.equal((await snapshot(harness)).slots.length, 2, 'not a day yet')
+
+  harness.clock.offset += 2 * HOUR
+  await harness.service.returnUnused({ repoRoot: repo, protectedPaths: [busy.path], agentIds: new Set() })
+  const slots = (await snapshot(harness)).slots
+  assert.deepEqual(
+    slots.map((slot) => slot.path),
+    [busy.path],
+    'the sweep removes the one a day unused; the leased one stays',
+  )
+  assert.equal(await exists(idle.path), false)
 })

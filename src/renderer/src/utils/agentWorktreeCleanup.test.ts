@@ -120,10 +120,10 @@ function chat(id: string, patch: Record<string, unknown> = {}) {
   }
 }
 
-test('a settled chat in a worktree of its own offers that worktree; every other chat keeps its folder', () => {
+test('a settled chat counts as deleted: nothing it records keeps anything, unless someone has it open', () => {
   const workspaces = [
-    // Settled, in a worktree of its own: its folder and what its agents use
-    // inside it are offered; an agent's own worktree elsewhere is not.
+    // Settled: its folder, its agents' paths inside it and out, its agents and
+    // its branches are all released (owner ruling 2026-10-08).
     chat('rested', {
       settledAt: 1,
       agents: {
@@ -133,19 +133,23 @@ test('a settled chat in a worktree of its own offers that worktree; every other 
     }),
     // Not settled: kept, as every chat always was.
     chat('working'),
-    // Settled, but in the project's own checkout: never the sweep's to take.
+    // Settled, in the project's own checkout: main never takes a checkout anyway.
     { ...chat('in-place', { settledAt: 1 }), folderPath: '/Users/dev/site', worktree: null },
     // Settled and in a worktree, but open in a window right now.
     chat('reading', { settledAt: 1 }),
   ] as unknown as Parameters<typeof agentWorktreeCleanupPlan>[0]
 
-  const protectedSet = new Set(agentWorktreeCleanupPlan(workspaces, ['reading', null]).protectedPaths)
-  assert.equal(protectedSet.has(`${CONTAINER}/rested`), false, 'the settled chat offers its worktree')
+  const plan = agentWorktreeCleanupPlan(workspaces, ['reading', null])
+  const protectedSet = new Set(plan.protectedPaths)
+  assert.equal(protectedSet.has(`${CONTAINER}/rested`), false, 'the settled chat releases its worktree')
   assert.equal(protectedSet.has(`${CONTAINER}/rested/packages/api`), false, 'and its agents inside it')
-  assert.ok(protectedSet.has(`${CONTAINER}/rested-agent`), 'an agent worktree outside the chat folder stays protected')
+  assert.equal(protectedSet.has(`${CONTAINER}/rested-agent`), false, 'and an agent worktree outside it')
+  assert.equal(protectedSet.has('/Users/dev/site'), false)
   assert.ok(protectedSet.has(`${CONTAINER}/working`), 'an unsettled chat keeps its worktree')
-  assert.ok(protectedSet.has('/Users/dev/site'), 'a settled chat on a checkout keeps it')
   assert.ok(protectedSet.has(`${CONTAINER}/reading`), 'a settled chat someone has open keeps its worktree')
+  assert.deepEqual(plan.agentIds, [], 'a settled chat’s agents hold no lease')
+  assert.deepEqual(plan.keepBranches.sort(), ['agent/reading', 'agent/working'], 'its merged branch may go')
+  assert.ok(plan.repoRoots.includes('/Users/dev/site'), 'its project is still swept')
 
   // Another record that uses the folder still protects it.
   const shared = [

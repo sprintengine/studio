@@ -95,9 +95,9 @@ export async function evictSlot(
       // What the app and the agent CLIs wrote there themselves (transcripts,
       // installed skills, the MCP config) and a linked `node_modules` are
       // not: Settings ▸ Worktrees shows why a slot stays.
-      // A settled chat's slot is given back while the chat stays, and its
-      // history lives in the slot's sidecar: such a slot waits for the chat
-      // to be reopened (reclaimed) or deleted.
+      // The history of a chat that is not settled keeps its slot; a settled
+      // chat counts as deleted (owner ruling 2026-10-08), so its history
+      // goes with the slot and reopening it finds the slot gone.
       const ignored = await ignoredPathsAtRisk(pool.record.repoRoot, slot.path, ctx.git, {
         knownWorkspaceIds: ctx.deps.knownWorkspaceIds ?? null,
       })
@@ -112,7 +112,7 @@ export async function evictSlot(
         const more = files.length > 3 ? ` and ${files.length - 3} more` : ''
         const listedPaths = `${files.slice(0, 3).join(', ')}${more}`
         const reasons = [
-          chats > 0 ? `holds the history of ${chats === 1 ? 'a chat' : `${chats} chats`} still on record` : null,
+          chats > 0 ? `holds the history of ${chats === 1 ? 'a chat' : `${chats} chats`} not settled` : null,
           files.length > 0 ? `has ignored files that may be someone’s work: ${listedPaths}` : null,
         ].filter((reason): reason is string => reason !== null)
         await putBack(reasons.join('; '))
@@ -120,7 +120,7 @@ export async function evictSlot(
         ctx.log(`${slot.path}: kept (${reasons.join('; ')})`)
         return files.length > 0
           ? `It has ignored files that may be someone’s work (${listedPaths}). Clear its ignored files first if they can go.`
-          : 'It holds the history of a chat still on record, which comes back to it when the chat is reopened. Delete the chat to let it go.'
+          : 'It holds the history of a chat that is not settled. Settle or delete the chat to let it go.'
       }
       // No --force: git checks cleanliness again at the moment of removal.
       // Only a tree with submodules, which plain `remove` always refuses, is
@@ -152,24 +152,38 @@ export async function evictSlot(
 }
 
 /**
- * Remove the least recently used idle slots beyond the kept number, and
- * beyond what `maxSlots` leaves room for beside the slots in use.
+ * How long a slot may sit ready and unused before it goes, kept number or
+ * not (owner ruling 2026-10-08): a pool is for the project being worked on
+ * now, so one left alone for a day shrinks to nothing rather than holding a
+ * gigabyte a slot for a project nobody has opened since. Counted from its
+ * last lease or return.
+ */
+const IDLE_SLOT_EXPIRY_MS = 24 * 60 * 60_000
+
+/**
+ * Remove the least recently used idle slots beyond the kept number, beyond
+ * what `maxSlots` leaves room for beside the slots in use, and every idle
+ * slot unused for `IDLE_SLOT_EXPIRY_MS`.
  */
 export async function evictOverLimit(ctx: PoolContext, pool: PoolRuntime): Promise<void> {
   const { keepIdle, enabled, maxSlots } = await ctx.getSettings()
+  const usedAt = (slot: SlotRecord): number => slot.lastUsedAt ?? slot.createdAt
   const idle = pool.record.slots
     .filter((slot) => slot.state === 'idle' && !pool.busy.has(slot.id))
-    .sort((a, b) => (b.lastUsedAt ?? b.createdAt) - (a.lastUsedAt ?? a.createdAt))
+    .sort((a, b) => usedAt(b) - usedAt(a))
   const others = pool.record.slots.length - idle.length
   const limit = enabled ? Math.min(keepIdle, Math.max(0, maxSlots - others)) : 0
+  const now = ctx.now()
   const chats = chatsKey(ctx)
-  for (const slot of idle.slice(limit)) {
+  for (const [index, slot] of idle.entries()) {
+    const over = index >= limit
+    if (!over && now - usedAt(slot) < IDLE_SLOT_EXPIRY_MS) continue
     if (ctx.stopped) return
     // Kept last time for the same reasons: every return and every settings
     // change would otherwise re-read each such slot's ignored files.
     const key = keptKey(slot, chats)
     if (pool.keptVerdicts.get(slot.id) === key) continue
-    await evictSlot(ctx, pool, slot, 'over the idle limit', key)
+    await evictSlot(ctx, pool, slot, over ? 'over the idle limit' : 'unused for a day', key)
   }
 }
 

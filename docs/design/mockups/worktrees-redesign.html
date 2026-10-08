@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockup: Settings / Worktrees, redesigned</title>
+<!-- A static mockup of Settings ▸ Worktrees after the 2026-10-08 changes, and
+     of New chat's project picker beside it. Drawn with the design system's own
+     tokens so it reads like the app; every name, path and number is made up.
+     Open it straight from disk. The filter chips, the sort, the selection and
+     the panel switch work; nothing else does. -->
+<link rel="stylesheet" href="../../../design-system/foundations/tokens.css" />
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  button, input { font: inherit; color: inherit; }
+  .mono { font-family: var(--sem-font-family-mono); font-size: var(--sem-font-size-meta); }
+  .muted { color: var(--sem-color-text-muted); }
+  .subtle { color: var(--sem-color-text-subtle); }
+  .strong { color: var(--sem-color-text-primary); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* Mockup chrome, outside the "app" */
+  .mock-bar {
+    display: flex; align-items: center; gap: var(--sem-space-lg);
+    padding: var(--sem-space-sm) var(--sem-space-xl);
+    border-bottom: 1px dashed var(--sem-color-border-strong);
+    font-size: var(--sem-font-size-meta); color: var(--sem-color-text-subtle);
+  }
+  .mock-bar b { color: var(--sem-color-text-muted); font-weight: var(--sem-font-weight-medium); }
+  .mock-bar .spacer { flex: 1; }
+  .mock-tabs { display: inline-flex; gap: 2px; background: var(--sem-color-bg-well); border-radius: var(--sem-radius-control); padding: 2px; }
+  .mock-tabs button { border: 0; background: transparent; height: 22px; padding: 0 var(--sem-space-md); border-radius: 5px; color: var(--sem-color-text-muted); cursor: pointer; font-size: var(--sem-font-size-meta); }
+  .mock-tabs button[aria-pressed="true"] { background: var(--sem-color-bg-surface-raised); color: var(--sem-color-text-primary); }
+
+  .stage { padding: var(--sem-space-3xl); display: flex; justify-content: center; gap: var(--sem-space-3xl); align-items: flex-start; }
+  .notes { width: 300px; flex-shrink: 0; font-size: var(--sem-font-size-meta); color: var(--sem-color-text-muted); }
+  .notes h5 { margin: 0 0 var(--sem-space-sm); font-size: var(--sem-font-size-body); color: var(--sem-color-text-primary); font-weight: var(--sem-font-weight-emphasis); }
+  .notes ol { margin: 0; padding-left: 18px; }
+  .notes li { margin-bottom: var(--sem-space-sm); }
+  .notes li b { color: var(--sem-color-text-default); font-weight: var(--sem-font-weight-medium); }
+
+  /* Settings dialog */
+  .dialog {
+    width: 1080px; height: 860px; display: flex; flex-shrink: 0;
+    background: var(--sem-color-bg-surface);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-shell-lg);
+    overflow: hidden;
+    box-shadow: 0 24px 60px rgba(0,0,0,.35);
+  }
+  .rail {
+    width: 196px; flex-shrink: 0; padding: var(--sem-space-lg) var(--sem-space-sm);
+    border-right: 1px solid var(--sem-color-border-subtle);
+    background: var(--sem-color-bg-app);
+  }
+  .rail h2 { font-size: var(--sem-font-size-heading); color: var(--sem-color-text-primary); margin: 0 var(--sem-space-sm) var(--sem-space-lg); font-weight: var(--sem-font-weight-emphasis); }
+  .rail a { display: flex; align-items: center; height: 28px; padding: 0 var(--sem-space-sm); border-radius: var(--sem-radius-control); color: var(--sem-color-text-muted); text-decoration: none; cursor: default; }
+  .rail a.on { background: var(--sem-color-bg-selected); color: var(--sem-color-text-primary); box-shadow: inset 2px 0 0 var(--sem-color-accent-primary); }
+
+  .page { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+  .page-scroll { flex: 1; overflow: auto; padding: var(--sem-space-2xl) var(--sem-space-3xl) var(--sem-space-3xl); }
+  .page-head { display: flex; align-items: center; gap: var(--sem-space-md); margin-bottom: var(--sem-space-lg); }
+  .page-head h3 { margin: 0; font-size: var(--sem-font-size-title); font-weight: var(--sem-font-weight-emphasis); color: var(--sem-color-text-primary); letter-spacing: var(--sem-font-tracking-tight); }
+  .page-head .spacer { flex: 1; }
+
+  /* Project switcher: one project at a time, never a page of stacked cards */
+  .projects { display: flex; gap: var(--sem-space-xs); margin-bottom: var(--sem-space-xl); border-bottom: 1px solid var(--sem-color-border-subtle); }
+  .projects button {
+    display: inline-flex; align-items: center; gap: var(--sem-space-sm);
+    border: 0; background: transparent; cursor: pointer;
+    padding: var(--sem-space-sm) var(--sem-space-md) calc(var(--sem-space-sm) + 2px);
+    color: var(--sem-color-text-muted); border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .projects button[aria-selected="true"] { color: var(--sem-color-text-primary); border-bottom-color: var(--sem-color-accent-primary); }
+  .projects .n { font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); font-variant-numeric: tabular-nums; }
+  .folder { width: 14px; height: 14px; flex-shrink: 0; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: var(--sem-space-xs);
+    height: 28px; padding: 0 var(--sem-space-md);
+    border-radius: var(--sem-radius-control);
+    border: 1px solid var(--sem-color-border-default);
+    background: var(--sem-color-bg-surface-raised);
+    color: var(--sem-color-text-default); cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { background: var(--sem-color-bg-hover); }
+  .btn.sm { height: 24px; padding: 0 var(--sem-space-sm); font-size: var(--sem-font-size-meta); }
+  .btn.primary { background: var(--sem-color-accent-primary); border-color: transparent; color: var(--sem-color-text-on-accent); font-weight: var(--sem-font-weight-medium); }
+  .btn.primary:hover { background: var(--sem-color-accent-hover); }
+  .btn.danger-solid { background: var(--sem-color-status-danger); border-color: transparent; color: var(--sem-color-text-on-accent); font-weight: var(--sem-font-weight-medium); }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--sem-color-text-muted); }
+  .btn.ghost:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-default); }
+  .btn.icon { width: 24px; padding: 0; justify-content: center; }
+  button:focus-visible, input:focus-visible { outline: var(--sem-focus-ring); outline-offset: 2px; }
+
+  /* The answer first: what can go, what goes by itself */
+  .verdict {
+    display: grid; grid-template-columns: 1fr auto; gap: var(--sem-space-lg); align-items: center;
+    border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface-raised); padding: var(--sem-space-lg) var(--sem-space-xl);
+  }
+  .verdict .big { font-size: var(--sem-font-size-heading); color: var(--sem-color-text-primary); font-weight: var(--sem-font-weight-emphasis); }
+  .verdict .why { font-size: var(--sem-font-size-meta); color: var(--sem-color-text-muted); margin-top: 2px; }
+  .facts { display: flex; gap: var(--sem-space-2xl); margin-top: var(--sem-space-md); font-size: var(--sem-font-size-meta); color: var(--sem-color-text-muted); }
+  .facts b { color: var(--sem-color-text-primary); font-weight: var(--sem-font-weight-emphasis); font-variant-numeric: tabular-nums; margin-right: 4px; }
+
+  /* Pool strip */
+  .section-title { display: flex; align-items: baseline; gap: var(--sem-space-sm); margin: var(--sem-space-2xl) 0 var(--sem-space-sm); }
+  .section-title h4 { margin: 0; font-size: var(--sem-font-size-body); font-weight: var(--sem-font-weight-emphasis); color: var(--sem-color-text-primary); }
+  .section-title .sub { font-size: var(--sem-font-size-meta); color: var(--sem-color-text-subtle); }
+  .section-title .spacer { flex: 1; }
+  .slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sem-space-sm); }
+  .slot {
+    border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface-raised); padding: var(--sem-space-sm) var(--sem-space-md);
+    min-width: 0;
+  }
+  .slot.held { border-color: color-mix(in srgb, var(--sem-color-status-warn) 55%, transparent); }
+  .slot.ready { border-style: dashed; }
+  .slot .top { display: flex; align-items: center; gap: var(--sem-space-xs); }
+  .slot .id { font-family: var(--sem-font-family-mono); font-size: var(--sem-font-size-meta); color: var(--sem-color-text-primary); }
+  .slot .when { margin-left: auto; font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); font-variant-numeric: tabular-nums; }
+  .slot .who { font-size: var(--sem-font-size-meta); color: var(--sem-color-text-default); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .slot .br { font-family: var(--sem-font-family-mono); font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pool-note { margin-top: var(--sem-space-sm); font-size: var(--sem-font-size-meta); color: var(--sem-color-text-muted); }
+
+  .badge {
+    display: inline-flex; align-items: center; height: 18px; padding: 0 6px;
+    border-radius: var(--sem-radius-chip); font-size: var(--sem-font-size-micro);
+    font-weight: var(--sem-font-weight-medium); white-space: nowrap;
+    background: var(--sem-color-bg-well); color: var(--sem-color-text-muted);
+  }
+  .badge.accent { background: color-mix(in srgb, var(--sem-color-accent-primary) 18%, transparent); color: var(--sem-color-accent-primary); }
+  .badge.warn { background: color-mix(in srgb, var(--sem-color-status-warn) 18%, transparent); color: var(--sem-color-status-warn); }
+  .badge.good { background: color-mix(in srgb, var(--sem-color-status-success) 18%, transparent); color: var(--sem-color-status-success); }
+  .badge.merged { background: color-mix(in srgb, var(--sem-color-status-merged) 18%, transparent); color: var(--sem-color-status-merged); }
+
+  /* Toolbar + table */
+  .toolbar { display: flex; align-items: center; gap: var(--sem-space-sm); margin-bottom: var(--sem-space-sm); }
+  .chips { display: inline-flex; background: var(--sem-color-bg-well); border-radius: var(--sem-radius-control); padding: 2px; }
+  .chips button { border: 0; background: transparent; height: 24px; padding: 0 var(--sem-space-md); border-radius: 5px; color: var(--sem-color-text-muted); cursor: pointer; font-size: var(--sem-font-size-meta); }
+  .chips button[aria-pressed="true"] { background: var(--sem-color-bg-surface-raised); color: var(--sem-color-text-primary); box-shadow: 0 0 0 1px var(--sem-color-border-default); }
+  .chips .c { color: var(--sem-color-text-subtle); margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .search { height: 28px; border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-control); background: var(--sem-color-bg-surface); padding: 0 var(--sem-space-sm); width: 200px; margin-left: auto; }
+
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th {
+    text-align: left; font-size: var(--sem-font-size-micro); font-weight: var(--sem-font-weight-medium);
+    color: var(--sem-color-text-subtle); padding: var(--sem-space-xs) var(--sem-space-sm);
+    border-bottom: 1px solid var(--sem-color-border-subtle); white-space: nowrap;
+  }
+  th.sortable { cursor: pointer; }
+  th.sortable:hover { color: var(--sem-color-text-default); }
+  th.sorted { color: var(--sem-color-text-primary); }
+  td { padding: 7px var(--sem-space-sm); border-bottom: 1px solid var(--sem-color-border-subtle); vertical-align: middle; min-width: 0; }
+  tr:hover td { background: var(--sem-color-bg-hover); }
+  tr.sel td { background: var(--sem-color-bg-selected); }
+  tr.group td { background: transparent; font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); padding-top: var(--sem-space-md); letter-spacing: var(--sem-font-tracking-wide); border-bottom: 0; }
+  .r { text-align: right; }
+  .name { color: var(--sem-color-text-primary); font-weight: var(--sem-font-weight-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .branch { font-family: var(--sem-font-family-mono); font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+  .cell-sub { font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .when { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .when.stale { color: var(--sem-color-text-subtle); }
+  .origin { font-size: var(--sem-font-size-meta); color: var(--sem-color-text-muted); white-space: nowrap; }
+  input[type="checkbox"] { accent-color: var(--sem-color-accent-primary); }
+
+  /* Selection footer */
+  .footer {
+    display: flex; align-items: center; gap: var(--sem-space-md);
+    padding: var(--sem-space-md) var(--sem-space-3xl);
+    border-top: 1px solid var(--sem-color-border-default);
+    background: var(--sem-color-bg-surface-raised);
+  }
+  .footer[hidden] { display: none; }
+  .footer .spacer { flex: 1; }
+
+  /* New chat picker panel */
+  .picker-stage { display: flex; gap: var(--sem-space-3xl); align-items: flex-start; }
+  .composer {
+    width: 560px; border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-shell-lg);
+    background: var(--sem-color-bg-surface); padding: var(--sem-space-lg); position: relative; height: 640px;
+  }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 var(--sem-space-sm); border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-control); background: var(--sem-color-bg-surface-raised); font-size: var(--sem-font-size-meta); color: var(--sem-color-text-primary); }
+  .menu {
+    position: absolute; top: 52px; left: var(--sem-space-lg); width: 340px;
+    border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface-raised); box-shadow: 0 16px 40px rgba(0,0,0,.35);
+    padding: var(--sem-space-xs);
+  }
+  .menu input { width: 100%; height: 28px; border: 1px solid var(--sem-color-border-default); border-radius: var(--sem-radius-control); background: var(--sem-color-bg-surface); padding: 0 var(--sem-space-sm); margin-bottom: var(--sem-space-xs); }
+  .menu .item { display: flex; gap: var(--sem-space-sm); align-items: flex-start; padding: 6px var(--sem-space-sm); border-radius: var(--sem-radius-control); }
+  .menu .item:hover { background: var(--sem-color-bg-hover); }
+  .menu .item.on { background: var(--sem-color-bg-selected); }
+  .menu .item .t { flex: 1; min-width: 0; }
+  .menu .item .l { color: var(--sem-color-text-primary); font-weight: var(--sem-font-weight-medium); display: flex; gap: 6px; align-items: baseline; }
+  .menu .item .p { font-family: var(--sem-font-family-mono); font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .menu .item .ago { font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); font-variant-numeric: tabular-nums; white-space: nowrap; padding-top: 2px; }
+  .menu .item .wt { font-size: var(--sem-font-size-micro); color: var(--sem-color-text-subtle); font-weight: var(--sem-font-weight-regular); }
+  .menu .sep { height: 1px; background: var(--sem-color-border-subtle); margin: var(--sem-space-xs) 0; }
+  .before { width: 300px; font-size: var(--sem-font-size-meta); color: var(--sem-color-text-muted); }
+  .before .crossed { font-family: var(--sem-font-family-mono); text-decoration: line-through; color: var(--sem-color-text-subtle); display: block; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="mock-bar">
+  <b>Mockup</b> Settings ▸ Worktrees and New chat's project picker, after the 2026-10-08 changes
+  <span class="spacer"></span>
+  <div class="mock-tabs" role="group" aria-label="Panel">
+    <button aria-pressed="true" data-panel="worktrees">Settings ▸ Worktrees</button>
+    <button aria-pressed="false" data-panel="picker">New chat ▸ Project</button>
+  </div>
+</div>
+
+<!-- ───────────────────────── Settings ▸ Worktrees ───────────────────────── -->
+<div class="stage" id="panel-worktrees">
+  <div class="dialog">
+    <nav class="rail">
+      <h2>Settings</h2>
+      <a>General</a><a>Appearance</a><a>Agents</a><a>Models</a><a class="on">Worktrees</a><a>Devices</a><a>Extensions</a>
+    </nav>
+    <div class="page">
+      <div class="page-scroll">
+        <div class="page-head">
+          <h3>Worktrees</h3>
+          <span class="spacer"></span>
+          <span class="subtle" style="font-size: var(--sem-font-size-meta)">Sizes measured 4m ago</span>
+          <button class="btn sm ghost">Measure again</button>
+          <button class="btn sm ghost">Pool settings…</button>
+        </div>
+
+        <div class="projects" role="tablist">
+          <button role="tab" aria-selected="true"><svg class="folder" viewBox="0 0 16 16" fill="none"><path d="M2 5.5c0-.8.7-1.5 1.5-1.5h2.6l1.2 1.4h5.2c.8 0 1.5.7 1.5 1.5v5.1c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5V5.5Z" fill="#5aa9e6"/></svg>multicode <span class="n">29</span></button>
+          <button role="tab" aria-selected="false"><svg class="folder" viewBox="0 0 16 16" fill="none"><path d="M2 5.5c0-.8.7-1.5 1.5-1.5h2.6l1.2 1.4h5.2c.8 0 1.5.7 1.5 1.5v5.1c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5V5.5Z" fill="#d6b44a"/></svg>appointment-booker <span class="n">4</span></button>
+          <button role="tab" aria-selected="false"><svg class="folder" viewBox="0 0 16 16" fill="none"><path d="M2 5.5c0-.8.7-1.5 1.5-1.5h2.6l1.2 1.4h5.2c.8 0 1.5.7 1.5 1.5v5.1c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5V5.5Z" fill="#a98be8"/></svg>marketing-site <span class="n">1</span></button>
+        </div>
+
+        <!-- The answer first. -->
+        <div class="verdict">
+          <div>
+            <div class="big"><span id="canGoCount">9</span> worktrees can go without losing anything</div>
+            <div class="why">Merged and unused for a day, or unmerged and unused for a week (its commits stay on its branch). No changes, no ignored files that look like work. The cleanup removes them by itself every 6 hours (next in 2h); branches are always kept.</div>
+            <div class="facts">
+              <span><b>29</b>worktrees</span>
+              <span><b>14.2 GB</b>on disk</span>
+              <span><b>8</b>in the pool</span>
+              <span><b>15</b>not merged</span>
+              <span><b>2</b>with changes</span>
+            </div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap: var(--sem-space-xs); align-items: flex-end">
+            <button class="btn primary">Remove 9 now · 3.1 GB</button>
+            <button class="btn sm ghost" data-filter-jump="cango">Review them</button>
+          </div>
+        </div>
+
+        <!-- The pool, as tiles. -->
+        <div class="section-title">
+          <h4>Pool</h4>
+          <span class="sub">8 of 12 slots · keeps 3 ready</span>
+          <span class="spacer"></span>
+          <span class="sub">.sprintengine-worktrees/multicode/</span>
+        </div>
+        <div class="slots">
+          <div class="slot"><div class="top"><span class="id">pool-08</span><span class="badge accent">In use</span><span class="when">now</span></div><div class="who">Improve worktree display and cleanup</div><div class="br">agent/chat-cbqv</div></div>
+          <div class="slot"><div class="top"><span class="id">pool-07</span><span class="badge accent">In use</span><span class="when">3m</span></div><div class="who">Phone chat title written where it runs</div><div class="br">agent/chat-gt45</div></div>
+          <div class="slot"><div class="top"><span class="id">pool-06</span><span class="badge accent">In use</span><span class="when">35m</span></div><div class="who">Question over composer: extension folder</div><div class="br">fix/question-over-composer-extension-folder</div></div>
+          <div class="slot"><div class="top"><span class="id">pool-03</span><span class="badge accent">In use</span><span class="when">39m</span></div><div class="who">Settle chats whose PR merged</div><div class="br">agent/chat-fwo · 34 changes</div></div>
+          <div class="slot"><div class="top"><span class="id">pool-01</span><span class="badge accent">In use</span><span class="when">3h</span></div><div class="who">Newchat polish sweep</div><div class="br">agent/chat-eqgy · 18 changes</div></div>
+          <div class="slot"><div class="top"><span class="id">pool-05</span><span class="badge accent">In use</span><span class="when">21h</span></div><div class="who">Sweep: high-severity fixes</div><div class="br">fix/sweep-high · merged</div></div>
+          <div class="slot"><div class="top"><span class="id">pool-04</span><span class="badge accent">In use</span><span class="when">22h</span></div><div class="who">Hidden tool calls in the timeline</div><div class="br">agent/chat-qcra · merged</div></div>
+          <div class="slot held"><div class="top"><span class="id">pool-02</span><span class="badge warn">Holding work</span><span class="when">2d</span></div><div class="who">16 uncommitted changes</div><div class="br">agent/chat-ypyk · <a class="subtle" href="#" style="color: var(--sem-color-accent-primary)">Commit… Stash… Discard…</a></div></div>
+        </div>
+        <div class="pool-note">No slot is ready: every one is held by an open chat. A ready slot unused for a day is removed. A slot comes back when its chat is settled. <b class="strong">3 of these chats are merged and quiet for 20h+</b> <button class="btn sm ghost">Settle them</button></div>
+
+        <!-- Every worktree, one table, newest first. -->
+        <div class="section-title">
+          <h4>All worktrees</h4>
+          <span class="sub">every worktree git knows for this project, wherever it was made</span>
+        </div>
+        <div class="toolbar">
+          <div class="chips" role="group" aria-label="Show">
+            <button aria-pressed="true" data-filter="all">All<span class="c">29</span></button>
+            <button aria-pressed="false" data-filter="cango">Can go<span class="c">9</span></button>
+            <button aria-pressed="false" data-filter="unmerged">Not merged<span class="c">15</span></button>
+            <button aria-pressed="false" data-filter="changes">Changes<span class="c">2</span></button>
+            <button aria-pressed="false" data-filter="pool">Pool<span class="c">8</span></button>
+          </div>
+          <input class="search" placeholder="Filter by name or branch…" id="q" />
+        </div>
+        <table>
+          <colgroup>
+            <col style="width: 28px" />
+            <col style="width: 30%" />
+            <col style="width: 92px" />
+            <col />
+            <col style="width: 84px" />
+            <col style="width: 64px" />
+            <col style="width: 80px" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="all" aria-label="Select all removable" /></th>
+              <th>Worktree</th>
+              <th>Origin</th>
+              <th>Status</th>
+              <th class="sortable sorted" id="sortWhen">Last used ↓</th>
+              <th class="r">Size</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="footer" id="footer" hidden>
+        <span><b class="strong" id="selCount">0</b> selected · <span id="selSize">0 GB</span></span>
+        <span class="subtle" style="font-size: var(--sem-font-size-meta)">Each is checked again before it goes; a worktree with changes is never removed.</span>
+        <span class="spacer"></span>
+        <button class="btn sm ghost" id="clearSel">Clear</button>
+        <button class="btn sm danger-solid">Remove</button>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <h5>What changed</h5>
+    <ol>
+      <li><b>The answer comes first.</b> How many worktrees can go, why that is safe, and that the cleanup takes them by itself. One button removes them now.</li>
+      <li><b>One project at a time.</b> Tabs instead of a page of stacked cards; the count says where the clutter is.</li>
+      <li><b>The pool as tiles.</b> Who holds each slot and when it was last used. When no slot is ready, the page says why ("held by open chats") and offers to settle the merged, quiet ones, which is what returns a slot.</li>
+      <li><b>Every worktree, one table.</b> Not just the app's: hand-made, agent CLI (<span class="mono">.claude/worktrees</span>) and stray ones too, with <b>Origin</b> saying which.</li>
+      <li><b>Last used</b> on every row, newest first, grouped Today / This week / Older. "Last used" is when its index or HEAD last moved, so a <span class="mono">git gc</span> or the page itself never counts.</li>
+      <li><b>Filters that match the decisions</b>: Can go, Not merged, Changes. Select many; the footer sums the space.</li>
+      <li><b>Unmerged work waits a week.</b> A clean worktree whose commits are on a branch goes after seven days unused; the branch stays, so nothing committed is lost. Uncommitted work, or commits only a detached HEAD holds, keep it.</li>
+      <li><b>Pools shrink to nothing.</b> A ready slot unused for a day is removed, so a project left alone drops its pool entirely.</li>
+      <li><b>Opens at once.</b> The page shows what it last read and refreshes underneath; sizes are re-measured only when over 15 minutes old.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ───────────────────────── New chat ▸ Project ───────────────────────── -->
+<div class="stage" id="panel-picker" hidden>
+  <div class="picker-stage">
+    <div class="composer">
+      <span class="chip"><svg class="folder" viewBox="0 0 16 16" fill="none"><path d="M2 5.5c0-.8.7-1.5 1.5-1.5h2.6l1.2 1.4h5.2c.8 0 1.5.7 1.5 1.5v5.1c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5V5.5Z" fill="#5aa9e6"/></svg>multicode · main ▾</span>
+      <div class="menu" role="menu">
+        <input placeholder="Search projects…" />
+        <div class="item"><span>＋</span><div class="t"><div class="l">Browse…</div><div class="p" style="font-family: inherit">Pick a folder on disk.</div></div></div>
+        <div class="item"><span>⛓</span><div class="t"><div class="l">Import from Git</div><div class="p" style="font-family: inherit">Clone a repository and open it here.</div></div></div>
+        <div class="sep"></div>
+        <div id="pickerRows"></div>
+      </div>
+    </div>
+    <div class="before">
+      <h5 class="strong" style="margin: 0 0 var(--sem-space-sm); font-size: var(--sem-font-size-body)">Before → after</h5>
+      <p>Each chat in a worktree listed its folder as a project of its own:</p>
+      <span class="crossed">pool-02</span><span class="crossed">pool-01</span><span class="crossed">pool-07</span><span class="crossed">pool-06</span><span class="crossed">chat-k_iq</span><span class="crossed">hidden-tool-calls</span>
+      <p>Now each is filed under the project it was cut from, so <b class="strong">multicode</b> appears once.</p>
+      <p>The separate <span class="crossed" style="display:inline">Recent</span> section is gone: open and recent projects are one list, the one used last at the top (the later of the last new chat and the last message in any of its chats). The time on the right says when.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Made-up rows. lastUsed is hours ago.
+  const ROWS = [
+    { name: 'pool-08', branch: 'agent/chat-cbqv', origin: 'Pool', status: ['accent', 'In use'], sub: 'Improve worktree display and cleanup', h: 0.02, gb: 0.06, kind: 'pool' },
+    { name: 'pool-07', branch: 'agent/chat-gt45', origin: 'Pool', status: ['accent', 'In use'], sub: 'Phone chat title written where it runs', h: 0.05, gb: 0.06, kind: 'pool' },
+    { name: 'pool-03', branch: 'agent/chat-fwo', origin: 'Pool', status: ['accent', 'In use'], sub: '34 uncommitted changes', h: 0.6, gb: 0.17, kind: 'pool changes' },
+    { name: 'pool-01', branch: 'agent/chat-eqgy', origin: 'Pool', status: ['accent', 'In use'], sub: '18 uncommitted changes', h: 3, gb: 1.5, kind: 'pool changes' },
+    { name: 'phone-chat-title', branch: 'fix/phone-chat-title', origin: 'By hand', status: ['merged', 'Merged'], sub: 'used today; goes tomorrow if untouched', h: 3, gb: 1.2, kind: '' },
+    { name: 'pool-05', branch: 'fix/sweep-high', origin: 'Pool', status: ['accent', 'In use'], sub: 'Sweep: high-severity fixes · merged', h: 21, gb: 1.5, kind: 'pool' },
+    { name: 'pool-04', branch: 'agent/chat-qcra', origin: 'Pool', status: ['accent', 'In use'], sub: 'Hidden tool calls · merged', h: 22, gb: 0.06, kind: 'pool' },
+    { name: 'multicode-t3-quick', branch: 'feat/quick-wins', origin: 'By hand', status: ['merged', 'Merged'], sub: 'no chat', h: 28, gb: 1.4, kind: 'cango' },
+    { name: 'multicode-tooltip-fix', branch: 'fix/tooltip-sticks-after-click', origin: 'By hand', status: ['merged', 'Merged'], sub: 'no chat', h: 30, gb: 0.1, kind: 'cango' },
+    { name: 'multi-repo', branch: 'feat/multi-repo-projects', origin: 'By hand', status: ['', 'Not merged'], sub: '10 commits ahead', h: 33, gb: 0.1, kind: 'unmerged' },
+    { name: 'mc-perf-startup', branch: 'perf/startup', origin: 'By hand', status: ['merged', 'Squash-merged'], sub: 'no chat', h: 48, gb: 0.9, kind: 'cango' },
+    { name: 'mc-perf-rendering', branch: 'perf/rendering', origin: 'By hand', status: ['', 'Not merged'], sub: '4 commits ahead', h: 48, gb: 0.9, kind: 'unmerged' },
+    { name: 'pool-02', branch: 'agent/chat-ypyk', origin: 'Pool', status: ['warn', 'Holding work'], sub: '16 uncommitted changes', h: 69, gb: 0.06, kind: 'pool changes' },
+    { name: 'chat-k_iq', branch: 'agent/chat-k_iq', origin: 'App', status: ['merged', 'Merged'], sub: 'Settled chat “Fix chat list scroll”', h: 68, gb: 0.4, kind: 'cango' },
+    { name: 'mc-review-composer', branch: 'review/composer', origin: 'By hand', status: ['', 'Not merged'], sub: '7 commits ahead', h: 68, gb: 0.8, kind: 'unmerged' },
+    { name: 'multicode-sdk-review', branch: '(detached)', origin: 'By hand', status: ['merged', 'Merged'], sub: 'no chat', h: 75, gb: 0.1, kind: 'cango' },
+    { name: 'multicode-popout-window', branch: 'wip/pane-popout', origin: 'By hand', status: ['', 'Not merged'], sub: '8 commits ahead', h: 80, gb: 0.1, kind: 'unmerged' },
+    { name: 'multicode-radius', branch: 'fix/composer-card-radius', origin: 'By hand', status: ['merged', 'Merged'], sub: 'no chat', h: 91, gb: 0.1, kind: 'cango' },
+    { name: 'hidden-tool-calls', branch: 'agent/hidden-tool-calls', origin: 'App', status: ['', 'Not merged'], sub: '3 commits ahead · settled chat', h: 95, gb: 0.3, kind: 'unmerged' },
+    { name: 'dark-conversation-black', branch: 'fix/dark-conversation-black', origin: 'By hand', status: ['merged', 'Merged'], sub: 'no chat', h: 95, gb: 0.1, kind: 'cango' },
+    { name: 'agent-a43d1802', branch: 'feat/opt-in-studio-skills', origin: 'Agent CLI', status: ['warn', 'Changes'], sub: '96 uncommitted changes', h: 244, gb: 1.6, kind: 'changes' },
+    { name: 'monaco', branch: 'fix/bundle-monaco', origin: 'By hand', status: ['merged', 'Merged'], sub: 'no chat', h: 237, gb: 1.1, kind: 'cango' },
+    { name: 'pr81-a-sync', branch: 'fix/pr81-a-sync', origin: 'By hand', status: ['', 'Not merged'], sub: '9 commits ahead · 120 behind', h: 237, gb: 0.1, kind: 'unmerged' },
+    { name: 'agent-a4f420a9', branch: 'feat/wsl-cli-versions', origin: 'Agent CLI', status: ['', 'Not merged'], sub: '4 commits ahead', h: 237, gb: 0.1, kind: 'unmerged' },
+    { name: 'multicode-conversation', branch: 'feat/conversation-workspace', origin: 'By hand', status: ['merged', 'Merged'], sub: 'no chat', h: 284, gb: 0.1, kind: 'cango' },
+    { name: 'agent-a7fa5eaf', branch: 'feat/remove-integrations', origin: 'Agent CLI', status: ['', 'Not merged'], sub: '1 commit ahead', h: 312, gb: 0.1, kind: 'unmerged' },
+    { name: 'agent-a22c698b', branch: 'fix/windows-search-ripgrep', origin: 'Agent CLI', status: ['', 'Not merged'], sub: '1 commit ahead', h: 317, gb: 0.1, kind: 'unmerged' },
+    { name: 'agent-a0616c3a', branch: 'worktree-agent-a0616c3a', origin: 'Agent CLI', status: ['', 'Not merged'], sub: '2 commits ahead', h: 381, gb: 0.1, kind: 'unmerged' },
+    { name: 'multicode-release-main', branch: 'feat/main-releases', origin: 'By hand', status: ['', 'Not merged'], sub: '1 commit ahead', h: 405, gb: 0.1, kind: 'unmerged' },
+  ]
+  const ago = (h) => h < 0.04 ? 'now' : h < 1 ? `${Math.round(h * 60)}m ago` : h < 24 ? `${Math.round(h)}h ago` : `${Math.round(h / 24)}d ago`
+  const bucket = (h) => h < 24 ? 'TODAY' : h < 24 * 7 ? 'THIS WEEK' : 'OLDER'
+  const removable = (row) => !row.kind.includes('pool') && !row.kind.includes('changes')
+  let filter = 'all'
+  let desc = true
+  const selected = new Set()
+
+  function render() {
+    const q = document.getElementById('q').value.trim().toLowerCase()
+    const shown = ROWS
+      .filter((row) => filter === 'all' || row.kind.split(' ').includes(filter))
+      .filter((row) => !q || row.name.includes(q) || row.branch.includes(q))
+      .sort((a, b) => desc ? a.h - b.h : b.h - a.h)
+    let last = null
+    const html = []
+    for (const row of shown) {
+      const group = bucket(row.h)
+      if (group !== last) {
+        html.push(`<tr class="group"><td></td><td colspan="6">${group}</td></tr>`)
+        last = group
+      }
+      const can = removable(row)
+      const action = row.kind.includes('pool') && row.status[1] === 'In use'
+        ? '<button class="btn sm">Open chat</button>'
+        : row.status[1] === 'Holding work'
+          ? '<button class="btn sm primary">Commit…</button>'
+          : can ? '<button class="btn sm">Remove</button>' : ''
+      html.push(`<tr class="${selected.has(row.name) ? 'sel' : ''}">
+        <td>${can ? `<input type="checkbox" data-name="${row.name}" ${selected.has(row.name) ? 'checked' : ''} aria-label="Select ${row.name}" />` : ''}</td>
+        <td><div class="name" title="${row.name}">${row.name}</div><div class="branch" title="${row.branch}">${row.branch}</div></td>
+        <td class="origin">${row.origin}</td>
+        <td><span class="badge ${row.status[0]}">${row.status[1]}</span><div class="cell-sub">${row.sub}</div></td>
+        <td class="when ${row.h > 72 ? 'stale' : ''}" title="index or HEAD last moved">${ago(row.h)}</td>
+        <td class="r num muted">${row.gb >= 1 ? row.gb.toFixed(1) + ' GB' : Math.round(row.gb * 1000) + ' MB'}</td>
+        <td class="r">${action}</td>
+      </tr>`)
+    }
+    document.getElementById('rows').innerHTML = html.join('')
+    const picked = ROWS.filter((row) => selected.has(row.name))
+    document.getElementById('footer').hidden = picked.length === 0
+    document.getElementById('selCount').textContent = picked.length
+    document.getElementById('selSize').textContent = picked.reduce((sum, row) => sum + row.gb, 0).toFixed(1) + ' GB'
+    document.getElementById('sortWhen').textContent = desc ? 'Last used ↓' : 'Last used ↑'
+  }
+
+  document.querySelectorAll('[data-filter]').forEach((button) => button.addEventListener('click', () => {
+    filter = button.dataset.filter
+    document.querySelectorAll('[data-filter]').forEach((b) => b.setAttribute('aria-pressed', String(b === button)))
+    render()
+  }))
+  document.querySelector('[data-filter-jump]').addEventListener('click', () => document.querySelector('[data-filter="cango"]').click())
+  document.getElementById('q').addEventListener('input', render)
+  document.getElementById('sortWhen').addEventListener('click', () => { desc = !desc; render() })
+  document.getElementById('rows').addEventListener('change', (event) => {
+    const name = event.target.dataset?.name
+    if (!name) return
+    event.target.checked ? selected.add(name) : selected.delete(name)
+    render()
+  })
+  document.getElementById('all').addEventListener('change', (event) => {
+    for (const row of ROWS) if (removable(row) && row.kind === 'cango') event.target.checked ? selected.add(row.name) : selected.delete(row.name)
+    render()
+  })
+  document.getElementById('clearSel').addEventListener('click', () => { selected.clear(); document.getElementById('all').checked = false; render() })
+  render()
+
+  // New chat ▸ Project: one list, the one used last first.
+  const PROJECTS = [
+    ['multicode', '~/code/multicode', 'now', '#5aa9e6', '8 chats in worktrees'],
+    ['appointment-booker', '~/code/appointment-booker', '2h', '#d6b44a', '1 in a worktree'],
+    ['wingfoil', '~/code/wingfoil', '5h', '#3fb8c7', ''],
+    ['marketing-site', '~/code/marketing-site', '1d', '#a98be8', ''],
+    ['producer-smithers', '~/code/producer-smithers', '2d', '#3fb8c7', ''],
+    ['tees', '~/code/tees', '4d', '#e57fa5', ''],
+    ['multivoice-tauri', '~/code/multivoice-tauri', '6d', '#a98be8', ''],
+    ['croissant', '~/code/croissant', '3w', '#a98be8', ''],
+  ]
+  document.getElementById('pickerRows').innerHTML = PROJECTS.map(([label, path, when, hue, note], index) => `
+    <div class="item ${index === 0 ? 'on' : ''}">
+      <svg class="folder" style="margin-top: 3px" viewBox="0 0 16 16" fill="none"><path d="M2 5.5c0-.8.7-1.5 1.5-1.5h2.6l1.2 1.4h5.2c.8 0 1.5.7 1.5 1.5v5.1c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5V5.5Z" stroke="${hue}" stroke-width="1.4"/></svg>
+      <div class="t"><div class="l">${label}${note ? `<span class="wt">${note}</span>` : ''}</div><div class="p">${path}</div></div>
+      <span class="ago">${when}</span>
+    </div>`).join('')
+
+  document.querySelectorAll('[data-panel]').forEach((button) => button.addEventListener('click', () => {
+    document.querySelectorAll('[data-panel]').forEach((b) => b.setAttribute('aria-pressed', String(b === button)))
+    document.getElementById('panel-worktrees').hidden = button.dataset.panel !== 'worktrees'
+    document.getElementById('panel-picker').hidden = button.dataset.panel !== 'picker'
+  }))
+  // `#picker` opens on the second panel, so it can be linked to.
+  if (location.hash === '#picker') document.querySelector('[data-panel="picker"]').click()
+</script>
+</body>
+</html>

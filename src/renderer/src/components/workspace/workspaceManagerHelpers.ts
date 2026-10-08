@@ -6,7 +6,7 @@
 import { cliForConversationProvider } from '../../../../shared/conversation-harness'
 import { isStarred } from '../../utils/highlight'
 import { findAgentSessionWorkspace, findAgentWorkspaceFollowingMoves } from '../../utils/agentLocation'
-import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
+import { sortWorkspacesByUserMessage, workspaceLastUserMessageAt } from '../../utils/workspaceRecency'
 import { workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import { deriveWorkspaceDisplayActivity, isLiveTerminal } from '../../hooks/useTerminalSessions'
 import type { Workspace } from '../../types/workspace'
@@ -446,4 +446,29 @@ export function showsNoWorkspaceState(input: {
   newChatPanelOpen: boolean
 }): boolean {
   return input.railWorkspaceCount === 0 && !input.hasActiveWorkspace && !input.newChatPanelOpen
+}
+
+/**
+ * New chat's project choices: one per project across `workspaces`, in the
+ * order first met (rail order), each carrying when a chat in it was last
+ * written to, so the picker can lead with the project used last.
+ *
+ * A chat in a worktree (a pool slot, `chat-…`) offers the project it was cut
+ * from, never its worktree folder (owner, 2026-10-08): the folder is where the
+ * chat runs, and offering it listed every pool slot as a project of its own.
+ */
+export function newChatProjectOptionsOf(
+  workspaces: readonly Workspace[],
+): Array<{ path: string; label: string; lastUsedAt: number }> {
+  const byKey = new Map<string, { path: string; label: string; lastUsedAt: number }>()
+  for (const workspace of workspaces) {
+    const path = workspaceProjectRoot(workspace)?.trim()
+    if (!path) continue
+    const key = path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+    const usedAt = workspaceLastUserMessageAt(workspace)
+    const known = byKey.get(key)
+    if (known) known.lastUsedAt = Math.max(known.lastUsedAt, usedAt)
+    else byKey.set(key, { path, label: path.split(/[\\/]/).filter(Boolean).pop() ?? path, lastUsedAt: usedAt })
+  }
+  return [...byKey.values()]
 }

@@ -2394,10 +2394,12 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
-    // The projects used most come first (owner, 2026-10-06), in both of the
-    // menu's lists, by the frecency main records for every new chat. A project
-    // never used keeps the order the host gave it, below the used ones.
-    await check('the project menu lists the projects used most first, open ones and recents alike', async () => {
+    // One list, the project used last first (owner, 2026-10-08): by the later
+    // of the last new chat main recorded and the host's own clock, however
+    // often the others were used. A project never used keeps the order it came
+    // in, open ones before recents, and a recent folder that was a chat's
+    // worktree offers its project.
+    await check('the project menu is one list, the project used last first, open ones and recents alike', async () => {
       seedStore()
       resetRememberedMachineForTests()
       meshConnections = []
@@ -2414,10 +2416,10 @@ test('NewAgentPanel', async () => {
           ({
             appSettings: {
               ...state.appSettings,
-              recentWorkspaceFolders: ['/old-a', '/old-b'],
+              recentWorkspaceFolders: ['/w/.sprintengine-worktrees/old-a/pool-01', '/old-b'],
               projectUsage: {
-                '/third': used(4, 0),
-                '/second': used(1, day),
+                '/third': used(1, 0),
+                '/second': used(9, day),
                 '/old-b': used(1, 30 * day),
               },
             },
@@ -2426,7 +2428,7 @@ test('NewAgentPanel', async () => {
       const view = await render({
         folderPath: '/first',
         projectOptions: [
-          { path: '/first', label: 'first' },
+          { path: '/first', label: 'first', lastUsedAt: now - 2 * day },
           { path: '/second', label: 'second' },
           { path: '/third', label: 'third' },
         ],
@@ -2438,14 +2440,12 @@ test('NewAgentPanel', async () => {
       await click(trigger!)
       await settle()
       const menu = dom.window.document.querySelector('[role="menu"][aria-label="Project this agent runs in"]')!
+      const paths = ['/third', '/second', '/first', '/old-b', '/w/old-a']
       const rows = [...menu.querySelectorAll('[role="menuitemradio"]')].map((row) =>
-        ['/third', '/second', '/first', '/old-b', '/old-a'].find((path) => (row.textContent ?? '').includes(path)),
+        paths.find((path) => (row.textContent ?? '').endsWith(path)),
       )
-      assert.deepEqual(
-        rows,
-        ['/third', '/second', '/first', '/old-b', '/old-a'],
-        'used projects by score, the never-used one after them; the used recent above the other',
-      )
+      assert.deepEqual(rows, paths, 'by last use; the never-used recent last')
+      assert.doesNotMatch(menu.textContent ?? '', /Recent|pool-01/, 'no Recent section, and no worktree folder')
       view.unmount()
       useWorkspaceStore.setState(
         (state) =>

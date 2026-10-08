@@ -104,6 +104,35 @@ export async function adminDirWrittenAt(worktreePath: string, runGit: RunGit): P
   }
 }
 
+/**
+ * When the worktree was last used: the newer of its index and its HEAD, each
+ * as git last rewrote it. Null when neither can be read.
+ *
+ * Not the admin directory's own time ({@link adminDirWrittenAt}), and not the
+ * reflog's: `git gc` runs `reflog expire --all` from any checkout of the
+ * repository, which rewrites every worktree's `logs/HEAD` (and so its admin
+ * directory) with nothing in it changed, so after a gc every worktree reads as
+ * used a moment ago. The index moves with every stage, commit, checkout and
+ * stat refresh made in the worktree, and HEAD with every switch, and gc
+ * touches neither. The app's own reads take no optional locks (git-run.ts), so
+ * looking at a worktree never counts as using it.
+ */
+export async function worktreeLastUsedAt(worktreePath: string, runGit: RunGit): Promise<number | null> {
+  const gitDir = await runGit(worktreePath, ['rev-parse', '--absolute-git-dir'])
+  const dir = gitDir.ok ? gitDir.stdout.trim() : ''
+  if (!dir) return null
+  const times = await Promise.all(
+    ['index', 'HEAD'].map((name) =>
+      stat(toFilesystemPath(join(dir, name))).then(
+        (stats) => stats.mtimeMs,
+        () => null,
+      ),
+    ),
+  )
+  const known = times.filter((time): time is number => time !== null)
+  return known.length > 0 ? Math.max(...known) : null
+}
+
 // --- Hidden edits ------------------------------------------------------------
 
 /**
@@ -208,17 +237,24 @@ export function isChatTranscriptPath(path: string): boolean {
 }
 
 /**
- * Every chat id a registry holds, or null when it holds none: an empty list is
- * as likely a registry that could not be read as a machine with no chats, and
- * read as "no chat owns these" it would delete every history it found.
+ * The ids of the chats a registry holds that are not settled, or null when it
+ * holds none at all: an empty registry is as likely one that could not be read
+ * as a machine with no chats, and read as "no chat owns these" it would delete
+ * every history it found. A registry whose every chat is settled answers an
+ * empty list, which it can only be once read.
+ *
+ * Settled chats are left out (owner ruling 2026-10-08: "settled chats are
+ * effectively deleted"): the history one left in a worktree no longer keeps
+ * that worktree, so a settled chat's folder is released like a deleted one's.
  */
-export function chatIdsOnRecord(workspaces: ReadonlyArray<{ id: string }>): string[] | null {
-  return workspaces.length > 0 ? workspaces.map((workspace) => workspace.id) : null
+export function chatIdsOnRecord(workspaces: ReadonlyArray<{ id: string; settledAt?: number | null }>): string[] | null {
+  if (workspaces.length === 0) return null
+  return workspaces.filter((workspace) => typeof workspace.settledAt !== 'number').map((workspace) => workspace.id)
 }
 
 export type IgnoredFilesOptions = {
   /**
-   * The ids of every chat on record, settled ones included; null when they
+   * The ids of every chat on record that is not settled; null when they
    * cannot be read. A transcript folder no chat on record owns is a leftover
    * and goes; without the list, every transcript keeps the worktree.
    */
@@ -453,7 +489,7 @@ async function sameBytes(a: string, b: string, size: number): Promise<boolean> {
  * is ignored as a whole (`node_modules/`), else the file. One is disposable
  * when it is rebuildable output (`REBUILDABLE_DIRS`, `DISPOSABLE_FILES`, or a
  * dependency folder linked in), when the app or an agent CLI it launched wrote
- * it ({@link isAppWritten}) and it is not the history of a chat still on record
+ * it ({@link isAppWritten}) and it is not the history of a chat that is not settled
  * ({@link transcriptsOnRecord}, returned as its folder), or when `.worktreeinclude` copied it in at
  * creation and it is still exactly the source checkout's copy. Everything else
  * — an edited `.env`, notes in an ignored folder, a `todo.local` — is
