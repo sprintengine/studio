@@ -9,7 +9,13 @@ import {
 } from '../../shared/workspace-sync'
 import { settleWorkspacePatch } from '../../shared/workspace-lifecycle'
 import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
-import { createConversationLifecycle, createConversationListChangeFilter } from './conversation-lifecycle'
+import type { ConversationSessionSummary } from '../../shared/conversation-runtime'
+import { conversationSessionWorking, terminalAgentWorking } from '../../shared/conversation/phase'
+import {
+  createConversationLifecycle,
+  createConversationListChangeFilter,
+  movesWorkspaceList,
+} from './conversation-lifecycle'
 import { createConversationTools } from './conversation-tools'
 
 const NOW = 1_000_000
@@ -22,6 +28,7 @@ function fixture(
     ? ({ id: 'ws-1', name: 'Fix the login', createdAt: 10, ...record } as WorkspaceRegistryRecord)
     : null
   const writes: Array<{ workspaceId: string; patch: WorkspaceFieldsPatch; actor: WorkspaceRegistryActor }> = []
+  const clock = { at: NOW }
   const lifecycle = createConversationLifecycle({
     getRecord: (workspaceId) => (stored && workspaceId === stored.id ? stored : null),
     updateWorkspaceFields: (workspaceId, patch, actor) => {
@@ -32,14 +39,14 @@ function fixture(
     },
     rewindVisit: (workspaceId, lastVisitedAt, actor) => {
       // The service's own command: it stamps the rewind, nobody else may.
-      const patch = { lastVisitedAt, visitRewoundAt: NOW }
+      const patch = { lastVisitedAt, visitRewoundAt: clock.at }
       writes.push({ workspaceId, patch, actor })
       if (stored) applyWorkspaceFieldsPatch(stored as unknown as Record<string, unknown>, patch)
       return { ok: true, event: {} as never }
     },
     isWorking: () => options.working === true,
     latestChatTurnEnd: () => options.chatTurnEnd,
-    now: () => NOW,
+    now: () => clock.at,
   })
   const tools = createConversationTools({
     launch: async () => assert.fail('no chat is started here'),
@@ -50,6 +57,7 @@ function fixture(
   return {
     stored,
     writes,
+    clock,
     lifecycle,
     settle: toolNamed('conversation.settle'),
     visit: toolNamed('conversation.visit'),
@@ -184,8 +192,26 @@ test('a chat whose agent has finished nothing is not marked, and an unknown one 
 test('a visit after Mark unread moves the clock forward again, as reading it does', async () => {
   const f = fixture({ lastVisitedAt: 9_000 }, { chatTurnEnd: 5_000 })
   f.lifecycle.markUnread('ws-1', 'ui')
-  await f.visit.handler({ workspaceId: 'ws-1', visitedAt: 6_000 })
-  assert.equal(f.stored?.lastVisitedAt, 6_000)
+  f.clock.at = NOW + 1_000
+  await f.visit.handler({ workspaceId: 'ws-1', visitedAt: NOW + 500 })
+  assert.equal(f.stored?.lastVisitedAt, NOW + 500)
+})
+
+test('a visit stamped before a Mark unread, arriving after it, does not undo it', async () => {
+  const f = fixture({ lastVisitedAt: 1_000 }, { chatTurnEnd: 5_000 })
+  f.clock.at = 8_000
+  f.lifecycle.markUnread('ws-1', 'ui')
+  assert.equal(f.stored?.lastVisitedAt, 1_000)
+  f.clock.at = 9_000
+  // A phone's reading from before the mark, sent late.
+  const late = await f.visit.handler({ workspaceId: 'ws-1', visitedAt: 7_000 })
+  assert.deepEqual(late.structuredContent, { ok: true, workspaceId: 'ws-1', lastVisitedAt: 1_000 })
+  const atTheMark = await f.visit.handler({ workspaceId: 'ws-1', visitedAt: 8_000 })
+  assert.deepEqual(atTheMark.structuredContent, { ok: true, workspaceId: 'ws-1', lastVisitedAt: 1_000 })
+  assert.equal(f.writes.length, 1, 'only the mark was written')
+  // One taken after it reads the chat again.
+  await f.visit.handler({ workspaceId: 'ws-1', visitedAt: 8_500 })
+  assert.equal(f.stored?.lastVisitedAt, 8_500)
 })
 
 test('a message from a paired device moves the message clock and wakes a resting chat', () => {
@@ -253,4 +279,68 @@ test('Mark unread moves the list every time: the clock went back, which every de
   // Read again: the first visit since the rewind is news too.
   assert.equal(changed(fieldsEvent('ws-1', { lastVisitedAt: 400 })), true)
   assert.equal(changed(fieldsEvent('ws-1', { lastVisitedAt: 410 })), false)
+})
+
+test('a patch of the clocks alone does not move the workspace list, which carries none of them', () => {
+  assert.equal(movesWorkspaceList(fieldsEvent('ws-1', { lastVisitedAt: 200 })), false, 'a visit stamp')
+  assert.equal(movesWorkspaceList(fieldsEvent('ws-1', { lastVisitedAt: 99, visitRewoundAt: 300 })), false)
+  assert.equal(movesWorkspaceList(fieldsEvent('ws-1', { lastTerminalActivityAt: 5, lastTurnEndedAt: 6 })), false)
+  assert.equal(movesWorkspaceList(fieldsEvent('ws-1', { lastUserMessageAt: 5 })), false)
+  // A field the list does carry, alone or beside a clock, still moves it.
+  assert.equal(movesWorkspaceList(fieldsEvent('ws-1', { settledAt: 5, lastTerminalActivityAt: 4 })), true)
+  assert.equal(movesWorkspaceList(fieldsEvent('ws-1', { folderPath: '/Users/dev/app' })), true)
+  assert.equal(
+    movesWorkspaceList({
+      id: 'e',
+      type: 'workspace.renamed',
+      sourceWindowId: 'primary',
+      sequence: 2,
+      createdAt: 1,
+      payload: { workspaceId: 'ws-1', name: 'Fix the login', editedAt: 1 },
+    } as WorkspaceSyncEvent),
+    true,
+  )
+})
+
+const summary = (fields: Partial<ConversationSessionSummary>): ConversationSessionSummary =>
+  ({
+    sessionId: 'conv-1',
+    workspaceId: 'ws-1',
+    agentId: 'agent-1',
+    providerId: 'mock',
+    modelId: 'default',
+    status: 'ready',
+    createdAt: 1,
+    updatedAt: 1,
+    ...fields,
+  }) as ConversationSessionSummary
+
+test('a chat Settle waits on counts every agent still at work, whatever its parent says', () => {
+  const working = [
+    summary({ status: 'active', phase: 'running' }),
+    summary({ status: 'starting', phase: 'starting' }),
+    // Stopped on the person: settling would end the turn that waits on them.
+    summary({ status: 'awaiting_approval', phase: 'waiting_for_approval' }),
+    summary({ status: 'ready', phase: 'waiting_for_input' }),
+    // An agent it launched goes on under a parent that failed or waits.
+    summary({ status: 'failed', phase: 'failed', backgroundAgents: 1 }),
+    summary({ status: 'ready', phase: 'waiting_for_input', backgroundAgents: 2 }),
+    summary({ status: 'ready', phase: 'completed', backgroundAgents: 1 }),
+  ]
+  for (const session of working) assert.equal(conversationSessionWorking(session), true, JSON.stringify(session))
+  const resting = [
+    summary({ status: 'ready', phase: 'completed' }),
+    summary({ status: 'ready', phase: 'idle' }),
+    summary({ status: 'failed', phase: 'failed' }),
+    // Nothing is left to end in a stopped session.
+    summary({ status: 'stopped', phase: 'running', backgroundAgents: 1 }),
+  ]
+  for (const session of resting) assert.equal(conversationSessionWorking(session), false, JSON.stringify(session))
+})
+
+test('an agent terminal mid-turn is working only while its process is there to run it', () => {
+  assert.equal(terminalAgentWorking({ processAlive: true, activity: { kind: 'working' } }), true)
+  assert.equal(terminalAgentWorking({ processAlive: false, activity: { kind: 'working' } }), false)
+  assert.equal(terminalAgentWorking({ processAlive: true, activity: { kind: 'idle' } }), false)
+  assert.equal(terminalAgentWorking({ processAlive: true }), false)
 })

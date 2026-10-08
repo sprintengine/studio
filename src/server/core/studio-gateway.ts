@@ -2,7 +2,11 @@ import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import type { ConversationEventType } from '../../shared/conversation-runtime'
 import { createAutomationService } from '../../main/automation/automation-service'
 import { createConversationTools, type ConversationToolsDeps } from '../../main/automation/conversation-tools'
-import { createConversationListChangeFilter } from '../../main/automation/conversation-lifecycle'
+import {
+  createConversationListChangeFilter,
+  latestTurnEnd,
+  movesWorkspaceList,
+} from '../../main/automation/conversation-lifecycle'
 import { launchPermissionCeiling } from '../../main/automation/launch-permission-cap'
 import { createStudioGatewayTools } from '../../main/automation/studio-gateway-tools'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
@@ -195,21 +199,20 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
   // The change feed (2026-09-05): paired devices used to poll workspace.list
   // every thirty seconds; now the registry's accepted events become one small
   // push, throttled in the listener so a burst here is one push there, and a
-  // device re-reads only when told to.
-  workspaceSyncService.subscribeEvents(() => automationService.notifyWorkspacesChanged())
+  // device re-reads only when told to. A patch of the clocks alone, which
+  // `workspace.list` does not carry (a visit stamped every few seconds while
+  // a chat is on screen), tells it nothing (`movesWorkspaceList`).
+  workspaceSyncService.subscribeEvents((event) => {
+    if (movesWorkspaceList(event)) automationService.notifyWorkspacesChanged()
+  })
   // The conversation list reads the desktop's records too (a chat settled,
   // renamed, written to or looked at), so the changes it reads are the same
   // push as a conversation event; `createConversationListChangeFilter` keeps
   // the visits stamped while a chat is on screen from becoming a push each.
   const listChanged = createConversationListChangeFilter({
     turnEndOf: (workspaceId) => {
-      const listed = conversations.listSessions()
-      if (!listed.ok) return undefined
-      let latest: number | undefined
-      for (const session of listed.sessions)
-        if (session.workspaceId === workspaceId && (session.lastTurnEndedAt ?? -1) > (latest ?? -1))
-          latest = session.lastTurnEndedAt
-      return latest
+      const listed = conversations.listSessions({ workspaceId })
+      return listed.ok ? latestTurnEnd(listed.sessions, { workspaceId }) : undefined
     },
   })
   workspaceSyncService.subscribeEvents((event) => {

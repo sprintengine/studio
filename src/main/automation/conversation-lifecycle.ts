@@ -1,6 +1,7 @@
 import type { WorkspaceRegistryActor, WorkspaceRegistryRecord } from '../../shared/workspace-registry'
 import type { WorkspaceFieldsPatch, WorkspaceSyncCommandResult, WorkspaceSyncEvent } from '../../shared/workspace-sync'
 import { isSettledWorkspace, settleWorkspacePatch, wakeWorkspacePatch } from '../../shared/workspace-lifecycle'
+import type { ConversationSessionSummary } from '../../shared/conversation-runtime'
 
 // A chat's rest and its two person-clocks, written for a paired device.
 //
@@ -85,7 +86,7 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
       return {
         ok: false,
         code: 'working',
-        message: 'An agent in this chat is still working. Settle it once it has finished.',
+        message: 'An agent in this chat is still working, or waiting on an answer. Settle it once it has finished.',
       }
     const patch = settled ? settleWorkspacePatch(record, now(), 'settled') : wakeWorkspacePatch('active')
     const failed = write(workspaceId, patch, actor)
@@ -96,8 +97,10 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
   /**
    * A person has the chat on screen. Only moves the visit clock forward, and
    * never to a time this machine has not reached yet, so a device whose clock
-   * runs ahead cannot mark a later finish as seen. It is not activity: the
-   * message clock and the chat's rest are left as they are.
+   * runs ahead cannot mark a later finish as seen. A visit stamped no later
+   * than the chat's last Mark unread was taken before it, however late it
+   * arrives, and does not undo it. It is not activity: the message clock and
+   * the chat's rest are left as they are.
    */
   function visit(
     workspaceId: string,
@@ -108,7 +111,8 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
     if (!record) return unknown(workspaceId)
     const at = Math.min(visitedAt ?? now(), now())
     const stored = typeof record.lastVisitedAt === 'number' ? record.lastVisitedAt : null
-    if (stored !== null && stored >= at) return { ok: true, workspaceId, lastVisitedAt: stored }
+    const seenBeforeRewind = typeof record.visitRewoundAt === 'number' && at <= record.visitRewoundAt
+    if (stored !== null && (stored >= at || seenBeforeRewind)) return { ok: true, workspaceId, lastVisitedAt: stored }
     const failed = write(workspaceId, { lastVisitedAt: at }, actor)
     if (failed) return failed
     return { ok: true, workspaceId, lastVisitedAt: at }
@@ -202,3 +206,54 @@ export function createConversationListChangeFilter(deps: {
 
 /** The record fields a listed chat reads, beside the visit clock. */
 const LIST_FIELDS = ['settledAt', 'lastUserMessageAt'] as const satisfies ReadonlyArray<keyof WorkspaceFieldsPatch>
+
+/**
+ * Whether a registry change moves what `workspace.list` says, so the change
+ * feed tells a paired device to read it again. Every change does but a patch
+ * of the clocks alone, which the list does not carry: a visit is stamped every
+ * few seconds while a chat is on screen, and a keystroke or a turn's end moves
+ * one too, and each was a re-read of every workspace on every paired device
+ * for a list that came back the same. The conversation list, which does read
+ * them, has its own filter above.
+ */
+export function movesWorkspaceList(event: WorkspaceSyncEvent): boolean {
+  if (event.type !== 'workspace.fields_updated') return true
+  return Object.entries(event.payload.patch).some(
+    ([field, value]) => value !== undefined && !UNLISTED_CLOCKS.has(field as keyof WorkspaceFieldsPatch),
+  )
+}
+
+/** The record's clocks, none of which `workspace.list` projects. */
+const UNLISTED_CLOCKS = new Set<keyof WorkspaceFieldsPatch>([
+  'lastVisitedAt',
+  'visitRewoundAt',
+  'lastTerminalActivityAt',
+  'lastUserMessageAt',
+  'lastTurnEndedAt',
+])
+
+const epoch = (value: number | null | undefined): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0
+
+/**
+ * When a chat last finished a turn: the latest of the reading given (its
+ * transcript's index, which keeps it across a restart and for turns that
+ * ended before a session of this run held it) and of what the sessions this
+ * run holds read off the same events. With no `agentId`, any of the
+ * workspace's chats. Never `updatedAt`, which a rename, a session starting or
+ * stopping, or a usage report moves too. The one reading of it the list, the
+ * change feed and Mark unread all take, so they cannot disagree.
+ */
+export function latestTurnEnd(
+  sessions: ReadonlyArray<Pick<ConversationSessionSummary, 'workspaceId' | 'agentId' | 'lastTurnEndedAt'>>,
+  key: { workspaceId: string; agentId?: string },
+  known?: number | null,
+): number | undefined {
+  let latest = epoch(known) ? known : undefined
+  for (const session of sessions) {
+    if (session.workspaceId !== key.workspaceId) continue
+    if (key.agentId !== undefined && session.agentId !== key.agentId) continue
+    if (epoch(session.lastTurnEndedAt) && session.lastTurnEndedAt > (latest ?? -1)) latest = session.lastTurnEndedAt
+  }
+  return latest
+}

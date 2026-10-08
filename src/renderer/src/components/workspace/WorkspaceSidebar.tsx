@@ -87,6 +87,7 @@ import {
   buildRemoteBand,
   openSpecOfConversation,
   remoteConversationTitle,
+  remoteLifecycleWritable,
   remoteRestToFollow,
   unattachedConversations,
   type RemoteConversation,
@@ -1297,10 +1298,10 @@ function WorkspaceSidebar({
         key: `remote:${origin.connectionId}:${origin.workspaceId}`,
         turnEndedAt: row.lastTurnEndedAt,
         visitedAt: row.lastVisitedAt,
-        stamp: (at) => {
-          void visit({ connectionId: origin.connectionId, workspaceId: origin.workspaceId, visitedAt: at }).catch(
-            () => undefined,
-          )
+        // The machine stamps the visit with its own clock, which this one's
+        // may not agree with.
+        stamp: () => {
+          void visit({ connectionId: origin.connectionId, workspaceId: origin.workspaceId }).catch(() => undefined)
         },
       }
     }
@@ -1357,7 +1358,8 @@ function WorkspaceSidebar({
   // A refusal leaves the row, with the machine's own words.
   const remoteKeepsRest = useCallback(
     (workspace: Workspace): boolean =>
-      Boolean(workspace.remoteOrigin) && remoteBrowses.get(workspace.remoteOrigin!.connectionId)?.lifecycle === true,
+      Boolean(workspace.remoteOrigin) &&
+      remoteLifecycleWritable(remoteBrowses.get(workspace.remoteOrigin!.connectionId)),
     [remoteBrowses],
   )
   const settleOpenedRemote = useCallback(

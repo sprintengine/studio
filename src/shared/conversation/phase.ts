@@ -56,3 +56,27 @@ export function conversationTurnInProgress(summary: ConversationSessionSummary):
     phase === 'starting' || phase === 'running' || phase === 'waiting_for_approval' || phase === 'waiting_for_input'
   )
 }
+
+/**
+ * Whether ending a chat session's processes now would lose work: a turn
+ * starting, running or stopped on a person's answer, or an agent it launched
+ * still working in the background, whatever its parent's phase says (it goes
+ * on while the parent waits on the person, or after the parent's turn
+ * failed). A stopped session has no processes left to end. What a Settle
+ * asked for from another device or an agent waits on (`conversation.settle`):
+ * the window that carries out a settle made elsewhere ends the chat's
+ * processes, and the work with them.
+ */
+export function conversationSessionWorking(summary: ConversationSessionSummary): boolean {
+  if (summary.status === 'stopped') return false
+  return (summary.backgroundAgents ?? 0) > 0 || conversationTurnInProgress(summary)
+}
+
+/**
+ * Whether an agent terminal is mid-turn, in a process still there to run it:
+ * a stamp of `working` outlives a pty that was suspended or killed mid-turn,
+ * so it counts only while the process is alive.
+ */
+export function terminalAgentWorking(session: { processAlive: boolean; activity?: { kind: string } }): boolean {
+  return session.processAlive && session.activity?.kind === 'working'
+}

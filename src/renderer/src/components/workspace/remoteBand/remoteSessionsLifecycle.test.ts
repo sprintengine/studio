@@ -6,6 +6,7 @@ import type { Workspace } from '../../../types/workspace'
 import {
   buildRemoteBand,
   conversationsOf,
+  remoteLifecycleWritable,
   remoteRestToFollow,
   unattachedConversations,
   type RemoteBrowseEntry,
@@ -66,7 +67,7 @@ function band(entries: Array<[MeshConnection, Partial<RemoteBrowseEntry> & { con
     browses: new Map(
       entries.map(([machine, entry]) => [
         machine.id,
-        { browse: browse(), loading: false, error: null, at: 1, lifecycle: true, ...entry },
+        { browse: browse(), loading: false, error: null, at: 1, lifecycle: true, access: 'operate' as const, ...entry },
       ]),
     ),
     reachability: new Map(),
@@ -77,11 +78,34 @@ function band(entries: Array<[MeshConnection, Partial<RemoteBrowseEntry> & { con
 const mini = connection('c1', 'mac-mini')
 const box = connection('c2', 'build-box')
 
-test('rows are ordered by when the person last wrote to each, never by what the agent is doing', () => {
+test('a machine that keeps its chats’ rest is drawn in the order it listed them, its sidebar’s', () => {
+  // Its key for a chat never written to is its creation there, not when it
+  // last moved: re-sorted here by `updatedAt`, 'never-written' would jump
+  // above 'written' though that machine's own sidebar draws it below.
   const [group] = band([
     [
       mini,
       {
+        conversations: [
+          chat('working', { phase: 'running', updatedAt: 9_000, lastUserMessageAt: 3_000 }),
+          chat('written', { phase: 'completed', updatedAt: 50, lastUserMessageAt: 2_000 }),
+          chat('never-written', { phase: 'completed', updatedAt: 8_000 }),
+        ],
+      },
+    ],
+  ])
+  assert.deepEqual(
+    group!.rows.map((row) => row.workspaceId),
+    ['working', 'written', 'never-written'],
+  )
+})
+
+test('a machine from before that is ordered here by when the person last wrote, never by what the agent is doing', () => {
+  const [group] = band([
+    [
+      mini,
+      {
+        lifecycle: false,
         conversations: [
           chat('working', { phase: 'running', updatedAt: 9_000, lastUserMessageAt: 100 }),
           chat('waiting', { phase: 'waiting_for_approval', updatedAt: 8_000, lastUserMessageAt: 200 }),
@@ -98,17 +122,24 @@ test('rows are ordered by when the person last wrote to each, never by what the 
   )
 })
 
-test('across machines the rows interleave by the same clock', () => {
+test('across machines the rows interleave by the same clock, each machine’s in its own order', () => {
   const groups = band([
     [
       mini,
-      { conversations: [chat('mini-old', { lastUserMessageAt: 100 }), chat('mini-new', { lastUserMessageAt: 900 })] },
+      {
+        conversations: [
+          chat('mini-new', { lastUserMessageAt: 900 }),
+          // Listed below 'mini-new' by its machine, whatever its clock here says.
+          chat('mini-unwritten', { updatedAt: 950 }),
+          chat('mini-old', { lastUserMessageAt: 100 }),
+        ],
+      },
     ],
     [box, { conversations: [chat('box-mid', { lastUserMessageAt: 500 })] }],
   ])
   assert.deepEqual(
     unattachedConversations(groups, true, []).map((conversation) => conversation.workspaceId),
-    ['mini-new', 'box-mid', 'mini-old'],
+    ['mini-new', 'mini-unwritten', 'box-mid', 'mini-old'],
   )
 })
 
@@ -163,6 +194,16 @@ test('a row carries its clocks and whether its machine keeps its rest', () => {
   const [older] = band([[mini, { lifecycle: false, conversations: [chat('a')] }]])
   assert.equal(older!.rows[0]!.lifecycle, false)
   assert.equal(older!.rows[0]!.lastTurnEndedAt, null)
+})
+
+test('a pairing that may only follow a machine’s chats offers no Settle and says no visit there', () => {
+  const [readOnly] = band([[mini, { access: 'read', conversations: [chat('a')] }]])
+  assert.equal(readOnly!.rows[0]!.lifecycle, false, 'the machine would refuse every one')
+  assert.equal(remoteLifecycleWritable({ browse: null, loading: false, error: null, at: 1, lifecycle: true }), false)
+  assert.equal(
+    remoteLifecycleWritable({ browse: null, loading: false, error: null, at: 1, lifecycle: true, access: 'operate' }),
+    true,
+  )
 })
 
 // A row here opened from a paired machine's chat, by the remote workspace it follows.

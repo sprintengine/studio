@@ -107,3 +107,19 @@ test(
     assert.equal(fresh.registry.getRecord('legacy-1')?.lastVisitedAt, 7_000)
   }),
 )
+
+test(
+  'a chat imported from an agent CLI’s history is born seen as of its last move, not unread from its start',
+  withDir((dir) => {
+    const { registry, sync } = boot(dir, 90_000)
+    const created = sync.createWorkspace(
+      { name: 'Imported', imported: { startedAt: 1_000, lastActiveAt: 40_000 } },
+      'gateway',
+    )
+    assert.ok(created.ok)
+    const record = registry.getRecord('ws-1')
+    assert.equal(record?.createdAt, 1_000)
+    assert.equal(record?.lastTurnEndedAt, 40_000)
+    assert.equal(record?.lastVisitedAt, 40_000, 'its last finish is not one nobody has seen')
+  }),
+)
