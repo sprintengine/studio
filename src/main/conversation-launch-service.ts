@@ -158,6 +158,13 @@ export type ConversationLaunchRequest = {
    */
   scheduledAgentId?: string
   /**
+   * The scheduled agent whose run is starting this chat through a tool call
+   * (the caller is the run's chat, or something it started). Kept on the
+   * chat's agent (`AgentState.launchedByScheduledAgentId`), wherever the chat
+   * is born, so it schedules nothing either.
+   */
+  launchedByScheduledAgentId?: string
+  /**
    * Open the new chat without bringing it to the front of the window: it
    * joins the list and waits there. For a chat nobody is watching start, like
    * a scheduled run; ignored when joining an existing workspace.
@@ -510,6 +517,9 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       ...(skills.length > 0 ? { conversationSkills: skills } : {}),
       ...(request.ownerModuleId?.trim() ? { ownerModuleId: request.ownerModuleId.trim() } : {}),
       ...(request.launchCommandId ? { launchCommandId: request.launchCommandId } : {}),
+      ...(request.launchedByScheduledAgentId?.trim()
+        ? { launchedByScheduledAgentId: request.launchedByScheduledAgentId.trim() }
+        : {}),
     }
     let chatWorkspaceId = workspace.id
     if (newChat) {

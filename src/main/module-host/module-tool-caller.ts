@@ -22,6 +22,12 @@ import { clampPresetToCeiling } from '../../shared/permission-ceiling'
 type ModuleToolCaller = {
   /** The loosest preset an agent the handler starts may run on; null when the caller is not capped. */
   permissionCeiling: CliPermissionPreset | null
+  /**
+   * The scheduled run the caller is part of (launch-permission-cap.ts), or
+   * null. A chat the handler starts carries it, and the handler may not make,
+   * change or fire a schedule for it.
+   */
+  scheduledRun?: string | null
 }
 
 const storage = new AsyncLocalStorage<ModuleToolCaller>()
@@ -37,6 +43,11 @@ export function runAsModuleToolCall<T>(caller: ModuleToolCaller, handler: () => 
  */
 export function moduleToolCallerCeiling(): CliPermissionPreset | null {
   return storage.getStore()?.permissionCeiling ?? null
+}
+
+/** The scheduled run whose agent's tool call is running now, or null. */
+export function moduleToolCallerScheduledRun(): string | null {
+  return storage.getStore()?.scheduledRun ?? null
 }
 
 /**

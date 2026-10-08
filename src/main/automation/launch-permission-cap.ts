@@ -200,6 +200,66 @@ export function createAgentPermissionResolver(deps: {
   }
 }
 
+// A scheduled run may read the schedules but not make, change, remove or fire
+// one (automation-tools.ts). The rule has to hold for what a run starts too:
+// otherwise a run's chat launches an agent into another workspace, that agent
+// declares a workspace no schedule started, and schedules whatever it likes.
+// So everything a run's connection launches carries the schedule's id on its
+// record (`AgentState.launchedByScheduledAgentId`), and so on down the chain.
+
+/** The scheduled agent whose run an agent is part of, or null. */
+export type ScheduledRunResolver = (agent: { workspaceId: string; agentId?: string }) => string | null
+
+/**
+ * Whose run an agent is part of: the chat a schedule started (its workspace
+ * says so), or an agent that a run started, directly or through others (its
+ * record says so, and before the record is written, its launch).
+ */
+export function createScheduledRunResolver(deps: {
+  readWorkspace(workspaceId: string): {
+    scheduledAgentId?: string | null
+    agents?: Record<string, { launchedByScheduledAgentId?: string } | undefined>
+  } | null
+  listTerminalSessions(): ReadonlyArray<{
+    kind?: string
+    workspaceId?: string
+    launchWorkspaceId?: string
+    agentId?: string
+    processAlive: boolean
+    agentRecord?: { launchedByScheduledAgentId?: unknown }
+  }>
+}): ScheduledRunResolver {
+  return ({ workspaceId, agentId }) => {
+    const workspace = deps.readWorkspace(workspaceId)
+    if (workspace?.scheduledAgentId) return workspace.scheduledAgentId
+    if (!agentId) return null
+    const recorded = workspace?.agents?.[agentId]?.launchedByScheduledAgentId
+    if (recorded) return recorded
+    for (const session of deps.listTerminalSessions()) {
+      if (session.kind !== 'agent' || !session.processAlive || session.agentId !== agentId) continue
+      if (session.workspaceId !== workspaceId && session.launchWorkspaceId !== workspaceId) continue
+      const launched = session.agentRecord?.launchedByScheduledAgentId
+      if (typeof launched === 'string' && launched) return launched
+    }
+    return null
+  }
+}
+
+/**
+ * The scheduled run a gateway call comes from, or null. Only a connection
+ * that declared itself one of this app's agents, in a workspace, can be one:
+ * a caller that declared no workspace is not a run's chat as far as anything
+ * here can tell.
+ */
+export function scheduledRunOfCaller(
+  context: McpConnectionContext | undefined,
+  resolve: ScheduledRunResolver,
+): string | null {
+  const metadata = context?.metadata
+  if (metadata?.kind !== 'studio-agent' || !metadata.workspaceId) return null
+  return resolve({ workspaceId: metadata.workspaceId, ...(metadata.agentId ? { agentId: metadata.agentId } : {}) })
+}
+
 // Unreadable counts as the strictest preset: a session whose preset cannot be
 // read is not evidence that it may do more.
 function strictest(presets: ReadonlyArray<CliPermissionPreset | null>): CliPermissionPreset {

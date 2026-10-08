@@ -2451,6 +2451,102 @@ test('automation', async () => {
     }
   }
 
+  // A run's chat may not get round "runs don't schedule runs" through an agent
+  // it launches: whatever it launches, into any workspace, carries the run on
+  // its record (and on its launch, before the record is written), and is held
+  // to the same rule; and so is whatever that agent launches in turn.
+  async function testWhatAScheduledRunLaunchesMayNotChangeSchedulesEither(): Promise<void> {
+    const { service, calls } = fakeScheduledAgents()
+    const other = testWorkspace('ws-1', { folderPath: '/tmp/project-a' })
+    const sessions: TerminalSessionSnapshot[] = []
+    const requests: AgentLaunchRequest[] = []
+    const tools = createAutomationTools({
+      ...backendsOf({
+        workspaces: [other, testWorkspace('ws-run', { folderPath: '/tmp/project-a', scheduledAgentId: 'sa-1' })],
+        getScheduledAgents: () => service,
+      }),
+      listTerminalSessions: () => sessions,
+      launchAgent: async (request) => {
+        requests.push(request)
+        const agentId = `agent-launched-${requests.length}`
+        sessions.push({
+          sessionId: `sess-${requests.length}`,
+          kind: 'agent',
+          workspaceId: request.workspaceId,
+          agentId,
+          agentName: 'Scout',
+          cli: 'claude-code',
+          processAlive: true,
+          activity: { kind: 'idle', since: 0 },
+          // Live before its record is written to the workspace.
+          agentRecord: {
+            agentId,
+            name: 'Scout',
+            cli: 'claude-code',
+            cliPermissionPreset: 'bypass',
+            ...(request.launchedByScheduledAgentId
+              ? { launchedByScheduledAgentId: request.launchedByScheduledAgentId }
+              : {}),
+          },
+        } as never)
+        return {
+          ok: true,
+          workspaceId: request.workspaceId,
+          agentId,
+          sessionId: `sess-${requests.length}`,
+          cli: 'claude-code',
+          executionId: `sess-${requests.length}`,
+        }
+      },
+    })
+    const refused = async (context: McpConnectionContext, label: string) => {
+      for (const [name, args] of [
+        ['schedule.create', { workspaceId: 'ws-1', prompt: 'x', cron: '0 9 * * *' }],
+        ['schedule.delete', { id: 'sa-1' }],
+        ['schedule.run', { id: 'sa-1' }],
+      ] as const) {
+        const result = await tool(tools, name).handler(args as Record<string, unknown>, context)
+        const error = (result.structuredContent as { error?: { code: string } }).error
+        assert.equal(error?.code, 'scheduled_run_refused', `${label}: ${name}`)
+      }
+    }
+
+    // The run's chat launches an agent into another workspace…
+    const run = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-run', agentId: 'agent-1' } }
+    const launched = await tool(tools, 'agent.launch').handler({ workspaceId: 'ws-1', name: 'Scout' }, run)
+    assert.equal(launched.isError, undefined, JSON.stringify(launched.structuredContent))
+    assert.equal(requests[0]?.launchedByScheduledAgentId, 'sa-1', 'the launch carries the run')
+    const child = {
+      metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-launched-1' },
+    }
+    // …which is refused while only its live launch says so…
+    await refused(child, 'launched, record not yet written')
+    // …and once its record says so.
+    sessions.length = 0
+    other.agents['agent-launched-1'] = {
+      id: 'agent-launched-1',
+      name: 'Scout',
+      launchedByScheduledAgentId: 'sa-1',
+    } as never
+    await refused(child, 'launched, from its record')
+
+    // What that agent launches carries the run too.
+    const grandchild = await tool(tools, 'terminal.create').handler({ workspaceId: 'ws-1' }, child)
+    assert.equal(grandchild.isError, undefined, JSON.stringify(grandchild.structuredContent))
+    assert.equal(requests[1]?.launchedByScheduledAgentId, 'sa-1')
+    assert.deepEqual(calls, { created: [], ran: [], removed: [] }, 'nothing reached the service')
+
+    // A person's own agent in that workspace keeps every tool, and launches carry nothing.
+    const own = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-own' } }
+    const created = await tool(tools, 'schedule.create').handler(
+      { workspaceId: 'ws-1', prompt: 'x', cron: '0 9 * * *' },
+      own,
+    )
+    assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
+    await tool(tools, 'agent.launch').handler({ workspaceId: 'ws-1', name: 'Scout' }, own)
+    assert.equal(requests[2]?.launchedByScheduledAgentId, undefined)
+  }
+
   // Every surface may spawn in bypass (owner ruling 2026-09-27): an external
   // caller gets the same two presets a person at the launcher does, and an
   // omitted one means what it means there. This pins that the tool boundary
@@ -3710,6 +3806,7 @@ test('automation', async () => {
     testBacklogWorkPresetsAndPostLaunchLinkFailure,
     testScheduleToolsDriveTheScheduledAgentsService,
     testAScheduledRunsChatMayNotChangeSchedules,
+    testWhatAScheduledRunLaunchesMayNotChangeSchedulesEither,
     testBothPresetsAreOpenAtTheExternalToolBoundary,
     testAnOmittedPresetResolvesLikeTheDesktopLauncher,
     testScheduleToolsPassServiceFailuresThrough,
