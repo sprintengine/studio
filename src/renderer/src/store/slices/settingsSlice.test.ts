@@ -24,8 +24,8 @@ import {
   normalizeRecentWorkspaceFolders,
   normalizeNewChatAgentChoice,
   normalizeProjectColors,
-  normalizeTextGenerationSettings,
 } from './settingsSlice'
+import { normalizeTextGenerationSettings } from '../../../../shared/text-generation/contract'
 import type { ProjectColorSetting } from '../../utils/projectColor'
 import { EXTENSIONS_BROWSE_DEEPLINK } from '../../components/settings/extensionsRoute'
 import { consumePendingExtensionsSurfaceTarget } from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'

@@ -116,6 +116,11 @@ const SERVER_BOUND: readonly string[] = [
   // File search for @-mentions.
   'src/main/conversation-mentions.ts',
   'src/main/filesystem-search.ts',
+  // Chat titles: the titler that follows the chats, its copy of the setting,
+  // and the one-shot CLI call it makes.
+  'src/main/text-generation/chat-titler.ts',
+  'src/main/text-generation/text-generation-settings-store.ts',
+  'src/main/text-generation/text-generation-service.ts',
 ]
 
 /**

@@ -111,6 +111,32 @@ export type TextGenerationSettings = {
 }
 
 /**
+ * The text-generation setting as persisted. Enabled by default: the owner's
+ * ruling (2026-09-07) is that the heuristic is the fallback for a person who
+ * turned this off or has no supported CLI, so a fresh profile starts with it
+ * on. The engine follows the AgentCliModelSelection rules — a CLI with an
+ * empty model means that CLI's default model, and a stray level without a
+ * CLI is nothing.
+ *
+ * Shared because two copies of the setting read it: the window's own, and
+ * main's mirror, which titles a chat with no window to ask
+ * (`main/text-generation/text-generation-settings-store.ts`). Both read an
+ * absent value as the same default.
+ */
+export function normalizeTextGenerationSettings(
+  input: Partial<TextGenerationSettings> | null | undefined,
+): TextGenerationSettings {
+  const enabled = typeof input?.enabled === 'boolean' ? input.enabled : true
+  const raw = input?.engine
+  if (!raw || typeof raw !== 'object') return { enabled, engine: null }
+  const cli = typeof raw.cli === 'string' ? raw.cli.trim() : ''
+  const model = typeof raw.model === 'string' ? raw.model.trim() : ''
+  const reasoning = typeof raw.reasoning === 'string' ? raw.reasoning.trim() : ''
+  if (!cli) return { enabled, engine: null }
+  return { enabled, engine: { cli, model, ...(reasoning ? { reasoning } : {}) } }
+}
+
+/**
  * Turn the setting into the engine a call should actually use, or null when
  * no call should be made. `installed(cli)` answers from the availability
  * probe: `false` excludes a CLI, while `true` and `undefined` (not probed yet)

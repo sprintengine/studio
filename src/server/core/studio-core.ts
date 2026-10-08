@@ -39,6 +39,10 @@ import { getSharedCredentialStore } from '../../main/secret-store'
 import { createWorkspaceRegistryService } from '../../main/workspace-registry-service'
 import { createWorkspaceRegistryStore } from '../../main/workspace-registry-store'
 import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
+import { knownCliAvailability } from '../../main/cli-availability'
+import { createChatTitler } from '../../main/text-generation/chat-titler'
+import { generateChatTitle } from '../../main/text-generation/text-generation-service'
+import { createTextGenerationSettingsStore } from '../../main/text-generation/text-generation-settings-store'
 import { createConversationLifecycle, latestTurnEnd } from '../../main/automation/conversation-lifecycle'
 import { conversationSessionWorking, terminalAgentWorking } from '../../shared/conversation/phase'
 import type { ConversationMessageOrigin, ConversationSessionSummary } from '../../shared/conversation-runtime'
@@ -613,6 +617,33 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     workspaceRegistry.subscribe(() => scheduledMessages.prune()),
   ]
 
+  // A chat is titled here, from its own events, rather than by a window: the
+  // chats that most need a title are the ones a phone or a paired machine
+  // started while no window was watching (chat-titler.ts). The heuristic
+  // lands at once; a model-written title replaces it when the person has them
+  // on, on the setting each window pushes to this process (absent, the
+  // window's own default: on, with the engine left to the CLIs installed).
+  const textGenerationSettings = createTextGenerationSettingsStore({
+    resolveUserDataDir: () => platform.paths.dataDir(),
+    logDiagnostic: logDiagnostic('agents'),
+  })
+  const chatTitler = createChatTitler({
+    onEvent: (listener) => conversations.onEvent(listener),
+    getWorkspace: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
+    rename: (workspaceId, name) => workspaceSyncService.renameWorkspace(workspaceId, name, true, 'system').ok,
+    settings: () => textGenerationSettings.get(),
+    candidateClis: () => listPluginRegistryEntries().map((entry) => entry.id),
+    // The availability this process already holds, never a fresh probe: a
+    // CLI it has not looked at yet is kept, and the generator itself answers
+    // for one that turns out to be missing.
+    installed: (cli) => knownCliAvailability({ cliRuntimes: agentLaunchSettings.get().cliRuntimes })[cli]?.installed,
+    cliRuntimes: () => agentLaunchSettings.get().cliRuntimes,
+    generate: (request) => generateChatTitle(request),
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'info', source: 'agents', title: 'Chat title not generated', message })
+    },
+  })
+
   // Both of Studio's own sends stop before the chats do, listeners first, so
   // none comes due on the way out and starts an agent the quit then has to
   // stop (or, stopped already, would be recorded as sent). The desktop's quit
@@ -646,6 +677,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       () => conversationRuntime.flushTranscripts(),
       stopUsageLimitResumes,
       stopScheduledMessages,
+      () => chatTitler.dispose(),
       () => conversationOwner.shutdown(),
       () => pullRequests.dispose(),
       // The servers the Studio itself started stop with it: nothing would be
@@ -693,6 +725,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     localServers,
     usageLimitResumes,
     scheduledMessages,
+    /** The model-written chat titles setting, as the windows push it. */
+    textGenerationSettings,
     stopUsageLimitResumes,
     stopScheduledMessages,
     shutdown,

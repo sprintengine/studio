@@ -47,6 +47,7 @@ function serverDomainStubs(dataDir: string): ServerDomainIpcDeps {
       conversations: anything(),
       usageLimitResumes: anything(),
       scheduledMessages: anything(),
+      textGenerationSettings: anything(),
     } as never,
     gateway: anything(),
     studioRpc: { provideChat: () => undefined } as never,

@@ -104,8 +104,9 @@ export type WorkspaceCreateRequest = {
   templateAgentIds?: Record<AgentId, AgentId>
   /**
    * The name is one the app derived (a chat named after the first message main
-   * sent it), so it is not locked: a window's own titling may still replace it
-   * with a model-written title. Absent, a name that is not app-minted locks.
+   * sent it), so it is not locked: the chat's titler may still replace it with
+   * a model-written title (`text-generation/chat-titler.ts`). Absent, a name
+   * that is not app-minted locks.
    */
   titleOpen?: boolean
   /** The scheduled agent whose run this chat is; see `Workspace.scheduledAgentId`. */

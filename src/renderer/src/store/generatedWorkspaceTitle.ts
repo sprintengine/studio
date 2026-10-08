@@ -12,6 +12,11 @@
  *
  * Failure is silence. No toast, no log line at warning level: an absent title
  * is the heuristic title, which is what the app showed before this existed.
+ *
+ * This titles a terminal agent's workspace, from the prompt its hook reports
+ * to a window. A chat is titled by the process that runs it, from the chat's
+ * own events, by the same rules (`main/text-generation/chat-titler.ts`): a chat
+ * a phone starts may have no window here to title it.
  */
 
 import type { ChatTitleRequest, TextGenerationResult } from '../../../shared/text-generation/contract'

@@ -301,8 +301,9 @@ test('a new chat main starts is named after its first message, and the name stay
   assert.equal(result.ok, true)
   if (!result.ok) return
   const created = registry.getRecord(result.workspaceId)!
-  // No window may be showing this chat (a phone started it), so main titles
-  // it; a window's model-written title can still replace the heuristic one.
+  // No window may be showing this chat (a phone started it), so it is listed
+  // under its heuristic title at once; the chat's titler can still replace it
+  // with a model-written one.
   assert.equal(created.name, deriveWorkspaceTitle(prompt))
   assert.equal(created.titleLocked, undefined)
 })
@@ -369,8 +370,8 @@ test('a chat born in a folder gets a workspace of its own there, on its machine 
     baseRef: 'HEAD',
     repoRoot: '/Users/dev/app',
   })
-  // A scheduled run is named after what it was sent, since no window may be
-  // there to title it; the name stays open for a model-written one.
+  // A scheduled run is listed under what it was sent from the start; the name
+  // stays open for a model-written one.
   assert.equal(created.name, deriveWorkspaceTitle('triage new issues'))
   assert.equal(created.titleLocked, undefined)
   assert.equal(starts[0]!.workspaceRoot, '/Users/dev/.worktrees/app/nightly-20260930-2100')

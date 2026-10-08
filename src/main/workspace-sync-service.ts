@@ -269,6 +269,35 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
   }
 
   /**
+   * Record a name main chose itself: a chat's title, taken from its first
+   * message (`chat-titler.ts`). It carries the lock as a window's title does,
+   * so the name stops moving once it lands.
+   *
+   * Stamped with the name's current stamp rather than now, as an agent main
+   * registers is stamped 0: nobody decided this name, so a person's rename in
+   * any window wins over it, even one typed a moment before this write and
+   * still on its way to main.
+   */
+  function renameWorkspace(
+    workspaceId: WorkspaceId,
+    name: string,
+    titleLocked: boolean,
+    actor: WorkspaceMutationActor,
+  ): WorkspaceSyncCommandResult {
+    const record = registry.getRecord(workspaceId)
+    if (!record) return failure('unknown_workspace', `Workspace "${workspaceId}" is not in the registry.`)
+    if (!name.trim()) return failure('invalid_workspace_name', 'A workspace name cannot be empty.')
+    return emit(
+      {
+        type: 'workspace.rename',
+        payload: { workspaceId, name, titleLocked, editedAt: record.fieldEditedAt?.name ?? 0 },
+      },
+      registry.getState().primaryWorkspaceWindowId,
+      actor,
+    )
+  }
+
+  /**
    * Record a main-originated agent change. `configEditedAt` defaults to now;
    * a caller writing something no person decided (main registering an agent it
    * launched) passes 0, so any window's edit to that agent — even one stamped
@@ -307,6 +336,7 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     getEventsAfter,
     getSnapshot,
     removeWorkspace,
+    renameWorkspace,
     rewindVisit,
     subscribeEvents,
     updateWorkspaceAgent,

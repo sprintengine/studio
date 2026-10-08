@@ -6,6 +6,7 @@ import type {
   TextGenerationCliRuntimeOverrides,
   TextGenerationEngine,
   TextGenerationResult,
+  TextGenerationSettings,
 } from '../../shared/text-generation/contract'
 import type {
   CreatePullRequestOutcome,
@@ -17,6 +18,10 @@ import type {
 export const textGenerationApi = {
   generateChatTitle: (request: ChatTitleRequest): Promise<TextGenerationResult> =>
     ipcRenderer.invoke('text-generation:chat-title', request),
+  // The same one-way push as background mode: the window owns the setting,
+  // the process that runs the chats keeps the copy it titles them by.
+  setTextGenerationSettings: (settings: TextGenerationSettings): Promise<void> =>
+    ipcRenderer.invoke('text-generation:set-settings', settings),
   createPullRequestState: (cwd: string): Promise<CreatePullRequestState | null> =>
     ipcRenderer.invoke('pull-request-create:state', cwd),
   draftPullRequestText: (request: {
@@ -38,6 +43,7 @@ export const textGenerationApi = {
 } satisfies Pick<
   ElectronApi,
   | 'generateChatTitle'
+  | 'setTextGenerationSettings'
   | 'createPullRequestState'
   | 'draftPullRequestText'
   | 'cancelPullRequestDraft'

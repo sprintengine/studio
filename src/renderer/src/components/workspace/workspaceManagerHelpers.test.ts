@@ -5,7 +5,6 @@ import type { Workspace } from '../../types/workspace'
 import {
   buildSidebarWorkspaceOrder,
   compareSessionItemsByAttention,
-  conversationTitleOffers,
   deriveSessionStatus,
   getSessionItems,
   groupSessionItems,
@@ -514,78 +513,4 @@ test('workspaceManagerHelpers', async () => {
       'needs-input outranks failed for tone',
     )
   }
-})
-
-function chatSummary(patch: Partial<ConversationSessionSummary>): ConversationSessionSummary {
-  return {
-    sessionId: 'chat-session',
-    workspaceId: 'ws-chat',
-    agentId: 'agent-chat',
-    providerId: 'claude-agent',
-    modelId: 'sonnet',
-    status: 'ready',
-    createdAt: 1,
-    updatedAt: 1,
-    ...patch,
-  }
-}
-
-test('a chat offers its first message to the auto-titler once', () => {
-  const offered = new Map<string, string>()
-  const sent = chatSummary({ firstUserText: 'Fix the upload retry', lastUserText: 'Fix the upload retry' })
-  assert.deepEqual(conversationTitleOffers([sent], offered), [
-    { workspaceId: 'ws-chat', prompt: 'Fix the upload retry' },
-  ])
-  assert.deepEqual(conversationTitleOffers([sent], offered), [], 'a repeated summary offers nothing')
-})
-
-test('a chat whose workspace this window does not hold yet is offered once it arrives', () => {
-  const offered = new Map<string, string>()
-  const sent = chatSummary({ firstUserText: 'Fix the upload retry', lastUserText: 'Fix the upload retry' })
-  assert.deepEqual(
-    conversationTitleOffers([sent], offered, () => false),
-    [],
-    'nowhere to land yet',
-  )
-  assert.deepEqual(
-    conversationTitleOffers([sent], offered, () => true),
-    [{ workspaceId: 'ws-chat', prompt: 'Fix the upload retry' }],
-  )
-})
-
-test('a chat reopened after a restart is offered its first message before its last', () => {
-  const offered = new Map<string, string>()
-  const resumed = chatSummary({ firstUserText: 'Fix the upload retry', lastUserText: 'Now add a test' })
-  assert.deepEqual(
-    conversationTitleOffers([resumed], offered).map((offer) => offer.prompt),
-    ['Fix the upload retry', 'Now add a test'],
-  )
-})
-
-test('a later message is offered, so a filler or image-only opener leaves the next one to title the chat', () => {
-  const offered = new Map<string, string>()
-  assert.deepEqual(conversationTitleOffers([chatSummary({ lastUserText: '' })], offered), [], 'an image-only turn')
-  assert.deepEqual(
-    conversationTitleOffers([chatSummary({ firstUserText: 'hi', lastUserText: 'hi' })], offered).map((o) => o.prompt),
-    ['hi'],
-  )
-  assert.deepEqual(
-    conversationTitleOffers([chatSummary({ firstUserText: 'hi', lastUserText: 'Rename the export button' })], offered),
-    [{ workspaceId: 'ws-chat', prompt: 'Rename the export button' }],
-  )
-})
-
-test('each chat session is tracked on its own', () => {
-  const offered = new Map<string, string>()
-  const offers = conversationTitleOffers(
-    [
-      chatSummary({ sessionId: 'one', workspaceId: 'ws-one', firstUserText: 'Same words', lastUserText: 'Same words' }),
-      chatSummary({ sessionId: 'two', workspaceId: 'ws-two', firstUserText: 'Same words', lastUserText: 'Same words' }),
-    ],
-    offered,
-  )
-  assert.deepEqual(
-    offers.map((offer) => offer.workspaceId),
-    ['ws-one', 'ws-two'],
-  )
 })

@@ -7,7 +7,7 @@ import {
 } from '../../../../shared/launch-settings'
 import { normalizeMachineMarkSettings, type MachineMarkSetting } from '../../../../shared/machine-identity'
 import { normalizeProjectUsageMap } from '../../../../shared/project-frecency'
-import type { TextGenerationSettings } from '../../../../shared/text-generation/contract'
+import { normalizeTextGenerationSettings } from '../../../../shared/text-generation/contract'
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
@@ -568,27 +568,6 @@ export function normalizeCliModelCatalogs(
 // Persisted last-used conversation provider/model. Keeps only a well-formed
 // non-empty pair; anything else (legacy absence, partial blob) resets to null so
 // spawn falls back to the first available option.
-/**
- * The text-generation setting as persisted. Enabled by default: the owner's
- * ruling (2026-09-07) is that the heuristic is the fallback for a person who
- * turned this off or has no supported CLI, so a fresh profile starts with it
- * on. The engine follows the AgentCliModelSelection rules — a CLI with an
- * empty model means that CLI's default model, and a stray level without a
- * CLI is nothing.
- */
-export function normalizeTextGenerationSettings(
-  input: Partial<TextGenerationSettings> | null | undefined,
-): TextGenerationSettings {
-  const enabled = typeof input?.enabled === 'boolean' ? input.enabled : true
-  const raw = input?.engine
-  if (!raw || typeof raw !== 'object') return { enabled, engine: null }
-  const cli = typeof raw.cli === 'string' ? raw.cli.trim() : ''
-  const model = typeof raw.model === 'string' ? raw.model.trim() : ''
-  const reasoning = typeof raw.reasoning === 'string' ? raw.reasoning.trim() : ''
-  if (!cli) return { enabled, engine: null }
-  return { enabled, engine: { cli, model, ...(reasoning ? { reasoning } : {}) } }
-}
-
 export function normalizeConversationModel(
   input: AgentConversationRuntime | null | undefined,
 ): AgentConversationRuntime | null {
