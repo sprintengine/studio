@@ -53,6 +53,12 @@ export type NewChatConfirmHost = {
   ) => WorkspaceId | null
   /** Make the worktree a chat opened with `pendingWorktree` is waiting on. */
   prepareWorktree: (workspaceId: WorkspaceId) => void
+  /**
+   * Name a chat after its first message before that message is sent, as the
+   * send itself would (store/generatedWorkspaceTitle.ts): the heuristic title
+   * at once, which locks the name, and the model-written one when it comes.
+   */
+  titleFromPrompt: (workspaceId: WorkspaceId, prompt: string) => void
   /** A use of the project, which the project pickers order by (shared/project-frecency.ts). */
   recordProjectUse: (folderPath: string) => void
   closePanel: () => void
@@ -85,6 +91,10 @@ export async function confirmNewChatWith(
     if (created) {
       host.prepareWorktree(created)
       host.recordProjectUse(projectFolder)
+      // Its message waits on the worktree, so the chat is named from it now
+      // rather than reading "Chat" in the header and the sidebar until it is
+      // sent. The name is locked by it, so the send names nothing again.
+      if (startupPrompt?.trim()) host.titleFromPrompt(created, startupPrompt)
     }
     if (!background) host.closePanel()
     return created

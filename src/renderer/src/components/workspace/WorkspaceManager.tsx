@@ -3699,6 +3699,8 @@ export default function WorkspaceManager() {
           )
         },
         prepareWorktree: (workspaceId) => void prepareNewChatWorktree(workspaceId),
+        titleFromPrompt: (workspaceId, prompt) =>
+          void generatedWorkspaceTitleRequester().titleFromPrompt(workspaceId, prompt),
         recordProjectUse,
         closePanel: closeNewChatPanel,
       },
