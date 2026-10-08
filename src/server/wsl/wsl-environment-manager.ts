@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import type { Duplex } from 'node:stream'
+import type { Duplex, Readable } from 'node:stream'
 
 import type { WslListing } from '../../main/hosts/wsl-distro'
 import {
@@ -7,7 +7,7 @@ import {
   buildLaunchScript,
   serverTreeName,
   tarArgs,
-  type AppPayload,
+  type StreamedPayload,
   type NeedReport,
 } from '../../main/hosts/wsl-install'
 import type { WslRunner } from '../../main/hosts/wsl-runner'
@@ -87,7 +87,7 @@ export type WslEnvironmentManagerDeps = {
   /** The Windows profile's id; `isDefault` for the installed app's own profile (`data/`, decision R68). */
   profile: { id: string; isDefault: boolean }
   /** The server tree this build ships, packed; null when it shipped none. */
-  payload(): AppPayload | null
+  payload(): StreamedPayload | null
   /**
    * The build identity in that tree's `build.json`, which the server's `boot`
    * must repeat. Null (a tree from before the file) skips the check; the
@@ -99,7 +99,7 @@ export type WslEnvironmentManagerDeps = {
   installNode(distro: string, report: NeedReport): Promise<void>
   install(
     distro: string,
-    input: { kind: 'server'; digest: string; argv: (id: string) => string[]; body: () => Buffer },
+    input: { kind: 'server'; digest: string; argv: (id: string) => string[]; body: () => Readable },
   ): Promise<void>
   /** `auto` tries loopback first; `stdio` always uses the bridge (`ExecutionHostSettings.serverTransport`). */
   transportFor(distro: string): 'auto' | 'stdio'
@@ -495,7 +495,7 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
               kind: 'server',
               digest: payload.digest,
               argv: (id) => tarArgs('app', id),
-              body: () => payload.tarGz,
+              body: () => payload.body(),
             })
         },
         prewarm: async () => {

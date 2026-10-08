@@ -17,7 +17,7 @@ import { afterAll, afterEach, beforeAll, test } from 'vitest'
 
 import type { HelperProcess } from '../../main/hosts/wsl-helper-client'
 import type { WslListing } from '../../main/hosts/wsl-distro'
-import { buildAppPayload, WSL_DATA_REL, type AppPayload } from '../../main/hosts/wsl-install'
+import { streamedAppPayload, WSL_DATA_REL, type StreamedPayload } from '../../main/hosts/wsl-install'
 import { installTree, wslNodeDigests } from '../../main/hosts/wsl-helper-runtime'
 import { WSL_NODE_VERSION } from '../../main/hosts/wsl-node-runtime'
 import type { WslRunner } from '../../main/hosts/wsl-runner'
@@ -50,7 +50,7 @@ const ROOT = join(__dirname, '..', '..', '..')
 const VERSION = (JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { version: string }).version
 
 let scratch = ''
-let payload: AppPayload
+let payload: StreamedPayload
 let treeBuild: { builtAt: string } | null = null
 
 beforeAll(() => {
@@ -61,7 +61,7 @@ beforeAll(() => {
     cwd: ROOT,
     stdio: 'pipe',
   })
-  payload = buildAppPayload([{ dir: tree, into: '' }])
+  payload = streamedAppPayload([{ dir: tree, into: '' }])
   treeBuild = readTreeBuild(tree)
 })
 

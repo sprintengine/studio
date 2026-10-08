@@ -20,6 +20,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, test } from 'vitest'
 
 import {
+  appPayloadDigest,
   buildAppPayload,
   buildBridgeScript,
   buildCommitScript,
@@ -33,12 +34,13 @@ import {
   parseNeedReport,
   PRUNE_GLOBS,
   serverTreeName,
+  streamedAppPayload,
   STAGED_MARKER,
   tarArgs,
   WSL_DATA_REL,
 } from './wsl-install'
 import { WSL_NODE_VERSION, wslNodeArch, wslNodePackage, type WslNodePackage } from './wsl-node-runtime'
-import { gzipSync } from 'node:zlib'
+import { gunzipSync, gzipSync } from 'node:zlib'
 
 let temp = ''
 let home = ''
@@ -150,6 +152,18 @@ test('the app payload is the same bytes from the same files, and holds the helpe
   const second = payload()
   assert.equal(first.digest, second.digest)
   assert.ok(first.tarGz.equals(second.tarGz))
+})
+
+test('the digest alone, and the payload gzipped as a stream, are the same digest and the same tar', async () => {
+  const sources = [{ dir: join(process.cwd(), 'resources', 'hooks'), into: 'hooks' }]
+  const packed = buildAppPayload(sources)
+  // Unchanged: a distribution or machine holding a tree marked with it is not sent it again.
+  assert.equal(appPayloadDigest(sources), packed.digest)
+  const streamed = streamedAppPayload(sources)
+  assert.equal(streamed.digest, packed.digest)
+  const chunks: Buffer[] = []
+  for await (const chunk of streamed.body()) chunks.push(chunk as Buffer)
+  assert.ok(gunzipSync(Buffer.concat(chunks)).equals(gunzipSync(packed.tarGz)))
 })
 
 test.skipIf(!HAS_TAR)(

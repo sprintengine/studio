@@ -424,7 +424,7 @@ export class SshEnvironment {
   ): Promise<void> {
     const fetchHere = needs.node && this.deps.settings().remoteDownload
     const node = needs.node && !fetchHere ? (await this.deps.nodeBinary(target)).binary : null
-    const archive = buildInstallArchive({
+    const archive = await buildInstallArchive({
       node,
       server: needs.server ? { dir: tree.dir, version: this.deps.app.version } : null,
     })
