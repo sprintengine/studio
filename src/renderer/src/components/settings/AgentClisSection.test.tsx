@@ -412,3 +412,22 @@ test('each machine with a CLI update wears its own count on its segment', async 
   expect(options[1].getAttribute('aria-label')).toBe('WSL: Ubuntu, 1 CLI update available')
   expect(options[1].querySelector('[role="status"]')?.textContent).toBe('1')
 })
+
+test('the bare shell row shows no version, not the shell banner', async () => {
+  fixtures.state = {
+    ...fixtures.state,
+    pluginCatalogEntries: [plugin('codex', 'Codex'), plugin('generic-shell', 'Generic Shell')],
+    cliAvailability: {
+      codex: { cli: 'codex', installed: true, resolvedPath: 'C:\\bin\\codex.exe', version: '0.40.0' },
+      'generic-shell': {
+        cli: 'generic-shell',
+        installed: true,
+        resolvedPath: '/bin/sh',
+        version: 'GNU bash, version 3.2.57(1)-release (arm64-apple-darwin)',
+      },
+    },
+  }
+  await renderSection(LOCAL, null)
+  expect(host.textContent).toContain('0.40.0')
+  expect(host.textContent).not.toContain('GNU bash')
+})

@@ -37,6 +37,13 @@ import { modelDiscoveryLine } from './modelDiscoveryLine'
 import { SettingCard, SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
 import type { SettingsUpdateBadge } from '../../utils/settingsUpdateBadges'
 
+// The bare shell runtime is the machine's own `sh`, not a CLI this app
+// installs or updates. Asked `--version`, bash answers with its whole banner
+// ("GNU bash, version 3.2.57(1)-release (arm64-apple-…") and other shells
+// with whatever they print, so its row names the binary and leaves the
+// version slot empty rather than showing a sentence in it.
+const BARE_SHELL_CLI = 'generic-shell'
+
 // Row inputs hold an identifier (a command, a model id, a key), so they are
 // mono; sized to the standard 240px row measure rather than stretched to the
 // panel. `fullWidth={false}` goes with it because Tailwind resolves two width
@@ -436,7 +443,7 @@ export function AgentClisSection({
                   // likely-installed CLI into the background.
                   recessed={state.health === 'missing'}
                   name={plugin.displayName}
-                  version={state.version}
+                  version={plugin.id === BARE_SHELL_CLI ? null : state.version}
                   stateLine={
                     <>
                       <CliProviderStateLine
