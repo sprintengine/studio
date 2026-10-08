@@ -79,6 +79,7 @@ export type ServeOptions = {
 export type ServerState = 'booting' | 'starting' | 'serving' | 'draining' | 'exited'
 
 const DEFAULT_STOP_BUDGET_MS = 8_000
+const EVENT_LOOP_SAMPLE_MS = 250
 /** How long a detached server's turns get to finish when it is asked to stop (an upgrade, `studio-server stop`). */
 export const DETACHED_STOP_BUDGET_MS = 60_000
 
@@ -118,7 +119,11 @@ export async function serveOnChannel(channel: ServerControlChannel, options: Ser
 
   let state: ServerState = 'starting'
   const rpc = createControlRpc((frame) => channel.send(frame), { log: options.log })
-  const loopDelay = monitorEventLoopDelay({ resolution: 20 })
+  // The sampler is a timer of its own, so its resolution is how often an idle
+  // server wakes. A 20 ms sampler woke it fifty times a second to feed a
+  // reading the supervisor asks for every five; a block long enough to matter
+  // still lands on one of these and reads as the lateness it caused.
+  const loopDelay = monitorEventLoopDelay({ resolution: EVENT_LOOP_SAMPLE_MS })
   loopDelay.enable()
 
   let running: RunningServer | null = null

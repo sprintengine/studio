@@ -85,6 +85,32 @@ function fakeServer(overrides: Partial<RunningServer> = {}): RunningServer & { s
 
 const silent = () => undefined
 
+test('a blocked event loop still reads as lag on the next ping', async () => {
+  const fake = fakeChannel()
+  const exit = serveOnChannel(fake.channel, {
+    starters: { headless: async () => fakeServer() },
+    unwrapEnvelope: true,
+    buildStamp: 'aaaaaaa',
+    log: silent,
+  })
+  fake.post({ t: 'envelope', envelope: ENVELOPE })
+  await fake.frame('ready')
+  // The sampler's first tick only starts its clock.
+  await new Promise((resolve) => setTimeout(resolve, 300))
+
+  const blockUntil = Date.now() + 700
+  while (Date.now() < blockUntil) {
+    // Hold the loop the way a long synchronous task would.
+  }
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  fake.post({ t: 'ping', seq: 1 })
+  const pong = await fake.frame('pong')
+  assert.ok(pong.loopLagMs >= 300, `a 700 ms block reads as ${pong.loopLagMs} ms of lag`)
+
+  fake.post({ t: 'shutdown', drain: true, budgetMs: 5_000 })
+  assert.equal(await exit, SERVER_EXIT.ok)
+})
+
 test('an envelope, a start, then ready with what the server is', async () => {
   const fake = fakeChannel()
   const server = fakeServer()
