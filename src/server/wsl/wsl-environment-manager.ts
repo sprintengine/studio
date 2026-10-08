@@ -41,7 +41,9 @@ import {
 //
 // Lifetime:
 // - `connect` starts the server, or reuses the running one. The starter's
-//   stdin is the lease: a ping every fifteen seconds while it runs.
+//   stdin is the lease: a ping every fifteen seconds while it runs, each one
+//   a probe. A server that leaves three in a row unanswered is hung, and is
+//   stopped with what it runs; a PC waking from sleep gets a minute first.
 // - After `idleMs` (ten minutes) with no call and no chat working there, the
 //   server is drained and stopped, so the VM can idle (decision R36).
 // - A wire that closes is reconnected only once the server has answered a
@@ -143,6 +145,12 @@ const HEALTHY_RUN_MS = 5 * 60_000
 // slow: busy, or in a VM still waking from sleep. About what a reconnect had
 // before it was asked to ping first (the loopback deadline and the handshake's).
 const ALIVE_PROBE_MS = 15_000
+// Each lease ping is a probe: a server that leaves this many in a row
+// unanswered is hung (alive, its event loop stuck), and is stopped with what
+// it runs, as the desktop's own server is by its supervisor. A PC that slept
+// gives its VM this long to wake before a miss counts.
+const MISSED_PROBES_TO_KILL = 3
+const WAKE_GRACE_MS = 60_000
 
 /** The refusal a WSL 1 distribution gets (decision R70). */
 export function wsl1Refusal(distro: string): string {
@@ -167,6 +175,10 @@ type Handle = {
   startedAt: number
   idleTimer: ReturnType<typeof setTimeout> | null
   pingTimer: ReturnType<typeof setInterval> | null
+  /** The running server's lease probes: whether one is out, how many in a row went unanswered, and when the last went out. */
+  probe: { inFlight: boolean; missed: number; lastAt: number; graceUntil: number }
+  /** Why this app stopped the running server itself (it hung), said once its exit comes. */
+  killedFor: string | null
   stopping: boolean
   /**
    * The word `wsl.exe --list --verbose` gave the distribution's state while
@@ -199,6 +211,8 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
         startedAt: 0,
         idleTimer: null,
         pingTimer: null,
+        probe: { inFlight: false, missed: 0, lastAt: 0, graceUntil: 0 },
+        killedFor: null,
         stopping: false,
         runningState: null,
       }
@@ -244,6 +258,48 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       void stopHandle(handle, { budgetMs: QUIT_DRAIN_MS, idle: true })
     }, idleMs)
     handle.idleTimer.unref?.()
+  }
+
+  /** Stop a server that no longer answers, with the reason a person reads once it has exited. */
+  const stopAsHung = (handle: Handle, server: RunningWslServer, reason: string): void => {
+    if (handle.server !== server) return
+    handle.killedFor = reason
+    setStatus(handle, { state: 'unavailable', reason })
+    server.kill()
+  }
+
+  /** One lease ping, answered or not: misses in a row past the bound are a hung server. */
+  async function probe(handle: Handle, server: RunningWslServer): Promise<void> {
+    const state = handle.probe
+    if (handle.server !== server || handle.stopping || state.inFlight) return
+    const at = now()
+    // A tick far behind the interval is a PC that slept: its VM wakes slowly.
+    if (state.lastAt > 0 && at - state.lastAt > pingMs * 3) {
+      state.missed = 0
+      state.graceUntil = at + WAKE_GRACE_MS
+    }
+    state.lastAt = at
+    state.inFlight = true
+    let answered: boolean
+    try {
+      answered = await server.alive(pingMs)
+    } finally {
+      state.inFlight = false
+    }
+    if (handle.server !== server || handle.stopping || server.exited()) return
+    if (answered) {
+      state.missed = 0
+      return
+    }
+    if (now() < state.graceUntil) return
+    state.missed++
+    if (state.missed < MISSED_PROBES_TO_KILL) return
+    log(`The Studio server in ${handle.distro} missed ${state.missed} pings in a row; stopping it.`)
+    stopAsHung(
+      handle,
+      server,
+      `The Studio server in ${handle.distro} stopped answering, so it was stopped. It starts again with the next message.`,
+    )
   }
 
   async function checkDistro(distro: string): Promise<void> {
@@ -398,11 +454,11 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
         (error: unknown) => {
           // The server itself went meanwhile: its exit says why.
           if (handle.server !== server || server.exited()) return
-          setStatus(handle, {
-            state: 'unavailable',
-            reason: `The connection to the Studio server in ${handle.distro} was lost: ${error instanceof Error ? error.message : String(error)}`,
-          })
-          server.kill()
+          stopAsHung(
+            handle,
+            server,
+            `The connection to the Studio server in ${handle.distro} was lost: ${error instanceof Error ? error.message : String(error)}`,
+          )
         },
       )
     })
@@ -433,6 +489,13 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     handle.connection = null
     clearTimers(handle)
     connection?.backend.close()
+    const killedFor = handle.killedFor
+    handle.killedFor = null
+    // Stopped here for not answering: that is what is said, not "stopped".
+    if (killedFor !== null) {
+      setStatus(handle, { state: 'unavailable', reason: killedFor })
+      return
+    }
     if (exit.intentional || handle.stopping) {
       setStatus(handle, { state: 'stopped' })
       return
@@ -517,7 +580,9 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       })
       handle.server = server
       server.onExit((exit) => void onServerExit(handle, server, exit))
-      handle.pingTimer = setInterval(() => server.ping(), pingMs)
+      handle.killedFor = null
+      handle.probe = { inFlight: false, missed: 0, lastAt: 0, graceUntil: 0 }
+      handle.pingTimer = setInterval(() => void probe(handle, server), pingMs)
       handle.pingTimer.unref?.()
       const connection = await connectBackend(handle)
       // Not a reset of the crash count: a server that crashes again soon after

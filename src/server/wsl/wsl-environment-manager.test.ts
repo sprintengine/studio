@@ -146,6 +146,7 @@ function manager(options: {
   log?: (message: string) => void
   now?: () => number
   idleMs?: number
+  pingMs?: number
 }) {
   const runner = fakeRunner(options.homes, options.closeDelayMs)
   const listing =
@@ -171,6 +172,7 @@ function manager(options: {
     ...(options.log ? { log: options.log } : {}),
     ...(options.now ? { now: options.now } : {}),
     ...(options.idleMs ? { idleMs: options.idleMs } : {}),
+    ...(options.pingMs ? { pingMs: options.pingMs } : {}),
   })
   cleanups.push(() => created.shutdown({ budgetMs: 5_000 }))
   return { manager: created, runner }
@@ -402,6 +404,38 @@ test('a server whose wire is being reconnected is not stopped for being idle onc
     false,
   )
 }, 30_000)
+
+test('a server that stops answering its pings is taken for hung, stopped, and said to be', async () => {
+  const home = fakeHome('hung')
+  const { manager: wsl } = manager({ homes: { Ubuntu: home }, pingMs: 200 })
+  const first = await wsl.connect('Ubuntu')
+  const pid = readServerPid(home)
+  // Alive, its event loop held: it answers nothing.
+  process.kill(pid, 'SIGSTOP')
+  try {
+    await waitFor(() => wsl.status('Ubuntu').state === 'unavailable', 10_000)
+  } finally {
+    try {
+      process.kill(pid, 'SIGCONT')
+    } catch {
+      // Killed already.
+    }
+  }
+  assert.match(wsl.status('Ubuntu').reason ?? '', /stopped answering, so it was stopped/u)
+  await waitFor(() => first.backend.isOpen() === false)
+  await waitFor(() => {
+    try {
+      process.kill(pid, 0)
+      return false
+    } catch {
+      return true
+    }
+  })
+  assert.match(wsl.status('Ubuntu').reason ?? '', /stopped answering/u, 'its exit does not make it "stopped"')
+  // The next message starts it again.
+  await wsl.connect('Ubuntu')
+  assert.equal(wsl.status('Ubuntu').state, 'ready')
+}, 60_000)
 
 test('a WSL 1 distribution is refused with the command that converts it, and nothing is started', async () => {
   const home = fakeHome('wsl1')
