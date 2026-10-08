@@ -3383,7 +3383,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               {dropActive && !composerInputDisabled ? (
                 // Opaque, not a scrim: the field's own text ghosting through the
                 // drop state reads as a rendering artifact rather than a state.
-                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[var(--sem-radius-composer)] bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
+                <div className="pointer-events-none absolute inset-0 z-[var(--z-float)] flex items-center justify-center rounded-[var(--sem-radius-composer)] bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
                   Drop to attach
                 </div>
               ) : null}

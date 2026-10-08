@@ -1067,6 +1067,8 @@ test('the drop overlay leaves with the drag, however many rows it crossed or los
       drag('dragenter', composer)
     })
     expect(overlay()).toBe(true)
+    const drop = [...chat.host.querySelectorAll('div')].find((element) => element.textContent === 'Drop to attach')
+    expect(drop?.className, 'it floats on the layer for a tray over its pane').toContain('z-[var(--z-float)]')
     await chat.act(async () => drag('dragleave', composer, inside))
     expect(overlay(), 'moving within the panel keeps it').toBe(true)
     await chat.act(async () => drag('dragleave', composer, doc.body))
