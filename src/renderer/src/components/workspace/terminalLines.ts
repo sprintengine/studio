@@ -489,10 +489,10 @@ function lineOfMeshPane(
  * One chat agent on a paired machine, as the line of its conversation's row.
  *
  * The name rides the line's mark tooltip, exactly as a local agent's does,
- * and the line says what a local chat's line says: the wait, else the
- * opening of the agent's last reply. The conversation list carries no
- * checkout reading — no branch, no diff, no file breakdown — so a remote
- * line draws none rather than a confident zero.
+ * and the line says what a local chat's line says: its branch and pull
+ * requests, then the wait, else the opening of the agent's last reply. The
+ * conversation list carries no diff and no file breakdown, so a remote line
+ * draws none rather than a confident zero.
  */
 export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
   return {
@@ -502,7 +502,10 @@ export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
     name: row.title,
     text: chatLineText(row.phase, { lastAssistantText: row.replyPreview }),
     machineName: null,
-    branch: null,
+    // The branch its machine names for the chat's folder, which is on that
+    // machine's disk: drawn as a local line draws its own, with no path to
+    // hover and no worktree claimed.
+    branch: row.branch ?? null,
     worktree: false,
     cwd: null,
     removed: false,
@@ -512,9 +515,9 @@ export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
     files: null,
     diffScope: 'folder',
     activeSubagents: 0,
-    // A remote row's wire shape carries no pull requests: the lookup runs where
-    // the checkout is, and that is the other machine.
-    pullRequests: [],
+    // The ones its machine's record holds: the lookup runs where the checkout
+    // is, and that is the other machine, which names them in its list.
+    pullRequests: row.pullRequests ?? [],
     working: row.activity === 'working',
     workingSince: row.activity === 'working' ? row.since : null,
     needsInput: row.activity === 'needs-input',

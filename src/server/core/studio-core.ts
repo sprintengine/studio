@@ -13,7 +13,9 @@ import {
   type AgentPermissionResolver,
 } from '../../main/automation/launch-permission-cap'
 import { createConversationGatewayHost } from '../../main/automation/tailnet/tailnet-conversation-host'
+import { resolveCheckoutForCwd } from '../../main/checkout-resolve'
 import {
+  conversationBranchesOf,
   conversationHostOf,
   conversationPullRequestsOf,
   tailnetSelfMachine,
@@ -482,6 +484,17 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       )
     },
     selfMachine: () => tailnetSelfMachine(machineContext()),
+    // Only a folder on this computer: one on an SSH machine is that
+    // machine's path, and this disk has nothing to read at it.
+    branchesOf: (workspaceIds: string[]) =>
+      conversationBranchesOf(
+        workspaceIds,
+        (workspaceId) => {
+          const record = workspaceRegistry.getRecord(workspaceId)
+          return record && !record.environment ? (record.folderPath ?? null) : null
+        },
+        resolveCheckoutForCwd,
+      ),
   }
   // A chat's rest and its person-clocks, written for a paired device to the
   // same record the sidebar writes (conversation-lifecycle.ts). Busy is

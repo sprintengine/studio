@@ -268,8 +268,9 @@ test('a conversation on a paired machine renders in the chat view and is driven 
     expect(chat.followed).toEqual([key])
     expect(chat.host.textContent).toContain('Why does the upload test flake?')
     expect(chat.host.textContent).toContain('Let me run it.')
-    expect(chat.host.textContent).toContain('On mac-mini')
-    expect(chat.host.textContent).toContain('Fix the flaky upload test')
+    // No header line above the transcript repeats the agent and the machine:
+    // the tab and the strip below say them (owner, 2026-10-08).
+    expect(chat.host.textContent).not.toContain('· On mac-mini')
 
     // An approval is answered over the mesh, and no rule that would outlive
     // the conversation is offered.

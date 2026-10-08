@@ -101,6 +101,13 @@ export type ConversationThread = Omit<ConversationWireThread, 'capabilities'> & 
    * not replied since the person last wrote.
    */
   lastAssistantText?: string
+  /**
+   * The branch the chat's folder is checked out on there, as its HEAD names
+   * it: what the desktop's own sidebar shows on the chat's line. Absent from a
+   * desktop built before it was listed, for a folder that is not a
+   * repository, and on a detached HEAD.
+   */
+  branch?: string
 }
 
 /** The most characters of a reply's opening a listed chat carries. */
@@ -321,6 +328,14 @@ function thread(value: unknown): ConversationThread | null {
   const chatTitle = text(value.chatTitle, 2_000) && value.chatTitle.trim() ? value.chatTitle : null
   // A preview past its length is cut rather than refused: it is a sidebar's
   // line, and the row is worth more than the words.
+  // A branch name is one line of git's own: anything else is not one, and is left out.
+  const branch =
+    text(value.branch, 255) &&
+    value.branch.trim() === value.branch &&
+    value.branch &&
+    !/[\s\u0000-\u001f]/u.test(value.branch)
+      ? value.branch
+      : null
   const lastAssistantText =
     typeof value.lastAssistantText === 'string' && value.lastAssistantText.trim()
       ? value.lastAssistantText.slice(0, CONVERSATION_MAX_REPLY_PREVIEW)
@@ -356,6 +371,7 @@ function thread(value: unknown): ConversationThread | null {
     ...(clock(value.lastVisitedAt) ? { lastVisitedAt: value.lastVisitedAt } : {}),
     ...(clock(value.visitRewoundAt) ? { visitRewoundAt: value.visitRewoundAt } : {}),
     ...(lastAssistantText ? { lastAssistantText } : {}),
+    ...(branch ? { branch } : {}),
     ...(flags
       ? {
           capabilities: {

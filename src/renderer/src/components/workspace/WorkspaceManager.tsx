@@ -147,7 +147,7 @@ import {
 import { SidebarChrome } from './SidebarChrome'
 import { useStableCallback } from '../../hooks/useStableCallback'
 import { useNarrowViewport } from '../../hooks/useNarrowViewport'
-import { remotePaneTabName, remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
+import { remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
 import type { NewAgentLaunch, NewAgentPanelMode, RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
 import { useScheduledAgents } from '../../store/scheduledAgentsStore'
@@ -3780,7 +3780,7 @@ export default function WorkspaceManager() {
         windowId: workspaceWindowId,
         // It opens in the chat view, following the conversation over there.
         seedAgent: {
-          tabName: remotePaneTabName(spec.machineName, spec.title),
+          tabName: spec.title,
           meshConversation: {
             connectionId: spec.connectionId,
             machineName: spec.machineName,
@@ -3856,7 +3856,7 @@ export default function WorkspaceManager() {
         },
         windowId: workspaceWindowId,
         seedAgent: {
-          tabName: remotePaneTabName(launch.machineName, created.title),
+          tabName: created.title,
           meshConversation: {
             connectionId: launch.connectionId,
             machineName: launch.machineName,

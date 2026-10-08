@@ -4,6 +4,14 @@
 
 ### Added
 
+- **A listed chat names its branch.** `branch` is an optional member of
+  `ConversationThread`: the branch the chat's folder is checked out on, as its
+  HEAD names it, which the desktop's own sidebar shows on the chat's line.
+  Absent for a folder that is not a repository, on a detached HEAD, and from a
+  desktop built before it was listed. `parseConversationServerFrame` keeps it
+  when it is one line with no spaces, at most 255 characters, and leaves out
+  anything else. The pinned files are unchanged.
+
 - **A listed chat previews its agent's last reply.** `lastAssistantText` is
   an optional member of `ConversationThread`: the opening of the reply as
   written, at most `CONVERSATION_MAX_REPLY_PREVIEW` (240) characters, the line

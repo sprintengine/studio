@@ -222,6 +222,13 @@ export type ConversationListMarks = {
   ) => Promise<Map<string, ConversationWirePullRequest[]>>
   /** This machine's own kind and colour. */
   selfMachine?: () => { kind: string; color: string }
+  /**
+   * The branch each workspace's folder is checked out on, keyed by workspace
+   * id; a folder that is not a repository, or sits on a detached HEAD, is
+   * left out. Read from the checkout's HEAD file, remembered against it, so a
+   * list asked for again runs no git.
+   */
+  branchesOf?: (workspaceIds: string[]) => Promise<Map<string, string>>
 }
 
 const restingRecord = (record: ConversationListWorkspace | null): boolean =>
@@ -505,7 +512,7 @@ export function createConversationGatewayHost(
   // record for the whole list. A failed read leaves the rows without them, as
   // from a desktop that never listed them: the list itself still answers.
   const withMarks = async (listed: ConversationThread[]): Promise<ConversationThread[]> => {
-    if (!marks.machineOf && !marks.machineReader && !marks.pullRequestsOf) return listed
+    if (!marks.machineOf && !marks.machineReader && !marks.pullRequestsOf && !marks.branchesOf) return listed
     const machines = new Map<string, ConversationWireHost | null>()
     let read: ((workspaceId: string) => ConversationWireHost | null) | undefined
     try {
@@ -532,11 +539,17 @@ export function createConversationGatewayHost(
         .pullRequestsOf(listed.map((thread) => ({ workspaceId: thread.workspaceId, agentId: thread.agentId })))
         .catch(() => null)
     }
+    let branches: Map<string, string> | null = null
+    if (marks.branchesOf && listed.length > 0) {
+      branches = await marks.branchesOf([...new Set(listed.map((thread) => thread.workspaceId))]).catch(() => null)
+    }
     return listed.map((thread) => {
       const host = machineOf(thread.workspaceId)
+      const branch = branches?.get(thread.workspaceId)
       return {
         ...thread,
         ...(host ? { host } : {}),
+        ...(branch ? { branch } : {}),
         ...(pullRequests ? { pullRequests: pullRequests.get(`${thread.workspaceId}:${thread.agentId}`) ?? [] } : {}),
       }
     })
