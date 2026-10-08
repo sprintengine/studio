@@ -276,6 +276,7 @@ interface WorkspacesSliceActions {
    * stamp), or as on disk again (`null`). See `WorkspaceWorktree.reclaimedAt`.
    */
   setWorkspaceWorktreeReclaimed: (id: WorkspaceId, reclaimedAt: number | null) => void
+  setWorkspaceChatFolder: (id: WorkspaceId, folderPath: string, worktree: WorkspaceWorktree | null) => void
   setWorkspaceAutoSettle: (id: WorkspaceId, enabled: boolean) => void
   /**
    * Put a chat to sleep until `wakeAt`, or wake it now with `null`. The RECORD
@@ -996,6 +997,22 @@ export function createWorkspacesSlice(
         patch = { worktree }
       })
       if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
+    },
+
+    // A New chat on a worktree opens before its worktree exists, folderless;
+    // the window that made the worktree gives it the folder, which only it
+    // knows, so it reports whatever window routes the row.
+    setWorkspaceChatFolder: (id, folderPath, worktree) => {
+      const patch: WorkspaceFieldsPatch = { folderPath, worktree }
+      let changed = false
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        ws.folderPath = folderPath
+        ws.worktree = worktree
+        changed = true
+      })
+      if (changed) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
     },
 
     // The row menu's Auto-settle switch. Settles and wakes nothing by itself:

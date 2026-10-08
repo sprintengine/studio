@@ -80,14 +80,20 @@ function peelToRepoRoot(pathValue: string): string {
  * a row written before that field existed derives from the container instead.
  * Either way the answer is peeled to a non-container path, so a nested worktree
  * files under the real project and never under an intermediate worktree.
+ *
+ * A record with a worktree marker and no folder yet is a New chat whose
+ * worktree is still being made (`chatPendingWorktree`): it already belongs to
+ * the project the marker names, so it files there from its first frame rather
+ * than under "No folder" until the worktree lands.
  */
 export function workspaceProjectRootOf(record: {
   folderPath?: string | null
   worktree?: { repoRoot?: string } | null
 }): string | null {
   const folderPath = record.folderPath?.trim() || null
-  if (!folderPath) return null
-  return peelToRepoRoot(record.worktree?.repoRoot?.trim() || folderPath)
+  const recorded = record.worktree?.repoRoot?.trim() || null
+  if (!folderPath) return recorded ? peelToRepoRoot(recorded) : null
+  return peelToRepoRoot(recorded || folderPath)
 }
 
 /** Normalize a user-facing worktree name into a directory/branch-safe slug. */
