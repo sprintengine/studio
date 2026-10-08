@@ -179,7 +179,13 @@ export function createScheduledAgentsModule(
       host.onShutdown(unsubscribe)
 
       const idOf = (input: unknown): string => (isRecord(input) && typeof input.id === 'string' ? input.id : '')
-      host.registerIpc(SCHEDULED_AGENTS_IPC.list, async () => scheduledAgents.list())
+      // The window's channels are up before the scheduler's sidecar reads the
+      // file; each waits for that read (the store's own), so an early write
+      // does not replace the file with only its own entry.
+      host.registerIpc(SCHEDULED_AGENTS_IPC.list, async () => {
+        await store.load()
+        return scheduledAgents.list()
+      })
       host.registerIpc(SCHEDULED_AGENTS_IPC.create, async (_event, input: unknown) =>
         scheduledAgents.create(isRecord(input) ? input.draft : undefined),
       )

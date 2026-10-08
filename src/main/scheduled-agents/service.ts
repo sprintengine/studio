@@ -76,6 +76,11 @@ export function createScheduledAgentsService(deps: ScheduledAgentsServiceDeps): 
   const notFound = (id: string) => ({ ok: false as const, message: `No scheduled agent "${id}".` })
   const capped = (draft: ScheduledAgentDraft, capPreset: CapPreset | undefined): ScheduledAgentDraft =>
     capPreset ? { ...draft, permissionPreset: capPreset(draft.permissionPreset) } : draft
+  /** A write the store refused (its file could not be read), as the caller's answer rather than a throw. */
+  const refused = (error: unknown) => ({
+    ok: false as const,
+    message: error instanceof Error ? error.message : String(error),
+  })
 
   return {
     list(options) {
@@ -90,26 +95,43 @@ export function createScheduledAgentsService(deps: ScheduledAgentsServiceDeps): 
       const validated = validateScheduledAgentDraft(input, now())
       if (!validated.ok) return validated
       const draft = capped(validated.draft, options?.capPreset)
-      const created = await deps.store.create(draft, options?.ownerModuleId ?? null)
+      let created: ScheduledAgent
+      try {
+        created = await deps.store.create(draft, options?.ownerModuleId ?? null)
+      } catch (error) {
+        return refused(error)
+      }
       changed()
       return { ok: true, agent: view(created) }
     },
     async update(id, input, options) {
+      await deps.store.load()
       if (!reachable(id, options?.ownerModuleId)) return notFound(id)
       const validated = validateScheduledAgentDraft(input, now())
       if (!validated.ok) return validated
-      const updated = await deps.store.update(id, capped(validated.draft, options?.capPreset))
+      let updated: ScheduledAgent | null
+      try {
+        updated = await deps.store.update(id, capped(validated.draft, options?.capPreset))
+      } catch (error) {
+        return refused(error)
+      }
       if (!updated) return notFound(id)
       changed()
       return { ok: true, agent: view(updated) }
     },
     async remove(id, options) {
+      await deps.store.load()
       if (!reachable(id, options?.ownerModuleId)) return notFound(id)
-      await deps.store.remove(id)
+      try {
+        await deps.store.remove(id)
+      } catch (error) {
+        return refused(error)
+      }
       changed()
       return { ok: true }
     },
     async runNow(id, options) {
+      await deps.store.load()
       if (!reachable(id, options?.ownerModuleId)) return notFound(id)
       const fired = await deps.scheduler.runNow(id)
       if (fired.ok) return { ok: true, run: fired.run }
@@ -123,7 +145,8 @@ export function createScheduledAgentsService(deps: ScheduledAgentsServiceDeps): 
       }
     },
     async markFailureSeen(id) {
-      await deps.store.markFailureSeen(id)
+      // Unsaved when the file could not be read; the failure is still shown.
+      await deps.store.markFailureSeen(id).catch(() => undefined)
       changed()
     },
     onChanged(listener) {
