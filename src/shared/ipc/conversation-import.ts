@@ -19,7 +19,7 @@ export type ConversationImportSession = {
   /** The folder the session ran in, which the chat works in too. */
   folderPath: string
   startedAt: number
-  /** When the session last changed on disk. */
+  /** When the session was last active: its newest record's time, else its file's. */
   updatedAt: number
   /** A chat here already carries this session. */
   imported: boolean

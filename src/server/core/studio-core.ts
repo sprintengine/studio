@@ -596,6 +596,20 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     workspaceRegistry.subscribe(() => scheduledMessages.prune()),
   ]
 
+  // Both of Studio's own sends stop before the chats do, listeners first, so
+  // none comes due on the way out and starts an agent the quit then has to
+  // stop (or, stopped already, would be recorded as sent). The desktop's quit
+  // runs these as legs of its own; `shutdown` below for a process that owns
+  // nothing else.
+  function stopUsageLimitResumes(): Promise<void> {
+    for (const stop of stopFollowingResumes.splice(0)) stop()
+    return usageLimitResumes.dispose()
+  }
+  function stopScheduledMessages(): Promise<void> {
+    for (const stop of stopFollowingScheduledMessages.splice(0)) stop()
+    return scheduledMessages.dispose()
+  }
+
   /**
    * The core's own end, for a process that owns nothing else: the registry
    * flushed around the chats' end, the machines' helpers told to stop, the
@@ -613,6 +627,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       () => pullRequests.flush(),
       () => localServers.flush(),
       () => conversationRuntime.flushTranscripts(),
+      stopUsageLimitResumes,
+      stopScheduledMessages,
       () => conversationOwner.shutdown(),
       () => pullRequests.dispose(),
       // The servers the Studio itself started stop with it: nothing would be
@@ -620,14 +636,6 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       () => {
         stopPruningLocalServers()
         return localServers.dispose()
-      },
-      () => {
-        for (const stop of stopFollowingResumes) stop()
-        return usageLimitResumes.dispose()
-      },
-      () => {
-        for (const stop of stopFollowingScheduledMessages) stop()
-        return scheduledMessages.dispose()
       },
       () => workspaceSyncService.flush(),
       () => hosts.dispose(),
@@ -668,6 +676,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     localServers,
     usageLimitResumes,
     scheduledMessages,
+    stopUsageLimitResumes,
+    stopScheduledMessages,
     shutdown,
   }
 }

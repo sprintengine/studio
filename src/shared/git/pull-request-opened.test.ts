@@ -133,3 +133,53 @@ test('a long output is read at both ends', () => {
   const cut = `${'y'.repeat(half - 'https://github.com/acme/app/pull/1'.length)}https://github.com/acme/app/pull/1234`
   assert.equal(readOpenedPullRequest({ name: 'Bash', command: 'gh pr create', output: `${cut}${noise}` }), null)
 })
+
+test('only the forge’s own refusal is "already exists", not the words anywhere in the output', () => {
+  // A title that says it does not stop the opening being recorded.
+  assert.deepEqual(
+    readOpenedPullRequest({
+      name: 'Bash',
+      command: 'gh pr create --title "Skip the cache when the key already exists"',
+      output: `\nCreating pull request for feature into main in acme/app\n\n${PR}\n`,
+    }),
+    { url: PR, forge: 'github' },
+  )
+  for (const output of [
+    `a pull request for branch "feature" into branch "main" already exists:\n${PR}`,
+    `{"message":"Validation Failed","errors":[{"message":"A pull request already exists for acme:feature."}],"html_url":"${PR}"}`,
+    'Another open merge request already exists for this source branch: !4 https://gitlab.example.com/acme/app/-/merge_requests/4',
+    'pull request already exists for these targets https://codeberg.org/acme/app/pulls/3',
+  ]) {
+    assert.equal(readOpenedPullRequest({ name: 'Bash', command: 'gh pr create', output }), null, output)
+  }
+})
+
+test('the URL is trusted only when the create is the chain’s last command', () => {
+  // The fallback prints the branch's existing pull request, which may be somebody else's.
+  assert.equal(
+    readOpenedPullRequest({
+      name: 'Bash',
+      command: 'gh pr create --fill || gh pr view --json url -q .url',
+      output: `${PR}\n`,
+    }),
+    null,
+  )
+  assert.equal(
+    readOpenedPullRequest({ name: 'Bash', command: 'gh pr create --fill; gh pr list', output: `${PR}\n` }),
+    null,
+  )
+  // Before it, piped from it, quoted inside it, or a here-document's body: still the last.
+  for (const command of [
+    'git push -u origin HEAD && gh pr create --fill',
+    'gh pr create --fill 2>&1 | tail -n 3',
+    'gh pr create --title "Marks; and more" --body "a && b || c"',
+    "gh pr create --title Marks --body \"$(cat <<'EOF'\n## Summary\n\nIt's done; ship it && go\nEOF\n)\"",
+    "gh pr create --title Marks --body-file - <<'EOF'\nOne; two\nthree && four\nEOF",
+  ]) {
+    assert.deepEqual(
+      readOpenedPullRequest({ name: 'Bash', command, output: GH_OUTPUT }),
+      { url: PR, forge: 'github' },
+      command,
+    )
+  }
+})

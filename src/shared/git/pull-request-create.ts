@@ -79,6 +79,7 @@ export type CreatePullRequestState = {
 
 /** A creation's end: created by `gh`, already there, a forge page to open, or why not. */
 export type CreatePullRequestOutcome =
+  /** `existing`: the branch had one already, whoever opened it; shown, never linked to the chat. */
   | { ok: true; kind: 'created' | 'existing'; url: string }
   | { ok: true; kind: 'page'; url: string }
   | { ok: false; message: string }

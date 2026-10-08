@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
@@ -20,14 +20,14 @@ const NOW = Date.parse('2026-09-10T12:00:00Z')
 const jsonl = (records: Array<Record<string, unknown>>) =>
   `${records.map((record) => JSON.stringify(record)).join('\n')}\n`
 
-function claudeSession(id: string, cwd: string, prompt: string): Array<Record<string, unknown>> {
+function claudeSession(id: string, cwd: string, prompt: string, day = '2026-09-01'): Array<Record<string, unknown>> {
   const common = { sessionId: id, cwd, entrypoint: 'cli' }
   return [
-    { ...common, type: 'user', timestamp: '2026-09-01T10:00:00Z', message: { role: 'user', content: prompt } },
+    { ...common, type: 'user', timestamp: `${day}T10:00:00Z`, message: { role: 'user', content: prompt } },
     {
       ...common,
       type: 'assistant',
-      timestamp: '2026-09-01T10:00:05Z',
+      timestamp: `${day}T10:00:05Z`,
       message: { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] },
     },
   ]
@@ -53,18 +53,18 @@ async function fixture() {
   )
   await write(
     join(projects, 'claude-2.jsonl'),
-    claudeSession('claude-2', site, 'Write the docs'),
+    claudeSession('claude-2', site, 'Write the docs', '2026-09-03'),
     '2026-09-03T10:00:05Z',
   )
   // A session a terminal agent here already runs, and one in a folder that is gone.
   await write(
     join(projects, 'claude-3.jsonl'),
-    claudeSession('claude-3', app, 'Resumed already'),
+    claudeSession('claude-3', app, 'Resumed already', '2026-09-04'),
     '2026-09-04T10:00:05Z',
   )
   await write(
     join(projects, 'claude-4.jsonl'),
-    claudeSession('claude-4', join(home, 'gone'), 'Deleted folder'),
+    claudeSession('claude-4', join(home, 'gone'), 'Deleted folder', '2026-09-05'),
     '2026-09-05T10:00:05Z',
   )
   const day = join(home, '.codex', 'sessions', '2026', '09', '02')
@@ -136,6 +136,31 @@ test('the scan groups both CLIs’ sessions by folder, newest first, leaving out
   assert.equal(scan.folders[1]?.sessions[1]?.title, 'Fix the login bug')
 })
 
+test('a session is dated by its records, not by a file a copy or a backup touched since', async () => {
+  const { home } = await fixture()
+  // Copied to this machine today: every file's modified time is now.
+  const projects = join(home, '.claude', 'projects', 'any')
+  for (const name of ['claude-1.jsonl', 'claude-2.jsonl'])
+    await utimes(join(projects, name), new Date(NOW), new Date(NOW))
+  const day = join(home, '.codex', 'sessions', '2026', '09', '02')
+  await utimes(join(day, 'rollout-2026-09-02T09-00-00-codex-1.jsonl'), new Date(NOW), new Date(NOW))
+
+  const t = harness(home)
+  const scan = await t.service.scan()
+  assert.ok(scan.ok)
+  const updated = Object.fromEntries(
+    scan.folders.flatMap((folder) => folder.sessions).map((session) => [session.sessionId, session.updatedAt]),
+  )
+  assert.deepEqual(updated, {
+    'claude-1': Date.parse('2026-09-01T10:00:05Z'),
+    'claude-2': Date.parse('2026-09-03T10:00:05Z'),
+    'claude-3': Date.parse('2026-09-04T10:00:05Z'),
+    'codex-1': Date.parse('2026-09-02T09:00:01Z'),
+  })
+  await t.service.importSessions({ sessions: [{ source: 'claude-code', sessionId: 'claude-1' }] })
+  assert.equal(t.created[0]?.imported?.lastActiveAt, Date.parse('2026-09-01T10:00:05Z'))
+})
+
 test('an import makes each session a chat in its folder that resumes the session', async () => {
   const { home, app } = await fixture()
   const t = harness(home)
@@ -205,6 +230,17 @@ test('a session that is already a chat is skipped, and the scan says so', async 
   assert.equal(sessions.find((session) => session.sessionId === 'codex-1')?.imported, false)
 })
 
+test('two imports racing for one session make one chat of it', async () => {
+  const { home } = await fixture()
+  const t = harness(home)
+  const asked = { sessions: [{ source: 'claude-code' as const, sessionId: 'claude-1' }] }
+  const [first, second] = await Promise.all([t.service.importSessions(asked), t.service.importSessions(asked)])
+  assert.ok(first.ok && second.ok)
+  assert.equal(first.imported.length + second.imported.length, 1)
+  assert.equal(first.skipped + second.skipped, 1)
+  assert.equal(t.created.length, 1)
+})
+
 test('a chat whose history could not be written is taken back out', async () => {
   const { home } = await fixture()
   const t = harness(home)
@@ -236,4 +272,21 @@ test('a machine with neither CLI has nothing to import', async () => {
   const home = await mkdtemp(join(tmpdir(), 'sprintengine-import-empty-'))
   roots.add(home)
   assert.deepEqual(await harness(home).service.scan(), { ok: true, folders: [], sources: [] })
+})
+
+test('a CLI home that is there but cannot be read says so, rather than offering nothing', async () => {
+  // Root reads any folder; the permission this stands in for is not one it lacks.
+  if (process.platform === 'win32' || process.getuid?.() === 0) return
+  const home = await mkdtemp(join(tmpdir(), 'sprintengine-import-locked-'))
+  roots.add(home)
+  const projects = join(home, '.claude', 'projects')
+  await mkdir(projects, { recursive: true })
+  await chmod(projects, 0o000)
+  try {
+    const scan = await harness(home).service.scan()
+    assert.equal(scan.ok, false)
+    assert.match(!scan.ok ? scan.message : '', /Claude Code's sessions in .*projects/u)
+  } finally {
+    await chmod(projects, 0o755)
+  }
 })

@@ -430,6 +430,8 @@ registerAppLifecycle({
   onAgentAttentionReady: (attention) => services.setTourAttention((key) => attention.notify(key)),
   pullRequestRecord: services.pullRequestRecord,
   ...(services.localServers ? { localServers: services.localServers } : {}),
+  ...(services.usageLimitResumes ? { usageLimitResumes: services.usageLimitResumes } : {}),
+  ...(services.scheduledMessages ? { scheduledMessages: services.scheduledMessages } : {}),
   analytics: services.analytics,
   // Out of process the server runs every module's startup and shutdown hooks.
   ...(serverHost ? {} : { moduleKernel: moduleLoad.kernel }),

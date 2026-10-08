@@ -72,15 +72,21 @@ export function createScheduledAgentsModule(
       // chat it started in: the start is recorded as that failure instead.
       const refusedBeforeRecorded = new Map<string, string>()
       const firstSendFailed = (agentId: string, workspaceId: string, message: string): void => {
-        void store.failRun(agentId, workspaceId, message).then((failed) => {
-          if (failed) {
-            service?.notifyChanged()
-            return
-          }
-          refusedBeforeRecorded.set(workspaceId, message)
-          while (refusedBeforeRecorded.size > 32)
-            refusedBeforeRecorded.delete(refusedBeforeRecorded.keys().next().value!)
-        })
+        void store
+          .failRun(agentId, workspaceId, message)
+          .then((failed) => {
+            if (failed) {
+              service?.notifyChanged()
+              return
+            }
+            refusedBeforeRecorded.set(workspaceId, message)
+            while (refusedBeforeRecorded.size > 32)
+              refusedBeforeRecorded.delete(refusedBeforeRecorded.keys().next().value!)
+          })
+          // The store refuses writes while its file cannot be read.
+          .catch((error: unknown) =>
+            console.warn(`[scheduled-agents] ${error instanceof Error ? error.message : String(error)}`),
+          )
       }
       const scheduler = createScheduledAgentsScheduler({
         list: () => store.list(),
@@ -95,7 +101,12 @@ export function createScheduledAgentsModule(
           // closed, and its chat carries on as any other. One whose run failed
           // stays, saying so, until the person has seen it.
           if (agent.schedule.once !== undefined && run.ok) {
-            void store.remove(agent.id).then(() => service?.notifyChanged())
+            void store
+              .remove(agent.id)
+              .catch((error: unknown) =>
+                console.warn(`[scheduled-agents] ${error instanceof Error ? error.message : String(error)}`),
+              )
+              .then(() => service?.notifyChanged())
             return
           }
           service?.notifyChanged()
@@ -107,6 +118,7 @@ export function createScheduledAgentsModule(
         // A skipped time is not a failed run — nothing was tried, and the
         // schedule's card has nothing to say about it — but it is written down,
         // so "why did it not run at nine" has an answer.
+        log: (message) => console.warn(`[scheduled-agents] ${message}`),
         onSkipped: (agent, reason) => {
           // The skipped time moved its next run on: say so, or every window
           // keeps showing the passed time as "now" until something else changes.
@@ -179,7 +191,13 @@ export function createScheduledAgentsModule(
       host.onShutdown(unsubscribe)
 
       const idOf = (input: unknown): string => (isRecord(input) && typeof input.id === 'string' ? input.id : '')
-      host.registerIpc(SCHEDULED_AGENTS_IPC.list, async () => scheduledAgents.list())
+      // The window's channels are up before the scheduler's sidecar reads the
+      // file; each waits for that read (the store's own), so an early write
+      // does not replace the file with only its own entry.
+      host.registerIpc(SCHEDULED_AGENTS_IPC.list, async () => {
+        await store.load()
+        return scheduledAgents.list()
+      })
       host.registerIpc(SCHEDULED_AGENTS_IPC.create, async (_event, input: unknown) =>
         scheduledAgents.create(isRecord(input) ? input.draft : undefined),
       )

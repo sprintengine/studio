@@ -1129,6 +1129,12 @@ export function createCodexConversationProvider(
             input.mode === 'ask'
               ? { approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly', networkAccess: false } }
               : codexPermissionPolicy(state.input.permissionPreset, state.input.permissionMode)
+          // The Ask override stays with the thread like any other. A session
+          // whose own preset sends none (`none`) would keep it on every turn
+          // after, read-only; the next turn restarts so the thread resumes
+          // without it, as leaving an override for `none` does.
+          if (input.mode === 'ask' && !codexPermissionPolicy(state.input.permissionPreset).approvalPolicy)
+            state.resetPolicy = true
           const seeding = state.replayHistory
           const result = record(
             await state.transport!.request('turn/start', {

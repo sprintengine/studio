@@ -147,6 +147,22 @@ test('the push sets an upstream the first time, then pushes only what the remote
   assert.deepEqual(await creator.push(clone), { ok: true, pushed: false })
 })
 
+test('a push that cannot count what the remote lacks pushes rather than calling it pushed', async () => {
+  const { clone, origin } = await checkout()
+  await createPullRequestCreator({ listBranch: lookupOf(NONE).listBranch }).push(clone)
+  await commit(clone, 'more.ts', 'export const more = 1\n', 'feat: more')
+  const { runGitCommand } = await import('./git-utils')
+  const creator = createPullRequestCreator({
+    listBranch: lookupOf(NONE).listBranch,
+    git: async (cwd, args, ...rest) =>
+      args[0] === 'rev-list' && args.some((arg) => arg.startsWith('refs/remotes/origin/feature/marks..'))
+        ? { ok: false, stdout: '', stderr: 'fatal: bad revision', message: 'bad revision' }
+        : runGitCommand(cwd, args, ...rest),
+  })
+  assert.deepEqual(await creator.push(clone), { ok: true, pushed: true })
+  assert.equal(await git(origin, 'rev-parse', 'refs/heads/feature/marks'), await git(clone, 'rev-parse', 'HEAD'))
+})
+
 test('a branch cut from origin/main, and so tracking it, is pushed to its own name and never to main', async () => {
   const { clone, origin } = await checkout()
   await git(clone, 'push', '-q', origin, 'main')

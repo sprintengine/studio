@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
@@ -647,4 +647,117 @@ test("Run now says why it did not run when the last run's chat is still working"
   } finally {
     file.cleanup()
   }
+})
+
+test('a write before the file was read waits for it, so the file keeps what it had', async () => {
+  const file = tempFile()
+  try {
+    writeFileSync(file.path, JSON.stringify({ version: 1, agents: [agent()] }))
+    const store = createScheduledAgentsStore({ filePath: file.path, now: () => NOW, newId: () => 'sa-2' })
+    // The window's create arrives before the scheduler's sidecar loads the store.
+    const [created] = await Promise.all([store.create(draft()), store.load()])
+    assert.equal(created.id, 'sa-2')
+    const saved = JSON.parse(readFileSync(file.path, 'utf8')) as { agents: ScheduledAgent[] }
+    assert.deepEqual(
+      saved.agents.map((entry) => entry.id),
+      ['sa-1', 'sa-2'],
+    )
+  } finally {
+    file.cleanup()
+  }
+})
+
+test('a file that is there but cannot be read refuses every write, rather than replacing it', async () => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) return
+  const file = tempFile()
+  try {
+    const before = JSON.stringify({ version: 1, agents: [agent()] })
+    writeFileSync(file.path, before)
+    chmodSync(file.path, 0o000)
+    const store = createScheduledAgentsStore({ filePath: file.path, now: () => NOW, newId: () => 'sa-2' })
+    await store.load()
+    await assert.rejects(store.create(draft()), /could not be read/u)
+    const scheduler = createScheduledAgentsScheduler({
+      list: () => store.list(),
+      run: async () => ({ at: NOW, ok: true, workspaceId: 'w' }),
+      recordRun: (entry, run) => store.recordRun(entry, run),
+      now: () => NOW,
+      setTimer: () => null,
+      clearTimer: () => undefined,
+    })
+    const service = createScheduledAgentsService({ store, scheduler, now: () => NOW })
+    const answer = await service.create(draft())
+    assert.equal(answer.ok, false, 'the caller is told, not thrown at')
+    assert.deepEqual(store.list(), [], 'nothing is scheduled that is not saved')
+    chmodSync(file.path, 0o600)
+    assert.equal(readFileSync(file.path, 'utf8'), before)
+  } finally {
+    file.cleanup()
+  }
+})
+
+test('a file that cannot be understood is kept aside, and the list starts empty', async () => {
+  const file = tempFile()
+  try {
+    writeFileSync(file.path, '{"version":1,"agents":[{"id":"sa-1",')
+    const warnings: string[] = []
+    const store = createScheduledAgentsStore({
+      filePath: file.path,
+      now: () => NOW,
+      newId: () => 'sa-2',
+      warn: (message) => warnings.push(message),
+    })
+    await store.load()
+    assert.deepEqual(store.list(), [])
+    assert.equal(readFileSync(`${file.path}.corrupt-${NOW}`, 'utf8'), '{"version":1,"agents":[{"id":"sa-1",')
+    assert.ok(warnings.some((message) => message.includes('.corrupt-')))
+    await store.create(draft())
+    const saved = JSON.parse(readFileSync(file.path, 'utf8')) as { agents: ScheduledAgent[] }
+    assert.deepEqual(
+      saved.agents.map((entry) => entry.id),
+      ['sa-2'],
+    )
+  } finally {
+    file.cleanup()
+  }
+})
+
+test('an entry that no longer validates is written back as it was, not dropped by the next change', async () => {
+  const file = tempFile()
+  try {
+    const invalid = { ...agent({ id: 'sa-9' }), schedule: { cron: '0 25 * * *', timezone: 'UTC' } }
+    writeFileSync(file.path, JSON.stringify({ version: 1, agents: [agent(), invalid] }))
+    const store = createScheduledAgentsStore({ filePath: file.path, now: () => NOW, newId: () => 'sa-2' })
+    await store.load()
+    await store.create(draft())
+    await store.remove('sa-1')
+    const saved = JSON.parse(readFileSync(file.path, 'utf8')) as { agents: unknown[] }
+    assert.deepEqual(saved.agents, [{ ...agent({ id: 'sa-2' }), createdAt: NOW, updatedAt: NOW }, invalid])
+  } finally {
+    file.cleanup()
+  }
+})
+
+test('a run whose record cannot be written is logged, not left as an unhandled rejection', async () => {
+  const time = fakeTime(Date.UTC(2026, 8, 30, 12, 59))
+  const logs: string[] = []
+  const ran: string[] = []
+  const scheduler = createScheduledAgentsScheduler({
+    list: () => [agent()],
+    run: async () => ({ at: time.now(), ok: true, workspaceId: 'w' }),
+    recordRun: async () => {
+      throw new Error('disk full')
+    },
+    onRan: (entry) => ran.push(entry.id),
+    log: (message) => logs.push(message),
+    now: time.now,
+    setTimer: time.setTimer,
+    clearTimer: time.clearTimer,
+  })
+  scheduler.start()
+  await time.advanceTo(Date.UTC(2026, 8, 30, 13, 0))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(ran, ['sa-1'], 'the run still counts as run')
+  assert.match(logs[0] ?? '', /could not be recorded: disk full/u)
+  scheduler.stop()
 })

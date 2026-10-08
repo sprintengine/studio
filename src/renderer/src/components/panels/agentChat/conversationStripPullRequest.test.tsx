@@ -287,6 +287,51 @@ test('a held Create PR failure on a checkout no longer ready is dismissed, not r
   container.remove()
 })
 
+test('a pull request the branch already had is opened, not claimed for this chat', async () => {
+  const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+  Object.assign(api, {
+    draftPullRequestText: async () => ({ ok: true, value: { title: 'feat: marks', body: 'Body' }, ms: 1 }),
+    pushForPullRequest: async () => ({ ok: true, pushed: false }),
+    createPullRequest: async () => ({ ok: true, kind: 'existing', url: 'https://github.com/acme/app/pull/41' }),
+  })
+  const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+  useWorkspaceStore.setState((state) => ({
+    ...state,
+    appSettings: { ...state.appSettings, textGeneration: { enabled: true, engine: { cli: 'claude-code', model: '' } } },
+    pluginCatalogEntries: [{ id: 'claude-code' }] as never,
+  }))
+  const { CreatePullRequestControl } = await import('./createPullRequest')
+  let settled = 0
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const container = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(container)
+  const root = createRoot(container)
+  await act(async () =>
+    root.render(
+      <CreatePullRequestControl
+        cwd="/Users/dev/app"
+        conversation={{ workspaceId: 'ws-1', agentId: 'agent-1' }}
+        onSettled={() => (settled += 1)}
+        ready
+      />,
+    ),
+  )
+  const buttonNamed = (text: string) =>
+    [...container.querySelectorAll('button')].find((node) => node.textContent?.includes(text))
+  await act(async () => buttonNamed('Create PR')?.click())
+  const title = await waitFor(() => dom.window.document.querySelector<HTMLInputElement>('input[maxlength="300"]'))
+  await waitFor(() => (title.value === 'feat: marks' ? title : null))
+  const create = [...dom.window.document.querySelectorAll('button')].find((node) => node.textContent === 'Create')
+  await act(async () => create?.click())
+  await waitFor(() => (settled > 0 ? true : null))
+  expect(opened).toContain('https://github.com/acme/app/pull/41')
+  // Nothing was recorded, so there is no failure to record it either.
+  expect(container.querySelector('[data-create-pull-request-error]')).toBe(null)
+  await act(async () => root.unmount())
+  container.remove()
+})
+
 async function waitFor<T>(read: () => T | null | undefined): Promise<T> {
   const start = Date.now()
   for (;;) {
