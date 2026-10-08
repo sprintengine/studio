@@ -32,14 +32,12 @@ import type { ConversationApprovalDecision } from '../../../../shared/conversati
 import { apiKeyBillingNotice } from '../../../../shared/conversation/apiKeySource'
 import { PromptCacheComposerNotice } from './agentChat/promptCacheNotice'
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
-import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../../shared/launch-settings'
 import type { CliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { ChevronDownIcon, ScheduleGlyph } from '../AppIcons'
 import { copySelectionAsMarkdown } from '../../utils/selectionToMarkdown'
 import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
 import { renderKeybinding } from '../../commands/keybindings'
-import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { ensureChatWorktree } from '../../utils/chatWorktreeRestore'
 import {
@@ -68,7 +66,6 @@ import {
   FOCUS_RING_INSET_CLASS,
   FOCUS_RING_WITHIN_EDITOR_CLASS,
   FloatingButton,
-  GhostButton,
   HiddenFileInput,
   InlineNotice,
   OutlineButton,
@@ -77,16 +74,8 @@ import {
   TruncatedText,
 } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
-import {
-  CONVERSATION_DEFAULT_MODEL_ID,
-  cliForConversationProvider,
-  conversationPermissionPresetRefusals,
-} from '../../../../shared/conversation-harness'
-import {
-  CLI_PERMISSION_PRESETS,
-  isLooserCliPermissionPreset,
-  parseCliPermissionPreset,
-} from '../../../../shared/cli-permission-preset'
+import { CONVERSATION_DEFAULT_MODEL_ID, cliForConversationProvider } from '../../../../shared/conversation-harness'
+import { isLooserCliPermissionPreset, parseCliPermissionPreset } from '../../../../shared/cli-permission-preset'
 import { parseCliPermissionModeId } from '../../../../shared/cli-permission-mode'
 import { pickRandomAgentName } from '../../../../shared/agent-names'
 import { lockedChatEngineOption, isModelDerivedChatName } from './agentChat/chatEngine'
@@ -181,7 +170,6 @@ import { QueuedTurnRow, queuedTurnSendNow } from './agentChat/queuedTurnBubble'
 import { ComposerTray, ComposerTrayRow } from './agentChat/composerTray'
 import { WorktreeInstallTrayRow } from './agentChat/worktreeInstallRow'
 import { StudioConnectionNotice } from './agentChat/studioConnectionNotice'
-import { CompactGlyph } from './agentChat/toolRows/ToolKindGlyph'
 import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
 import { TimelineRow, type TimelineChrome } from './agentChat/timelineRows'
 import { UnreadDivider } from './agentChat/turnMeta'
@@ -239,6 +227,53 @@ export type {
   UserTurn,
 } from './agentChat/conversationProjection'
 import { clientSupports, hostPlatform } from '../../clientCapabilities'
+import { useFileDropTarget } from '../../hooks/useFileDropTarget'
+import { ComposerDropOverlay } from './agentChat/ComposerDropOverlay'
+
+import {
+  composerSendAction,
+  draftAfterRetried,
+  isConversationBusy,
+  queueComposerDraft,
+  queuedDropNotice,
+  restoreRefusedText,
+  stopDisabledForPending,
+  type PendingAction,
+  type QueuedTurn,
+} from './agentChat/composerQueue'
+export {
+  composerSendAction,
+  draftAfterRetried,
+  isConversationBusy,
+  mergeQueuedTurn,
+  queueComposerDraft,
+  queuedTurnLabel,
+  restoreRefusedText,
+  stopDisabledForPending,
+} from './agentChat/composerQueue'
+import {
+  chatPermissionRefusals,
+  isConversationModelLocked,
+  resolvePermissionMode,
+  resolvePermissionPreset,
+} from './agentChat/chatPermissions'
+export {
+  chatPermissionRefusals,
+  isConversationModelLocked,
+  resolvePermissionMode,
+  resolvePermissionPreset,
+} from './agentChat/chatPermissions'
+import { MODEL_PICKER_TOGGLE_COMMAND, registerMountedChatView } from './agentChat/mountedChatViews'
+export {
+  MODEL_PICKER_TOGGLE_COMMAND,
+  registerMountedChatView,
+  respondToModelPickerToggle,
+} from './agentChat/mountedChatViews'
+export type { MountedChatView } from './agentChat/mountedChatViews'
+import { ContextWindowNotice } from './agentChat/ContextWindowNotice'
+import { buildModelGroups } from './agentChat/modelGroups'
+export { buildModelGroups } from './agentChat/modelGroups'
+export type { ModelGroup } from './agentChat/modelGroups'
 
 // The DataTransfer plumbing lives in utils/imageFileTransfer (shared with the
 // new-chat launch surface); re-exported here because this module declared it
@@ -248,49 +283,6 @@ export { dataTransferHasFiles }
 // (shared with the new-chat launch surface, which must not import this panel);
 // re-exported for the same reason.
 export { attachmentCountLabel, attachmentPreviewUrl, ComposerAttachmentStrip, openAttachmentImage }
-
-// Fold a commit made while the turn was locked into the waiting queued turn
-// (D6/1776): text appends, images concatenate. Reports how many images the
-// per-turn cap left behind so the composer can say so — a queue that quietly
-// swallowed the tail of a paste would look like it had taken everything.
-export function mergeQueuedTurn(
-  previous: { text: string; attachments: ConversationImageAttachment[] } | null,
-  text: string,
-  attachments: ConversationImageAttachment[],
-): { text: string; attachments: ConversationImageAttachment[]; dropped: number } {
-  const previousText = previous?.text ?? ''
-  const combined = [...(previous?.attachments ?? []), ...attachments]
-  return {
-    text: previousText && text ? `${previousText}\n${text}` : previousText || text,
-    attachments: combined.slice(0, MAX_ATTACHMENTS_PER_TURN),
-    dropped: Math.max(0, combined.length - MAX_ATTACHMENTS_PER_TURN),
-  }
-}
-
-// A message that did not go out (a queued turn whose send was refused) back in
-// the composer, ahead of whatever the person has typed since. Left only on the
-// error's Retry, it was gone the moment anything cleared that error.
-export function restoreRefusedText(current: string, text: string): string {
-  if (!current || current === text) return text
-  // Already back from an earlier refusal of the same message (a Retry that was
-  // refused again): not stacked a second time.
-  if (!text || current.startsWith(`${text}\n`)) return current
-  return `${text}\n${current}`
-}
-
-// The composer once a Retry takes the refused message back out of it: what
-// the person typed after it, or null when the message is not at its head.
-export function draftAfterRetried(current: string, text: string): string | null {
-  return text && current.startsWith(`${text}\n`) ? current.slice(text.length + 1) : null
-}
-
-// What the queued-turn row reads as. An image-only queued turn has no text to
-// show, so the count is the label rather than an empty row.
-export function queuedTurnLabel(text: string, attachmentCount: number): string {
-  if (attachmentCount === 0) return text
-  const images = attachmentCountLabel(attachmentCount)
-  return text ? `${text} · ${images}` : images
-}
 
 // What keeps the transcript at its end while the reader is there: a row added
 // or growing, and the list itself resizing (a pane dragged, the composer tray
@@ -336,12 +328,6 @@ type Props = {
 // its content to a ceiling, then scrolling.
 const COMPOSER_CLASS = 'max-h-[280px] min-h-[40px] w-full'
 
-type PendingAction = 'starting' | 'sending' | 'stopping' | null
-
-// A message committed while the session was busy, waiting for the turn to
-// unlock (D6/1776). Attachments ride along so a queued image is not lost.
-type QueuedTurn = { text: string; attachments: ConversationImageAttachment[]; metadata: ComposerDraftMetadata }
-
 // An error on the composer's line. Most are a sentence and nothing to redo — a
 // refused image, a clipboard write, a search that lost its row. A send that did
 // not go carries the send, so Retry repeats exactly that message and only
@@ -352,225 +338,8 @@ function composerErrorMessage(error: ComposerActionError | null): string | null 
   return typeof error === 'string' ? error : (error?.message ?? null)
 }
 
-// Fold what the composer holds into the queued turn — the one merge every
-// queueing path makes, whether the message then waits or is sent at once.
-export function queueComposerDraft(
-  previous: QueuedTurn | null,
-  text: string,
-  attachments: ConversationImageAttachment[],
-  metadata: ComposerDraftMetadata,
-): { turn: QueuedTurn; dropped: number } {
-  const { dropped, ...merged } = mergeQueuedTurn(previous, text, attachments)
-  return {
-    turn: {
-      ...merged,
-      metadata: {
-        skillIds: [...new Set([...(previous?.metadata.skillIds ?? []), ...metadata.skillIds])],
-        mentions: [...(previous?.metadata.mentions ?? []), ...metadata.mentions],
-        files: [...new Set([...(previous?.metadata.files ?? []), ...metadata.files])],
-      },
-    },
-    dropped,
-  }
-}
-
-// The composer's note when the per-turn image cap trimmed a queued message.
-function queuedDropNotice(dropped: number): string | null {
-  return dropped > 0
-    ? `Only ${MAX_ATTACHMENTS_PER_TURN} images fit in one message — ${attachmentCountLabel(dropped)} were not queued.`
-    : null
-}
-
-export function stopDisabledForPending(pending: PendingAction): boolean {
-  return pending === 'stopping'
-}
-
-// Whether the session can accept a live send right now. The runtime rejects a
-// new turn while its session is busy — `isSessionBusy` in
-// src/main/conversation-runtime.ts, which is an open turn of any kind: the whole
-// active turn, its awaiting-approval window, and a continuation turn the
-// provider opened outside any send (1798). So a submit made while busy is queued
-// and auto-sent on unlock (D6/1776) rather than fired as a live IPC that would
-// error. Type-ahead into the textarea is always allowed; only the send/queue
-// routing keys off this.
-export function isConversationBusy(activeTurn: boolean, awaitingApproval: boolean, pending: PendingAction): boolean {
-  return activeTurn || awaitingApproval || pending !== null
-}
-
-// The composer's one commit rule, shared by every affordance that can commit a
-// turn — Enter, the send button, and the right-click menu's Send item (1793) —
-// so the three can never disagree about whether a turn can be committed or
-// whether committing sends now or queues (D6/1776). Content is text OR staged
-// images (D3/1774): an image-only message is sendable.
-export function composerSendAction(options: {
-  ready: boolean
-  busy: boolean
-  sending: boolean
-  hasText: boolean
-  attachmentCount: number
-}): { label: string; disabled: boolean } {
-  return {
-    label: options.sending ? 'Sending' : options.busy ? 'Queue message' : 'Send message',
-    disabled: !options.ready || (!options.hasText && options.attachmentCount === 0),
-  }
-}
-
-// The model is editable only until the conversation starts: the runtime binds a
-// session to one provider/model, so once the user has sent a turn (or a session
-// exists) the in-composer picker locks. A replayed transcript counts as a
-// started conversation too — after an app restart userTurns/sessionId are empty
-// local state, but switching models over restored history would silently start
-// a fresh session mid-thread.
-export function isConversationModelLocked(
-  userTurnCount: number,
-  sessionId: string | null,
-  hasTranscriptHistory = false,
-): boolean {
-  return userTurnCount > 0 || sessionId !== null || hasTranscriptHistory
-}
-
-/**
- * The presets a chat cannot be switched to, each with the one line its row
- * shows: one its CLI cannot be held to (Cursor never asks before an edit), one
- * the provider does not list, and — on a paired machine built before Manual
- * and Auto came back — the two it would read as No flag.
- */
-export function chatPermissionRefusals(input: {
-  cli: string | null | undefined
-  allowed: readonly CliPermissionPreset[] | undefined
-  permissionModes: boolean
-  machineName?: string
-}): Partial<Record<CliPermissionPreset, string>> | undefined {
-  const refusals = conversationPermissionPresetRefusals(input.cli)
-  const reasons: Partial<Record<CliPermissionPreset, string>> = {}
-  for (const preset of CLI_PERMISSION_PRESETS) {
-    const reason =
-      refusals[preset] ??
-      (!input.permissionModes && (preset === 'manual' || preset === 'auto')
-        ? `${input.machineName ?? 'That machine'} needs a newer Studio for this.`
-        : input.allowed?.length && !input.allowed.includes(preset)
-          ? 'This agent cannot run with this preset.'
-          : null)
-    if (reason) reasons[preset] = reason
-  }
-  return Object.keys(reasons).length > 0 ? reasons : undefined
-}
-
-// The tool-permission preset the pill reports, in precedence order (1809):
-// the live session's own reported preset first — it is what the running child
-// applies on its next tool call, and it can disagree with the agent record (an
-// optimistic write lost to a reload race, a session started with an explicit
-// preset); then the persisted per-agent field every CLI spawn stamps from the
-// picker, which is also what the next session starts on; then the app's spawn
-// default for an agent record predating the field.
 // No mode of the CLI's own: what a chat whose runtime names none offers.
 const NO_MODES: readonly string[] = []
-
-export function resolvePermissionPreset(
-  session: Pick<ConversationSessionSummary, 'permissionPreset'> | null,
-  agentPreset: CliPermissionPreset | undefined,
-): CliPermissionPreset {
-  return session?.permissionPreset ?? agentPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
-}
-
-// The CLI's own mode beside that preset, from the same source the preset came
-// from: a live session's own report wins whole, so a session that fell back
-// to No flag never shows the record's mode beside it.
-export function resolvePermissionMode(
-  session: Pick<ConversationSessionSummary, 'permissionPreset' | 'permissionMode'> | null,
-  agent: { cliPermissionPreset?: CliPermissionPreset; cliPermissionMode?: string } | undefined,
-): string | undefined {
-  if (session?.permissionPreset) return session.permissionMode
-  return agent?.cliPermissionPreset ? agent.cliPermissionMode : undefined
-}
-
-// Which mounted chat view answers a whole-window model-picker shortcut (see
-// the effect inside AgentChatView). Mount order; the focused view wins.
-export type MountedChatView = {
-  workspaceId: string
-  isFocused: () => boolean
-  toggleModelPicker: () => void
-  cycleEffort?: () => void
-  resumeInTerminal?: () => void
-  stepTurn?: (direction: -1 | 1) => void
-  /** Play the conversation back from its first message (`chat.replay.start`). */
-  startReplay?: () => void
-  /** Quote the document's selection when it is in this view's transcript; whether it was. */
-  quoteSelection?: () => boolean
-}
-const mountedChatViews: MountedChatView[] = []
-export const MODEL_PICKER_TOGGLE_COMMAND = 'chat.modelPicker.toggle'
-const RESUME_IN_TERMINAL_COMMAND = 'chat.resumeInTerminal'
-const REPLAY_COMMAND = 'chat.replay.start'
-
-/**
- * Answer `chat.modelPicker.toggle` (⌘⇧M, or the palette row) with ONE chat
- * view: the one holding focus, failing that the most recently mounted view
- * in the active workspace — never every mounted view (background workspace
- * layers stay mounted). One module-level listener, installed while any view
- * is mounted, picks the responder and toggles it; the views never compare
- * closures, which is how the first cut of this silently answered nothing.
- * Returns the view that answered, or null.
- */
-export function respondToModelPickerToggle(): MountedChatView | null {
-  const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId
-  const responder =
-    mountedChatViews.find((view) => view.isFocused()) ??
-    [...mountedChatViews].reverse().find((view) => view.workspaceId === activeWorkspaceId) ??
-    null
-  responder?.toggleModelPicker()
-  return responder
-}
-
-function onModelPickerPanelCommand(event: Event): void {
-  const detail = (event as CustomEvent<{ id?: string }>).detail
-  if (detail?.id === MODEL_PICKER_TOGGLE_COMMAND) respondToModelPickerToggle()
-  if (detail?.id === 'chat.effort.cycle') {
-    const responder =
-      mountedChatViews.find((view) => view.isFocused()) ??
-      [...mountedChatViews]
-        .reverse()
-        .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
-    responder?.cycleEffort?.()
-  }
-  if (detail?.id === RESUME_IN_TERMINAL_COMMAND) {
-    const responder =
-      mountedChatViews.find((view) => view.isFocused()) ??
-      [...mountedChatViews]
-        .reverse()
-        .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
-    responder?.resumeInTerminal?.()
-  }
-  if (detail?.id === 'chat.turn.previous' || detail?.id === 'chat.turn.next') {
-    const responder =
-      mountedChatViews.find((view) => view.isFocused()) ??
-      [...mountedChatViews]
-        .reverse()
-        .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
-    responder?.stepTurn?.(detail.id === 'chat.turn.previous' ? -1 : 1)
-  }
-  if (detail?.id === REPLAY_COMMAND) {
-    const responder =
-      mountedChatViews.find((view) => view.isFocused()) ??
-      [...mountedChatViews]
-        .reverse()
-        .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
-    responder?.startReplay?.()
-  }
-  // The view whose transcript holds the selection answers, whichever has focus.
-  if (detail?.id === QUOTE_SELECTION_COMMAND) mountedChatViews.some((view) => view.quoteSelection?.() === true)
-}
-
-/** Register a mounted chat view as a possible responder; returns the unregister. */
-export function registerMountedChatView(entry: MountedChatView): () => void {
-  if (mountedChatViews.length === 0) window.addEventListener(PANEL_COMMAND_EVENT, onModelPickerPanelCommand)
-  mountedChatViews.push(entry)
-  return () => {
-    const index = mountedChatViews.indexOf(entry)
-    if (index >= 0) mountedChatViews.splice(index, 1)
-    if (mountedChatViews.length === 0) window.removeEventListener(PANEL_COMMAND_EVENT, onModelPickerPanelCommand)
-  }
-}
 
 export default function AgentChatView({ workspaceId, agentId }: Props) {
   const binding = useLocalChatBinding(workspaceId, agentId)
@@ -726,8 +495,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // A pasted/dropped/picked image is being read and resampled. Held so the
   // strip can say so instead of looking like nothing happened on a large file.
   const [attachingCount, setAttachingCount] = useState(0)
-  // An image drag is over the composer; drives the drop-target affordance.
-  const [dropActive, setDropActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   // The "+" row's two handlers, stable so the row does not redraw with every
   // streamed token. The pick goes through a ref to `takePickedFiles`, set
@@ -2905,49 +2672,18 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // transcript as much as on the composer. Aiming a drag at a field a few lines
   // tall is a needless target, and a drop that missed it used to do nothing at
   // all. The composer still lights up as the drop's destination. Any file takes,
-  // sorted as `takeFiles` sorts it.
-  const fileDropHandlers: React.HTMLAttributes<HTMLDivElement> = {
-    onDragEnter: (event) => {
-      if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-      setDropActive(true)
-    },
-    onDragOver: (event) => {
-      // Claiming the drag is what stops the window from navigating to the
-      // dropped file, so it has to happen on every dragover.
-      if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-      event.preventDefault()
-      event.dataTransfer.dropEffect = 'copy'
-    },
-    // Enter and leave fire for every child the pointer crosses, and a row the
-    // stream or the list's virtualization removes mid-drag never reports its
-    // leave. Counting them could stick the overlay over the composer; asking
-    // whether the pointer went somewhere outside the panel cannot.
-    onDragLeave: (event) => {
-      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
-      setDropActive(false)
-    },
-    onDrop: (event) => {
-      if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-      // Also what keeps the field's own drop from typing a studio drag's paths
-      // a second time when it lands on the field itself.
-      event.preventDefault()
-      setDropActive(false)
-      takeFiles(sortDroppedFiles(event.dataTransfer, fileSorting))
-    },
-  }
-
-  // A drag that ends anywhere — dropped elsewhere in the window, or cancelled —
-  // takes the drop affordance with it, whatever the panel's own events saw.
-  useEffect(() => {
-    if (!dropActive) return
-    const clear = () => setDropActive(false)
-    window.addEventListener('dragend', clear)
-    window.addEventListener('drop', clear)
-    return () => {
-      window.removeEventListener('dragend', clear)
-      window.removeEventListener('drop', clear)
-    }
-  }, [dropActive])
+  // sorted as `takeFiles` sorts it. A row the stream or the list's
+  // virtualization removes mid-drag never reports its leave; the drop target
+  // asks where the pointer went instead of counting (useFileDropTarget). The
+  // drop it claims is also what keeps the field's own drop from typing a studio
+  // drag's paths a second time when it lands on the field itself. While the
+  // composer takes no input the drag passes the chat by, and a readiness change
+  // mid-drag takes the affordance down with it.
+  const { active: dropActive, handlers: fileDropHandlers } = useFileDropTarget({
+    enabled: !composerInputDisabled,
+    accepts: dataTransferHasDroppableFiles,
+    onDrop: (dataTransfer) => takeFiles(sortDroppedFiles(dataTransfer, fileSorting)),
+  })
 
   const orphanTurnError = projection.lastError && !hasFailedTurnEntry ? projection.lastError : null
   const composerError = actionErrorMessage ?? persistenceError ?? historyError ?? orphanTurnError
@@ -3481,15 +3217,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
               }`}
             >
-              {/* Gated on the field too, so a readiness change mid-drag can never
-              strand the overlay over a composer that stopped taking input. */}
-              {dropActive && !composerInputDisabled ? (
-                // Opaque, not a scrim: the field's own text ghosting through the
-                // drop state reads as a rendering artifact rather than a state.
-                <div className="pointer-events-none absolute inset-0 z-[var(--z-float)] flex items-center justify-center rounded-[var(--sem-radius-composer)] bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
-                  Drop to attach
-                </div>
-              ) : null}
+              {dropActive ? <ComposerDropOverlay ground="surface" /> : null}
               {contextPicker.picker}
               <ComposerAttachmentStrip
                 attachments={attachments}
@@ -3808,78 +3536,6 @@ function ChatShell({
   )
 }
 
-// Where the context window counts as nearly full: the composer tray says so in
-// words. (The strip's ring turns amber earlier, at its own threshold — a
-// glance's nudge before the words.)
-const CONTEXT_NEAR_FULL = 0.9
-
-// The context window nearly full, as a row of the composer tray. Compacting is
-// offered where the chat's CLI runs `/compact`. "Not now" holds until the window
-// drops back under the mark — a compaction, or a new session — so a window
-// that fills again says so again.
-function ContextWindowNotice({
-  used,
-  total,
-  onCompact,
-  compactDisabled,
-}: {
-  used: number
-  total: number
-  onCompact?: () => void
-  compactDisabled: boolean
-}) {
-  const fraction = total > 0 ? used / total : 0
-  const nearFull = fraction >= CONTEXT_NEAR_FULL
-  const [dismissed, setDismissed] = useState(false)
-  useEffect(() => {
-    if (!nearFull) setDismissed(false)
-  }, [nearFull])
-  if (!nearFull || dismissed) return null
-  return (
-    <ComposerTrayRow
-      tone="warn"
-      actions={
-        <>
-          {onCompact ? (
-            <GhostButton size="xs" disabled={compactDisabled} onClick={onCompact}>
-              <CompactGlyph className="icon-xs" />
-              Compact
-            </GhostButton>
-          ) : null}
-          <GhostButton size="xs" onClick={() => setDismissed(true)}>
-            Not now
-          </GhostButton>
-        </>
-      }
-    >
-      Context {Math.min(100, Math.round(fraction * 100))}% full · {formatTokens(used)} of {formatTokens(total)} tokens
-    </ComposerTrayRow>
-  )
-}
-
-function formatTokens(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`
-  if (value >= 1_000) return `${Math.round(value / 1_000)}k`
-  return String(value)
-}
-
-// One provider's models as this view reads them for the current model's label
-// and context length.
-export type ModelGroup = {
-  providerId: string
-  providerLabel: string
-  // Native CLI credentials and app-managed API keys remain visibly distinct;
-  // neither native login nor a tool capability implies a subscription plan.
-  credentialSource?: 'native' | 'api-key' | 'none'
-  // Plain-language reason the provider cannot start sessions.
-  unavailable?: string
-  models: ConversationProviderModel[]
-  // Explicit empty state for a dynamic-catalog provider with no models to list:
-  // 'add-key' — no key configured; 'no-models' — key present but the live
-  // catalog came back empty.
-  emptyState?: 'add-key' | 'no-models'
-}
-
 // What the view reads off the transcript's shape, in one pass: the requests
 // waiting in the dock, the latest failed turn (the one Retry re-sends), the
 // turn left unfolded, the turns that can be reverted, the prompts recall steps
@@ -3932,50 +3588,6 @@ export function repliesCompletedAfter(entries: readonly TranscriptEntry[], seenT
     if (entry.status === 'complete') count++
   }
   return seenTurnId === null ? count : 0
-}
-
-// Model groups: one per provider, merging each provider's own live catalog
-// (fetched when the user browses to it) over its manifest seed. Native-login
-// providers sort first and identify their CLI-owned credentials, so app-managed
-// API keys are never mistaken for the user's existing native configuration. A
-// dynamic-catalog provider is never dropped for an empty seed: when its key is
-// missing it shows an explicit add-key state, and when the key is present but
-// the catalog is empty it says so — never a silent stale seed.
-export function buildModelGroups(
-  providers: ConversationProviderListEntry[],
-  catalogByProvider: Record<string, ConversationProviderModel[]>,
-  keyByProvider: Record<string, boolean>,
-): ModelGroup[] {
-  return [...providers]
-    .sort((a, b) => Number(b.credentialSource === 'native') - Number(a.credentialSource === 'native'))
-    .map((entry): ModelGroup => {
-      const base = {
-        providerId: entry.id,
-        providerLabel: entry.displayName,
-        unavailable: entry.unavailable,
-        credentialSource: entry.credentialSource,
-      }
-      const liveCatalog = catalogByProvider[entry.id]
-      const hasLive = Array.isArray(liveCatalog) && liveCatalog.length > 0
-      // Native providers need no app-managed key: live catalog if it
-      // loaded, else the seed. Static model-providers list their full seed as-is
-      // — it is the complete catalog, not a truncated one.
-      if (entry.credentialSource === 'native' || !entry.supportsDynamicModels) {
-        return {
-          ...base,
-          models: hasLive ? liveCatalog : entry.models,
-        }
-      }
-      // Dynamic model-providers (OpenRouter, xAI): key state gates the catalog.
-      const hasKey = entry.credentialSource === 'none' ? true : keyByProvider[entry.id]
-      if (hasKey === false) return { ...base, models: [], emptyState: 'add-key' }
-      if (hasLive) return { ...base, models: liveCatalog }
-      // Key present but catalog empty/unreachable: say so rather than seed.
-      if (hasKey === true) return { ...base, models: [], emptyState: 'no-models' }
-      // Key state not yet fetched — show the seed provisionally until the user
-      // browses to this provider and its live catalog + key status load.
-      return { ...base, models: entry.models }
-    })
 }
 
 // Clipboard reads/writes go through the main process: an Electron renderer has

@@ -1,9 +1,6 @@
 import { app, BrowserWindow, ipcMain, net, powerMonitor, safeStorage } from 'electron'
 import { createHash } from 'crypto'
-import { existsSync } from 'fs'
 import { homedir } from 'os'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import { dirname, join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
 import {
@@ -19,7 +16,6 @@ import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
 import { createDesktopSsh, type DesktopSsh } from './environments/ssh/desktop-ssh'
 import { isMachinePath } from '../shared/machine-paths'
 import { workspaceProjectRootOf } from '../shared/worktree-paths'
-import { dependencyInstallSettingFor } from '../shared/ipc/worktree-pool'
 import type { WorkspaceEnvironmentRef } from '../renderer/src/types/workspace'
 import { sessionSshPreview } from './environments/ssh/ssh-preview'
 import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../server/wsl/wsl-tool-relay'
@@ -73,10 +69,17 @@ import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillsService } from './skills'
-import { createGitRepoReader, sweepGitRepoCache } from './skills/git-repo-reader'
+import { sweepGitRepoCache } from './skills/git-repo-reader'
+import {
+  getBundledAgentStateReporterPath,
+  getBundledAgentStateReporterTemplatePath,
+  getBundledResourceDir,
+  getBundledStatusLineForwarderPath,
+  getBundledStudioPluginRoot,
+} from './bundled-resources'
+import { createGitTransportProbe } from './git-transport-probe'
 import { sharedGhRunner } from './github/gh'
 import { createGhHostTokenResolver } from './github/host-token'
-import type { SkillRepoReader } from './skills/repo-reader'
 import { SKILL_SOURCES_UPDATED_CHANNEL } from './skills/source-updates'
 import {
   createAgentCapabilityService,
@@ -107,15 +110,8 @@ import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
-import { excludeMcpConfigFromWorktree, seedWorktreeIncludedFiles } from './git'
-import { broadcastWorktreePoolChanged, WORKTREE_INSTALL_CHANGED_CHANNEL } from './ipc/worktree-pool-ipc'
-import { installWorktreePool } from './worktree-pool/active-pool'
-import { createDependencyInstaller, installDependencyInstaller } from './worktree-pool/dependency-install'
-import { cachedDependencyInstallEnvironment } from './worktree-pool/install-environment'
-import { createPoolStore } from './worktree-pool/pool-store'
-import { chatIdsOnRecord } from './agent-worktree-keep-checks'
-import { createWorktreePoolService } from './worktree-pool/worktree-pool-service'
-import { createWorktreePoolTools } from './worktree-pool/worktree-pool-tools'
+import { excludeMcpConfigFromWorktree } from './git'
+import { createWorktreeServices } from './worktree-services'
 import { createConversationPeekService } from './conversation-peek/service'
 import { chatHandoffStart, createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
@@ -167,7 +163,7 @@ import { sendSplashProgress, showUpdateProgressWindow } from './splash-window'
 import { GitHubTokenStore } from './github-token-store'
 import { installSharedCredentialStore } from './secret-store'
 import { createWorkspaceBackupService } from './workspace-backup'
-import { diagnosticLogger, writeDiagnosticLog } from './diagnostics-service'
+import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
 import { declaredPermissionPresets } from './plugin-render'
 import { createStudioPluginService } from './studio-plugin-service'
@@ -215,7 +211,9 @@ import {
   INTEGRATION_LEDGER_FILE,
 } from './integrations/ledger'
 
-const execFileAsync = promisify(execFile)
+// How long a cloned skill repository may go unread before the start-up sweep
+// removes it (skills/git-repo-reader.ts `sweepGitRepoCache`).
+const SKILL_REPO_CACHE_IDLE_MS = 60 * 24 * 60 * 60 * 1000
 
 export function createAppServices(
   diagnosticsEnabled: boolean,
@@ -1400,11 +1398,6 @@ export function createAppServices(
     broadcastPending: (workspaceIds) => broadcastToWorkspaceWindows(EDITOR_REVEAL_PENDING_CHANNEL, { workspaceIds }),
   })
 
-  // The pool of reusable agent worktrees (worktree-pool/). Every agent
-  // worktree made with `fromPool` (git.ts) is leased from it, and the agent
-  // worktree cleanup hands back the slots nothing uses. It does nothing on its
-  // own: reading its records is all that happens here, and a pool recovers
-  // from an interrupted run the first time it is used.
   // Where live work sits, for the pool and the agent worktree cleanup alike:
   // every live terminal, the checkout it observes, and the folder of every chat
   // whose provider session is working now. One list, so neither recycles a
@@ -1417,43 +1410,10 @@ export function createAppServices(
     ),
     ...(await conversations.liveConversationWorkspaceRoots().catch(() => [])),
   ]
-  const worktreePool = createWorktreePoolService({
-    store: createPoolStore(app.getPath('userData')),
-    livePaths: liveWorkPaths,
-    // Recovery, holds and evictions are what a person asks about later.
-    log: diagnosticLogger('worktree-pool'),
-    onChange: broadcastWorktreePoolChanged,
-    seedIncludedFiles: seedWorktreeIncludedFiles,
-    // Settled chats included: a slot holding a chat's history is never removed.
-    knownWorkspaceIds: () => chatIdsOnRecord(workspaceSyncService.getSnapshot().state.workspaces),
-  })
-  installWorktreePool(worktreePool)
-  void worktreePool.load()
-  // The dependency install an agent worktree runs when its project opted in
-  // and its lockfile changed (worktree-pool/dependency-install.ts), with the
-  // environment the person's own terminal has and none of the app's own
-  // variables (worktree-pool/install-environment.ts): one login shell's,
-  // kept for the leases of the next few minutes.
-  const dependencyInstallEnv = cachedDependencyInstallEnvironment()
-  const dependencyInstaller = createDependencyInstaller({
-    env: () => dependencyInstallEnv.read(),
-    forgetEnv: () => dependencyInstallEnv.forget(),
-    log: diagnosticLogger('worktree-install'),
-    onChange: (view) => broadcastToWorkspaceWindows(WORKTREE_INSTALL_CHANGED_CHANNEL, view),
-  })
-  installDependencyInstaller(dependencyInstaller)
-  // `worktree.lease` and `worktree.release`: in process the gateway's own, out
-  // of process the shell's `worktree` toolset.
-  const worktreeTools = createWorktreePoolTools({
-    pool: worktreePool,
-    findWorkspace: (workspaceId) =>
-      workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ?? null,
-    // The install a chat's own leased worktree gets, when the project opted in.
-    installDependencies: async (request) =>
-      dependencyInstaller.prepare({
-        ...request,
-        setting: dependencyInstallSettingFor(await worktreePool.getSettings(), request.repoRoot),
-      }),
+  const { worktreePool, dependencyInstaller, worktreeTools } = createWorktreeServices({
+    userDataPath: app.getPath('userData'),
+    liveWorkPaths,
+    workspaceSyncService,
   })
 
   const canvasSubscribers = createCanvasSubscriberRegistry()
@@ -2192,145 +2152,3 @@ export function createAppServices(
 }
 
 export type AppServices = ReturnType<typeof createAppServices>
-
-// Resolves a bundled hook reporter script across packaged and dev layouts.
-// Mirrors memory-activity's resolver: extraResources ships resources/hooks/*.mjs
-// to <resourcesPath>/hooks in packaged builds.
-function getBundledHookReporterPath(filename: string): string | null {
-  if (app.isPackaged) {
-    const packaged = join(process.resourcesPath, 'hooks', filename)
-    return existsSync(packaged) ? packaged : null
-  }
-  const candidates = [
-    join(process.cwd(), 'resources', 'hooks', filename),
-    join(app.getAppPath(), 'resources', 'hooks', filename),
-    join(__dirname, '..', '..', 'resources', 'hooks', filename),
-    join(__dirname, '..', '..', '..', 'resources', 'hooks', filename),
-  ]
-  return candidates.find((candidate) => existsSync(candidate)) ?? null
-}
-
-// Every command-hook registration shares one stdin-filter reporter; plugin-file
-// registrations name their own bundled template (e.g. OpenCode's in-process
-// plugin, rewritten to .js on install).
-function getBundledAgentStateReporterPath(): string | null {
-  return getBundledHookReporterPath('sprintengine-agent-state.mjs')
-}
-
-// The status-line forwarder, shipped by the same `resources/hooks` entry. Only
-// the Claude-family specs that declare `statusLine: true` install it.
-function getBundledStatusLineForwarderPath(): string | null {
-  return getBundledHookReporterPath('sprintengine-status-line.mjs')
-}
-
-// The app's own plugin marketplace, shipped by the `resources/studio-plugin`
-// extraResources entry. Same packaged/dev shape as the reporter resolver above;
-// null when the entry did not ship, which the service reports rather than
-// installing an empty plugin into every workspace.
-function getBundledStudioPluginRoot(): string | null {
-  const relative = ['studio-plugin']
-  if (app.isPackaged) {
-    const packaged = join(process.resourcesPath, ...relative)
-    return existsSync(packaged) ? packaged : null
-  }
-  const candidates = [
-    join(process.cwd(), 'resources', ...relative),
-    join(app.getAppPath(), 'resources', ...relative),
-    join(__dirname, '..', '..', 'resources', ...relative),
-    join(__dirname, '..', '..', '..', 'resources', ...relative),
-  ]
-  return candidates.find((candidate) => existsSync(candidate)) ?? null
-}
-
-// A directory the build ships under resources (`wsl-helper`, `hooks`,
-// `automation`), with the same packaged and dev lookups as the ones above.
-function getBundledResourceDir(name: string): string | null {
-  if (app.isPackaged) {
-    const packaged = join(process.resourcesPath, name)
-    return existsSync(packaged) ? packaged : null
-  }
-  const candidates = [
-    join(process.cwd(), 'resources', name),
-    join(app.getAppPath(), 'resources', name),
-    join(__dirname, '..', '..', 'resources', name),
-    join(__dirname, '..', '..', '..', 'resources', name),
-  ]
-  return candidates.find((candidate) => existsSync(candidate)) ?? null
-}
-
-// The template name comes from a plugin manifest; constrain it to a bare
-// filename so a hostile manifest cannot path-traverse out of resources/hooks.
-function getBundledAgentStateReporterTemplatePath(template: string): string | null {
-  if (!template || template.includes('/') || template.includes('\\') || template.includes('..')) return null
-  return getBundledHookReporterPath(template)
-}
-
-/**
- * Whether this machine's git can do what the reader asks of it, asked once the
- * app is ready and again — at most once a minute — while the answer is no.
- *
- * The floor is 2.19: partial clone (`--filter=blob:none`) arrived there, and a
- * git that rejects the filter would fail every read with the API reader sitting
- * unreachable beside it. `git --version` alone proved only that a git exists
- * (review, 2026-09-09).
- */
-const GIT_VERSION_FLOOR: readonly [number, number] = [2, 19]
-const GIT_REPROBE_MS = 60_000
-const SKILL_REPO_CACHE_IDLE_MS = 60 * 24 * 60 * 60 * 1000
-
-function createGitTransportProbe(options: {
-  cacheDir: string
-  resolveToken: () => Promise<string>
-  resolveHostToken: (host: string) => Promise<string>
-}): {
-  readonly reader: SkillRepoReader | undefined
-  readonly installed: boolean
-  refresh(): Promise<void>
-} {
-  let reader: SkillRepoReader | undefined
-  let installed = false
-  let probedAt = 0
-  let inFlight: Promise<void> | null = null
-  const probe = async (): Promise<void> => {
-    probedAt = Date.now()
-    const usable = await gitMeetsFloor()
-    installed = usable
-    if (usable && !reader) reader = createGitRepoReader(options)
-    if (!usable) reader = undefined
-  }
-  return {
-    get reader() {
-      return reader
-    },
-    get installed() {
-      return installed
-    },
-    refresh() {
-      // A usable git stays usable for the app's life; only a missing one is
-      // asked again, and not on every call.
-      if (installed) return Promise.resolve()
-      if (inFlight) return inFlight
-      if (probedAt !== 0 && Date.now() - probedAt < GIT_REPROBE_MS) return Promise.resolve()
-      inFlight = probe().finally(() => {
-        inFlight = null
-      })
-      return inFlight
-    },
-  }
-}
-
-async function gitMeetsFloor(): Promise<boolean> {
-  try {
-    const { stdout } = await execFileAsync('git', ['--version'], {
-      windowsHide: true,
-      timeout: 5_000,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-    })
-    const match = /git version (\d+)\.(\d+)/.exec(String(stdout))
-    if (!match) return false
-    const [major, minor] = [Number(match[1]), Number(match[2])]
-    return major > GIT_VERSION_FLOOR[0] || (major === GIT_VERSION_FLOOR[0] && minor >= GIT_VERSION_FLOOR[1])
-  } catch {
-    return false
-  }
-}
