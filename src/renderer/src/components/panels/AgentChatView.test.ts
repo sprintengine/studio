@@ -1688,7 +1688,7 @@ test('AgentChatView', async () => {
     /^[\s\S]{0,400}?attachments: turnAttachments/,
     'the send IPC carries the staged attachments, not just the text',
   )
-  for (const handler of ['onPaste=', 'onDrop:', 'onDragOver:', '<HiddenFileInput']) {
+  for (const handler of ['onPaste=', 'onDrop:', 'useFileDropTarget({', '<HiddenFileInput']) {
     assert.ok(chatViewSource.includes(handler), `the composer wires ${handler}`)
   }
   // The "+" menu's Attach files row clicks the kit's hidden file input, whose

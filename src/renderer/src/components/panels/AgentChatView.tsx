@@ -227,6 +227,8 @@ export type {
   UserTurn,
 } from './agentChat/conversationProjection'
 import { clientSupports, hostPlatform } from '../../clientCapabilities'
+import { useFileDropTarget } from '../../hooks/useFileDropTarget'
+import { ComposerDropOverlay } from './agentChat/ComposerDropOverlay'
 
 import {
   composerSendAction,
@@ -493,8 +495,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // A pasted/dropped/picked image is being read and resampled. Held so the
   // strip can say so instead of looking like nothing happened on a large file.
   const [attachingCount, setAttachingCount] = useState(0)
-  // An image drag is over the composer; drives the drop-target affordance.
-  const [dropActive, setDropActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   // The "+" row's two handlers, stable so the row does not redraw with every
   // streamed token. The pick goes through a ref to `takePickedFiles`, set
@@ -2672,49 +2672,18 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // transcript as much as on the composer. Aiming a drag at a field a few lines
   // tall is a needless target, and a drop that missed it used to do nothing at
   // all. The composer still lights up as the drop's destination. Any file takes,
-  // sorted as `takeFiles` sorts it.
-  const fileDropHandlers: React.HTMLAttributes<HTMLDivElement> = {
-    onDragEnter: (event) => {
-      if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-      setDropActive(true)
-    },
-    onDragOver: (event) => {
-      // Claiming the drag is what stops the window from navigating to the
-      // dropped file, so it has to happen on every dragover.
-      if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-      event.preventDefault()
-      event.dataTransfer.dropEffect = 'copy'
-    },
-    // Enter and leave fire for every child the pointer crosses, and a row the
-    // stream or the list's virtualization removes mid-drag never reports its
-    // leave. Counting them could stick the overlay over the composer; asking
-    // whether the pointer went somewhere outside the panel cannot.
-    onDragLeave: (event) => {
-      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
-      setDropActive(false)
-    },
-    onDrop: (event) => {
-      if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-      // Also what keeps the field's own drop from typing a studio drag's paths
-      // a second time when it lands on the field itself.
-      event.preventDefault()
-      setDropActive(false)
-      takeFiles(sortDroppedFiles(event.dataTransfer, fileSorting))
-    },
-  }
-
-  // A drag that ends anywhere — dropped elsewhere in the window, or cancelled —
-  // takes the drop affordance with it, whatever the panel's own events saw.
-  useEffect(() => {
-    if (!dropActive) return
-    const clear = () => setDropActive(false)
-    window.addEventListener('dragend', clear)
-    window.addEventListener('drop', clear)
-    return () => {
-      window.removeEventListener('dragend', clear)
-      window.removeEventListener('drop', clear)
-    }
-  }, [dropActive])
+  // sorted as `takeFiles` sorts it. A row the stream or the list's
+  // virtualization removes mid-drag never reports its leave; the drop target
+  // asks where the pointer went instead of counting (useFileDropTarget). The
+  // drop it claims is also what keeps the field's own drop from typing a studio
+  // drag's paths a second time when it lands on the field itself. While the
+  // composer takes no input the drag passes the chat by, and a readiness change
+  // mid-drag takes the affordance down with it.
+  const { active: dropActive, handlers: fileDropHandlers } = useFileDropTarget({
+    enabled: !composerInputDisabled,
+    accepts: dataTransferHasDroppableFiles,
+    onDrop: (dataTransfer) => takeFiles(sortDroppedFiles(dataTransfer, fileSorting)),
+  })
 
   const orphanTurnError = projection.lastError && !hasFailedTurnEntry ? projection.lastError : null
   const composerError = actionErrorMessage ?? persistenceError ?? historyError ?? orphanTurnError
@@ -3248,15 +3217,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
               }`}
             >
-              {/* Gated on the field too, so a readiness change mid-drag can never
-              strand the overlay over a composer that stopped taking input. */}
-              {dropActive && !composerInputDisabled ? (
-                // Opaque, not a scrim: the field's own text ghosting through the
-                // drop state reads as a rendering artifact rather than a state.
-                <div className="pointer-events-none absolute inset-0 z-[var(--z-float)] flex items-center justify-center rounded-[var(--sem-radius-composer)] bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
-                  Drop to attach
-                </div>
-              ) : null}
+              {dropActive ? <ComposerDropOverlay ground="surface" /> : null}
               {contextPicker.picker}
               <ComposerAttachmentStrip
                 attachments={attachments}
