@@ -843,7 +843,10 @@ export class ConversationRuntime {
     const chat = `${session.workspaceId}\0${session.agentId}`
     if (readConversationMessageOrigin(input.origin)) {
       if (this.handedToTerminal.has(chat))
-        return { ok: false, message: 'This conversation continues in a terminal, so Studio did not send it this message.' }
+        return {
+          ok: false,
+          message: 'This conversation continues in a terminal, so Studio did not send it this message.',
+        }
     } else this.handedToTerminal.delete(chat)
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
     // Busy, not failed: a send from another device (a phone, while a turn

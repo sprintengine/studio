@@ -137,9 +137,7 @@ export function CreatePullRequestControl({
     setDialogOpen(false)
     const api = window.api
     setProgress({ step: 'pushing' })
-    const pushed = await api
-      .pushForPullRequest(cwd, pin ?? undefined)
-      .catch((error: unknown) => failed(error))
+    const pushed = await api.pushForPullRequest(cwd, pin ?? undefined).catch((error: unknown) => failed(error))
     if (!pushed.ok) {
       setProgress({ step: 'failed', message: pushed.message })
       return
