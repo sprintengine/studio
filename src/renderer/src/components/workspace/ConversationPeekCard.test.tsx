@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import {
   ConversationPeekCard,
   contextUsageText,
-  formatTokenCount,
   type ConversationPeekIdentity,
 } from './ConversationPeekCard'
 import { RemoteMachineGlyph, WslMachineGlyph } from '../AppIcons'
@@ -224,16 +223,11 @@ test('ConversationPeekCard', async () => {
     assert.equal(card().includes('Context:'), false)
   })
 
-  run('token counts read the way a glance wants them', () => {
-    assert.equal(formatTokenCount(0), '0')
-    assert.equal(formatTokenCount(850), '850')
-    assert.equal(formatTokenCount(4_500), '4.5k')
-    assert.equal(formatTokenCount(8_000), '8k', 'never a trailing .0')
-    assert.equal(formatTokenCount(84_000), '84k')
-    assert.equal(formatTokenCount(200_000), '200k')
-    assert.equal(formatTokenCount(999_800), '1M', 'rounds up into millions rather than saying 1000k')
-    assert.equal(formatTokenCount(1_000_000), '1M')
-    assert.equal(formatTokenCount(1_250_000), '1.3M')
+  run('token counts read the way the turn footer reads them', () => {
+    assert.equal(
+      contextUsageText({ usedPercentage: 33, at: NOW, contextWindowSize: 128_000 }),
+      '42.2k / 128k tokens · 33%',
+    )
   })
 
   run('a one-million window reads in millions on the right and thousands on the left', () => {

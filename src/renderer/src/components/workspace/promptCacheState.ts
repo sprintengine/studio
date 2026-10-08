@@ -4,7 +4,7 @@
 // whose process went quiet still goes cold on time.
 
 import { formatRelativeMs } from '../../utils/relativeTime'
-import { formatTokenCount } from '../panels/agentChat/turnMeta'
+import { formatTokenCount } from '../../utils/tokenFormat'
 import type { PromptCacheReading, PromptCacheTtl } from '../../../../shared/prompt-cache'
 
 export type PromptCacheState =

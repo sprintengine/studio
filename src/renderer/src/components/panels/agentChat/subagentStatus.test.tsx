@@ -84,7 +84,7 @@ test('an agent’s card says who it is, how it is doing, and what kind of helper
   // Only the first sentence: the rest is written for the model.
   expect(working).not.toContain('Use it when')
   expect(working).toContain('Now: Reading the route table')
-  expect(working).toContain('6 steps · 18k tokens')
+  expect(working).toContain('6 steps · 18.4k tokens')
 
   const failed = renderToStaticMarkup(
     <AgentCardContent
@@ -116,7 +116,7 @@ test('an agent at a glance says what it has spent, while it works and once it is
     />,
   )
   expect(working).toContain('Reading the route table')
-  expect(working).toContain('18k tokens')
+  expect(working).toContain('18.4k tokens')
 
   const done = renderToStaticMarkup(
     <AgentLaneSummary

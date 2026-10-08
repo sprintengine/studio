@@ -40,6 +40,7 @@ import { copySelectionAsMarkdown } from '../../utils/selectionToMarkdown'
 import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
 import { renderKeybinding } from '../../commands/keybindings'
 import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
+import { formatTokenCount } from '../../utils/tokenFormat'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { ensureChatWorktree } from '../../utils/chatWorktreeRestore'
 import {
@@ -3852,15 +3853,9 @@ function ContextWindowNotice({
         </>
       }
     >
-      Context {Math.min(100, Math.round(fraction * 100))}% full · {formatTokens(used)} of {formatTokens(total)} tokens
+      Context {Math.min(100, Math.round(fraction * 100))}% full · {formatTokenCount(used)} of {formatTokenCount(total)} tokens
     </ComposerTrayRow>
   )
-}
-
-function formatTokens(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`
-  if (value >= 1_000) return `${Math.round(value / 1_000)}k`
-  return String(value)
 }
 
 // One provider's models as this view reads them for the current model's label
