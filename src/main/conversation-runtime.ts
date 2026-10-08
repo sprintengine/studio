@@ -1737,6 +1737,9 @@ export class ConversationRuntime {
   }): Promise<{ ok: true; target: ConversationTerminalHandoffTarget } | { ok: false; message: string }> {
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    // One handoff at a time: a second would open a second terminal on the session.
+    if (this.terminalHandoffs.has(session.sessionId))
+      return { ok: false, message: 'This chat is already moving to a terminal.' }
     if (!session.stateful)
       return { ok: false, message: 'This chat has no CLI session behind it for a terminal to resume.' }
     // Still opening, it has no settled CLI session to hand over yet.

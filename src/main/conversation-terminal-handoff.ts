@@ -98,12 +98,45 @@ export function createConversationTerminalHandoff(deps: ConversationTerminalHand
     return started.ok ? { ok: true, sessionId: started.session.sessionId, started: true } : started
   }
 
-  async function handoff(request: ConversationTerminalHandoffInput): Promise<ConversationTerminalHandoffResult> {
+  // Handoffs under way, by the session (and, asked for by its identity, the
+  // chat) each is for. A second "Continue in terminal" while one is under way
+  // gets that one's answer rather than a second terminal on the same session.
+  const inFlight = new Map<string, Promise<ConversationTerminalHandoffResult>>()
+
+  function handoff(request: ConversationTerminalHandoffInput): Promise<ConversationTerminalHandoffResult> {
+    const key = 'sessionId' in request ? request.sessionId : `${request.workspaceId}\0${request.agentId}`
+    const pending = inFlight.get(key)
+    if (pending) return pending
+    const keys = [key]
+    // The chat asked for by its identity resolves to a session another
+    // handoff may already be moving.
+    const claim = (sessionId: string): Promise<ConversationTerminalHandoffResult> | null => {
+      const other = inFlight.get(sessionId)
+      if (other && other !== run) return other
+      inFlight.set(sessionId, run)
+      keys.push(sessionId)
+      return null
+    }
+    const run: Promise<ConversationTerminalHandoffResult> = handoffOnce(request, claim).finally(() => {
+      for (const held of keys) if (inFlight.get(held) === run) inFlight.delete(held)
+    })
+    inFlight.set(key, run)
+    return run
+  }
+
+  async function handoffOnce(
+    request: ConversationTerminalHandoffInput,
+    claim: (sessionId: string) => Promise<ConversationTerminalHandoffResult> | null,
+  ): Promise<ConversationTerminalHandoffResult> {
     const session =
       'sessionId' in request
         ? { ok: true as const, sessionId: request.sessionId, started: false }
         : await sessionOfChat(request)
     if (!session.ok) return { ok: false, message: session.message }
+    if (!('sessionId' in request)) {
+      const other = claim(session.sessionId)
+      if (other) return other
+    }
     const input = { sessionId: session.sessionId }
     // A session started here for nothing (the chat cannot be handed over
     // after all) is not left running.
