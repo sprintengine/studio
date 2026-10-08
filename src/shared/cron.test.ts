@@ -138,12 +138,50 @@ test('a time a DST change skips runs just after the gap, and a repeated one runs
     '2026-10-25T00:00:00.000Z',
     '2026-10-26T01:00:00.000Z',
   ])
-  // And a half-hourly schedule keeps its rhythm up to the change instead of
-  // going quiet for an hour and a half.
-  assert.deepEqual(iso(nextCronRuns(parsed('*/30 * * * *'), 'Europe/Berlin', Date.UTC(2026, 9, 24, 23, 15), 4)), [
+  // And a half-hourly schedule keeps its rhythm through the change, the
+  // repeated hour included, instead of going quiet for an hour and a half.
+  assert.deepEqual(iso(nextCronRuns(parsed('*/30 * * * *'), 'Europe/Berlin', Date.UTC(2026, 9, 24, 23, 15), 6)), [
     '2026-10-24T23:30:00.000Z',
     '2026-10-25T00:00:00.000Z',
     '2026-10-25T00:30:00.000Z',
+    '2026-10-25T01:00:00.000Z',
+    '2026-10-25T01:30:00.000Z',
     '2026-10-25T02:00:00.000Z',
+  ])
+})
+
+test('an hourly schedule runs through the hour a fall-back repeats', () => {
+  // New York falls back at 02:00 EDT on 1 November 2026 (06:00Z): 01:00–01:59
+  // happens twice, at 05:xxZ and again at 06:xxZ.
+  const beforeFall = Date.UTC(2026, 10, 1, 4, 30)
+  assert.deepEqual(iso(nextCronRuns(parsed('0 * * * *'), 'America/New_York', beforeFall, 4)), [
+    '2026-11-01T05:00:00.000Z',
+    '2026-11-01T06:00:00.000Z',
+    '2026-11-01T07:00:00.000Z',
+    '2026-11-01T08:00:00.000Z',
+  ])
+  assert.deepEqual(iso(nextCronRuns(parsed('*/30 * * * *'), 'America/New_York', beforeFall, 6)), [
+    '2026-11-01T05:00:00.000Z',
+    '2026-11-01T05:30:00.000Z',
+    '2026-11-01T06:00:00.000Z',
+    '2026-11-01T06:30:00.000Z',
+    '2026-11-01T07:00:00.000Z',
+    '2026-11-01T07:30:00.000Z',
+  ])
+  // Asked from inside either pass of the repeated hour, the next run is the
+  // next one on the clock.
+  assert.deepEqual(iso(nextCronRuns(parsed('*/30 * * * *'), 'America/New_York', Date.UTC(2026, 10, 1, 5, 50), 2)), [
+    '2026-11-01T06:00:00.000Z',
+    '2026-11-01T06:30:00.000Z',
+  ])
+  // A step over hours repeats too; fixed hours (a list) run once, at the first.
+  assert.deepEqual(iso(nextCronRuns(parsed('15 1-3/1 * * *'), 'America/New_York', beforeFall, 3)), [
+    '2026-11-01T05:15:00.000Z',
+    '2026-11-01T06:15:00.000Z',
+    '2026-11-01T07:15:00.000Z',
+  ])
+  assert.deepEqual(iso(nextCronRuns(parsed('15 1,2 * * *'), 'America/New_York', beforeFall, 2)), [
+    '2026-11-01T05:15:00.000Z',
+    '2026-11-01T07:15:00.000Z',
   ])
 })
