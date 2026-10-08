@@ -71,3 +71,13 @@ test('the width control stores the chosen column', () => {
   act(() => comfortable.click())
   expect(useWorkspaceStore.getState().appSettings.appearance.chatWidth).toBe('comfortable')
 })
+
+test('the clock control stores the chosen format', () => {
+  const group = host.querySelector('[aria-label="Clock"]')!
+  const hours24 = [...group.querySelectorAll('button')].find((button) => button.textContent === '24-hour')!
+  act(() => hours24.click())
+  expect(useWorkspaceStore.getState().appSettings.appearance.clockFormat).toBe('24h')
+  const system = [...group.querySelectorAll('button')].find((button) => button.textContent === 'System')!
+  act(() => system.click())
+  expect(useWorkspaceStore.getState().appSettings.appearance.clockFormat).toBe('system')
+})

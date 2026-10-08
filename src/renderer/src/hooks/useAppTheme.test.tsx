@@ -7,6 +7,7 @@ import { afterEach, expect, test } from 'vitest'
 
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { applyChatAppearance, useAppTheme } from './useAppTheme'
+import { clockFormat, setClockFormat } from '../utils/clockFormat'
 
 const html = document.documentElement
 
@@ -60,6 +61,23 @@ test('the mounted hook follows the store as the settings change', async () => {
   expect(html.getAttribute('data-chat-width')).toBe('full')
   expect(html.hasAttribute('data-chat-contrast')).toBe(false)
   await act(async () => root.unmount())
+})
+
+test('the mounted hook keeps the app clock on the stored Clock setting', async () => {
+  ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  useWorkspaceStore.getState().setAppearanceClockFormat('24h')
+  function Themed() {
+    useAppTheme()
+    return null
+  }
+  const root = createRoot(document.createElement('div'))
+  await act(async () => root.render(<Themed />))
+  expect(clockFormat()).toBe('24h')
+  await act(async () => useWorkspaceStore.getState().setAppearanceClockFormat('12h'))
+  expect(clockFormat()).toBe('12h')
+  await act(async () => root.unmount())
+  useWorkspaceStore.getState().setAppearanceClockFormat('system')
+  setClockFormat('system')
 })
 
 test('the boot script stamps the persisted chat appearance before the first paint, as the hook would', () => {

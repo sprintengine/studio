@@ -18,13 +18,14 @@ import type { UsageLimitResumeNotice } from '../../../../../shared/usage-limit-r
 import { formatUsageResetIn, usageProviderLabel } from '../../../../../shared/usage-limits'
 import { GhostButton, LinkButton } from '../../ui'
 import { ComposerTrayRow } from './composerTray'
+import { formatTimeOfDay } from '../../../utils/clockFormat'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /** "23:40" today, "Fri 23:40" within the week, "12 Oct, 23:40" beyond it. */
 export function formatResumeClock(at: number, now: number): string {
   const date = new Date(at)
-  const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const time = formatTimeOfDay(date)
   if (date.toDateString() === new Date(now).toDateString()) return time
   if (at - now < 6 * DAY_MS) return `${date.toLocaleDateString([], { weekday: 'short' })} ${time}`
   return `${date.toLocaleDateString([], { day: 'numeric', month: 'short' })}, ${time}`

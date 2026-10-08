@@ -4,6 +4,7 @@
 // by and the one the person reads the time off.
 
 import { formatUsageResetIn } from '../../../../../../shared/usage-limits'
+import { formatTimeOfDay } from '../../../../utils/clockFormat'
 
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
@@ -84,7 +85,7 @@ export function withMinutesOfDay(at: number, minutes: number): number {
 /** "Today 3:00 PM", "Tomorrow 9:00 AM", "Wed 14 Oct, 9:00 AM". */
 export function sendTimeWords(at: number, now: number): string {
   const date = new Date(at)
-  const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const time = formatTimeOfDay(date)
   const day = date.toDateString()
   if (day === new Date(now).toDateString()) return `Today ${time}`
   if (day === new Date(now + DAY_MS).toDateString()) return `Tomorrow ${time}`

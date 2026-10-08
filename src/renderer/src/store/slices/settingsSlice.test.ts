@@ -850,6 +850,7 @@ test('settingsSlice', async () => {
     windowMaterial: 'glass',
     chatContrast: 100,
     chatWidth: 'comfortable',
+    clockFormat: 'system',
     agentCharacters: true,
     usageLimits: true,
   })
@@ -859,6 +860,7 @@ test('settingsSlice', async () => {
     windowMaterial: 'glass',
     chatContrast: 100,
     chatWidth: 'full',
+    clockFormat: 'system',
     agentCharacters: true,
     usageLimits: true,
   })
@@ -869,6 +871,7 @@ test('settingsSlice', async () => {
       windowMaterial: 'tinted',
       chatContrast: 100,
       chatWidth: 'full',
+      clockFormat: 'system',
       agentCharacters: true,
       usageLimits: true,
     },
@@ -881,6 +884,7 @@ test('settingsSlice', async () => {
       windowMaterial: 'glass',
       chatContrast: 100,
       chatWidth: 'full',
+      clockFormat: 'system',
       agentCharacters: true,
       usageLimits: true,
     },
@@ -1364,6 +1368,7 @@ test('a stored appearance from before the chat settings hydrates to the chat as 
     windowMaterial: 'solid',
     chatContrast: 100,
     chatWidth: 'full',
+    clockFormat: 'system',
     agentCharacters: true,
     usageLimits: true,
   })

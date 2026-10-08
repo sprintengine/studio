@@ -21,6 +21,7 @@ import { InlineDiff } from '../../../ui/InlineDiff'
 import { openCheckpointDiffWindow } from '../../../auxWindows/openCheckpointDiffWindow'
 import { useLiveRowMotion } from '../liveVisibility'
 import { formatMessageTime, LiveElapsed } from '../liveElapsed'
+import { useClockFormat } from '../../../../utils/clockFormat'
 import { formatStepDuration } from '../stepDuration'
 import { useConversationTransport } from '../conversationTransport'
 import { isPreviewableImagePath, useToolImage } from '../useLocalImage'
@@ -614,6 +615,14 @@ export function toolHasBody(tool: TranscriptToolEntry, kind: ToolPresentation['i
   return !isEmptyValue(tool.input) || !isEmptyValue(tool.output)
 }
 
+// When a settled step happened, on the app's clock. Its own memoized
+// component so a streamed token does not re-format it, while a change to the
+// Clock setting (which it reads) does.
+const SettledClock = memo(function SettledClock({ at }: { at: number }) {
+  useClockFormat()
+  return <>{formatMessageTime(at)}</>
+})
+
 // Memoized: a turn's steps sit under the reply streaming into it, and a step's
 // entry keeps its identity until the step itself changes.
 export const ToolRow = memo(function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
@@ -635,7 +644,6 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: TranscriptToolEnt
   const expandable = toolHasBody(tool, presentation.icon)
   const tone = running ? 'running' : presentation.tone
   const settledAt = running ? undefined : (tool.completedAt ?? tool.startedAt)
-  const settledClock = useMemo(() => (settledAt === undefined ? '' : formatMessageTime(settledAt)), [settledAt])
   const durationMs =
     !running && tool.startedAt !== undefined && tool.completedAt !== undefined
       ? Math.max(0, tool.completedAt - tool.startedAt)
@@ -745,7 +753,9 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: TranscriptToolEnt
           <span className="flex shrink-0 items-baseline gap-2 whitespace-nowrap text-micro tabular-nums text-[color:var(--text-subtle)]">
             {/* When it happened is there for the asking; how long it took is
                 what a column of steps is scanned for, so it stays. */}
-            <span className="opacity-0 group-hover/tool-row:opacity-100">{settledClock}</span>
+            <span className="opacity-0 group-hover/tool-row:opacity-100">
+              <SettledClock at={settledAt} />
+            </span>
             {durationMs !== undefined ? <span data-step-duration="">{formatStepDuration(durationMs)}</span> : null}
           </span>
         ) : null}

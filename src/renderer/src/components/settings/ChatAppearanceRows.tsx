@@ -6,6 +6,7 @@ import {
   CHAT_CONTRAST_STEP,
   DEFAULT_CHAT_CONTRAST,
   type ChatWidth,
+  type ClockFormat,
 } from '../../types/appTheme'
 import { ResetIcon } from '../AppIcons'
 import { IconButton, SegmentedControl, SettingRow, Tooltip } from '../ui'
@@ -31,15 +32,18 @@ const contrastIndex = (value: number) =>
 const CONTRAST_TICKS = [0, contrastIndex(DEFAULT_CHAT_CONTRAST), CONTRAST_STOPS.length - 1]
 
 /**
- * The chat's two rows in Appearance → Interface: text contrast and column
- * width. Both apply as they change — the chat behind the settings is the
- * preview — through the store fields `useAppTheme` stamps on <html>.
+ * The chat's rows in Appearance → Interface: text contrast, column width, and
+ * the clock its stamps (and every other time of day in the app) are written
+ * in. All apply as they change — the chat behind the settings is the preview —
+ * through the store fields `useAppTheme` follows.
  */
 export function ChatAppearanceRows(): JSX.Element {
   const contrast = useWorkspaceStore((s) => s.appSettings.appearance.chatContrast)
   const setContrast = useWorkspaceStore((s) => s.setAppearanceChatContrast)
   const width = useWorkspaceStore((s) => s.appSettings.appearance.chatWidth)
   const setWidth = useWorkspaceStore((s) => s.setAppearanceChatWidth)
+  const clockFormat = useWorkspaceStore((s) => s.appSettings.appearance.clockFormat)
+  const setClockFormat = useWorkspaceStore((s) => s.setAppearanceClockFormat)
   const labelId = React.useId()
   const current = CONTRAST_STOPS[contrastIndex(contrast)]!
   return (
@@ -91,6 +95,18 @@ export function ChatAppearanceRows(): JSX.Element {
           ]}
           value={width}
           onChange={setWidth}
+        />
+      </SettingRow>
+      <SettingRow label="Clock" help="How times of day are written. System follows your language and region.">
+        <SegmentedControl<ClockFormat>
+          ariaLabel="Clock"
+          items={[
+            { value: 'system', label: 'System' },
+            { value: '12h', label: '12-hour' },
+            { value: '24h', label: '24-hour' },
+          ]}
+          value={clockFormat}
+          onChange={setClockFormat}
         />
       </SettingRow>
     </>
