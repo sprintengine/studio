@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict'
 
-import { registerConversationIpc } from './conversation-ipc'
+import { createHarnessCliCheck, registerConversationIpc, type HarnessCliCheckDeps } from './conversation-ipc'
 import {
   ATTACHABLE_IMAGE_TYPES,
   MAX_ATTACHMENTS_PER_TURN,
   MAX_ATTACHMENT_BYTES,
 } from '../../shared/conversation-attachments'
 import type { ConversationIpcHandlers } from './conversation-ipc'
-import type { ConversationProviderListResult, ConversationSecretStatusResult } from '../../shared/electron-api'
+import type {
+  CliAvailability,
+  CliDetectResult,
+  ConversationProviderListResult,
+  ConversationSecretStatusResult,
+} from '../../shared/electron-api'
 import type {
   ConversationEvent,
   ConversationSendTurnInput,
@@ -747,4 +752,82 @@ test('what the renderer reads off the all-conversations channel all arrives, wit
     needed.map(([type]) => type),
   )
   assert.ok(received.every((event) => event.workspaceId === 'workspace' && event.createdAt === 42))
+})
+
+// The provider list every opening chat asks for, read off the app's held CLI
+// availability rather than a `--version` per harness CLI per ask.
+function harnessCheck(held: CliAvailability | undefined, found: Partial<CliDetectResult> = {}) {
+  const calls = { availability: 0, detect: 0, recorded: [] as CliDetectResult[] }
+  let clock = 1_000
+  const detected: CliDetectResult = {
+    cli: 'codex',
+    binary: 'codex',
+    installed: false,
+    version: null,
+    resolvedPath: null,
+    hostId: 'local',
+    error: null,
+    ...found,
+  }
+  const deps: HarnessCliCheckDeps = {
+    availability: async () => {
+      calls.availability += 1
+      return held
+    },
+    detect: async () => {
+      calls.detect += 1
+      return detected
+    },
+    record: (_runtime, result) => calls.recorded.push(result),
+    now: () => clock,
+  }
+  return { check: createHarnessCliCheck(deps), calls, advance: (ms: number) => (clock += ms) }
+}
+
+const INSTALLED: CliAvailability = {
+  cli: 'codex',
+  installed: true,
+  resolvedPath: '/usr/local/bin/codex',
+  version: '1.0.0',
+}
+const MISSING: CliAvailability = { cli: 'codex', installed: false, resolvedPath: null, version: null }
+
+test('a CLI the app already found is listed without a probe, however many chats ask', async () => {
+  const { check, calls } = harnessCheck(INSTALLED)
+  const answers = await Promise.all([check('codex'), check('codex'), check('codex')])
+  assert.deepEqual(answers, [true, true, true])
+  assert.equal(calls.detect, 0)
+})
+
+test('a CLI whose probe could not decide stays listed, with no probe of its own', async () => {
+  const { check, calls } = harnessCheck(undefined)
+  assert.equal(await check('codex'), true)
+  assert.equal(calls.detect, 0)
+})
+
+test('a CLI held as missing is looked at again at most every 30 seconds', async () => {
+  const { check, calls, advance } = harnessCheck(MISSING)
+  assert.deepEqual(await Promise.all([check('codex'), check('codex')]), [false, false])
+  assert.equal(calls.detect, 1)
+  advance(29_000)
+  assert.equal(await check('codex'), false)
+  assert.equal(calls.detect, 1)
+  advance(2_000)
+  assert.equal(await check('codex'), false)
+  assert.equal(calls.detect, 2)
+})
+
+test('a CLI installed since it was held as missing is listed, and the app learns of it', async () => {
+  const { check, calls } = harnessCheck(MISSING, { installed: true, resolvedPath: '/usr/local/bin/codex' })
+  assert.equal(await check('codex'), true)
+  assert.equal(calls.recorded.length, 1)
+  assert.equal(calls.recorded[0].installed, true)
+})
+
+test('each command and machine is looked at again on its own', async () => {
+  const { check, calls } = harnessCheck(MISSING)
+  await check('codex')
+  await check('codex', { codex: { command: '/opt/codex' } })
+  await check('codex', { codex: { hostId: 'wsl:Ubuntu' } })
+  assert.equal(calls.detect, 3)
 })

@@ -9,6 +9,9 @@ import type {
 import type { ConversationSearchHit } from '../../shared/conversation-index'
 
 import type {
+  CliAvailability,
+  CliDetectResult,
+  CliRuntimeSettings,
   ConversationProviderListResult,
   ConversationProviderModelsInput,
   ConversationProviderModelsResult,
@@ -76,9 +79,14 @@ import {
 import { ConversationRuntime } from '../conversation-runtime'
 import type { ConversationBackend } from '../../server/core/conversation-backend'
 import { ConversationSessionApi } from '../conversation-session-api'
+import { detectAgentCliAvailability, recordCliDetection } from '../cli-availability'
 import { detectCli } from '../cli-runtime-install'
 import { resolveConversationSignIn } from '../conversation-sign-in'
-import { getConversationProviderById, listConversationProviderRegistryEntries } from '../plugin-registry-instance'
+import {
+  getConversationProviderById,
+  listConversationProviderRegistryEntries,
+  listPluginRegistryEntries,
+} from '../plugin-registry-instance'
 import { listOpenAiCompatibleModels } from '../providers/openai-compatible-provider'
 import { getSharedCredentialStore } from '../secret-store'
 import { isRecord } from '../../shared/records'
@@ -198,13 +206,79 @@ export function isConversationBroadcastEvent(event: ConversationEvent): boolean 
 // Agent-harness conversation providers ride a local CLI (the shared table in
 // conversation-harness); when that CLI is not installed the provider is hidden
 // from the picker instead of failing at session start.
+//
+// Every chat asks for the provider list as it opens, so the answer comes from
+// the app's own CLI availability (cli-availability.ts): probed at startup,
+// held until Re-check or an install, and one probe per CLI however many ask at
+// once. Probing here instead started a `--version` of every harness CLI on
+// each chat opened a minute after the last, once per window and pane asking,
+// and a New chat on a worktree paid for them while its `worktree add` ran.
 
-const CLI_AVAILABLE_TTL_MS = 60_000
-// Negatives expire faster than positives so a just-installed CLI shows up
-// quickly — but not so fast that every provider-list call re-runs the
-// multi-second shell probes while the CLI is genuinely absent (the provider
-// stays listed with its `unavailable` reason meanwhile).
+// The app holds "not installed" until Re-check, so a CLI installed from a
+// terminal since would stay unavailable in every chat; it is looked at again,
+// at most this often, rather than on every list.
 const CLI_UNAVAILABLE_TTL_MS = 30_000
+
+export type HarnessCliCheckDeps = {
+  /** The app's held answer for one CLI (probed only when it has none), or undefined when its probe failed. */
+  availability?: (cli: string, runtime: Partial<CliRuntimeSettings> | undefined) => Promise<CliAvailability | undefined>
+  /** A probe of one CLI, for a "not installed" looked at again. */
+  detect?: (cli: string, runtime: Partial<CliRuntimeSettings> | undefined) => Promise<CliDetectResult>
+  /** Tells the app's held answer what a probe here found. */
+  record?: (runtime: Partial<CliRuntimeSettings> | undefined, detected: CliDetectResult) => void
+  now?: () => number
+}
+
+async function heldCliAvailability(
+  cli: string,
+  runtime: Partial<CliRuntimeSettings> | undefined,
+): Promise<CliAvailability | undefined> {
+  const entry = listPluginRegistryEntries().find((candidate) => candidate.id === cli)
+  if (!entry) return { cli, installed: false, resolvedPath: null, version: null }
+  const availability = await detectAgentCliAvailability(
+    { cliRuntimes: runtime ? { [cli]: runtime } : undefined },
+    { listEntries: () => [entry] },
+  )
+  return availability[cli]
+}
+
+/** Whether a harness provider's CLI can be started, for the provider list. */
+export function createHarnessCliCheck(
+  deps: HarnessCliCheckDeps = {},
+): (cli: string, cliRuntimes?: ConversationCliRuntimeOverrides) => Promise<boolean> {
+  const availability = deps.availability ?? heldCliAvailability
+  const detect = deps.detect ?? ((cli, runtime) => detectCli(cli, runtime))
+  const record = deps.record ?? recordCliDetection
+  const now = deps.now ?? Date.now
+  const rechecks = new Map<string, { at: number; installed: Promise<boolean> }>()
+
+  return async (cli, cliRuntimes) => {
+    const runtime = cliRuntimes?.[cli]
+    let held: CliAvailability | undefined
+    try {
+      held = await availability(cli, runtime)
+    } catch {
+      held = undefined
+    }
+    // Fail open: a probe that could not decide must not silently hide the
+    // provider — a missing CLI still fails loudly (and actionably) at session
+    // start.
+    if (!held) return true
+    if (held.installed && held.resolvedPath) return true
+    const key = `${cli}:${runtime?.command?.trim() ?? ''}:${runtime?.hostId ?? 'local'}`
+    const last = rechecks.get(key)
+    if (last && now() - last.at < CLI_UNAVAILABLE_TTL_MS) return last.installed
+    const installed = detect(cli, runtime).then(
+      (detected) => {
+        if (detected.error === null) record(runtime, detected)
+        return detected.installed && Boolean(detected.resolvedPath)
+      },
+      () => true,
+    )
+    rechecks.set(key, { at: now(), installed })
+    return installed
+  }
+}
 
 export function createConversationIpcHandlers(
   // The app passes the core's chats (the core owns the runtime, so shutdown and
@@ -214,26 +288,7 @@ export function createConversationIpcHandlers(
 ): ConversationIpcHandlers {
   const secretStore = getSharedCredentialStore()
   const sessions = new ConversationSessionApi(runtime)
-  const cliChecks = new Map<string, { at: number; installed: boolean }>()
-
-  async function isHarnessCliInstalled(cli: string, cliRuntimes?: ConversationCliRuntimeOverrides): Promise<boolean> {
-    const override = cliRuntimes?.[cli]
-    const cacheKey = `${cli}:${override?.command?.trim() ?? ''}:${override?.hostId ?? 'local'}`
-    const cached = cliChecks.get(cacheKey)
-    if (cached && Date.now() - cached.at < (cached.installed ? CLI_AVAILABLE_TTL_MS : CLI_UNAVAILABLE_TTL_MS)) {
-      return cached.installed
-    }
-    try {
-      const detection = await detectCli(cli, override)
-      const installed = detection.installed && Boolean(detection.resolvedPath)
-      cliChecks.set(cacheKey, { at: Date.now(), installed })
-      return installed
-    } catch {
-      // Fail open: a probe error must not silently hide the provider — a
-      // missing CLI still fails loudly (and actionably) at session start.
-      return true
-    }
-  }
+  const isHarnessCliInstalled = createHarnessCliCheck()
 
   return {
     listThreads: (input) => runtime.listThreads(input),
