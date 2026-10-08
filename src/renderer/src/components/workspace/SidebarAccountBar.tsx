@@ -221,8 +221,11 @@ export default function SidebarAccountBar({
   // canvas (AppRail's RailGlyph). Named — "2 updates available" — so the number
   // is never the whole message, and never drawn at zero.
   const shownSettingsBadge = settingsBadge && settingsBadge.count > 0 ? settingsBadge : null
+  // On the rail the account button sits right above the gear, so a tooltip on
+  // top would cover it; it opens beside the rail instead, as the rail's own
+  // squares' tooltips do.
   const settingsButton = (
-    <Tooltip content="Settings" placement="top">
+    <Tooltip content="Settings" placement={collapsed ? 'right' : 'top'}>
       <IconButton
         size={collapsed ? 'lg' : 'md'}
         pressed={settingsOpen}
