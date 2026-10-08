@@ -713,6 +713,28 @@ test('leaving an override for none mid-turn restarts Codex before the next turn,
   await second
 })
 
+test('on none, an Ask turn does not leave its read-only override on the thread for the turns after it', async () => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  const asked = f.send(undefined, 'ask')
+  await f.started
+  expect(f.calls.find((call) => call.method === 'turn/start')?.params).toMatchObject({
+    sandboxPolicy: { type: 'readOnly' },
+  })
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await asked
+
+  f.calls.length = 0
+  f.nextTurn()
+  const next = f.send()
+  await f.started
+  expect(f.transports).toEqual({ created: 2, closed: 1 })
+  expect(f.calls.find((call) => call.method === 'thread/resume')?.params).not.toHaveProperty('sandbox')
+  expect(f.calls.find((call) => call.method === 'turn/start')?.params).not.toHaveProperty('sandboxPolicy')
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await next
+})
+
 test('Ask is read-only without escalation even when the session preset bypasses approval', async () => {
   const f = fixture()
   await f.adapter.startSession({ ...f.input, permissionPreset: 'bypass' })
