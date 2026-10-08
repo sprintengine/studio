@@ -1378,6 +1378,11 @@ export type ElectronApi = {
   onWorktreePoolChanged: (cb: (snapshot: WorktreePoolSnapshot) => void) => () => void
   /** A person's decision on a held pool worktree, or the removal or clearing of an idle one. */
   worktreePoolAction: (input: WorktreePoolActionInput) => Promise<WorktreePoolActionResult>
+  /**
+   * Remove a worktree the pool does not own, checked as a pool eviction is:
+   * kept, with the reason, when something works in it or it may hold work.
+   */
+  removeOtherWorktree: (input: { repoRoot: string; path: string }) => Promise<WorktreePoolActionResult>
   getWorktreePoolSettings: () => Promise<WorktreePoolSettings>
   setWorktreePoolSettings: (patch: Partial<WorktreePoolSettings>) => Promise<WorktreePoolSettings>
   /** Every worktree of these projects and of every pool, for Settings ▸ Worktrees. */

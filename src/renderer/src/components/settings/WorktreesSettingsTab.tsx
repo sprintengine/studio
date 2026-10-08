@@ -69,7 +69,7 @@ import {
  * The page reads main's inventory (worktree-pool/worktree-inventory.ts) and
  * never runs git itself. Sizes come from the last measurement until the page
  * measures again: once when it opens, and on the refresh button. Every removal
- * goes through the pool (a slot) or `removeGitWorktree` (anything else), each
+ * goes through the pool (a slot) or its checked removal (anything else), each
  * of which checks the worktree again before it touches it.
  */
 
@@ -311,7 +311,7 @@ export function WorktreesSettingsTab({
   const removeOne = (row: WorktreeRow) =>
     row.removal === 'evict' && row.slot
       ? window.api.worktreePoolAction({ kind: 'evict', repoRoot: row.repoRoot, slotId: row.slot.id })
-      : window.api.removeGitWorktree({ repoRoot: row.repoRoot, path: row.path })
+      : window.api.removeOtherWorktree({ repoRoot: row.repoRoot, path: row.path })
 
   const confirmRemove = async (row: WorktreeRow) => {
     const unmerged = row.entry?.merged === false && row.branch

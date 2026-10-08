@@ -147,9 +147,9 @@ beforeEach(() => {
         calls.actions.push(input)
         return { ok: true, message: null }
       },
-      removeGitWorktree: async (input: unknown) => {
+      removeOtherWorktree: async (input: unknown) => {
         calls.removed.push(input)
-        return { ok: true, data: { ok: true, stdout: '', stderr: '' }, message: null }
+        return { ok: true, message: null }
       },
       pruneGitWorktrees: async () => ({ ok: true, data: {}, message: null }),
       showItemInFolder: async () => {},

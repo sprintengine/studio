@@ -328,6 +328,38 @@ export async function ignoredFilesInTheWay(
   return found
 }
 
+/**
+ * The ignored files and folders in a slot (a wholly ignored folder named once,
+ * with a trailing `/`), under the ignore rules its tree has now.
+ */
+export async function ignoredPaths(run: SlotGitRunner, slotPath: string): Promise<string[] | null> {
+  const result = await run(slotPath, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'])
+  return result.ok ? result.stdout.split('\0').filter(Boolean) : null
+}
+
+/** What `git clean -fd` would remove from a slot, without removing anything. */
+export async function cleanWouldRemove(run: SlotGitRunner, slotPath: string): Promise<string[] | null> {
+  const result = await run(slotPath, ['-c', 'core.quotePath=false', 'clean', '-fdn'])
+  if (!result.ok) return null
+  return result.stdout
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith('Would remove '))
+    .map((line) => line.slice('Would remove '.length))
+}
+
+/**
+ * Whether `path` (a file, or a folder ending in `/`) is, holds or lies inside
+ * one of `ignored` ({@link ignoredPaths}).
+ */
+export function amongIgnored(path: string, ignored: readonly string[]): boolean {
+  return ignored.some(
+    (entry) =>
+      entry === path ||
+      (entry.endsWith('/') && path.startsWith(entry)) ||
+      (path.endsWith('/') && entry.startsWith(path)),
+  )
+}
+
 /** Every path that differs between two commits. */
 export async function pathsBetween(
   run: SlotGitRunner,
