@@ -34,6 +34,7 @@ import { getPluginRegistry } from '../../main/plugin-registry-instance'
 import { readRepositoryIdentity } from '../../main/repository-identity'
 import { listKnownWorkspaceRoots, uniqueResolvedRoots } from '../../main/workspace-roots'
 import { readDiscoveredCliModelCatalogs } from '../../main/model-discovery/service'
+import { effectiveAgentLaunchSettings, type AgentLaunchSettings } from '../../shared/launch-settings'
 import { agentWorktreePaths } from '../../shared/worktree-paths'
 
 // The gateway's automation backends that are the server's own: backlog reads
@@ -67,6 +68,22 @@ export type GatewayBackendDeps = Pick<
    * serve that tool leaves it out.
    */
   userCliModels?: (cli: string) => readonly string[] | undefined
+}
+
+/**
+ * What the gateway reads from the launch settings this process holds: the
+ * CLI a new chat starts with, the projects' usage, and the ids the person
+ * added for each CLI. One helper, so the gateways built in process, out of
+ * process and for the shell read them alike.
+ */
+export function launchSettingsGatewayDeps(settings: {
+  get(): AgentLaunchSettings
+}): Pick<GatewayBackendDeps, 'defaultChatCli' | 'projectUsage' | 'userCliModels'> {
+  return {
+    defaultChatCli: () => effectiveAgentLaunchSettings(settings.get()).lastSelectedCli ?? null,
+    projectUsage: () => settings.get().projectUsage,
+    userCliModels: (cli) => settings.get().cliRuntimes[cli]?.models,
+  }
 }
 
 export function createServerGatewayBackends(deps: GatewayBackendDeps): AutomationBackends {
