@@ -465,6 +465,7 @@ registerAppLifecycle({
     readStatus: () => services.readBackgroundStatus(),
   },
   quitConfirmation: services.quitConfirmation,
+  agentKeepAwake: services.agentKeepAwake,
   handleAuthCallback: (argv) => {
     void parseAuthCallbackFromArgv(services.sprintengineAuth, argv)
   },

@@ -8,6 +8,7 @@ import { registerTelemetryIpc } from './ipc/telemetry-ipc'
 import { registerQuitConfirmationIpc } from './ipc/quit-confirmation-ipc'
 import { registerAgentNotificationsIpc } from './ipc/agent-notifications-ipc'
 import { registerAgentBrowserToolsIpc } from './ipc/agent-browser-tools-ipc'
+import { registerKeepAwakeIpc } from './ipc/keep-awake-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import {
   registerRemoteStudioConnectionIpc,
@@ -252,6 +253,7 @@ export function registerCoreIpc(
   registerAgentBrowserToolsIpc(ipcMain, services.agentBrowserToolsStore, () => {
     void services.desktopShell?.refreshToolsets()
   })
+  registerKeepAwakeIpc(ipcMain, services.keepAwakeStore, () => services.agentKeepAwake.refresh())
   registerMarketplaceRegistryIpc(ipcMain)
   registerHostedSourcesFeedIpc(ipcMain)
   registerHostedCardFeedIpc(ipcMain)

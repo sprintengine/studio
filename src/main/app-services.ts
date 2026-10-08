@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, powerMonitor, safeStorage } from 'electron'
+import { app, BrowserWindow, ipcMain, net, powerMonitor, powerSaveBlocker, safeStorage } from 'electron'
 import { createHash } from 'crypto'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
@@ -100,9 +100,11 @@ import { createAgentNotificationsStore } from './agent-notifications-store'
 import { agentBrowserToolGate, createAgentBrowserToolsStore } from './agent-browser-tools-store'
 import { createAgentNotifier } from './agent-notifications'
 import type { ChatLink } from '../shared/deep-link'
+import { createKeepAwakeStore } from './keep-awake-store'
+import { createAgentKeepAwake, terminalAgentWorking } from './agent-keep-awake'
 import { countWorkingTerminalAgents, createQuitConfirmation } from './quit-confirmation'
 import { askToQuitWhileWorking } from './quit-confirmation-electron'
-import { conversationTurnInProgress } from '../shared/conversation/phase'
+import { conversationSummaryPhase, conversationTurnInProgress } from '../shared/conversation/phase'
 import { createStudioAreaSkillStore } from './studio-area-skill-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
@@ -790,6 +792,41 @@ export function createAppServices(
     show: (notice) => shellBridge.notify(notice),
   })
 
+  // "Keep the computer awake while agents work": main's own, since main takes
+  // and releases the blocker as agents start and stop. The lifecycle feeds it
+  // the agents' phases and lets it go at quit.
+  const keepAwakeStore = createKeepAwakeStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+  const agentKeepAwake = createAgentKeepAwake({
+    // Read through at each call: the blocker is only touched once an agent works.
+    blocker: {
+      start: (type) => powerSaveBlocker.start(type),
+      stop: (id) => powerSaveBlocker.stop(id),
+    },
+    isEnabled: () => keepAwakeStore.isEnabled(),
+    // The live word on each agent: a terminal agent by its pty and hook state,
+    // a chat run here by its session. A chat on an out-of-process server is
+    // not known here, and is held only by its own events (and the stale cap).
+    liveWorking: () => {
+      const terminals = terminalRuntime.ipcHandlers.listTerminals().filter((session) => session.kind === 'agent')
+      const listed = server ? null : conversations.listSessions()
+      const chats = listed?.ok ? listed.sessions : []
+      return (workspaceId, agentId) => {
+        const terminal = terminals.find(
+          (session) => session.agentId === agentId && (session.workspaceId ?? null) === workspaceId,
+        )
+        if (terminal) return terminalAgentWorking(terminal)
+        const chat = chats.find((session) => session.agentId === agentId && session.workspaceId === workspaceId)
+        if (!chat) return undefined
+        return conversationSummaryPhase(chat) === 'running'
+      }
+    },
+  })
+
   // Renderer-pushed "Share anonymous usage data" setting, and the one service
   // that acts on it. Built here, beside the other userData mirrors and before
   // anything that records, because `app.boot` is emitted below and the launch
@@ -1107,6 +1144,8 @@ export function createAppServices(
   })
   terminalRuntime.registerAgentPhaseListener((event) => agentLaunchNotices.onAgentPhase(event))
   terminalRuntime.registerAgentSessionExitListener((event) => agentLaunchNotices.onAgentSessionExit(event))
+  // A pty that exits mid-turn reports no phase; its exit is the agent stopping.
+  terminalRuntime.registerAgentSessionExitListener((event) => agentKeepAwake.onAgentExit(event))
   conversations.onEvent((event) => agentLaunchNotices.onConversationEvent(event))
   // A chat parent is told when its turn has let go of it, not on the turn's
   // end event, which comes while the turn still holds the chat.
@@ -2118,6 +2157,8 @@ export function createAppServices(
     setChatLinkOpener(open: (link: ChatLink) => void): void {
       chatLinkOpener = open
     },
+    keepAwakeStore,
+    agentKeepAwake,
     telemetryConsentStore,
     analytics,
     readBackgroundStatus,

@@ -20,6 +20,7 @@ import { paneTabItem } from './paneTabItem'
 import { closePaneTabAndItsTerminal } from './paneTerminals'
 import { bringBackPaneTab, canPopOutPane, popOutPaneTabs, showPanePopOut } from './popout/panePopOutHost'
 import { WorkspacePaneAddMenu } from './WorkspacePaneAddMenu'
+import { PANEL_COMMAND_EVENT } from '../../../utils/panelCommands'
 import { WorkspacePaneBody } from './WorkspacePaneBody'
 import { WorkspacePaneLauncher } from './WorkspacePaneLauncher'
 import { WindowCaptionReserve, paneStripOwnsCaptionCorner, windowCaptionReserve } from '../WindowControls'
@@ -99,6 +100,18 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
     void window.api.browserNoteActive(workspaceId, activeBrowserTabId)
   }, [activeBrowserTabId, workspaceId])
   const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
+  // The "+" menu, held here so `pane.add` (⌘T) can open it: the window
+  // routes the command to the pane on screen, opening the column first.
+  const [addMenuOpen, setAddMenuOpen] = useState(false)
+  useEffect(() => {
+    if (!active) return
+    const onPanelCommand = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string; workspaceId?: string }>).detail
+      if (detail?.id === 'pane.add' && detail.workspaceId === workspaceId) setAddMenuOpen(true)
+    }
+    window.addEventListener(PANEL_COMMAND_EVENT, onPanelCommand)
+    return () => window.removeEventListener(PANEL_COMMAND_EVENT, onPanelCommand)
+  }, [active, workspaceId])
   // The Diff tab's canonical count — the files its viewer lists — reported by
   // the viewer while it is mounted; null until it has answered.
   const [diffCount, setDiffCount] = useState<number | null>(null)
@@ -240,7 +253,7 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
           ) : null}
         </TabsScroller>
         <div className="app-no-drag flex h-full shrink-0 items-center pl-0.5">
-          <WorkspacePaneAddMenu kinds={kinds} onPick={openKind} />
+          <WorkspacePaneAddMenu kinds={kinds} onPick={openKind} open={addMenuOpen} onOpenChange={setAddMenuOpen} />
         </div>
         <div className="min-w-0 flex-1 self-stretch" aria-hidden="true" />
         <div className="app-no-drag flex h-full shrink-0 items-center gap-0.5">

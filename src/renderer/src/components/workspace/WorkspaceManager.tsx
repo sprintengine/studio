@@ -255,6 +255,8 @@ import { preloadableLazy } from '../../utils/preloadableLazy'
 import { hasTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { clearPaneAttachedHidden, paneAttachedHidden } from '../../utils/terminalPaneVisibility'
 import { shouldSendTerminalPaintVisibility } from './manager/terminalPaintVisibility'
+import { drawnSidebarChatIds, numberedChatIds } from './manager/numberedChats'
+import { shellTakesChordFrom } from '../../commands/keyTargetGate'
 import {
   closeActiveLayoutTab,
   cycleActiveLayoutTab,
@@ -3935,6 +3937,13 @@ export default function WorkspaceManager() {
         else setSidebarCollapsed(!sidebarCollapsed)
         return true
       }
+      if (commandId === 'chat.settle') {
+        // The chat on screen, which the sidebar settles the way its row would:
+        // it owns the hand-off to the next chat and the remote ask.
+        if (!windowActiveWorkspaceId || newChatPanelOpen || activeGlobalSurface) return false
+        dispatchPanelCommand(commandId, windowActiveWorkspaceId)
+        return true
+      }
       if (commandId === 'workspace.close' && windowActiveWorkspaceId) {
         closeWorkspaceById(windowActiveWorkspaceId)
         return true
@@ -4040,8 +4049,16 @@ export default function WorkspaceManager() {
         return true
       }
       if (commandId === 'workspace.switch.next' || commandId === 'workspace.switch.previous') {
-        const nextWorkspaceId = getNextWorkspaceId(
+        // The same drawn order the number keys count (`numberedChats.ts`).
+        const byId = new Map(railWorkspaces.map((workspace) => [workspace.id, workspace]))
+        const drawnOrder = numberedChatIds(
+          drawnSidebarChatIds(document),
           railWorkspaces,
+          Date.now(),
+          windowActiveWorkspaceId,
+        ).flatMap((id) => byId.get(id) ?? [])
+        const nextWorkspaceId = getNextWorkspaceId(
+          drawnOrder,
           windowActiveWorkspaceId,
           commandId === 'workspace.switch.previous' ? -1 : 1,
         )
@@ -4050,10 +4067,12 @@ export default function WorkspaceManager() {
         return true
       }
       if (commandId.startsWith('workspace.switch.')) {
+        // The number keys count the rows the sidebar draws, in the order it
+        // draws them (`numberedChats.ts`), not the store's order.
         const workspaceIndex = Number(commandId.slice('workspace.switch.'.length)) - 1
-        const workspace = railWorkspaces[workspaceIndex]
-        if (!workspace) return false
-        setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
+        const workspaceId = numberedChatIds(drawnSidebarChatIds(document), railWorkspaces, Date.now())[workspaceIndex]
+        if (!workspaceId) return false
+        setActiveWorkspaceForWindow(workspaceWindowId, workspaceId)
         return true
       }
       if (commandId === 'layout.tab.next' || commandId === 'layout.tab.previous') {
@@ -4096,6 +4115,13 @@ export default function WorkspaceManager() {
           useWorkspaceStore.getState().workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState?.open ??
           false
         setPaneOpen(windowActiveWorkspaceId, !open)
+        return true
+      }
+      if (commandId === 'pane.add') {
+        // The pane on screen; behind New chat or a door there is none.
+        if (!windowActiveWorkspaceId || newChatPanelOpen || activeGlobalSurface) return false
+        setPaneOpen(windowActiveWorkspaceId, true)
+        dispatchPanelCommand(commandId, windowActiveWorkspaceId)
         return true
       }
       if (commandId === 'panel.files.toggle' && windowActiveWorkspaceId) {
@@ -4240,13 +4266,16 @@ export default function WorkspaceManager() {
     })
 
     const onKey = (event: KeyboardEvent) => {
-      const result = commandDispatcherRef.current.resolve(event, dispatcherContext(event))
+      const context = dispatcherContext(event)
+      const result = commandDispatcherRef.current.resolve(event, context)
       if (result.kind === 'unmatched') return
       if (result.kind === 'pending') {
         event.preventDefault()
         event.stopPropagation()
         return
       }
+      // A chord an editor or a terminal owns goes on to it (keyTargetGate.ts).
+      if (!shellTakesChordFrom(result.commandId, event.target, context.platform)) return
       if (runCommand(result.commandId)) {
         event.preventDefault()
         event.stopPropagation()

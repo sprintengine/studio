@@ -13,6 +13,8 @@ type AppearanceIpcRenderer = {
   invoke(channel: 'app:set-agent-browser-tools', enabled: boolean): Promise<boolean>
   invoke(channel: 'app:get-agent-notifications'): Promise<AgentNotificationMode>
   invoke(channel: 'app:set-agent-notifications', mode: AgentNotificationMode): Promise<AgentNotificationMode>
+  invoke(channel: 'app:get-keep-awake'): Promise<boolean>
+  invoke(channel: 'app:set-keep-awake', enabled: boolean): Promise<boolean>
 }
 
 function createAppearanceApi(renderer: AppearanceIpcRenderer) {
@@ -37,6 +39,10 @@ function createAppearanceApi(renderer: AppearanceIpcRenderer) {
     getAgentNotifications: (): Promise<AgentNotificationMode> => renderer.invoke('app:get-agent-notifications'),
     setAgentNotifications: (mode: AgentNotificationMode): Promise<AgentNotificationMode> =>
       renderer.invoke('app:set-agent-notifications', mode),
+    // Main owns "Keep the computer awake while agents work" too: main holds
+    // the blocker, with or without a window.
+    getKeepAwake: (): Promise<boolean> => renderer.invoke('app:get-keep-awake'),
+    setKeepAwake: (enabled: boolean): Promise<boolean> => renderer.invoke('app:set-keep-awake', enabled),
   } satisfies Pick<
     ElectronApi,
     | 'setColorScheme'
@@ -49,6 +55,8 @@ function createAppearanceApi(renderer: AppearanceIpcRenderer) {
     | 'getAgentBrowserTools'
     | 'setAgentBrowserTools'
     | 'setAgentNotifications'
+    | 'getKeepAwake'
+    | 'setKeepAwake'
   >
 }
 

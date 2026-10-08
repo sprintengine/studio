@@ -103,6 +103,9 @@ import { workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { isSettledWorkspace } from '../../utils/workspaceSettle'
+import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
+import { chatSettleStep } from './chatSettleCommand'
+import { waitingChatCount, waitingLabel } from './sidebar/projectWaiting'
 import { isSnoozedWorkspace, resolveSnoozePresets, snoozeWakeLabel, workspaceWokeAt } from '../../utils/workspaceSnooze'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 import { useScheduledAgents } from '../../store/scheduledAgentsStore'
@@ -1790,6 +1793,31 @@ function WorkspaceSidebar({
     return map
   }, [workspaces])
 
+  // `chat.settle` (⌘⇧S), routed here by the window for the chat on screen: the
+  // same toggle as Settle in that row's menu, with the same hand-off.
+  const settleFromCommand = useStableCallback((id: WorkspaceId) => {
+    const workspace = workspaceById.get(id)
+    if (!workspace || id !== activeWorkspaceId) return
+    const step = chatSettleStep(workspace, rowIsWorking(id))
+    if (step === 'restore') setWorkspaceSettled(id, false)
+    else if (step === 'settle-remote') settleOpenedRemote(workspace)
+    else if (step === 'settle') settleWorkspaceById(id)
+    else
+      showToast({
+        tone: 'neutral',
+        title: `${workspace.name} is still working`,
+        description: 'It can be settled once its agents finish.',
+      })
+  })
+  useEffect(() => {
+    const onPanelCommand = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string; workspaceId?: string }>).detail
+      if (detail?.id === 'chat.settle' && detail.workspaceId) settleFromCommand(detail.workspaceId)
+    }
+    window.addEventListener(PANEL_COMMAND_EVENT, onPanelCommand)
+    return () => window.removeEventListener(PANEL_COMMAND_EVENT, onPanelCommand)
+  }, [settleFromCommand])
+
   // Seed / repair the single tab stop. When no row owns it (first paint) or the
   // owning row has left the DOM (folder collapsed, workspace closed), hand it to
   // the active row if present, else the first row.
@@ -2663,6 +2691,19 @@ function WorkspaceSidebar({
       group.workspaces.filter((workspace) => !starredWorkspaceIds.has(workspace.id)),
     )
     const folderBodyId = `ws-folder-body-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
+    // Folded, the header says how many of the rows it hides are waiting on
+    // the person (`projectWaiting.ts`): the rows a fold would draw, so a
+    // resting or sleeping chat is not counted, and the paired machine's too.
+    const waiting = collapsed
+      ? waitingLabel(
+          waitingChatCount([
+            ...visibleWorkspaces
+              .filter((workspace) => !isShelved(workspace) && !isAsleep(workspace))
+              .map((workspace) => activityByWorkspaceId[workspace.id]),
+            ...group.remoteRows.map((conversation) => conversation.activity),
+          ]),
+        )
+      : null
     const dropMark =
       dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key ? dropIndicator.position : null
     const isFolderTabDropTarget = tabDropTarget?.kind === 'folder' && tabDropTarget.key === group.key
@@ -2783,6 +2824,11 @@ function WorkspaceSidebar({
               <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
                 {group.displayName}
               </span>
+              {waiting ? (
+                <span data-project-waiting="" className="shrink-0 text-micro text-[color:var(--tone-warn)]">
+                  {waiting}
+                </span>
+              ) : null}
               {/* What is open across this project's chats, including the ones
                 whose agents have finished and which therefore say nothing for
                 themselves. Inside the header's own button: it is part of what
@@ -3054,6 +3100,9 @@ function WorkspaceSidebar({
           className={`flex-1 overflow-y-auto pb-2 ${homeHidden ? 'hidden' : ''}`}
           role="tree"
           data-control-tab-scope
+          // Read by Primary+1…9, which count these rows as drawn
+          // (`manager/numberedChats.ts`).
+          data-workspace-tree
           onScroll={(event) => {
             treeScrollTopRef.current = event.currentTarget.scrollTop
           }}

@@ -32,6 +32,7 @@ import type { ShutdownLegReport } from './update-install-progress'
 import type { AgentPhaseEvent, AgentPhaseListener } from '../shared/agent-runtime'
 import type { DesktopServerHost } from './server-supervisor/desktop-server-host'
 import { createAgentAttention, isScriptSecondLaunch } from './agent-attention'
+import type { AgentKeepAwake } from './agent-keep-awake'
 import { createConversationAttentionListener } from './conversation-attention'
 import type { ConversationEvent } from '../shared/conversation-runtime'
 import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/poller'
@@ -201,6 +202,12 @@ type RegisterAppLifecycleOptions = {
    * did before it asked.
    */
   quitConfirmation?: Pick<QuitConfirmation, 'confirm' | 'quitWithoutAsking'>
+  /**
+   * Holds the computer awake while agents work (agent-keep-awake.ts). Fed the
+   * same phases agent attention is, and let go at quit. Absent, nothing holds
+   * the machine up.
+   */
+  agentKeepAwake?: Pick<AgentKeepAwake, 'onAgentPhase' | 'dispose'>
   /** The plugin-source update check (skills service); rides the hourly feed leg. */
   checkPluginSourceUpdates?: () => Promise<unknown>
   /**
@@ -261,6 +268,7 @@ export function registerAppLifecycle({
   chatWindows,
   backgroundMode,
   quitConfirmation,
+  agentKeepAwake,
   checkPluginSourceUpdates,
   startDeferredBootJobs,
   prepareWorkspacesAtBoot,
@@ -637,11 +645,14 @@ export function registerAppLifecycle({
       bounceDock: () => app.dock?.bounce('informational'),
       setBadgeCount: (count) => app.setBadgeCount(count),
     })
-    // The banner naming the chat hears every phase the attention channel does.
+    // The banner naming the chat, and keeping the computer awake while an
+    // agent works, hear every phase the attention channel does.
     const onAgentPhase = (event: AgentPhaseEvent): void => {
       agentAttention.onAgentPhase(event)
       agentNotifier?.onAgentPhase(event)
+      agentKeepAwake?.onAgentPhase(event)
     }
+    if (agentKeepAwake) app.once('will-quit', () => agentKeepAwake.dispose())
     terminalRuntime.registerAgentPhaseListener?.(onAgentPhase)
     const disposeConversationAttention = conversations?.onEvent?.(createConversationAttentionListener({ onAgentPhase }))
     if (disposeConversationAttention) app.once('will-quit', disposeConversationAttention)
