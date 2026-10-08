@@ -86,7 +86,7 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
       return {
         ok: false,
         code: 'working',
-        message: 'An agent in this chat is still working. Settle it once it has finished.',
+        message: 'An agent in this chat is still working, or waiting on an answer. Settle it once it has finished.',
       }
     const patch = settled ? settleWorkspacePatch(record, now(), 'settled') : wakeWorkspacePatch('active')
     const failed = write(workspaceId, patch, actor)

@@ -39,7 +39,7 @@ import { createWorkspaceRegistryService } from '../../main/workspace-registry-se
 import { createWorkspaceRegistryStore } from '../../main/workspace-registry-store'
 import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
 import { createConversationLifecycle, latestTurnEnd } from '../../main/automation/conversation-lifecycle'
-import { conversationSummaryPhase } from '../../shared/conversation/phase'
+import { conversationSessionWorking, terminalAgentWorking } from '../../shared/conversation/phase'
 import type { ConversationMessageOrigin, ConversationSessionSummary } from '../../shared/conversation-runtime'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
@@ -101,6 +101,8 @@ export type StudioCoreOptions = {
     workspaceId?: string
     agentId?: string
     processAlive: boolean
+    /** What the terminal is doing, for Settle from another device: one mid-turn is working. */
+    activity?: { kind: string }
     agentRecord?: { cliPermissionPreset?: unknown }
   }>
   /** A machine's settings changed (a distribution turned on or off). */
@@ -469,9 +471,11 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     selfMachine: () => tailnetSelfMachine(machineContext()),
   }
   // A chat's rest and its person-clocks, written for a paired device to the
-  // same record the sidebar writes (conversation-lifecycle.ts). Busy is the
-  // row menu's rule for the chats main holds: a turn running, or an agent the
-  // chat launched still working in the background.
+  // same record the sidebar writes (conversation-lifecycle.ts). Busy is
+  // anything ending the chat's processes would cut short: a chat's turn
+  // starting, running or waiting on the person, an agent it launched still
+  // working in the background under any parent phase, or one of its agent
+  // terminals mid-turn (`conversationSessionWorking`, `terminalAgentWorking`).
   const conversationLifecycle = createConversationLifecycle({
     getRecord: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
     updateWorkspaceFields: (workspaceId, patch, actor) =>
@@ -479,14 +483,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     rewindVisit: (workspaceId, lastVisitedAt, actor) =>
       workspaceSyncService.rewindVisit(workspaceId, lastVisitedAt, actor),
     isWorking: (workspaceId) => {
-      const listed = conversations.listSessions()
-      return (
-        listed.ok &&
-        listed.sessions.some((session) => {
-          if (session.workspaceId !== workspaceId || session.status === 'stopped') return false
-          const phase = conversationSummaryPhase(session)
-          return phase === 'running' || phase === 'starting'
-        })
+      const listed = conversations.listSessions({ workspaceId })
+      if (listed.ok && listed.sessions.some(conversationSessionWorking)) return true
+      return (options.listTerminalSessions?.() ?? []).some(
+        (session) => session.kind === 'agent' && session.workspaceId === workspaceId && terminalAgentWorking(session),
       )
     },
     latestChatTurnEnd: (workspaceId) => {

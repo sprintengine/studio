@@ -9,6 +9,8 @@ import {
 } from '../../shared/workspace-sync'
 import { settleWorkspacePatch } from '../../shared/workspace-lifecycle'
 import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
+import type { ConversationSessionSummary } from '../../shared/conversation-runtime'
+import { conversationSessionWorking, terminalAgentWorking } from '../../shared/conversation/phase'
 import {
   createConversationLifecycle,
   createConversationListChangeFilter,
@@ -298,4 +300,47 @@ test('a patch of the clocks alone does not move the workspace list, which carrie
     } as WorkspaceSyncEvent),
     true,
   )
+})
+
+const summary = (fields: Partial<ConversationSessionSummary>): ConversationSessionSummary =>
+  ({
+    sessionId: 'conv-1',
+    workspaceId: 'ws-1',
+    agentId: 'agent-1',
+    providerId: 'mock',
+    modelId: 'default',
+    status: 'ready',
+    createdAt: 1,
+    updatedAt: 1,
+    ...fields,
+  }) as ConversationSessionSummary
+
+test('a chat Settle waits on counts every agent still at work, whatever its parent says', () => {
+  const working = [
+    summary({ status: 'active', phase: 'running' }),
+    summary({ status: 'starting', phase: 'starting' }),
+    // Stopped on the person: settling would end the turn that waits on them.
+    summary({ status: 'awaiting_approval', phase: 'waiting_for_approval' }),
+    summary({ status: 'ready', phase: 'waiting_for_input' }),
+    // An agent it launched goes on under a parent that failed or waits.
+    summary({ status: 'failed', phase: 'failed', backgroundAgents: 1 }),
+    summary({ status: 'ready', phase: 'waiting_for_input', backgroundAgents: 2 }),
+    summary({ status: 'ready', phase: 'completed', backgroundAgents: 1 }),
+  ]
+  for (const session of working) assert.equal(conversationSessionWorking(session), true, JSON.stringify(session))
+  const resting = [
+    summary({ status: 'ready', phase: 'completed' }),
+    summary({ status: 'ready', phase: 'idle' }),
+    summary({ status: 'failed', phase: 'failed' }),
+    // Nothing is left to end in a stopped session.
+    summary({ status: 'stopped', phase: 'running', backgroundAgents: 1 }),
+  ]
+  for (const session of resting) assert.equal(conversationSessionWorking(session), false, JSON.stringify(session))
+})
+
+test('an agent terminal mid-turn is working only while its process is there to run it', () => {
+  assert.equal(terminalAgentWorking({ processAlive: true, activity: { kind: 'working' } }), true)
+  assert.equal(terminalAgentWorking({ processAlive: false, activity: { kind: 'working' } }), false)
+  assert.equal(terminalAgentWorking({ processAlive: true, activity: { kind: 'idle' } }), false)
+  assert.equal(terminalAgentWorking({ processAlive: true }), false)
 })

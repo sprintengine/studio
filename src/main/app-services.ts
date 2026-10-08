@@ -668,14 +668,15 @@ export function createAppServices(
             ...(gateway.envVarNames?.length ? { envVarNames: gateway.envVarNames } : {}),
           }
         },
-        // The live session objects, not `listTerminals()` snapshots: only four
-        // fields are read, and a snapshot of every session is not cheap.
+        // The live session objects, not `listTerminals()` snapshots: only a
+        // few fields are read, and a snapshot of every session is not cheap.
         listTerminalSessions: () =>
           listLiveTerminalSessions().map((session) => ({
             kind: session.kind,
             workspaceId: session.workspaceId,
             agentId: session.agentId,
             processAlive: isTerminalProcessAlive(session),
+            activity: session.activity,
             agentRecord: session.agentRecord,
           })),
         // A distribution turned on or off adds or drops its CLI updates.
