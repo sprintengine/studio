@@ -97,6 +97,7 @@ import {
 import { createBackgroundModeStore } from './background-mode-store'
 import { createQuitConfirmationStore } from './quit-confirmation-store'
 import { createAgentNotificationsStore } from './agent-notifications-store'
+import { agentBrowserToolGate, createAgentBrowserToolsStore } from './agent-browser-tools-store'
 import { createAgentNotifier } from './agent-notifications'
 import type { ChatLink } from '../shared/deep-link'
 import { countWorkingTerminalAgents, createQuitConfirmation } from './quit-confirmation'
@@ -1535,6 +1536,18 @@ export function createAppServices(
   // for one release. The canvas service stays on this disk's files while the
   // server runs in this process: they are the server's files too.
   const clientToolsEnabled = readStudioEnv('SPRINTENGINE_CLIENT_TOOLS') !== '0'
+  // "Let agents use the built-in browser" (Settings → Agents). Offered as a
+  // client toolset, the tools are withdrawn and offered again as it changes;
+  // served in process (the env switch above), each list leaves them out while
+  // it is off. Either way the switch is read when it is needed, never kept.
+  const agentBrowserToolsStore = createAgentBrowserToolsStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+  const browserToolsOffered = () => agentBrowserToolsStore.isEnabled()
+  const browserToolGate = agentBrowserToolGate(browserToolsOffered)
   const browserTools = createBrowserTools({
     manager: browserManager,
     control: browserControl,
@@ -1602,7 +1615,10 @@ export function createAppServices(
         // terminal and run tools, in the order agents have always listed them
         // (`desktopGatewayTools`).
         // This server's shell offers these, and an agent's first list waits for them.
-        expectShellToolsets: clientToolsEnabled ? ['browser', 'canvas'] : [],
+        // Not the browser when it is switched off: the first list would wait
+        // out the boot window for a toolset that is never coming.
+        expectShellToolsets: clientToolsEnabled ? browserToolGate.expectedToolsets(['browser', 'canvas']) : [],
+        ...(clientToolsEnabled ? {} : { hideTool: browserToolGate.hidesTool }),
         // An agent that starts a chat hears back from it, as one that launches
         // a terminal agent does.
         linkLaunchedAgent: (link) => agentLaunchNotices.link(link),
@@ -1720,7 +1736,7 @@ export function createAppServices(
         version: app.getVersion(),
         toolsets: clientToolsEnabled
           ? [
-              { name: 'browser', registrations: browserTools },
+              { name: 'browser', registrations: browserTools, enabled: browserToolsOffered },
               { name: 'canvas', registrations: canvasTools },
             ]
           : [],
@@ -1736,7 +1752,7 @@ export function createAppServices(
           // tours, and the terminal family, whose `agent.launch` and
           // `agent.status` ride an `agent` toolset under today's wire names.
           toolsets: [
-            { name: 'browser', registrations: browserTools },
+            { name: 'browser', registrations: browserTools, enabled: browserToolsOffered },
             { name: 'canvas', registrations: canvasTools },
             { name: 'editor', registrations: editorTools },
             { name: 'tour', registrations: tourTools },
@@ -2098,6 +2114,7 @@ export function createAppServices(
     quitConfirmation,
     agentNotificationsStore,
     agentNotifier,
+    agentBrowserToolsStore,
     setChatLinkOpener(open: (link: ChatLink) => void): void {
       chatLinkOpener = open
     },

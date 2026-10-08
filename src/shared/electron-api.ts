@@ -1793,6 +1793,9 @@ export type ElectronApi = {
   getQuitConfirmation: () => Promise<boolean | null>
   setQuitConfirmation: (enabled: boolean) => Promise<boolean | null>
   /** Banners for a chat that finished or waits on the person (Settings → General); null where main has none. */
+  /** Whether agents are given the built-in browser's tools (Settings → Agents); null where main has none. */
+  getAgentBrowserTools: () => Promise<boolean | null>
+  setAgentBrowserTools: (enabled: boolean) => Promise<boolean | null>
   getAgentNotifications: () => Promise<AgentNotificationMode | null>
   setAgentNotifications: (mode: AgentNotificationMode) => Promise<AgentNotificationMode | null>
   resolveBacklogLocation: (workspaceRoot: string) => Promise<BacklogLocationResult>

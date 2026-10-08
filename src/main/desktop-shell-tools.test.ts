@@ -158,3 +158,32 @@ test('the terminal family is offered as terminal and agent, and refused where th
   assert.equal(serving.offered().has('agent'), false)
   assert.match(logged.join('\n'), /could not offer its agent tools/)
 })
+
+test('a toolset switched off is not offered, and is offered or withdrawn as the switch moves', async () => {
+  const fixture = studio()
+  let browserOn = false
+  const shell = createDesktopShellTools({
+    transport: fixture.transport,
+    toolsets: [
+      { name: 'browser', registrations: [tool('browser.open')], enabled: () => browserOn },
+      { name: 'canvas', registrations: [tool('canvas.open')] },
+    ],
+  })
+  cleanups.push(() => shell.stop())
+  await shell.start()
+  await waitFor(() => fixture.offered().has('canvas'), 'the canvas offered')
+  assert.equal(fixture.offered().has('browser'), false, 'the browser is left out while it is off')
+  browserOn = true
+  await shell.refreshToolsets()
+  await waitFor(() => fixture.offered().has('browser'), 'the browser offered once it is switched on')
+  browserOn = false
+  await shell.refreshToolsets()
+  await waitFor(
+    () =>
+      !fixture.registry
+        .catalog({ clientId: 'owner', owner: true })
+        .some((listing) => listing.name === 'browser' && listing.offeredBy.some((by) => by.connected)),
+    'the browser withdrawn once it is switched off',
+  )
+  assert.ok(fixture.offered().has('canvas'), 'the canvas is untouched')
+})

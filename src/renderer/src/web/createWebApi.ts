@@ -137,6 +137,8 @@ const browserEmptyStates = {
   // A browser tab has no quit to ask about.
   getQuitConfirmation: async () => null,
   setQuitConfirmation: async () => null,
+  getAgentBrowserTools: async () => null,
+  setAgentBrowserTools: async () => null,
   getAgentNotifications: async () => null,
   setAgentNotifications: async () => null,
   // Third-party renderer modules are off on the web unless the owner turns

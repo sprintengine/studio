@@ -7,6 +7,7 @@ import { registerBackgroundModeIpc } from './ipc/background-mode-ipc'
 import { registerTelemetryIpc } from './ipc/telemetry-ipc'
 import { registerQuitConfirmationIpc } from './ipc/quit-confirmation-ipc'
 import { registerAgentNotificationsIpc } from './ipc/agent-notifications-ipc'
+import { registerAgentBrowserToolsIpc } from './ipc/agent-browser-tools-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import {
   registerRemoteStudioConnectionIpc,
@@ -248,6 +249,9 @@ export function registerCoreIpc(
   registerTelemetryIpc(ipcMain, services.telemetryConsentStore)
   registerQuitConfirmationIpc(ipcMain, services.quitConfirmationStore)
   registerAgentNotificationsIpc(ipcMain, services.agentNotificationsStore)
+  registerAgentBrowserToolsIpc(ipcMain, services.agentBrowserToolsStore, () => {
+    void services.desktopShell?.refreshToolsets()
+  })
   registerMarketplaceRegistryIpc(ipcMain)
   registerHostedSourcesFeedIpc(ipcMain)
   registerHostedCardFeedIpc(ipcMain)
