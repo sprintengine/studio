@@ -12,6 +12,7 @@ import { RootErrorBoundary } from './components/workspace/RootErrorBoundary'
 import { loadThirdPartyRendererModules } from './modules'
 import { launchSettingsReady } from './store/workspaceStore'
 import { reportBuildStamp } from './utils/buildStamp'
+import { isBenignRendererError } from './utils/rendererErrors'
 import { bindElectronClipboardPasteBridge } from './utils/clipboardPasteBridge'
 import { bindFocusSourceAttribute } from './utils/focusSource'
 import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
@@ -56,6 +57,7 @@ bindWindowActivityAttribute()
 bindFocusSourceAttribute()
 
 window.addEventListener('error', (event) => {
+  if (isBenignRendererError(event.message)) return
   console.error('[RendererError]', {
     message: event.message,
     filename: event.filename,
