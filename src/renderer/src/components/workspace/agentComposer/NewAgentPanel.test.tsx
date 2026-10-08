@@ -1951,6 +1951,60 @@ test('NewAgentPanel', async () => {
       },
     )
 
+    await check('a paired machine is sent the picked effort only where it keeps one', async () => {
+      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      for (const keeps of [true, false]) {
+        seedStore()
+        resetRememberedMachineForTests()
+        resetNewChatDraftsForTests()
+        writeNewChatDraft('win-effort', { engine: { cli: 'claude-code', model: null, reasoning: 'high' } })
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = (id) => ({
+          connectionId: id,
+          reachable: true,
+          unreachableReason: null,
+          unauthorized: false,
+          scopes: [],
+          workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
+          gaps: [],
+          capabilities: keeps ? ['conversations', 'new-chat-effort'] : ['conversations'],
+        })
+        const remoteLaunches: Array<Record<string, unknown>> = []
+        const view = await remoteRender({
+          initialSelection: { kind: 'conversation' },
+          draftKey: 'win-effort',
+          onLaunchRemote: async (launch: Record<string, unknown>) => {
+            remoteLaunches.push(launch)
+          },
+        })
+        await settle()
+        const engineChip = () =>
+          [...view.container.querySelectorAll('button')].find((button) =>
+            (button.getAttribute('aria-label') ?? '').startsWith('Engine:'),
+          )
+        assert.match(engineChip()?.textContent ?? '', /· high/, 'here, the chip names the level')
+        await pickMachine(view, 'Air')
+        assert.equal(
+          /· high/.test(engineChip()?.textContent ?? ''),
+          keeps,
+          keeps ? 'a machine that keeps it shows the level' : 'one that does not names no level',
+        )
+        const field = composerField(view.container)
+        await act(async () => {
+          typeIntoComposer(field, 'fix the build')
+        })
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        assert.equal(remoteLaunches.length, 1)
+        assert.equal(remoteLaunches[0]?.effort, keeps ? 'high' : undefined)
+        view.unmount()
+      }
+      resetNewChatDraftsForTests()
+    })
+
     await check('a chat agent can run on a paired machine, and launches there as a chat', async () => {
       seedStore()
       resetRememberedMachineForTests()

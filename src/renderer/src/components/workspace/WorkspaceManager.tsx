@@ -3907,6 +3907,8 @@ export default function WorkspaceManager() {
           // As named, either preset: the launcher showed it, and the chat
           // over there starts on it.
           permissionPreset: launch.permissionPreset,
+          // Present only for a machine that keeps one (`new-chat-effort`).
+          effort: launch.effort,
         })
         .catch((error: unknown): { ok: false; code: string; message: string } => ({
           ok: false,

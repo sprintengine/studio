@@ -152,6 +152,7 @@ export function CliModelPopoverSurface({
   onSelectCli,
   onSelectModel,
   showReasoning = false,
+  showReasoningLevels = true,
   reasoningAriaLabel,
   groupNote,
   permissions,
@@ -171,6 +172,13 @@ export function CliModelPopoverSurface({
    * it opens.
    */
   showReasoning?: boolean
+  /**
+   * Whether that row offers the effort levels. Off where the launch could not
+   * honour a level (a paired machine that keeps none), so the picker does not
+   * show a choice that would go nowhere; the context window, which is a model
+   * choice, stays.
+   */
+  showReasoningLevels?: boolean
   /**
    * Accessible name for that trailing control. Hosts with a trigger name it for
    * the runtime it belongs to ("Reasoning for Agent runtime"), so a screen
@@ -549,7 +557,9 @@ export function CliModelPopoverSurface({
             they carry, and a runtime with a long level name plus a permission
             word can outgrow a narrow surface. A second line beats a clipped
             one. */}
-        {permissionControl || (showReasoning && hasReasoningAxes(reasoningAxes)) ? (
+        {permissionControl ||
+        (showReasoning &&
+          (showReasoningLevels ? hasReasoningAxes(reasoningAxes) : hasContextWindows(reasoningAxes))) ? (
           <div className="flex flex-wrap items-center gap-1 border-t border-[color:var(--border-subtle)] px-1.5 py-1">
             <span className="flex-1" />
             {/* Two controls, not one composed trigger: context window and effort
@@ -573,7 +583,7 @@ export function CliModelPopoverSurface({
                 onSelectModel={(model) => onSelectModel(currentCli, model)}
               />
             ) : null}
-            {showReasoning && hasReasoningLevels(reasoningAxes) ? (
+            {showReasoning && showReasoningLevels && hasReasoningLevels(reasoningAxes) ? (
               <ReasoningSelector
                 scope="reasoning"
                 ariaLabel={reasoningAriaLabel ?? 'Reasoning'}

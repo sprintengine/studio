@@ -330,6 +330,11 @@ export type RemoteNewChatLaunch = {
   cli?: AgentCli
   cliModel?: string | null
   permissionPreset: CliPermissionPreset
+  /**
+   * The effort level picked, for a machine that keeps one (`new-chat-effort`).
+   * Absent for one that does not: the panel offered no level there.
+   */
+  effort?: string
   /** The branch the workspace's checkout is on over there, as the panel read it before the create. */
   branch: string | null
   /** Which repository the remote workspace is, as its machine served it (one-project-across-machines). */
@@ -407,6 +412,8 @@ type RemoteTargetState = {
   picked: RemoteProject | null
   /** The picked project's checkout facts, for the branch the launch names; null until read, or unreadable. */
   checkout: MeshWorkspaceCheckout | null
+  /** What the machine said it can do, from its browse; null until it answered, or when it said nothing. */
+  capabilities: readonly string[] | null
 }
 
 // The machine picked last, for THIS session only (never persisted): reopening
@@ -869,6 +876,11 @@ export default function NewAgentPanel({
   // folder that is not a repository both arrive here with `repository: null`,
   // and both get the plain glyph instead.
   const remotePicked = remoteTarget?.picked ?? null
+  // A paired machine keeps a New chat's effort only where it said so
+  // (`new-chat-effort`); elsewhere the picker offers no level, since one sent
+  // to an older build would be skipped and the chat run at its own default.
+  const remoteTakesEffort = remoteTarget?.capabilities?.includes('new-chat-effort') ?? false
+  const effortOffered = !remoteTarget || remoteTakesEffort
   const scopeProjectKey = remoteTarget
     ? remotePicked?.repository
       ? projectColorKey({ folderPath: null, repository: remotePicked.repository })
@@ -921,6 +933,7 @@ export default function NewAgentPanel({
       error: null,
       picked: null,
       checkout: null,
+      capabilities: null,
     })
     void browseMachine(connection).then((browse) => {
       setRemoteTarget((current) => {
@@ -964,6 +977,7 @@ export default function NewAgentPanel({
         const kept = copy ? remoteProjectOfWorkspace(projects, browse.workspaces, copy.id) : null
         return {
           ...current,
+          capabilities: browse.capabilities ?? null,
           workspaces: browse.workspaces,
           projects,
           // A choice already made meanwhile is never overwritten by a late answer.
@@ -1638,6 +1652,7 @@ export default function NewAgentPanel({
         cli: confirm.cli,
         cliModel: confirm.model ?? null,
         permissionPreset: effectivePreset,
+        ...(remoteTakesEffort && confirm.reasoning ? { effort: confirm.reasoning } : {}),
         branch: remoteTarget.checkout?.branch ?? null,
         remoteRepository: remoteTarget.picked.repository,
       })
@@ -2306,6 +2321,7 @@ export default function NewAgentPanel({
                 onSelectCli={(cli) => composer.setEngineCli(selection, cli)}
                 onSelectModel={(cli, next) => composer.setEngineModel(selection, cli, next)}
                 onSelectReasoning={(cli, next) => composer.setEngineReasoning(selection, cli, next)}
+                effortOffered={effortOffered}
                 // Permissions live in the picker rather than on a chip beside
                 // it (owner, 2026-09-05). A preset is a property of the runtime
                 // the row names — each CLI spells bypass its own way — so it is

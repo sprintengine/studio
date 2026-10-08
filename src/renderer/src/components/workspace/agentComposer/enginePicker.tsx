@@ -47,6 +47,12 @@ export type EnginePickerChipProps = {
    * the picker now, and a safeguard that is off must not go quiet with them.
    */
   warn?: string | null
+  /**
+   * Whether the launch can honour an effort level. Off for a chat on a paired
+   * machine that keeps none: the picker leaves the effort control out and the
+   * chip names no level, rather than offer one that would go nowhere.
+   */
+  effortOffered?: boolean
 }
 
 export function EnginePickerChip({
@@ -64,6 +70,7 @@ export function EnginePickerChip({
   placement = 'bottom-start',
   shortcutLabel,
   warn,
+  effortOffered = true,
 }: EnginePickerChipProps): JSX.Element {
   const names = engineNames(options, cli, model)
   const label = names.modelLabel ?? names.cliLabel
@@ -100,7 +107,7 @@ export function EnginePickerChip({
                 Claude asterisk was saying it twice. */}
             <CliIcon cli={cli} className="icon-xs" />
             <TruncatedText as="span" text={label} className="max-w-[150px]" />
-            {reasoning ? <span className="text-[color:var(--text-subtle)]">· {reasoning}</span> : null}
+            {reasoning && effortOffered ? <span className="text-[color:var(--text-subtle)]">· {reasoning}</span> : null}
             <ChipCaretGlyph />
           </ChipButton>
         )
@@ -126,6 +133,7 @@ export function EnginePickerChip({
         effectiveReasoningFor={(target) => (target === cli ? reasoning : undefined)}
         onSelectReasoning={onSelectReasoning}
         showReasoning
+        showReasoningLevels={effortOffered}
         reasoningAriaLabel="Reasoning effort"
         onSelectCli={onSelectCli}
         onSelectModel={onSelectModel}

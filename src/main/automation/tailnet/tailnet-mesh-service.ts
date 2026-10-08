@@ -233,6 +233,8 @@ export type TailnetMeshService = {
     prompt?: unknown
     cliModel?: unknown
     permissionPreset?: unknown
+    /** The CLI's effort level the chat keeps. Sent only to a machine that advertises `new-chat-effort`. */
+    effort?: unknown
   }): Promise<MeshCreateConversationResult>
   /**
    * Settle a chat on a paired machine, or bring it back with `settled: false`
@@ -1365,6 +1367,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       scopes,
       workspaces,
       gaps,
+      capabilities: identity.value.capabilities,
     }
   }
 
@@ -1468,6 +1471,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     prompt?: unknown
     cliModel?: unknown
     permissionPreset?: unknown
+    effort?: unknown
   }): Promise<MeshCreateConversationResult> {
     const connection = connectionFor(input.connectionId)
     if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
@@ -1486,6 +1490,14 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       ...(typeof input.cliModel === 'string' && input.cliModel ? { cliModel: input.cliModel } : {}),
       ...(typeof input.permissionPreset === 'string' && input.permissionPreset
         ? { permissionPreset: input.permissionPreset }
+        : {}),
+      // Only where the machine said it keeps one: an older build's handler
+      // skips an argument it does not know, and the chat would run at its
+      // own default while this machine showed the level picked.
+      ...(typeof input.effort === 'string' &&
+      input.effort &&
+      tailnetPeerSupports(peerCapabilities.get(connection.id), 'new-chat-effort')
+        ? { effort: input.effort }
         : {}),
     }
     const create = (newChat: boolean) =>
