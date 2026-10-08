@@ -44,7 +44,11 @@ export function studioConnectionWords(state: WindowStudioState | null): string |
   }
 }
 
-export const StudioConnectionNotice = React.memo(function StudioConnectionNotice({ graceMs = STUDIO_RECONNECT_GRACE_MS }: { graceMs?: number }) {
+export const StudioConnectionNotice = React.memo(function StudioConnectionNotice({
+  graceMs = STUDIO_RECONNECT_GRACE_MS,
+}: {
+  graceMs?: number
+}) {
   const state = useWindowStudioConnection()
   const words = studioConnectionWords(state)
   const down = words !== null

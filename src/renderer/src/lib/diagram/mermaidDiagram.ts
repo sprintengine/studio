@@ -240,8 +240,7 @@ export async function withoutRemoteImages<T>(scratchId: string, draw: () => Prom
   // Off the page, only what the drawing made counts as the drawing's.
   const drawnOffPage = (node: Element) => !node.isConnected && madeDuringDraw.has(node)
   const inDiagram = (node: Element) =>
-    inScratch(node) ||
-    (drawnOffPage(node) && typeof SVGImageElement !== 'undefined' && node instanceof SVGImageElement)
+    inScratch(node) || (drawnOffPage(node) && typeof SVGImageElement !== 'undefined' && node instanceof SVGImageElement)
   const refuse = (): never => {
     refused = true
     throw new RemoteImageRefused()
