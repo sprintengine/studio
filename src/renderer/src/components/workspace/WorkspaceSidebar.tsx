@@ -105,6 +105,7 @@ import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { isSettledWorkspace } from '../../utils/workspaceSettle'
 import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
 import { chatSettleStep } from './chatSettleCommand'
+import { waitingChatCount, waitingLabel } from './sidebar/projectWaiting'
 import { isSnoozedWorkspace, resolveSnoozePresets, snoozeWakeLabel, workspaceWokeAt } from '../../utils/workspaceSnooze'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 import { useScheduledAgents } from '../../store/scheduledAgentsStore'
@@ -2690,6 +2691,19 @@ function WorkspaceSidebar({
       group.workspaces.filter((workspace) => !starredWorkspaceIds.has(workspace.id)),
     )
     const folderBodyId = `ws-folder-body-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
+    // Folded, the header says how many of the rows it hides are waiting on
+    // the person (`projectWaiting.ts`): the rows a fold would draw, so a
+    // resting or sleeping chat is not counted, and the paired machine's too.
+    const waiting = collapsed
+      ? waitingLabel(
+          waitingChatCount([
+            ...visibleWorkspaces
+              .filter((workspace) => !isShelved(workspace) && !isAsleep(workspace))
+              .map((workspace) => activityByWorkspaceId[workspace.id]),
+            ...group.remoteRows.map((conversation) => conversation.activity),
+          ]),
+        )
+      : null
     const dropMark =
       dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key ? dropIndicator.position : null
     const isFolderTabDropTarget = tabDropTarget?.kind === 'folder' && tabDropTarget.key === group.key
@@ -2810,6 +2824,11 @@ function WorkspaceSidebar({
               <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
                 {group.displayName}
               </span>
+              {waiting ? (
+                <span data-project-waiting="" className="shrink-0 text-micro text-[color:var(--tone-warn)]">
+                  {waiting}
+                </span>
+              ) : null}
               {/* What is open across this project's chats, including the ones
                 whose agents have finished and which therefore say nothing for
                 themselves. Inside the header's own button: it is part of what
