@@ -26,6 +26,18 @@ import type { SshAskpassEnv } from './ssh-command'
 // passphrase prompt. An older ssh (Windows 10's own is 8.1) marks nothing, so
 // there a passphrase or password question is shown verbatim too, saying that
 // Studio cannot tell who asks.
+//
+// On Windows the shim is a `.cmd`, and that is the one way it can be run
+// without a binary of its own: ssh starts an executable, the only scripts it
+// can start are batch files, and the app's binary run as Node would read the
+// question as a script to load or an option to obey. A batch file is run by
+// cmd.exe, which parses the whole command line ssh built (the question
+// included, `%*` or not) before the batch's first line: a quote and an `&` in
+// the question run what follows them. So on Windows no question a remote
+// wrote may reach the shim: ssh is told not to use keyboard-interactive
+// (`SSH_WINDOWS_OPTIONS`), a machine reached through a jump host or a proxy
+// command (whose ssh inherits the shim without that option) is given no
+// shim at all, and a question that still reads as the remote's is refused.
 
 export const ASKPASS_TIMEOUT_MS = 3 * 60_000
 
@@ -117,6 +129,15 @@ function shellQuote(value: string): string {
 
 export type AskpassRequest = ClassifiedPrompt & { label: string }
 
+/**
+ * Whether a question is refused unasked: on Windows, one the remote wrote
+ * (see above). It reached cmd.exe on its way here, so nothing it asks is
+ * shown, and ssh is answered as if the person had cancelled.
+ */
+export function askpassRefuses(classified: ClassifiedPrompt, platform: NodeJS.Platform): boolean {
+  return platform === 'win32' && classified.kind === 'remote'
+}
+
 export type AskpassBrokerOptions = {
   /** Show the question; resolves to the answer, or null for Cancel. `signal` aborts when ssh gave up. */
   ask(request: AskpassRequest, signal: AbortSignal): Promise<string | null>
@@ -204,6 +225,11 @@ export async function createAskpassBroker(options: AskpassBrokerOptions): Promis
       const classified = classifyPrompt(message.prompt, typeof message.askpass === 'string' ? message.askpass : '', {
         remoteMarked: options.remoteMarked?.() ?? true,
       })
+      if (askpassRefuses(classified, platform)) {
+        log('A question the remote wrote reached the askpass shim on Windows, which should not happen; refused.')
+        socket.end(`${JSON.stringify({ answer: null })}\n`)
+        return
+      }
       const timer = setTimeout(() => controller.abort(), timeoutMs)
       void options
         .ask({ ...classified, label }, controller.signal)
