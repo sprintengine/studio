@@ -663,6 +663,28 @@ test('quitting waits for a lease in flight before giving the pool’s lock up', 
   await pending
 })
 
+test('measuring takes no pool’s lock: a pool this run has not used keeps its stored sizes', async () => {
+  const first = makeService({ measure: fakeMeasure(GB) })
+  await lease(first, 'first')
+  await first.service.measure()
+  await first.service.shutdown()
+  assert.equal(await exists(join(container, '.pool.lock')), false)
+
+  // The next start opens Settings ▸ Worktrees before any lease.
+  let measured = 0
+  const next = makeService({
+    instanceId: 'next-start',
+    measure: async (path) => {
+      measured += 1
+      return fakeMeasure(2 * GB)(path)
+    },
+  })
+  await next.service.measure()
+  assert.equal(measured, 0)
+  assert.equal(await exists(join(container, '.pool.lock')), false, 'the container is left to whoever uses it')
+  assert.equal((await slotAt(next, 'pool-01')).size?.bytes, GB, 'the stored size is shown')
+})
+
 test('quitting stops a disk measurement part-way, and a short wait is not stretched by a step that hangs', async () => {
   let started = 0
   let aborted = false

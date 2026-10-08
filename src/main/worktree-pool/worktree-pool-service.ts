@@ -1614,6 +1614,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
    * Measure every slot of every pool this instance drives (or of one
    * repository's), a few at a time, then hold the pools to the disk limit.
    * Settings ▸ Worktrees asks; nothing else measures in bulk.
+   *
+   * Only pools this instance already holds: opening Settings must not take
+   * every repository's container lock (and with it, until quit, every other
+   * Studio's use of those pools) just to read sizes. The rest show the sizes
+   * their records last stored.
    */
   async function measure(repoRoot?: string): Promise<void> {
     await load()
@@ -1621,7 +1626,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     const targets = repoRoot ? (target ? [target] : []) : [...pools.values()]
     const queue: Array<{ pool: PoolRuntime; slot: SlotRecord }> = []
     for (const pool of targets) {
-      if (!(await ready(pool))) continue
+      if (pool.instance !== 'held' || !(await ready(pool))) continue
       for (const slot of pool.record.slots) {
         if (slot.state !== 'creating' && slot.state !== 'evicting') queue.push({ pool, slot })
       }
