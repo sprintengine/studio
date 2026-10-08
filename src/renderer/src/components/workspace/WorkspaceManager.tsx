@@ -73,13 +73,7 @@ import type {
   WorkspaceWorktree,
   WorkspaceEnvironmentRef,
 } from '../../types/workspace'
-import {
-  agentWorktreePaths,
-  newChatWorktreeName,
-  workspaceProjectRoot,
-  workspaceProjectRootOf,
-  worktreeIdFromPath,
-} from '../../utils/workspaceWorktree'
+import { agentWorktreePaths, workspaceProjectRoot, worktreeIdFromPath } from '../../utils/workspaceWorktree'
 import { ensureSkillForAgent, skillsSpawnAgentPatch } from '../../utils/skillInvocation'
 import { cliPermissionModeLaunch, cliPermissionModePatch, resolveCliPermissionPreset } from '../ui'
 import { BACKLOG_SKILL_ID, backlogHandoffPrompt } from '../../utils/backlogHandoff'
@@ -132,6 +126,8 @@ import { composerDraftStore } from '../panels/agentChat/draftStore'
 import { setBuildExtensionOpener } from '../extensions/buildExtensionHost'
 import { extensionBriefMarkdown } from '../../../../shared/extension-scaffold'
 import { createWorkspaceChatOpener } from './manager/workspaceChatOpener'
+import { confirmNewChatWith } from './manager/newChatConfirm'
+import { createNewChatWorktree } from '../../utils/newChatWorktree'
 import { openChatLink } from './manager/chatLinkOpener'
 import {
   markLaunchedAgentProjected,
@@ -1477,14 +1473,8 @@ export default function WorkspaceManager() {
       // app's own agent, so the CLI it was started on is the answer every surface
       // without a remembered CLI of its own falls back to.
       if (chosenCli) setLastSelectedCli(chosenCli)
-      // A new chat is a use of its project, which the project pickers list by
-      // (shared/project-frecency.ts): the folder the picker offered, which for a
-      // chat with Worktree on is the checkout its worktree was cut from.
-      if (workspaceId) {
-        const usedFolder =
-          worktree?.repoRoot ?? (folderPath === undefined ? (activeWorkspace?.folderPath ?? null) : folderPath)
-        if (usedFolder) recordProjectUse(usedFolder)
-      }
+      // The use of its project is counted by the caller (the New chat confirm,
+      // the Backlog handoff), once for every kind of chat it starts.
       // The solo template carries exactly one agent tab, and the seed patch above
       // was merged onto it at creation, so the lone agent record IS this chat's
       // agent. Read back rather than guessed: `addWorkspace` minted its id, which
@@ -1495,7 +1485,6 @@ export default function WorkspaceManager() {
       return agentId ? { workspaceId, agentId } : null
     },
     [
-      activeWorkspace?.folderPath,
       agentCliCatalog,
       agentSpawnPermissionPreset,
       createSoloChatWorkspace,
@@ -1503,7 +1492,6 @@ export default function WorkspaceManager() {
       pluginCatalogEntries,
       lastSelectedAgentModel,
       lastSelectedCli,
-      recordProjectUse,
       setLastSelectedCli,
     ],
   )
@@ -2917,76 +2905,6 @@ export default function WorkspaceManager() {
       )?.workspaceId ?? null
     )
   }
-  // The worktree the New chat door asked for under ⋯ (found at the seam of
-  // checkout-and-branch-on-remote-create: the door offered the option and
-  // `confirmNewChat` dropped it on the floor). Same container, branch and
-  // include-set as the tab strip's worktree spawn; the chat then opens IN the
-  // worktree, the way the Worktree panel's "New chat here" does. Null after a
-  // diagnostic when it cannot be made — the caller aborts rather than start
-  // the chat in the checkout the person asked to keep clean.
-  //
-  // The returned marker records the chat's project so the sidebar files it under
-  // the project it was cut from instead of founding a header named after the
-  // slug. It is deliberately the folder the chat was scoped to and not the
-  // git-resolved `repoRoot` below: under a symlinked root git's realpath would
-  // not string-match the open parent workspace's folderPath, and the chat would
-  // found its own header all over again.
-  //
-  // The scoped folder can itself be one of our worktrees — the plain New chat
-  // button inherits the active workspace's folder, and that workspace may be a
-  // worktree chat. Everything here works off the PROJECT behind it, so the new
-  // worktree is a sibling of the one it was started from rather than nested
-  // inside its container, and records the real project as its own.
-  const createNewChatWorktree = async (
-    folderPath: string | null,
-    requestedName: string,
-  ): Promise<{ folderPath: string; worktree: WorkspaceWorktree } | null> => {
-    const fail = (title: string, message: string) => {
-      publishDiagnosticSync({ level: 'error', source: 'workspace', title, message })
-      return null
-    }
-    if (!folderPath)
-      return fail('Worktree needs a project', 'Choose a project folder before starting a chat on a worktree.')
-    const projectFolder = workspaceProjectRootOf({ folderPath }) ?? folderPath
-    // The machine the chat will run on makes its worktree too: a worktree made
-    // by another machine's git names a gitdir this one cannot follow.
-    const worktreeHostId = newChatHostRef.current ?? undefined
-    const repoRoot = await window.api.getGitRepoRoot(projectFolder, worktreeHostId)
-    if (!repoRoot) {
-      return fail(
-        'Worktree needs a git repository',
-        'This project is not a git repository, so a worktree cannot be created.',
-      )
-    }
-    const name = requestedName.trim() || newChatWorktreeName(nanoid(4))
-    const paths = agentWorktreePaths(repoRoot, name)
-    if (!paths) return fail('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
-    // From the worktree pool, on the default branch (main's git.ts): a
-    // reused slot keeps the last agent's installed dependencies. A chat on a
-    // WSL machine is declined by the pool and gets a fresh worktree from that
-    // machine's git, forked from the same default branch.
-    const result = await window.api.createGitWorktree({
-      repoRoot,
-      containerPath: paths.containerPath,
-      destinationPath: paths.destinationPath,
-      branchName: paths.branchName,
-      baseRef: 'HEAD',
-      copyIncludedFiles: true,
-      // The chat is created after its worktree, so the branch names the owner.
-      agentLockOwner: paths.branchName,
-      fromPool: true,
-      ...(worktreeHostId ? { hostId: worktreeHostId } : {}),
-    })
-    if (!result.ok) return fail('Worktree failed', result.message)
-    return {
-      folderPath: result.data.path,
-      worktree: {
-        branch: result.data.branch ?? paths.branchName,
-        baseRef: result.data.baseRef,
-        repoRoot: projectFolder,
-      },
-    }
-  }
 
   // Open the pre-creation New Chat panel. `folderPath === undefined` inherits the
   // active workspace's folder (the plain New chat button); an explicit value
@@ -3550,6 +3468,8 @@ export default function WorkspaceManager() {
       // A launch that never happened (no installed CLI, missing solo template) has
       // already said so through its own route; there is no agent to link to.
       if (!started) return
+      // A chat handed an item is a use of the item's project, as a New chat is.
+      recordProjectUse(request.workspaceRoot)
       await recordBacklogAgentHandoff({
         workspaceId: started.workspaceId,
         workspaceRoot: request.workspaceRoot,
@@ -3558,7 +3478,7 @@ export default function WorkspaceManager() {
         title: request.title,
       })
     },
-    [createNewChat, pluginCatalogEntries],
+    [createNewChat, pluginCatalogEntries, recordProjectUse],
   )
   useEffect(() => {
     setBacklogHandoffHost({ handToAgent: handBacklogItemToAgent })
@@ -3729,77 +3649,42 @@ export default function WorkspaceManager() {
     startupImages?: string[],
     startupFiles?: string[],
     background?: boolean,
-  ): Promise<WorkspaceId | null> => {
-    // An agent asked for a worktree starts IN it: the folder becomes the
-    // worktree and the marker rides along. A worktree that cannot be made
-    // leaves the door open with the diagnostic, never a chat in the checkout.
-    let folderPath = scopedFolder
-    let worktree: WorkspaceWorktree | undefined
-    // An extension starts in a folder of its own inside the project, made from
-    // the SDK's template before the chat (which needs the skill the scaffold
-    // puts there). One already holding an extension is carried on as it is. A
-    // project that cannot be made leaves the door open, with why.
-    if (extension) {
-      if (!scopedFolder) return null
-      const made = await window.api
-        .extensionScaffoldCreate({
-          parentDir: scopedFolder,
-          id: extension.id,
-          ideaMarkdown: extensionBriefMarkdown(extension.id, startupPrompt ?? ''),
-        })
-        .catch((caught: unknown) => ({
-          ok: false as const,
-          message: caught instanceof Error ? caught.message : 'The project could not be created.',
-        }))
-      if (!made.ok) {
-        showToast({ tone: 'error', title: `${extension.id} was not created`, description: made.message })
-        return null
-      }
-      folderPath = made.folder
-    } else if ((confirm.kind === 'general' || confirm.kind === 'conversation') && confirm.worktree) {
-      const made = await createNewChatWorktree(scopedFolder, confirm.worktree.name)
-      if (!made) return null
-      folderPath = made.folderPath
-      worktree = made.worktree
-    }
-    let created: WorkspaceId | null = null
-    switch (confirm.kind) {
-      case 'terminal':
-        created = pickNewChatTerminal(folderPath, background)
-        break
-      // MCP picks were synced into the workspace's CLI config on pick
-      // (SkillsAndMcpsPicker), so the spawn has nothing to route: the agent
-      // starts in the workspace and finds them there. The isolated connector
-      // worktree runtime is no longer a New chat path.
-      case 'general':
-        created = pickNewChatGeneral(
-          confirm.cli,
-          folderPath,
-          confirm.skills,
-          startupPrompt,
-          worktree,
-          confirm.model,
-          confirm.reasoning,
-          background,
-        )
-        break
-      case 'conversation':
-        setLastNewChatAgent({ kind: 'conversation' })
-        created = openConversationInNewChat(
-          folderPath,
-          confirm,
-          startupPrompt,
-          worktree,
-          startupImages,
-          startupFiles,
-          background,
-        )
-        break
-    }
-    // ⌘⏎ stays on New chat; the panel empties itself for the next one.
-    if (!background) closeNewChatPanel()
-    return created
-  }
+  ): Promise<WorkspaceId | null> =>
+    confirmNewChatWith(
+      {
+        makeExtension: async (parentDir, id, prompt) => {
+          const made = await window.api
+            .extensionScaffoldCreate({ parentDir, id, ideaMarkdown: extensionBriefMarkdown(id, prompt) })
+            .catch((caught: unknown) => ({
+              ok: false as const,
+              message: caught instanceof Error ? caught.message : 'The project could not be created.',
+            }))
+          if (made.ok) return made.folder
+          showToast({ tone: 'error', title: `${id} was not created`, description: made.message })
+          return null
+        },
+        makeWorktree: (folder, name) => createNewChatWorktree(folder, name, newChatHostRef.current),
+        startTerminal: pickNewChatTerminal,
+        startGeneral: (general, folderPath, prompt, worktree, inBackground) =>
+          pickNewChatGeneral(
+            general.cli,
+            folderPath,
+            general.skills,
+            prompt,
+            worktree,
+            general.model,
+            general.reasoning,
+            inBackground,
+          ),
+        startConversation: (conversation, folderPath, prompt, worktree, images, files, inBackground) => {
+          setLastNewChatAgent({ kind: 'conversation' })
+          return openConversationInNewChat(folderPath, conversation, prompt, worktree, images, files, inBackground)
+        },
+        recordProjectUse,
+        closePanel: closeNewChatPanel,
+      },
+      { confirm, scopedFolder, startupPrompt, extension, startupImages, startupFiles, background },
+    )
 
   // ⌘⏎ from New chat started `workspaceId` out of sight (or did not, and has
   // said why): the toast is the way to it for the person who wants to look
