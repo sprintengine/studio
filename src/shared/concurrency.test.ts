@@ -45,4 +45,18 @@ describe('mapWithLimit', () => {
       }),
     ).rejects.toThrow('boom')
   })
+
+  test('no item starts after one has failed', async () => {
+    const started: number[] = []
+    await expect(
+      mapWithLimit([1, 2, 3, 4, 5, 6], 2, async (item) => {
+        started.push(item)
+        if (item === 1) throw new Error('boom')
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        return item
+      }),
+    ).rejects.toThrow('boom')
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(started).toEqual([1, 2])
+  })
 })
