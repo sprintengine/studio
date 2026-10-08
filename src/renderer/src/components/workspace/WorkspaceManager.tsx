@@ -131,6 +131,7 @@ import { confirmNewChatWith, type NewChatExtension } from './manager/newChatConf
 import { createNewChatWorktree, prepareNewChatWorktree } from '../../utils/newChatWorktree'
 import type { AgentState } from '../../../../shared/agent-state'
 import { openChatLink } from './manager/chatLinkOpener'
+import { setAppCommandRunner } from '../../commands/appCommandRunner'
 import {
   markLaunchedAgentProjected,
   retiredLaunchedAgents,
@@ -4345,6 +4346,10 @@ export default function WorkspaceManager() {
     window.addEventListener('mouseup', onMouseUp, true)
     return () => window.removeEventListener('mouseup', onMouseUp, true)
   }, [runCommand, disabledCommandIds])
+
+  // A surface that finishes its own work and then hands on to a shell command
+  // (a chat's send-and-new) runs it through this window's runner.
+  useEffect(() => setAppCommandRunner(runCommand), [runCommand])
 
   useEffect(() => {
     return window.api.onAppMenuCommand((command) => {

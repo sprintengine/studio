@@ -37,7 +37,9 @@ import type { CliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { ChevronDownIcon, ScheduleGlyph } from '../AppIcons'
 import { copySelectionAsMarkdown } from '../../utils/selectionToMarkdown'
-import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
+import { getEffectiveKeybindings, platformKeybindingsFromApiPlatform } from '../../commands/effectiveKeybindings'
+import { keydownMatchesKeybindings } from '../../commands/commandDispatcher'
+import { runAppCommand } from '../../commands/appCommandRunner'
 import { renderKeybinding } from '../../commands/keybindings'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { ensureChatWorktree } from '../../utils/chatWorktreeRestore'
@@ -152,6 +154,9 @@ import {
   typedCharacter,
 } from './agentChat/typeToComposer'
 import { pasteIntoComposer } from '../../utils/clipboardPasteBridge'
+
+/** ⌘⌥⏎ in the composer: send, then New chat (see the registry). */
+const SEND_AND_NEW_COMMAND = 'chat.sendAndNew'
 import { useStickToBottom } from './agentChat/useStickToBottom'
 import { ConversationRowFrame } from './agentChat/conversationRowFrame'
 import {
@@ -1467,10 +1472,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Handing every mid-turn Enter straight to the turn lost messages the
   // running turn never took in, with nothing left in the queue to show for
   // them, so the queue is the default and a steer is always a choice.
-  const submitComposer = useCallback(() => {
+  const submitComposer = useCallback((): boolean => {
     // Typed into while the chat cannot send yet (a New chat still waiting on
     // its worktree): the words stay where they are until it can.
-    if (readiness.kind !== 'ready') return
+    if (readiness.kind !== 'ready') return false
     const text = draft.trim()
     if (
       !text &&
@@ -1479,21 +1484,21 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       !draftMetadata.skillIds.length &&
       !draftMetadata.files.length
     )
-      return
+      return false
     // A time is picked: the draft is scheduled, whatever the turn is doing.
     if (sendAt !== null) {
       void scheduleDraftRef.current()
-      return
+      return true
     }
     // A command Studio answers itself, or one it will not send, is handled
     // here whatever the turn is doing: it never reaches the CLI or the queue.
-    if (runAppCommandRef.current(text, attachments.length + draftMetadata.files.length)) return
+    if (runAppCommandRef.current(text, attachments.length + draftMetadata.files.length)) return true
     if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) || steeringTurnId !== null) {
       if (handsQueueToHost && text) {
         clearDraft()
         setActionError(null)
         void handToHost(text)
-        return
+        return true
       }
       // The cap is the IPC boundary's; trimming to it is right, hiding the trim
       // is not — the user must know which images did not make the queue.
@@ -1502,10 +1507,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       clearDraft()
       setAttachments([])
       setActionError(queuedDropNotice(dropped))
-      return
+      return true
     }
     void sendTurn(text, attachments, draftMetadata, true)
     setAttachments([])
+    return true
   }, [
     readiness.kind,
     attachments,
@@ -2261,6 +2267,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     )
   }
   const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
+  const sendAndNewKeys = getEffectiveKeybindings(SEND_AND_NEW_COMMAND, keybindingSettings)
+  const keyPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
   const toggleModelPickerRef = useRef<() => void>(() => {})
   // The picker stays reachable once the chat has started: its model is fixed
   // then, but effort and permissions are not.
@@ -3583,6 +3591,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     if (event.key === 'Escape' && stopsTurnOnEscape(event)) {
                       event.preventDefault()
                       void interrupt()
+                      return
+                    }
+                    // ⌘⌥⏎ (`chat.sendAndNew`, rebindable): send, then New chat,
+                    // only once the message has gone or been queued.
+                    if (keydownMatchesKeybindings(event, sendAndNewKeys, keyPlatform)) {
+                      event.preventDefault()
+                      if (submitComposer()) runAppCommand('chat.new')
                       return
                     }
                     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {

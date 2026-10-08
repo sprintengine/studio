@@ -2574,3 +2574,37 @@ test('the transcript takes focus on a click, so what is typed next reaches the c
     await chat.unmount()
   }
 })
+
+test('Primary+Alt+Enter sends the draft and then opens New chat', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn })
+  const { setAppCommandRunner } = await import('../../../commands/appCommandRunner')
+  const ran: string[] = []
+  const unregister = setAppCommandRunner((id) => {
+    ran.push(id)
+    return true
+  })
+  try {
+    const primary = (chat.dom.window as unknown as { api: { platform: string } }).api.platform === 'darwin'
+    const chord = { key: 'Enter', code: 'Enter', altKey: true, ...(primary ? { metaKey: true } : { ctrlKey: true }) }
+    await chat.act(async () => {
+      chat
+        .field()
+        .dispatchEvent(new chat.dom.window.KeyboardEvent('keydown', { ...chord, bubbles: true, cancelable: true }))
+    })
+    expect(sendTurn, 'an empty composer sends nothing').not.toHaveBeenCalled()
+    expect(ran, 'and so stays in the chat').toEqual([])
+    await chat.act(async () => chat.type('Next: the footer'))
+    await chat.act(async () => {
+      chat
+        .field()
+        .dispatchEvent(new chat.dom.window.KeyboardEvent('keydown', { ...chord, bubbles: true, cancelable: true }))
+    })
+    expect(sendTurn).toHaveBeenCalledOnce()
+    expect(sendTurn.mock.calls[0][0]).toMatchObject({ message: 'Next: the footer' })
+    expect(ran).toEqual(['chat.new'])
+  } finally {
+    unregister()
+    await chat.unmount()
+  }
+})
