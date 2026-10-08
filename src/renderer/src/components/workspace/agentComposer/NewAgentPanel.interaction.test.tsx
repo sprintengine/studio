@@ -792,6 +792,31 @@ test('NewAgentPanel interaction', async () => {
       resetNewChatDraftsForTests()
     })
 
+    await check('on a narrow strip the project name gives way and the Worktree switch keeps its place', async () => {
+      seedStore()
+      const { resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      const longName = 'a-project-with-a-name-long-enough-to-crowd-the-strip'
+      const view = await render({
+        initialSelection: { kind: 'conversation' },
+        draftKey: 'win-narrow',
+        folderPath: '/proj',
+        projectOptions: [{ path: '/proj', label: longName }],
+        onSelectProject: () => {},
+      })
+      // No layout engine here, so what is pinned is the flex contract the
+      // strip relies on: the project may shrink and truncates its name; the
+      // switch may not.
+      const trigger = view.container.querySelector<HTMLElement>('[data-project-trigger="true"]')!
+      assert.ok(trigger.parentElement?.classList.contains('min-w-0'), 'the chip’s box may shrink below its content')
+      const name = [...trigger.querySelectorAll('span')].find((span) => span.textContent === longName)
+      assert.ok(name?.classList.contains('truncate') && name.classList.contains('min-w-0'), 'and its name truncates')
+      const worktree = view.container.querySelector<HTMLElement>('[data-worktree-chip]')!
+      assert.ok(worktree.classList.contains('shrink-0'), 'the switch keeps its width')
+      view.unmount()
+      resetNewChatDraftsForTests()
+    })
+
     // ── Tags ──────────────────────────────────────────────────────────────────
     await check('removing the kind tag returns to a conversation and the tag goes', async () => {
       seedStore()

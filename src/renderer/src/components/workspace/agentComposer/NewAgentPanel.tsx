@@ -2897,6 +2897,8 @@ function RemoteProjectPicker({
       placement="bottom-start"
       surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusProjectSearch}
+      // As the local project chip: its name gives way first on a narrow strip.
+      className="min-w-0"
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         // The same stable hook the local chip carries: the two never render
         // together, so a pass looking for "the project control on the scope
@@ -2905,7 +2907,7 @@ function RemoteProjectPicker({
           {/* The bare glyph, not `FolderIdentityIcon`: a logo is detected by
               reading THIS disk, and the folder is on another machine. */}
           <FolderTypeIcon className="icon-xs shrink-0" color={color} unfiled={unfiled} />
-          {label}
+          <span className="min-w-0 truncate">{label}</span>
           <ChipCaretGlyph />
         </ChipButton>
       )}

@@ -330,7 +330,12 @@ export function TerminalSessionIcon({ className }: { className?: string }) {
  */
 export function ChipCaretGlyph() {
   return (
-    <svg className="icon-xs text-[color:var(--text-subtle)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <svg
+      className="icon-xs shrink-0 text-[color:var(--text-subtle)]"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="m4 6.5 4 3.5 4-3.5"
         stroke="currentColor"
