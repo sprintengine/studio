@@ -232,7 +232,7 @@ function parseSlot(value: unknown): SlotRecord | null {
 }
 
 /** A pool record from disk, or null when the file is missing, unreadable or not one of ours. */
-export function parsePoolRecord(text: string): PoolRecord | null {
+function parsePoolRecord(text: string): PoolRecord | null {
   let value: unknown
   try {
     value = JSON.parse(text)
@@ -262,7 +262,7 @@ export function parsePoolRecord(text: string): PoolRecord | null {
 }
 
 /** Write a file so a crash leaves the old content or the new, never a torn mix. */
-export async function writeFileAtomic(path: string, content: string): Promise<void> {
+async function writeFileAtomic(path: string, content: string): Promise<void> {
   const temporary = `${path}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
   await writeFile(temporary, content, 'utf8')
   // On Windows a rename over a file another process has open (a virus scanner,

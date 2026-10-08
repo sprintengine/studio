@@ -42,7 +42,7 @@ export type WorktreeInventoryDeps = {
 }
 
 /** `git status --porcelain=v1 -z` → entries, a rename's source path folded into its entry. */
-export function parsePorcelainZ(stdout: string): Array<{ code: string; path: string }> {
+function parsePorcelainZ(stdout: string): Array<{ code: string; path: string }> {
   const tokens = stdout.split('\0')
   const out: Array<{ code: string; path: string }> = []
   for (let index = 0; index < tokens.length; index += 1) {
