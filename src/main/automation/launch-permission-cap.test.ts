@@ -11,7 +11,12 @@ import type { Workspace } from '../../renderer/src/types/workspace'
 import type { ConversationLaunchRequest } from '../conversation-launch-service'
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
 import { createConversationTools } from './conversation-tools'
-import { createAgentPermissionResolver, type AgentPermissionResolver } from './launch-permission-cap'
+import {
+  createAgentPermissionResolver,
+  scheduledRunOfCaller,
+  type AgentPermissionResolver,
+} from './launch-permission-cap'
+import { bindGatewayConversation } from '../../server/tools/client-tool-gateway'
 
 const WORKSPACE: Workspace = {
   id: 'ws-1',
@@ -492,4 +497,23 @@ test('resolver: a connection naming no workspace is held to the strictest agent 
 test('resolver: an agent nothing knows is unresolved', () => {
   assert.equal(resolverOver({})({ workspaceId: 'ws-1', agentId: 'agent-ghost' }), null)
   assert.equal(resolverOver({})({ agentId: 'agent-ghost' }), null)
+})
+
+test('scheduledRunOfCaller: the conversation a launch token proved wins over what the connection declares', () => {
+  const asked: Array<{ workspaceId: string; agentId?: string }> = []
+  const resolve = (ref: { workspaceId: string; agentId?: string }) => {
+    asked.push(ref)
+    return ref.workspaceId === 'ws-run' ? 'schedule-1' : null
+  }
+  // Declares nothing, but its token proved the scheduled run's chat.
+  const quiet: McpConnectionContext = { metadata: { kind: 'external-local' } }
+  bindGatewayConversation(quiet, { workspaceId: 'ws-run', agentId: 'agent-1' })
+  assert.equal(scheduledRunOfCaller(quiet, resolve), 'schedule-1')
+  // Declares another chat; the proven one is still what is asked about.
+  const claims: McpConnectionContext = { metadata: { kind: 'studio-agent', workspaceId: 'ws-other', agentId: 'a' } }
+  bindGatewayConversation(claims, { workspaceId: 'ws-run', agentId: 'agent-1' })
+  assert.equal(scheduledRunOfCaller(claims, resolve), 'schedule-1')
+  assert.deepEqual(asked.at(-1), { workspaceId: 'ws-run', agentId: 'agent-1' })
+  // No token: the declared identity, as before.
+  assert.equal(scheduledRunOfCaller({ metadata: { kind: 'studio-agent', workspaceId: 'ws-other' } }, resolve), null)
 })

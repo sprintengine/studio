@@ -7,6 +7,7 @@ import {
   type CliPermissionPreset,
 } from '../../shared/cli-permission-preset'
 import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
+import { gatewayConversation } from '../../server/tools/client-tool-gateway'
 
 // What an agent whose own preset cannot be found or read is held to.
 const STRICTEST_PRESET: CliPermissionPreset = CLI_PERMISSION_PRESETS[0]
@@ -255,6 +256,10 @@ export function scheduledRunOfCaller(
   context: McpConnectionContext | undefined,
   resolve: ScheduledRunResolver,
 ): string | null {
+  // The conversation the launch token proved comes first: what a connection
+  // says about itself is only what it chose to declare.
+  const proven = gatewayConversation(context)
+  if (proven) return resolve({ workspaceId: proven.workspaceId, agentId: proven.agentId })
   const metadata = context?.metadata
   if (metadata?.kind !== 'studio-agent' || !metadata.workspaceId) return null
   return resolve({ workspaceId: metadata.workspaceId, ...(metadata.agentId ? { agentId: metadata.agentId } : {}) })
