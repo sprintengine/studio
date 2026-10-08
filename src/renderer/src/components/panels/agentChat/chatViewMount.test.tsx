@@ -717,6 +717,56 @@ test('a chat already loaded opens at its New divider on its first frame when it 
   }
 })
 
+test('a kept chat whose unseen reply comes in its catch-up still opens at the New divider', async () => {
+  const { noteChatLeft } = await import('./unreadDivider')
+  const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+  const before = [
+    eventAt(1_000, 'user_message', { turnId: 'a', text: 'Check the build' }),
+    eventAt(1_100, 'turn_started', { turnId: 'a' }),
+    eventAt(1_200, 'content_delta', { turnId: 'a', text: 'It builds.' }),
+    eventAt(2_000, 'turn_completed', { turnId: 'a' }),
+    eventAt(3_000, 'user_message', { turnId: 'b', text: 'Now the tests' }),
+  ]
+  // Read and left while the agent was still at it: the window keeps what it
+  // had then.
+  const folderPath = '/Users/dev/kept-catch-up'
+  const first = await mountChat({ events: before, folderPath })
+  await first.act(async () =>
+    first.emit({ type: 'synchronized', seq: before.at(-1)!.seq!, generation: 'kept' } as ConversationSessionFrame),
+  )
+  await first.unmount()
+  // While it is closed, the agent answers.
+  const after = [
+    eventAt(3_100, 'turn_started', { turnId: 'b' }),
+    eventAt(3_600, 'content_delta', { turnId: 'b', text: 'They pass.' }),
+    eventAt(4_000, 'turn_completed', { turnId: 'b' }),
+  ]
+  scrolledToIndex.length = 0
+  mountedAt.length = 0
+  const chat = await mountChat({ events: [], whenActive: true, folderPath })
+  try {
+    useWorkspaceStore.setState((state) => ({
+      workspaces: state.workspaces.map((workspace) => ({ ...workspace, lastVisitedAt: 2_500 })),
+    }))
+    await chat.act(async () => useWorkspaceStore.getState().setActiveWorkspace('workspace'))
+    expect(listedKeys.current.indexOf('assistant:b'), 'the held transcript has no reply to b yet').toBe(-1)
+    // The catch-up behind this join's fence.
+    await chat.act(async () => {
+      for (const next of after) chat.emit({ type: 'event', event: next })
+      chat.emit({ type: 'synchronized', seq: after.at(-1)!.seq!, generation: 'kept' } as ConversationSessionFrame)
+    })
+    for (let turn = 0; turn < 50 && !scrolledToIndex.length; turn++)
+      await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
+    const divider = listedKeys.current.indexOf('assistant:b')
+    expect(divider).toBeGreaterThan(0)
+    expect(chat.host.innerHTML).toContain('New since you last looked')
+    expect(scrolledToIndex.at(-1), 'it lands at the divider').toEqual({ index: divider, viewPosition: 0 })
+  } finally {
+    noteChatLeft('workspace')
+    await chat.unmount()
+  }
+})
+
 test('a turn never shows a dollar figure, even when the provider reports one', async () => {
   const events = [
     event('user_message', { turnId: 'priced', text: 'Summarize' }),
@@ -2117,7 +2167,10 @@ function answeredTurn(turnId: string, question: string, answer: string): Convers
 }
 
 test('Load earlier does not call the older replies it loads new; a reply finishing after it is', async () => {
-  const older = [...answeredTurn('o1', 'Old one', 'Old answer one.'), ...answeredTurn('o2', 'Old two', 'Old answer two.')]
+  const older = [
+    ...answeredTurn('o1', 'Old one', 'Old answer one.'),
+    ...answeredTurn('o2', 'Old two', 'Old answer two.'),
+  ]
   const recent = answeredTurn('n1', 'New one', 'New answer.')
   // Opened at its end, as a chat read to the end was left: a place remembered
   // mid-history from another test would page the history in by itself.
@@ -2173,6 +2226,47 @@ test('typing and a streamed reply leave the composer’s "+" menu as it was', as
     expect(chat.host.textContent).toContain('keyed on the path.')
     expect(plusMenuRenders.count).toBe(0)
   } finally {
+    await chat.unmount()
+  }
+})
+
+test('replies unseen past the top of the loaded page are read back to the one that was seen, and land below it', async () => {
+  const { noteChatOpened, noteChatLeft } = await import('./unreadDivider')
+  const turn = (id: string, at: number, answer: string) => [
+    eventAt(at, 'user_message', { turnId: id, text: `Ask ${id}` }),
+    eventAt(at + 100, 'turn_started', { turnId: id }),
+    eventAt(at + 200, 'content_delta', { turnId: id, text: answer }),
+    eventAt(at + 900, 'turn_completed', { turnId: id }),
+  ]
+  // Seen up to `a`; everything on the loaded page finished after the visit.
+  const older = turn('a', 1_000, 'Seen answer.')
+  const recent = [...turn('b', 3_000, 'First new answer.'), ...turn('c', 5_000, 'Second new answer.')]
+  const { rememberConversationScroll } = await import('./conversationViewState')
+  rememberConversationScroll('workspace:agent', { offset: 0, atEnd: true })
+  const loadEarlier = vi.fn(async () => ({ ok: true, page: { events: older, hasMore: false, beforeCursor: null } }))
+  scrolledToIndex.length = 0
+  const chat = await mountChat({
+    events: recent,
+    folderPath: '/Users/dev/long-unseen',
+    api: { conversationLoadEarlier: loadEarlier },
+  })
+  try {
+    await chat.act(async () => {
+      chat.emit({ type: 'snapshot', page: { events: recent, hasMore: true, beforeCursor: recent[0]!.seq! } })
+      chat.emit({ type: 'synchronized', seq: recent.at(-1)!.seq! })
+    })
+    // Opened once its last page is in, as a chat in the sidebar is clicked.
+    await chat.act(async () => noteChatOpened('workspace', 2_500, 10_000))
+    for (let step = 0; step < 50 && !chat.host.textContent?.includes('Seen answer.'); step++)
+      await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 50)))
+    expect(loadEarlier, 'the page above is read for the reply that was seen').toHaveBeenCalledTimes(1)
+    const divider = chat.host.querySelector('[role="separator"][aria-label="New since you last looked"]')
+    expect(divider?.nextElementSibling?.textContent).toContain('First new answer.')
+    const index = listedKeys.current.indexOf('assistant:b')
+    expect(scrolledToIndex.at(-1), 'it lands at the divider once the page is in').toEqual({ index, viewPosition: 0 })
+  } finally {
+    noteChatLeft('workspace')
     await chat.unmount()
   }
 })

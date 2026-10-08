@@ -3,7 +3,14 @@ import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, expect, test } from 'vitest'
 import type { ConversationTimelineRow } from './conversationTimeline'
-import { type ChatOpening, noteChatLeft, noteChatOpened, unreadDividerRowId, useChatOpening } from './unreadDivider'
+import {
+  type ChatOpening,
+  noteChatLeft,
+  noteChatOpened,
+  unreadDividerRowId,
+  unseenFromTheTop,
+  useChatOpening,
+} from './unreadDivider'
 import { useVisitStamp, type VisitTarget } from '../../workspace/sidebar/useVisitStamp'
 
 // The "New" divider: which row it goes above, and the visit clock it is
@@ -82,6 +89,21 @@ test('a chat with nothing read from an agent yet has no divider: all of it is ne
   const rows = [you('a', 100), reply('a', 110, 200)]
   expect(unreadDividerRowId(rows, openedAt(1_000, { kind: 'visit', at: 50 }))).toBeNull()
   expect(unreadDividerRowId(rows, openedAt(1_000, null))).toBeNull()
+})
+
+test('an unseen run that reaches the top of a page with history above it puts the divider at the top, not nowhere', () => {
+  // Ten turns loaded, all finished since the last visit; older ones not loaded.
+  const rows = [you('k', 1_000), reply('k', 1_010, 1_100), you('l', 1_200), reply('l', 1_210, 1_300)]
+  const opened = openedAt(5_000, { kind: 'visit', at: 500 })
+  expect(unseenFromTheTop(rows, opened), 'the reply that was seen is further back').toBe(true)
+  expect(unreadDividerRowId(rows, opened)).toBeNull()
+  expect(unreadDividerRowId(rows, opened, { historyAbove: true })).toBe('assistant:k')
+  // A seen reply loaded above it settles it where it always went.
+  const paged = [you('j', 100), reply('j', 110, 200), ...rows]
+  expect(unseenFromTheTop(paged, opened)).toBe(false)
+  expect(unreadDividerRowId(paged, opened, { historyAbove: true })).toBe('assistant:k')
+  // Read to the end, nothing is unseen at the top either.
+  expect(unseenFromTheTop(SEEN_AND_NEW, openedAt(1_000, { kind: 'visit', at: 900 }))).toBe(false)
 })
 
 test('a reply folded into a group of steps takes the divider on its row, never inside its work', () => {

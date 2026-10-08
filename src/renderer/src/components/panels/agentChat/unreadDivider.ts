@@ -73,6 +73,46 @@ export function useChatOpening(workspaceId: string | null): ChatOpening | null {
 
 type ReplyRow = Extract<ConversationTimelineRow, { kind: 'assistant' }>
 
+/**
+ * Pages of older history the view loads, at most, looking for the reply the
+ * reader saw above an unseen run that reaches the top of what is loaded.
+ * Past them the divider stands at the top of what is loaded.
+ */
+export const MAX_DIVIDER_PAGES = 5
+
+/** Whether the first reply loaded is already unseen: the unseen run may reach into history not loaded yet. */
+export function unseenFromTheTop(rows: readonly ConversationTimelineRow[], opened: ChatOpening): boolean {
+  const first = firstUnseenReply(rows, opened)
+  return first !== null && !first.seenAbove
+}
+
+// The first reply the reader had not seen when the chat was opened, and
+// whether one they had seen sits above it.
+function firstUnseenReply(
+  rows: readonly ConversationTimelineRow[],
+  opened: ChatOpening,
+): { index: number; seenAbove: boolean } | null {
+  const since = opened.since
+  if (!since) return null
+  const arrivedBeforeOpening = (row: ReplyRow) => (replyBegan(row) ?? Number.NEGATIVE_INFINITY) <= opened.openedAt
+  let seenAbove = false
+  for (let cursor = 0; cursor < rows.length; cursor += 1) {
+    const row = rows[cursor]!
+    if (row.kind !== 'assistant') continue
+    if (!arrivedBeforeOpening(row)) return null
+    // A finish after the opening was watched, so the reply is read as it
+    // stood then: still streaming. Without this the divider would jump onto
+    // a reply the moment it finished in front of the reader.
+    const finishedAt = replyFinished(row)
+    const finished = finishedAt !== undefined && finishedAt <= opened.openedAt ? finishedAt : undefined
+    const unseen =
+      finished !== undefined ? finished > since.at : (replyBegan(row) ?? Number.NEGATIVE_INFINITY) > since.at
+    if (unseen) return { index: cursor, seenAbove }
+    seenAbove = true
+  }
+  return null
+}
+
 // When a reply began, and when it finished; a reply still streaming has not.
 // A reply replayed from a transcript that kept no clock has neither.
 function replyBegan(row: ReplyRow): number | undefined {
@@ -105,31 +145,22 @@ function replyFinished(row: ReplyRow): number | undefined {
  * A context compaction that happened inside the unseen reply's turn sits just
  * above it, and the divider goes above that too, so the two seams read in the
  * order things happened.
+ *
+ * Only the loaded part of a long chat is in `rows`. With older history above
+ * it (`historyAbove`), a first loaded reply that is unseen is not the whole
+ * chat being new — the reader may well have seen what came before — so the
+ * divider goes above it, at the top of what is loaded. The view pages back
+ * first, a bounded few pages, to find the reply that was seen
+ * (`unseenFromTheTop`).
  */
-export function unreadDividerRowId(rows: readonly ConversationTimelineRow[], opened: ChatOpening): string | null {
-  const since = opened.since
-  if (!since) return null
-  const arrivedBeforeOpening = (row: ReplyRow) => (replyBegan(row) ?? Number.NEGATIVE_INFINITY) <= opened.openedAt
-  let index = -1
-  let seenReply = false
-  for (let cursor = 0; cursor < rows.length; cursor += 1) {
-    const row = rows[cursor]!
-    if (row.kind !== 'assistant') continue
-    if (!arrivedBeforeOpening(row)) break
-    // A finish after the opening was watched, so the reply is read as it
-    // stood then: still streaming. Without this the divider would jump onto
-    // a reply the moment it finished in front of the reader.
-    const finishedAt = replyFinished(row)
-    const finished = finishedAt !== undefined && finishedAt <= opened.openedAt ? finishedAt : undefined
-    const unseen =
-      finished !== undefined ? finished > since.at : (replyBegan(row) ?? Number.NEGATIVE_INFINITY) > since.at
-    if (!unseen) {
-      seenReply = true
-      continue
-    }
-    if (seenReply) index = cursor
-    break
-  }
+export function unreadDividerRowId(
+  rows: readonly ConversationTimelineRow[],
+  opened: ChatOpening,
+  { historyAbove = false }: { historyAbove?: boolean } = {},
+): string | null {
+  const first = firstUnseenReply(rows, opened)
+  if (!first) return null
+  const index = first.seenAbove || historyAbove ? first.index : -1
   const target = rows[index]
   if (!target || target.kind !== 'assistant') return null
   let start = index
