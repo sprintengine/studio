@@ -8,6 +8,8 @@ import {
   type StudioMethodParams,
   type StudioMethodResult,
 } from '../../../../../../packages/agent-sdk/src/index'
+import { mapWithLimit } from '../../../../../shared/concurrency'
+import { randomId as commandId } from '../../../../../shared/random-id'
 import type { ConversationCommandCatalog } from '../../../../../shared/conversation/commands'
 import type {
   ConversationEvent,
@@ -43,12 +45,6 @@ import type { ConversationTransport } from './conversationTransport'
 
 type ClientSource = () => Promise<StudioClient>
 
-function commandId(): string {
-  const crypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto
-  if (crypto?.randomUUID) return crypto.randomUUID()
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`
-}
-
 // Refusals about the connection rather than the request: the window's client
 // reconnects by itself, so they are told as one calm sentence instead of the
 // socket's own words, which mean nothing to someone using a chat.
@@ -82,16 +78,6 @@ const COMMANDS_FOLLOW_RETRY_MS = 2_000
 // Pictures go up a few at a time: each is several requests, and a send that
 // carries many must not crowd out the reads the rest of the window makes.
 const UPLOADS_AT_ONCE = 3
-
-async function eachLimited<T, R>(items: readonly T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let next = 0
-  const lanes = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    for (let index = next++; index < items.length; index = next++) results[index] = await work(items[index])
-  })
-  await Promise.all(lanes)
-  return results
-}
 
 async function ask<M extends StudioMethod>(
   client: ClientSource,
@@ -296,7 +282,7 @@ export function createStudioConversationParts(client: ClientSource): StudioTrans
     }
     try {
       const staged = attachments?.length
-        ? await eachLimited(attachments, UPLOADS_AT_ONCE, async (attachment) => {
+        ? await mapWithLimit(attachments, UPLOADS_AT_ONCE, async (attachment) => {
             const uploadId = await upload(client, attachment)
             if (abandoned) giveBack([uploadId])
             else stagedIds.push(uploadId)

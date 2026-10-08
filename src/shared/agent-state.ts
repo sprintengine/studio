@@ -8,6 +8,7 @@
  * flexlayout imports may be added here.
  */
 import { DEFAULT_CLI_PERMISSION_PRESET, type CliPermissionPreset } from './cli-permission-preset'
+import type { ExecutionHostId } from './execution-host'
 
 /** An agent CLI runtime id (`claude`, `codex`, …). Open: plugins add their own. */
 export type AgentCli = string
@@ -208,6 +209,15 @@ export type AgentState = {
   // not as paths in its text, and its bubble draws them as cards. One-shot,
   // cleared with the prompt.
   chatStartupFiles?: string[]
+  // A New chat on a worktree, opened before its worktree was made: the
+  // workspace has the project in its worktree marker and no folder until the
+  // worktree lands, and the chat starts nothing until then. `name` is what the
+  // person typed for the worktree (empty: one is made up per attempt), and
+  // `failure` is why the last attempt did not make it; `hostId` is the machine
+  // New chat stood on, whose git makes the worktree. Cleared once the folder
+  // is set. Rides the registry, so a chat still pending when the app went away
+  // comes back failed rather than waiting on an attempt that no longer exists.
+  chatPendingWorktree?: { name: string; projectFolder: string; hostId?: ExecutionHostId; failure?: string }
   // The Backlog item this agent was last handed (drag-drop or send-to-agent).
   // Powers the top-right glyph on the agent terminal that navigates back to the
   // item. Latest-wins: one ref per agent, mirroring the most-recent-wins

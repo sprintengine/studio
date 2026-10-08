@@ -13,6 +13,7 @@ import { LiveElapsed } from './liveElapsed'
 import { formatStepDuration } from './stepDuration'
 import { subagentResultPreview } from './subagentResult'
 import { ToolKindGlyph } from './toolRows/ToolKindGlyph'
+import { formatTokenCount } from '../../../utils/tokenFormat'
 
 /** The glyph state of the agent a lane spawned. */
 export function laneAgentState(tool: TranscriptToolEntry): AgentGlyphState {
@@ -120,7 +121,7 @@ export function useSubagentTypeDescription(type: string | undefined): string | u
 }
 
 export function formatTokens(count: number): string {
-  return count >= 1000 ? `${Math.round(count / 1000)}k tokens` : `${count} tokens`
+  return `${formatTokenCount(count)} tokens`
 }
 
 /**

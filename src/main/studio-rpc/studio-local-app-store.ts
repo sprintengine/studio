@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto'
-import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+
+import { writeFileAtomicSync } from '../../server/platform/atomic-file'
 
 import {
   STUDIO_SCOPES,
@@ -192,12 +194,7 @@ export function createStudioLocalAppStore(options: {
   // Written beside and renamed over, so a crash mid-write never leaves a
   // half file that reads back as no apps, or as some.
   function persist(): void {
-    const body = `${JSON.stringify({ version: 1, apps }, null, 2)}\n`
-    const target = path()
-    const staged = `${target}.${process.pid}.tmp`
-    writeFileSync(staged, body, { mode: 0o600 })
-    if (process.platform !== 'win32') chmodSync(staged, 0o600)
-    renameSync(staged, target)
+    writeFileAtomicSync(path(), `${JSON.stringify({ version: 1, apps }, null, 2)}\n`, { mode: 0o600, exactMode: true })
   }
   function changed(): void {
     for (const listener of changeListeners) {

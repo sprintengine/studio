@@ -512,3 +512,43 @@ test('the workspace record moving on what the chat does not read redraws none of
     await chat.unmount()
   }
 })
+
+test('typing into a long chat redraws the composer, not the transcript', async () => {
+  const chat = await mountChat(history(200))
+  try {
+    const text = 'Why does the cache miss on the second checkout?!!!'
+    expect(text).toHaveLength(50)
+    chat.counter?.reset()
+    for (let length = 1; length <= text.length; length++) await chat.act(async () => chat.type(text.slice(0, length)))
+    await chat.settle()
+    if (process.env.CHAT_BENCH_REPORT) {
+      process.stderr.write(
+        `\nTYPE commits=${chat.counter?.commits} renders=${chat.counter?.totalRenders()} body=${chat.counter?.renders('ConversationChatBody')}\n`,
+      )
+      process.stderr.write(
+        (chat.counter?.table() ?? [])
+          .slice(0, 40)
+          .map(([name, count]) => `  ${name}: ${count}`)
+          .join('\n') + '\n',
+      )
+    }
+    expect(chat.host.querySelector('.cm-content')?.textContent).toBe(text)
+    if (chat.counter) {
+      // What a keystroke has nothing to say to: the dock, the checklist, the
+      // connection notice and the quote toolbar.
+      for (const name of [
+        'ConversationPendingDock',
+        'ConversationTodoStrip',
+        'StudioConnectionNotice',
+        'QuoteSelectionToolbar',
+      ])
+        expect(chat.counter.renders(name), name).toBe(0)
+      // The body still redraws once a keystroke while it holds the draft; the
+      // ceiling is what that costs now (900 before the dock and tray rows were
+      // memoized).
+      expect(chat.counter.totalRenders()).toBeLessThanOrEqual(700)
+    }
+  } finally {
+    await chat.unmount()
+  }
+}, 120_000)

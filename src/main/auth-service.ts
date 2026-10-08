@@ -1,4 +1,4 @@
-import { app, BrowserWindow, safeStorage, shell } from 'electron'
+import { app, safeStorage, shell } from 'electron'
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { createHash, randomBytes } from 'crypto'
 import { createServer, type Server } from 'http'
@@ -28,6 +28,7 @@ import {
 import { getErrorMessage } from './error-message'
 import { DEFAULT_MULTIAUTH_BASE_URL } from './service-endpoints'
 import { readStudioEnv } from '../shared/studio-env'
+import { broadcastToAllWindows } from './window-broadcast'
 
 // `MULTIAUTH_BASE_URL` names the studio's ACCOUNT SERVICE: where the account
 // profile comes from. It is not, by definition, the identity
@@ -534,11 +535,7 @@ export class SprintEngineAuthBridge {
 
   private setState(state: SprintEngineAuthState): void {
     this.state = state
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) {
-        win.webContents.send('auth:state-changed', state)
-      }
-    }
+    broadcastToAllWindows('auth:state-changed', state)
   }
 }
 
@@ -561,11 +558,7 @@ async function startDesktopCallbackServer(
         response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
         response.end(callbackSuccessHtml())
       } catch (error) {
-        for (const win of BrowserWindow.getAllWindows()) {
-          if (!win.isDestroyed()) {
-            win.webContents.send('auth:callback-error', getErrorMessage(error))
-          }
-        }
+        broadcastToAllWindows('auth:callback-error', getErrorMessage(error))
         response.writeHead(400, { 'content-type': 'text/html; charset=utf-8' })
         response.end(callbackErrorHtml(getErrorMessage(error)))
       } finally {
@@ -683,10 +676,6 @@ export async function parseAuthCallbackFromArgv(auth: SprintEngineAuthBridge, ar
   try {
     await auth.handleCallback(callbackUrl)
   } catch (error) {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) {
-        win.webContents.send('auth:callback-error', getErrorMessage(error))
-      }
-    }
+    broadcastToAllWindows('auth:callback-error', getErrorMessage(error))
   }
 }

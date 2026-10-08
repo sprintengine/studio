@@ -1,4 +1,4 @@
-import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { readFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { runTailscale } from '../../main/automation/tailnet/tailscale-cli'
@@ -10,6 +10,7 @@ import {
   type TailscaleServeDeps,
 } from '../../main/automation/tailnet/tailscale-serve'
 import { isRecord } from '../../shared/records'
+import { writeFileAtomicSync } from '../platform/atomic-file'
 
 // The web client on the tailnet, over HTTPS (R19; phase 9 spec, 6.6).
 // `studio-server serve --web --tailscale-serve` asks tailscaled to publish the
@@ -68,10 +69,7 @@ function readRecord(runDir: string): ServeRecord | null {
 }
 
 function writeRecord(runDir: string, record: ServeRecord): void {
-  const file = join(runDir, RECORD_FILENAME)
-  const staged = `${file}.${process.pid}.tmp`
-  writeFileSync(staged, `${JSON.stringify(record)}\n`, { mode: 0o600 })
-  renameSync(staged, file)
+  writeFileAtomicSync(join(runDir, RECORD_FILENAME), `${JSON.stringify(record)}\n`, { mode: 0o600 })
 }
 
 function forgetRecord(runDir: string): void {

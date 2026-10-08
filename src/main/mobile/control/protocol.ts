@@ -11,6 +11,8 @@
 // automatically, so an edit that changes what crosses the wire has to be made
 // on the phone's side as well.
 
+import { isRecord } from '../../../shared/records'
+
 export const mobileControlProtocolVersion = 4 as const
 
 /**
@@ -304,10 +306,6 @@ function validateStringArray(input: unknown, fieldName: string): string | null {
   return input.every((value) => typeof value === 'string' && value.length > 0)
     ? null
     : `${fieldName} must contain only non-empty strings`
-}
-
-function isRecord(input: unknown): input is Record<string, unknown> {
-  return typeof input === 'object' && input !== null && !Array.isArray(input)
 }
 
 function requireString(record: Record<string, unknown>, field: string): string | null {

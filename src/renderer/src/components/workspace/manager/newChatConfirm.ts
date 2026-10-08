@@ -1,5 +1,7 @@
+import type { ExecutionHostId } from '../../../../../shared/execution-host'
+import { workspaceProjectRootOf } from '../../../../../shared/worktree-paths'
 import type { WorkspaceId, WorkspaceWorktree } from '../../../types/workspace'
-import type { NewChatWorktreeResult } from '../../../utils/newChatWorktree'
+import type { NewChatWorktreeResult, PendingNewChatWorktree } from '../../../utils/newChatWorktree'
 import type { AgentComposerConfirm } from '../agentComposer/useAgentComposer'
 
 // What the New chat door's confirm does once the machine it stands on is
@@ -22,6 +24,8 @@ export type NewChatConfirmRequest = {
   startupFiles?: string[]
   /** ⌘⏎: the chat starts out of sight and New chat stays up for the next one. */
   background?: boolean
+  /** The machine New chat stands on, which makes a worktree too. */
+  hostId?: ExecutionHostId | null
 }
 
 export type NewChatConfirmHost = {
@@ -44,7 +48,17 @@ export type NewChatConfirmHost = {
     startupImages: string[] | undefined,
     startupFiles: string[] | undefined,
     background?: boolean,
+    /** Opened before its worktree: no folder yet, and this on its agent. */
+    pendingWorktree?: PendingNewChatWorktree,
   ) => WorkspaceId | null
+  /** Make the worktree a chat opened with `pendingWorktree` is waiting on. */
+  prepareWorktree: (workspaceId: WorkspaceId) => void
+  /**
+   * Name a chat after its first message before that message is sent, as the
+   * send itself would (store/generatedWorkspaceTitle.ts): the heuristic title
+   * at once, which locks the name, and the model-written one when it comes.
+   */
+  titleFromPrompt: (workspaceId: WorkspaceId, prompt: string) => void
   /** A use of the project, which the project pickers order by (shared/project-frecency.ts). */
   recordProjectUse: (folderPath: string) => void
   closePanel: () => void
@@ -56,6 +70,35 @@ export async function confirmNewChatWith(
   request: NewChatConfirmRequest,
 ): Promise<WorkspaceId | null> {
   const { confirm, scopedFolder, startupPrompt, extension, startupImages, startupFiles, background } = request
+  // A chat agent asked for a worktree opens at once, before the worktree
+  // exists: the seconds the worktree takes are spent in the chat, which shows
+  // its prompt waiting and says what it is waiting on, not on New chat with
+  // nothing moving. It has no folder until the worktree lands, so nothing in it
+  // can start in the checkout the person asked to keep clean
+  // (utils/newChatWorktree.ts).
+  if (!extension && confirm.kind === 'conversation' && confirm.worktree && scopedFolder) {
+    const projectFolder = workspaceProjectRootOf({ folderPath: scopedFolder }) ?? scopedFolder
+    const created = host.startConversation(
+      confirm,
+      null,
+      startupPrompt,
+      { repoRoot: projectFolder },
+      startupImages,
+      startupFiles,
+      background,
+      { name: confirm.worktree.name, projectFolder, ...(request.hostId ? { hostId: request.hostId } : {}) },
+    )
+    if (created) {
+      host.prepareWorktree(created)
+      host.recordProjectUse(projectFolder)
+      // Its message waits on the worktree, so the chat is named from it now
+      // rather than reading "Chat" in the header and the sidebar until it is
+      // sent. The name is locked by it, so the send names nothing again.
+      if (startupPrompt?.trim()) host.titleFromPrompt(created, startupPrompt)
+    }
+    if (!background) host.closePanel()
+    return created
+  }
   // An agent asked for a worktree starts IN it: the folder becomes the
   // worktree and the marker rides along. A worktree that cannot be made
   // leaves the door open with the diagnostic, never a chat in the checkout.

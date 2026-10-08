@@ -226,7 +226,7 @@ export function permissionActionLabel(action?: string): string {
   }
 }
 
-export function ConversationPendingDock({
+export const ConversationPendingDock = React.memo(function ConversationPendingDock({
   pendingApproval,
   pendingApprovals,
   workspaceRoot,
@@ -301,7 +301,7 @@ export function ConversationPendingDock({
       ))}
     </div>
   )
-}
+})
 
 // Permission request: lead with WHAT (the literal command in a terminal block
 // for Bash, the summary otherwise) and WHERE (the workspace), not tool jargon.

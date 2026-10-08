@@ -8,6 +8,7 @@ import type {
   WorktreeInventoryProject,
   WorktreePoolActionResult,
 } from '../../shared/ipc/worktree-pool'
+import { mapWithLimit } from '../../shared/concurrency'
 import { hostIdForFolder, isWslHostId } from '../../shared/execution-host'
 import { comparablePath } from '../../shared/host-paths'
 import { changesAlreadyIn } from '../agent-worktree-cleanup'
@@ -72,20 +73,6 @@ function parsePorcelainZ(stdout: string): Array<{ code: string; path: string }> 
     out.push({ code: code.trim() || code, path: token.slice(3) })
     if (code[0] === 'R' || code[0] === 'C') index += 1
   }
-  return out
-}
-
-async function inBatches<T, R>(items: T[], work: (item: T) => Promise<R>, concurrency = CONCURRENCY): Promise<R[]> {
-  const out: R[] = new Array(items.length)
-  let next = 0
-  const worker = async (): Promise<void> => {
-    while (next < items.length) {
-      const index = next
-      next += 1
-      out[index] = await work(items[index])
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
   return out
 }
 
@@ -166,37 +153,38 @@ export function createWorktreeInventory(deps: WorktreeInventoryDeps) {
     const snapshots = (await deps.pool?.snapshots()) ?? []
     const folders = [...input.repoRoots, ...snapshots.map((snapshot) => snapshot.repoRoot)]
     const roots = new Map<string, string>()
-    for (const root of await inBatches(folders, mainCheckout)) {
+    for (const root of await mapWithLimit(folders, CONCURRENCY, mainCheckout)) {
       if (root && !roots.has(comparablePath(root))) roots.set(comparablePath(root), root)
     }
-    const projects = await inBatches([...roots.values()], async (repoRoot): Promise<WorktreeInventoryProject> => {
-      const pool = snapshots.find((snapshot) => comparablePath(snapshot.repoRoot) === comparablePath(repoRoot)) ?? null
-      const listed = await listWorktrees(repoRoot)
-      if (!listed) {
-        return { repoRoot, defaultRef: null, pool, worktrees: [], error: 'git could not list its worktrees.' }
-      }
-      const defaultRef = await resolvePoolBaseRef(git, repoRoot)
-      const others = listed.filter((entry) => !entry.bare && comparablePath(entry.path) !== comparablePath(repoRoot))
-      const worktrees = await inBatches(others, (entry) => {
-        const slot = pool?.slots.find((candidate) => comparablePath(candidate.path) === comparablePath(entry.path))
-        return describe(entry, defaultRef, slot?.id ?? null, slot?.size ?? null)
-      })
-      return { repoRoot, defaultRef, pool, worktrees, error: null }
-    })
+    const projects = await mapWithLimit(
+      [...roots.values()],
+      CONCURRENCY,
+      async (repoRoot): Promise<WorktreeInventoryProject> => {
+        const pool =
+          snapshots.find((snapshot) => comparablePath(snapshot.repoRoot) === comparablePath(repoRoot)) ?? null
+        const listed = await listWorktrees(repoRoot)
+        if (!listed) {
+          return { repoRoot, defaultRef: null, pool, worktrees: [], error: 'git could not list its worktrees.' }
+        }
+        const defaultRef = await resolvePoolBaseRef(git, repoRoot)
+        const others = listed.filter((entry) => !entry.bare && comparablePath(entry.path) !== comparablePath(repoRoot))
+        const worktrees = await mapWithLimit(others, CONCURRENCY, (entry) => {
+          const slot = pool?.slots.find((candidate) => comparablePath(candidate.path) === comparablePath(entry.path))
+          return describe(entry, defaultRef, slot?.id ?? null, slot?.size ?? null)
+        })
+        return { repoRoot, defaultRef, pool, worktrees, error: null }
+      },
+    )
     if (measure) {
       const unmeasured = projects.flatMap((project) =>
         project.worktrees.filter((entry) => !entry.slotId && !entry.missing),
       )
-      await inBatches(
-        unmeasured,
-        async (entry) => {
-          const size = await measureSize(entry.path).catch(() => null)
-          if (!size) return
-          sizes.set(comparablePath(entry.path), size)
-          entry.size = size
-        },
-        MEASURE_CONCURRENCY,
-      )
+      await mapWithLimit(unmeasured, MEASURE_CONCURRENCY, async (entry) => {
+        const size = await measureSize(entry.path).catch(() => null)
+        if (!size) return
+        sizes.set(comparablePath(entry.path), size)
+        entry.size = size
+      })
       measuredAt = now()
     }
     return {
@@ -271,5 +259,3 @@ export function createWorktreeInventory(deps: WorktreeInventoryDeps) {
 
   return { read, removeOther }
 }
-
-export type WorktreeInventoryService = ReturnType<typeof createWorktreeInventory>

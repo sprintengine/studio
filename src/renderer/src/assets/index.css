@@ -3983,8 +3983,15 @@ body:has([data-selection-pane]:focus-within)
   --chat-max-width: var(--sem-size-chat-column-wide);
 }
 
+/* A scroller in the column keeps its scrollbar's lane whether or not it has
+ * anything to scroll, so the column never moves sideways when the bar comes
+ * or goes: a chat's first message drawn while it waits (the pending bubble,
+ * too short to scroll) and the transcript that replaces it (which scrolls
+ * once its first message is pinned to the top) stand in the same place. The
+ * property does nothing on the composer's row, which does not scroll. */
 .chat-column-gutter {
   padding-inline: max(var(--sem-space-xl), calc((100% - var(--chat-max-width)) / 2));
+  scrollbar-gutter: stable;
 }
 
 /* The composer tray (agentChat/composerTray.tsx) slides up out from behind the

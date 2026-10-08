@@ -16,7 +16,6 @@ import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
  * from two processes would race over its slots.
  */
 export const SHELL_TOOLSETS = ['browser', 'canvas', 'editor', 'tour', 'terminal', 'agent', 'worktree'] as const
-export type ShellToolsetName = (typeof SHELL_TOOLSETS)[number]
 
 /** Whether a gateway tool is one the shell offers, out of process, and not the server's. */
 export function isShellToolName(name: string): boolean {

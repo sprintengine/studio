@@ -1,5 +1,7 @@
-import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+
+import { writeFileAtomicSync } from '../platform/atomic-file'
 
 import { STUDIO_TOOLSET_NAME_PATTERN } from '../../../packages/studio-protocol/src/public'
 
@@ -106,10 +108,7 @@ export function createClientToolsetStore(options: {
     const target = path()
     if (!target) return
     const body = `${JSON.stringify({ version: 1, bindings: [...bindings.values()] }, null, 2)}\n`
-    const staged = `${target}.${process.pid}.tmp`
-    writeFileSync(staged, body, { mode: 0o600 })
-    if (process.platform !== 'win32') chmodSync(staged, 0o600)
-    renameSync(staged, target)
+    writeFileAtomicSync(target, body, { mode: 0o600, exactMode: true })
   }
 
   const copy = (binding: ClientToolsetBinding): ClientToolsetBinding => ({

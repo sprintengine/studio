@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type JSX, type RefObject } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState, type JSX, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { GhostButton, Tooltip } from '../../ui'
 import { QuoteGlyph } from '../../ui/QuoteGlyph'
@@ -222,7 +222,7 @@ export function selectionAfterScroll(
  * transcript following a streaming reply — carries it along with the selection
  * instead.
  */
-export function QuoteSelectionToolbar({
+export const QuoteSelectionToolbar = memo(function QuoteSelectionToolbar({
   rootRef,
   enabled,
   onQuote,
@@ -361,4 +361,4 @@ export function QuoteSelectionToolbar({
     </div>,
     document.body,
   )
-}
+})

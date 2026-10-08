@@ -205,6 +205,21 @@ export function comparablePath(path: string): string {
   return /^[A-Za-z]:/u.test(comparable) ? comparable.toLowerCase() : comparable
 }
 
+/**
+ * Whether `path` is `parent` itself or somewhere beneath it, with both sides
+ * compared as {@link comparablePath} spells them: one separator, no trailing
+ * one, a drive letter's case ignored, and a WSL share or `/mnt/<drive>` mount
+ * matched against its Windows spelling. Containment is only ever at a
+ * separator, so `/repo2` is not inside `/repo`. An empty parent (or the
+ * filesystem root, which compares as empty) contains nothing.
+ */
+export function isPathInside(path: string, parent: string): boolean {
+  const root = comparablePath(parent)
+  if (!root) return false
+  const candidate = comparablePath(path)
+  return candidate === root || candidate.startsWith(`${root}/`)
+}
+
 /** True when `path` looks like a WSL path to a Windows drive (`/mnt/c/…`). */
 export function isWslDriveMountPath(path: string): boolean {
   return WSL_DRIVE_MOUNT.test(forwardSlashes(path))

@@ -224,7 +224,9 @@ test('designSystemAxes', async () => {
     z: {
       // 6 → 5, 2026-09-08: the annotate overlay's in-flow layer moved out with
       // the HTML artifact frame; the overlay itself was deleted 2026-09-16.
-      'components/workspace': 5,
+      // 5 → 4, 2026-10-08: New chat's drop overlay became the composers' shared
+      // one, on the ladder.
+      'components/workspace': 4,
       // 10 → 9: FileExplorer's in-flow error toast (and its z-10) moved to the
       // app's one toast region (remote-sessions-ux / toast-host-region).
       // 9 → 8, 2026-09-06: the retired plan door's backlog source was deleted

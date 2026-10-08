@@ -35,7 +35,9 @@ function instancesDir(home: string): string {
 }
 
 // Another Studio runs as the same user, so a pid that is not ours to signal
-// (EPERM) is some other process that has reused it.
+// (EPERM) is some other process that has reused it. That is why this does not
+// use `processIsRunning` (server/platform/process-alive), which counts EPERM as
+// alive for locks whose holder may belong to someone else.
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)

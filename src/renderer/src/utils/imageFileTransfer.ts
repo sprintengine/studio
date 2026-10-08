@@ -1,4 +1,5 @@
 import { ATTACHABLE_IMAGE_TYPES } from '../../../shared/conversation-attachments'
+import { isPathInside } from '../../../shared/host-paths'
 import { clientSupports } from '../clientCapabilities'
 import { hasFileDropData, readFileDropPayload, SPRINTENGINE_FILE_DROP_MIME } from './terminalDrop'
 
@@ -238,21 +239,6 @@ export function splitShellWords(text: string): string[] | null {
   }
   if (inWord) words.push(current)
   return words
-}
-
-// A path as compared for containment: one separator, no trailing one, and a
-// drive letter's case ignored, as Windows ignores it.
-function comparablePath(path: string): string {
-  const unified = path.replace(/\\/g, '/').replace(/\/+$/, '')
-  return /^[A-Za-z]:/.test(unified) ? unified.toLowerCase() : unified
-}
-
-/** Whether `path` is `folder` itself or somewhere beneath it. */
-export function isPathInside(path: string, folder: string): boolean {
-  const root = comparablePath(folder)
-  if (!root) return false
-  const candidate = comparablePath(path)
-  return candidate === root || candidate.startsWith(`${root}/`)
 }
 
 /**

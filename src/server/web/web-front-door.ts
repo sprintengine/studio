@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { createFilesystemReadHandlers } from '../../main/filesystem-read'
@@ -11,6 +11,7 @@ import type { StudioCore } from '../core/studio-core'
 import type { StudioGateway } from '../core/studio-gateway'
 import { registerServerDomainIpc, type ServerDomainIpcHandles } from '../desktop/server-ipc'
 import { createIpcTunnel } from '../ipc/ipc-tunnel'
+import { writeFileAtomicSync } from '../platform/atomic-file'
 import type { LocalClientBus } from '../platform/client-bus'
 import type { StudioAuthenticator } from '../rpc/studio-rpc-types'
 import {
@@ -400,10 +401,7 @@ export async function startWebFrontDoor(input: {
 
   const runFile = join(dataDir, 'run', WEB_RUN_FILENAME)
   const body: WebRunFile = { pid: process.pid, port, url, origins: listener.origins(), mintKey }
-  const staged = `${runFile}.${process.pid}.tmp`
-  writeFileSync(staged, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600 })
-  if (process.platform !== 'win32') chmodSync(staged, 0o600)
-  renameSync(staged, runFile)
+  writeFileAtomicSync(runFile, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600, exactMode: true })
 
   return {
     listener,

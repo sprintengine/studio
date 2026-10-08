@@ -16,6 +16,7 @@ import {
   toTitleName,
   workspaceRelativePath,
 } from '../source-paths'
+import { errorMessage } from '../errors'
 
 export type BacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
 
@@ -727,10 +728,6 @@ function cleanHtmlTitle(value: string | undefined): string | null {
     .replace(/\s+/g, ' ')
     .trim()
   return cleaned || null
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function comparePaths(a: string, b: string): number {

@@ -512,6 +512,12 @@ the desktop's own sidebar — agrees with it. A desktop that advertises
   already had as seen at that moment, once; a chat made since starts with its
   own creation as its visit.
 
+The first two are the capability's promise and hold only where it is
+advertised. The Studio RPC on the owner socket does not advertise it, and its
+`conversation.list` stays the list it always was: every chat, settled ones
+included, most recently moved first, with the five members as optional
+additions.
+
 - **`conversation.settle`** `{ workspaceId, settled? }` (default `true`)
   writes the same patch as the row menu's Settle, or with `false` its
   Un-settle, and answers `{ ok: true, workspaceId, settledAt }` (`null` when

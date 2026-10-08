@@ -8,7 +8,7 @@
 // served the same copy back is not news, and waking every window for it would
 // make the Extensions home redraw on a timer for no reason; the client already
 // says whether it wrote something different, so this file only has to believe it.
-import { app, BrowserWindow } from 'electron'
+import { app } from 'electron'
 
 import type { HostedCardFeedReadInput, HostedCardFeedReadResult } from '../../shared/electron-api'
 import {
@@ -18,6 +18,7 @@ import {
   defaultCardFeedCachePath,
 } from './card-feed-client'
 import { existsSync } from 'node:fs'
+import { broadcastToAllWindows } from '../window-broadcast'
 
 export const HOSTED_CARD_FEED_CHANGED_CHANNEL = 'hosted-card-feed:changed'
 
@@ -46,11 +47,8 @@ export function setHostedCardFeedClientForTests(next: HostedCardFeedClient | nul
 
 export type HostedCardFeedBroadcast = (result: HostedCardFeedReadResult) => void
 
-const defaultBroadcast: HostedCardFeedBroadcast = (result) => {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send(HOSTED_CARD_FEED_CHANGED_CHANNEL, result)
-  }
-}
+const defaultBroadcast: HostedCardFeedBroadcast = (result) =>
+  broadcastToAllWindows(HOSTED_CARD_FEED_CHANGED_CHANNEL, result)
 
 export async function readHostedCardFeed(
   input: HostedCardFeedReadInput = {},

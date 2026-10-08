@@ -15,6 +15,7 @@ import {
   type ModuleSkillHostRegistry,
   type SidecarSpec,
 } from './main-host'
+import { errorMessage } from '../../shared/errors'
 
 export type CapabilityModule = {
   manifest: CapabilityManifest
@@ -92,10 +93,6 @@ async function settleRegistration(id: string, pending: PromiseLike<unknown>, tim
   } finally {
     clearTimeout(timer)
   }
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
 }
 
 // Resolve enablement, then register each enabled module through the kernel in
