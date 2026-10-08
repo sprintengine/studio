@@ -9,6 +9,7 @@ import {
   readSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -25,6 +26,7 @@ import {
   buildShellIntegrationSetup,
   buildShellIntegrationZshShim,
   replaceFileAtomically,
+  writeShellIntegrationZshShims,
   applyHostContextToPrompt,
   cleanupHostContextFile,
   hostContextRenderInputs,
@@ -654,4 +656,36 @@ test('terminal-launch', async () => {
   }
 
   await suiteRun
+})
+
+test('the zsh shims are written once, and rewritten only when one is missing or differs', () => {
+  const directory = join(mkdtempSync(join(tmpdir(), 'zsh-shims-')), 'shell-integration', 'zsh')
+  const names = ['.zshenv', '.zprofile', '.zshrc', '.zlogin'] as const
+  const inode = (name: string) => statSync(join(directory, name)).ino
+  try {
+    writeShellIntegrationZshShims(directory)
+    for (const name of names)
+      assert.equal(readFileSync(join(directory, name), 'utf8'), buildShellIntegrationZshShim(name))
+    const before = names.map(inode)
+
+    // Another launch: nothing is replaced (a rename would be a new inode).
+    writeShellIntegrationZshShims(directory)
+    assert.deepEqual(names.map(inode), before)
+
+    // One out of date and one gone: just those two are put back.
+    writeFileSync(join(directory, '.zshrc'), '# an older build\n')
+    rmSync(join(directory, '.zlogin'))
+    const stale = inode('.zshrc')
+    writeShellIntegrationZshShims(directory)
+    assert.equal(readFileSync(join(directory, '.zshrc'), 'utf8'), buildShellIntegrationZshShim('.zshrc'))
+    assert.equal(readFileSync(join(directory, '.zlogin'), 'utf8'), buildShellIntegrationZshShim('.zlogin'))
+    assert.notEqual(inode('.zshrc'), stale)
+    assert.deepEqual([inode('.zshenv'), inode('.zprofile')], before.slice(0, 2))
+    assert.deepEqual(
+      readdirSync(directory).filter((name) => name.endsWith('.tmp')),
+      [],
+    )
+  } finally {
+    rmSync(join(directory, '..', '..'), { recursive: true, force: true })
+  }
 })
