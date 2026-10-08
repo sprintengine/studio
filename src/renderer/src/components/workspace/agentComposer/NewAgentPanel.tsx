@@ -220,7 +220,12 @@ export {
 } from './newChatMachines'
 
 /** One choosable project scope: a folder some open workspace lives in. */
-export type NewAgentProjectOption = { path: string; label: string }
+export type NewAgentProjectOption = {
+  path: string
+  label: string
+  /** When a chat in it was last written to, so the picker can lead with the one used last. */
+  lastUsedAt?: number
+}
 
 export type NewAgentPanelProps = {
   workspaceId: string

@@ -14,6 +14,7 @@ import {
   projectFrecency,
   projectUsageKey,
   recordProjectUse,
+  sortByLastUse,
   sortByProjectUse,
   withProjectUse,
   type ProjectUsageMap,
@@ -187,4 +188,50 @@ test('a `projectUse` patch adds a use to what main holds rather than replacing i
   for (const projectUse of [{ folderPath: '', at: T0 }, { folderPath: '/w', at: Number.NaN }, { folderPath: 3 }]) {
     assert.deepEqual(normalizeAgentLaunchSettingsPatch({ projectUse }), {}, 'a malformed use is dropped')
   }
+})
+
+test('the project used last goes to the top at once, however often the others were used', () => {
+  let usage: ProjectUsageMap = {}
+  for (let day = 0; day < 20; day += 1) usage = withProjectUse(usage, '/w/favourite', T0 + day * 60_000)
+  usage = withProjectUse(usage, '/w/detour', T0 + DAY)
+  assert.deepEqual(
+    sortByLastUse(['/w/favourite', '/w/detour'], (p) => p, usage),
+    ['/w/detour', '/w/favourite'],
+  )
+})
+
+test('a host clock counts as a use: the later of it and the recorded one wins', () => {
+  const usage = withProjectUse({}, '/w/a', T0 + DAY)
+  const chatAt: Record<string, number> = { '/w/b': T0 + 2 * DAY, '/w/a': T0 }
+  assert.deepEqual(
+    sortByLastUse(
+      ['/w/a', '/w/b'],
+      (p) => p,
+      usage,
+      (p) => chatAt[p],
+    ),
+    ['/w/b', '/w/a'],
+  )
+  assert.deepEqual(
+    sortByLastUse(
+      ['/w/b', '/w/a'],
+      (p) => p,
+      withProjectUse(usage, '/W/A/', T0 + 3 * DAY),
+      (p) => chatAt[p],
+    ),
+    ['/w/a', '/w/b'],
+    'a folder spelled differently is the same project',
+  )
+})
+
+test('never-used projects keep their order, below every used one, in the last-use order too', () => {
+  const usage = withProjectUse({}, '/w/c', T0)
+  assert.deepEqual(
+    sortByLastUse(['/w/a', '/w/b', '/w/c'], (p) => p, usage),
+    ['/w/c', '/w/a', '/w/b'],
+  )
+  assert.deepEqual(
+    sortByLastUse(['/w/b', '/w/a'], (p) => p, undefined),
+    ['/w/b', '/w/a'],
+  )
 })

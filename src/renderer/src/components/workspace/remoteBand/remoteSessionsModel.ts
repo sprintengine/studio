@@ -10,6 +10,9 @@ import {
   type MeshConversationAccess,
   type MeshMachineReachability,
 } from '../../../../../shared/tailnet-mesh'
+import type { ConversationWirePullRequest } from '../../../../../../packages/conversation-protocol/src/public'
+import { classifyPullRequestUrl } from '../../../../../shared/git/pr-url'
+import { pullRequestRepository, type BranchPullRequest } from '../../../../../shared/git/pull-request'
 import type { Workspace } from '../../../types/workspace'
 import type { Tone } from '../../ui'
 import { meshMachinePhase, type MeshMachinePhase } from '../../remote/machineRowModel'
@@ -100,6 +103,10 @@ export type RemoteSessionRow = {
   phase: MeshConversation['phase']
   /** The opening of the agent's last reply, as its machine listed it; null from a machine that does not say. */
   replyPreview: string | null
+  /** The branch the chat's folder is on over there; null from a machine that does not say, or off a branch. */
+  branch: string | null
+  /** The pull requests the chat opened, as its machine's record holds them, newest first. */
+  pullRequests: BranchPullRequest[]
   /** Epoch ms the activity began — how long it has worked, or sat idle. Null when the remote did not say. */
   since: number | null
   /** The workspace here whose pane is attached to this session, when one is. */
@@ -170,6 +177,33 @@ export type RemoteConversation = {
   stale: boolean
   /** Its row's place in the list; see `RemoteSessionRow.recencyAt`. */
   recencyAt: number
+}
+
+/**
+ * A listed chat's pull requests as a local line wears them. The list carries
+ * a pull request's number, state, address and title; which repository it is
+ * in is read off its address, as the local record reads it, and one whose
+ * address names no pull request is left out rather than drawn wrong.
+ */
+export function branchPullRequestsOfWire(listed: readonly ConversationWirePullRequest[]): BranchPullRequest[] {
+  return listed.flatMap((entry) => {
+    const repository = pullRequestRepository(entry.url)
+    const forge = classifyPullRequestUrl(entry.url)?.forge
+    if (!repository || !forge) return []
+    return [
+      {
+        url: entry.url,
+        ...repository,
+        number: entry.number,
+        title: entry.title,
+        state: entry.state,
+        isDraft: false,
+        openedAt: 0,
+        stateAt: 0,
+        ...(forge === 'github' ? {} : { forge }),
+      },
+    ]
+  })
 }
 
 /**
@@ -306,6 +340,8 @@ function remoteChatRowOf(
     activity: presence === 'running' ? 'working' : presence === 'needs-input' ? 'needs-input' : 'idle',
     phase: conversation.phase,
     replyPreview: conversation.lastAssistantText ?? null,
+    branch: conversation.branch ?? null,
+    pullRequests: branchPullRequestsOfWire(conversation.pullRequests ?? []),
     since: conversation.updatedAt,
     attachedWorkspaceId: attached?.id ?? null,
     recencyAt: conversation.lastUserMessageAt ?? conversation.updatedAt,
@@ -521,13 +557,19 @@ export function remoteWorkspaceName(agentTitle: string, remoteChatName: string |
 }
 
 /**
- * The tab name a remote pane wears. The machine is part of the name, not a
- * tooltip: the same message means different things on two machines, and a pane
- * that looks local while talking to another computer is the failure this has to
- * not have.
+ * The name a remote pane's tab shows: its agent's, and nothing else (owner,
+ * 2026-10-08, REVERSING the machine-in-the-name rule: "all we need to show here
+ * is in the tab the name of the agent, and then the computer icon to show that
+ * it is a remote"). The tab's machine mark, in that machine's colour and named
+ * on hover, is what says where it runs.
+ *
+ * A pane opened under the old rule was saved as `${title} · ${machineName}`,
+ * and its tab drops the machine when it is drawn, so the fix reaches the tabs
+ * people already have rather than only the next one opened.
  */
-export function remotePaneTabName(machineName: string, title: string): string {
-  return `${title} · ${machineName}`
+export function remotePaneTabLabel(name: string, machineName: string | null | undefined): string {
+  const suffix = machineName ? ` · ${machineName}` : null
+  return suffix && name.endsWith(suffix) && name.length > suffix.length ? name.slice(0, -suffix.length) : name
 }
 
 /**

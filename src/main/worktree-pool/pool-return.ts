@@ -238,6 +238,9 @@ export async function returnUnused(
       detail: outcome === 'held' ? (after?.held?.detail ?? after?.held?.reason) : undefined,
     })
   }
+  // A sweep that returned nothing still ages the ready slots: one unused for
+  // a day goes now, not at the next return, which may never come.
+  if (!input.dryRun && !ctx.stopped) await evictOverLimit(ctx, pool)
   return entries
 }
 
