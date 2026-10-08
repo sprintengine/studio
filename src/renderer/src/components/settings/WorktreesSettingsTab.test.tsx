@@ -399,3 +399,30 @@ test('a running dependency install shows on its worktree’s row, and Cancel sto
   expect(rowNamed('pool-01')?.textContent).not.toContain('installing dependencies')
   expect(rowNamed('pool-01')?.textContent).toContain('Open chat')
 })
+
+test('an empty category reads 0 KB in the legend and the bar’s label, not 1 KB', async () => {
+  const onlyInUse: WorktreeInventory = {
+    ...inventory,
+    projects: inventory.projects.map((project) => ({
+      ...project,
+      pool: project.pool ? { ...project.pool, slots: project.pool.slots.slice(0, 1) } : null,
+      worktrees: [],
+    })),
+  }
+  Object.assign(window.api, { getWorktreeInventory: async () => onlyInUse })
+  await render()
+  expect(host.textContent).toContain('Holding work 0 KB')
+  expect(host.textContent).not.toContain('1 KB')
+  expect(host.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('Ready to reuse 0 KB')
+})
+
+test('the overview reflows with the page’s width, each label on one line beside its swatch', async () => {
+  await render()
+  const overview = host.querySelector<HTMLElement>('[aria-label="Overview"]')!
+  expect(overview.parentElement?.className).toContain('@container')
+  expect(overview.className).toContain('grid-cols-2')
+  for (const label of ['Ready to reuse', 'Holding work']) {
+    const span = [...overview.querySelectorAll('span')].find((candidate) => candidate.textContent === label)
+    expect(span?.className).toContain('truncate')
+  }
+})

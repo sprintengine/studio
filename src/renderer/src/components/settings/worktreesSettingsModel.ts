@@ -124,6 +124,8 @@ export function formatBytes(bytes: number | null | undefined): string {
   if (gb >= 1) return `${gb >= 100 ? Math.round(gb) : gb.toFixed(1)} GB`
   const mb = bytes / 1024 ** 2
   if (mb >= 1) return `${Math.round(mb)} MB`
+  // Nothing is nothing; only a few bytes round up, so they never read as none.
+  if (bytes <= 0) return '0 KB'
   return `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 

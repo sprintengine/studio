@@ -487,41 +487,45 @@ export function WorktreesSettingsTab({
       <ActionResultMessage message={result} className="mb-4" />
 
       <SettingCard className="mb-6 px-4 py-4">
-        <div className="grid grid-cols-5 gap-4" aria-label="Overview">
-          <Stat
-            label="Worktrees"
-            value={String(totals.count)}
-            sub={`in ${projects.length} project${projects.length === 1 ? '' : 's'}`}
-          />
-          <Stat
-            label="In use"
-            swatch={USAGE_SEGMENTS[0].color}
-            value={String(totals.inUse)}
-            sub={
-              totals.chats
-                ? `by ${totals.chats} chat${totals.chats === 1 ? '' : 's'}`
-                : totals.inUse
-                  ? 'by chats and agents'
-                  : 'none right now'
-            }
-          />
-          <Stat
-            label="Ready to reuse"
-            swatch={USAGE_SEGMENTS[1].color}
-            value={String(totals.ready)}
-            sub="kept for reuse"
-          />
-          <Stat
-            label="Holding work"
-            swatch={USAGE_SEGMENTS[2].color}
-            value={String(totals.held)}
-            sub={totals.held ? 'needs you' : 'nothing waiting'}
-          />
-          <Stat
-            label="On disk"
-            value={totals.bytes.all ? formatBytes(totals.bytes.all) : '—'}
-            sub={settings.diskLimitGb !== null ? `pool limit ${settings.diskLimitGb} GB` : 'no pool limit'}
-          />
+        {/* Reflows with the page's own width, not the window's: five across only where
+            every label fits on its line. */}
+        <div className="@container">
+          <div className="grid grid-cols-2 gap-4 @[480px]:grid-cols-3 @[720px]:grid-cols-5" aria-label="Overview">
+            <Stat
+              label="Worktrees"
+              value={String(totals.count)}
+              sub={`in ${projects.length} project${projects.length === 1 ? '' : 's'}`}
+            />
+            <Stat
+              label="In use"
+              swatch={USAGE_SEGMENTS[0].color}
+              value={String(totals.inUse)}
+              sub={
+                totals.chats
+                  ? `by ${totals.chats} chat${totals.chats === 1 ? '' : 's'}`
+                  : totals.inUse
+                    ? 'by chats and agents'
+                    : 'none right now'
+              }
+            />
+            <Stat
+              label="Ready to reuse"
+              swatch={USAGE_SEGMENTS[1].color}
+              value={String(totals.ready)}
+              sub="kept for reuse"
+            />
+            <Stat
+              label="Holding work"
+              swatch={USAGE_SEGMENTS[2].color}
+              value={String(totals.held)}
+              sub={totals.held ? 'needs you' : 'nothing waiting'}
+            />
+            <Stat
+              label="On disk"
+              value={totals.bytes.all ? formatBytes(totals.bytes.all) : '—'}
+              sub={settings.diskLimitGb !== null ? `pool limit ${settings.diskLimitGb} GB` : 'no pool limit'}
+            />
+          </div>
         </div>
         <div
           className="mt-4 flex h-2 overflow-hidden rounded-full bg-[color:var(--bg-well)]"
@@ -717,16 +721,22 @@ export function WorktreesSettingsTab({
 
 function Swatch({ color }: { color: string }) {
   return (
-    <span aria-hidden className="inline-block size-2 rounded-[var(--radius-chip)]" style={{ backgroundColor: color }} />
+    <span
+      aria-hidden
+      className="inline-block size-2 shrink-0 rounded-[var(--radius-chip)]"
+      style={{ backgroundColor: color }}
+    />
   )
 }
 
 function Stat({ label, value, sub, swatch }: { label: string; value: string; sub: string; swatch?: string }) {
   return (
     <div className="min-w-0">
-      <div className="flex items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
+      {/* One line, so the swatch sits beside the label and every value below
+          stays level with its neighbours'. */}
+      <div className="flex min-w-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
         {swatch ? <Swatch color={swatch} /> : null}
-        {label}
+        <span className="truncate">{label}</span>
       </div>
       <div className="mt-1 text-title font-semibold tabular-nums text-[color:var(--text-strong)]">{value}</div>
       <div className="truncate text-meta text-[color:var(--text-subtle)]">{sub}</div>
