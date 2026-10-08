@@ -557,9 +557,42 @@ test('each kind of step leads with its own glyph', () => {
   ] as const
   for (const [values, glyph] of cases) {
     const document = new JSDOM(renderToStaticMarkup(<ToolRow tool={tool(values)} />)).window.document
-    expect(document.querySelector('button[aria-expanded] [data-tool-glyph]')?.getAttribute('data-tool-glyph')).toBe(
-      glyph,
-    )
+    expect(document.querySelector('[data-tool-kind] [data-tool-glyph]')?.getAttribute('data-tool-glyph')).toBe(glyph)
+  }
+})
+
+test('a step with nothing to show is a plain line: no disclosure, no chevron', () => {
+  const rowOf = (values: Partial<TranscriptToolEntry>) =>
+    new JSDOM(renderToStaticMarkup(<ToolRow tool={tool(values)} />)).window.document
+  const empty = [
+    { name: 'Mystery', toolKind: 'other', input: {} },
+    { name: 'mcp__acme__ping', toolKind: 'mcp' },
+    { name: 'TodoWrite', toolKind: 'todo', input: {}, output: '  ' },
+  ] as const
+  for (const values of empty) {
+    const document = rowOf(values)
+    expect(document.querySelector('[aria-expanded]'), values.name).toBeNull()
+    expect(document.querySelector('button'), values.name).toBeNull()
+    expect(document.querySelector('[data-tool-kind] > div > svg'), values.name).toBeNull()
+    expect(document.querySelector('[data-tool-label] [data-tool-glyph]')).not.toBeNull()
+    expect(document.querySelector('[data-tool-step-body]')).toBeNull()
+  }
+
+  // Anything that can still show something keeps its disclosure.
+  const expandable: Partial<TranscriptToolEntry>[] = [
+    { name: 'Mystery', toolKind: 'other', input: { id: 1 } },
+    { name: 'Mystery', toolKind: 'other', output: 'done' },
+    { name: 'Mystery', toolKind: 'other', status: 'running' },
+    { name: 'Mystery', toolKind: 'other', truncated: true },
+    { name: 'Mystery', toolKind: 'other', outputStatus: 'declined' },
+    { name: 'Read', toolKind: 'file_read' },
+    { name: 'Edit', toolKind: 'file_edit' },
+    { name: 'Bash', toolKind: 'command', summary: 'npm test' },
+  ]
+  for (const values of expandable) {
+    const document = rowOf(values)
+    expect(document.querySelector('button[aria-expanded="false"]'), JSON.stringify(values)).not.toBeNull()
+    expect(document.querySelector('[data-tool-kind] > div > svg:last-child')).not.toBeNull()
   }
 })
 

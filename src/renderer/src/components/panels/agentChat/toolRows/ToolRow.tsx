@@ -591,6 +591,29 @@ export function cachedCommandLabel(command: string): string {
   return label
 }
 
+function isEmptyValue(value: ConversationJsonValue | undefined): boolean {
+  if (value == null) return true
+  if (typeof value === 'string') return !value.trim()
+  if (Array.isArray(value)) return value.length === 0
+  if (typeof value === 'object') return Object.keys(value).length === 0
+  return false
+}
+
+// Whether opening the row would show anything. A step that took no input,
+// printed nothing and is not running has no panel to open — a chevron over it
+// opens an empty box — so its row is a plain line: no disclosure, no chevron.
+// Running and truncated steps can still fill in or fetch more, and a read or
+// an edit always shows its file, so those keep theirs.
+export function toolHasBody(tool: TranscriptToolEntry, kind: ToolPresentation['icon']): boolean {
+  if (tool.status === 'running' || tool.truncated || tool.inputTruncated) return true
+  if (tool.outputStatus === 'declined' || tool.outputStatus === 'stopped') return true
+  if (kind === 'file_read' || kind === 'file_edit' || kind === 'file_write') return true
+  if (tool.name === 'GenerateImage') return true
+  // A command with no input still prints the provider's one-line summary.
+  if (kind === 'command' && tool.summary?.trim()) return true
+  return !isEmptyValue(tool.input) || !isEmptyValue(tool.output)
+}
+
 // Memoized: a turn's steps sit under the reply streaming into it, and a step's
 // entry keeps its identity until the step itself changes.
 export const ToolRow = memo(function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
@@ -609,6 +632,7 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: TranscriptToolEnt
   // A tool an app gave agents says whose it is.
   const origin = useClientToolOrigin(tool.name)
   const running = tool.status === 'running'
+  const expandable = toolHasBody(tool, presentation.icon)
   const tone = running ? 'running' : presentation.tone
   const settledAt = running ? undefined : (tool.completedAt ?? tool.startedAt)
   const settledClock = useMemo(() => (settledAt === undefined ? '' : formatMessageTime(settledAt)), [settledAt])
@@ -658,36 +682,48 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: TranscriptToolEnt
       setLoading(false)
     }
   }
+  const label = (
+    <>
+      <span data-tone={tone === 'error' ? 'error' : undefined} className={`flex shrink-0 ${toolGlyphInk(tone)}`}>
+        <ToolKindGlyph kind={presentation.icon} />
+      </span>
+      <span
+        className={`min-w-0 truncate ${running ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-subtle)] group-hover/tool-row:text-[color:var(--text-muted)]'}`}
+      >
+        {presentation.title}
+      </span>
+      {origin ? <span className="shrink-0 text-micro text-[color:var(--text-disabled)]">from {origin}</span> : null}
+      {running ? <span className="sr-only">running</span> : null}
+      {tone === 'error' ? <span className="sr-only">failed</span> : null}
+    </>
+  )
   return (
     <div ref={rowRef} data-tool-kind={presentation.icon}>
       <div
-        className="group/tool-row flex min-w-0 cursor-pointer items-center gap-1 rounded-sm pr-1.5 transition-colors hover:bg-[color:var(--bg-hover)]"
-        onClick={(event) => forwardRowGroundClick(event, buttonRef.current)}
+        className={`group/tool-row flex min-w-0 items-center gap-1 rounded-sm pr-1.5 ${
+          expandable ? 'cursor-pointer transition-colors hover:bg-[color:var(--bg-hover)]' : ''
+        }`}
+        onClick={expandable ? (event) => forwardRowGroundClick(event, buttonRef.current) : undefined}
       >
         {/* Sized to its label rather than stretched, so the path sits right
             beside what the step did instead of across the row from it. */}
         <div className="flex min-w-0 max-w-fit shrink">
-          <RowButton
-            ref={buttonRef}
-            density="flush"
-            className="min-w-0 text-meta"
-            aria-expanded={open}
-            onClick={() => setOpen(!open)}
-          >
-            <span data-tone={tone === 'error' ? 'error' : undefined} className={`flex shrink-0 ${toolGlyphInk(tone)}`}>
-              <ToolKindGlyph kind={presentation.icon} />
-            </span>
-            <span
-              className={`min-w-0 truncate ${running ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-subtle)] group-hover/tool-row:text-[color:var(--text-muted)]'}`}
+          {expandable ? (
+            <RowButton
+              ref={buttonRef}
+              density="flush"
+              className="min-w-0 text-meta"
+              aria-expanded={open}
+              onClick={() => setOpen(!open)}
             >
-              {presentation.title}
+              {label}
+            </RowButton>
+          ) : (
+            // The flush row half's box and ink, with nothing to press.
+            <span data-tool-label="" className="flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left text-meta">
+              {label}
             </span>
-            {origin ? (
-              <span className="shrink-0 text-micro text-[color:var(--text-disabled)]">from {origin}</span>
-            ) : null}
-            {running ? <span className="sr-only">running</span> : null}
-            {tone === 'error' ? <span className="sr-only">failed</span> : null}
-          </RowButton>
+          )}
         </div>
         {exited ? (
           <span className="min-w-0 shrink-[2] truncate text-meta text-[color:var(--tone-error)]">
@@ -713,14 +749,16 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: TranscriptToolEnt
             {durationMs !== undefined ? <span data-step-duration="">{formatStepDuration(durationMs)}</span> : null}
           </span>
         ) : null}
-        <ChevronRightGlyph
-          className={`icon-xs shrink-0 text-[color:var(--text-disabled)] group-hover/tool-row:text-[color:var(--text-subtle)] motion-safe:transition-transform ${open ? 'rotate-90' : ''}`}
-        />
+        {expandable ? (
+          <ChevronRightGlyph
+            className={`icon-xs shrink-0 text-[color:var(--text-disabled)] group-hover/tool-row:text-[color:var(--text-subtle)] motion-safe:transition-transform ${open ? 'rotate-90' : ''}`}
+          />
+        ) : null}
       </div>
       {!open && tool.name === 'GenerateImage' && tool.outputStatus !== 'error' && generatedPath ? (
         <GeneratedImage path={generatedPath} prompt={generatedPrompt} toolUseId={tool.id} />
       ) : null}
-      {open ? (
+      {open && expandable ? (
         // What the step produced. A read's code block sits here as every other
         // step's panel does (index.css drops the margins it keeps in prose).
         <div
