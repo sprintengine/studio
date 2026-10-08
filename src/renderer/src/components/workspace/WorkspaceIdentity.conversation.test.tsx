@@ -7,7 +7,7 @@ import { expect, test } from 'vitest'
 // opens both panels from there (owner ruling 2026-10-04). A terminal has no
 // strip, so with one followed the bar keeps everything it had.
 
-async function mountIdentity(runtime: 'conversation' | 'terminal') {
+async function mountIdentity(runtime: 'conversation' | 'terminal', extraProps: Record<string, unknown> = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
   const globals = {
@@ -62,7 +62,11 @@ async function mountIdentity(runtime: 'conversation' | 'terminal') {
   const root = createRoot(host)
   await act(async () =>
     root.render(
-      createElement(WorkspaceIdentity, { activeWorkspace: workspace as never, activeWorkspaceId: 'workspace' }),
+      createElement(WorkspaceIdentity, {
+        activeWorkspace: workspace as never,
+        activeWorkspaceId: 'workspace',
+        ...extraProps,
+      }),
     ),
   )
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
@@ -103,5 +107,19 @@ test('with a terminal agent followed, the title bar keeps its branch chip, its c
     expect(bar.labels()).toContain('Toggle file explorer, /Users/dev/project')
   } finally {
     await bar.unmount()
+  }
+})
+
+// Label-in-name: the button shows the chat's name, so its accessible name must
+// contain it — a voice user says what they see — and still say what it does.
+test('the name that toggles the sidebar keeps the visible name in its accessible name', async () => {
+  for (const sidebarCollapsed of [false, true]) {
+    const bar = await mountIdentity('conversation', { onToggleSidebar: () => undefined, sidebarCollapsed })
+    try {
+      const action = sidebarCollapsed ? 'open sidebar' : 'close sidebar'
+      expect(bar.labels()).toContain(`Project, ${action}`)
+    } finally {
+      await bar.unmount()
+    }
   }
 })
