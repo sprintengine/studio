@@ -1862,6 +1862,90 @@ test('NewAgentPanel', async () => {
       },
     )
 
+    await check('a remote launch refuses attached files rather than typing this disk’s paths there', async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      writeNewChatDraft('win-files', { prompt: 'summarise', files: ['/Users/dev/Desktop/Q3 budget.xlsx'] })
+      meshConnections = [machine('m1', 'Air')]
+      meshBrowseAnswer = (id) => ({
+        connectionId: id,
+        reachable: true,
+        unreachableReason: null,
+        unauthorized: false,
+        scopes: [],
+        workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
+        gaps: [],
+      })
+      const remoteLaunches: Array<Record<string, unknown>> = []
+      const view = await remoteRender({
+        initialSelection: { kind: 'conversation' },
+        draftKey: 'win-files',
+        onLaunchRemote: async (launch: Record<string, unknown>) => {
+          remoteLaunches.push(launch)
+        },
+      })
+      await settle()
+      await pickMachine(view, 'Air')
+      useToastStore.setState({ toasts: [] })
+      const field = composerField(view.container)
+      await act(async () => {
+        field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      })
+      assert.equal(remoteLaunches.length, 0, 'nothing launched with a file attached')
+      const refusal = useToastStore.getState().toasts.find((toast) => toast.title === 'That chat cannot travel yet')
+      assert.ok(refusal?.description?.includes('the attached files'), `it names the files; got: ${refusal?.description}`)
+      view.unmount()
+      resetNewChatDraftsForTests()
+    })
+
+    await check('a terminal agent on a WSL machine is typed its files as Linux spells this computer’s drives', async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      meshConnections = []
+      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      writeNewChatDraft('win-wsl', {
+        prompt: 'summarise',
+        files: ['C:\\Users\\dev\\Q3 budget.xlsx'],
+        images: [
+          { id: 'i', mediaType: 'image/png', dataBase64: 'AAAA', byteLength: 4, path: 'C:\\Temp\\shot.png' },
+        ],
+      })
+      hostsAnswer = {
+        hosts: [
+          { id: 'local', kind: 'windows', label: 'This PC (Windows)', pathStyle: 'windows', state: 'ready' },
+          { id: 'wsl:Ubuntu', kind: 'wsl', label: 'WSL: Ubuntu', pathStyle: 'wsl', state: 'ready', enabled: true },
+        ],
+        wsl: { available: true },
+      }
+      try {
+        const view = await render({
+          initialSelection: { kind: 'general' },
+          draftKey: 'win-wsl',
+          folderPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo',
+          projectOptions: [],
+          onSelectProject: () => {},
+        })
+        await settle()
+        const field = composerField(view.container)
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        const launch = view.launches.at(-1)
+        assert.equal(launch?.hostId, 'wsl:Ubuntu')
+        assert.equal(launch?.prompt, "summarise /mnt/c/Temp/shot.png '/mnt/c/Users/dev/Q3 budget.xlsx'")
+        view.unmount()
+      } finally {
+        hostsAnswer = { hosts: [], wsl: null }
+        resetRememberedMachineForTests()
+        resetNewChatDraftsForTests()
+      }
+    })
+
     await check('a chat agent can run on a paired machine, and launches there as a chat', async () => {
       seedStore()
       resetRememberedMachineForTests()

@@ -19,7 +19,7 @@ import {
   type ExecutionHostId,
   type ExecutionHostSummary,
 } from '../../../../../shared/execution-host'
-import { distroOfUncPath } from '../../../../../shared/host-paths'
+import { distroOfUncPath, isWindowsPath, toWslPath } from '../../../../../shared/host-paths'
 import type { AgentCliAvailabilityMap } from '../../../../../shared/electron-api'
 import { useExecutionHosts } from '../../../hooks/useExecutionHosts'
 import { useFileDropTarget } from '../../../hooks/useFileDropTarget'
@@ -1172,7 +1172,9 @@ export default function NewAgentPanel({
   const removeFile = (path: string) => setFiles((current) => current.filter((entry) => entry !== path))
   // The words with the file cards typed after them as their paths, for a start
   // that carries text alone: a terminal agent, a schedule, another machine.
-  const typedFiles = (words: string) => [words, ...files.map(quotePath)].filter(Boolean).join(' ')
+  // `spell` writes each path as the machine the agent runs on reads it.
+  const typedFiles = (words: string, spell: (path: string) => string = (path) => path) =>
+    [words, ...files.map((path) => quotePath(spell(path)))].filter(Boolean).join(' ')
 
   // A plain shell launches no CLI, so it wears no CLI chip. A chat agent is a
   // CLI too — the same one, driven as a chat — so it wears the same chip and
@@ -1593,11 +1595,14 @@ export default function NewAgentPanel({
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
       const confirm = buildLaunchConfirm(selection)
       if (confirm.kind !== 'conversation') return
-      // A chat's skills are this machine's and its images are local files;
-      // neither has a way over yet, so their chips refuse rather than vanish.
+      // A chat's skills are this machine's and its images and files are local
+      // files: none has a way over yet, and a path on this disk typed into
+      // that machine's prompt names nothing there, so their chips refuse
+      // rather than vanish.
       const stranded = [
         confirm.skills?.length ? 'the skills' : null,
         images.length > 0 ? 'the attached images' : null,
+        files.length > 0 ? 'the attached files' : null,
       ].filter((entry): entry is string => entry !== null)
       if (stranded.length > 0) {
         showToast({
@@ -1614,7 +1619,7 @@ export default function NewAgentPanel({
         remoteWorkspaceId: remoteTarget.picked.workspaceId,
         remoteWorkspaceName: remoteTarget.picked.name,
         remoteWorkspaceRoot: remoteTarget.picked.folderPath,
-        prompt: typedFiles(text.trim()),
+        prompt: text.trim(),
         cli: confirm.cli,
         cliModel: confirm.model ?? null,
         permissionPreset: effectivePreset,
@@ -1633,14 +1638,20 @@ export default function NewAgentPanel({
     // the path needs it — the terminal drop idiom.
     const imagePaths = images.map((image) => image.path)
     const asImages = confirm.kind === 'conversation' && imagePaths.length > 0
-    const words = [text.trim(), ...(asImages ? [] : imagePaths.map(quotePath))].filter(Boolean).join(' ')
+    // A path typed for an agent in a WSL distribution is spelled as Linux
+    // sees this computer's drives (`C:\…` is `/mnt/c/…` there); a chat's
+    // images are read here, so they keep this computer's spelling.
+    const spell = (path: string) => (isWslHostId(hostId) && isWindowsPath(path) ? toWslPath(path) : path)
+    const words = [text.trim(), ...(asImages ? [] : imagePaths.map((path) => quotePath(spell(path))))]
+      .filter(Boolean)
+      .join(' ')
     // A chat on this computer sends its files beside the words, as its first
     // message's `files`, and its bubble draws them as cards; anything else (a
     // terminal agent, a chat on a WSL distribution) is typed them after the
     // words on the same line, as a dropped path would be — a blank line could
     // end a terminal's prompt early.
     const filesBeside = confirm.kind === 'conversation' && filesAsCards
-    const prompt = filesBeside ? words : typedFiles(words)
+    const prompt = filesBeside ? words : typedFiles(words, spell)
     if (confirm.kind === 'conversation') {
       // The picker's CLI and model, mapped onto the conversation provider that
       // drives that CLI as a chat. The CLI's own default row asks for no model.
