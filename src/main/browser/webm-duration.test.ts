@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'vitest'
 
-import { readWebmDurationMs, withWebmDuration } from './webm-duration'
+import { readWebmDurationMs, webmDurationPatch, withWebmDuration } from './webm-duration'
 
 // A second of a 160×120 page recorded by Electron's own MediaRecorder (VP9),
 // exactly as the pane's recorder writes it: a live stream, so no Duration.
@@ -85,4 +85,25 @@ test('an Info that outgrows its one-byte size takes a wider one', () => {
   const patched = withWebmDuration(webm([infoWith(writingApp), CLUSTER]), 250)!
   assert.equal(readWebmDurationMs(patched), 250)
   assert.equal(patched.length, webm([infoWith(writingApp), CLUSTER]).length + 12)
+})
+
+test('the length is set from the file’s head alone, and the rest is the same bytes after it', () => {
+  const head = RECORDED.subarray(0, 512)
+  const patch = webmDurationPatch(head, RECORDED.length, 1034.5)!
+  const joined = new Uint8Array([...patch.head, ...RECORDED.subarray(patch.replaces)])
+  assert.deepEqual(joined, withWebmDuration(RECORDED, 1034.5))
+  assert.equal(readWebmDurationMs(joined), 1034.5)
+  // An existing length is overwritten from the head too.
+  const once = withWebmDuration(RECORDED, 500)!
+  const again = webmDurationPatch(once.subarray(0, 512), once.length, 2_000)!
+  assert.equal(readWebmDurationMs(new Uint8Array([...again.head, ...once.subarray(again.replaces)])), 2_000)
+})
+
+test('a head that ends inside Info, or a Segment longer than the file, is not patched', () => {
+  assert.equal(webmDurationPatch(RECORDED.subarray(0, 60), RECORDED.length, 1_000), null)
+  // A Segment of known size is read against the whole file, not the head.
+  const file = webm([infoWith(TIMECODE_SCALE_1MS), CLUSTER], 'known')
+  const infoEnd = file.length - CLUSTER.length
+  assert.ok(webmDurationPatch(file.subarray(0, infoEnd), file.length, 750))
+  assert.equal(webmDurationPatch(file.subarray(0, infoEnd), file.length - 1, 750), null)
 })
