@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'crypto'
-import { existsSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { rm, stat, unlink } from 'fs/promises'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
@@ -862,10 +862,7 @@ export function buildShellIntegrationZshShim(fileName: '.zshenv' | '.zprofile' |
 function ensureShellIntegrationZshZdotdir(): string | null {
   try {
     const directory = join(userDataDir(), 'shell-integration', 'zsh')
-    mkdirSync(directory, { recursive: true })
-    for (const fileName of ['.zshenv', '.zprofile', '.zshrc', '.zlogin'] as const) {
-      replaceFileAtomically(join(directory, fileName), buildShellIntegrationZshShim(fileName))
-    }
+    writeShellIntegrationZshShims(directory)
     return directory
   } catch {
     return null
@@ -873,11 +870,37 @@ function ensureShellIntegrationZshZdotdir(): string | null {
 }
 
 /**
+ * The four shims in `directory`, each rewritten only when what is there is
+ * not already it: every zsh pane launch comes through here, and a restored
+ * layout starts several at once, so a launch reads four small files rather
+ * than making the folder and writing and renaming four. A file that went
+ * missing or came from another build is put back. Exported for
+ * terminal-launch.test.ts.
+ */
+export function writeShellIntegrationZshShims(directory: string): void {
+  let made = false
+  for (const fileName of ['.zshenv', '.zprofile', '.zshrc', '.zlogin'] as const) {
+    const filePath = join(directory, fileName)
+    const contents = buildShellIntegrationZshShim(fileName)
+    try {
+      if (readFileSync(filePath, 'utf8') === contents) continue
+    } catch {
+      // Not there yet: written below.
+    }
+    if (!made) {
+      mkdirSync(directory, { recursive: true })
+      made = true
+    }
+    replaceFileAtomically(filePath, contents)
+  }
+}
+
+/**
  * Write, then rename into place — never `O_TRUNC` over a file something else
  * may be reading.
  *
- * This directory is STABLE and SHARED, and these four files are rewritten on
- * every shell-pane launch. Restoring a saved layout starts several panes at
+ * This directory is STABLE and SHARED, and these four files are rewritten by
+ * whichever shell-pane launch first finds them missing or out of date. Restoring a saved layout starts several panes at
  * once: a plain `writeFileSync` truncates `.zshrc` to nothing and refills it,
  * so the zsh one pane just spawned can read the empty middle of another pane's
  * write. The user's own `.zshrc` then silently never sources, and `$ZDOTDIR`

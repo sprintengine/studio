@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
@@ -51,6 +51,22 @@ test('a recording is written into the workspace sidecar, ignored by git, and fin
   assert.deepEqual(readdirSync(join(root, '.sprintengine', 'browser', 'recordings')), [
     'recording-localhost-5173-20261004-090507.webm',
   ])
+})
+
+test('a sidecar folder the project made a link is refused, and nothing lands where it points', async () => {
+  // A cloned repository can commit `.sprintengine` itself, or the folder
+  // inside it, as a link to anywhere.
+  for (const linked of [['.sprintengine'], ['.sprintengine', 'browser']]) {
+    const root = workspace()
+    const elsewhere = workspace()
+    mkdirSync(join(root, ...linked.slice(0, -1)), { recursive: true })
+    symlinkSync(elsewhere, join(root, ...linked))
+    const outputs = createWorkspaceRecordingOutputs({ resolveWorkspaceRoot: () => root })
+    const created = await outputs.create({ workspaceId: 'ws', stem: 'recording' })
+    assert.equal(created.ok ? null : created.code, 'write_failed', linked.join('/'))
+    assert.match(created.ok ? '' : created.message, /is a link/)
+    assert.deepEqual(readdirSync(elsewhere), [], linked.join('/'))
+  }
 })
 
 test('bytes this edit does not understand are kept as they came', async () => {

@@ -101,6 +101,8 @@ export type LocalServerRecord = {
   get(id: string): LinkedLocalServer | undefined
   /** Forget a link; the entry, or null when there was none. */
   remove(id: string): LinkedLocalServer | null
+  /** Forget every link in a workspace (it was removed); the entries that went. */
+  forgetWorkspace(workspaceId: string): LinkedLocalServer[]
   /** A conversation's links, newest first. */
   forConversation(key: LocalServerConversationKey): LinkedLocalServer[]
   /** Every link in a workspace, newest first. */
@@ -355,6 +357,13 @@ export function createLocalServerRecord(options: LocalServerRecordOptions): Loca
       entries.delete(id)
       persist()
       return entry
+    },
+    forgetWorkspace(workspaceId) {
+      const gone = [...entries.values()].filter((entry) => entry.workspaceId === workspaceId)
+      if (gone.length === 0) return []
+      for (const entry of gone) entries.delete(entry.id)
+      persist()
+      return gone
     },
     forConversation: (key) => newestFirst([...entries.values()].filter((entry) => sameConversation(entry, key))),
     forWorkspace: (workspaceId) =>

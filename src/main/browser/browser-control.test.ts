@@ -459,3 +459,64 @@ test('browser-control', async () => {
 
   await suiteRun
 })
+
+test('an action a dialog ended does not resume typing once the dialog is answered', async () => {
+  // A debugger whose page call that opens the dialog blocks until the dialog
+  // is closed, the way a real alert holds Input.dispatchMouseEvent.
+  class BlockingDebugger extends EventEmitter {
+    attached = false
+    commands: string[] = []
+    isAttached() {
+      return this.attached
+    }
+    attach() {
+      this.attached = true
+    }
+    detach() {
+      this.attached = false
+    }
+    async sendCommand(method: string, params?: Record<string, unknown>) {
+      this.commands.push(method === 'Input.dispatchMouseEvent' ? `${method}:${String(params?.type)}` : method)
+      if (method === 'Runtime.evaluate') return { result: { type: 'object', value: { x: 10, y: 10 } } }
+      if (method === 'Page.handleJavaScriptDialog') {
+        queueMicrotask(() => this.emit('message', {}, 'Page.javascriptDialogClosed', { result: false }))
+        return {}
+      }
+      if (method === 'Input.dispatchMouseEvent' && params?.type === 'mousePressed') {
+        return new Promise((resolve) => {
+          const closed = (_event: unknown, name: string) => {
+            if (name !== 'Page.javascriptDialogClosed') return
+            this.removeListener('message', closed)
+            resolve({})
+          }
+          this.on('message', closed)
+          this.emit('message', {}, 'Page.javascriptDialogOpening', { type: 'alert', message: 'Saved' })
+        })
+      }
+      return {}
+    }
+  }
+  const wc = Object.assign(new EventEmitter(), {
+    debugger: new BlockingDebugger(),
+    isDestroyed: () => false,
+    isDevToolsOpened: () => false,
+  })
+  const control = createBrowserControl({
+    webContentsOf: () => wc as unknown as WebContents,
+    epochOf: () => 0,
+    noteAgentActivity: () => {},
+    noteAgentInput: () => {},
+    onHumanInput: () => () => {},
+    notePointer: () => {},
+  })
+
+  const typed = await control.type('t1', { ref: 'e1' }, 'hello', { submit: true })
+  assert.equal(typed.ok ? null : typed.code, 'dialog_open')
+  assert.equal((await control.dialog('t1', { accept: true })).ok, true)
+  // Let the parked click return and the old action run as far as it would.
+  for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve))
+
+  const after = wc.debugger.commands.slice(wc.debugger.commands.indexOf('Page.handleJavaScriptDialog') + 1)
+  assert.deepEqual(after, [], 'the abandoned type sent nothing to the page after the dialog closed')
+  assert.ok(!wc.debugger.commands.includes('Input.insertText'))
+})

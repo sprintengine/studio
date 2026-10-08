@@ -158,7 +158,7 @@ test('both tools are mutations, and the stop has time to save a long recording',
     assert.ok(BROWSER_MUTATION_TOOL_NAMES.includes(name))
     assert.equal(isStudioGatewayMutation(name), true)
   }
-  assert.equal(gatewayToolTimeoutMs('browser.record_start'), 20_000)
+  assert.equal(gatewayToolTimeoutMs('browser.record_start'), 40_000)
   assert.equal(gatewayToolTimeoutMs('browser.record_stop'), 60_000)
 })
 

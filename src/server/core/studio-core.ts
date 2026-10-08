@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { isMachinePath } from '../../shared/machine-paths'
+import { isWorkspaceTombstoned } from '../../shared/workspace-registry'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import { gitHostIdForPath, type ExecutionHostId, type ExecutionHostSettings } from '../../shared/execution-host'
 import { ensureSkillInstalled } from '../../main/builtin-skills'
@@ -411,6 +412,9 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       const sessionRoot = latest ? conversations.sessionWorkspaceRoot(latest.sessionId) : null
       return localFolder(sessionRoot) ?? localFolder(workspaceRegistry.getRecord(key.workspaceId)?.folderPath)
     },
+    // Read from the registry's tombstones rather than from a missing record:
+    // a registry that failed to load is not a person removing every workspace.
+    workspaceRemoved: (workspaceId) => isWorkspaceTombstoned(workspaceRegistry.getTombstones(), workspaceId),
     log: (message, error) => {
       void writeDiagnosticLog({
         level: 'warning',
@@ -423,6 +427,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       })
     },
   })
+  // A removed workspace's servers go with it, whichever door removed it.
+  const stopPruningLocalServers = workspaceRegistry.subscribe(() => void localServers.prune())
 
   // What an agent of this app is running on now, for the gateway's launch cap:
   // an agent may start agents only at its own preset or stricter.
@@ -614,7 +620,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       () => pullRequests.dispose(),
       // The servers the Studio itself started stop with it: nothing would be
       // left to stop them from.
-      () => localServers.dispose(),
+      () => {
+        stopPruningLocalServers()
+        return localServers.dispose()
+      },
       () => {
         for (const stop of stopFollowingResumes) stop()
         return usageLimitResumes.dispose()
