@@ -22,7 +22,7 @@ const NOW = 1_000_000
 
 function fixture(
   record: Partial<WorkspaceRegistryRecord> | null,
-  options: { working?: boolean; chatTurnEnd?: number } = {},
+  options: { working?: boolean; chatTurnEnd?: number | (() => Promise<number | undefined>) } = {},
 ) {
   const stored = record
     ? ({ id: 'ws-1', name: 'Fix the login', createdAt: 10, ...record } as WorkspaceRegistryRecord)
@@ -45,7 +45,7 @@ function fixture(
       return { ok: true, event: {} as never }
     },
     isWorking: () => options.working === true,
-    latestChatTurnEnd: () => options.chatTurnEnd,
+    latestChatTurnEnd: () => (typeof options.chatTurnEnd === 'function' ? options.chatTurnEnd() : options.chatTurnEnd),
     now: () => clock.at,
   })
   const tools = createConversationTools({
@@ -166,15 +166,22 @@ test('Mark unread moves the visit clock back to just before the latest finish, a
   assert.equal(f.stored?.visitRewoundAt, NOW)
 })
 
-test("a chat's terminal agents' finish counts as well as its chats'", () => {
+test("a chat's terminal agents' finish counts as well as its chats'", async () => {
   const f = fixture({ lastVisitedAt: 9_000, lastTurnEndedAt: 6_000 }, { chatTurnEnd: 5_000 })
-  assert.deepEqual(f.lifecycle.markUnread('ws-1', 'ui'), { ok: true, workspaceId: 'ws-1', lastVisitedAt: 5_999 })
+  assert.deepEqual(await f.lifecycle.markUnread('ws-1', 'ui'), { ok: true, workspaceId: 'ws-1', lastVisitedAt: 5_999 })
 })
 
-test('a chat already unread from further back keeps its clock, and still says it was marked', () => {
+test('a chat already unread from further back keeps its clock, and still says it was marked', async () => {
   const f = fixture({ lastVisitedAt: 1_000 }, { chatTurnEnd: 5_000 })
-  assert.deepEqual(f.lifecycle.markUnread('ws-1', 'ui'), { ok: true, workspaceId: 'ws-1', lastVisitedAt: 1_000 })
+  assert.deepEqual(await f.lifecycle.markUnread('ws-1', 'ui'), { ok: true, workspaceId: 'ws-1', lastVisitedAt: 1_000 })
   assert.deepEqual(f.writes[0]?.patch, { lastVisitedAt: 1_000, visitRewoundAt: NOW })
+})
+
+test('a finish on record only in the transcripts, as after a restart, can be marked unread', async () => {
+  // A chat-only conversation keeps no `lastTurnEndedAt` on the record, and
+  // after a restart no session holds it: its transcript index does.
+  const f = fixture({ lastVisitedAt: 9_000 }, { chatTurnEnd: async () => 6_000 })
+  assert.deepEqual(await f.lifecycle.markUnread('ws-1', 'ui'), { ok: true, workspaceId: 'ws-1', lastVisitedAt: 5_999 })
 })
 
 test('a chat whose agent has finished nothing is not marked, and an unknown one is refused by name', async () => {
@@ -191,7 +198,7 @@ test('a chat whose agent has finished nothing is not marked, and an unknown one 
 
 test('a visit after Mark unread moves the clock forward again, as reading it does', async () => {
   const f = fixture({ lastVisitedAt: 9_000 }, { chatTurnEnd: 5_000 })
-  f.lifecycle.markUnread('ws-1', 'ui')
+  await f.lifecycle.markUnread('ws-1', 'ui')
   f.clock.at = NOW + 1_000
   await f.visit.handler({ workspaceId: 'ws-1', visitedAt: NOW + 500 })
   assert.equal(f.stored?.lastVisitedAt, NOW + 500)
@@ -200,7 +207,7 @@ test('a visit after Mark unread moves the clock forward again, as reading it doe
 test('a visit stamped before a Mark unread, arriving after it, does not undo it', async () => {
   const f = fixture({ lastVisitedAt: 1_000 }, { chatTurnEnd: 5_000 })
   f.clock.at = 8_000
-  f.lifecycle.markUnread('ws-1', 'ui')
+  await f.lifecycle.markUnread('ws-1', 'ui')
   assert.equal(f.stored?.lastVisitedAt, 1_000)
   f.clock.at = 9_000
   // A phone's reading from before the mark, sent late.

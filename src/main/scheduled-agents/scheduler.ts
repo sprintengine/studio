@@ -31,15 +31,20 @@ import {
 // is about 24.8 days.
 const MAX_TIMER_MS = 60 * 60 * 1000
 
-/** Why a run did not start at all: it was never tried, so it is not a failed run. */
-export type ScheduledAgentRunRefusal = 'unknown' | 'starting' | 'still_working'
+/**
+ * Why a run did not start at all: it was never tried, so it is not a failed
+ * run. `stopped`: the scheduler stopped (the app is quitting) while the run
+ * was on its way, and it was called off before its chat started.
+ */
+export type ScheduledAgentRunRefusal = 'unknown' | 'starting' | 'still_working' | 'stopped'
 
 export type ScheduledAgentFireResult =
   { ok: true; run: ScheduledAgentLastRun } | { ok: false; refused: ScheduledAgentRunRefusal }
 
 export type ScheduledAgentsSchedulerDeps = {
   list: () => ScheduledAgent[]
-  run: (agent: ScheduledAgent) => Promise<ScheduledAgentLastRun>
+  /** Start a run. `signal` aborts when the scheduler stops: a run not yet launched is called off. */
+  run: (agent: ScheduledAgent, signal: AbortSignal) => Promise<ScheduledAgentLastRun>
   recordRun: (id: string, run: ScheduledAgentLastRun) => Promise<void>
   onRan?: (agent: ScheduledAgent, run: ScheduledAgentLastRun) => void
   /**
@@ -48,7 +53,7 @@ export type ScheduledAgentsSchedulerDeps = {
    */
   isRunWorking?: (workspaceId: string) => boolean
   /** A time came round and its run was skipped, and why. */
-  onSkipped?: (agent: ScheduledAgent, reason: Exclude<ScheduledAgentRunRefusal, 'unknown'>) => void
+  onSkipped?: (agent: ScheduledAgent, reason: Exclude<ScheduledAgentRunRefusal, 'unknown' | 'stopped'>) => void
   /** Something went wrong around a run that has no caller to tell: recording it, or saying it ran. */
   log?: (message: string) => void
   now?: () => number
@@ -78,6 +83,8 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
   // would be skipped the moment the computer woke and refreshed.
   const dueAt = new Map<string, { at: number | null; cron: string; timezone: string; once: number | undefined }>()
   const inFlight = new Set<string>()
+  // Aborted by stop: a run on its way when the app quits starts no chat.
+  let stopping = new AbortController()
   const describe = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
   const dueFor = (agent: ScheduledAgent, after: number): number | null =>
@@ -124,12 +131,16 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
     const previous = agent.lastRun
     if (previous?.ok && deps.isRunWorking?.(previous.workspaceId)) return { ok: false, refused: 'still_working' }
     inFlight.add(agent.id)
+    const signal = stopping.signal
     try {
-      const run = await deps.run(agent).catch((error: unknown): ScheduledAgentLastRun => ({
+      const run = await deps.run(agent, signal).catch((error: unknown): ScheduledAgentLastRun => ({
         at: now(),
         ok: false,
         message: error instanceof Error ? error.message : String(error),
       }))
+      // Called off by the stop before its chat started: nothing was tried, so
+      // nothing is recorded, and a one-time schedule runs at the next start.
+      if (signal.aborted && !run.ok) return { ok: false, refused: 'stopped' }
       // A scheduled agent closed while its run was starting is gone; its run
       // is not recorded against nothing.
       // The run happened whether or not it could be written down.
@@ -159,7 +170,8 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
       // never left as an unhandled rejection.
       void fire(agent)
         .then((fired) => {
-          if (!fired.ok && fired.refused !== 'unknown') deps.onSkipped?.(agent, fired.refused)
+          if (!fired.ok && fired.refused !== 'unknown' && fired.refused !== 'stopped')
+            deps.onSkipped?.(agent, fired.refused)
         })
         .catch((error: unknown) => deps.log?.(`A scheduled agent's run went wrong: ${describe(error)}`))
     }
@@ -170,12 +182,14 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
     start() {
       if (running) return
       running = true
+      if (stopping.signal.aborted) stopping = new AbortController()
       dueAt.clear()
       reconcile()
       arm()
     },
     stop() {
       running = false
+      stopping.abort()
       if (timer !== null) clearTimer(timer)
       timer = null
     },

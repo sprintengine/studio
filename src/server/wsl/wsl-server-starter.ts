@@ -5,7 +5,7 @@ import { classifyWslFailure } from '../../main/hosts/wsl-helper-client'
 import { decodeWslOutput } from '../../main/hosts/wsl-distro'
 import { NEEDS_INSTALL_EXIT, parseNeedReport, WSL_DATA_REL, type NeedReport } from '../../main/hosts/wsl-install'
 import { WslSetupError } from '../../main/hosts/wsl-setup-error'
-import type { ServerBoot, ServerBootstrapEnvelope, ServerReady } from '../bootstrap/envelope'
+import { SERVER_EXIT, type ServerBoot, type ServerBootstrapEnvelope, type ServerReady } from '../bootstrap/envelope'
 
 // Starting one Studio server inside a WSL distribution (phase 7 spec, 3.3):
 //
@@ -36,6 +36,20 @@ export type WslServerStartDeps = {
   prewarm(): Promise<void>
   /** The envelope for a server that booted as `boot` says. */
   envelopeFor(boot: ServerBoot): ServerBootstrapEnvelope
+  /**
+   * Kill a Linux process in the distribution (`kill -9`). Killing `wsl.exe`
+   * does not always take the server it ran with it, and one left running
+   * holds the data directory, so a kill here also kills the server by its pid.
+   */
+  killInDistro?(pid: number): Promise<void>
+  /** The pid in a run directory's lock, or null when there is none. */
+  lockHolder?(runDir: string): Promise<number | null>
+  /**
+   * The previous server's pid, from its boot. A start refused because the
+   * data directory is busy (66) is retried once that server, still holding
+   * it after its `wsl.exe` was killed, is killed in turn.
+   */
+  previousPid?: number | null
   log?(message: string): void
   bootTimeoutMs?: number
   readyTimeoutMs?: number
@@ -270,6 +284,24 @@ export async function startWslServer(deps: WslServerStartDeps): Promise<RunningW
     if (ready === 'exited' || ready === 'timeout' || (ready as Frame).t === 'fatal') {
       if (ready !== 'exited' && ready !== 'timeout') attempt.frames.push(ready as Frame)
       attempt.process.kill()
+      if (
+        ready !== 'exited' &&
+        ready !== 'timeout' &&
+        (ready as Frame).code === SERVER_EXIT.dataDirBusy &&
+        (await previousServerHolds(deps, envelope.runDir))
+      ) {
+        // The server before this one outlived its `wsl.exe`, and still holds
+        // the data directory: it is this app's own, and is killed for this start.
+        deps.log?.(
+          `The previous Studio server in ${deps.distro} (pid ${deps.previousPid}) was still running; stopping it.`,
+        )
+        await deps.killInDistro?.(deps.previousPid!).catch(() => undefined)
+        lastError = new WslSetupError(`The previous Studio server in ${deps.distro} was still running.`, {
+          fatal: false,
+          code: 'start',
+        })
+        continue
+      }
       lastError =
         ready === 'timeout'
           ? new WslSetupError(
@@ -280,7 +312,7 @@ export async function startWslServer(deps: WslServerStartDeps): Promise<RunningW
       if (lastError.fatal) throw lastError
       continue
     }
-    return running(attempt, bootFrame, ready as unknown as ServerReady, envelope)
+    return running(attempt, bootFrame, ready as unknown as ServerReady, envelope, deps)
   }
   throw (
     lastError ??
@@ -288,12 +320,25 @@ export async function startWslServer(deps: WslServerStartDeps): Promise<RunningW
   )
 }
 
+/** Whether the run lock a busy start found is the previous server's, which this app may stop. */
+async function previousServerHolds(deps: WslServerStartDeps, runDir: string): Promise<boolean> {
+  if (!deps.previousPid || !deps.lockHolder || !deps.killInDistro) return false
+  const holder = await deps.lockHolder(runDir).catch(() => null)
+  return holder === deps.previousPid
+}
+
 function running(
   attempt: Attempt,
   boot: ServerBoot,
   ready: ServerReady,
   envelope: ServerBootstrapEnvelope,
+  deps: Pick<WslServerStartDeps, 'killInDistro'>,
 ): RunningWslServer {
+  // `wsl.exe` killed, and the Linux server it ran with it, in case it outlived it.
+  const killAll = () => {
+    attempt.process.kill()
+    void deps.killInDistro?.(boot.pid).catch(() => undefined)
+  }
   let intentional = false
   let seq = 0
   let fired = false
@@ -334,14 +379,14 @@ function running(
       intentional = true
       if (attempt.exit) return
       write(attempt.process, { t: 'shutdown', drain, budgetMs })
-      const timer = setTimeout(() => attempt.process.kill(), budgetMs + STOP_GRACE_MS)
+      const timer = setTimeout(killAll, budgetMs + STOP_GRACE_MS)
       timer.unref?.()
       await exited
       clearTimeout(timer)
     },
     kill() {
       intentional = true
-      attempt.process.kill()
+      killAll()
     },
     onExit(listener) {
       if (fired) listener(exitOf())

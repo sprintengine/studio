@@ -26,6 +26,15 @@
  * the no-steady-state-polling rule is about the app at rest, not about a pull
  * request that is genuinely still open.
  *
+ * NOBODY LOOKING. Two minutes is for a person scanning the sidebar. While no
+ * app window has focus nobody is, and a probe per open pull request every
+ * couple of minutes is a `gh` process each, on battery, for nothing: the
+ * delay stretches to {@link PR_WATCH_UNFOCUSED_MS}. A window coming back to
+ * the front probes each watched key once, shortly (spread over
+ * {@link PR_WATCH_FOCUS_SPREAD_MS}), and the two-minute schedule resumes. A
+ * headless owner, which no window ever focuses, still self-heals, on the
+ * longer delay.
+ *
  * JITTER. Arming a whole scan's worth of keys in one pass would fire their
  * probes in lockstep — a burst of `gh` subprocesses on one tick. Each delay is
  * spread by ±{@link PR_WATCH_JITTER_RATIO}.
@@ -49,6 +58,12 @@ export const PR_WATCH_BACKOFF: ExponentialBackoffOptions = {
   maxMs: 2 * 60_000,
 }
 
+/** The delay between probes while no app window has focus; see the header. */
+export const PR_WATCH_UNFOCUSED_MS = 10 * 60_000
+
+/** A window coming back to the front probes each watched key within this, spread so they do not fire together. */
+export const PR_WATCH_FOCUS_SPREAD_MS = 10_000
+
 /** Each delay is multiplied by 1 ± this, so simultaneously-armed keys desynchronize. */
 export const PR_WATCH_JITTER_RATIO = 0.2
 
@@ -71,6 +86,12 @@ export type WatchPollerTimers = {
   clearTimeout(handle: unknown): void
 }
 
+/** Whether an app window has focus, and word when that changes (power-activity.ts). */
+export type WatchPollerFocus = {
+  isFocused(): boolean
+  onFocusChange(listener: (focused: boolean) => void): () => void
+}
+
 export type PullRequestWatchPollerDeps = {
   /**
    * Whether this key is still worth probing. Re-read after every probe — it is
@@ -85,6 +106,9 @@ export type PullRequestWatchPollerDeps = {
   jitterRatio?: number
   changeCoalesceMs?: number
   timers?: WatchPollerTimers
+  /** Absent, the poller reads as always looked at, and keeps the two-minute schedule. */
+  focus?: WatchPollerFocus
+  unfocusedDelayMs?: number
   now?(): number
   /** Injected so jitter is deterministic under test. */
   random?(): number
@@ -125,6 +149,8 @@ export function createPullRequestWatchPoller(deps: PullRequestWatchPollerDeps): 
     setTimeout: (handler: () => void, ms: number) => setTimeout(handler, ms),
     clearTimeout: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
   }
+  const unfocusedDelayMs = deps.unfocusedDelayMs ?? PR_WATCH_UNFOCUSED_MS
+  const focused = (): boolean => deps.focus?.isFocused() ?? true
 
   const entries = new Map<string, PollEntry>()
   // Serializes the async re-evaluations of one key, so a burst of change
@@ -143,23 +169,36 @@ export function createPullRequestWatchPoller(deps: PullRequestWatchPollerDeps): 
     return Math.max(0, Math.round(delayMs * (1 + (random() * 2 - 1) * jitterRatio)))
   }
 
-  function schedule(key: string): void {
+  function schedule(key: string, soon?: number): void {
     const entry = entries.get(key)
     if (!entry || disposed) return
-    const delay = backoffDelayMs(entry.attempt, backoff)
+    const stepped = backoffDelayMs(entry.attempt, backoff)
     // A non-stopping schedule never exhausts; a caller that configured one that
     // does gets halt-and-stay-silent behaviour instead of a crash.
-    if (delay === null) {
+    if (stepped === null) {
       entry.handle = null
       return
     }
+    const delay = soon ?? jittered(focused() ? stepped : Math.max(stepped, unfocusedDelayMs))
     entry.handle = timers.setTimeout(() => {
       const armed = entries.get(key)
       if (!armed || armed !== entry || disposed) return
       armed.handle = null
       void probeThenReschedule(key, armed)
-    }, jittered(delay))
+    }, delay)
   }
+
+  // A window back at the front: each key waiting out the long, unfocused
+  // delay is probed once, shortly, and the short schedule resumes after it.
+  // A key whose probe is in flight reschedules itself when it lands.
+  const stopFollowingFocus = deps.focus?.onFocusChange((nowFocused) => {
+    if (!nowFocused || disposed) return
+    for (const [key, entry] of entries) {
+      if (entry.handle === null) continue
+      timers.clearTimeout(entry.handle)
+      schedule(key, Math.round(random() * PR_WATCH_FOCUS_SPREAD_MS))
+    }
+  })
 
   async function probeThenReschedule(key: string, armed: PollEntry): Promise<void> {
     try {
@@ -266,6 +305,7 @@ export function createPullRequestWatchPoller(deps: PullRequestWatchPollerDeps): 
     },
     dispose() {
       disposed = true
+      stopFollowingFocus?.()
       for (const key of [...entries.keys()]) disarm(key)
       for (const handle of trailingEvaluations.values()) timers.clearTimeout(handle)
       trailingEvaluations.clear()

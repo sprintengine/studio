@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { rm } from 'fs/promises'
 import { basename, dirname, isAbsolute, resolve } from 'path'
 import {
@@ -13,7 +13,7 @@ import { comparablePath } from '../../shared/host-paths'
 import { hostIdForFolder, isWslHostId, LOCAL_HOST_ID, normalizeExecutionHostId } from '../../shared/execution-host'
 import { pathJoin } from '../../shared/paths'
 import { slugifyWorktreeName, worktreeContainerPath } from '../../shared/worktree-paths'
-import { agentWorktreeLockReason, lockAgentWorktree } from '../agent-worktree-lock'
+import { agentWorktreeLockOwner, agentWorktreeLockReason, lockAgentWorktree } from '../agent-worktree-lock'
 import {
   hiddenEditPaths,
   ignoredPathsAtRisk,
@@ -44,12 +44,15 @@ import {
   type SlotRecord,
 } from './pool-store'
 import {
+  amongIgnored,
+  cleanWouldRemove,
   clearStaleIndexLock,
   commitIsReachable,
   defaultSlotGitRunner,
   fetchBase,
   hasFile,
   hasSlotMarker,
+  ignoredPaths,
   ignoredFilesInTheWay,
   isPerAgentFile,
   operationInProgress,
@@ -298,11 +301,17 @@ type PoolRuntime = {
   chain: Promise<unknown>
   busy: Set<string>
   instance: 'unknown' | 'held' | 'foreign'
-  fetch: Promise<LeaseBase | null> | null
+  fetch: Promise<LeaseBase> | null
   /** When the base's last fetch failed, while no fetch has succeeded since. Not persisted. */
   fetchFailedAt: number | null
   /** Recovery, run once this instance holds the pool's container. */
   recovered: Promise<void> | null
+  /**
+   * Slots the automatic eviction last kept for their ignored files, by the
+   * verdict key they were kept under (`keptKey`): not checked again until it
+   * changes. Not persisted.
+   */
+  keptVerdicts: Map<string, string>
 }
 
 type ResolvedRepo = { repoRoot: string; commonDir: string }
@@ -446,6 +455,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         fetch: null,
         fetchFailedAt: null,
         recovered: null,
+        keptVerdicts: new Map(),
       }
       pools.set(record.poolId, pool)
     }
@@ -577,9 +587,41 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   // ── Holding a slot ────────────────────────────────────────────────────────
 
   /**
+   * The lock git has on a worktree: its reason (empty when none was given),
+   * null when it is not locked, undefined when the listing could not be read.
+   */
+  async function lockReasonOf(pool: PoolRuntime, path: string): Promise<string | null | undefined> {
+    const listed = await git(pool.record.repoRoot, ['worktree', 'list', '--porcelain', '-z'])
+    if (!listed.ok) return undefined
+    const entry = parseGitWorktreePorcelain(listed.stdout).find(
+      (candidate) => comparablePath(candidate.path) === comparablePath(path),
+    )
+    return entry?.locked ? (entry.lockedReason ?? '') : null
+  }
+
+  /**
+   * Whether a lock is this pool's to lift: its own hold, or this profile's
+   * agent lock. Slots live in a container every Studio profile shares, and
+   * another profile's agent lock (or a person's) means someone else is using
+   * the worktree, whatever this profile's record says.
+   */
+  function isOurLock(reason: string): boolean {
+    return reason.startsWith('held: ') || agentWorktreeLockOwner(reason) === 'this-profile'
+  }
+
+  /** Lift a slot's lock when it is ours ({@link isOurLock}); anyone else's stays. */
+  async function unlockIfOurs(pool: PoolRuntime, path: string): Promise<void> {
+    const lock = await lockReasonOf(pool, path)
+    if (lock !== null && lock !== undefined && isOurLock(lock)) {
+      await git(pool.record.repoRoot, ['worktree', 'unlock', path])
+    }
+  }
+
+  /**
    * Park a slot for a person to decide. The slot is (re)locked with the reason,
    * so the Worktree manager, the Git pane and git itself all see it is not to
-   * be touched, and the agent worktree cleanup skips it.
+   * be touched, and the agent worktree cleanup skips it. A lock that is not
+   * ours (another profile's, a person's) is left as it is.
    */
   async function hold(
     pool: PoolRuntime,
@@ -589,8 +631,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     extra: { changedPaths?: number | null; branch?: string | null } = {},
   ): Promise<void> {
     const branch = extra.branch ?? slot.lease?.branch ?? slot.held?.branch ?? null
-    await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
-    await git(pool.record.repoRoot, ['worktree', 'lock', '--reason', `held: ${reason}`, slot.path])
+    const lock = await lockReasonOf(pool, slot.path)
+    if (lock === null || (lock !== undefined && isOurLock(lock))) {
+      if (lock !== null) await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
+      await git(pool.record.repoRoot, ['worktree', 'lock', '--reason', `held: ${reason}`, slot.path])
+    }
     await withPool(pool, async () => {
       slot.state = 'held'
       slot.held = { reason, detail, changedPaths: extra.changedPaths ?? null, branch, since: now() }
@@ -628,13 +673,16 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
    * is not tried again for {@link FETCH_FAILURE_BACKOFF_MS}: offline, every
    * new chat would otherwise wait out the fetch's whole deadline. The base
    * then carries a note saying it may be behind the remote.
+   *
+   * `local` is where the ref stands before the fetch ({@link localBase}): a
+   * lease prepares its slot there while the fetch runs. Never rejects: a fetch
+   * that throws is a base at `local`, with the reason as its note.
    */
-  function ensureBase(pool: PoolRuntime): Promise<LeaseBase | null> {
+  function ensureBase(pool: PoolRuntime, local: { ref: string; sha: string }): Promise<LeaseBase> {
     if (pool.fetch) return pool.fetch
-    const run = (async (): Promise<LeaseBase | null> => {
+    const run = (async (): Promise<LeaseBase> => {
       const record = pool.record
-      const ref = (await resolvePoolBaseRef(git, record.repoRoot)) ?? record.defaultRef
-      if (!ref) return null
+      const ref = local.ref
       let note: string | null = null
       const stale = !record.lastFetchAt || now() - record.lastFetchAt >= fetchFreshMs
       const backingOff = pool.fetchFailedAt !== null && now() - pool.fetchFailedAt < fetchBackoffMs
@@ -659,16 +707,24 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         })
       }
       const sha = await revParseCommit(git, record.repoRoot, ref)
-      return sha ? { ref, sha, note } : null
-    })()
+      return sha ? { ref, sha, note } : { ...local, note: note ?? `${ref} could not be read after the fetch` }
+    })().catch((error: unknown): LeaseBase => ({
+      ...local,
+      note: `${local.ref} could not be fetched (${messageOf(error)}); forked from where it last stood`,
+    }))
     pool.fetch = run
-    // Cleared however it ends; a failure is the caller's to see, not a second,
-    // unhandled rejection of its own.
-    const clear = (): void => {
+    void run.then(() => {
       if (pool.fetch === run) pool.fetch = null
-    }
-    void run.then(clear, clear)
+    })
     return run
+  }
+
+  /** `origin/<default>` (else the local default branch) and the commit it names now, before any fetch. */
+  async function localBase(pool: PoolRuntime): Promise<{ ref: string; sha: string } | null> {
+    const ref = (await resolvePoolBaseRef(git, pool.record.repoRoot)) ?? pool.record.defaultRef
+    if (!ref) return null
+    const sha = await revParseCommit(git, pool.record.repoRoot, ref)
+    return sha ? { ref, sha } : null
   }
 
   // ── Resetting ────────────────────────────────────────────────────────────
@@ -773,6 +829,15 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         return false
       }
     }
+    // The ignored files as the tree stands before the move. A file whose
+    // ignore rule the new base drops (an `.env.local` the old `.gitignore`
+    // named) turns untracked with the move, and `clean -fd` below would
+    // delete it as if it were the old tree's leftovers.
+    const ignoredBefore = await ignoredPaths(git, slot.path)
+    if (ignoredBefore === null) {
+      await hold(pool, slot, 'error', 'could not list its ignored files before the reset')
+      return false
+    }
     await withPool(pool, async () => {
       slot.op = { kind: 'reset', startedAt: now(), pid: process.pid, fromSha: from, toSha: target }
       await persist(pool)
@@ -797,11 +862,40 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       await hold(pool, slot, 'error', `reset failed: ${tail(reset.message)}`)
       return false
     }
+    const removable = await cleanWouldRemove(git, slot.path)
+    const wasIgnored = removable?.filter((path) => amongIgnored(path, ignoredBefore)) ?? null
+    if (wasIgnored === null || wasIgnored.length > 0) {
+      await hold(
+        pool,
+        slot,
+        'dirty',
+        wasIgnored === null
+          ? 'could not check what cleaning up after the reset would remove'
+          : `files the new base no longer ignores, which cleaning up would delete: ${wasIgnored.slice(0, 5).join(', ')}`,
+        { changedPaths: wasIgnored?.length ?? null },
+      )
+      return false
+    }
     const cleaned = await git(slot.path, ['clean', '-fd', '--quiet'])
     if (!cleaned.ok) {
       await hold(pool, slot, 'error', `clean failed: ${tail(cleaned.message)}`)
       return false
     }
+    return true
+  }
+
+  /**
+   * {@link resetSlot} for a lease in progress: the slot is recorded at
+   * `target` once it is there, so a second move (the fetch moved the ref on)
+   * checks it against where it now is, and its op is the lease's again.
+   */
+  async function moveSlot(pool: PoolRuntime, slot: SlotRecord, target: string): Promise<boolean> {
+    if (!(await resetSlot(pool, slot, target))) return false
+    await withPool(pool, async () => {
+      slot.baseSha = target
+      slot.op = { kind: 'lease', startedAt: now(), pid: process.pid }
+      await persist(pool)
+    })
     return true
   }
 
@@ -823,7 +917,10 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   }
 
   /** A new slot, made for a lease that found no idle one: detached at the base, marked, busy. */
-  async function createSlot(pool: PoolRuntime, base: LeaseBase): Promise<SlotRecord | 'full' | 'error'> {
+  async function createSlot(
+    pool: PoolRuntime,
+    base: { ref: string; sha: string },
+  ): Promise<SlotRecord | 'full' | 'error'> {
     // The name is picked under the pool's mutex, in the same step that records
     // it: two leases creating at once must never both pick `pool-01`.
     const { maxSlots } = await getSettings()
@@ -917,8 +1014,13 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       }
     }
     await forgetSlotsGoneFromDisk(pool)
-    const base = await ensureBase(pool)
-    if (!base) return { ok: false, reason: 'no-base', message: 'This repository has no default branch to fork from.' }
+    const local = await localBase(pool)
+    if (!local) return { ok: false, reason: 'no-base', message: 'This repository has no default branch to fork from.' }
+    // The fetch and the slot's preparation overlap: the slot is made (or
+    // reset) at where `origin/<default>` stands now while the fetch runs, and
+    // moved on to the fetched commit only if the fetch moved the ref. A new
+    // chat waits for the slower of the two, not for both.
+    const fetching = ensureBase(pool, local)
     const owner = input.owner?.trim() || branch
 
     // Idle slots, the least recently used first: the slot a settled chat gave
@@ -942,15 +1044,23 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         return picked
       })
       if (!slot) {
-        const made = await createSlot(pool, base)
+        const made = await createSlot(pool, local)
         if (made === 'full') {
           const { maxSlots } = await getSettings()
-          return { ok: false, reason: 'full', message: `The pool already has ${maxSlots} worktrees.`, base }
+          return {
+            ok: false,
+            reason: 'full',
+            message: `The pool already has ${maxSlots} worktrees.`,
+            base: await fetching,
+          }
         }
-        if (made === 'error') return { ok: false, reason: 'error', message: 'Could not create a pool worktree.', base }
+        if (made === 'error') {
+          return { ok: false, reason: 'error', message: 'Could not create a pool worktree.', base: await fetching }
+        }
         slot = made
         created = true
       }
+
       try {
         if (!created) {
           if (await somethingRunsIn(slot.path)) {
@@ -962,11 +1072,15 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
             })
             continue
           }
-          if (!(await resetSlot(pool, slot, base.sha))) continue
-          await withPool(pool, async () => {
-            slot!.op = { kind: 'lease', startedAt: now(), pid: process.pid }
-            await persist(pool)
-          })
+          if (!(await moveSlot(pool, slot, local.sha))) continue
+        }
+        const base = await fetching
+        // The fetch moved the ref past where the slot was prepared: brought
+        // along, with the same checks, so the fork is the freshly fetched
+        // default branch.
+        if (base.sha !== slot.baseSha && !(await moveSlot(pool, slot, base.sha))) {
+          if (created) return { ok: false, reason: 'error', message: 'Could not move a new pool worktree.', base }
+          continue
         }
         // Both talk to a remote, and the new chat waits on them: each has the
         // network deadline, and one that runs out is a note on the slot (the
@@ -1053,12 +1167,12 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         }
       } catch (error) {
         await holdAfterFailure(pool, slot, messageOf(error))
-        if (created) return { ok: false, reason: 'error', message: messageOf(error), base }
+        if (created) return { ok: false, reason: 'error', message: messageOf(error), base: await fetching }
       } finally {
         pool.busy.delete(slot.id)
       }
     }
-    return { ok: false, reason: 'error', message: 'No pool worktree passed its checks.', base }
+    return { ok: false, reason: 'error', message: 'No pool worktree passed its checks.', base: await fetching }
   }
 
   /**
@@ -1089,7 +1203,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     const began = await withPool(pool, async () => {
       const slot = pool.record.slots.find((candidate) => comparablePath(candidate.path) === comparablePath(input.path))
       if (!slot) return { kind: 'gone' as const }
-      if (slot.state === 'leased' && slot.lease?.branch === branch) return { kind: 'done' as const }
+      if (slot.state === 'leased' && slot.lease?.branch === branch) return { kind: 'done' as const, slot }
       if (slot.state !== 'idle' || pool.busy.has(slot.id)) return { kind: 'refused' as const, other: slot }
       pool.busy.add(slot.id)
       slot.state = 'leasing'
@@ -1098,7 +1212,20 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       return { kind: 'began' as const, slot }
     })
     if (began.kind === 'gone') return null
-    if (began.kind === 'done') return { ok: true }
+    if (began.kind === 'done') {
+      // The record says it is already this chat's; the tree is asked too. A
+      // record can be stale (another profile shares the container, a person
+      // switched branches in it), and a chat opened on a worktree on some
+      // other branch would work on someone else's checkout.
+      const status = await readSlotStatus(git, began.slot.path)
+      if (status.ok && status.status.branch === branch) return { ok: true }
+      return {
+        ok: false,
+        message: status.ok
+          ? `The worktree this chat used at ${input.path} is on ${status.status.branch ?? 'a detached HEAD'} now, not ${branch}.`
+          : `Could not read the worktree this chat used at ${input.path}: ${status.message}`,
+      }
+    }
     if (began.kind === 'refused') {
       const other = began.other
       // Held with the chat's own branch still checked out (a return that found
@@ -1287,16 +1414,26 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     })
     if (!began) return 'skipped'
     const branch = began.lease?.branch ?? began.held?.branch ?? null
+    const putBack = async (): Promise<'postponed'> => {
+      await withPool(pool, async () => {
+        slot.state = began.from === 'leasing' ? 'returning' : began.from
+        slot.op = null
+        await persist(pool)
+      })
+      return 'postponed'
+    }
     try {
-      if (await somethingRunsIn(slot.path)) {
-        // The agent's terminal (or anyone's) is still in there: put it back as
-        // it was, and the next sweep asks again.
-        await withPool(pool, async () => {
-          slot.state = began.from === 'leasing' ? 'returning' : began.from
-          slot.op = null
-          await persist(pool)
-        })
-        return 'postponed'
+      // The agent's terminal (or anyone's) is still in there: put it back as
+      // it was, and the next sweep asks again.
+      if (await somethingRunsIn(slot.path)) return await putBack()
+      // Locked by another Studio profile (which adopted or leased it) or by a
+      // person: theirs, whatever this profile's record says. Held for a person
+      // to sort out, with their lock left on it; unreadable, asked again later.
+      const lock = await lockReasonOf(pool, slot.path)
+      if (lock === undefined) return await putBack()
+      if (lock !== null && !isOurLock(lock)) {
+        await hold(pool, slot, 'error', `locked by someone else (${lock || 'no reason given'})`, { branch })
+        return 'held'
       }
       const gitDir = await readSlotGitDir(git, slot.path)
       if (!gitDir) {
@@ -1469,8 +1606,16 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
    * Remove an idle slot from disk and from the pool. True when it is gone;
    * otherwise why not, worded for the person who asked (Settings): the slot is
    * left idle, or held when it turned out to hold work.
+   *
+   * `keptKey`: an automatic eviction's verdict key for the slot; a slot kept
+   * for its ignored files is remembered under it (`keptVerdicts`).
    */
-  async function evictSlot(pool: PoolRuntime, slot: SlotRecord, why: string): Promise<true | string> {
+  async function evictSlot(
+    pool: PoolRuntime,
+    slot: SlotRecord,
+    why: string,
+    keptKey: string | null = null,
+  ): Promise<true | string> {
     const putBack = async (kept: string | null = slot.kept): Promise<void> => {
       await withPool(pool, async () => {
         slot.state = 'idle'
@@ -1557,6 +1702,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
             files.length > 0 ? `has ignored files that may be someone’s work: ${listedPaths}` : null,
           ].filter((reason): reason is string => reason !== null)
           await putBack(reasons.join('; '))
+          if (keptKey !== null) pool.keptVerdicts.set(slot.id, keptKey)
           log(`${slot.path}: kept (${reasons.join('; ')})`)
           return files.length > 0
             ? `It has ignored files that may be someone’s work (${listedPaths}). Clear its ignored files first if they can go.`
@@ -1602,10 +1748,34 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       .sort((a, b) => (b.lastUsedAt ?? b.createdAt) - (a.lastUsedAt ?? a.createdAt))
     const others = pool.record.slots.length - idle.length
     const limit = enabled ? Math.min(keepIdle, Math.max(0, maxSlots - others)) : 0
+    const chats = chatsKey()
     for (const slot of idle.slice(limit)) {
       if (stopped) return
-      await evictSlot(pool, slot, 'over the idle limit')
+      // Kept last time for the same reasons: every return and every settings
+      // change would otherwise re-read each such slot's ignored files.
+      const key = keptKey(slot, chats)
+      if (pool.keptVerdicts.get(slot.id) === key) continue
+      await evictSlot(pool, slot, 'over the idle limit', key)
     }
+  }
+
+  /** The chats on record, as one comparable string; a slot kept for one's history waits on this changing. */
+  function chatsKey(): string {
+    const ids = deps.knownWorkspaceIds?.()
+    if (!ids) return 'unknown'
+    return createHash('sha256')
+      .update([...ids].sort().join('\0'))
+      .digest('hex')
+  }
+
+  /**
+   * What an automatic eviction's "kept" verdict on a slot rests on: when it
+   * was last used (a lease and its return change what is in it) and which
+   * chats are on record (one deleted lets its history go). Clearing the
+   * slot's ignored files forgets the verdict outright.
+   */
+  function keptKey(slot: SlotRecord, chats: string): string {
+    return `${slot.lastUsedAt ?? slot.createdAt}\0${chats}`
   }
 
   // ── Disk ─────────────────────────────────────────────────────────────────
@@ -1673,10 +1843,13 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       .flatMap((pool) => pool.record.slots.map((slot) => ({ pool, slot })))
       .filter(({ pool, slot }) => slot.state === 'idle' && !pool.busy.has(slot.id))
       .sort((a, b) => (a.slot.lastUsedAt ?? a.slot.createdAt) - (b.slot.lastUsedAt ?? b.slot.createdAt))
+    const chats = chatsKey()
     for (const { pool, slot } of idle) {
       if (total <= limit || stopped) break
       const bytes = slot.size?.bytes ?? 0
-      if ((await evictSlot(pool, slot, 'over the disk limit')) === true) total -= bytes
+      const key = keptKey(slot, chats)
+      if (pool.keptVerdicts.get(slot.id) === key) continue
+      if ((await evictSlot(pool, slot, 'over the disk limit', key)) === true) total -= bytes
     }
   }
 
@@ -1705,6 +1878,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       log(`${slot.path}: ignored files cleared`)
       await withPool(pool, async () => {
         slot.kept = null
+        pool.keptVerdicts.delete(slot.id)
         await persist(pool)
       })
     } finally {
@@ -1742,7 +1916,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     if (gone.length === 0) return
     for (const slot of gone) {
       // A held slot is locked by the pool itself, and git never removes a locked worktree.
-      if (slot.state === 'held') await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
+      if (slot.state === 'held') await unlockIfOurs(pool, slot.path)
       await forgetRegistration(pool, slot.path)
     }
     await withPool(pool, async () => {
@@ -1862,6 +2036,10 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       // A worktree merely NAMED like a slot (an agent or a person called it
       // `pool-01`) is not the pool's to adopt: only one the pool marked is.
       if (!(await hasSlotMarker(git, entry.path))) continue
+      // Another Studio profile's lease: the container is shared, the records
+      // are not. Adopting it would have this profile return (detach, unlock)
+      // a worktree a chat of that profile is working in.
+      if (entry.agentLock === 'other-profile') continue
       const leased = entry.branch !== null && entry.locked && !(entry.lockedReason ?? '').startsWith('held: ')
       survivors.push({
         id: name,
@@ -1941,7 +2119,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       const gitDir = await readSlotGitDir(git, slot.path)
       const operation = gitDir ? await operationInProgress(gitDir) : null
       if (action === 'keep') {
-        await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
+        await unlockIfOurs(pool, slot.path)
         // No longer the pool's: nothing may ever adopt it back.
         await removeSlotMarker(git, slot.path).catch((error: unknown) =>
           log(`${slot.path}: could not remove its slot mark (${messageOf(error)})`),

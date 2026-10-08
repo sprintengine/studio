@@ -30,6 +30,7 @@ import type { ChatTitleRequest, PullRequestTextResult, TextGenerationResult } fr
 import type {
   CreatePullRequestOutcome,
   CreatePullRequestState,
+  PullRequestCheckoutPin,
   PushForPullRequestOutcome,
 } from './git/pull-request-create'
 import type {
@@ -928,6 +929,8 @@ export type ElectronApi = {
     prompt?: string
     cliModel?: string
     permissionPreset?: string
+    /** The CLI's effort level; dropped for a machine that does not advertise `new-chat-effort`. */
+    effort?: string
   }) => Promise<MeshCreateConversationResult>
   /**
    * Settle a chat on a paired machine, or bring it back with `settled: false`
@@ -1377,6 +1380,11 @@ export type ElectronApi = {
   onWorktreePoolChanged: (cb: (snapshot: WorktreePoolSnapshot) => void) => () => void
   /** A person's decision on a held pool worktree, or the removal or clearing of an idle one. */
   worktreePoolAction: (input: WorktreePoolActionInput) => Promise<WorktreePoolActionResult>
+  /**
+   * Remove a worktree the pool does not own, checked as a pool eviction is:
+   * kept, with the reason, when something works in it or it may hold work.
+   */
+  removeOtherWorktree: (input: { repoRoot: string; path: string }) => Promise<WorktreePoolActionResult>
   getWorktreePoolSettings: () => Promise<WorktreePoolSettings>
   setWorktreePoolSettings: (patch: Partial<WorktreePoolSettings>) => Promise<WorktreePoolSettings>
   /** Every worktree of these projects and of every pool, for Settings ▸ Worktrees. */
@@ -1584,8 +1592,14 @@ export type ElectronApi = {
   }) => Promise<PullRequestTextResult>
   /** The dialog closed while its draft was being written: the drafting CLI is stopped. */
   cancelPullRequestDraft: (draftId: string) => Promise<void>
-  pushForPullRequest: (cwd: string) => Promise<PushForPullRequestOutcome>
-  createPullRequest: (input: { cwd: string; title: string; body: string }) => Promise<CreatePullRequestOutcome>
+  /** `pin`: the branch and commit the person confirmed; refused when the checkout has moved off it. */
+  pushForPullRequest: (cwd: string, pin?: PullRequestCheckoutPin) => Promise<PushForPullRequestOutcome>
+  createPullRequest: (input: {
+    cwd: string
+    title: string
+    body: string
+    pin?: PullRequestCheckoutPin
+  }) => Promise<CreatePullRequestOutcome>
   /** Create a new design-system bundle in a user-chosen folder — seeded from an existing bundle, or bare from the shipped templates. Never overwrites; rolls back on failure. */
   seedDesignSystemBundle: (
     sourceDir: string | null,

@@ -6,6 +6,8 @@ import type { Workspace } from '../../../types/workspace'
 import {
   buildRemoteBand,
   conversationsOf,
+  followedRemoteRestsToKeep,
+  readFollowedRemoteRests,
   remoteLifecycleWritable,
   remoteRestToFollow,
   unattachedConversations,
@@ -259,4 +261,34 @@ test('a machine that does not keep its chats’ rest is not followed', () => {
     }),
     [],
   )
+})
+
+test('a settle followed before a restart is not followed again after it, so a row brought back stays', () => {
+  const workspaces = [opened('here-1', 'c1', 'resting'), { id: 'local' } as Workspace]
+  const browses = new Map([['c1', entry([remoteWorkspace('resting', 'Done', 4_000)])]])
+  const followed = new Map<string, number>()
+  for (const { workspaceId, settledAt } of remoteRestToFollow({ workspaces, browses, followed }))
+    followed.set(workspaceId, settledAt)
+  const kept = followedRemoteRestsToKeep(followed, workspaces)
+
+  // The person brought the row back; the app restarts and reads what it kept.
+  const afterRestart = readFollowedRemoteRests(kept)
+  assert.deepEqual(remoteRestToFollow({ workspaces, browses, followed: afterRestart }), [])
+  // Settled over there again, later: followed again.
+  const settledAgain = new Map([['c1', entry([remoteWorkspace('resting', 'Done', 9_000)])]])
+  assert.deepEqual(remoteRestToFollow({ workspaces, browses: settledAgain, followed: afterRestart }), [
+    { workspaceId: 'here-1', settledAt: 9_000 },
+  ])
+})
+
+test('what is kept names only rows still here, and anything unreadable reads as nothing followed', () => {
+  const followed = new Map([
+    ['here-1', 4_000],
+    ['closed', 3_000],
+  ])
+  assert.equal(followedRemoteRestsToKeep(followed, [opened('here-1', 'c1', 'resting')]), '{"here-1":4000}')
+  assert.deepEqual([...readFollowedRemoteRests('not json')], [])
+  assert.deepEqual([...readFollowedRemoteRests('[4000]')], [])
+  assert.deepEqual([...readFollowedRemoteRests(null)], [])
+  assert.deepEqual([...readFollowedRemoteRests('{"a":1,"b":"x"}')], [['a', 1]])
 })

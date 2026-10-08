@@ -528,7 +528,9 @@ the desktop's own sidebar — agrees with it. A desktop that advertises
   `visitedAt` no later than the chat's `visitRewoundAt` is a reading taken
   before its last Mark unread and changes nothing. A desktop following a paired
   machine's chat sends no `visitedAt`, so that machine stamps the visit by its
-  own clock. It is
+  own clock. Like the other lifecycle tools it needs `conversation:operate`,
+  but it is kept out of the gateway audit, allowed or refused: a device stamps
+  one every few seconds while a chat is on screen. It is
   not activity: the chat keeps its place and a settled one stays settled. The
   desktop stamps its own windows' visits the same way: at once when the chat
   in front has an unseen finish, otherwise at most every ten seconds while it
@@ -543,7 +545,9 @@ the desktop's own sidebar — agrees with it. A desktop that advertises
   `{ ok: true, workspaceId, lastVisitedAt }`. Its finish reads as unseen again
   on every device, and the next opening's "New" divider sits above its latest
   reply. A chat already unread from further back keeps its clock; one whose
-  agent has finished nothing is refused as `nothing_finished`. It is the one
+  agent has finished nothing is refused as `nothing_finished`. The finish is
+  read as the list reads it, transcripts included, so a chat the list shows
+  finished can be marked after a restart too. It is the one
   write that moves the visit clock back: the record stamps `visitRewoundAt`
   beside it, and the desktop's windows and its registry take an earlier
   `lastVisitedAt` only with a newer stamp, so a lagging visit still cannot

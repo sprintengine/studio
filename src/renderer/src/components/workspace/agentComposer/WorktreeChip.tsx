@@ -24,7 +24,7 @@ export function WorktreeChip({
   const on = name !== null
   const inputRef = React.useRef<HTMLInputElement>(null)
   return (
-    <span data-worktree-chip={on ? 'on' : 'off'} className="inline-flex min-w-0 items-center gap-0.5">
+    <span data-worktree-chip={on ? 'on' : 'off'} className="inline-flex shrink-0 items-center gap-0.5">
       <Tooltip content={on ? 'Runs in a worktree of its own' : 'Run in a worktree of its own'} placement="top">
         <ChipButton
           variant="raised"

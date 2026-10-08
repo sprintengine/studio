@@ -385,6 +385,9 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   const pullRequests = createPullRequestDomain({
     dataDir,
     conversations,
+    // An open pull request is probed every couple of minutes while a window
+    // is in front, and far less often while none is.
+    recordOptions: { focus: powerActivity },
     workspaceFolder: (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
     log: (message, error) => {
       void writeDiagnosticLog({
@@ -495,9 +498,19 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
         (session) => session.kind === 'agent' && session.workspaceId === workspaceId && terminalAgentWorking(session),
       )
     },
-    latestChatTurnEnd: (workspaceId) => {
+    // The transcripts' index too, as the list reads it: after a restart a
+    // chat-only conversation's finishes are on record only there.
+    latestChatTurnEnd: async (workspaceId) => {
+      const workspaceRoot = workspaceRegistry.getRecord(workspaceId)?.folderPath
+      const indexed = workspaceRoot
+        ? await conversations.listThreads({ workspaceId, workspaceRoot }).catch(() => null)
+        : null
+      const indexedEnd = Math.max(
+        -1,
+        ...(indexed?.ok ? indexed.threads : []).map((thread) => thread.lastTurnEndedAt ?? -1),
+      )
       const listed = conversations.listSessions({ workspaceId })
-      return listed.ok ? latestTurnEnd(listed.sessions, { workspaceId }) : undefined
+      return latestTurnEnd(listed.ok ? listed.sessions : [], { workspaceId }, indexedEnd)
     },
   })
   // `origin` is for Studio's own sends (a resume after a usage limit): they

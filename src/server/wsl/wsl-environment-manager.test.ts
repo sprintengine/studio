@@ -90,8 +90,18 @@ function fakeHome(name: string): string {
  * back the news that a shell exited, as `wsl.exe` is behind the Linux
  * process it ran: a killed server's wire closes first.
  */
-function fakeRunner(homes: Record<string, string>, closeDelayMs = 0): WslRunner & { spawned: number } {
+function fakeRunner(
+  homes: Record<string, string>,
+  closeDelayMs = 0,
+  /**
+   * `orphanOnKill`: killing the stand-in for `wsl.exe` leaves the server it
+   * ran, as killing `wsl.exe` can. `skipKills`: that many `kill -9` scripts
+   * do nothing.
+   */
+  extra: { orphanOnKill?: boolean; skipKills?: number } = {},
+): WslRunner & { spawned: number } {
   const env = (distro: string) => ({ PATH: process.env.PATH, HOME: homes[distro], WSL_DISTRO_NAME: distro })
+  let skipKills = extra.skipKills ?? 0
   const asProcess = (child: ReturnType<typeof spawn>): HelperProcess => {
     child.stdin?.on('error', () => undefined)
     return {
@@ -99,10 +109,17 @@ function fakeRunner(homes: Record<string, string>, closeDelayMs = 0): WslRunner 
       stdout: child.stdout!,
       stderr: child.stderr!,
       pid: child.pid,
-      kill: () => child.kill('SIGKILL'),
+      kill: () => {
+        child.kill('SIGKILL')
+        if (extra.orphanOnKill) {
+          child.stdout?.destroy()
+          child.stderr?.destroy()
+        }
+      },
       once: (event: 'close' | 'error', listener: (...args: never[]) => void) =>
         child.once(
-          event,
+          // An orphan holds the pipes open: its stand-in's exit is its close.
+          extra.orphanOnKill && event === 'close' ? 'exit' : event,
           event === 'close' && closeDelayMs > 0
             ? (...args: unknown[]) =>
                 setTimeout(() => (listener as (...args: unknown[]) => void)(...args), closeDelayMs)
@@ -125,9 +142,17 @@ function fakeRunner(homes: Record<string, string>, closeDelayMs = 0): WslRunner 
     spawned: 0,
     spawnShell(distro: string) {
       runner.spawned++
-      return asProcess(spawn('sh', ['-s'], { cwd: homes[distro], env: env(distro), stdio: ['pipe', 'pipe', 'pipe'] }))
+      // `; :` keeps the outer shell from exec'ing the inner one, so it is a stand-in of its own.
+      const argv = extra.orphanOnKill ? ['-c', 'sh -s; :'] : ['-s']
+      return asProcess(spawn('sh', argv, { cwd: homes[distro], env: env(distro), stdio: ['pipe', 'pipe', 'pipe'] }))
     },
-    runScript: (distro: string, script: string) => run(distro, 'sh', ['-s'], Buffer.from(`${script}\n`)),
+    runScript: (distro: string, script: string) => {
+      if (script.startsWith('kill -9') && skipKills > 0) {
+        skipKills--
+        return Promise.resolve({ code: 0, stdout: '', stderr: '', timedOut: false })
+      }
+      return run(distro, 'sh', ['-s'], Buffer.from(`${script}\n`))
+    },
     runExec: (distro: string, argv: readonly string[], body: Buffer | Readable) =>
       run(distro, argv[0], argv.slice(1), body),
   }
@@ -146,8 +171,14 @@ function manager(options: {
   log?: (message: string) => void
   now?: () => number
   idleMs?: number
+  pingMs?: number
+  orphanOnKill?: boolean
+  skipKills?: number
 }) {
-  const runner = fakeRunner(options.homes, options.closeDelayMs)
+  const runner = fakeRunner(options.homes, options.closeDelayMs, {
+    ...(options.orphanOnKill ? { orphanOnKill: true } : {}),
+    ...(options.skipKills ? { skipKills: options.skipKills } : {}),
+  })
   const listing =
     options.listing ??
     (() => ({
@@ -171,6 +202,7 @@ function manager(options: {
     ...(options.log ? { log: options.log } : {}),
     ...(options.now ? { now: options.now } : {}),
     ...(options.idleMs ? { idleMs: options.idleMs } : {}),
+    ...(options.pingMs ? { pingMs: options.pingMs } : {}),
   })
   cleanups.push(() => created.shutdown({ budgetMs: 5_000 }))
   return { manager: created, runner }
@@ -402,6 +434,68 @@ test('a server whose wire is being reconnected is not stopped for being idle onc
     false,
   )
 }, 30_000)
+
+test('a server that stops answering its pings is taken for hung, stopped, and said to be', async () => {
+  const home = fakeHome('hung')
+  const { manager: wsl } = manager({ homes: { Ubuntu: home }, pingMs: 200 })
+  const first = await wsl.connect('Ubuntu')
+  const pid = readServerPid(home)
+  // Alive, its event loop held: it answers nothing.
+  process.kill(pid, 'SIGSTOP')
+  try {
+    await waitFor(() => wsl.status('Ubuntu').state === 'unavailable', 10_000)
+  } finally {
+    try {
+      process.kill(pid, 'SIGCONT')
+    } catch {
+      // Killed already.
+    }
+  }
+  assert.match(wsl.status('Ubuntu').reason ?? '', /stopped answering, so it was stopped/u)
+  await waitFor(() => first.backend.isOpen() === false)
+  await waitFor(() => {
+    try {
+      process.kill(pid, 0)
+      return false
+    } catch {
+      return true
+    }
+  })
+  assert.match(wsl.status('Ubuntu').reason ?? '', /stopped answering/u, 'its exit does not make it "stopped"')
+  // The next message starts it again.
+  await wsl.connect('Ubuntu')
+  assert.equal(wsl.status('Ubuntu').state, 'ready')
+}, 60_000)
+
+for (const skipKills of [0, 1])
+  test(`a server that outlives its killed wsl.exe is killed too${skipKills ? ', or found holding the data directory and killed then' : ''}`, async () => {
+    const home = fakeHome(`orphan-${skipKills}`)
+    const { manager: wsl } = manager({ homes: { Ubuntu: home }, pingMs: 200, orphanOnKill: true, skipKills })
+    await wsl.connect('Ubuntu')
+    const pid = readServerPid(home)
+    cleanups.push(() => {
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch {
+        // Gone.
+      }
+    })
+    // Hung, so it is killed; its stand-in for wsl.exe goes, and the server may not.
+    process.kill(pid, 'SIGSTOP')
+    await waitFor(() => wsl.status('Ubuntu').state === 'unavailable', 10_000)
+    // The next message starts a server: not refused for a data directory the old one holds.
+    await wsl.connect('Ubuntu')
+    assert.equal(wsl.status('Ubuntu').state, 'ready')
+    assert.notEqual(readServerPid(home), pid)
+    await waitFor(() => {
+      try {
+        process.kill(pid, 0)
+        return false
+      } catch {
+        return true
+      }
+    })
+  }, 60_000)
 
 test('a WSL 1 distribution is refused with the command that converts it, and nothing is started', async () => {
   const home = fakeHome('wsl1')

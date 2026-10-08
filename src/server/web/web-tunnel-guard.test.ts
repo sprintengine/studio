@@ -78,6 +78,34 @@ test('a call that changes something is audited with its outcome; a read is not',
   expect(webTunnelAudited('conversation:threads')).toBe(false)
 })
 
+test('a page whose socket stays full is closed once the tunnel is too far behind, and one that drains is not', () => {
+  let drained: (() => void) | null = null
+  const closes: Array<number | undefined> = []
+  const peer = {
+    send: () => false,
+    whenDrained: (listener: () => void) => void (drained = listener),
+    onText: () => undefined,
+    onClose: () => undefined,
+    close: (code?: number) => void closes.push(code),
+    isOpen: () => true,
+  } satisfies WebSocketPeer
+  const original = console.error
+  console.error = () => undefined
+  try {
+    const port = tunnelPortOf(peer)
+    const push = { t: 'ipc.push', channel: 'workspace:changed', args: ['x'.repeat(1024 * 1024)] }
+    for (let index = 0; index < 20; index++) port.postMessage(push)
+    // It drained: what was behind is written, and the count starts over.
+    drained!()
+    for (let index = 0; index < 20; index++) port.postMessage(push)
+    expect(closes).toEqual([])
+    for (let index = 0; index < 20; index++) port.postMessage(push)
+    expect(closes).toEqual([1013])
+  } finally {
+    console.error = original
+  }
+})
+
 test('a result JSON would change is sent as the failure it is, not mangled', () => {
   const sent: string[] = []
   const peer = {

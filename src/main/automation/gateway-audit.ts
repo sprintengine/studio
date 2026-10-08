@@ -24,8 +24,26 @@ export const TAILNET_PEER_REFUSED_AUDIT_TOOL = 'tailnet.peer_refused'
  * audit otherwise keeps mutations only; a refusal at the door is not one, and
  * must be kept anyway.
  */
-export function isAlwaysAudited(tool: string): boolean {
+function isAlwaysAudited(tool: string): boolean {
   return tool === TAILNET_PEER_REFUSED_AUDIT_TOOL
+}
+
+/**
+ * Whether a call is kept out of the audit though it is a mutation. Saying a
+ * chat is on screen (`conversation.visit`) writes the desktop's own record,
+ * so it needs `conversation:operate` like the other lifecycle tools, but a
+ * device stamps one every few seconds while a chat is in front: audited, it
+ * would rotate the pairings and refusals this log exists to keep out of it
+ * within the day. It moves a read clock and nothing else.
+ */
+function isNeverAudited(tool: string): boolean {
+  return tool === 'conversation.visit'
+}
+
+/** Whether a call, a mutation or not, is written to the audit: the one rule every door applies. */
+export function isAuditedCall(tool: string, mutation: boolean): boolean {
+  if (isNeverAudited(tool)) return false
+  return mutation || isAlwaysAudited(tool)
 }
 
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024

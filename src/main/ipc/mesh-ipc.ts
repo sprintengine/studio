@@ -101,6 +101,7 @@ export function registerMeshIpc(ipcMain: IpcMain, service: AutomationService): v
       prompt: record.prompt,
       cliModel: record.cliModel,
       permissionPreset: record.permissionPreset,
+      effort: record.effort,
     })
   })
   // A remote chat's rest and visit clock, kept by the machine it runs on.

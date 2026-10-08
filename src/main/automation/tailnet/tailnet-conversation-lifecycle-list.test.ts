@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import { parseConversationServerFrame } from '../../../../packages/conversation-protocol/src/public'
-import type { ConversationSessionSummary } from '../../../shared/conversation-runtime'
+import type { ConversationEvent, ConversationSessionSummary } from '../../../shared/conversation-runtime'
 import type { ConversationThread as IndexedThread } from '../../../shared/conversation-index'
 import type { ConversationBackend } from '../../../server/core/conversation-backend'
 import {
@@ -213,19 +213,44 @@ test('the client validator keeps every lifecycle member that is readable and dro
   assert.equal(broken?.lastTurnEndedAt, 300)
 })
 
-test('a send from a paired device stamps the desktop’s message clock', async () => {
-  const notes: Array<[string, number]> = []
+/** A runtime that takes a send as the real one does: its `user_message` first, or a busy refusal and nothing. */
+function sendingRuntime(answer: 'accept' | 'busy') {
   const sent: unknown[] = []
+  const listeners = new Set<(event: ConversationEvent) => void>()
   const runtime = {
     listSessions: () => ({ ok: true, sessions: [session('chat', 'agent-1')] }),
     listThreads: async () => ({ ok: true, threads: [] }),
     getProviderCapabilities: () => undefined,
-    sendTurn: async (input: unknown) => {
+    onEvent: (listener: (event: ConversationEvent) => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    sendTurn: async (input: { sessionId: string; commandId?: string }) => {
       sent.push(input)
+      if (answer === 'busy') return { ok: false, code: 'busy', retryAfterMs: 1_000, message: 'Busy.' }
+      const event = (commandId: string | undefined, createdAt: number) =>
+        ({
+          id: 'e',
+          sessionId: input.sessionId,
+          workspaceId: 'chat',
+          agentId: 'agent-1',
+          providerId: 'mock',
+          modelId: 'default',
+          type: 'user_message',
+          createdAt,
+          payload: { text: 'carry on', commandId },
+        }) as ConversationEvent
+      // Another device's message in another chat is not this send's.
+      for (const listener of [...listeners]) listener({ ...event('someone-else', 4_000), sessionId: 'other' })
+      for (const listener of [...listeners]) listener(event(input.commandId, 5_000))
       return { ok: true }
     },
   } as unknown as ConversationBackend
-  const host = createConversationGatewayHost(
+  return { runtime, sent, listeners }
+}
+
+function noteHost(runtime: ConversationBackend, notes: Array<[string, number]>) {
+  return createConversationGatewayHost(
     runtime,
     () => '/Users/dev/app',
     () => [],
@@ -235,18 +260,33 @@ test('a send from a paired device stamps the desktop’s message clock', async (
     {},
     { noteUserMessage: (workspaceId, at) => notes.push([workspaceId, at]) },
   )
-  const before = Date.now()
-  const result = await host.command(
-    { workspaceRoot: '/Users/dev/app', workspaceId: 'chat', agentId: 'agent-1' },
-    'device-1',
-    'command-1',
-    { kind: 'send', message: 'carry on' },
-  )
+}
+
+const chatKey = { workspaceRoot: '/Users/dev/app', workspaceId: 'chat', agentId: 'agent-1' }
+
+test('a send from a paired device stamps the desktop’s message clock when the chat takes it', async () => {
+  const notes: Array<[string, number]> = []
+  const { runtime, sent, listeners } = sendingRuntime('accept')
+  const result = await noteHost(runtime, notes).command(chatKey, 'device-1', 'command-1', {
+    kind: 'send',
+    message: 'carry on',
+  })
   assert.equal(result.ok, true)
   assert.equal(sent.length, 1)
-  assert.equal(notes.length, 1)
-  assert.equal(notes[0]?.[0], 'chat')
-  assert.ok(notes[0]![1] >= before)
+  assert.deepEqual(notes, [['chat', 5_000]], 'at the message’s own time, once')
+  assert.equal(listeners.size, 0, 'nothing is left listening')
+})
+
+test('a send turned away busy stamps nothing, so a phone’s retries neither write nor wake the chat', async () => {
+  const notes: Array<[string, number]> = []
+  const { runtime, listeners } = sendingRuntime('busy')
+  const host = noteHost(runtime, notes)
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await host.command(chatKey, 'device-1', 'command-1', { kind: 'send', message: 'carry on' })
+    assert.equal(result.code, 'busy')
+  }
+  assert.deepEqual(notes, [])
+  assert.equal(listeners.size, 0)
 })
 
 test('a send through a host for Studio’s own messages is recorded as Studio’s and stamps no clock', async () => {

@@ -31,6 +31,12 @@ export type CronLine = {
   /** Whether each day field was left open (`*`), which decides how the two combine. */
   dayOfMonthOpen: boolean
   dayOfWeekOpen: boolean
+  /**
+   * Whether the hour field repeats (`*` or a step): such a line runs on the
+   * clock rather than at a time of day, so a wall-clock time a DST change
+   * repeats runs at both of its instants.
+   */
+  hourRepeats: boolean
 }
 
 export type CronSchedule = { lines: CronLine[] }
@@ -130,6 +136,7 @@ function parseCronLine(
       daysOfWeek,
       dayOfMonthOpen: isOpenField(parts[2] as string),
       dayOfWeekOpen: isOpenField(parts[4] as string),
+      hourRepeats: /[*?/]/u.test(parts[1] as string),
     },
   }
 }
@@ -216,8 +223,10 @@ const FORMATTERS = new Map<string, Intl.DateTimeFormat>()
  * The next `count` instants (ms) strictly after `after` at which the schedule
  * runs, wall-clock in `timeZone`. Fewer than `count` only for a schedule that
  * names a day no calendar has. A wall-clock time a DST change skips runs at the
- * first minute after the gap; one a DST change repeats runs once, at the first
- * of the two.
+ * first minute after the gap. One a DST change repeats runs once, at the first
+ * of the two, on a line with fixed hours ("daily at 1:30 AM" is once a day);
+ * on a line whose hour field repeats it runs at both, so an hourly schedule
+ * keeps running through the repeated hour instead of going quiet for it.
  */
 export function nextCronRuns(schedule: CronSchedule, timeZone: string, after: number, count: number): number[] {
   const runs: number[] = []
@@ -242,18 +251,32 @@ export function nextCronRun(schedule: CronSchedule, timeZone: string, after: num
 
 function nextLineRun(line: CronLine, timeZone: string, after: number): number | null {
   const start = localDateTimeAt(after, timeZone)
+  const startMinute = start.hour * 60 + start.minute
+  // A repeated hour's second pass reads as an earlier wall-clock time than the
+  // first pass's end, so a repeating line looks back the hour a change moves.
+  const lookBack = line.hourRepeats ? 60 : 0
   for (let offset = 0; offset <= SEARCH_DAYS; offset += 1) {
     const date = addDays(start, offset)
     if (!lineMatchesDate(line, date)) continue
+    let best: number | null = null
     for (const hour of line.hours) {
       for (const minute of line.minutes) {
         // Before the day's start minute there is nothing to find on day 0; a
         // cheap local comparison skips resolving instants that cannot win.
-        if (offset === 0 && (hour < start.hour || (hour === start.hour && minute < start.minute))) continue
-        const instant = instantForLocal({ ...date, hour, minute }, timeZone)
-        if (instant !== null && instant > after) return instant
+        if (offset === 0 && hour * 60 + minute < startMinute - lookBack) continue
+        const instants = instantsForLocal({ ...date, hour, minute }, timeZone)
+        const earliest = instants[0]
+        if (earliest === undefined) continue
+        // A time's first instant only grows with the wall-clock, so once one
+        // is past the best found nothing later on the day can beat it.
+        if (best !== null && earliest >= best) return best
+        for (const instant of line.hourRepeats ? instants : [earliest]) {
+          if (instant > after && (best === null || instant < best)) best = instant
+        }
+        if (best !== null && !line.hourRepeats) return best
       }
     }
+    if (best !== null) return best
   }
   return null
 }
@@ -304,28 +327,27 @@ function offsetAt(instant: number, timeZone: string): number {
 }
 
 /**
- * The instant a wall-clock time names in a zone. The zone's offsets a day
- * either side of it reach past any DST change near it, so both instants of a
- * repeated time are candidates whichever side of UTC the zone is on; a
- * repeated time answers with the earlier instant, and a skipped one with the
- * first instant after the gap.
+ * The instants a wall-clock time names in a zone, earliest first. The zone's
+ * offsets a day either side of it reach past any DST change near it, so both
+ * instants of a repeated time are found whichever side of UTC the zone is on;
+ * a skipped time answers with the first instant after the gap.
  */
-function instantForLocal(target: LocalDateTime, timeZone: string): number | null {
+function instantsForLocal(target: LocalDateTime, timeZone: string): number[] {
   const wall = asUtc(target)
   // Probing only near `wall` read as UTC lands after the change in a zone
   // east of UTC, so its earlier instant (Berlin's first 02:30) was never tried.
   const offsets = new Set([DAY_MS, 0, -DAY_MS].map((shift) => offsetAt(wall + shift, timeZone)))
   const candidates = [...offsets].map((offset) => wall - offset)
   const matches = candidates.filter((instant) => asUtc(localDateTimeAt(instant, timeZone)) === wall)
-  if (matches.length > 0) return Math.min(...matches)
+  if (matches.length > 0) return matches.sort((a, b) => a - b)
   // A gap: the wall-clock time never happens. Walk to the first minute whose
   // wall-clock is past it — the gap is an hour or less, so this is short.
   let instant = Math.min(...candidates)
   for (let step = 0; step < 24 * 60; step += 1) {
-    if (asUtc(localDateTimeAt(instant, timeZone)) > wall) return instant
+    if (asUtc(localDateTimeAt(instant, timeZone)) > wall) return [instant]
     instant += MINUTE_MS
   }
-  return null
+  return []
 }
 
 function addDays(date: LocalDate, days: number): LocalDate {

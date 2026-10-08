@@ -231,7 +231,7 @@ test('designSystemAxes', async () => {
       // with its door (a70ba0931).
       // 6 → 5, 2026-09-28: the chat's Jump to latest moved onto the ladder
       // when the queued message began floating over the transcript.
-      // 5 → 4: the chat composer's drop overlay moved onto the ladder.
+      // 5 → 4, 2026-10-08: the composer's drop overlay moved onto the ladder.
       'components/panels': 4,
       'components/ui': 1,
       'components/memory': 1,

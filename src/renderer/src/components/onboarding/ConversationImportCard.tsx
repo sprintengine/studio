@@ -1,4 +1,5 @@
 import { GhostButton, PrimaryButton } from '../ui'
+import { useHoldCliUpdateToasts } from '../workspace/manager/cliUpdateToast'
 import { describeFound, importableCount } from './conversationImport'
 import { ConversationImportPicker, useConversationImportSelection } from './ConversationImportPicker'
 import type { ConversationImportScan } from './useConversationImportScan'
@@ -17,6 +18,9 @@ export default function ConversationImportCard({
   scan: Extract<ConversationImportScan, { status: 'ready' }>
   onDone: () => void
 }) {
+  // The CLI-update toasts wait for the answer: in a small window the toast
+  // corner is where this card's own buttons are.
+  useHoldCliUpdateToasts()
   const { selected, setSelected, importing, runImport } = useConversationImportSelection(scan.folders)
   const found = importableCount(scan.folders)
   return (

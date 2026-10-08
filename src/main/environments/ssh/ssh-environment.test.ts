@@ -206,6 +206,44 @@ test('a newer server on the machine is left alone: version-blocked, in words', a
   assert.equal(readFileSync(join(run, 'server.json'), 'utf8').includes('99.0.0'), true, 'never replaced')
 })
 
+test('Disconnect and Stop server hold until the person connects again; nothing in the background undoes them', async () => {
+  const home = join(scratch, 'held')
+  mkdirSync(home)
+  const machine = harness(home)
+  await machine.env.connect({ interactive: true })
+  const serverJson = join(home, '.local', 'share', 'sprintengine-studio', 'data', 'run', 'server.json')
+  const record = JSON.parse(readFileSync(serverJson, 'utf8')) as { pid: number }
+  pids.add(record.pid)
+  machine.env.disconnect()
+  assert.ok(await until(() => machine.env.summary().state === 'idle', 5_000))
+  const sessions = machine.spawned.length
+  // A chat asking in the background is told, and no ssh runs.
+  await assert.rejects(machine.env.connect({ interactive: false }), /was disconnected in Settings/u)
+  assert.equal(machine.spawned.length, sessions)
+  // The person connects: background callers may use it again.
+  await machine.env.connect({ interactive: true })
+  await machine.env.connect({ interactive: false })
+
+  // Stop server, with a chat asking while it runs: the stop is not undone.
+  const stopping = machine.env.stopServer()
+  const meanwhile = assert.rejects(machine.env.connect({ interactive: false }), /was disconnected in Settings/u)
+  await stopping
+  await meanwhile
+  await assert.rejects(machine.env.connect({ interactive: false }), /was disconnected in Settings/u)
+  assert.ok(
+    await until(() => {
+      try {
+        process.kill(record.pid, 0)
+        return false
+      } catch {
+        return true
+      }
+    }, 20_000),
+    'the server stayed stopped',
+  )
+  assert.match(machine.env.summary().stateText, /is stopped/u)
+}, 120_000)
+
 test('Stop server never signals the pid in a lock another machine holds', async () => {
   const home = join(scratch, 'shared-home')
   const run = join(home, '.local', 'share', 'sprintengine-studio', 'data', 'run')

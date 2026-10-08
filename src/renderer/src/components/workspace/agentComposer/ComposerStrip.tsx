@@ -9,8 +9,9 @@ import React from 'react'
 //
 // Always exactly one line (owner ruling 2026-10-04): it never wraps. Its items
 // sit apart by spacing alone — no divider — and each is `whitespace-nowrap`
-// and keeps its width, except a branch name, which is the one item allowed to
-// shrink. What does not fit is the host's to move elsewhere (the conversation
+// and keeps its width, except a branch name and a project's name, the items
+// allowed to shrink (the branch first, from its front; the project truncating
+// at its end), so the controls beside them stay in reach. What does not fit is the host's to move elsewhere (the conversation
 // strip folds items into a "⋮" menu); clipping along the line is only the
 // last guard against a host that has not, and it clips sideways alone so a
 // focus ring above or below an item is never cut.

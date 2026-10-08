@@ -17,6 +17,13 @@ type SessionState = {
   hasMore: boolean
   beforeCursor: number | null
   hydrated: boolean
+  /**
+   * The transcript is as current as the runtime's log: the latest join reached
+   * its fence. `hydrated` alone stays true for a kept chat opened again, whose
+   * held transcript is drawn at once while what was written since is still
+   * on its way.
+   */
+  caughtUp: boolean
   loadingEarlier: boolean
   error: string | null
   replayThroughSeq: number
@@ -71,6 +78,7 @@ const emptyState = (): SessionState => ({
   hasMore: false,
   beforeCursor: null,
   hydrated: false,
+  caughtUp: false,
   loadingEarlier: false,
   error: null,
   replayThroughSeq: 0,
@@ -275,7 +283,12 @@ function openSharedSession(transport: ConversationTransport, key: ConversationKe
     // Opened again: what it holds is history now, as it would be read cold,
     // and whatever was written meanwhile arrives as a catch-up behind the
     // fence of this join.
-    session.state = { ...session.state, replayThroughSeq: session.cursor?.seq ?? 0, announcement: '' }
+    session.state = {
+      ...session.state,
+      replayThroughSeq: session.cursor?.seq ?? 0,
+      announcement: '',
+      caughtUp: false,
+    }
     retained.snapshot = null
     session.resume()
     return retained
@@ -353,6 +366,7 @@ function openSharedSession(transport: ConversationTransport, key: ConversationKe
         case 'synchronized':
           if (!session.state.hydrated || replaced) session.state.replayThroughSeq = frame.seq
           session.state.hydrated = true
+          session.state.caughtUp = true
           session.state.error = null
           session.cursor = { seq: frame.seq, generation: frame.generation }
           session.joining = false

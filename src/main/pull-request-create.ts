@@ -25,6 +25,7 @@ import {
   type CreatePullRequestReadiness,
   type CreatePullRequestState,
   type ForgeRemote,
+  type PullRequestCheckoutPin,
   type PushForPullRequestOutcome,
 } from '../shared/git/pull-request-create'
 import { followsConventionalCommits, type PullRequestTextInput } from '../shared/text-generation/pull-request-text'
@@ -68,6 +69,23 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
   const listBranch = deps.listBranch ?? listBranchPullRequests
   const now = deps.now ?? (() => Date.now())
   const lookups = new Map<string, Lookup>()
+  // One push or creation at a time per checkout: a second confirm waits for
+  // the first to finish, then finds the branch pushed and its pull request
+  // there, rather than pushing and creating alongside it.
+  const checkoutLocks = new Map<string, Promise<unknown>>()
+
+  function withCheckoutLock<T>(cwd: string, run: () => Promise<T>): Promise<T> {
+    const key = path.resolve(cwd)
+    const previous = checkoutLocks.get(key) ?? Promise.resolve()
+    const next = previous.catch(() => undefined).then(run)
+    checkoutLocks.set(key, next)
+    void next
+      .catch(() => undefined)
+      .finally(() => {
+        if (checkoutLocks.get(key) === next) checkoutLocks.delete(key)
+      })
+    return next
+  }
 
   const out = async (cwd: string, args: string[]): Promise<string | null> => {
     const result = await git(cwd, args)
@@ -82,6 +100,7 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
     facts: CreatePullRequestFacts
     gitRoot: string | null
     remote: ForgeRemote | null
+    headSha: string | null
   }> {
     const empty = {
       facts: {
@@ -94,11 +113,13 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
       },
       gitRoot: null,
       remote: null,
+      headSha: null,
     }
     const gitRoot = await out(cwd, ['rev-parse', '--show-toplevel'])
     if (!gitRoot) return empty
-    const [branch, originHead, status, remoteUrl] = await Promise.all([
+    const [branch, headSha, originHead, status, remoteUrl] = await Promise.all([
       out(gitRoot, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
+      out(gitRoot, ['rev-parse', '--verify', '--quiet', 'HEAD']),
       out(gitRoot, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']),
       git(gitRoot, ['status', '--porcelain=v1', '--untracked-files=normal']),
       out(gitRoot, ['remote', 'get-url', 'origin']),
@@ -126,7 +147,15 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
       facts: { branch, defaultBranch, dirty, unmergedCommits, openPullRequest, forge: remote?.forge ?? null },
       gitRoot,
       remote,
+      headSha: headSha || null,
     }
+  }
+
+  /** Why the checkout is no longer what the person confirmed, or null when it still is (or nothing was pinned). */
+  function movedFrom(pin: PullRequestCheckoutPin | undefined, branch: string | null, headSha: string | null) {
+    if (!pin || (branch === pin.branch && headSha === pin.headSha)) return null
+    const now = branch ? `${branch} at ${headSha?.slice(0, 7) ?? 'no commit'}` : 'not on a branch'
+    return `The checkout moved after the pull request was confirmed (it is now ${now}), so nothing was pushed or opened. Press Create PR again to propose what is there now.`
   }
 
   /** Whether the branch has an open pull request (whoever opened it), and the heads its merged ones carried. */
@@ -166,11 +195,12 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
   }
 
   async function state(cwd: string): Promise<CreatePullRequestState> {
-    const { facts, gitRoot } = await readFacts(cwd)
+    const { facts, gitRoot, headSha } = await readFacts(cwd)
     return {
       readiness: createPullRequestReadiness(facts),
       gitRoot,
       branch: facts.branch,
+      headSha,
       base: facts.defaultBranch,
       forge: facts.forge,
     }
@@ -266,21 +296,30 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
   /**
    * Push the branch to its own name on its push remote when that does not have
    * all of it. Always to `refs/heads/<branch>`, never a bare `git push`, which
-   * follows the upstream: a branch cut from `origin/main` tracks main.
+   * follows the upstream: a branch cut from `origin/main` tracks main. With a
+   * pin, only while the checkout is still on it, and the pinned commit is what
+   * is pushed.
    */
-  async function push(cwd: string): Promise<PushForPullRequestOutcome> {
-    const { facts, gitRoot } = await readFacts(cwd)
+  function push(cwd: string, pin?: PullRequestCheckoutPin): Promise<PushForPullRequestOutcome> {
+    return withCheckoutLock(cwd, () => pushLocked(cwd, pin))
+  }
+
+  async function pushLocked(cwd: string, pin?: PullRequestCheckoutPin): Promise<PushForPullRequestOutcome> {
+    const { facts, gitRoot, headSha } = await readFacts(cwd)
     const ready = createPullRequestReadiness(facts)
     if (!gitRoot || !facts.branch) return { ok: false, message: 'This folder is not a checkout on a branch.' }
+    const moved = movedFrom(pin, facts.branch, headSha)
+    if (moved) return { ok: false, message: moved }
     if (!ready.ready) return { ok: false, message: readinessMessage(ready) }
     const target = await pushTargetOf(gitRoot, facts.branch, facts.defaultBranch)
     if (!target.ok) return target
     const { remote } = target
-    const refspec = `HEAD:refs/heads/${facts.branch}`
+    const commit = pin?.headSha ?? 'HEAD'
+    const refspec = `${commit}:refs/heads/${facts.branch}`
     // Only the branch's own namesake on the push remote is "already pushed".
     const pushedRef = `refs/remotes/${remote}/${facts.branch}`
     if (await out(gitRoot, ['rev-parse', '--verify', '--quiet', pushedRef])) {
-      const counted = await out(gitRoot, ['rev-list', '--count', `${pushedRef}..HEAD`])
+      const counted = await out(gitRoot, ['rev-list', '--count', `${pushedRef}..${commit}`])
       const ahead = counted === null ? Number.NaN : Number.parseInt(counted, 10)
       // A count git could not give is no proof the remote has it all: push.
       if (Number.isFinite(ahead) && ahead <= 0) return { ok: true, pushed: false }
@@ -289,24 +328,73 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
     return pushed.ok ? { ok: true, pushed: true } : { ok: false, message: gitFailure('push', pushed) }
   }
 
-  /** `owner:branch` for a branch pushed to a fork, as `gh pr create --head` names it; the branch alone on origin. */
-  async function headOf(gitRoot: string, branch: string, defaultBranch: string | null): Promise<string> {
-    const target = await pushTargetOf(gitRoot, branch, defaultBranch)
-    if (!target.ok || target.remote === 'origin') return branch
-    // The remote's own address names the fork's owner (a push URL may be a mirror).
-    const url = (await out(gitRoot, ['remote', 'get-url', target.remote])) ?? target.remote
-    const owner = forgeOfRemote(url)?.webUrl.split('/').at(-2)
-    return owner ? `${owner}:${branch}` : branch
+  /**
+   * The remote gh opens the pull request on, chosen as gh chooses it: the one
+   * `gh repo set-default` marked, then `upstream`, `github`, `origin`, then
+   * the first there is. A clone of a fork usually has the fork as origin and
+   * the parent as upstream, and the pull request goes to the parent.
+   */
+  async function baseRemoteOf(gitRoot: string): Promise<string | null> {
+    const remotes = ((await out(gitRoot, ['remote'])) ?? '').split('\n').filter(Boolean)
+    const marked = (await out(gitRoot, ['config', '--get-regexp', '^remote\\..*\\.gh-resolved$'])) ?? ''
+    for (const line of marked.split('\n')) {
+      const [key, value] = line.split(/\s+/u)
+      const name = key?.slice('remote.'.length, -'.gh-resolved'.length)
+      if (value === 'base' && name && remotes.includes(name)) return name
+    }
+    return ['upstream', 'github', 'origin'].find((name) => remotes.includes(name)) ?? remotes[0] ?? null
   }
 
-  /** Open the pull request: `gh pr create` on GitHub, the forge's own page elsewhere. */
-  async function create(cwd: string, text: { title: string; body: string }): Promise<CreatePullRequestOutcome> {
+  /**
+   * What `gh pr create` is told: the repository the pull request opens on
+   * (`--repo`, so gh and this agree on it), and the head, `owner:branch`
+   * whenever the branch is pushed to a repository other than that one (a
+   * fork, whichever remote names it), the branch alone when it is the same.
+   */
+  async function headOf(
+    gitRoot: string,
+    branch: string,
+    defaultBranch: string | null,
+  ): Promise<{ head: string; repo: string | null }> {
+    const baseRemote = await baseRemoteOf(gitRoot)
+    const baseUrl = baseRemote ? await out(gitRoot, ['remote', 'get-url', baseRemote]) : null
+    const base = baseUrl ? forgeOfRemote(baseUrl) : null
+    const repo = base ? base.webUrl.replace(/^[a-z]+:\/\//u, '') : null
+    const target = await pushTargetOf(gitRoot, branch, defaultBranch)
+    if (!target.ok || !base) return { head: branch, repo }
+    // The remote's own address names its owner (a push URL may be a mirror).
+    const url = (await out(gitRoot, ['remote', 'get-url', target.remote])) ?? target.remote
+    const pushed = forgeOfRemote(url)
+    if (!pushed || pushed.webUrl.toLowerCase() === base.webUrl.toLowerCase()) return { head: branch, repo }
+    const owner = pushed.webUrl.split('/').at(-2)
+    return { head: owner ? `${owner}:${branch}` : branch, repo }
+  }
+
+  /**
+   * Open the pull request: `gh pr create` on GitHub, the forge's own page
+   * elsewhere. With a pin, only while the checkout is still on it.
+   */
+  function create(
+    cwd: string,
+    text: { title: string; body: string },
+    pin?: PullRequestCheckoutPin,
+  ): Promise<CreatePullRequestOutcome> {
+    return withCheckoutLock(cwd, () => createLocked(cwd, text, pin))
+  }
+
+  async function createLocked(
+    cwd: string,
+    text: { title: string; body: string },
+    pin?: PullRequestCheckoutPin,
+  ): Promise<CreatePullRequestOutcome> {
     const title = text.title.trim()
     if (!title) return { ok: false, message: 'A pull request needs a title.' }
-    const { facts, gitRoot, remote } = await readFacts(cwd, { fresh: true })
+    const { facts, gitRoot, remote, headSha } = await readFacts(cwd, { fresh: true })
     if (!gitRoot || !facts.branch || !facts.defaultBranch || !remote) {
       return { ok: false, message: 'This checkout has no branch and remote to open a pull request from.' }
     }
+    const moved = movedFrom(pin, facts.branch, headSha)
+    if (moved) return { ok: false, message: moved }
     if (remote.forge !== 'github') {
       const url = newPullRequestPageUrl(remote, facts.defaultBranch, facts.branch)
       return url
@@ -318,6 +406,7 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
       const bodyFile = path.join(scratch, 'body.md')
       await writeFile(bodyFile, text.body, 'utf8')
       const gh = deps.gh ?? sharedGhRunner()
+      const { head, repo } = await headOf(gitRoot, facts.branch, facts.defaultBranch)
       const result = await gh.run(
         [
           'pr',
@@ -325,11 +414,12 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
           '--base',
           facts.defaultBranch,
           '--head',
-          await headOf(gitRoot, facts.branch, facts.defaultBranch),
+          head,
           '--title',
           title,
           '--body-file',
           bodyFile,
+          ...(repo ? ['--repo', repo] : []),
         ],
         { cwd: gitRoot, timeoutMs: GH_CREATE_TIMEOUT_MS },
       )

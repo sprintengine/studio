@@ -761,3 +761,56 @@ test('a run whose record cannot be written is logged, not left as an unhandled r
   assert.match(logs[0] ?? '', /could not be recorded: disk full/u)
   scheduler.stop()
 })
+
+test('a run on its way when the scheduler stops (the app quitting) starts no chat and records nothing', async () => {
+  const time = fakeTime(Date.UTC(2026, 8, 30, 12, 59))
+  let release: () => void = () => undefined
+  const recorded: unknown[] = []
+  const launched: string[] = []
+  const scheduler = createScheduledAgentsScheduler({
+    list: () => [agent({ worktree: { name: 'nightly' } })],
+    // The run is making its worktree when the quit comes.
+    run: (entry, signal) =>
+      runScheduledAgent(
+        entry,
+        {
+          getRepoRoot: async () => '/Users/dev/acme',
+          createWorktree: async (input) => {
+            await new Promise<void>((resolve) => (release = resolve))
+            return { ok: true, path: input.destinationPath, branch: input.branchName }
+          },
+          discardWorktree: async ({ path }) => {
+            launched.push(`discarded:${path.includes('nightly')}`)
+          },
+          launchConversation: async () => {
+            launched.push('chat')
+            return { ok: true, workspaceId: 'ws-run', agentId: 'agent-1' } as never
+          },
+          now: time.now,
+        },
+        signal,
+      ),
+    recordRun: async (_id, run) => {
+      recorded.push(run)
+    },
+    now: time.now,
+    setTimer: time.setTimer,
+    clearTimer: time.clearTimer,
+  })
+  scheduler.start()
+  await time.advanceTo(Date.UTC(2026, 8, 30, 13, 0))
+  scheduler.stop()
+  release()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(launched, ['discarded:true'], 'its worktree goes back, and no chat starts')
+  assert.deepEqual(recorded, [])
+
+  // Started again, Run now works as before.
+  scheduler.start()
+  const ran = scheduler.runNow('sa-1')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  release()
+  assert.equal((await ran).ok, true)
+  assert.deepEqual(launched, ['discarded:true', 'chat'])
+})

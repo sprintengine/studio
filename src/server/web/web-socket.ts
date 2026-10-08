@@ -28,6 +28,15 @@ import type { TunnelPort } from '../ipc/ipc-tunnel'
 /** The largest message a browser may send; the protocol skips oversized frames below this on its own. */
 const MAX_WEB_MESSAGE_BYTES = 16 * 1024 * 1024
 const PING_INTERVAL_MS = 25_000
+/**
+ * What a page's IPC tunnel may have waiting to be written while its socket is
+ * full. A port is never paused, so a page that stopped reading would grow the
+ * queue without end; past this it is closed, and the page connects again and
+ * reads its state afresh.
+ */
+const MAX_TUNNEL_BACKLOG_BYTES = 32 * 1024 * 1024
+/** The close a tunnel too far behind ends with: try again later. */
+const WEB_CLOSE_BEHIND = 1013
 const PONG_TIMEOUT_MS = 60_000
 /** The private close code a revoked session's sockets close with (phase 9 spec, 6.1). */
 export const WEB_CLOSE_REVOKED = 4401
@@ -219,6 +228,26 @@ export function webSocketStream(peer: WebSocketPeer): Duplex {
  */
 export function tunnelPortOf(peer: WebSocketPeer): TunnelPort {
   const messageListeners: Array<(event: { data: unknown }) => void> = []
+  // Bytes written while the socket was full, until it drains.
+  let backlog = 0
+  let draining = false
+  let behind = false
+  const send = (text: string) => {
+    if (behind || peer.send(text)) return
+    backlog += Buffer.byteLength(text)
+    if (backlog > MAX_TUNNEL_BACKLOG_BYTES) {
+      behind = true
+      console.error(`[web tunnel] the page fell ${backlog} bytes behind; closing its socket so it reads afresh`)
+      peer.close(WEB_CLOSE_BEHIND, 'The page fell too far behind.')
+      return
+    }
+    if (draining) return
+    draining = true
+    peer.whenDrained(() => {
+      draining = false
+      backlog = 0
+    })
+  }
   peer.onText((text) => {
     let data: unknown
     try {
@@ -238,7 +267,7 @@ export function tunnelPortOf(peer: WebSocketPeer): TunnelPort {
         const frame = message as { t?: unknown; id?: unknown; channel?: unknown } | null
         console.error(`[web tunnel] ${error instanceof Error ? error.message : String(error)}`)
         if (frame?.t === 'ipc.result')
-          peer.send(
+          send(
             JSON.stringify({
               t: 'ipc.result',
               id: frame.id,
@@ -248,7 +277,7 @@ export function tunnelPortOf(peer: WebSocketPeer): TunnelPort {
           )
         return
       }
-      peer.send(JSON.stringify(message))
+      send(JSON.stringify(message))
     },
     on: ((event: 'message' | 'close', listener: (event: { data: unknown }) => void) => {
       if (event === 'message') messageListeners.push(listener)

@@ -411,3 +411,29 @@ test('while a handoff is under way, a second one is refused before it stops anyt
   chat.runtime.endTerminalHandoff({ sessionId })
   assert.equal((await chat.runtime.terminalHandoffTarget({ sessionId })).ok, true)
 })
+
+test('once a terminal has the session, Studio’s own sends are refused until the person writes again', async () => {
+  const chat = await setup()
+  await chat.send('one')
+  const sessionId = sessionOf(chat.runtime)
+  await chat.runtime.noteTerminalHandoff({ sessionId, notice: 'Continues in a terminal.' })
+
+  // A launched agent's notice, a resume after a usage limit: neither respawns the chat beside the terminal.
+  for (const origin of [
+    { kind: 'studio', reason: 'agent-notice' },
+    { kind: 'studio', reason: 'usage-resume' },
+  ] as const) {
+    const refused = await chat.runtime.sendTurn({ sessionId, message: '[SprintEngine Studio] news', origin })
+    assert.equal(refused.ok, false)
+    assert.match(!refused.ok ? refused.message : '', /continues in a terminal/u)
+  }
+
+  // The person writing to the chat takes it back, and Studio may send again.
+  await chat.send('back here')
+  const after = await chat.runtime.sendTurn({
+    sessionId,
+    message: '[SprintEngine Studio] news',
+    origin: { kind: 'studio', reason: 'agent-notice' },
+  })
+  assert.equal(after.ok, true)
+})

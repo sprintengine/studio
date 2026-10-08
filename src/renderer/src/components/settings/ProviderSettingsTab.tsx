@@ -17,8 +17,10 @@ import {
   EmptyState,
   InlineNotice,
   Input,
+  LoadingOverlay,
   OutlineButton,
   PrimaryButton,
+  Spinner,
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { SettingCard, SettingsPageHeader, SettingsSectionTitle } from './SettingsAtoms'
@@ -28,6 +30,8 @@ import {
   canClearProviderSecret,
   deriveProviderSecretView,
   deriveProviderTabState,
+  readCachedProviderList,
+  writeCachedProviderList,
 } from './providerSettings'
 
 // The field is `ui/Input`; this module used to carry a copy of SettingsPanel's
@@ -41,6 +45,14 @@ const MONO_FIELD = 'font-mono'
 type ProviderMessage = ActionResult | undefined
 type PendingKind = 'saving' | 'clearing'
 
+function browserStorage(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage
+  } catch {
+    return null
+  }
+}
+
 function errText(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback
 }
@@ -49,7 +61,11 @@ export function ProviderSettingsTab() {
   const dialog = useConfirmDialog()
   const ipcAvailable = typeof window.api.conversationProvidersList === 'function'
 
-  const [listResult, setListResult] = useState<ConversationProviderListResult | null>(null)
+  // The last launch's list, drawn at once; the real one is read behind it.
+  const [listResult, setListResult] = useState<ConversationProviderListResult | null>(() =>
+    ipcAvailable ? readCachedProviderList(browserStorage()) : null,
+  )
+  const [refreshing, setRefreshing] = useState(false)
   const [secretViews, setSecretViews] = useState<Record<string, ProviderSecretView | undefined>>({})
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [pending, setPending] = useState<Record<string, PendingKind | undefined>>({})
@@ -63,10 +79,17 @@ export function ProviderSettingsTab() {
 
   const loadProviders = useCallback(async () => {
     if (!ipcAvailable) return
-    setListResult(null)
+    // A list already on screen stays while it is read again; only an error
+    // (or nothing yet) goes back to loading.
+    setListResult((current) => (current?.ok ? current : null))
+    setRefreshing(true)
     try {
       const result = await window.api.conversationProvidersList()
       setListResult(result)
+      // The list is current now; each row says for itself while its key is
+      // still being checked.
+      setRefreshing(false)
+      writeCachedProviderList(browserStorage(), result)
       if (!result.ok) return
       const entries = await Promise.all(
         result.providers.map(async (entry) => {
@@ -84,6 +107,8 @@ export function ProviderSettingsTab() {
       setSecretViews(Object.fromEntries(entries))
     } catch (err) {
       setListResult({ ok: false, message: errText(err, 'Conversation providers are unavailable.') })
+    } finally {
+      setRefreshing(false)
     }
   }, [ipcAvailable])
 
@@ -151,14 +176,27 @@ export function ProviderSettingsTab() {
 
   return (
     <div role="tabpanel" id="settings-panel-providers" aria-labelledby="settings-tab-providers" className="space-y-5">
-      <SettingsPageHeader title="Providers" />
+      <SettingsPageHeader
+        title="Providers"
+        // The one sign a remembered list is being read again: quiet, in the
+        // header's chrome, and gone when main has answered.
+        actions={
+          refreshing && tabState.kind === 'ready' ? (
+            <span className="inline-flex" role="status" aria-label="Checking for changes">
+              <Spinner className="icon-sm" />
+            </span>
+          ) : undefined
+        }
+      />
 
       {tabState.kind === 'unavailable' ? (
         <p className="text-body leading-5 text-[color:var(--text-muted)]">{tabState.message}</p>
       ) : null}
 
       {tabState.kind === 'loading' ? (
-        <p className="text-body leading-5 text-[color:var(--text-muted)]">Loading…</p>
+        // The kit's loading state, not a bare word: the same working mark and
+        // one sentence every other surface still fetching shows.
+        <LoadingOverlay label="Loading providers…" className="py-8" />
       ) : null}
 
       {tabState.kind === 'error' ? (
@@ -228,7 +266,11 @@ function ProviderRow({
 
       <SettingCard>
         <div className="px-3 py-2.5">
-          {secretView?.kind === 'error' ? (
+          {secretView === undefined ? (
+            // A remembered row whose key main has not answered for yet: an
+            // input here would ask for a key the provider may already have.
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">Checking the key…</p>
+          ) : secretView.kind === 'error' ? (
             <InlineNotice tone="error">{secretView.message}</InlineNotice>
           ) : secretView?.kind === 'none-required' ? (
             <p className="text-body leading-5 text-[color:var(--text-muted)]">No API key needed.</p>

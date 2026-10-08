@@ -23,6 +23,20 @@ const SNAPSHOT_PART_BYTES = CONVERSATION_MAX_FRAME_BYTES - 32 * 1024
  */
 export const CONVERSATION_CHUNK_CHARS = 48_000
 
+// What each event measures as JSON, by the event itself: every subscriber's
+// snapshot of a chat holds the same events, and measuring them is a
+// stringify each. A merged delta run grows in place, and its seq moves with
+// it, so a size is good only while the seq it was taken at holds.
+const measured = new WeakMap<ConversationEvent, { seq: number | undefined; bytes: number }>()
+
+function eventBytes(event: ConversationEvent): number {
+  const known = measured.get(event)
+  if (known && known.seq === event.seq) return known.bytes
+  const bytes = Buffer.byteLength(JSON.stringify(event))
+  measured.set(event, { seq: event.seq, bytes })
+  return bytes
+}
+
 export type ConversationSnapshotFrame = Extract<ConversationServerFrame, { type: 'snapshot' }> & {
   page: ConversationPage
 }
@@ -62,10 +76,17 @@ export function conversationSnapshotParts(
   frames(wire: (json: string) => Generator<string>, current: () => boolean): Generator<string>
 } {
   const events = frame.page.events
-  const sizes = events.map((event) => Buffer.byteLength(JSON.stringify(event)))
+  // Measured from the newest back, and only as far as the budget reaches:
+  // what is left to `loadEarlier` is never measured at all.
+  const sizes: number[] = new Array<number>(events.length)
   let first = events.length
   let bytes = 0
-  while (first > 0 && bytes + sizes[first - 1] <= MAX_SNAPSHOT_BYTES) bytes += sizes[--first]
+  while (first > 0) {
+    const size = (sizes[first - 1] = eventBytes(events[first - 1]))
+    if (bytes + size > MAX_SNAPSHOT_BYTES) break
+    bytes += size
+    first--
+  }
   let page = frame.page
   if (first > 0) {
     const kept = events.slice(first)

@@ -19,6 +19,7 @@ import {
   GhostButton,
   InlineNotice,
   Input,
+  LoadingOverlay,
   OutlineButton,
   PrimaryButton,
   ProviderRow,
@@ -359,7 +360,7 @@ export function AgentClisSection({
       ) : null}
 
       {pluginCatalogStatus === 'loading' && installedPluginRows.length === 0 ? (
-        <p className="text-body leading-5 text-[color:var(--text-muted)]">Loading…</p>
+        <LoadingOverlay label="Loading agent CLIs…" className="py-8" />
       ) : pluginCatalogStatus === 'error' ? (
         // The failure carries its own recovery, per the notice contract —
         // a Retry parked below the message is a dead end with a button.

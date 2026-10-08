@@ -45,21 +45,32 @@ export type ScheduledAgentRunnerDeps = {
   now?: () => number
 }
 
+/** What a run called off before its chat started says, when it is asked. */
+const RUN_CALLED_OFF = 'The run was called off: Studio was quitting.'
+
 export async function runScheduledAgent(
   agent: ScheduledAgent,
   deps: ScheduledAgentRunnerDeps,
+  signal?: AbortSignal,
 ): Promise<ScheduledAgentLastRun> {
   const now = deps.now ?? Date.now
   const at = now()
   let folderPath = agent.folderPath
   let worktree: WorkspaceWorktree | null = null
   let made: { repoRoot: string; path: string; leaseId: string | null } | null = null
+  if (signal?.aborted) return { at, ok: false, message: RUN_CALLED_OFF }
   if (agent.worktree) {
     const created = await makeRunWorktree(agent, at, deps)
     if (!created.ok) return { at, ok: false, message: created.message }
     made = { repoRoot: created.repoRoot, path: created.path, leaseId: created.leaseId ?? null }
     folderPath = created.path
     worktree = { branch: created.branch, baseRef: 'HEAD', repoRoot: agent.folderPath }
+  }
+  // The app began quitting while the worktree was made: no chat is started
+  // on the way out, and the worktree goes back.
+  if (signal?.aborted) {
+    if (made) await deps.discardWorktree?.({ ...made, hostId: agent.hostId }).catch(() => undefined)
+    return { at, ok: false, message: RUN_CALLED_OFF }
   }
   // The first message goes out after the launch has answered; a refusal that
   // beats the answer here fails the run outright, a later one is reported.

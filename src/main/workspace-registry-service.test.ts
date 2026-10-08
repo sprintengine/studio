@@ -3,7 +3,12 @@ import { test } from 'vitest'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createWorkspaceRegistryStore, WORKSPACE_REGISTRY_FILE_NAME } from './workspace-registry-store'
+import {
+  createInMemoryWorkspaceRegistryStore,
+  createWorkspaceRegistryStore,
+  WORKSPACE_REGISTRY_FILE_NAME,
+  type WorkspaceRegistryWriteOptions,
+} from './workspace-registry-store'
 import { createWorkspaceRegistryService } from './workspace-registry-service'
 import { createWorkspaceSyncService } from './workspace-sync-service'
 import { parseWorkspaceRegistryFile } from '../shared/workspace-registry'
@@ -491,3 +496,37 @@ test('an imported chat is dated by the session it came from, and stays in the li
 })
 
 console.log('workspace-registry-service.test.ts: ok')
+
+test('a visit stamp alone is persisted lazily, and any other field change is not', () => {
+  const store = createInMemoryWorkspaceRegistryStore()
+  const writes: Array<WorkspaceRegistryWriteOptions | undefined> = []
+  const registry = createWorkspaceRegistryService({
+    store: {
+      ...store,
+      write: (file, options) => {
+        writes.push(options)
+        store.write(file)
+      },
+    },
+    newWorkspaceId: () => 'ws-1',
+  })
+  const sync = createWorkspaceSyncService({ registry })
+  assert.ok(sync.createWorkspace({ name: 'Visited' }, 'ui').ok)
+  const lazy = () => writes.at(-1)?.lazy === true
+  // Later than the clock the create stamped, which only moves forward.
+  const at = Date.now() + 1_000_000
+
+  assert.equal(sync.updateWorkspaceFields('ws-1', { lastVisitedAt: at }, 'ui').ok, true)
+  assert.equal(lazy(), true, 'a visit stamp waits for company on disk')
+  assert.equal(registry.getRecord('ws-1')?.lastVisitedAt, at, 'and is read at once from memory')
+
+  assert.equal(sync.updateWorkspaceFields('ws-1', { lastTurnEndedAt: at + 10_000 }, 'ui').ok, true)
+  assert.equal(lazy(), false, 'a finished turn is written straight away')
+  assert.equal(
+    sync.updateWorkspaceFields('ws-1', { lastVisitedAt: at + 20_000, settledAt: at + 20_000 }, 'ui').ok,
+    true,
+  )
+  assert.equal(lazy(), false, 'a stamp riding with another field is written with it')
+  assert.equal(sync.rewindVisit('ws-1', at + 15_000, 'ui').ok, true)
+  assert.equal(lazy(), false, 'marking a chat unread is a gesture, not a stamp')
+})

@@ -87,6 +87,8 @@ export const meshApi = {
     prompt?: string
     cliModel?: string
     permissionPreset?: string
+    /** The CLI's effort level; dropped for a machine that does not advertise `new-chat-effort`. */
+    effort?: string
   }): Promise<MeshCreateConversationResult> =>
     ipcRenderer.invoke(MESH_CREATE_CONVERSATION_CHANNEL, input) as Promise<MeshCreateConversationResult>,
   meshSettleConversation: (input: {

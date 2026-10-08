@@ -234,6 +234,10 @@ export function ProjectScopePicker({
       popupRole="menu"
       placement="bottom-start"
       onOpenAutoFocus={focusProjectSearch}
+      // A long project name gives way before the controls beside it do: the
+      // chip may shrink, and its name truncates rather than pushing the
+      // Worktree switch off the end of a narrow strip.
+      className="min-w-0"
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         // Exactly the machine trigger's box, because it is now literally the
         // same component: the scope line is one row of sibling chips, and the
@@ -258,8 +262,10 @@ export function ProjectScopePicker({
             color={chipColor}
             unfiled={chipUnfiled}
           />
-          {label}
-          {branch ? ` · ${branch}` : ''}
+          <span className="min-w-0 truncate">
+            {label}
+            {branch ? ` · ${branch}` : ''}
+          </span>
           <ChipCaretGlyph />
         </ChipButton>
       )}

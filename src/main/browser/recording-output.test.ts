@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
 
 import { agentPathOf, createWorkspaceRecordingOutputs } from './recording-output'
-import { readWebmDurationMs } from './webm-duration'
+import { readWebmDurationMs, withWebmDuration } from './webm-duration'
 
 // Where a recording lands, on a real folder: the workspace's own sidecar,
 // ignored by git, written as it arrives and finished with its length.
@@ -77,6 +77,27 @@ test('bytes this edit does not understand are kept as they came', async () => {
   await created.output.append(new Uint8Array([1, 2, 3]))
   assert.equal((await created.output.finish(500)).bytes, 3)
   assert.deepEqual([...readFileSync(created.output.path!)], [1, 2, 3])
+})
+
+test('a recording far longer than the header read is finished whole, byte for byte after its length', async () => {
+  // The fixture's own clusters, then a megabyte more: well past the head the
+  // finish reads, so everything after it has to be copied across.
+  const tail = new Uint8Array(1024 * 1024).map((_, index) => index % 251)
+  const root = workspace()
+  const outputs = createWorkspaceRecordingOutputs({ resolveWorkspaceRoot: () => root })
+  const created = await outputs.create({ workspaceId: 'ws', stem: 'recording-long' })
+  assert.ok(created.ok)
+  await created.output.append(RECORDED)
+  await created.output.append(tail)
+  const done = await created.output.finish(61_000)
+  const saved = new Uint8Array(readFileSync(created.output.path!))
+  const whole = new Uint8Array(RECORDED.length + tail.length)
+  whole.set(RECORDED)
+  whole.set(tail, RECORDED.length)
+  assert.deepEqual(saved, withWebmDuration(whole, 61_000))
+  assert.equal(done.bytes, saved.length)
+  assert.equal(readWebmDurationMs(saved), 61_000)
+  assert.deepEqual(readdirSync(join(root, '.sprintengine', 'browser', 'recordings')), ['recording-long.webm'])
 })
 
 test('a second recording in the same second takes the next free name', async () => {

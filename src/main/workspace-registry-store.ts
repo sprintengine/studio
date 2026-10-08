@@ -26,6 +26,7 @@ import {
 
 export const WORKSPACE_REGISTRY_FILE_NAME = 'workspace-registry.json'
 const DEFAULT_PERSIST_DEBOUNCE_MS = 250
+const DEFAULT_LAZY_PERSIST_MS = 60_000
 
 type WorkspaceRegistryStoreDiagnostic = {
   level: 'warning'
@@ -38,6 +39,17 @@ export type WorkspaceRegistryStoreDeps = {
   resolveUserDataDir: () => string
   logDiagnostic?: (diagnostic: WorkspaceRegistryStoreDiagnostic) => void
   persistDebounceMs?: number
+  /** How long a `lazy` write may wait for company before it is written alone. */
+  lazyPersistMs?: number
+}
+
+export type WorkspaceRegistryWriteOptions = {
+  /**
+   * Nothing on disk needs this change soon: it waits for the next ordinary
+   * write, the lazy interval, or the flush on quit, whichever comes first.
+   * Memory is already current, so only a crash in between loses it.
+   */
+  lazy?: boolean
 }
 
 export type WorkspaceRegistryReadOutcome =
@@ -49,6 +61,7 @@ export type WorkspaceRegistryStore = ReturnType<typeof createWorkspaceRegistrySt
 
 export function createWorkspaceRegistryStore(deps: WorkspaceRegistryStoreDeps) {
   const debounceMs = Math.max(0, Math.floor(deps.persistDebounceMs ?? DEFAULT_PERSIST_DEBOUNCE_MS))
+  const lazyMs = Math.max(debounceMs, Math.floor(deps.lazyPersistMs ?? DEFAULT_LAZY_PERSIST_MS))
   let writeQueue: Promise<void> = Promise.resolve()
   let writeSequence = 0
   let pendingTimer: ReturnType<typeof setTimeout> | null = null
@@ -126,19 +139,27 @@ export function createWorkspaceRegistryStore(deps: WorkspaceRegistryStoreDeps) {
    * unchanged blob is not a new revision. The comparison is against the newest
    * accepted file rather than the one on disk, so a change reverted inside the
    * debounce still replaces the pending write instead of being dropped.
+   *
+   * A lazy write never pushes a pending write back, so a stream of them is
+   * still written once per lazy interval; an ordinary write takes any lazy
+   * one along with it on its own short debounce.
    */
-  function write(file: WorkspaceRegistryFile): void {
+  function write(file: WorkspaceRegistryFile, options: WorkspaceRegistryWriteOptions = {}): void {
     if (acceptedContent === null && loadedFile) acceptedContent = serializeWorkspaceRegistryContent(loadedFile)
     loadedFile = null
     const content = serializeWorkspaceRegistryContent(file)
     if (content === acceptedContent) return
     acceptedContent = content
     pendingFile = file
+    if (options.lazy && pendingTimer) return
     if (pendingTimer) clearTimeout(pendingTimer)
-    pendingTimer = setTimeout(() => {
-      pendingTimer = null
-      void persistNow()
-    }, debounceMs)
+    pendingTimer = setTimeout(
+      () => {
+        pendingTimer = null
+        void persistNow()
+      },
+      options.lazy ? lazyMs : debounceMs,
+    )
   }
 
   /** Persist the pending write immediately and await it — used on `before-quit`. */

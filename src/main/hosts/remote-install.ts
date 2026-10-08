@@ -95,8 +95,17 @@ export function posixInstallFunctions(): string[] {
     '    [ -n "$(find "$lk" -prune -mmin +30 2>/dev/null)" ] && stale=1',
     '    if [ "$stale" = 1 ]; then',
     // Renamed before it is removed, so two waiters that both found it stale
-    // cannot both go on: only one rename succeeds.
-    '      mv "$lk" "$lk.stale-$$" 2>/dev/null && rm -rf "$lk.stale-$$"',
+    // cannot both go on: only one rename succeeds. A rename can still land on
+    // a lock the other waiter has just made in its place, so what was moved is
+    // checked against the holder judged gone, and put back when it is not that
+    // lock.
+    '      if mv "$lk" "$lk.stale-$$" 2>/dev/null; then',
+    '        moved="$(cat "$lk.stale-$$/pid" 2>/dev/null)"',
+    '        if [ "$moved" = "$holder" ] && { [ -n "$holder" ] || [ -n "$(find "$lk.stale-$$" -prune -mmin +2 2>/dev/null)" ]; }; then',
+    '          rm -rf "$lk.stale-$$"',
+    '        else mv "$lk.stale-$$" "$lk" 2>/dev/null || rm -rf "$lk.stale-$$"',
+    '        fi',
+    '      fi',
     '      continue',
     '    fi',
     `    [ "$waited" -ge ${INSTALL_LOCK_WAIT_S} ] && return 1`,

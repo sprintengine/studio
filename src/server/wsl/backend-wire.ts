@@ -93,8 +93,13 @@ export type BackendEventFrame = { event: ConversationEvent; session: Conversatio
 
 const SNAPSHOT_DEBOUNCE_MS = 100
 // A turn is one call: `sendTurn` answers when the reply has finished. The wire
-// closing is what ends a call early, not a clock.
+// closing is what ends a turn early, not a clock.
 const CALL_TIMEOUT_MS = 12 * 60 * 60 * 1000
+// Every other member answers in seconds, a large search or a rewind in
+// minutes: one still unanswered after this is a server that stopped
+// answering, and the caller is told so rather than left waiting half a day.
+const MEMBER_TIMEOUT_MS = 15 * 60_000
+const TURN_MEMBERS: ReadonlySet<RemoteBackendMember> = new Set(['sendTurn'])
 const MAX_LINE_BYTES = 64 * 1024 * 1024
 
 /** One JSON frame per line over a byte stream, both ways. */
@@ -293,8 +298,9 @@ export type RemoteConversationBackend = Pick<ConversationBackend, RemoteBackendM
  */
 export function connectRemoteConversationBackend(
   stream: Duplex,
-  options: { log?: (message: string) => void } = {},
+  options: { log?: (message: string) => void; memberTimeoutMs?: number } = {},
 ): RemoteConversationBackend {
+  const memberTimeoutMs = options.memberTimeoutMs ?? MEMBER_TIMEOUT_MS
   const frames = lineFrames(stream)
   const rpc = rpcOver(frames, options.log)
   const mirror = new Map<string, ConversationSessionSummary>()
@@ -327,7 +333,11 @@ export function connectRemoteConversationBackend(
   })
 
   const call = async (member: RemoteBackendMember, args: unknown[]): Promise<unknown> => {
-    const value = await rpc.call(BACKEND_WIRE.call, { member, args })
+    const value = await rpc.call(
+      BACKEND_WIRE.call,
+      { member, args },
+      { timeoutMs: TURN_MEMBERS.has(member) ? CALL_TIMEOUT_MS : memberTimeoutMs },
+    )
     // An action's answer carries the session as it now stands.
     upsert((value as { session?: unknown } | null)?.session)
     return value

@@ -25,7 +25,7 @@ type RegisterWorkspaceSyncIpcOptions = {
    * reaches every window, the asking one included, through the subscription
    * below. Omitted, the channel answers that it cannot.
    */
-  markUnread?: (workspaceId: string) => WorkspaceMarkUnreadResult
+  markUnread?: (workspaceId: string) => Promise<WorkspaceMarkUnreadResult>
 }
 
 export function registerWorkspaceSyncIpc(
@@ -59,12 +59,15 @@ export function registerWorkspaceSyncIpc(
     return result
   })
 
-  ipcMain.handle('workspace-sync:mark-unread', (_event, workspaceId: unknown): WorkspaceMarkUnreadResult => {
-    if (typeof workspaceId !== 'string' || !workspaceId.trim())
-      return { ok: false, code: 'invalid_arguments', message: 'Mark unread needs a chat.' }
-    if (!options.markUnread) return { ok: false, code: 'unavailable', message: 'Mark unread is not available here.' }
-    return options.markUnread(workspaceId.trim())
-  })
+  ipcMain.handle(
+    'workspace-sync:mark-unread',
+    async (_event, workspaceId: unknown): Promise<WorkspaceMarkUnreadResult> => {
+      if (typeof workspaceId !== 'string' || !workspaceId.trim())
+        return { ok: false, code: 'invalid_arguments', message: 'Mark unread needs a chat.' }
+      if (!options.markUnread) return { ok: false, code: 'unavailable', message: 'Mark unread is not available here.' }
+      return options.markUnread(workspaceId.trim())
+    },
+  )
   ipcMain.handle('workspace-sync:get-snapshot', () => service.getSnapshot())
   ipcMain.handle('workspace-sync:get-events-after', (_event, sequence: unknown) => service.getEventsAfter(sequence))
 
