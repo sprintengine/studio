@@ -54,8 +54,12 @@ export function claudeBillingOfAccount(
 }
 
 export type ClaudeRateLimitReading = {
-  /** The window this event moved, or null when it named none (a bare status). */
-  update: UsageWindowUpdate | null
+  /**
+   * Every window the event reads: the one it is about first, when it names
+   * one, then each other window in its `unifiedWindows`. Empty for a bare
+   * status that names none.
+   */
+  updates: UsageWindowUpdate[]
   /**
    * The kind of limit the event is about (`five_hour`, `seven_day`…, or
    * `unknown` when it named none). A refusal is kept per kind: one window
@@ -73,6 +77,17 @@ export type ClaudeRateLimitReading = {
  * while the person's extra usage carries them is a warning, not a refusal:
  * their turns still run. `model` is the session's, which names the window of
  * the model the plan's extra usage covers.
+ *
+ * The top-level status and utilization are the window that limits now, and
+ * only that one: on a plan whose weekly is the fuller, every event was about
+ * the weekly, and the session (5h) window was read with a reset and never a
+ * share, so it said "Within the limit" over an empty bar. A newer CLI carries
+ * every window's share on each event (`unifiedWindows`: the session's, the
+ * weekly and the overage-included weekly, each a fraction and a reset in
+ * epoch seconds), and each is read from there. One that runs past its cap
+ * while the event lets requests through is carried, which the CLI says
+ * happens (lower-priority work past the session's limit): a warning, never a
+ * refusal it did not make.
  */
 export function readClaudeRateLimitInfo(raw: unknown, model?: string | null): ClaudeRateLimitReading | null {
   if (!isRecord(raw)) return null
@@ -91,7 +106,7 @@ export function readClaudeRateLimitInfo(raw: unknown, model?: string | null): Cl
   const windowStatus: UsageLimitStatus = refused ? 'rejected' : status === 'allowed' ? 'allowed' : 'warning'
   const fraction = typeof raw.utilization === 'number' ? usagePercent(raw.utilization * 100) : null
   const scope = windowId ? claudeUsageWindowScope(windowId) : undefined
-  const update: UsageWindowUpdate | null = windowId
+  const limiting: UsageWindowUpdate | null = windowId
     ? {
         id: windowId,
         label: claudeUsageWindowLabel(windowId, model),
@@ -102,8 +117,36 @@ export function readClaudeRateLimitInfo(raw: unknown, model?: string | null): Cl
         status: windowStatus,
       }
     : null
+  const updates: UsageWindowUpdate[] = limiting ? [limiting] : []
+  const unified = isRecord(raw.unifiedWindows) ? raw.unifiedWindows : null
+  for (const [id, reading] of Object.entries(unified ?? {})) {
+    if (!isClaudeUsageWindowId(id) || !isRecord(reading) || typeof reading.utilization !== 'number') continue
+    const usedPercent = usagePercent(reading.utilization * 100)
+    if (usedPercent === null) continue
+    const windowResetsAt = usageEpochMs(reading.resetsAt)
+    // The window the event is about keeps its own status; its share is
+    // taken from here only when the event's own fields left it out.
+    if (limiting && id === limiting.id) {
+      if (limiting.usedPercent === undefined) limiting.usedPercent = usedPercent
+      if (limiting.resetsAt === undefined && windowResetsAt !== null) limiting.resetsAt = windowResetsAt
+      continue
+    }
+    const windowScope = claudeUsageWindowScope(id)
+    updates.push({
+      id,
+      label: claudeUsageWindowLabel(id, model),
+      usedPercent,
+      ...(windowResetsAt !== null ? { resetsAt: windowResetsAt } : {}),
+      ...(claudeUsageWindowDurationMs(id) ? { durationMs: claudeUsageWindowDurationMs(id) } : {}),
+      ...(windowScope ? { scope: windowScope } : {}),
+      // Refused, the event says which window refuses, and it is not this one;
+      // the store's own reading of a share decides. Let through, a window
+      // past its cap is being carried.
+      ...(refused ? {} : { status: usedPercent >= 100 ? ('warning' as const) : ('allowed' as const) }),
+    })
+  }
   return {
-    update,
+    updates,
     type: type ?? 'unknown',
     rejected: refused ? { windowId, resetsAt } : null,
   }
