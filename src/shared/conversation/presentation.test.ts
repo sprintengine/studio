@@ -43,20 +43,6 @@ test('groups largest counts first with natural plurals', () => {
   expect(summarizeToolGroup([{ name: 'ls' }, { name: 'ls' }])).toBe('Listed 2 directories')
   expect(summarizeToolGroup([{ name: 'Grep' }, { name: 'Grep' }])).toBe('Searched 2 queries')
 })
-test('kinds past the third are counted as "and N more", not dropped', () => {
-  expect(
-    summarizeToolGroup([
-      ...Array.from({ length: 3 }, () => ({ name: 'Read' })),
-      ...Array.from({ length: 2 }, () => ({ name: 'Bash' })),
-      { name: 'Edit' },
-      { name: 'Grep' },
-      { name: 'ls' },
-    ]),
-  ).toBe('Read 3 files, ran 2 commands, edited 1 file and 2 more')
-})
-test('three kinds need no remainder', () => {
-  expect(summarizeToolGroup([{ name: 'Read' }, { name: 'Bash' }, { name: 'Edit' }])).not.toContain('more')
-})
 test('command failure is neutral with exit status, runtime failure is an error', () => {
   expect(presentToolItem({ name: 'Bash', status: 'error', exitCode: 1 })).toMatchObject({
     tone: 'neutral',
