@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from 'crypto'
-import { mkdir, open, readFile, readdir, rename, rm, stat, utimes, writeFile } from 'fs/promises'
+import { createHash } from 'crypto'
+import { mkdir, open, readFile, readdir, rm, stat, utimes } from 'fs/promises'
 import { hostname } from 'os'
 import { join } from 'path'
 import {
@@ -16,6 +16,7 @@ import {
 } from '../../shared/ipc/worktree-pool'
 import { comparablePath, distroOfUncPath } from '../../shared/host-paths'
 import { isRecord } from '../../shared/records'
+import { writeFileAtomic } from '../../server/platform/atomic-file'
 import { processIsRunning } from '../../server/platform/process-alive'
 
 /**
@@ -256,28 +257,6 @@ function parsePoolRecord(text: string): PoolRecord | null {
     releasedPaths: Array.isArray(value.releasedPaths)
       ? value.releasedPaths.filter((path): path is string => typeof path === 'string')
       : [],
-  }
-}
-
-/** Write a file so a crash leaves the old content or the new, never a torn mix. */
-async function writeFileAtomic(path: string, content: string): Promise<void> {
-  const temporary = `${path}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
-  await writeFile(temporary, content, 'utf8')
-  // On Windows a rename over a file another process has open (a virus scanner,
-  // an indexer) fails for a moment with EPERM or EBUSY; it is retried briefly.
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      await rename(temporary, path)
-      return
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      if (attempt < 4 && (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES')) {
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, 50 * (attempt + 1)))
-        continue
-      }
-      await rm(temporary, { force: true }).catch(() => {})
-      throw error
-    }
   }
 }
 
