@@ -28,8 +28,11 @@ export function WorktreeChip({
       <Tooltip content={on ? 'Runs in a worktree of its own' : 'Run in a worktree of its own'} placement="top">
         <ChipButton
           variant="raised"
+          // One name for the switch in both states; `aria-pressed` says which.
+          // A name that changed with the state would be read as a different
+          // control each time it was pressed.
           pressed={on}
-          aria-label={on ? 'Worktree on' : 'Run in a worktree'}
+          aria-label="Run in a worktree"
           onClick={() => {
             if (on) {
               onChange(null)
@@ -39,7 +42,10 @@ export function WorktreeChip({
             window.requestAnimationFrame(() => inputRef.current?.focus())
           }}
         >
-          <WorktreeGlyph className="icon-xs shrink-0" />
+          {/* On, the chip wears the kit's thrown fill and strong ink; off, its
+              mark steps down to disabled ink as well, so the two states read
+              apart at a glance rather than by the word alone. */}
+          <WorktreeGlyph className={`icon-xs shrink-0${on ? '' : ' text-[color:var(--text-disabled)]'}`} />
           {on ? 'Worktree' : 'No worktree'}
         </ChipButton>
       </Tooltip>

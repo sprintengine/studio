@@ -540,8 +540,9 @@ test('NewAgentPanel', async () => {
       const strip = view.container.querySelector('[data-composer-strip]')
       assert.ok((strip?.textContent ?? '').includes('Worktree'), 'the switch reads Worktree while on')
       const on = [...view.container.querySelectorAll('button')].find(
-        (button) => button.getAttribute('aria-label') === 'Worktree on',
+        (button) => button.getAttribute('aria-label') === 'Run in a worktree',
       )
+      assert.equal(on?.getAttribute('aria-pressed'), 'true', 'the same switch, pressed')
       await act(async () => {
         on!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
