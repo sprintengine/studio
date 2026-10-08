@@ -66,6 +66,16 @@ test('a hello is welcomed with the grant, the Studio capabilities and the conver
   assert.equal(info.ok && (info.result as { grant: { clientId: string } }).grant.clientId, 'reader')
 })
 
+test('the welcome says where this Studio runs: local unless its server was started in WSL or over SSH', async () => {
+  for (const hostKind of [undefined, 'wsl', 'ssh'] as const) {
+    const { path } = await serve(hostKind ? { hostKind } : {})
+    const c = await client(path)
+    c.send(hello({ token: OWNER_TOKEN }))
+    const welcome = await c.next(isT('welcome'))
+    assert.equal(welcome.t === 'welcome' && welcome.environment.hostKind, hostKind ?? 'local')
+  }
+})
+
 test('a client outside the version window is refused with both numbers named', async () => {
   const { path, auth } = await serve()
   const token = pairFakeClient(auth, 'future', ['conversation:read'])

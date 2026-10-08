@@ -23,7 +23,11 @@ import {
 import { inProcessStudioTransport } from '../../server/rpc/studio-in-process-port'
 import { STUDIO_SCOPES, type StudioGrant } from '../../../packages/studio-protocol/src/public'
 import type { StudioTransportFactory } from '../../../packages/agent-sdk/src/transport'
-import { createStudioRpcServer, type StudioRpcServer } from '../../server/rpc/studio-rpc-server'
+import {
+  createStudioRpcServer,
+  type StudioRpcServer,
+  type StudioRpcServerOptions,
+} from '../../server/rpc/studio-rpc-server'
 import type { ClientToolRegistry } from '../../server/tools/client-tool-registry'
 import type { StudioFiles } from '../../server/rpc/studio-files'
 import type { StudioPullRequests } from '../../server/pull-requests/pull-request-domain'
@@ -126,6 +130,8 @@ export type StudioRpcServiceOptions = {
    * published on `STUDIO_LOCAL_APPS_CHANGED_CHANNEL` with fresh status.
    */
   clients?: ClientBus
+  /** Where this Studio runs, as its welcome says: `local` unless its server was started in WSL or over SSH. */
+  hostKind?: StudioRpcServerOptions['hostKind']
   /** Built on first start: the conversation host it wraps is constructed late in the app's composition. */
   backend: () => StudioConversationBackend
   /** The gateway's audit, so one file records every listener's mutations. */
@@ -321,6 +327,7 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       dataDir: directory,
       version: version(),
       environmentId: readStudioEnvironmentId(directory),
+      ...(options.hostKind ? { hostKind: options.hostKind } : {}),
       backend: options.backend(),
       chat: () => chat,
       authenticator: authenticator(appStore()),

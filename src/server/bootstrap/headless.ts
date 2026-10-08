@@ -39,6 +39,8 @@ export function headlessServerOptions(
     resourcesDir: envelope.paths.resourcesDir,
     appRoot: envelope.paths.appPath,
     listen: envelope.listeners.gateway,
+    // A detached server is an SSH machine's: one the desktop reaches over SSH.
+    hostKind: envelope.wsl ? 'wsl' : envelope.detached ? 'ssh' : 'local',
     log,
   }
 }

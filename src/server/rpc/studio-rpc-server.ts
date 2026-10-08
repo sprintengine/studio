@@ -15,6 +15,7 @@ import {
   STUDIO_LOCAL_SERVERS_CAPABILITY,
   STUDIO_PROTOCOL_MIN_SUPPORTED,
   STUDIO_PROTOCOL_VERSION,
+  type StudioEnvironment,
   type StudioWelcomeFrame,
 } from '../../../packages/studio-protocol/src/public'
 import { createStudioRpcConnection, type StudioRpcConnection } from './studio-rpc-connection'
@@ -60,6 +61,8 @@ export type StudioRpcServerOptions = {
   version: string
   /** Minted once per data directory; see `StudioEnvironment.id`. */
   environmentId: string
+  /** Where this Studio runs, from how its server was started; `local` when not said. */
+  hostKind?: StudioEnvironment['hostKind']
   backend: StudioConversationBackend
   /** The chat surface, when main has given one; its capabilities are advertised only then. */
   chat?: () => StudioChatBackend | null
@@ -110,7 +113,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
     protocolVersion: STUDIO_PROTOCOL_VERSION,
     minProtocolVersion: STUDIO_PROTOCOL_MIN_SUPPORTED,
     server: { name: 'SprintEngine Studio', version: options.version },
-    environment: { id: options.environmentId, hostKind: 'local', os: platform(), arch: arch() },
+    environment: { id: options.environmentId, hostKind: options.hostKind ?? 'local', os: platform(), arch: arch() },
     capabilities: STUDIO_CAPABILITIES.filter(
       (capability) =>
         (capability !== STUDIO_CLIENT_TOOLS_CAPABILITY || options.tools !== undefined) &&

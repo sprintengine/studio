@@ -348,6 +348,7 @@ export async function startTestServer(
     files?: StudioFiles
     pullRequests?: StudioPullRequests
     localServers?: StudioLocalServers
+    hostKind?: 'local' | 'wsl' | 'ssh'
   } = {},
 ): Promise<{
   server: StudioRpcServer
@@ -369,6 +370,7 @@ export async function startTestServer(
     dataDir,
     version: '0.0.0-test',
     environmentId: 'env-test',
+    ...(input.hostKind ? { hostKind: input.hostKind } : {}),
     backend,
     authenticator: auth,
     ...(input.chat ? { chat: () => input.chat! } : {}),
