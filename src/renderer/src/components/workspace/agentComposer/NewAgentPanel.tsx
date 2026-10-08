@@ -83,7 +83,7 @@ import { MENU_GROUP_LABEL_CLASS } from '../../ui/menuClasses'
 import type { MachineRef } from '../../../../../shared/machine-identity'
 import { hostMachineRef, sshMachineRef, useMachineIdentity } from '../../../hooks/useMachineIdentity'
 import { CliInstallCta } from '../cliInstallRoute'
-import { menuRadioRowKeyDown } from './agentSpawnShared'
+import { ChipCaretGlyph, menuRadioRowKeyDown } from './agentSpawnShared'
 import { SpawnPermissionFooter } from './spawnFooter'
 import { EnginePickerChip } from './enginePicker'
 import { ProjectScopePicker } from './ProjectScopePicker'
@@ -2508,20 +2508,6 @@ export default function NewAgentPanel({
 
 // ── Pieces ─────────────────────────────────────────────────────────────────
 
-function ChevronGlyph() {
-  return (
-    <svg className="icon-xs text-[color:var(--text-subtle)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="m4 6.5 4 3.5 4-3.5"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 /**
  * A machine's mark in a menu row's leading slot, or the empty slot the width of
  * one for this computer, which wears none (owner ruling 2026-10-04).
@@ -2651,7 +2637,7 @@ function MachineScopePicker({
               : selectedHost && hostRows.length > 0
                 ? selectedHost.label
                 : 'This device'}
-          <ChevronGlyph />
+          <ChipCaretGlyph />
         </ChipButton>
       )}
     >
@@ -2889,7 +2875,7 @@ function RemoteProjectPicker({
               reading THIS disk, and the folder is on another machine. */}
           <FolderTypeIcon className="icon-xs shrink-0" color={color} unfiled={unfiled} />
           {label}
-          <ChevronGlyph />
+          <ChipCaretGlyph />
         </ChipButton>
       )}
     >
