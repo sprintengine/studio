@@ -72,16 +72,20 @@ test('out of process, a chat on an SSH machine is routed through a port main spl
   const fakeNode = Buffer.from(
     `#!/bin/sh\nif [ "$1" = "--version" ]; then echo ${WSL_NODE_VERSION}; exit 0; fi\nexec '${process.execPath}' "$@"\n`,
   )
+  const sessions: Array<ReturnType<typeof spawn>> = []
   const machine = new SshEnvironment({
     id: 'e1',
     label: () => 'build-box',
     settings: () => ({ ...DEFAULT_SSH_ENVIRONMENT_SETTINGS, keepRunning: true }),
-    spawn: () =>
-      spawn('sh', ['-s'], {
+    spawn: () => {
+      const child = spawn('sh', ['-s'], {
         cwd: home,
         env: { PATH: process.env.PATH, HOME: home, SHELL: '/bin/sh' },
         stdio: ['pipe', 'pipe', 'pipe'],
-      }) as unknown as SessionProcess,
+      })
+      sessions.push(child)
+      return child as unknown as SessionProcess
+    },
     app: { version: VERSION, channel: 'latest', backendWire: BACKEND_WIRE_VERSION },
     dataName: 'data',
     startedBy: 'Studio on dev-macbook-air',
@@ -151,8 +155,9 @@ test('out of process, a chat on an SSH machine is routed through a port main spl
   const listed = router.listSessions({ workspaceId: 'w1' })
   assert.ok(listed.ok && listed.sessions.some((session) => session.sessionId === started.session.sessionId))
 
-  // The relay drops: the port closes, and the next call opens a new one.
-  machine.disconnect()
+  // The relay drops (its session dies, as on a dropped network): the port
+  // closes, and the next call opens a new one once the machine is back.
+  sessions.at(-1)!.kill()
   await new Promise((resolve) => setTimeout(resolve, 300))
   assert.equal(shell.servers.current('ssh:e1'), null)
   const again = (await router.readTranscript({ workspaceId: 'w1', agentId: 'a1', workspaceRoot: home } as never)) as {
