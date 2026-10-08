@@ -178,7 +178,15 @@ export function WorktreesSettingsTab({
     void window.api
       ?.getWorktreePoolSettings?.()
       .then((value) => mounted.current && setSettings(value))
-      .catch(() => {})
+      // The controls below would otherwise show the defaults as if they were saved.
+      .catch(
+        (error: unknown) =>
+          mounted.current &&
+          setResult({
+            tone: 'error',
+            text: `Could not read the pool's settings: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+      )
     let timer: ReturnType<typeof setTimeout> | null = null
     const unsubscribe = window.api?.onWorktreePoolChanged?.(() => {
       // A measurement under way answers with the pools as they are after it.
@@ -204,7 +212,9 @@ export function WorktreesSettingsTab({
       .then((views) => {
         if (live) setInstalls((current) => views.reduce(applyInstallChange, current))
       })
-      .catch(() => {})
+      // Installs still show as they start and end (the subscription above);
+      // only one already running when the page opened is missed.
+      .catch((error: unknown) => console.warn('[worktrees] could not list the running installs', error))
     return () => {
       live = false
       unsubscribe?.()

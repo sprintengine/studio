@@ -12,7 +12,7 @@ import { comparablePath } from '../../shared/host-paths'
 import { changesAlreadyIn } from '../agent-worktree-cleanup'
 import { listGitWorktrees } from '../git-worktree-list'
 import { pathExists } from '../git-utils'
-import { measureDiskUsage, type MeasureDiskUsage } from './disk-usage'
+import { MEASURE_CONCURRENCY, measureDiskUsage, type MeasureDiskUsage } from './disk-usage'
 import { isNetworkSharePath } from './pool-store'
 import { defaultSlotGitRunner, resolvePoolBaseRef, type SlotGitRunner } from './slot-git'
 import type { WorktreePoolService } from './worktree-pool-service'
@@ -32,8 +32,6 @@ import type { WorktreePoolService } from './worktree-pool-service'
 
 const MAX_CHANGES_LISTED = 12
 const CONCURRENCY = 4
-/** Trees measured at once, across every project: each `du` reads many thousand files. */
-const MEASURE_CONCURRENCY = 3
 
 export type WorktreeInventoryDeps = {
   pool: Pick<WorktreePoolService, 'load' | 'measure' | 'snapshots'> | null

@@ -441,6 +441,14 @@ test('while a measurement runs, pool changes start no reads; one answered late d
   expect(asked).toEqual([false, true, false, false])
 })
 
+test('settings that cannot be read are said so, not shown as saved defaults', async () => {
+  Object.assign((window as unknown as { api: object }).api, {
+    getWorktreePoolSettings: () => Promise.reject(new Error('settings file unreadable')),
+  })
+  await render()
+  expect(host.textContent).toContain("Could not read the pool's settings: settings file unreadable")
+})
+
 test('an empty category reads 0 KB in the legend and the bar’s label, not 1 KB', async () => {
   const onlyInUse: WorktreeInventory = {
     ...inventory,

@@ -27,7 +27,7 @@ import { pathExists } from '../git-utils'
 import { parseGitWorktreePorcelain } from '../git-worktree-list'
 import { GIT_NETWORK_TIMEOUT_MS } from '../git-run'
 import { withWorktreeRegistryLock } from '../worktree-registry-lock'
-import { measureDiskUsage, type MeasureDiskUsage } from './disk-usage'
+import { MEASURE_CONCURRENCY, measureDiskUsage, type MeasureDiskUsage } from './disk-usage'
 import {
   acquireInstanceLock,
   heartbeatInstanceLock,
@@ -145,8 +145,10 @@ import {
  * worktree.
  */
 export const POOL_MAX_SLOTS = 32
-/** Slots measured at once: each is a `du` over a tree of many thousand files. */
-const MEASURE_CONCURRENCY = 3
+/** How much of git's message a note on a slot (or a log line) keeps: its end, where the reason is. */
+const NOTE_TAIL_CHARS = 200
+/** `pool-01` … `pool-999`: past that a container holds something other than slots, and no name is picked. */
+const SLOT_NUMBER_LIMIT = 1000
 const FETCH_FRESH_MS = 60_000
 /**
  * How long after a failed fetch of the base leases go ahead without trying
@@ -302,7 +304,7 @@ type PoolRuntime = {
 
 type ResolvedRepo = { repoRoot: string; commonDir: string }
 
-function tail(text: string | null | undefined, max = 600): string | null {
+function tail(text: string | null | undefined, max = NOTE_TAIL_CHARS): string | null {
   const value = (text ?? '').trim()
   if (!value) return null
   return value.length > max ? `…${value.slice(-max)}` : value
@@ -638,8 +640,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       } else if (ref.includes('/') && stale) {
         const fetched = await fetchBase(git, record.repoRoot, ref)
         if (!fetched.ok) {
-          log(`${record.repoRoot}: fetch of ${ref} failed (${tail(fetched.message, 200)}); using the ref as it is`)
-          note = `${ref} could not be fetched (${tail(fetched.message, 200) ?? 'no reason given'}); forked from where it last stood`
+          log(`${record.repoRoot}: fetch of ${ref} failed (${tail(fetched.message)}); using the ref as it is`)
+          note = `${ref} could not be fetched (${tail(fetched.message) ?? 'no reason given'}); forked from where it last stood`
         }
         pool.fetchFailedAt = fetched.ok ? null : now()
         await withPool(pool, async () => {
@@ -783,18 +785,18 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         oid ?? '',
       ])
       if (!moved.ok) {
-        await hold(pool, slot, 'unexpected-head', `HEAD moved during the reset: ${tail(moved.message, 200)}`)
+        await hold(pool, slot, 'unexpected-head', `HEAD moved during the reset: ${tail(moved.message)}`)
         return false
       }
     }
     const reset = await git(slot.path, ['read-tree', '--reset', '-u', 'HEAD'])
     if (!reset.ok) {
-      await hold(pool, slot, 'error', `reset failed: ${tail(reset.message, 200)}`)
+      await hold(pool, slot, 'error', `reset failed: ${tail(reset.message)}`)
       return false
     }
     const cleaned = await git(slot.path, ['clean', '-fd', '--quiet'])
     if (!cleaned.ok) {
-      await hold(pool, slot, 'error', `clean failed: ${tail(cleaned.message, 200)}`)
+      await hold(pool, slot, 'error', `clean failed: ${tail(cleaned.message)}`)
       return false
     }
     return true
@@ -805,7 +807,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   async function nextSlotPath(pool: PoolRuntime): Promise<{ id: string; path: string } | null> {
     const taken = new Set(pool.record.slots.map((slot) => slot.id))
     const released = new Set(pool.record.releasedPaths.map(comparablePath))
-    for (let n = 1; n < 1000; n += 1) {
+    for (let n = 1; n < SLOT_NUMBER_LIMIT; n += 1) {
       const id = `pool-${String(n).padStart(2, '0')}`
       // Joined in the container's own spelling (git's, forward slashes even on
       // Windows), so the slot's path compares equal to what `worktree list` says.
@@ -818,10 +820,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   }
 
   /** A new slot, made for a lease that found no idle one: detached at the base, marked, busy. */
-  async function createSlot(
-    pool: PoolRuntime,
-    base: LeaseBase,
-  ): Promise<SlotRecord | 'full' | 'error'> {
+  async function createSlot(pool: PoolRuntime, base: LeaseBase): Promise<SlotRecord | 'full' | 'error'> {
     // The name is picked under the pool's mutex, in the same step that records
     // it: two leases creating at once must never both pick `pool-01`.
     const { maxSlots } = await getSettings()
@@ -865,7 +864,9 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       return 'error'
     }
     await writeSlotMarker(git, slot.path).catch((error: unknown) =>
-      log(`${slot.path}: could not mark it as a slot (${messageOf(error)}); it is not adopted back if its record is lost`),
+      log(
+        `${slot.path}: could not mark it as a slot (${messageOf(error)}); it is not adopted back if its record is lost`,
+      ),
     )
     await withPool(pool, async () => {
       slot.state = 'leasing'
@@ -972,11 +973,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           const modules = await git(slot.path, ['submodule', 'update', '--init', '--recursive'], {
             timeoutMs: GIT_NETWORK_TIMEOUT_MS,
           })
-          if (!modules.ok) notes.push(`submodules: ${tail(modules.message, 200)}`)
+          if (!modules.ok) notes.push(`submodules: ${tail(modules.message)}`)
         }
         if (await usesLfs(slot.path)) {
           const lfs = await git(slot.path, ['lfs', 'pull'], { timeoutMs: GIT_NETWORK_TIMEOUT_MS })
-          if (!lfs.ok) notes.push(`lfs: ${tail(lfs.message, 200)}`)
+          if (!lfs.ok) notes.push(`lfs: ${tail(lfs.message)}`)
         }
         // `.worktreeinclude` names ignored files (an `.env`) the tree needs; a
         // reused slot still has the last copy, but the checkout's may have
@@ -986,12 +987,13 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
             (result) => failureOf(result),
             (error: unknown) => messageOf(error),
           )
-          if (seeded !== null) log(`${slot.path}: could not copy the .worktreeinclude files (${tail(seeded, 200)}); leasing anyway`)
+          if (seeded !== null)
+            log(`${slot.path}: could not copy the .worktreeinclude files (${tail(seeded)}); leasing anyway`)
         }
         // Locked BEFORE the branch exists: from the moment the slot is on an
         // `agent/` branch, nothing else may remove it.
         const locked = await lockAgentWorktree(pool.record.repoRoot, slot.path, owner, git)
-        if (!locked.ok) log(`${slot.path}: could not lock (${tail(locked.message, 200)}); leasing anyway`)
+        if (!locked.ok) log(`${slot.path}: could not lock (${tail(locked.message)}); leasing anyway`)
         const switched = await git(slot.path, ['switch', '--quiet', '-c', branch])
         if (!switched.ok) {
           await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
@@ -1114,7 +1116,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
             if (status.ok && status.status.branch === branch) {
               await git(pool.record.repoRoot, ['worktree', 'unlock', other.path])
               const locked = await lockAgentWorktree(pool.record.repoRoot, other.path, input.owner, git)
-              if (!locked.ok) log(`${other.path}: could not lock (${tail(locked.message, 200)}); reclaiming anyway`)
+              if (!locked.ok) log(`${other.path}: could not lock (${tail(locked.message)}); reclaiming anyway`)
               await withPool(pool, async () => {
                 other.state = 'leased'
                 other.op = null
@@ -1216,7 +1218,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         }
       }
       const locked = await lockAgentWorktree(pool.record.repoRoot, slot.path, input.owner, git)
-      if (!locked.ok) log(`${slot.path}: could not lock (${tail(locked.message, 200)}); reclaiming anyway`)
+      if (!locked.ok) log(`${slot.path}: could not lock (${tail(locked.message)}); reclaiming anyway`)
       const switched = await git(slot.path, ['switch', '--quiet', branch])
       if (!switched.ok) {
         await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
@@ -1335,7 +1337,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           const rescue = `${branch ?? `agent/${slot.id}`}-rescued-${oid.slice(0, 7)}`
           const created = await git(slot.path, ['branch', rescue, oid])
           if (!created.ok) {
-            await hold(pool, slot, 'error', `could not keep detached commits: ${tail(created.message, 200)}`, {
+            await hold(pool, slot, 'error', `could not keep detached commits: ${tail(created.message)}`, {
               branch,
             })
             return 'held'
@@ -1346,7 +1348,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       if (status.status.branch !== null) {
         const detached = await git(slot.path, ['switch', '--quiet', '--detach'])
         if (!detached.ok) {
-          await hold(pool, slot, 'error', `could not detach: ${tail(detached.message, 200)}`, { branch })
+          await hold(pool, slot, 'error', `could not detach: ${tail(detached.message)}`, { branch })
           return 'held'
         }
       }
@@ -1408,7 +1410,9 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     if (!pool || !(await ready(pool))) return []
     await forgetSlotsGoneFromDisk(pool)
     const protectedSpellings = await Promise.all(
-      [...input.protectedPaths, ...((await deps.livePaths?.()) ?? [])].filter(Boolean).map((path) => pathSpellings(path)),
+      [...input.protectedPaths, ...((await deps.livePaths?.()) ?? [])]
+        .filter(Boolean)
+        .map((path) => pathSpellings(path)),
     )
     const entries: WorktreePoolSweepEntry[] = []
     for (const slot of [...pool.record.slots]) {
@@ -1567,8 +1571,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           )
         }
         if (!removed.ok) {
-          await hold(pool, slot, 'error', `could not remove: ${tail(removed.message, 200)}`)
-          return `Git could not remove it: ${tail(removed.message, 200) ?? 'unknown error'}`
+          await hold(pool, slot, 'error', `could not remove: ${tail(removed.message)}`)
+          return `Git could not remove it: ${tail(removed.message) ?? 'unknown error'}`
         }
       } else {
         await forgetRegistration(pool, slot.path)
@@ -1757,7 +1761,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   async function recoverPool(pool: PoolRuntime): Promise<void> {
     const record = pool.record
     const listed = await git(record.repoRoot, ['worktree', 'list', '--porcelain', '-z'])
-    if (!listed.ok) throw new Error(`git worktree list failed: ${tail(listed.message, 200) ?? 'no reason given'}`)
+    if (!listed.ok) throw new Error(`git worktree list failed: ${tail(listed.message) ?? 'no reason given'}`)
     const registered = new Map<string, GitWorktreeEntry>()
     for (const entry of parseGitWorktreePorcelain(listed.stdout)) registered.set(comparablePath(entry.path), entry)
 
