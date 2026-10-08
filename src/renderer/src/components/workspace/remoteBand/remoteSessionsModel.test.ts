@@ -17,6 +17,7 @@ import {
   openSpecOfConversation,
   remoteConversationTitle,
   remoteLinkStateOf,
+  remoteFinishUnseen,
   remotePaneTabName,
   remoteWorkspaceName,
   shouldBrowse,
@@ -510,4 +511,37 @@ test('chats on a paired machine are rows of their own, with the presence their p
   assert.equal(meshConversationPresence('waiting_for_input'), 'needs-input')
   assert.equal(meshConversationPresence('starting'), 'running')
   assert.equal(meshConversationPresence('failed'), 'idle')
+
+  // A listed chat's phase and reply preview ride its row, which words its line.
+  {
+    const [row] = buildRemoteBand({
+      connections: [mini],
+      browses: new Map([
+        [
+          'c-mini',
+          {
+            ...entry,
+            conversations: [
+              { ...chat('a-asked', 'waiting_for_input', 'Pick a branch'), lastAssistantText: 'Which branch?' },
+            ],
+          },
+        ],
+      ]),
+      reachability: new Map(),
+      workspaces: [],
+    })[0]!.rows
+    assert.equal(row!.phase, 'waiting_for_input')
+    assert.equal(row!.replyPreview, 'Which branch?')
+  }
+
+  // The green "finished while you were away" row: a finish after the last
+  // visit on any device. A chat with no visit recorded reads as seen, and one
+  // still working or waiting has not finished.
+  const finish = { activity: 'idle' as const, lastTurnEndedAt: 2_000, lastVisitedAt: 1_000 }
+  assert.equal(remoteFinishUnseen(finish), true)
+  assert.equal(remoteFinishUnseen({ ...finish, lastVisitedAt: 2_500 }), false, 'seen since')
+  assert.equal(remoteFinishUnseen({ ...finish, lastVisitedAt: null }), false, 'no visit recorded reads as seen')
+  assert.equal(remoteFinishUnseen({ ...finish, lastTurnEndedAt: null }), false, 'never finished a turn')
+  assert.equal(remoteFinishUnseen({ ...finish, activity: 'working' }), false)
+  assert.equal(remoteFinishUnseen({ ...finish, activity: 'needs-input' }), false)
 })
