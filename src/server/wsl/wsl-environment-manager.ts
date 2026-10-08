@@ -13,6 +13,7 @@ import {
 import type { WslRunner } from '../../main/hosts/wsl-runner'
 import { WslSetupError } from '../../main/hosts/wsl-setup-error'
 import type { ServerBootstrapEnvelope } from '../bootstrap/envelope'
+import { chatsAreWorking } from '../core/chats-working'
 import { connectRemoteConversationBackend, type RemoteConversationBackend } from './backend-wire'
 import { connectLoopback, openBridge } from './front-door-client'
 import { enterFrontDoor, ownerTokenHash, type FrontDoorPurpose } from './front-door-proof'
@@ -215,18 +216,10 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     handle.pingTimer = null
   }
 
-  const busy = (handle: Handle): boolean => {
-    const listed = handle.connection?.backend.listSessions()
-    if (!listed?.ok) return false
-    return listed.sessions.some(
-      (session) =>
-        session.status === 'starting' ||
-        session.status === 'active' ||
-        session.status === 'awaiting_approval' ||
-        session.turnStartedAt !== undefined ||
-        (session.backgroundAgents ?? 0) > 0,
-    )
-  }
+  // A server whose wire is being reconnected, or that is still starting,
+  // cannot say what its chats are doing: it is taken as working, not idle.
+  const busy = (handle: Handle): boolean =>
+    !handle.connection || handle.starting !== null || chatsAreWorking(handle.connection.backend)
 
   const armIdle = (handle: Handle): void => {
     if (handle.idleTimer) clearTimeout(handle.idleTimer)
@@ -241,7 +234,7 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       log(
         `Stopping the Studio server in ${handle.distro}: nothing has used it for ${Math.round(idleMs / 60_000)} minutes.`,
       )
-      void stopHandle(handle, { budgetMs: QUIT_DRAIN_MS })
+      void stopHandle(handle, { budgetMs: QUIT_DRAIN_MS, idle: true })
     }, idleMs)
     handle.idleTimer.unref?.()
   }
@@ -547,10 +540,19 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     }
   }
 
-  async function stopHandle(handle: Handle, options: { budgetMs?: number } = {}): Promise<void> {
+  async function stopHandle(handle: Handle, options: { budgetMs?: number; idle?: boolean } = {}): Promise<void> {
     await handle.starting?.catch(() => undefined)
     const server = handle.server
     if (!server) return
+    // An idle stop that waited for a start or a reconnect looks again: the
+    // server may have been used meanwhile, or a chat begun working there.
+    if (options.idle) {
+      if (handle.idleTimer) return
+      if (busy(handle)) {
+        armIdle(handle)
+        return
+      }
+    }
     handle.stopping = true
     clearTimers(handle)
     try {

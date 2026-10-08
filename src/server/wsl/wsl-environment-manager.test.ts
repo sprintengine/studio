@@ -145,6 +145,7 @@ function manager(options: {
   closeDelayMs?: number
   log?: (message: string) => void
   now?: () => number
+  idleMs?: number
 }) {
   const runner = fakeRunner(options.homes, options.closeDelayMs)
   const listing =
@@ -169,6 +170,7 @@ function manager(options: {
     ...(options.maxAttempts ? { start: { maxAttempts: options.maxAttempts } } : {}),
     ...(options.log ? { log: options.log } : {}),
     ...(options.now ? { now: options.now } : {}),
+    ...(options.idleMs ? { idleMs: options.idleMs } : {}),
   })
   cleanups.push(() => created.shutdown({ budgetMs: 5_000 }))
   return { manager: created, runner }
@@ -372,6 +374,33 @@ test('a lost wire to a server too busy to answer at once is reconnected when it 
   assert.equal(readServerPid(home), pid, 'the same server, with its chats, not one started in its place')
   assert.equal(wsl.status('Ubuntu').state, 'ready')
   assert.equal(connections.length, 2)
+}, 30_000)
+
+test('a server whose wire is being reconnected is not stopped for being idle once it is back', async () => {
+  const home = fakeHome('idle-reconnect')
+  const statuses: WslServerStatus[] = []
+  const { manager: wsl } = manager({ homes: { Ubuntu: home }, statuses, idleMs: 1_000 })
+  const first = await wsl.connect('Ubuntu')
+  const pid = readServerPid(home)
+  // Its idle clock runs out while the reconnect waits on a server slow to answer.
+  process.kill(pid, 'SIGSTOP')
+  try {
+    first.backend.close()
+    await new Promise((resolve) => setTimeout(resolve, 2_500))
+  } finally {
+    process.kill(pid, 'SIGCONT')
+  }
+  const second = await wsl.connect('Ubuntu')
+  assert.notEqual(second, first)
+  // Used right away: the idle clock starts again, and nothing stops it under the chat.
+  wsl.touch('Ubuntu')
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  assert.equal(wsl.status('Ubuntu').state, 'ready')
+  assert.equal(readServerPid(home), pid)
+  assert.equal(
+    statuses.some((status) => status.state === 'stopped'),
+    false,
+  )
 }, 30_000)
 
 test('a WSL 1 distribution is refused with the command that converts it, and nothing is started', async () => {
