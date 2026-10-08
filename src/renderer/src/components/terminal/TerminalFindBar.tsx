@@ -19,7 +19,8 @@ import type { TerminalFind } from '../../hooks/useTerminalFind'
  * rather than a third set decided here.
  */
 
-function ChevronIcon({ direction }: { direction: 'up' | 'down' }) {
+/** The previous/next step glyph, shared with the chat's find bar. */
+export function ChevronIcon({ direction }: { direction: 'up' | 'down' }) {
   return (
     <svg className="icon-sm" viewBox="0 0 14 14" fill="none" aria-hidden="true">
       <path

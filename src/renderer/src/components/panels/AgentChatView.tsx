@@ -137,6 +137,8 @@ import { studioAppCommands, useConversationCommands } from './agentChat/useConve
 import { composerAppCommand } from './agentChat/composerAppCommands'
 import { commandInsertText } from './agentChat/slashCommandMenu'
 import { useConversationSearchJump } from './agentChat/conversationSearchJump'
+import { useConversationFind } from './agentChat/useConversationFind'
+import { ConversationFindBar } from './agentChat/ConversationFindBar'
 import { useTurnNavigation } from './agentChat/turnNavigation'
 import { TimelineMinimap } from './agentChat/TimelineMinimap'
 import {
@@ -2304,6 +2306,26 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // composer's caret was, as a block of its own, and the caret waits on a fresh
   // line under it. The field keeps its caret while focus is in the transcript.
   const transcriptRef = useRef<HTMLDivElement | null>(null)
+  // Find in this chat (⌘F inside it): the loaded rows' text, not the page's,
+  // since the list draws only the rows on screen (agentChat/conversationFind).
+  const find = useConversationFind({
+    conversationKey,
+    rows: timelineRows,
+    transcriptRef,
+    jumpToRow,
+    scrollToRow: (index) => {
+      atBottomRef.current = false
+      setAtBottom(false)
+      setAnchoredUserId(null)
+      void listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false })
+    },
+    hasMore,
+    loadingEarlier,
+    loadEarlier,
+    returnFocus: () => composerRef.current?.focus(),
+  })
+  const openFindRef = useRef(find.openFind)
+  openFindRef.current = find.openFind
   const quoteIntoComposer = useCallback(
     (markdown: string) => {
       const field = composerRef.current
@@ -2368,6 +2390,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         stepTurn,
         startReplay: () => startReplayRef.current(),
         quoteSelection: () => quoteSelectionRef.current(),
+        openFind: () => openFindRef.current(),
       }),
     [workspaceId, stepTurn],
   )
@@ -3076,6 +3099,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             onCopy={(event) => copySelectionAsMarkdown(event.nativeEvent, event.currentTarget)}
             className="relative min-h-0 flex-1"
           >
+            <ConversationFindBar find={find} />
             {timelineRows.length === 0 ? (
               startupWaiting ? (
                 <PendingFirstMessage

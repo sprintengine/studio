@@ -18,11 +18,12 @@ export type CommandScope =
 /**
  * The scopes the shell's own commands may name, closed so a misspelt scope in
  * the registry fails to compile rather than quietly matching nothing. It adds
- * `new-chat`, the New chat composer's own scope (commandRegistry.ts), which
- * is the shell's alone: naming it in `CommandScope` would make the module
- * SDK's mirror of that union publish it to every module.
+ * `new-chat`, the New chat composer's own scope (commandRegistry.ts), and
+ * `chat`, active for a key pressed inside a chat (as `terminal` is inside a
+ * terminal). Both are the shell's alone: naming them in `CommandScope` would
+ * make the module SDK's mirror of that union publish them to every module.
  */
-export type ShellCommandScope = PublishedCommandScope | 'new-chat'
+export type ShellCommandScope = PublishedCommandScope | 'new-chat' | 'chat'
 
 export type CommandAvailability =
   | 'always'

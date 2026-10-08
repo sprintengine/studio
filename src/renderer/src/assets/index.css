@@ -2007,6 +2007,18 @@ samp,
   }
 }
 
+/* Find in this chat (agentChat/conversationFind.ts): every match on screen,
+   and the one the find is on, marked through the CSS Custom Highlight API so
+   no row's DOM is touched. A wash over the text, as a highlighter pen marks
+   it; the ink stays the row's own. */
+::highlight(chat-find) {
+  background-color: var(--sem-color-find-match);
+}
+
+::highlight(chat-find-active) {
+  background-color: var(--sem-color-find-match-active);
+}
+
 /* The lines an agent opened a file at (editor.open / open_diff): a "just
    changed" tint that fades over one pulse, the same grammar and the same
    duration as the row pulse above, in the accent's soft tint because it marks

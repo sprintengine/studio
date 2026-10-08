@@ -15,11 +15,14 @@ export type MountedChatView = {
   startReplay?: () => void
   /** Quote the document's selection when it is in this view's transcript; whether it was. */
   quoteSelection?: () => boolean
+  /** Open the find bar over the transcript, its field focused (`chat.find`). */
+  openFind?: () => void
 }
 const mountedChatViews: MountedChatView[] = []
 export const MODEL_PICKER_TOGGLE_COMMAND = 'chat.modelPicker.toggle'
 const RESUME_IN_TERMINAL_COMMAND = 'chat.resumeInTerminal'
 const REPLAY_COMMAND = 'chat.replay.start'
+export const CHAT_FIND_COMMAND = 'chat.find'
 
 /**
  * Answer `chat.modelPicker.toggle` (⌘⇧M, or the palette row) with ONE chat
@@ -75,6 +78,9 @@ function onModelPickerPanelCommand(event: Event): void {
         .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
     responder?.startReplay?.()
   }
+  // Only the chat holding the keyboard: the key came from inside one (the
+  // `chat` scope), and a background workspace's chat must not open a bar.
+  if (detail?.id === CHAT_FIND_COMMAND) mountedChatViews.find((view) => view.isFocused())?.openFind?.()
   // The view whose transcript holds the selection answers, whichever has focus.
   if (detail?.id === QUOTE_SELECTION_COMMAND) mountedChatViews.some((view) => view.quoteSelection?.() === true)
 }

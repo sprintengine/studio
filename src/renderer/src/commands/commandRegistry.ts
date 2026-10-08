@@ -572,6 +572,23 @@ export const COMMAND_REGISTRY = [
     allowInEditableTarget: true,
     handlerPath: { kind: 'panel-event', eventId: 'terminal.find' },
   }),
+  // Find in the chat you are in: the loaded conversation's text, where the
+  // browser's find would see only the rows the virtual list has drawn. The
+  // chat's reading of `terminal.find`, so it takes the same key. Its `chat`
+  // scope is active exactly for a key pressed inside a chat, as `terminal`
+  // is inside a terminal, so ⌘F in an editor, a terminal or a text field
+  // elsewhere is left to them. `allowInEditableTarget` because the key most
+  // often comes from the composer.
+  command({
+    id: 'chat.find',
+    title: 'Find in chat',
+    category: 'panel',
+    scopes: ['chat'],
+    defaultKeybindings: ['Primary+F'],
+    availability: ['activeWorkspace'],
+    allowInEditableTarget: true,
+    handlerPath: { kind: 'panel-event', eventId: 'chat.find' },
+  }),
   // Jump between the prompts OSC 133 marks. Same registry, same Shortcuts tab
   // and the same `terminal` scope as Find in Terminal — the scope
   // WorkspaceManager activates for exactly the keystrokes that came from inside
