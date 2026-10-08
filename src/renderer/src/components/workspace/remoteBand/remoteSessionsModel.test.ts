@@ -17,8 +17,9 @@ import {
   openSpecOfConversation,
   remoteConversationTitle,
   remoteLinkStateOf,
+  branchPullRequestsOfWire,
   remoteFinishUnseen,
-  remotePaneTabName,
+  remotePaneTabLabel,
   remoteWorkspaceName,
   shouldBrowse,
   unattachedConversations,
@@ -389,9 +390,18 @@ test('remoteSessionsModel', async () => {
   assert.equal(remoteLinkStateOf({ tailnetAddress: null }), 'down', 'Tailscale is not up on this machine')
   assert.equal(remoteLinkStateOf({ tailnetAddress: '100.64.0.5' }), 'up')
 
-  // ── remotePaneTabName ────────────────────────────────────────────────────
-  // The machine is part of a remote pane's name, never only a tooltip.
-  assert.equal(remotePaneTabName('studio', 'Profile the importer'), 'Profile the importer · studio')
+  // ── remotePaneTabLabel ───────────────────────────────────────────────────
+  // A remote pane's tab is its agent's name; the machine mark says where it
+  // runs (owner, 2026-10-08). A tab saved under the old rule drops the machine.
+  assert.equal(remotePaneTabLabel('Aidan Darcy', 'mac-mini.tail1234.ts.net'), 'Aidan Darcy')
+  assert.equal(remotePaneTabLabel('Aidan Darcy · mac-mini.tail1234.ts.net', 'mac-mini.tail1234.ts.net'), 'Aidan Darcy')
+  assert.equal(
+    remotePaneTabLabel('Aidan Darcy · studio', 'mac-mini'),
+    'Aidan Darcy · studio',
+    'another machine’s name is kept',
+  )
+  assert.equal(remotePaneTabLabel(' · mac-mini', 'mac-mini'), ' · mac-mini', 'never down to nothing')
+  assert.equal(remotePaneTabLabel('Aidan Darcy · mac-mini', undefined), 'Aidan Darcy · mac-mini')
 
   // ── remoteWorkspaceName / remoteConversationTitle ────────────────────────
   // The CHAT's name, never the agent's (owner, 2026-09-13).
@@ -522,7 +532,14 @@ test('chats on a paired machine are rows of their own, with the presence their p
           {
             ...entry,
             conversations: [
-              { ...chat('a-asked', 'waiting_for_input', 'Pick a branch'), lastAssistantText: 'Which branch?' },
+              {
+                ...chat('a-asked', 'waiting_for_input', 'Pick a branch'),
+                lastAssistantText: 'Which branch?',
+                branch: 'agent/pick',
+                pullRequests: [
+                  { number: 7, state: 'merged', url: 'https://github.com/acme/app/pull/7', title: 'Pick it' },
+                ],
+              },
             ],
           },
         ],
@@ -532,6 +549,29 @@ test('chats on a paired machine are rows of their own, with the presence their p
     })[0]!.rows
     assert.equal(row!.phase, 'waiting_for_input')
     assert.equal(row!.replyPreview, 'Which branch?')
+    assert.equal(row!.branch, 'agent/pick')
+    assert.deepEqual(
+      row!.pullRequests.map((pr) => [pr.number, pr.state, pr.repoKey, pr.repoName]),
+      [[7, 'merged', 'github.com/acme/app', 'app']],
+    )
+  }
+
+  // A listed pull request is read for its repository off its address, as the
+  // local record reads it; an address that names none is left out, and one on
+  // another forge says which.
+  {
+    const read = branchPullRequestsOfWire([
+      { number: 1, state: 'open', url: 'https://github.com/acme/app/pull/1', title: 'GitHub' },
+      { number: 2, state: 'open', url: 'https://gitlab.com/acme/app/-/merge_requests/2', title: 'GitLab' },
+      { number: 3, state: 'open', url: 'https://example.com/not-a-pull-request', title: 'Nothing' },
+    ])
+    assert.deepEqual(
+      read.map((pr) => [pr.number, pr.forge ?? 'github']),
+      [
+        [1, 'github'],
+        [2, 'gitlab'],
+      ],
+    )
   }
 
   // The green "finished while you were away" row: a finish after the last

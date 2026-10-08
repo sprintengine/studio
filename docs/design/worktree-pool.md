@@ -190,6 +190,23 @@ were settled:
   `keepIdle`); a return beyond that removes the least recently used. A
   repository's pool holds at most `maxSlots` (default 12, at most 32), leased
   ones included; past it a lease falls back to a plain worktree.
+- **Ready slots expire, and other worktrees are swept too** (owner ruling
+  2026-10-08). A ready slot unused for a day is removed whatever `keepIdle`
+  says, so a project left alone drops its pool to nothing; every sweep ages
+  them, not only a return. Worktrees the pool does not own (made by hand, by
+  an agent CLI, in the Worktree manager) are no longer left for good: the
+  sweep removes one that is clean, unlocked and has nothing ignored at risk
+  once it has gone unused for a day with its work on the default branch, or
+  for a week with its commits on a branch (the branch is kept). "Unused" is
+  when its index or HEAD last moved; a `git gc` rewrites every worktree's
+  reflog and admin folder, so those say nothing about use.
+- **A settled chat counts as deleted** (owner ruling 2026-10-08). Unless
+  someone has it open, nothing it records keeps anything: its folder, its
+  agents' worktrees and leases, and its branches are released to the sweep,
+  and its history in a slot or worktree no longer keeps that folder. An agent
+  worktree nothing uses goes even unmerged, its commits staying on its
+  `agent/` branch (never deleted while unmerged), as a returned slot's do.
+  Reopening the chat checks its branch out again while the branch is there.
 
 ## 6. Settings ▸ Worktrees (2026-10-05)
 

@@ -101,6 +101,21 @@ const USAGE_SEGMENTS = [
   { key: 'other', label: 'Not in the pool', color: 'var(--tone-merged)' },
 ] as const
 
+/**
+ * The last inventory this window read, kept while the window lives: closing
+ * Settings and opening it again draws what was there at once and refreshes
+ * underneath, instead of a blank page while git reads every worktree again.
+ */
+let lastInventory: WorktreeInventory | null = null
+
+/** Forget the kept inventory, so one test's page does not open on another's. */
+export function forgetWorktreeInventoryForTests(): void {
+  lastInventory = null
+}
+
+/** Sizes measured this recently are shown as they are; opening the page measures only older ones. */
+const SIZES_FRESH_MS = 15 * 60_000
+
 function hasApi(): boolean {
   return typeof window.api?.getWorktreeInventory === 'function'
 }
@@ -113,7 +128,7 @@ export function WorktreesSettingsTab({
 }): React.JSX.Element {
   const dialog = useConfirmDialog()
   const workspaces = useWorkspaceStore((s) => s.workspaces)
-  const [inventory, setInventory] = useState<WorktreeInventory | null>(null)
+  const [inventory, setInventory] = useState<WorktreeInventory | null>(() => lastInventory)
   const [settings, setSettings] = useState<WorktreePoolSettings>(DEFAULT_WORKTREE_POOL_SETTINGS)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [measuring, setMeasuring] = useState(false)
@@ -158,6 +173,7 @@ export function WorktreesSettingsTab({
         return
       }
       appliedRead.current = sequence
+      lastInventory = next
       setInventory(next)
       setLoadError(null)
       setNow(Date.now())
@@ -173,8 +189,12 @@ export function WorktreesSettingsTab({
 
   useEffect(() => {
     mounted.current = true
-    // Fast first (what is known), then measured.
-    void read(false).then(() => read(true))
+    // Fast first (what is known), then measured, unless the sizes on hand
+    // are recent: `du` over every worktree is the slow part of opening.
+    void read(false).then(() => {
+      const measuredAt = lastInventory?.measuredAt ?? null
+      if (measuredAt === null || Date.now() - measuredAt > SIZES_FRESH_MS) void read(true)
+    })
     void window.api
       ?.getWorktreePoolSettings?.()
       .then((value) => mounted.current && setSettings(value))
@@ -916,8 +936,9 @@ function ProjectCard({
                   the worktree is doing: two tracks that share what the size
                   and the actions leave. */}
               <col className="w-8" />
-              <col className="w-[36%]" />
+              <col className="w-[32%]" />
               <col />
+              <col className="w-24" />
               <col className="w-20" />
               <col className="w-36" />
             </colgroup>
@@ -930,6 +951,7 @@ function ProjectCard({
               </Table.Head>
               <Table.Head sticky={false}>Worktree</Table.Head>
               <Table.Head sticky={false}>Status</Table.Head>
+              <Table.Head sticky={false}>Last used</Table.Head>
               <Table.Head sticky={false} numeric>
                 Size
               </Table.Head>
@@ -945,7 +967,7 @@ function ProjectCard({
             {otherRows.length > 0 ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="bg-[color:var(--bg-surface)] px-2 py-1.5 pl-8 text-meta text-[color:var(--text-subtle)]"
                 >
                   Not in the pool: other worktrees of this project
@@ -1078,6 +1100,12 @@ function WorktreeTableRow({
               : [row.branchNote, usedBySub(row, now)].filter(Boolean).join(' · ')}
           </div>
         </Table.Cell>
+        <Table.Cell
+          className="whitespace-nowrap text-meta tabular-nums text-[color:var(--text-muted)]"
+          title={row.lastUsedAt ? new Date(row.lastUsedAt).toLocaleString() : undefined}
+        >
+          {row.lastUsedAt ? formatRelativeMsAgo(row.lastUsedAt, now) : '—'}
+        </Table.Cell>
         <Table.Cell numeric className="whitespace-nowrap text-[color:var(--text-muted)]">
           {formatBytes(row.bytes)}
         </Table.Cell>
@@ -1110,7 +1138,7 @@ function WorktreeTableRow({
       </Table.Row>
       {isOpen ? (
         <tr className="border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
-          <td colSpan={5} className="px-4 py-4 pl-8">
+          <td colSpan={6} className="px-4 py-4 pl-8">
             <RowDetail row={row} now={now} actions={actions} busy={isBusy} />
           </td>
         </tr>

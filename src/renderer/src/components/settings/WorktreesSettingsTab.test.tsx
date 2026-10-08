@@ -19,7 +19,7 @@ vi.mock('../../store/workspaceStore', () => {
   return { useWorkspaceStore }
 })
 
-const { WorktreesSettingsTab } = await import('./WorktreesSettingsTab')
+const { WorktreesSettingsTab, forgetWorktreeInventoryForTests } = await import('./WorktreesSettingsTab')
 const { ConfirmDialogProvider } = await import('../ui')
 
 const size = (bytes: number) => ({ bytes, measuredAt: now, parts: [{ name: 'node_modules', bytes }] })
@@ -104,6 +104,7 @@ const inventory: WorktreeInventory = {
           merged: true,
           changedPaths: 0,
           changes: [],
+          lastUsedAt: null,
           size: size(3 * GB),
         },
       ],
@@ -120,7 +121,11 @@ const calls: { inventory: WorktreeInventoryInput[]; actions: unknown[]; removed:
 }
 const opened: string[] = []
 
+let measuredOnce = false
+
 beforeEach(() => {
+  forgetWorktreeInventoryForTests()
+  measuredOnce = false
   calls.inventory.length = 0
   calls.actions.length = 0
   calls.removed.length = 0
@@ -132,7 +137,9 @@ beforeEach(() => {
     api: {
       getWorktreeInventory: async (input: WorktreeInventoryInput) => {
         calls.inventory.push(input)
-        return inventory
+        // Main has measured nothing until it is first asked to.
+        if (input.measure) measuredOnce = true
+        return measuredOnce ? inventory : { ...inventory, measuredAt: null }
       },
       getWorktreePoolSettings: async () => ({ enabled: true, keepIdle: 3, maxSlots: 12, diskLimitGb: 30 }),
       setWorktreePoolSettings: async (patch: object) => ({
@@ -419,7 +426,7 @@ test('while a measurement runs, pool changes start no reads; one answered late d
     getWorktreeInventory: (input: WorktreeInventoryInput) => {
       asked.push(input.measure === true)
       if (input.measure) return new Promise<WorktreeInventory>((resolve) => (finishMeasure = resolve))
-      return Promise.resolve(renamed(`feat/read-${asked.length}`))
+      return Promise.resolve({ ...renamed(`feat/read-${asked.length}`), measuredAt: null })
     },
   })
   await render()
@@ -496,4 +503,33 @@ test('the overview reflows with the page’s width, each label on one line besid
     const span = [...overview.querySelectorAll('span')].find((candidate) => candidate.textContent === label)
     expect(span?.className).toContain('truncate')
   }
+})
+
+test('opened again, the page shows what it last read at once and measures only stale sizes', async () => {
+  await render()
+  expect(calls.inventory.map((input) => input.measure)).toEqual([false, true])
+  await act(async () => root.unmount())
+  root = createRoot(host)
+  calls.inventory.length = 0
+  let answer: ((value: WorktreeInventory) => void) | null = null
+  Object.assign((window as unknown as { api: object }).api, {
+    getWorktreeInventory: (input: WorktreeInventoryInput) => {
+      calls.inventory.push(input)
+      return new Promise<WorktreeInventory>((resolve) => (answer = resolve))
+    },
+  })
+  await act(async () =>
+    root.render(
+      <ConfirmDialogProvider>
+        <WorktreesSettingsTab onOpenChat={() => {}} />
+      </ConfirmDialogProvider>,
+    ),
+  )
+  // Drawn from what was read before, while the new read is still out.
+  expect(rowNamed('pool-01')?.textContent).toContain('Fix the login redirect loop')
+  await act(async () => {
+    answer!(inventory)
+    await Promise.resolve()
+  })
+  expect(calls.inventory.map((input) => input.measure)).toEqual([false])
 })

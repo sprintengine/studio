@@ -8,8 +8,6 @@ import type {
   MeshConversationLink,
   MeshQueuedMessage,
 } from '../../../../../shared/tailnet-mesh'
-import { RemoteMachineGlyph } from '../../AppIcons'
-import { TruncatedText } from '../../ui'
 import type { CliRuntimeOption } from '../../ui/CliModelPicker'
 import { ConversationChatBody } from '../AgentChatView'
 import { ChatViewErrorBoundary } from './ChatViewErrorBoundary'
@@ -273,15 +271,11 @@ export default function RemoteConversationPanel({
       sessionRoot: `mesh:${connectionId}`,
       readiness,
       session,
+      // No header of its own (owner, 2026-10-08): the tab names the agent and
+      // wears the machine's mark, and the strip under the composer marks the
+      // machine again; a third line saying both was the same fact once more.
       ...(engine ? { engine } : {}),
       hostQueue: { machineName, messages: hostQueued },
-      header: (
-        <div className="flex min-w-0 items-center gap-1.5 px-4 pt-2 text-meta text-[color:var(--text-muted)]">
-          <RemoteMachineGlyph className="icon-xs shrink-0" />
-          <TruncatedText as="span" text={displayTitle} className="min-w-0 text-[color:var(--text-default)]" />
-          <span className="shrink-0">· On {machineName}</span>
-        </div>
-      ),
     }),
     [fields, displayTitle, thread, update, connectionId, readiness, session, engine, machineName, hostQueued],
   )

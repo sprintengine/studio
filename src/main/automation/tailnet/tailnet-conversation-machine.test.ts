@@ -15,6 +15,7 @@ import { ConversationRuntime } from '../../conversation-runtime'
 import { createMockConversationProvider } from '../../providers/mock-conversation-provider'
 import { createConversationGatewayHost, type ConversationListMarks } from './tailnet-conversation-host'
 import {
+  conversationBranchesOf,
   conversationHostOf,
   conversationPullRequestsOf,
   tailnetSelfMachine,
@@ -215,6 +216,55 @@ test('each listed chat names its machine and its pull requests, read once for th
   } finally {
     await f.cleanup()
   }
+})
+
+test('each listed chat names the branch its folder is on, read once per workspace', async () => {
+  const asked: string[][] = []
+  const f = await listFixture({
+    branchesOf: async (workspaceIds) => {
+      asked.push(workspaceIds)
+      return new Map([['workspace', 'agent/fix-upload']])
+    },
+  })
+  try {
+    const listed = await f.host.list()
+    assert.equal(listed.length, 2)
+    for (const thread of listed) assert.equal(thread.branch, 'agent/fix-upload')
+    assert.deepEqual(asked, [['workspace']], 'one read for the list, each workspace named once')
+    const parsed = parseConversationServerFrame({
+      type: 'sessions',
+      requestId: 'list',
+      sessions: [
+        ...listed,
+        { ...listed[0], agentId: 'spaced', branch: 'not a branch' },
+        { ...listed[0], agentId: 'number', branch: 7 },
+      ],
+    })
+    assert.ok(parsed?.type === 'sessions')
+    assert.equal(parsed.sessions[0]?.branch, 'agent/fix-upload', 'the client keeps a branch')
+    assert.equal('branch' in parsed.sessions.find((thread) => thread.agentId === 'spaced')!, false)
+    assert.equal('branch' in parsed.sessions.find((thread) => thread.agentId === 'number')!, false)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a branch read names only the folders on a branch, and a failed read names none', async () => {
+  const folders: Record<string, string | null> = {
+    onBranch: '/Users/dev/app',
+    detached: '/Users/dev/detached',
+    broken: '/Users/dev/broken',
+    elsewhere: null,
+  }
+  const branches = await conversationBranchesOf(
+    Object.keys(folders),
+    (workspaceId) => folders[workspaceId] ?? null,
+    async (cwd) => {
+      if (cwd === '/Users/dev/broken') throw new Error('git is not installed')
+      return { branch: cwd === '/Users/dev/app' ? 'main' : null }
+    },
+  )
+  assert.deepEqual([...branches], [['onBranch', 'main']])
 })
 
 test('a per-list machine reader is made once for each list, and preferred to `machineOf`', async () => {

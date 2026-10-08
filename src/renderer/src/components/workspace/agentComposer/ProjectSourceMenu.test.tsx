@@ -62,8 +62,8 @@ test('ProjectSourceMenu', async () => {
         options={[
           { path: '/w/sprintengine', label: 'sprintengine' },
           { path: '/w/toolbox', label: 'toolbox' },
+          { path: '/w/old-repo', label: 'old-repo' },
         ]}
-        recentOptions={[{ path: '/w/old-repo', label: 'old-repo' }]}
         selectedPath="/w/sprintengine"
         defaultParent="/w"
         onSelect={() => {}}
@@ -90,9 +90,14 @@ test('ProjectSourceMenu', async () => {
       assert.doesNotMatch(markup, /role="menu"/, 'no nested role="menu"')
     })
 
-    await check('known-but-closed projects sit under a Recent group label and are searched too', () => {
-      assert.match(markup, /aria-label="Recent"/)
-      assert.match(markup, /old-repo/)
+    await check('every project is one list in the order given, with no Recent section below it', () => {
+      assert.doesNotMatch(markup, /aria-label="Recent"/)
+      assert.doesNotMatch(markup, />Recent</)
+      const order = ['sprintengine', 'toolbox', 'old-repo'].map((name) => markup.indexOf(`/w/${name}`))
+      assert.ok(
+        order.every((at, index) => at !== -1 && (index === 0 || at > order[index - 1])),
+        'in the host order',
+      )
     })
 
     await check('the sources lead: Browse… and Import from Git sit between the search field and the projects', () => {

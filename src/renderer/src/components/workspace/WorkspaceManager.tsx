@@ -148,7 +148,7 @@ import {
 import { SidebarChrome } from './SidebarChrome'
 import { useStableCallback } from '../../hooks/useStableCallback'
 import { useNarrowViewport } from '../../hooks/useNarrowViewport'
-import { remotePaneTabName, remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
+import { remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
 import type { NewAgentLaunch, NewAgentPanelMode, RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
 import { useScheduledAgents } from '../../store/scheduledAgentsStore'
@@ -197,6 +197,7 @@ import {
   buildSidebarWorkspaceOrder,
   getSessionItems,
   getWorkspaceActivity,
+  newChatProjectOptionsOf,
   showsNoWorkspaceState,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
@@ -3483,21 +3484,10 @@ export default function WorkspaceManager() {
     return () => setBacklogHandoffHost(null)
   }, [handBacklogItemToAgent])
 
-  // The panel's project chip: distinct folders across this window's open
-  // workspaces, in rail order. Browse admits a folder the studio doesn't know.
-  const newChatProjectOptions = useMemo(() => {
-    const seen = new Set<string>()
-    const options: Array<{ path: string; label: string }> = []
-    for (const workspace of workspaces) {
-      const path = workspace.folderPath?.trim()
-      if (!path) continue
-      const key = path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-      if (seen.has(key)) continue
-      seen.add(key)
-      options.push({ path, label: newChatFolderLabel(path) })
-    }
-    return options
-  }, [workspaces])
+  // The panel's project chip: one row per project open here, never a chat's
+  // worktree folder (`newChatProjectOptionsOf`). Browse admits a folder the
+  // studio doesn't know.
+  const newChatProjectOptions = useMemo(() => newChatProjectOptionsOf(workspaces), [workspaces])
   const selectNewChatProject = (path: string) => {
     setNewChatPanelState((prev) => (prev ? { ...prev, folderPath: path, folderLabel: newChatFolderLabel(path) } : prev))
   }
@@ -3781,7 +3771,7 @@ export default function WorkspaceManager() {
         windowId: workspaceWindowId,
         // It opens in the chat view, following the conversation over there.
         seedAgent: {
-          tabName: remotePaneTabName(spec.machineName, spec.title),
+          tabName: spec.title,
           meshConversation: {
             connectionId: spec.connectionId,
             machineName: spec.machineName,
@@ -3857,7 +3847,7 @@ export default function WorkspaceManager() {
         },
         windowId: workspaceWindowId,
         seedAgent: {
-          tabName: remotePaneTabName(launch.machineName, created.title),
+          tabName: created.title,
           meshConversation: {
             connectionId: launch.connectionId,
             machineName: launch.machineName,

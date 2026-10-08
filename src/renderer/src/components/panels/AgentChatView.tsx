@@ -3137,8 +3137,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         <ChatShell shellRef={shellRef} dropHandlers={fileDropHandlers} keyHandlers={redirectHandlers}>
           {/* No title row above the transcript: the tab names the agent, as it
             does a terminal agent, and a thread title here repeated the first
-            message over its own bubble. A remote pane brings its own header. */}
-          {binding.header ?? null}
+            message over its own bubble. */}
 
           <div
             ref={transcriptRef}
