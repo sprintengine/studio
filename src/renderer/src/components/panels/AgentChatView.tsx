@@ -40,6 +40,7 @@ import { copySelectionAsMarkdown } from '../../utils/selectionToMarkdown'
 import { getEffectiveKeybindings, platformKeybindingsFromApiPlatform } from '../../commands/effectiveKeybindings'
 import { keydownMatchesKeybindings } from '../../commands/commandDispatcher'
 import { runAppCommand } from '../../commands/appCommandRunner'
+import { showToast } from '../../store/toastStore'
 import { renderKeybinding } from '../../commands/keybindings'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { ensureChatWorktree } from '../../utils/chatWorktreeRestore'
@@ -2333,6 +2334,59 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     if (!transcript || composerInputDisabled) return false
     return quoteSelectionInto(transcript, document.getSelection(), quoteIntoComposer)
   }
+  // Restart agent session (`chat.restartSession`): end the agent's process the
+  // way Settle and the idle sweep do — suspended, so the session keeps its
+  // resume cursor and the next message starts it again on the same
+  // conversation (sessionRecovery.ts covers a session the runtime no longer
+  // holds) — then list the slash commands again, so a skill or plugin
+  // installed since shows up. Refused while the agent works: a suspend
+  // interrupts the turn and ends the agents it sent off.
+  const restartSessionRef = useRef<() => Promise<void>>(async () => undefined)
+  restartSessionRef.current = async () => {
+    if (transport.kind !== 'local') {
+      showToast({ tone: 'warn', title: 'This chat runs on another machine', description: 'Restart it there.' })
+      return
+    }
+    const working =
+      isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) ||
+      steeringTurnId !== null ||
+      timelineRows.some((row) => row.kind === 'working')
+    if (working) {
+      showToast({
+        tone: 'warn',
+        title: 'The agent is still working',
+        description: 'Stop it first, then restart the session.',
+      })
+      return
+    }
+    if (!sessionId) {
+      // No agent has started for this chat since it opened: nothing runs to
+      // end. The command list is still asked again, which is what someone
+      // reaching for this after an install wants.
+      conversationCommands.refresh()
+      showToast({
+        tone: 'neutral',
+        title: 'No agent session to restart',
+        description: 'This chat has no agent running. Your next message starts one.',
+      })
+      return
+    }
+    const result = await window.api.conversationSessionSuspend({ sessionId }).catch((error: unknown) => ({
+      ok: false as const,
+      message: error instanceof Error ? error.message : String(error),
+    }))
+    if (!result.ok) {
+      showToast({ tone: 'error', title: 'The session was not restarted', description: result.message })
+      return
+    }
+    if (result.session) setSession(result.session)
+    conversationCommands.refresh()
+    showToast({
+      tone: 'good',
+      title: 'Agent session restarted',
+      description: 'Your next message starts it again, with the conversation as it was.',
+    })
+  }
   // Typing or pasting in the chat away from the composer lands in it
   // (agentChat/typeToComposer). Read through a ref so the listeners are bound
   // once per shell, not once per keystroke's render.
@@ -2391,6 +2445,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         stepTurn,
         startReplay: () => startReplayRef.current(),
         quoteSelection: () => quoteSelectionRef.current(),
+        restartSession: () => void restartSessionRef.current(),
       }),
     [workspaceId, stepTurn],
   )

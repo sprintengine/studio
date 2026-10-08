@@ -189,6 +189,20 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'chat.resumeInTerminal' },
   }),
+  // End the focused chat's agent process the way Settle and the idle sweep do,
+  // keeping the conversation: the next message starts it again, resumed, and
+  // the CLI reads its skills and plugins afresh as it starts. For after
+  // installing one, which a running CLI does not see. No chord: it is reached
+  // for rarely, from the palette.
+  command({
+    id: 'chat.restartSession',
+    title: 'Restart agent session',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: [],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.restartSession' },
+  }),
   // Step through a conversation one prompt at a time — the chat's reading of
   // what `terminal.promptPrevious` / `terminal.promptNext` do in a shell, so it
   // takes the same chords. The terminal's pair sits on the more specific

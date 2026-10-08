@@ -2608,3 +2608,71 @@ test('Primary+Alt+Enter sends the draft and then opens New chat', async () => {
     await chat.unmount()
   }
 })
+
+// From the palette, with the chat focused: the focused chat is the one restarted.
+function restartSessionCommand(chat: { dom: JSDOM; field: () => HTMLElement }) {
+  chat.field().focus()
+  chat.dom.window.dispatchEvent(
+    new chat.dom.window.CustomEvent('sprintengine:panel-command', { detail: { id: 'chat.restartSession' } }),
+  )
+}
+
+test('Restart agent session ends the idle agent’s process the way Settle does, keeping the chat', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const conversationSessionSuspend = vi.fn(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn, api: { conversationSessionSuspend } })
+  try {
+    await chat.act(async () => chat.type('Hello'))
+    await chat.act(async () => chat.enter())
+    expect(sendTurn).toHaveBeenCalledOnce()
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('user_message', { turnId: 'hello', text: 'Hello' }) })
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 'hello' }) })
+      chat.emit({ type: 'event', event: event('turn_completed', { turnId: 'hello' }) })
+    })
+    await chat.act(async () => restartSessionCommand(chat))
+    expect(conversationSessionSuspend).toHaveBeenCalledExactlyOnceWith({ sessionId: 'session' })
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('Restart agent session is refused while a turn is running', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const conversationSessionSuspend = vi.fn(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn, api: { conversationSessionSuspend } })
+  try {
+    await chat.act(async () => chat.type('Go'))
+    await chat.act(async () => chat.enter())
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('user_message', { turnId: 'running', text: 'Go' }) })
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 'running' }) })
+    })
+    await chat.act(async () => restartSessionCommand(chat))
+    expect(conversationSessionSuspend).not.toHaveBeenCalled()
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('turn_completed', { turnId: 'running' }) })
+    })
+    await chat.act(async () => restartSessionCommand(chat))
+    expect(conversationSessionSuspend, 'once the turn is over it goes ahead').toHaveBeenCalledOnce()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('Restart agent session in a chat with no agent running ends nothing, and says so', async () => {
+  const conversationSessionSuspend = vi.fn(async () => ({ ok: true }))
+  const chat = await mountChat({ api: { conversationSessionSuspend } })
+  const { useToastStore } = await import('../../../store/toastStore')
+  try {
+    // Earlier cases' toasts are still in the one store.
+    useToastStore.setState({ toasts: [] })
+    await chat.act(async () => restartSessionCommand(chat))
+    expect(conversationSessionSuspend).not.toHaveBeenCalled()
+    const titles = useToastStore.getState().toasts.map((toast) => toast.title)
+    expect(titles).toContain('No agent session to restart')
+    expect(titles).not.toContain('Agent session restarted')
+  } finally {
+    await chat.unmount()
+  }
+})
