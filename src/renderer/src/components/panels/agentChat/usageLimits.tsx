@@ -18,6 +18,7 @@ import { retainUsageLimits, selectUsageLimitSnapshot, useUsageLimitsStore } from
 import { GhostButton, Popover, Tooltip } from '../../ui'
 import { Meter } from '../../ui/Meter'
 import { Modal, ModalBody, ModalHeader } from '../../ui/Modal'
+import { formatTimeOfDay } from '../../../utils/clockFormat'
 
 // The subscription's usage limits — the five-hour session window and the
 // weekly ones — where a person checks a budget before they send: the open
@@ -73,7 +74,7 @@ export function usageReadingAge(observedAt: number, now: number): string | null 
   if (now - observedAt < USAGE_LIMIT_STALE_AFTER_MS) return null
   const at = new Date(observedAt)
   const sameDay = new Date(now).toDateString() === at.toDateString()
-  const time = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const time = formatTimeOfDay(at)
   return sameDay ? `as of ${time}` : `as of ${at.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`
 }
 

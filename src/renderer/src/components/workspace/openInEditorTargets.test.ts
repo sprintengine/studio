@@ -90,6 +90,24 @@ test('openInEditorTargets', async () => {
     assert.equal(folderOpenTargetLabel('intellij', true), 'IntelliJ IDEA')
   })
 
+  run('every editor has its product name', () => {
+    assert.equal(folderOpenTargetLabel('cursor', true), 'Cursor')
+    assert.equal(folderOpenTargetLabel('windsurf', true), 'Windsurf')
+    assert.equal(folderOpenTargetLabel('zed', true), 'Zed')
+    assert.equal(folderOpenTargetLabel('sublime', true), 'Sublime Text')
+    assert.equal(folderOpenTargetLabel('webstorm', true), 'WebStorm')
+    assert.equal(folderOpenTargetLabel('pycharm', true), 'PyCharm')
+    assert.equal(folderOpenTargetLabel('goland', true), 'GoLand')
+  })
+
+  run('only the installed editors are offered, in the shared order', () => {
+    const available = availableFolderOpenTargets(
+      probe({ goland: true, zed: true, cursor: true, vscode: false, sublime: false, finder: true }),
+    )
+    assert.deepEqual(available, ['cursor', 'zed', 'goland', 'finder'])
+    assert.equal(resolveFolderOpenPrimary(available, null), 'cursor')
+  })
+
   if (failures > 0) {
     console.error(`openInEditorTargets.test.ts: ${failures} failure(s)`)
     process.exit(1)

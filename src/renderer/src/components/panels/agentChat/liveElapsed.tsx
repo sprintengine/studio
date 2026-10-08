@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { relativeNowClocks } from '../../../hooks/useRelativeNow'
 import { inHiddenRegion, observeLiveVisibility } from './liveVisibility'
+import { clockFormatter } from '../../../utils/clockFormat'
 
 // Seconds since a step started, ticking once a second only while the row is on
 // screen in a visible window. It writes the text node directly so a tick never
@@ -50,14 +51,15 @@ function formatElapsedMs(ms: number): string {
 
 // Each formatter is built once: `toLocale*String` with options builds a fresh
 // `Intl.DateTimeFormat` (locale data and all) on every call, and a transcript
-// stamps every message and step with one.
-const CLOCK_TIME = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
+// stamps every message and step with one. The two that write a clock time are
+// the app clock's (`clockFormatter`), built once per Clock setting.
+const CLOCK_TIME: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' }
 const WEEKDAY = new Intl.DateTimeFormat([], { weekday: 'short' })
 const DAY_THIS_YEAR = new Intl.DateTimeFormat([], { month: 'short', day: 'numeric' })
 const DAY_OTHER_YEAR = new Intl.DateTimeFormat([], { month: 'short', day: 'numeric', year: 'numeric' })
 
 export function formatClockTime(timestamp: number): string {
-  return CLOCK_TIME.format(timestamp)
+  return clockFormatter(CLOCK_TIME).format(timestamp)
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -86,8 +88,8 @@ export function formatMessageTime(timestamp: number, now: number = Date.now()): 
 // The whole instant in the reader's own calendar and clock, for a tooltip:
 // "Sunday, 28 September 2026 at 11:15:02" in en-GB, the local equivalent
 // elsewhere. The visible stamp stays short; this is where the rest lives.
-const MESSAGE_DATE_TIME = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'medium' })
+const MESSAGE_DATE_TIME: Intl.DateTimeFormatOptions = { dateStyle: 'full', timeStyle: 'medium' }
 
 export function formatMessageDateTime(timestamp: number): string {
-  return MESSAGE_DATE_TIME.format(new Date(timestamp))
+  return clockFormatter(MESSAGE_DATE_TIME).format(new Date(timestamp))
 }

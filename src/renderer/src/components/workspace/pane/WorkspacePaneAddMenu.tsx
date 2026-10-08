@@ -20,19 +20,30 @@ function PlusGlyph({ className }: { className?: string }) {
 type WorkspacePaneAddMenuProps = {
   kinds: readonly PaneKindDefinition[]
   onPick: (kind: PaneLaunchKind) => void
+  /** Held by the pane when it opens the menu from the keyboard (`pane.add`). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 const MENU_ITEM_SELECTOR = '[role=menuitem]:not([disabled])'
 
-export function WorkspacePaneAddMenu({ kinds, onPick }: WorkspacePaneAddMenuProps) {
-  const [open, setOpen] = useState(false)
+export function WorkspacePaneAddMenu({ kinds, onPick, open: heldOpen, onOpenChange }: WorkspacePaneAddMenuProps) {
+  const [ownOpen, setOwnOpen] = useState(false)
+  const open = heldOpen ?? ownOpen
+  const setOpen = useCallback(
+    (next: boolean) => {
+      if (onOpenChange) onOpenChange(next)
+      else setOwnOpen(next)
+    },
+    [onOpenChange],
+  )
 
   const pick = useCallback(
     (kind: PaneLaunchKind) => {
       setOpen(false)
       onPick(kind)
     },
-    [onPick],
+    [onPick, setOpen],
   )
 
   // Arrow keys walk the rows (Escape is the popover's); a kind's letter opens

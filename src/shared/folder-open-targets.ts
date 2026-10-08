@@ -1,7 +1,22 @@
 // The fixed set of places a workspace folder can be opened from the
 // open-in-editor control. Renderer and main share this list so the probe result
 // and the open request cannot drift apart.
-export const FOLDER_OPEN_TARGET_IDS = ['vscode', 'intellij', 'finder'] as const
+//
+// The order is the menu's, and the preference order the primary half falls
+// back on: VS Code and the editors built on it, the other standalone editors,
+// the JetBrains IDEs together, the file manager last.
+export const FOLDER_OPEN_TARGET_IDS = [
+  'vscode',
+  'cursor',
+  'windsurf',
+  'zed',
+  'sublime',
+  'intellij',
+  'webstorm',
+  'pycharm',
+  'goland',
+  'finder',
+] as const
 
 export type FolderOpenTargetId = (typeof FOLDER_OPEN_TARGET_IDS)[number]
 

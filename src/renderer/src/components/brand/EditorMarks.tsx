@@ -12,10 +12,11 @@
 // The file manager's folder is ours and stays in `currentColor`; the vendor
 // marks ignore the surrounding ink on purpose.
 //
-// Both are single glyphs sized by the icon ramp: the caller passes the size
+// Each is a single glyph sized by the icon ramp: the caller passes the size
 // utility (`size-icon-sm` in the menu rows and on the split button).
 
 import React from 'react'
+import CliIcon from '../CliIcon'
 
 // vscode target: the vendor's single-path mark in its blue.
 export function VsCodeMark({ className }: { className?: string }) {
@@ -47,4 +48,86 @@ export function IntelliJMark({ className }: { className?: string }) {
       />
     </svg>
   )
+}
+
+// The other JetBrains IDEs share IntelliJ's anatomy — a square in the
+// product's own sweep, its two-letter abbreviation and the white bar — and
+// differ only in the letters and the colours, so one drawing serves them all.
+// The letters are set in the UI face rather than traced, at a size the 24-unit
+// box reads at the icon ramp's smallest step.
+function JetBrainsMark({
+  letters,
+  stops,
+  className,
+}: {
+  letters: string
+  stops: readonly [string, string, string]
+  className?: string
+}) {
+  const gradientId = React.useId()
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none">
+      <defs>
+        <linearGradient id={gradientId} x1="2" y1="22" x2="22" y2="2" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor={stops[0]} />
+          <stop offset="0.5" stopColor={stops[1]} />
+          <stop offset="1" stopColor={stops[2]} />
+        </linearGradient>
+      </defs>
+      <rect x="1" y="1" width="22" height="22" rx="3" fill={`url(#${gradientId})`} />
+      <text x="3.5" y="12.5" fill="white" fontSize="9" fontWeight="700" letterSpacing="-0.3">
+        {letters}
+      </text>
+      <rect x="2.25" y="19.5" width="9" height="1.5" fill="white" />
+    </svg>
+  )
+}
+
+const WEBSTORM_STOPS = ['#07C3F2', '#087CFA', '#FCF84A'] as const
+const PYCHARM_STOPS = ['#21D789', '#FCF84A', '#07C3F2'] as const
+const GOLAND_STOPS = ['#0D7BF7', '#B74AF7', '#3BEA62'] as const
+
+export function WebStormMark({ className }: { className?: string }) {
+  return <JetBrainsMark letters="WS" stops={WEBSTORM_STOPS} className={className} />
+}
+
+export function PyCharmMark({ className }: { className?: string }) {
+  return <JetBrainsMark letters="PC" stops={PYCHARM_STOPS} className={className} />
+}
+
+export function GoLandMark({ className }: { className?: string }) {
+  return <JetBrainsMark letters="GO" stops={GOLAND_STOPS} className={className} />
+}
+
+// cursor target: the mark the agent pickers already draw for the Cursor CLI
+// (CliIcon). It is the same product, so it is the same picture.
+export function CursorMark({ className }: { className?: string }) {
+  return <CliIcon cli="cursor" className={className} />
+}
+
+// zed, windsurf and sublime targets: no vendor SVG is bundled for these, so
+// each draws a simple, original tile in the Cursor mark's idiom — an outlined
+// square in the surrounding ink holding the product's initial. Swap a tile for
+// the vendor's own mark, in its colour, if one is bundled.
+function InitialTileMark({ initial, className }: { initial: string; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none">
+      <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.7" />
+      <text x="12" y="16" fill="currentColor" fontSize="11" fontWeight="700" textAnchor="middle">
+        {initial}
+      </text>
+    </svg>
+  )
+}
+
+export function ZedMark({ className }: { className?: string }) {
+  return <InitialTileMark initial="Z" className={className} />
+}
+
+export function WindsurfMark({ className }: { className?: string }) {
+  return <InitialTileMark initial="W" className={className} />
+}
+
+export function SublimeTextMark({ className }: { className?: string }) {
+  return <InitialTileMark initial="S" className={className} />
 }

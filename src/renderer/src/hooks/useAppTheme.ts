@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { clientSupports } from '../clientCapabilities'
+import { setClockFormat } from '../utils/clockFormat'
 import {
   colorSchemeForResolvedTheme,
   DEFAULT_CHAT_CONTRAST,
@@ -148,6 +149,14 @@ export function useAppTheme({ mirrorToMain = true }: { mirrorToMain?: boolean } 
   useEffect(() => {
     applyWindowMaterial(windowMaterial, mirrorToMain)
   }, [mirrorToMain, windowMaterial])
+
+  // The Clock setting, followed as the store changes rather than after the
+  // render that changed it: a stamp re-rendered by the change must already
+  // read the new clock (utils/clockFormat.ts).
+  useEffect(() => {
+    setClockFormat(useWorkspaceStore.getState().appSettings.appearance.clockFormat)
+    return useWorkspaceStore.subscribe((state) => setClockFormat(state.appSettings.appearance.clockFormat))
+  }, [])
 
   // Before paint, as the boot script (public/boot-theme.js) stamps them before the
   // first one: a chat must not draw a frame at the old width or contrast.

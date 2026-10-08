@@ -11,7 +11,7 @@ import {
 
 /**
  * The targets to offer, in the shared id order (which is also the preference
- * order: vscode, intellij, file manager).
+ * order: the editors, then the file manager).
  *
  * Probe-hide, not probe-disable: a target the probe reports unavailable is
  * absent, the same rule the agent pickers follow for uninstalled CLIs. A
@@ -52,12 +52,23 @@ export function offersFolderOpenMenu(available: readonly FolderOpenTargetId[]): 
   return available.length > 1
 }
 
+const EDITOR_LABELS: Record<Exclude<FolderOpenTargetId, 'finder'>, string> = {
+  vscode: 'VS Code',
+  cursor: 'Cursor',
+  windsurf: 'Windsurf',
+  zed: 'Zed',
+  sublime: 'Sublime Text',
+  intellij: 'IntelliJ IDEA',
+  webstorm: 'WebStorm',
+  pycharm: 'PyCharm',
+  goland: 'GoLand',
+}
+
 /**
  * What a target is called in the UI. The file manager's name belongs to the OS,
  * not to us: "Finder" is only true on macOS.
  */
 export function folderOpenTargetLabel(target: FolderOpenTargetId, isMac: boolean): string {
-  if (target === 'vscode') return 'VS Code'
-  if (target === 'intellij') return 'IntelliJ IDEA'
-  return isMac ? 'Finder' : 'File manager'
+  if (target === 'finder') return isMac ? 'Finder' : 'File manager'
+  return EDITOR_LABELS[target]
 }

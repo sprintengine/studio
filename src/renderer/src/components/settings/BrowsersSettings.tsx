@@ -6,6 +6,7 @@ import { relativeFromNow } from '../../utils/relativeTime'
 import { CopyGlyphButton, GhostButton, InlineNotice, Input, OutlineButton, Select, useConfirmDialog } from '../ui'
 import { QrSquare } from './RemoteTailnetSettingsTab'
 import { SettingCard, SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
+import { formatTimeOfDay } from '../../utils/clockFormat'
 
 // Settings → Remote, in a web tab: the browsers paired with this server
 // (phase 9 spec, 6.2, 14.9). Every paired browser is listed with where it
@@ -179,7 +180,7 @@ export function BrowsersSettings() {
               <div className="flex items-center gap-2">
                 <CopyGlyphButton text={link.url} label="Copy the pairing link" />
                 <span className="text-meta text-[color:var(--text-subtle)]">
-                  Works until {new Date(link.expiresAt).toLocaleTimeString()}
+                  Works until {formatTimeOfDay(new Date(link.expiresAt), { timeStyle: 'medium' })}
                 </span>
               </div>
             </div>

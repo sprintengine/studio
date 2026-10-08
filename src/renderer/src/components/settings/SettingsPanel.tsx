@@ -8,6 +8,7 @@ import { BrowsersSettings } from './BrowsersSettings'
 import { LocalAppsSettings } from './LocalAppsSettings'
 import { WslGhSection } from './MachineGhRow'
 import { QuitConfirmationSetting } from './QuitConfirmationSetting'
+import { KeepAwakeSetting } from './KeepAwakeSetting'
 import { StudioServerSettings } from './StudioServerSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import AppThemePicker from './AppThemePicker'
@@ -1380,6 +1381,7 @@ export default function SettingsPanel({
               />
             ) : null}
             <QuitConfirmationSetting />
+            <KeepAwakeSetting />
             {telemetryDescriptor ? (
               <RegistrySwitchRow
                 descriptor={telemetryDescriptor}

@@ -16,6 +16,7 @@ import {
   TruncatedText,
   type LifecycleState,
 } from '../../ui'
+import { formatTimeOfDay } from '../../../utils/clockFormat'
 
 type RuntimeClipboardApi = {
   clipboardWriteText?: (text: string) => Promise<void>
@@ -74,7 +75,7 @@ function notificationDayBucket(value: string, now: Date): DayBucket {
 function formatNotificationTime(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return formatTimeOfDay(date, { hour: '2-digit', minute: '2-digit' })
 }
 
 async function writeClipboardText(text: string): Promise<void> {

@@ -1,5 +1,6 @@
 import type { Workspace } from '../types/workspace'
 import type { WorkspaceFieldsPatch } from '../../../shared/workspace-sync'
+import { formatTimeOfDay } from './clockFormat'
 
 // Snooze: "not now, ask me again at <time>" (owner ruling, 2026-09-10).
 //
@@ -59,7 +60,7 @@ export type SnoozePreset = {
 }
 
 function timeOfDayLabel(at: number): string {
-  return new Date(at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  return formatTimeOfDay(at)
 }
 
 function weekdayLabel(at: number): string {

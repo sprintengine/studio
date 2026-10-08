@@ -1791,6 +1791,11 @@ export type ElectronApi = {
   // its own to ask about (a browser tab).
   getQuitConfirmation: () => Promise<boolean | null>
   setQuitConfirmation: (enabled: boolean) => Promise<boolean | null>
+  // "Keep the computer awake while agents work", which main owns: it takes and
+  // releases the power-save blocker as agents start and stop. Null from a
+  // client whose machine is not this one to keep awake (a browser tab).
+  getKeepAwake: () => Promise<boolean | null>
+  setKeepAwake: (enabled: boolean) => Promise<boolean | null>
   resolveBacklogLocation: (workspaceRoot: string) => Promise<BacklogLocationResult>
   setBacklogRoot: (input: BacklogSetRootInput) => Promise<BacklogLocationResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>

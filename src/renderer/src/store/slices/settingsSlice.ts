@@ -46,12 +46,15 @@ import {
   DEFAULT_CHAT_WIDTH,
   isAppTheme,
   isChatWidth,
+  isClockFormat,
+  DEFAULT_CLOCK_FORMAT,
   LEGACY_CHAT_WIDTH,
   isWindowMaterial,
   normalizeChatContrast,
   type AppearanceSettings,
   type AppTheme,
   type ChatWidth,
+  type ClockFormat,
   type WindowMaterial,
 } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
@@ -96,6 +99,7 @@ export function defaultAppearanceSettings(): AppearanceSettings {
     windowMaterial: 'glass',
     chatContrast: DEFAULT_CHAT_CONTRAST,
     chatWidth: DEFAULT_CHAT_WIDTH,
+    clockFormat: DEFAULT_CLOCK_FORMAT,
     agentCharacters: true,
     usageLimits: true,
   }
@@ -114,6 +118,7 @@ export function normalizeAppearanceSettings(value: unknown): AppearanceSettings 
     // width, which is not the default a new install opens on.
     chatContrast: normalizeChatContrast(candidate.chatContrast),
     chatWidth: isChatWidth(candidate.chatWidth) ? candidate.chatWidth : LEGACY_CHAT_WIDTH,
+    clockFormat: isClockFormat(candidate.clockFormat) ? candidate.clockFormat : defaults.clockFormat,
     agentCharacters:
       typeof candidate.agentCharacters === 'boolean' ? candidate.agentCharacters : defaults.agentCharacters,
     usageLimits: typeof candidate.usageLimits === 'boolean' ? candidate.usageLimits : defaults.usageLimits,
@@ -1106,6 +1111,7 @@ export interface SettingsSliceActions {
   setAppearanceWindowMaterial: (material: WindowMaterial) => void
   setAppearanceChatContrast: (contrast: number) => void
   setAppearanceChatWidth: (width: ChatWidth) => void
+  setAppearanceClockFormat: (format: ClockFormat) => void
   setAppearanceAgentCharacters: (enabled: boolean) => void
   setAppearanceUsageLimits: (enabled: boolean) => void
 }
@@ -1785,6 +1791,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.appearance = normalizeAppearanceSettings({
           ...state.appSettings.appearance,
           chatWidth: width,
+        })
+      }),
+
+    setAppearanceClockFormat: (format) =>
+      set((state) => {
+        state.appSettings.appearance = normalizeAppearanceSettings({
+          ...state.appSettings.appearance,
+          clockFormat: format,
         })
       }),
 

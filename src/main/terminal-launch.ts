@@ -78,19 +78,19 @@ export type ShellLaunchConfig = {
   hostFiles?: HostLaunchFile[]
 }
 
-export function getTerminalEnv(): Record<string, string> {
-  // Without the markers of a Claude Code session the app itself may have been
-  // started from: inherited, they make every `claude` this app launches (or a
-  // person types into a plain terminal) a nested session that saves no
-  // transcript and cannot be resumed. See inherited-session-env.ts.
-  const env = withoutInheritedSessionEnv(
-    Object.fromEntries(
-      Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
-    ),
-  )
-
-  delete env.ELECTRON_RUN_AS_NODE
+/**
+ * What the pane can draw, said in the variables CLIs probe for. Each is a
+ * default: a value the person already exported is left alone.
+ */
+export function applyTerminalCapabilityDefaults(env: Record<string, string>): void {
   env.TERM = env.TERM || 'xterm-256color'
+  // The pane renders 24-bit colour, and TERM cannot say so: `xterm-256color`
+  // is a 256-colour terminfo entry, and CLIs that pick their palette by probing
+  // (chalk's `supports-color`, bat, delta) read COLORTERM for the rest.
+  // Without it they quantise every theme colour to the nearest of 256. An
+  // empty value is as good as missing — it is how a parent shell that had none
+  // passes one on.
+  env.COLORTERM = env.COLORTERM || 'truecolor'
   // Put us on the hyperlink allowlist. Claude Code (and every other CLI using
   // `supports-hyperlinks`) only emits the OSC 8 escape when its probe passes,
   // and that probe is a list of terminal identities — FORCE_HYPERLINK first,
@@ -103,6 +103,21 @@ export function getTerminalEnv(): Record<string, string> {
   // Left alone when the user already exported it, so `FORCE_HYPERLINK=0`
   // remains a way to turn the escapes off.
   env.FORCE_HYPERLINK = env.FORCE_HYPERLINK || '1'
+}
+
+export function getTerminalEnv(): Record<string, string> {
+  // Without the markers of a Claude Code session the app itself may have been
+  // started from: inherited, they make every `claude` this app launches (or a
+  // person types into a plain terminal) a nested session that saves no
+  // transcript and cannot be resumed. See inherited-session-env.ts.
+  const env = withoutInheritedSessionEnv(
+    Object.fromEntries(
+      Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    ),
+  )
+
+  delete env.ELECTRON_RUN_AS_NODE
+  applyTerminalCapabilityDefaults(env)
 
   // Surface CLIs installed into the managed npm prefix (e.g. Codex) on PATH so
   // launched agent sessions can find them. The shims themselves stay out of the

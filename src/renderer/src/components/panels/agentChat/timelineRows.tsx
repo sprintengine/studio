@@ -45,6 +45,7 @@ import {
 import { formatStepDuration } from './stepDuration'
 import { useLiveRowMotion } from './liveVisibility'
 import { formatMessageDateTime, formatMessageTime, LiveElapsed } from './liveElapsed'
+import { useClockFormat } from '../../../utils/clockFormat'
 import { ReasoningBlock } from './reasoningBlock'
 import { CompactionDivider, TurnMeta } from './turnMeta'
 import { CommandOutputRow } from './commandOutputRow'
@@ -1159,6 +1160,8 @@ export function WorkingTimelineRow({ row }: { row: Extract<ConversationTimelineR
 }
 
 function MessageTimestamp({ at }: { at?: number }) {
+  // Re-rendered when the Clock setting changes, which the stamp is written in.
+  useClockFormat()
   if (at === undefined || !Number.isFinite(at)) return null
   const date = new Date(at)
   if (!Number.isFinite(date.getTime())) return null

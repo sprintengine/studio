@@ -8,6 +8,8 @@ type AppearanceIpcRenderer = {
   invoke(channel: 'app:set-telemetry-enabled', enabled: boolean): Promise<void>
   invoke(channel: 'app:get-quit-confirmation'): Promise<boolean>
   invoke(channel: 'app:set-quit-confirmation', enabled: boolean): Promise<boolean>
+  invoke(channel: 'app:get-keep-awake'): Promise<boolean>
+  invoke(channel: 'app:set-keep-awake', enabled: boolean): Promise<boolean>
 }
 
 function createAppearanceApi(renderer: AppearanceIpcRenderer) {
@@ -26,6 +28,10 @@ function createAppearanceApi(renderer: AppearanceIpcRenderer) {
     // dialog's "Don't ask again" writes it, so Settings reads it back from main.
     getQuitConfirmation: (): Promise<boolean> => renderer.invoke('app:get-quit-confirmation'),
     setQuitConfirmation: (enabled: boolean): Promise<boolean> => renderer.invoke('app:set-quit-confirmation', enabled),
+    // Main owns "Keep the computer awake while agents work" too: main holds
+    // the blocker, with or without a window.
+    getKeepAwake: (): Promise<boolean> => renderer.invoke('app:get-keep-awake'),
+    setKeepAwake: (enabled: boolean): Promise<boolean> => renderer.invoke('app:set-keep-awake', enabled),
   } satisfies Pick<
     ElectronApi,
     | 'setColorScheme'
@@ -34,6 +40,8 @@ function createAppearanceApi(renderer: AppearanceIpcRenderer) {
     | 'setTelemetryEnabled'
     | 'getQuitConfirmation'
     | 'setQuitConfirmation'
+    | 'getKeepAwake'
+    | 'setKeepAwake'
   >
 }
 
