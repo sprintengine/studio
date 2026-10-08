@@ -46,5 +46,6 @@ export function agentStateFromLaunchRecord(
     ...(record.cliPermissionMode ? { cliPermissionMode: record.cliPermissionMode } : {}),
     ...(record.connectorMcpSettings ? { connectorMcpSettings: record.connectorMcpSettings } : {}),
     ...(record.spawnSkillId ? { spawnSkillId: record.spawnSkillId } : {}),
+    ...(record.launchedByScheduledAgentId ? { launchedByScheduledAgentId: record.launchedByScheduledAgentId } : {}),
   }
 }

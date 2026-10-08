@@ -156,6 +156,12 @@ export type ModuleConversationDeps = {
    * (module-tool-caller.ts). Read at each `create`.
    */
   getCallerPermissionCeiling?: () => CliPermissionPreset | null
+  /**
+   * The scheduled run the agent whose MCP tool call into the module is
+   * running is part of (module-tool-caller.ts), or null. A chat started now
+   * carries it, so it schedules nothing either. Read at each `create`.
+   */
+  getCallerScheduledRun?: () => string | null
   newCommandId?: () => string
 }
 
@@ -500,6 +506,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     // runs its own mode.
     const permissionMode =
       permissionPreset && permissionPreset === input.permissionPreset ? input.permissionMode : undefined
+    const scheduledRun = deps.getCallerScheduledRun?.() ?? null
     const launched = await deps.launch({
       workspaceId: input.workspaceId.trim(),
       ...(input.cli ? { cli: input.cli } : {}),
@@ -513,6 +520,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
       ...(input.allowedTools?.length ? { allowedTools: input.allowedTools } : {}),
       ownerModuleId: moduleId,
       ...(launchCommandId ? { launchCommandId } : {}),
+      ...(scheduledRun ? { launchedByScheduledAgentId: scheduledRun } : {}),
     })
     if (!launched.ok) return failure(launched.code as ModuleConversationErrorCode, launched.message)
     const live = liveSession(launched)

@@ -9,7 +9,9 @@ import { ensureSkillInstalled } from '../../main/builtin-skills'
 import { cliResumeCapabilities } from '../../main/cli-resume-capabilities'
 import {
   createAgentPermissionResolver,
+  createScheduledRunResolver,
   type AgentPermissionResolver,
+  type ScheduledRunResolver,
 } from '../../main/automation/launch-permission-cap'
 import { createConversationGatewayHost } from '../../main/automation/tailnet/tailnet-conversation-host'
 import {
@@ -101,7 +103,7 @@ export type StudioCoreOptions = {
     workspaceId?: string
     agentId?: string
     processAlive: boolean
-    agentRecord?: { cliPermissionPreset?: unknown }
+    agentRecord?: { cliPermissionPreset?: unknown; launchedByScheduledAgentId?: unknown }
   }>
   /** A machine's settings changed (a distribution turned on or off). */
   onHostSettingsChanged?: () => void
@@ -441,6 +443,14 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     },
   })
 
+  // Whose scheduled run an agent of this app is part of: a run's chat, or
+  // anything it launched. A run may not make, change or fire a schedule, and
+  // what it launches carries the run so it may not either.
+  const resolveScheduledRun: ScheduledRunResolver = createScheduledRunResolver({
+    readWorkspace: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
+    listTerminalSessions: () => options.listTerminalSessions?.() ?? [],
+  })
+
   /**
    * The conversation host every remote door wraps: the tailnet lane a paired
    * device follows chats through, and the Studio RPC a local app does. One
@@ -667,6 +677,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     conversationLaunchService,
     conversationImport,
     resolveAgentPermissionPreset,
+    resolveScheduledRun,
     createConversationHost,
     conversationLifecycle,
     pullRequests,

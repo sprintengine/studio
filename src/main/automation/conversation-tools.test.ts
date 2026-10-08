@@ -164,3 +164,35 @@ test('conversation.create links the calling agent to the chat it started, unless
   assert.equal((unlinked.structuredContent as { notifyParent: boolean }).notifyParent, false)
   assert.match((unlinked.structuredContent as { notifyParentReason: string }).notifyParentReason, /agent\.status/u)
 })
+
+test('a chat a scheduled run starts carries the run, so it schedules nothing either', async () => {
+  const requests: ConversationLaunchRequest[] = []
+  const [registration] = createConversationTools({
+    launch: async (request) => {
+      requests.push(request)
+      return {
+        ok: true,
+        workspaceId: 'ws-1',
+        agentId: 'agent-codex-1',
+        name: 'Ada',
+        cli: 'codex',
+        providerId: 'codex-agent',
+        modelId: 'default',
+        sessionId: 'conv_1',
+      }
+    },
+    resolveAgentPermissionPreset: () => 'bypass',
+    // ws-run is a run's chat; anything else is not.
+    resolveScheduledRun: ({ workspaceId }) => (workspaceId === 'ws-run' ? 'sa-1' : null),
+    lifecycle: noLifecycle,
+  })
+  const fromRun = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-run', agentId: 'agent-1' } }
+  await registration!.handler({ workspaceId: 'ws-1', newChat: true }, fromRun)
+  assert.equal(requests[0]?.launchedByScheduledAgentId, 'sa-1')
+  const fromPerson = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-1' } }
+  await registration!.handler({ workspaceId: 'ws-1', newChat: true }, fromPerson)
+  assert.equal(requests[1]?.launchedByScheduledAgentId, undefined)
+  // A caller that declared no agent identity is no run.
+  await registration!.handler({ workspaceId: 'ws-1', newChat: true })
+  assert.equal(requests[2]?.launchedByScheduledAgentId, undefined)
+})

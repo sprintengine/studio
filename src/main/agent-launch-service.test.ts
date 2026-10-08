@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import type { McpServerConfig, TerminalSessionSnapshot, TerminalSpawnResult } from '../shared/electron-api'
 import type { AgentLaunchSettings } from '../shared/launch-settings'
+import { agentStateFromLaunchRecord } from '../shared/launched-agent-state'
 import {
   DEFAULT_AGENT_LAUNCH_CLI,
   DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
@@ -373,6 +374,18 @@ test('agent-launch-service', async () => {
       cliModel: 'opus',
       cliPermissionPreset: 'none',
     })
+  })
+
+  run('an agent a scheduled run launches carries the run on its launch record, and from there its agent', async () => {
+    const app = harness({ settings: settings({ lastSelectedCli: 'claude-code' }) })
+    const launched = await app.service.launch({ workspaceId: 'ws-1', launchedByScheduledAgentId: 'sa-1' })
+    assert.equal(launched.ok, true, JSON.stringify(launched))
+    const record = app.spawns[0]!.agentRecord!
+    assert.equal(record.launchedByScheduledAgentId, 'sa-1')
+    assert.equal(
+      agentStateFromLaunchRecord(record, { sessionId: 'session-1' }).launchedByScheduledAgentId,
+      'sa-1',
+    )
   })
 
   run("the project's Knowledge Graph reaches a headless launch", async () => {
