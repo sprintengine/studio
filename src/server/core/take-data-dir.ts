@@ -183,4 +183,3 @@ function waitForExit(pid: number, deps: TakeDataDirDeps): Promise<void> {
     look()
   })
 }
-

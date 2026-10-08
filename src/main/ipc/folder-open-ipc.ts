@@ -355,4 +355,3 @@ function runLauncher(command: string, args: string[], settleMs: number): Promise
     child.unref()
   })
 }
-

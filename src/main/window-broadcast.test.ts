@@ -18,7 +18,10 @@ vi.mock('./canvas/canvas-worker-window', () => ({ isCanvasWorkerWindow: (win: un
 
 const { anyWindowFocused, broadcastToAllWindows } = await import('./window-broadcast')
 
-function fakeWindow(name: string, patch: Partial<Pick<FakeWindow, 'destroyed' | 'contentsDestroyed' | 'focused'>> = {}) {
+function fakeWindow(
+  name: string,
+  patch: Partial<Pick<FakeWindow, 'destroyed' | 'contentsDestroyed' | 'focused'>> = {},
+) {
   const win: FakeWindow = {
     name,
     destroyed: false,

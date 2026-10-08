@@ -2,11 +2,7 @@ import assert from 'node:assert/strict'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import {
-  ConversationPeekCard,
-  contextUsageText,
-  type ConversationPeekIdentity,
-} from './ConversationPeekCard'
+import { ConversationPeekCard, contextUsageText, type ConversationPeekIdentity } from './ConversationPeekCard'
 import { RemoteMachineGlyph, WslMachineGlyph } from '../AppIcons'
 import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { test } from 'vitest'

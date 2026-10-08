@@ -292,7 +292,9 @@ function readMcpConfigPath(
       .map((server) => normalizeDetectedServer(source, sourceLabel, server))
       .filter((server): server is DiscoveredMcpServer => Boolean(server))
   } catch (error) {
-    warnings.push(`${sourceLabel} could not be read as ${source.source} MCP config: ${errorMessage(error, 'Unknown error.')}`)
+    warnings.push(
+      `${sourceLabel} could not be read as ${source.source} MCP config: ${errorMessage(error, 'Unknown error.')}`,
+    )
     return []
   }
 }
@@ -422,4 +424,3 @@ function homeRelativeLabel(home: string, path: string): string {
   const rel = relative(home, path).replace(/\\/g, '/')
   return rel && !rel.startsWith('..') ? `~/${rel}` : path
 }
-

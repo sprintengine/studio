@@ -14,12 +14,16 @@ describe('mapWithLimit', () => {
   test('never runs more than the limit at once', async () => {
     let running = 0
     let peak = 0
-    await mapWithLimit(Array.from({ length: 12 }, (_, index) => index), 3, async () => {
-      running += 1
-      peak = Math.max(peak, running)
-      await new Promise((resolve) => setTimeout(resolve, 2))
-      running -= 1
-    })
+    await mapWithLimit(
+      Array.from({ length: 12 }, (_, index) => index),
+      3,
+      async () => {
+        running += 1
+        peak = Math.max(peak, running)
+        await new Promise((resolve) => setTimeout(resolve, 2))
+        running -= 1
+      },
+    )
     expect(peak).toBe(3)
   })
 

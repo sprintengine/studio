@@ -194,4 +194,3 @@ function isHttpsUrl(value: string): boolean {
     return false
   }
 }
-

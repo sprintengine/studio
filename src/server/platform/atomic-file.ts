@@ -53,7 +53,10 @@ const renameRetryDelayMs = (attempt: number): number => 25 * (attempt + 1)
 export async function writeFileAtomic(path: string, data: string, options: AtomicWriteOptions = {}): Promise<void> {
   const temporary = stagingPath(path)
   try {
-    await writeFile(temporary, data, { encoding: 'utf8', ...(options.mode === undefined ? {} : { mode: options.mode }) })
+    await writeFile(temporary, data, {
+      encoding: 'utf8',
+      ...(options.mode === undefined ? {} : { mode: options.mode }),
+    })
     if (options.exactMode && options.mode !== undefined && process.platform !== 'win32') {
       await chmod(temporary, options.mode)
     }

@@ -3853,7 +3853,8 @@ function ContextWindowNotice({
         </>
       }
     >
-      Context {Math.min(100, Math.round(fraction * 100))}% full · {formatTokenCount(used)} of {formatTokenCount(total)} tokens
+      Context {Math.min(100, Math.round(fraction * 100))}% full · {formatTokenCount(used)} of {formatTokenCount(total)}{' '}
+      tokens
     </ComposerTrayRow>
   )
 }

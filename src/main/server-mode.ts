@@ -48,7 +48,9 @@ export function readServerMode(
 
 /** What the next launch runs in. Written whole and renamed into place. */
 export function writeServerMode(userDataDir: string, mode: ServerMode): void {
-  writeFileAtomicSync(join(userDataDir, SERVER_MODE_FILENAME), `${JSON.stringify({ mode }, null, 2)}\n`, { mode: 0o600 })
+  writeFileAtomicSync(join(userDataDir, SERVER_MODE_FILENAME), `${JSON.stringify({ mode }, null, 2)}\n`, {
+    mode: 0o600,
+  })
 }
 
 let sessionMode: ServerMode = DEFAULT_SERVER_MODE

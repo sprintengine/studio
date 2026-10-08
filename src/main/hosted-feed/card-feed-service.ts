@@ -47,7 +47,8 @@ export function setHostedCardFeedClientForTests(next: HostedCardFeedClient | nul
 
 export type HostedCardFeedBroadcast = (result: HostedCardFeedReadResult) => void
 
-const defaultBroadcast: HostedCardFeedBroadcast = (result) => broadcastToAllWindows(HOSTED_CARD_FEED_CHANGED_CHANNEL, result)
+const defaultBroadcast: HostedCardFeedBroadcast = (result) =>
+  broadcastToAllWindows(HOSTED_CARD_FEED_CHANGED_CHANNEL, result)
 
 export async function readHostedCardFeed(
   input: HostedCardFeedReadInput = {},

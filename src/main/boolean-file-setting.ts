@@ -36,7 +36,10 @@ export type BooleanFileSetting = {
   set(enabled: boolean): void
 }
 
-export function createBooleanFileSetting(spec: BooleanFileSettingSpec, deps: BooleanFileSettingDeps): BooleanFileSetting {
+export function createBooleanFileSetting(
+  spec: BooleanFileSettingSpec,
+  deps: BooleanFileSettingDeps,
+): BooleanFileSetting {
   let cached: boolean | null = null
 
   function filePath(): string {

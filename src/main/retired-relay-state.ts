@@ -56,4 +56,3 @@ function countRecords(raw: string): { relayPairings: number; pushRegistrations: 
     return { relayPairings: 0, pushRegistrations: 0 }
   }
 }
-

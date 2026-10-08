@@ -746,4 +746,3 @@ function UseSkillMenu({
     />
   )
 }
-

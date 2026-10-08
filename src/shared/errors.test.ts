@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { errorMessage } from './errors'
 
-test("an Error says its message, whatever the fallback", () => {
+test('an Error says its message, whatever the fallback', () => {
   expect(errorMessage(new Error('disk full'))).toBe('disk full')
   expect(errorMessage(new TypeError('bad'), 'Something failed.')).toBe('bad')
 })

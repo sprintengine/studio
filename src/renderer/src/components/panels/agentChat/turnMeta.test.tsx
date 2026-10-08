@@ -1,13 +1,7 @@
 import { expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { TranscriptEntry } from './conversationProjection'
-import {
-  compactionLabel,
-  CompactionDivider,
-  formatTurnModel,
-  TurnMeta,
-  turnMetaParts,
-} from './turnMeta'
+import { compactionLabel, CompactionDivider, formatTurnModel, TurnMeta, turnMetaParts } from './turnMeta'
 
 type Assistant = Extract<TranscriptEntry, { kind: 'assistant' }>
 

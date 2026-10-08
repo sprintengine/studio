@@ -1,13 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import {
-  chmodSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  unlinkSync,
-} from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, unlinkSync } from 'node:fs'
 import { connect, createServer, type Server, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'

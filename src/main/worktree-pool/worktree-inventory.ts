@@ -156,20 +156,25 @@ export function createWorktreeInventory(deps: WorktreeInventoryDeps) {
     for (const root of await mapWithLimit(folders, CONCURRENCY, mainCheckout)) {
       if (root && !roots.has(comparablePath(root))) roots.set(comparablePath(root), root)
     }
-    const projects = await mapWithLimit([...roots.values()], CONCURRENCY, async (repoRoot): Promise<WorktreeInventoryProject> => {
-      const pool = snapshots.find((snapshot) => comparablePath(snapshot.repoRoot) === comparablePath(repoRoot)) ?? null
-      const listed = await listWorktrees(repoRoot)
-      if (!listed) {
-        return { repoRoot, defaultRef: null, pool, worktrees: [], error: 'git could not list its worktrees.' }
-      }
-      const defaultRef = await resolvePoolBaseRef(git, repoRoot)
-      const others = listed.filter((entry) => !entry.bare && comparablePath(entry.path) !== comparablePath(repoRoot))
-      const worktrees = await mapWithLimit(others, CONCURRENCY, (entry) => {
-        const slot = pool?.slots.find((candidate) => comparablePath(candidate.path) === comparablePath(entry.path))
-        return describe(entry, defaultRef, slot?.id ?? null, slot?.size ?? null)
-      })
-      return { repoRoot, defaultRef, pool, worktrees, error: null }
-    })
+    const projects = await mapWithLimit(
+      [...roots.values()],
+      CONCURRENCY,
+      async (repoRoot): Promise<WorktreeInventoryProject> => {
+        const pool =
+          snapshots.find((snapshot) => comparablePath(snapshot.repoRoot) === comparablePath(repoRoot)) ?? null
+        const listed = await listWorktrees(repoRoot)
+        if (!listed) {
+          return { repoRoot, defaultRef: null, pool, worktrees: [], error: 'git could not list its worktrees.' }
+        }
+        const defaultRef = await resolvePoolBaseRef(git, repoRoot)
+        const others = listed.filter((entry) => !entry.bare && comparablePath(entry.path) !== comparablePath(repoRoot))
+        const worktrees = await mapWithLimit(others, CONCURRENCY, (entry) => {
+          const slot = pool?.slots.find((candidate) => comparablePath(candidate.path) === comparablePath(entry.path))
+          return describe(entry, defaultRef, slot?.id ?? null, slot?.size ?? null)
+        })
+        return { repoRoot, defaultRef, pool, worktrees, error: null }
+      },
+    )
     if (measure) {
       const unmeasured = projects.flatMap((project) =>
         project.worktrees.filter((entry) => !entry.slotId && !entry.missing),

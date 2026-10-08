@@ -84,4 +84,3 @@ export function describeRipgrepSpawnFailure(
   }
   return { message: errorMessage(error), unusable: false }
 }
-

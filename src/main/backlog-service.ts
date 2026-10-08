@@ -1752,4 +1752,3 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 function isMissingFileError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && (error as NodeJS.ErrnoException).code === 'ENOENT')
 }
-
