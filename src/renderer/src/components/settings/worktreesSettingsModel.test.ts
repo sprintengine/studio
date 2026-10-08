@@ -53,6 +53,7 @@ function entry(path: string, patch: Partial<WorktreeInventoryEntry> = {}): Workt
     merged: true,
     changedPaths: 0,
     changes: [],
+    lastUsedAt: null,
     size: null,
     ...patch,
   }
