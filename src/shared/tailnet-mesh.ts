@@ -116,6 +116,13 @@ export type MeshBrowse = {
   scopes: TailnetScope[]
   workspaces: MeshWorkspace[]
   gaps: MeshGap[]
+  /**
+   * What the machine said in its handshake it can do (`TAILNET_CAPABILITIES`),
+   * so a surface offers only what it will honour: New chat leaves its effort
+   * control off for a machine without `new-chat-effort`. Null, or absent, when
+   * it said nothing, which promises nothing.
+   */
+  capabilities?: string[] | null
 }
 
 /** The state of one followed remote conversation's link, as the pane badges it. */

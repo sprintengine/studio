@@ -614,6 +614,37 @@ test('NewAgentPanel interaction', async () => {
       view.unmount()
     })
 
+    await check('staging stops at the images one message can carry, and says why', async () => {
+      seedStore()
+      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      const { MAX_ATTACHMENTS_PER_TURN } = await import('../../panels/agentChat/imageAttachments')
+      resetNewChatDraftsForTests()
+      writeNewChatDraft('win-full', {
+        images: Array.from({ length: MAX_ATTACHMENTS_PER_TURN - 1 }, (_, index) => ({
+          id: `img-${index}`,
+          mediaType: 'image/png',
+          dataBase64: 'iVBORw0K',
+          byteLength: 4,
+          path: `/tmp/${index}.png`,
+        })),
+      })
+      const view = await render({ draftKey: 'win-full', initialSelection: { kind: 'conversation' } })
+      const staged = () => view.container.querySelectorAll('img[src^="data:image/png"]').length
+      assert.equal(staged(), MAX_ATTACHMENTS_PER_TURN - 1)
+      const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')!
+      const png = (name: string) =>
+        new dom.window.File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' })
+      Object.defineProperty(input, 'files', { value: [png('a.png'), png('b.png')], configurable: true })
+      await act(async () => {
+        input.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+      })
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 20)))
+      assert.equal(staged(), MAX_ATTACHMENTS_PER_TURN, 'the one that fits is staged, the one past it is not')
+      assert.match(view.text(), new RegExp(`at most ${MAX_ATTACHMENTS_PER_TURN} images`), 'and the box says why')
+      view.unmount()
+      resetNewChatDraftsForTests()
+    })
+
     await check(
       'a document picked through Attach files is a card, and rides the launch beside the prompt',
       async () => {
@@ -758,6 +789,31 @@ test('NewAgentPanel interaction', async () => {
       assert.equal(nameField(third), null, 'and a chip turned off stays off')
       assert.equal(third.container.querySelector('[data-worktree-chip]')?.getAttribute('data-worktree-chip'), 'off')
       third.unmount()
+      resetNewChatDraftsForTests()
+    })
+
+    await check('on a narrow strip the project name gives way and the Worktree switch keeps its place', async () => {
+      seedStore()
+      const { resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      const longName = 'a-project-with-a-name-long-enough-to-crowd-the-strip'
+      const view = await render({
+        initialSelection: { kind: 'conversation' },
+        draftKey: 'win-narrow',
+        folderPath: '/proj',
+        projectOptions: [{ path: '/proj', label: longName }],
+        onSelectProject: () => {},
+      })
+      // No layout engine here, so what is pinned is the flex contract the
+      // strip relies on: the project may shrink and truncates its name; the
+      // switch may not.
+      const trigger = view.container.querySelector<HTMLElement>('[data-project-trigger="true"]')!
+      assert.ok(trigger.parentElement?.classList.contains('min-w-0'), 'the chip’s box may shrink below its content')
+      const name = [...trigger.querySelectorAll('span')].find((span) => span.textContent === longName)
+      assert.ok(name?.classList.contains('truncate') && name.classList.contains('min-w-0'), 'and its name truncates')
+      const worktree = view.container.querySelector<HTMLElement>('[data-worktree-chip]')!
+      assert.ok(worktree.classList.contains('shrink-0'), 'the switch keeps its width')
+      view.unmount()
       resetNewChatDraftsForTests()
     })
 

@@ -347,6 +347,9 @@ export function TerminalSessionIcon({ className }: { className?: string }) {
  */
 export function ChipCaretGlyph() {
   return (
+    // No `shrink-0`: a sized glyph never shrinks below its width in a flex row
+    // anyway, and `icon-xs shrink-0` is how the strip's checks recognise a
+    // machine's mark, which this is not.
     <svg className="icon-xs text-[color:var(--text-subtle)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path
         d="m4 6.5 4 3.5 4-3.5"

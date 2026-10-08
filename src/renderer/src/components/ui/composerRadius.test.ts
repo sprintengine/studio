@@ -27,6 +27,7 @@ const COMPOSERS = new Set([
   'components/ui/tokens.ts',
   'components/ui/index.ts',
   'components/workspace/agentComposer/NewAgentPanel.tsx',
+  'components/workspace/agentComposer/NewChatCards.tsx',
   'components/workspace/agentComposer/ComposerStrip.tsx',
   'components/panels/AgentChatView.tsx',
   'components/panels/agentChat/composerTray.tsx',

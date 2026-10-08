@@ -929,6 +929,8 @@ export type ElectronApi = {
     prompt?: string
     cliModel?: string
     permissionPreset?: string
+    /** The CLI's effort level; dropped for a machine that does not advertise `new-chat-effort`. */
+    effort?: string
   }) => Promise<MeshCreateConversationResult>
   /**
    * Settle a chat on a paired machine, or bring it back with `settled: false`
