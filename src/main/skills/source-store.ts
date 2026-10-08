@@ -6,7 +6,7 @@
 // userData next to the GitHub token, and each source's scan result is cached
 // beside it so reopening a source costs nothing and Sync is the only refresh.
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
@@ -166,6 +166,21 @@ export function createSkillSourceStore(userDataDir: string, options: SkillSource
     }
   }
 
+  // The file carries every source's scan and runs to megabytes, and the list,
+  // every source opened and the hourly update check each read it. What was
+  // last parsed (or written) is kept with the file's stamp and bytes, so a
+  // read of an unchanged file parses nothing. Only the store's own write path
+  // mutates the state, and it replaces the entry once the write lands.
+  let cached: { stamp: string; raw: string; state: PersistedState } | null = null
+  const stampOf = async (): Promise<string | null> => {
+    try {
+      const info = await stat(path)
+      return `${info.ino}:${info.size}:${info.mtimeMs}`
+    } catch {
+      return null
+    }
+  }
+
   /**
    * Reading to ANSWER. A store that cannot be read degrades to "no user
    * sources" rather than throwing — the always-present sources still list —
@@ -173,8 +188,14 @@ export function createSkillSourceStore(userDataDir: string, options: SkillSource
    */
   const read = async (): Promise<PersistedState> => {
     try {
+      const stamp = await stampOf()
+      if (stamp !== null && cached?.stamp === stamp) return cached.state
       const raw = await readBytes()
-      return raw === null ? emptyState() : parseSkillSourceBytes(raw, log).state
+      if (raw === null) return emptyState()
+      if (cached?.raw === raw) return cached.state
+      const { state, unparsable } = parseSkillSourceBytes(raw, log)
+      if (stamp !== null && !unparsable) cached = { stamp, raw, state }
+      return state
     } catch (error) {
       log('store-unreadable', { path, message: errorMessage(error) })
       return emptyState()
@@ -198,8 +219,11 @@ export function createSkillSourceStore(userDataDir: string, options: SkillSource
    * the write proceeds over a fresh state.
    */
   const readForWrite = async (): Promise<PersistedState> => {
+    // Read every time, so a store that cannot be read still stops the write;
+    // only the parse is skipped when the bytes are the ones last parsed.
     const raw = await readBytes()
     if (raw === null) return emptyState()
+    if (cached?.raw === raw) return cached.state
     const { state, unparsable } = parseSkillSourceBytes(raw, log)
     if (unparsable && raw.trim().length > 0) {
       const kept = `${path}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`
@@ -214,13 +238,22 @@ export function createSkillSourceStore(userDataDir: string, options: SkillSource
   let writeChain: Promise<unknown> = Promise.resolve()
   const update = async (mutate: (state: PersistedState) => boolean): Promise<boolean> => {
     const run = writeChain.then(async () => {
-      const state = await readForWrite()
-      if (!mutate(state)) return false
-      await mkdir(userDataDir, { recursive: true })
-      const temp = `${path}.tmp`
-      await writeFile(temp, JSON.stringify(state), { mode: 0o600 })
-      await rename(temp, path)
-      return true
+      try {
+        const state = await readForWrite()
+        if (!mutate(state)) return false
+        await mkdir(userDataDir, { recursive: true })
+        const temp = `${path}.tmp`
+        const raw = JSON.stringify(state)
+        await writeFile(temp, raw, { mode: 0o600 })
+        await rename(temp, path)
+        const stamp = await stampOf()
+        cached = stamp === null ? null : { stamp, raw, state }
+        return true
+      } catch (error) {
+        // The state may have been changed in place and not written.
+        cached = null
+        throw error
+      }
     })
     writeChain = run.catch(() => undefined)
     return run

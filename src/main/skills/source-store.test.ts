@@ -19,7 +19,7 @@ import {
   parseSkillSourceState,
   type SkillSourceLog,
 } from './source-store'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 
 test('source-store', async () => {
   /** Every line the store wrote, for the cases that are about the log itself. */
@@ -427,4 +427,43 @@ test('source-store', async () => {
   })
 
   await suiteRun
+})
+
+test('an unchanged store is parsed once, a write is not parsed back, and a change on disk is read', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sprintengine-source-store-'))
+  const path = join(dir, 'skill-sources.json')
+  const source: SkillSource = {
+    id: 'github:acme/skills',
+    kind: 'github',
+    name: 'skills',
+    repo: 'acme/skills',
+    monogram: 'AS',
+    blurb: '',
+    commitSha: 'abc1234',
+    scannedAt: '2026-09-05T12:00:00.000Z',
+  }
+  writeFileSync(path, JSON.stringify({ sources: [source], scans: {} }))
+  const parse = vi.spyOn(JSON, 'parse')
+  const parsesOfStore = () => parse.mock.calls.filter(([text]) => text === readFileSync(path, 'utf8')).length
+  try {
+    const store = createSkillSourceStore(dir, { log: () => {} })
+    await store.listSources()
+    await store.getSource(source.id)
+    await store.getScan(source.id)
+    assert.equal(parsesOfStore(), 1, 'three reads of one file, one parse')
+
+    // The store's own write: neither the write nor the reads after it parse.
+    parse.mockClear()
+    await store.putSource({ ...source, headSha: 'def5678' }, null)
+    await store.putSource({ ...source, headSha: 'fff0000' }, null)
+    assert.equal((await store.getSource(source.id))?.headSha, 'fff0000')
+    assert.equal(parsesOfStore(), 0)
+
+    // Somebody else's write (another window's store, a restore) is read.
+    writeFileSync(path, JSON.stringify({ sources: [{ ...source, name: 'renamed' }], scans: {} }))
+    assert.equal((await store.getSource(source.id))?.name, 'renamed')
+    assert.equal(parsesOfStore(), 1)
+  } finally {
+    parse.mockRestore()
+  }
 })
