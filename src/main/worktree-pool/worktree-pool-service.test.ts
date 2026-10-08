@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { afterAll, beforeAll, beforeEach, test } from 'vitest'
 
 import { cleanupAgentWorktrees } from '../agent-worktree-cleanup'
-import { setAgentWorktreeLockProfile } from '../agent-worktree-lock'
+import { lockAgentWorktree, setAgentWorktreeLockProfile } from '../agent-worktree-lock'
 import { createGitWorktree, restoreGitWorktree } from '../git'
 import { listGitWorktrees } from '../git-worktree-list'
 import { installWorktreePool } from './active-pool'
@@ -76,12 +76,13 @@ function makeService(
     knownWorkspaceIds?: () => Iterable<string> | null
     git?: SlotGitRunner
     fetchBackoffMs?: number
+    userData?: string
   } = {},
 ) {
   const live = options.live ?? []
   const clock = { offset: 0 }
   const service = createWorktreePoolService({
-    store: createPoolStore(userData),
+    store: createPoolStore(options.userData ?? userData),
     ...(options.git ? { git: options.git } : {}),
     ...(options.fetchBackoffMs !== undefined ? { fetchBackoffMs: options.fetchBackoffMs } : {}),
     livePaths: () => live,
@@ -908,6 +909,59 @@ test('a reset interrupted over a tree someone then edited is held, not re-run', 
   assert.notEqual(next.path, first.path)
   assert.equal((await slotAt(restarted, 'pool-01')).state, 'held')
   assert.equal(await readFile(join(first.path, 'theirs.txt'), 'utf8'), 'written while the app was down\n')
+})
+
+test('another profile’s leased slot in the shared container is never adopted, returned or unlocked', async () => {
+  // Profile A leases, and quits: its pool's lock goes, its agent lock stays.
+  const profileA = makeService({ instanceId: 'profile-a' })
+  const theirs = await lease(profileA, 'theirs')
+  await profileA.service.shutdown()
+  const theirLock = await lockReason(theirs.path)
+  assert.match(theirLock ?? '', /^agent /)
+
+  // Profile B, with a record of its own that knows nothing of A's slot.
+  const userDataB = join(caseDir, 'user-data-b')
+  setAgentWorktreeLockProfile(userDataB)
+  const profileB = makeService({ instanceId: 'profile-b', userData: userDataB })
+  const ours = await lease(profileB, 'ours')
+  assert.notEqual(ours.path, theirs.path)
+  assert.deepEqual(
+    (await snapshot(profileB)).slots.map((slot) => slot.id),
+    [basename(ours.path)],
+    'A’s slot is not B’s',
+  )
+  await returnAll(profileB)
+  assert.equal(await git(theirs.path, 'branch', '--show-current'), 'agent/theirs')
+  assert.equal(await lockReason(theirs.path), theirLock)
+})
+
+test('a slot this profile records but another profile has locked since is held, its lock left alone', async () => {
+  const harness = makeService()
+  const leased = await lease(harness, 'contested')
+  // Another profile's agent lock replaces ours.
+  await git(repo, 'worktree', 'unlock', leased.path)
+  setAgentWorktreeLockProfile(join(caseDir, 'user-data-other'))
+  await lockAgentWorktree(repo, leased.path, 'their-agent')
+  const theirLock = await lockReason(leased.path)
+  setAgentWorktreeLockProfile(userData)
+
+  await returnAll(harness)
+  const slot = await slotAt(harness, leased.slotId)
+  assert.equal(slot.state, 'held')
+  assert.equal(await lockReason(leased.path), theirLock)
+  assert.equal(await git(leased.path, 'branch', '--show-current'), 'agent/contested')
+})
+
+test('a chat reopened on a slot its record says is leased to it, but on another branch now, is refused', async () => {
+  const harness = makeService()
+  installWorktreePool(harness.service)
+  const leased = await lease(harness, 'chat')
+  await git(leased.path, 'switch', '-q', '-c', 'someone-else')
+  const reclaimed = await harness.service.reclaim({ path: leased.path, branch: 'agent/chat', owner: 'agent-chat' })
+  assert.equal(reclaimed?.ok, false)
+  await git(leased.path, 'switch', '-q', 'agent/chat')
+  const again = await harness.service.reclaim({ path: leased.path, branch: 'agent/chat', owner: 'agent-chat' })
+  assert.equal(again?.ok, true)
 })
 
 test('a worktree merely named like a slot is never adopted', async () => {

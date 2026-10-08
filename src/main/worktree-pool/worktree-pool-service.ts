@@ -13,7 +13,7 @@ import { comparablePath } from '../../shared/host-paths'
 import { hostIdForFolder, isWslHostId, LOCAL_HOST_ID, normalizeExecutionHostId } from '../../shared/execution-host'
 import { pathJoin } from '../../shared/paths'
 import { slugifyWorktreeName, worktreeContainerPath } from '../../shared/worktree-paths'
-import { agentWorktreeLockReason, lockAgentWorktree } from '../agent-worktree-lock'
+import { agentWorktreeLockOwner, agentWorktreeLockReason, lockAgentWorktree } from '../agent-worktree-lock'
 import {
   hiddenEditPaths,
   ignoredPathsAtRisk,
@@ -577,9 +577,41 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   // ── Holding a slot ────────────────────────────────────────────────────────
 
   /**
+   * The lock git has on a worktree: its reason (empty when none was given),
+   * null when it is not locked, undefined when the listing could not be read.
+   */
+  async function lockReasonOf(pool: PoolRuntime, path: string): Promise<string | null | undefined> {
+    const listed = await git(pool.record.repoRoot, ['worktree', 'list', '--porcelain', '-z'])
+    if (!listed.ok) return undefined
+    const entry = parseGitWorktreePorcelain(listed.stdout).find(
+      (candidate) => comparablePath(candidate.path) === comparablePath(path),
+    )
+    return entry?.locked ? (entry.lockedReason ?? '') : null
+  }
+
+  /**
+   * Whether a lock is this pool's to lift: its own hold, or this profile's
+   * agent lock. Slots live in a container every Studio profile shares, and
+   * another profile's agent lock (or a person's) means someone else is using
+   * the worktree, whatever this profile's record says.
+   */
+  function isOurLock(reason: string): boolean {
+    return reason.startsWith('held: ') || agentWorktreeLockOwner(reason) === 'this-profile'
+  }
+
+  /** Lift a slot's lock when it is ours ({@link isOurLock}); anyone else's stays. */
+  async function unlockIfOurs(pool: PoolRuntime, path: string): Promise<void> {
+    const lock = await lockReasonOf(pool, path)
+    if (lock !== null && lock !== undefined && isOurLock(lock)) {
+      await git(pool.record.repoRoot, ['worktree', 'unlock', path])
+    }
+  }
+
+  /**
    * Park a slot for a person to decide. The slot is (re)locked with the reason,
    * so the Worktree manager, the Git pane and git itself all see it is not to
-   * be touched, and the agent worktree cleanup skips it.
+   * be touched, and the agent worktree cleanup skips it. A lock that is not
+   * ours (another profile's, a person's) is left as it is.
    */
   async function hold(
     pool: PoolRuntime,
@@ -589,8 +621,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     extra: { changedPaths?: number | null; branch?: string | null } = {},
   ): Promise<void> {
     const branch = extra.branch ?? slot.lease?.branch ?? slot.held?.branch ?? null
-    await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
-    await git(pool.record.repoRoot, ['worktree', 'lock', '--reason', `held: ${reason}`, slot.path])
+    const lock = await lockReasonOf(pool, slot.path)
+    if (lock === null || (lock !== undefined && isOurLock(lock))) {
+      if (lock !== null) await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
+      await git(pool.record.repoRoot, ['worktree', 'lock', '--reason', `held: ${reason}`, slot.path])
+    }
     await withPool(pool, async () => {
       slot.state = 'held'
       slot.held = { reason, detail, changedPaths: extra.changedPaths ?? null, branch, since: now() }
@@ -1135,7 +1170,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     const began = await withPool(pool, async () => {
       const slot = pool.record.slots.find((candidate) => comparablePath(candidate.path) === comparablePath(input.path))
       if (!slot) return { kind: 'gone' as const }
-      if (slot.state === 'leased' && slot.lease?.branch === branch) return { kind: 'done' as const }
+      if (slot.state === 'leased' && slot.lease?.branch === branch) return { kind: 'done' as const, slot }
       if (slot.state !== 'idle' || pool.busy.has(slot.id)) return { kind: 'refused' as const, other: slot }
       pool.busy.add(slot.id)
       slot.state = 'leasing'
@@ -1144,7 +1179,20 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       return { kind: 'began' as const, slot }
     })
     if (began.kind === 'gone') return null
-    if (began.kind === 'done') return { ok: true }
+    if (began.kind === 'done') {
+      // The record says it is already this chat's; the tree is asked too. A
+      // record can be stale (another profile shares the container, a person
+      // switched branches in it), and a chat opened on a worktree on some
+      // other branch would work on someone else's checkout.
+      const status = await readSlotStatus(git, began.slot.path)
+      if (status.ok && status.status.branch === branch) return { ok: true }
+      return {
+        ok: false,
+        message: status.ok
+          ? `The worktree this chat used at ${input.path} is on ${status.status.branch ?? 'a detached HEAD'} now, not ${branch}.`
+          : `Could not read the worktree this chat used at ${input.path}: ${status.message}`,
+      }
+    }
     if (began.kind === 'refused') {
       const other = began.other
       // Held with the chat's own branch still checked out (a return that found
@@ -1333,16 +1381,26 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     })
     if (!began) return 'skipped'
     const branch = began.lease?.branch ?? began.held?.branch ?? null
+    const putBack = async (): Promise<'postponed'> => {
+      await withPool(pool, async () => {
+        slot.state = began.from === 'leasing' ? 'returning' : began.from
+        slot.op = null
+        await persist(pool)
+      })
+      return 'postponed'
+    }
     try {
-      if (await somethingRunsIn(slot.path)) {
-        // The agent's terminal (or anyone's) is still in there: put it back as
-        // it was, and the next sweep asks again.
-        await withPool(pool, async () => {
-          slot.state = began.from === 'leasing' ? 'returning' : began.from
-          slot.op = null
-          await persist(pool)
-        })
-        return 'postponed'
+      // The agent's terminal (or anyone's) is still in there: put it back as
+      // it was, and the next sweep asks again.
+      if (await somethingRunsIn(slot.path)) return await putBack()
+      // Locked by another Studio profile (which adopted or leased it) or by a
+      // person: theirs, whatever this profile's record says. Held for a person
+      // to sort out, with their lock left on it; unreadable, asked again later.
+      const lock = await lockReasonOf(pool, slot.path)
+      if (lock === undefined) return await putBack()
+      if (lock !== null && !isOurLock(lock)) {
+        await hold(pool, slot, 'error', `locked by someone else (${lock || 'no reason given'})`, { branch })
+        return 'held'
       }
       const gitDir = await readSlotGitDir(git, slot.path)
       if (!gitDir) {
@@ -1788,7 +1846,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     if (gone.length === 0) return
     for (const slot of gone) {
       // A held slot is locked by the pool itself, and git never removes a locked worktree.
-      if (slot.state === 'held') await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
+      if (slot.state === 'held') await unlockIfOurs(pool, slot.path)
       await forgetRegistration(pool, slot.path)
     }
     await withPool(pool, async () => {
@@ -1908,6 +1966,10 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       // A worktree merely NAMED like a slot (an agent or a person called it
       // `pool-01`) is not the pool's to adopt: only one the pool marked is.
       if (!(await hasSlotMarker(git, entry.path))) continue
+      // Another Studio profile's lease: the container is shared, the records
+      // are not. Adopting it would have this profile return (detach, unlock)
+      // a worktree a chat of that profile is working in.
+      if (entry.agentLock === 'other-profile') continue
       const leased = entry.branch !== null && entry.locked && !(entry.lockedReason ?? '').startsWith('held: ')
       survivors.push({
         id: name,
@@ -1987,7 +2049,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       const gitDir = await readSlotGitDir(git, slot.path)
       const operation = gitDir ? await operationInProgress(gitDir) : null
       if (action === 'keep') {
-        await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
+        await unlockIfOurs(pool, slot.path)
         // No longer the pool's: nothing may ever adopt it back.
         await removeSlotMarker(git, slot.path).catch((error: unknown) =>
           log(`${slot.path}: could not remove its slot mark (${messageOf(error)})`),
