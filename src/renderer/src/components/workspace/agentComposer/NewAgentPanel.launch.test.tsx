@@ -782,7 +782,11 @@ test('NewAgentPanel launch paths', async () => {
       seedStore()
       const { resetNewChatDraftsForTests } = await import('./newChatDraft')
       resetNewChatDraftsForTests()
-      const view = await render({ initialSelection: { kind: 'conversation' }, launchesInBackground: true, draftKey: 'w' })
+      const view = await render({
+        initialSelection: { kind: 'conversation' },
+        launchesInBackground: true,
+        draftKey: 'w',
+      })
       const name = await nameWorktree(view, 'fix-login')
       await act(async () => typeIntoComposer(composerField(view.container), 'Fix the login.'))
       await pressEnter(view, { metaKey: true })
@@ -791,7 +795,11 @@ test('NewAgentPanel launch paths', async () => {
       assert.equal(name.value, '', 'the name went with the chat it was typed for')
       await act(async () => typeIntoComposer(composerField(view.container), 'Write the notes.'))
       await pressEnter(view, { metaKey: true })
-      assert.deepEqual(view.launches[1]?.worktree, { name: '' }, 'the next one is still in a worktree, made up at start')
+      assert.deepEqual(
+        view.launches[1]?.worktree,
+        { name: '' },
+        'the next one is still in a worktree, made up at start',
+      )
       view.unmount()
       resetNewChatDraftsForTests()
     })

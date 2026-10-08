@@ -59,7 +59,8 @@ export type ComposerKeyEvent = {
  * flag alone lets that Enter send half-typed words.
  */
 export function isImeKey(
-  event: Pick<KeyboardEvent, 'isComposing' | 'keyCode'> | { nativeEvent: Pick<KeyboardEvent, 'isComposing' | 'keyCode'> },
+  event:
+    Pick<KeyboardEvent, 'isComposing' | 'keyCode'> | { nativeEvent: Pick<KeyboardEvent, 'isComposing' | 'keyCode'> },
 ): boolean {
   const native = 'nativeEvent' in event ? event.nativeEvent : event
   return native.isComposing || native.keyCode === 229
