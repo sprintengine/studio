@@ -198,6 +198,23 @@ test('Enter in the box is held for the composer; Shift+Enter and a composing Ent
   expect(input!.value).toBe('two lines\n\n')
 })
 
+test('words typed after an Enter in the box take the held Enter back', async () => {
+  const dom = windowDocument(await captureFrom())
+  const { input } = boxOf(dom)
+  const bridge = (dom.window as unknown as { sprintengineBootComposer: { live: { enterPending: boolean } } })
+    .sprintengineBootComposer
+  for (const key of 'fix the') press(dom, input!, key)
+  press(dom, input!, 'Enter')
+  expect(bridge.live.enterPending).toBe(true)
+  // The app was not ready, so the person went on with the sentence.
+  for (const key of ' flaky test') press(dom, input!, key)
+  expect(bridge.live.enterPending).toBe(false)
+  await inWindow(dom, async () => {
+    const { claimBootComposer } = await import('./bootComposer')
+    expect(claimBootComposer()).toMatchObject({ text: 'fix the flaky test', enterPending: false })
+  })
+})
+
 test('every keystroke typed into the box reaches the composer that takes it over, with the caret and focus', async () => {
   const dom = windowDocument(await captureFrom())
   const { host, input } = boxOf(dom)
