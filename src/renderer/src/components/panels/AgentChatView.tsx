@@ -157,7 +157,13 @@ import {
 } from './agentChat/quoteSelection'
 import { useStickToBottom } from './agentChat/useStickToBottom'
 import { ConversationRowFrame } from './agentChat/conversationRowFrame'
-import { type ChatOpening, unreadDividerRowId, useChatOpening } from './agentChat/unreadDivider'
+import {
+  type ChatOpening,
+  MAX_DIVIDER_PAGES,
+  unreadDividerRowId,
+  unseenFromTheTop,
+  useChatOpening,
+} from './agentChat/unreadDivider'
 import { loadWholeConversation } from './agentChat/conversationReplay'
 import { ConversationReplayView, type ConversationReplaySource } from './agentChat/conversationReplayView'
 import { onChatReplayRequest, takeChatReplayRequest } from './agentChat/chatReplayRequests'
@@ -933,8 +939,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // divider.
   const opening = useChatOpening(transport.kind === 'local' ? workspaceId : null)
   const unreadRowId = useMemo(
-    () => (opening ? unreadDividerRowId(timelineRows, opening) : null),
-    [timelineRows, opening],
+    () => (opening ? unreadDividerRowId(timelineRows, opening, { historyAbove: hasMore }) : null),
+    [timelineRows, opening, hasMore],
   )
   const unreadRowIndex = unreadRowId ? timelineRows.findIndex((row) => row.id === unreadRowId) : -1
   // This opening has a divider the chat has not landed on yet (the landing
@@ -944,6 +950,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // anywhere else first.
   const [landedOpening, setLandedOpening] = useState<ChatOpening | null>(null)
   const landsAtDivider = opening !== null && landedOpening !== opening && unreadRowIndex >= 0
+  // The replies nobody has seen run past the top of what is loaded: the one
+  // the reader saw is further back. A few pages are read back to find it
+  // before the opening lands; past them the divider stands at the top.
+  const dividerPagesRef = useRef<{ opening: ChatOpening | null; pages: number }>({ opening: null, pages: 0 })
+  if (dividerPagesRef.current.opening !== opening) dividerPagesRef.current = { opening, pages: 0 }
+  const seeksSeenReply =
+    opening !== null &&
+    landedOpening !== opening &&
+    hasMore &&
+    dividerPagesRef.current.pages < MAX_DIVIDER_PAGES &&
+    unseenFromTheTop(timelineRows, opening)
   const { handleRecallKeyDown, detachRecall } = useComposerRecall(shape.promptHistory, draft, setDraft)
 
   // A model switch made from a paired device reaches this window as the
@@ -1180,7 +1197,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     openingRef.current = opening
   }, [opening])
   useEffect(() => {
-    if (!opening || landedOpening === opening || !hydrated) return
+    if (!opening || landedOpening === opening || !hydrated || seeksSeenReply) return
     const index = unreadRowIndex
     // A kept chat opened again draws what it held at once, and what was written
     // since arrives behind this join's fence: the reply nobody has seen may be
@@ -1201,7 +1218,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       if (openingRef.current !== opening) return
       void listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false })
     })
-  }, [opening, landedOpening, hydrated, caughtUp, unreadRowIndex, searching, atBottomRef, setAtBottom])
+  }, [opening, landedOpening, hydrated, caughtUp, seeksSeenReply, unreadRowIndex, searching, atBottomRef, setAtBottom])
+  // The page back the divider waits for, one at a time.
+  useEffect(() => {
+    if (!seeksSeenReply || !caughtUp || loadingEarlier) return
+    dividerPagesRef.current.pages += 1
+    void fetchEarlier().catch(() => undefined)
+  }, [seeksSeenReply, caughtUp, loadingEarlier, fetchEarlier])
   const followedInitialSnapshot = useRef(false)
   useEffect(() => {
     if (!hydrated) return

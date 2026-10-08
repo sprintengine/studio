@@ -2226,3 +2226,44 @@ test('typing and a streamed reply leave the composer’s "+" menu as it was', as
     await chat.unmount()
   }
 })
+
+test('replies unseen past the top of the loaded page are read back to the one that was seen, and land below it', async () => {
+  const { noteChatOpened, noteChatLeft } = await import('./unreadDivider')
+  const turn = (id: string, at: number, answer: string) => [
+    eventAt(at, 'user_message', { turnId: id, text: `Ask ${id}` }),
+    eventAt(at + 100, 'turn_started', { turnId: id }),
+    eventAt(at + 200, 'content_delta', { turnId: id, text: answer }),
+    eventAt(at + 900, 'turn_completed', { turnId: id }),
+  ]
+  // Seen up to `a`; everything on the loaded page finished after the visit.
+  const older = turn('a', 1_000, 'Seen answer.')
+  const recent = [...turn('b', 3_000, 'First new answer.'), ...turn('c', 5_000, 'Second new answer.')]
+  const { rememberConversationScroll } = await import('./conversationViewState')
+  rememberConversationScroll('workspace:agent', { offset: 0, atEnd: true })
+  const loadEarlier = vi.fn(async () => ({ ok: true, page: { events: older, hasMore: false, beforeCursor: null } }))
+  scrolledToIndex.length = 0
+  const chat = await mountChat({
+    events: recent,
+    folderPath: '/Users/dev/long-unseen',
+    api: { conversationLoadEarlier: loadEarlier },
+  })
+  try {
+    await chat.act(async () => {
+      chat.emit({ type: 'snapshot', page: { events: recent, hasMore: true, beforeCursor: recent[0]!.seq! } })
+      chat.emit({ type: 'synchronized', seq: recent.at(-1)!.seq! })
+    })
+    // Opened once its last page is in, as a chat in the sidebar is clicked.
+    await chat.act(async () => noteChatOpened('workspace', 2_500, 10_000))
+    for (let step = 0; step < 50 && !chat.host.textContent?.includes('Seen answer.'); step++)
+      await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 50)))
+    expect(loadEarlier, 'the page above is read for the reply that was seen').toHaveBeenCalledTimes(1)
+    const divider = chat.host.querySelector('[role="separator"][aria-label="New since you last looked"]')
+    expect(divider?.nextElementSibling?.textContent).toContain('First new answer.')
+    const index = listedKeys.current.indexOf('assistant:b')
+    expect(scrolledToIndex.at(-1), 'it lands at the divider once the page is in').toEqual({ index, viewPosition: 0 })
+  } finally {
+    noteChatLeft('workspace')
+    await chat.unmount()
+  }
+})
