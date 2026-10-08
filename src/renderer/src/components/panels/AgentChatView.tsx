@@ -2383,14 +2383,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // composer's caret was, as a block of its own, and the caret waits on a fresh
   // line under it. The field keeps its caret while focus is in the transcript.
   const transcriptRef = useRef<HTMLDivElement | null>(null)
-  const quoteIntoComposer = (markdown: string) => {
-    const field = composerRef.current
-    setDraft((current) => {
-      const next = insertQuoteIntoDraft(current, markdown, field?.selectionEnd ?? current.length)
-      pendingCaretRef.current = next.caret
-      return next.text
-    })
-  }
+  const quoteIntoComposer = useCallback(
+    (markdown: string) => {
+      const field = composerRef.current
+      setDraft((current) => {
+        const next = insertQuoteIntoDraft(current, markdown, field?.selectionEnd ?? current.length)
+        pendingCaretRef.current = next.caret
+        return next.text
+      })
+    },
+    [setDraft],
+  )
   // Replay: the conversation played back from its first message, drawn over
   // this view (agentChat/conversationReplayView). It reads the whole log, so
   // the turns this view has not paged in yet are fetched first; leaving, or
@@ -2829,15 +2832,24 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // The looser modes a permission card offers to allow into: Auto and Bypass,
   // under the CLI's names for them, where they would ask less than the chat
   // does now and the chat can run them.
-  const approvalModeSwitches: ApprovalModeSwitch[] =
-    permissionsEditable && chatCli
-      ? (['auto', 'bypass'] as const)
-          .filter((preset) => isLooserCliPermissionPreset(preset, permissionPreset) && !presetRefusals?.[preset])
-          .map((preset) => ({
-            preset,
-            label: `Allow and switch to ${selectedPermissionOption(permissionOptions, preset)?.label ?? PRESET_CHIP_LABEL[preset]}`,
-          }))
-      : []
+  // Held from render to render, as the dock that takes them is memoized: a
+  // keystroke in the composer leaves the dock as it was.
+  const approvalModeSwitches = useMemo<ApprovalModeSwitch[]>(
+    () =>
+      permissionsEditable && chatCli
+        ? (['auto', 'bypass'] as const)
+            .filter((preset) => isLooserCliPermissionPreset(preset, permissionPreset) && !presetRefusals?.[preset])
+            .map((preset) => ({
+              preset,
+              label: `Allow and switch to ${selectedPermissionOption(permissionOptions, preset)?.label ?? PRESET_CHIP_LABEL[preset]}`,
+            }))
+        : [],
+    [permissionsEditable, chatCli, permissionPreset, presetRefusals, permissionOptions],
+  )
+  const approveAndSwitch = useCallback(
+    (requestId: string, preset: CliPermissionPreset) => void approveAndSwitchMode(requestId, preset),
+    [approveAndSwitchMode],
+  )
   // Type dropped paths at the caret, spaced off the words around them. The
   // field keeps its selection while the pointer is over the transcript, so a
   // drop there lands where the user left off typing.
@@ -3408,7 +3420,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 workspaceRoot={workspaceRoot ?? undefined}
                 onApprove={resolveApproval}
                 modeSwitches={approvalModeSwitches}
-                onApproveAndSwitch={(requestId, preset) => void approveAndSwitchMode(requestId, preset)}
+                onApproveAndSwitch={approveAndSwitch}
                 // Read-only: the pending requests are shown, not answerable.
                 busy={respondingRequestId !== null || !operate}
               />
