@@ -37,16 +37,46 @@ export type ForkFromHereTarget =
 
 // The images a fork's composer starts with, until its view mounts and takes
 // them. Held here rather than in the draft store, which is written to disk and
-// keeps text only.
-const forkedAttachments = new Map<string, ConversationImageAttachment[]>()
+// keeps text only. They are base64, up to a turn's worth each, and a fork whose
+// view never mounts (closed unopened, or removed) would otherwise hold them
+// for as long as the window is open: a hand-off nobody took within the hour,
+// or whose chat is gone, is let go, and only the newest few are held at all.
+// The words stay in the fork's draft either way.
+const FORKED_ATTACHMENTS_TTL_MS = 60 * 60 * 1000
+const FORKED_ATTACHMENTS_HELD = 4
+const forkedAttachments = new Map<
+  string,
+  { workspaceId: string; agentId: string; attachments: ConversationImageAttachment[]; at: number }
+>()
 const forkedAttachmentsKey = (workspaceId: string, agentId: string) => `${workspaceId}\u0000${agentId}`
+
+function letGoOfStaleForks(now: number): void {
+  const workspaces = useWorkspaceStore.getState().workspaces
+  for (const [key, held] of forkedAttachments) {
+    const agentGone = !workspaces.find((workspace) => workspace.id === held.workspaceId)?.agents[held.agentId]
+    if (agentGone || now - held.at > FORKED_ATTACHMENTS_TTL_MS) forkedAttachments.delete(key)
+  }
+  // Oldest first: a Map keeps the order its entries went in.
+  for (const key of forkedAttachments.keys()) {
+    if (forkedAttachments.size <= FORKED_ATTACHMENTS_HELD) break
+    forkedAttachments.delete(key)
+  }
+}
+
+function holdForkedAttachments(workspaceId: string, agentId: string, attachments: ConversationImageAttachment[]) {
+  const key = forkedAttachmentsKey(workspaceId, agentId)
+  forkedAttachments.delete(key)
+  forkedAttachments.set(key, { workspaceId, agentId, attachments, at: Date.now() })
+  letGoOfStaleForks(Date.now())
+}
 
 /** The images a fork's composer was handed, once: taking them answers the hand-off. */
 export function takeForkedAttachments(workspaceId: string, agentId: string): ConversationImageAttachment[] {
   const key = forkedAttachmentsKey(workspaceId, agentId)
-  const taken = forkedAttachments.get(key) ?? []
+  const held = forkedAttachments.get(key)
   forkedAttachments.delete(key)
-  return taken
+  letGoOfStaleForks(Date.now())
+  return held && Date.now() - held.at <= FORKED_ATTACHMENTS_TTL_MS ? held.attachments : []
 }
 
 /** "Fork from here" under one of the person's messages. */
@@ -186,8 +216,7 @@ export async function forkChat(input: {
   useWorkspaceStore.getState().updateAgent(key.workspaceId, agentId, forkedAgentPatch(parent, name))
   if (target.side === 'user') {
     composerDraftStore().getState().put(key.workspaceId, agentId, target.draft)
-    if (target.attachments?.length)
-      forkedAttachments.set(forkedAttachmentsKey(key.workspaceId, agentId), target.attachments)
+    if (target.attachments?.length) holdForkedAttachments(key.workspaceId, agentId, target.attachments)
   }
   placeSpawnedAgentTab(key.workspaceId, agentId, name, { afterAgentId: key.agentId })
   showToast({ tone: 'neutral', title: `Forked into ${name}. Both chats work in the same files.` })
