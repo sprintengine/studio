@@ -16,6 +16,7 @@ import {
 } from '../../shared/ipc/worktree-pool'
 import { comparablePath, distroOfUncPath } from '../../shared/host-paths'
 import { isRecord } from '../../shared/records'
+import { processIsRunning } from '../../server/platform/process-alive'
 
 /**
  * The pool's durable records: one JSON file per pool under
@@ -413,16 +414,6 @@ export type InstanceLockDeps = {
   host?: string
 }
 
-function defaultPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    // EPERM: it exists, it is simply not ours to signal.
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
-
 export type InstanceLockResult = { ok: true } | { ok: false; holder: string }
 
 /** Tries at the lock, a little apart, while another Studio is mid-takeover. */
@@ -479,7 +470,7 @@ export async function acquireInstanceLock(
   instanceId: string,
   deps: InstanceLockDeps = {},
 ): Promise<InstanceLockResult> {
-  const pidAlive = deps.pidAlive ?? defaultPidAlive
+  const pidAlive = deps.pidAlive ?? processIsRunning
   const now = deps.now ?? Date.now
   const host = deps.host ?? hostname()
   const lockPath = join(containerPath, POOL_LOCK_FILE)

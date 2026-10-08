@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs'
 import type { DiagnosticLogInput } from '../../shared/ipc/diagnostics'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
 import type { StudioPlatform } from '../platform/platform'
+import { processIsRunning } from '../platform/process-alive'
 import {
   acquireDataDirLock,
   readDataDirSecrets,
@@ -180,15 +181,6 @@ function waitForExit(pid: number, deps: TakeDataDirDeps): Promise<void> {
     }
     look()
   })
-}
-
-function processIsRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
-  }
 }
 
 function errorText(error: unknown): string {

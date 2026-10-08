@@ -4,6 +4,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statS
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 
+import { processIsRunning } from '../platform/process-alive'
 import { ensurePrivateDirectory } from '../rpc/studio-rpc-listener'
 import type { ServerBootstrapEnvelope } from './envelope'
 import { readHostId, readServerRecordFile } from './server-record'
@@ -68,15 +69,6 @@ export class DetachedStartError extends Error {
     message: string,
   ) {
     super(message)
-  }
-}
-
-function processIsRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
   }
 }
 
