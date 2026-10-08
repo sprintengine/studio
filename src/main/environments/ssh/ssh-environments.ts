@@ -33,6 +33,7 @@ import {
   configHostNames,
   findSshBinary,
   parseDestination,
+  reachesThroughHop,
   resolveDestination,
   spawnSshSession,
   type SshDestination,
@@ -69,6 +70,8 @@ export type SshEnvironmentsDeps = {
   /** A `-F` ssh config for every session (the integration suites); null for the person's own. */
   configFile?: string | null
   sshBinary?: string | null
+  /** The platform ssh runs on: Windows withholds the askpass shim from some machines (askpass.ts). */
+  platform?: NodeJS.Platform
   /** A machine was forgotten (its pane forward closes; its browsing data goes when asked). */
   onForget?(saved: SavedSshEnvironment, options: { clearBrowsingData: boolean }): Promise<void> | void
   log?(message: string): void
@@ -154,6 +157,12 @@ export class SshEnvironments {
   private broker: Promise<AskpassBroker> | null = null
   /** The broker once it is listening; an interactive spawn waits for it (`askpass()`). */
   private brokerReady: AskpassBroker | null = null
+  /**
+   * On Windows, the machines checked to reach their host directly, with no
+   * jump host or proxy command: only their ssh is given the askpass shim.
+   * Checked again before each interactive connect, since the config can change.
+   */
+  private readonly askpassCleared = new Set<string>()
   private readonly prompts = new Map<string, Prompt>()
   private readonly connectedListeners: Array<(connection: SshServerConnection) => void> = []
   private tree: { dir: string; digest: string } | null | undefined
@@ -230,6 +239,51 @@ export class SshEnvironments {
       : `data-${wslProfileId(this.deps.userDataDir)}`
   }
 
+  private platform(): NodeJS.Platform {
+    return this.deps.platform ?? process.platform
+  }
+
+  /** The broker a machine's interactive ssh may use: on Windows, only once it is checked to need no hop. */
+  private askpassFor(id: string): AskpassBroker | null {
+    if (this.platform() === 'win32' && !this.askpassCleared.has(id)) return null
+    return this.brokerReady
+  }
+
+  /**
+   * Before an interactive connect on Windows: whether this machine's ssh may
+   * be given the shim (no jump host, no proxy command). Answers a sentence
+   * for a failure when it may not, or null.
+   */
+  private async clearAskpass(id: string): Promise<string | null> {
+    if (this.platform() !== 'win32') return null
+    this.askpassCleared.delete(id)
+    const hop = await reachesThroughHop(this.ssh(), this.destinationOf(id), {
+      configFile: this.deps.configFile ?? null,
+    })
+    if (hop === false) {
+      this.askpassCleared.add(id)
+      return null
+    }
+    this.log(
+      `${this.get(id)?.label ?? 'An SSH machine'} is reached through a jump host or a proxy command; its sign-in questions are not asked.`,
+    )
+    return 'On Windows Studio asks no sign-in questions for a machine reached through a jump host or a proxy command: load your key into ssh-agent, and connect once in a terminal to trust its host keys.'
+  }
+
+  /** The person's own operation on a machine, with the broker listening and, on Windows, the shim cleared or withheld. */
+  private async interactively(id: string, run: () => Promise<unknown>): Promise<SshEnvironmentResult> {
+    let note: string | null = null
+    try {
+      await this.askpass()
+      note = await this.clearAskpass(id)
+      await run()
+      return { ok: true }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { ok: false, message: note ? `${message} ${note}` : message }
+    }
+  }
+
   private askpass(): Promise<AskpassBroker> {
     if (this.broker) return this.broker
     const broker = sshVersion(this.ssh()).then((version) => {
@@ -303,8 +357,9 @@ export class SshEnvironments {
           destination: this.destinationOf(id),
           label: this.get(id)?.label ?? saved.label,
           interactive,
-          askpass: this.brokerReady,
+          askpass: this.askpassFor(id),
           configFile: this.deps.configFile ?? null,
+          platform: this.platform(),
         }) as unknown as SessionProcess,
       app: { ...this.deps.app, backendWire: BACKEND_WIRE_VERSION },
       dataName: this.dataName(),
@@ -433,13 +488,7 @@ export class SshEnvironments {
     const machine = this.machine(id)
     if (!machine) return { ok: false, message: 'That SSH machine is no longer saved.' }
     // The person asked: ssh may ask them things, so the broker listens first.
-    try {
-      await this.askpass()
-      await machine.connect({ interactive: true })
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) }
-    }
+    return this.interactively(id, () => machine.connect({ interactive: true }))
   }
 
   disconnect(id: string): SshEnvironmentResult {
@@ -450,26 +499,14 @@ export class SshEnvironments {
   async stopServer(id: string): Promise<SshEnvironmentResult> {
     const machine = this.machine(id)
     if (!machine) return { ok: false, message: 'That SSH machine is no longer saved.' }
-    try {
-      await this.askpass()
-      await machine.stopServer()
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) }
-    }
+    return this.interactively(id, () => machine.stopServer())
   }
 
   /** The person said yes to updating an older server started outside this app (decision R31). */
   async upgradeServer(id: string): Promise<SshEnvironmentResult> {
     const machine = this.machine(id)
     if (!machine) return { ok: false, message: 'That SSH machine is no longer saved.' }
-    try {
-      await this.askpass()
-      await machine.upgradeOnce()
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) }
-    }
+    return this.interactively(id, () => machine.upgradeOnce())
   }
 
   /**

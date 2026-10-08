@@ -120,17 +120,27 @@ export const SSH_FIXED_OPTIONS = [
 ] as const
 
 /**
+ * On Windows, ssh runs the askpass shim, a `.cmd`, through cmd.exe, and
+ * cmd.exe reads the question on its command line as a command line: a quote
+ * and an `&` in it run whatever follows. ssh's own questions are its fixed
+ * words around values from this computer's config, but a keyboard-interactive
+ * question is the remote's text, so ssh there never takes that method.
+ */
+export const SSH_WINDOWS_OPTIONS = ['-o', 'KbdInteractiveAuthentication=no'] as const
+
+/**
  * The argv of one session: `ssh <fixed> [-o BatchMode=yes] -- <destination> sh -s`.
  * `configFile` is `-F`: a config other than the person's own (the
  * integration suites' fixture; never set in the app today).
  */
 export function buildSshArgs(
   destination: SshDestination,
-  options: { batch: boolean; configFile?: string | null },
+  options: { batch: boolean; configFile?: string | null; platform?: NodeJS.Platform },
 ): string[] {
   return [
     ...(options.configFile ? ['-F', options.configFile] : []),
     ...SSH_FIXED_OPTIONS,
+    ...((options.platform ?? process.platform) === 'win32' ? SSH_WINDOWS_OPTIONS : []),
     ...(options.batch ? ['-o', 'BatchMode=yes'] : []),
     '--',
     destination.argv,
@@ -228,6 +238,59 @@ export function parseSshG(output: string): SshResolved | null {
     controlMaster: fields.get('controlmaster') ?? null,
     userKnownHostsFile: fields.get('userknownhostsfile') ?? null,
   }
+}
+
+/**
+ * Whether ssh reaches a destination through another ssh of its own: a
+ * `ProxyJump`, or a `ProxyCommand` (which may run one). That ssh inherits the
+ * askpass shim but not this one's `-o` options, so on Windows it could pass a
+ * remote's question to cmd.exe. Null when `ssh -G` did not say.
+ */
+export async function reachesThroughHop(
+  ssh: string,
+  destination: SshDestination,
+  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; configFile?: string | null } = {},
+): Promise<boolean | null> {
+  const output = await runSshG(ssh, destination, options)
+  if (output === null) return null
+  const fields = new Map<string, string>()
+  for (const line of output.split(/\r?\n/u)) {
+    const space = line.indexOf(' ')
+    if (space <= 0) continue
+    const key = line.slice(0, space).toLowerCase()
+    if (!fields.has(key)) fields.set(key, line.slice(space + 1).trim())
+  }
+  const set = (name: string) => {
+    const value = fields.get(name)
+    return value !== undefined && value !== '' && value.toLowerCase() !== 'none'
+  }
+  return set('proxyjump') || set('proxycommand')
+}
+
+/** `ssh -G`'s output, or null when it failed or said nothing within the deadline. */
+function runSshG(
+  ssh: string,
+  destination: SshDestination,
+  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; configFile?: string | null },
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const child = spawn(ssh, buildResolveArgs(destination, options.configFile), {
+      env: sshEnvironment(options.env ?? process.env, null),
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+    })
+    let stdout = ''
+    const timer = setTimeout(() => child.kill('SIGKILL'), options.timeoutMs ?? 5_000)
+    child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')))
+    child.on('error', () => {
+      clearTimeout(timer)
+      resolve(null)
+    })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      resolve(code === 0 ? stdout : null)
+    })
+  })
 }
 
 /** Resolve a destination with `ssh -G`, within five seconds. */
@@ -394,11 +457,16 @@ export function spawnSshSession(input: {
   askpass: AskpassIssuer | null
   configFile?: string | null
   env?: NodeJS.ProcessEnv
+  platform?: NodeJS.Platform
 }) {
   const issued = input.interactive && input.askpass ? input.askpass.issue(input.label) : null
   const child = spawn(
     input.ssh,
-    buildSshArgs(input.destination, { batch: !input.interactive, configFile: input.configFile ?? null }),
+    buildSshArgs(input.destination, {
+      batch: !input.interactive,
+      configFile: input.configFile ?? null,
+      ...(input.platform ? { platform: input.platform } : {}),
+    }),
     {
       env: sshEnvironment(input.env ?? process.env, issued?.env ?? null),
       stdio: ['pipe', 'pipe', 'pipe'],

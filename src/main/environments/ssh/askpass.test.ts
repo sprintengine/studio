@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { test } from 'vitest'
 
-import { classifyPrompt, createAskpassBroker, marksRemotePrompts, type AskpassRequest } from './askpass'
+import { askpassRefuses, classifyPrompt, createAskpassBroker, marksRemotePrompts, type AskpassRequest } from './askpass'
 import { DOCKER_TESTS, startSshd } from './__fixtures__/docker-sshd'
 import { buildSshArgs, parseDestination, sshEnvironment } from './ssh-command'
 
@@ -196,4 +196,13 @@ test('before OpenSSH 8.4 a passphrase or password question is one Studio cannot 
   assert.equal(classifyPrompt("dev@build-box's password: ", '', old).unverified, true)
   assert.equal(classifyPrompt('Verification code: ', '', old).kind, 'remote')
   assert.equal(classifyPrompt("Enter passphrase for key '/Users/dev/.ssh/id_ed25519': ").unverified, undefined)
+})
+
+test('on Windows a question the remote wrote is refused unasked; ssh’s own questions are asked', () => {
+  const remote = classifyPrompt('(dev@build-box) Verification code: ')
+  const passphrase = classifyPrompt("Enter passphrase for key '/Users/dev/.ssh/id_ed25519': ")
+  assert.equal(askpassRefuses(remote, 'win32'), true)
+  assert.equal(askpassRefuses(passphrase, 'win32'), false)
+  assert.equal(askpassRefuses(classifyPrompt(HOST_KEY), 'win32'), false)
+  assert.equal(askpassRefuses(remote, 'darwin'), false)
 })
