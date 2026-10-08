@@ -280,8 +280,10 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
     // Only the branch's own namesake on the push remote is "already pushed".
     const pushedRef = `refs/remotes/${remote}/${facts.branch}`
     if (await out(gitRoot, ['rev-parse', '--verify', '--quiet', pushedRef])) {
-      const ahead = Number.parseInt((await out(gitRoot, ['rev-list', '--count', `${pushedRef}..HEAD`])) ?? '0', 10)
-      if (!(ahead > 0)) return { ok: true, pushed: false }
+      const counted = await out(gitRoot, ['rev-list', '--count', `${pushedRef}..HEAD`])
+      const ahead = counted === null ? Number.NaN : Number.parseInt(counted, 10)
+      // A count git could not give is no proof the remote has it all: push.
+      if (Number.isFinite(ahead) && ahead <= 0) return { ok: true, pushed: false }
     }
     const pushed = await git(gitRoot, ['push', ...(target.setUpstream ? ['-u'] : []), remote, refspec])
     return pushed.ok ? { ok: true, pushed: true } : { ok: false, message: gitFailure('push', pushed) }
