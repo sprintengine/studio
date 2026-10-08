@@ -33,11 +33,13 @@ export type ConversationLifecycleDeps = {
    */
   isWorking(workspaceId: string): boolean
   /**
-   * When a chat in the workspace last finished a turn, by the chats main
-   * holds now; undefined when none has. The record's own `lastTurnEndedAt`
+   * When a chat in the workspace last finished a turn, by its transcripts'
+   * index and the chats main holds now (`latestTurnEnd`, the reading the
+   * conversation list takes, so a chat the list says has finished can be
+   * marked); undefined when none has. The record's own `lastTurnEndedAt`
    * (its terminal agents') is read beside it.
    */
-  latestChatTurnEnd?(workspaceId: string): number | undefined
+  latestChatTurnEnd?(workspaceId: string): number | undefined | Promise<number | undefined>
   now?: () => number
 }
 
@@ -128,11 +130,13 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
    * A chat already unread from further back keeps its
    * clock, and one whose agent has finished nothing is refused.
    */
-  function markUnread(workspaceId: string, actor: WorkspaceRegistryActor): ConversationMarkUnreadResult {
+  async function markUnread(workspaceId: string, actor: WorkspaceRegistryActor): Promise<ConversationMarkUnreadResult> {
+    if (!deps.getRecord(workspaceId)) return unknown(workspaceId)
+    const chats = await Promise.resolve(deps.latestChatTurnEnd?.(workspaceId)).catch(() => undefined)
+    // Read after the transcripts were, so the clock compared is the one now.
     const record = deps.getRecord(workspaceId)
     if (!record) return unknown(workspaceId)
     const recorded = typeof record.lastTurnEndedAt === 'number' ? record.lastTurnEndedAt : undefined
-    const chats = deps.latestChatTurnEnd?.(workspaceId)
     const finishedAt = Math.max(recorded ?? Number.NEGATIVE_INFINITY, chats ?? Number.NEGATIVE_INFINITY)
     if (!Number.isFinite(finishedAt))
       return {

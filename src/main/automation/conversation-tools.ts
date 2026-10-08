@@ -323,7 +323,7 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         if (typeof args.workspaceId !== 'string' || !args.workspaceId.trim()) {
           return toolError('invalid_arguments', '"workspaceId" is required.')
         }
-        const marked = deps.lifecycle.markUnread(args.workspaceId.trim(), lifecycleActor(context))
+        const marked = await deps.lifecycle.markUnread(args.workspaceId.trim(), lifecycleActor(context))
         if (!marked.ok) return toolError(marked.code, marked.message)
         return toolSuccess(marked)
       },
