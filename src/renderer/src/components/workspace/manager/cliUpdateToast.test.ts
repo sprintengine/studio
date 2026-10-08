@@ -35,7 +35,7 @@ vi.mock('../../../store/workspaceStore', () => ({
   },
 }))
 
-const { showCliUpdateToast } = await import('./cliUpdateToast')
+const { holdCliUpdateToasts, showCliUpdateToast } = await import('./cliUpdateToast')
 
 const ADVISORY: CliVersionAdvisory = {
   cli: 'codex' as CliVersionAdvisory['cli'],
@@ -138,4 +138,36 @@ test('Update runs on the machine the notice is for, then reads the recorded answ
   for (let i = 0; i < 5; i += 1) await Promise.resolve()
   assert.deepEqual(updateCalls[1], ['codex', { command: '/opt/codex' }])
   assert.deepEqual(opened.availabilityReads, [{ cliRuntimes: { codex: { command: '/opt/codex' } } }])
+})
+
+// First run: an onboarding card holds the update offers back, because in a
+// small window the toast corner is where the card's own buttons are.
+test('an update that arrives while onboarding holds them waits, and is offered on release', () => {
+  const release = holdCliUpdateToasts()
+  showCliUpdateToast(ADVISORY)
+  assert.equal(toast(), undefined, 'nothing lands on the card')
+  assert.equal(opened.diagnostics.length, 1, 'the bell still has it')
+  release()
+  assert.equal(toast()?.title, 'Update available: Codex 0.41.0')
+  assert.equal(opened.diagnostics.length, 1, 'and is not told twice')
+})
+
+test('an offer already showing when onboarding begins is taken down and made again after', () => {
+  showCliUpdateToast(ADVISORY)
+  assert.ok(toast())
+  const release = holdCliUpdateToasts()
+  assert.equal(toast(), undefined)
+  release()
+  assert.ok(toast()?.actions?.some((action) => action.id === 'update'))
+})
+
+test('holds nest, and a release called twice counts once', () => {
+  const first = holdCliUpdateToasts()
+  const second = holdCliUpdateToasts()
+  showCliUpdateToast(ADVISORY)
+  first()
+  first()
+  assert.equal(toast(), undefined, 'the second hold still stands')
+  second()
+  assert.ok(toast())
 })

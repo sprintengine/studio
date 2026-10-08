@@ -1,6 +1,8 @@
 // The toast that offers to update an agent CLI, and running the update
 // it offers.
 
+import { useEffect } from 'react'
+
 import type { CliVersionAdvisory } from '../../../../../shared/electron-api'
 import { executionHostLabel, LOCAL_HOST_ID } from '../../../../../shared/execution-host'
 import { useNotificationStore } from '../../../store/notificationStore'
@@ -40,14 +42,56 @@ function machineLabel(hostId: CliVersionAdvisory['hostId']): string | null {
   return executionHostLabel(hostId, hostPlatform())
 }
 
+// First run holds them back. The toast region sits in the bottom-right
+// corner and the onboarding cards are centred, so in a small window (900×600)
+// two update offers landed on the import card's own buttons. Main sends an
+// update once per version, so dropping it would lose it: it waits instead,
+// and is offered the moment the card is answered. The bell entry is not
+// held — it covers nothing.
+let holds = 0
+const heldAdvisories = new Map<string, CliVersionAdvisory>()
+// What each update toast up now is offering, so a hold that begins while one
+// is already showing can take it down and offer it again afterwards.
+const offeredAdvisories = new Map<string, CliVersionAdvisory>()
+
+/**
+ * Keep CLI-update toasts out of the corner until the returned release is
+ * called. Offers already showing are taken down and made again on release,
+ * with a fresh minute. Holds nest: the last release shows them.
+ */
+export function holdCliUpdateToasts(): () => void {
+  holds += 1
+  const { toasts, dismissToast } = useToastStore.getState()
+  for (const shown of toasts) {
+    const advisory = offeredAdvisories.get(shown.id)
+    // Only the offer itself: an update already running reports its progress
+    // and its result in place, and that is the answer to a press.
+    if (!advisory || !shown.actions?.some((action) => action.id === 'update')) continue
+    heldAdvisories.set(shown.id, advisory)
+    dismissToast(shown.id)
+  }
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    holds -= 1
+    if (holds > 0) return
+    const queued = [...heldAdvisories.values()]
+    heldAdvisories.clear()
+    for (const advisory of queued) presentCliUpdateToast(advisory)
+  }
+}
+
+/** Hold CLI-update toasts while the calling surface is mounted. */
+export function useHoldCliUpdateToasts(): void {
+  useEffect(() => holdCliUpdateToasts(), [])
+}
+
 export function showCliUpdateToast(advisory: CliVersionAdvisory): void {
   const store = useWorkspaceStore.getState()
   const displayName = (cli: string): string =>
     store.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli
-  const name = displayName(advisory.cli)
-  const machine = machineLabel(advisory.hostId)
-  const notice = cliUpdateNotice(advisory, displayName, machine)
-  const id = toastId(advisory)
+  const notice = cliUpdateNotice(advisory, displayName, machineLabel(advisory.hostId))
   publishDiagnosticSync({
     level: 'info',
     source: 'cli',
@@ -59,6 +103,19 @@ export function showCliUpdateToast(advisory: CliVersionAdvisory): void {
       ref: advisory.hostId === LOCAL_HOST_ID ? 'agents' : `agents@${advisory.hostId}`,
     },
   })
+  if (holds > 0) heldAdvisories.set(toastId(advisory), advisory)
+  else presentCliUpdateToast(advisory)
+}
+
+function presentCliUpdateToast(advisory: CliVersionAdvisory): void {
+  const store = useWorkspaceStore.getState()
+  const displayName = (cli: string): string =>
+    store.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli
+  const name = displayName(advisory.cli)
+  const machine = machineLabel(advisory.hostId)
+  const notice = cliUpdateNotice(advisory, displayName, machine)
+  const id = toastId(advisory)
+  offeredAdvisories.set(id, advisory)
   const dismiss = (): void => useToastStore.getState().dismissToast(id)
   const dismissUpdate = (): void => useNotificationStore.getState().dismissUpdate(cliUpdateKey(advisory))
   showToast({

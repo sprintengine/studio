@@ -102,3 +102,52 @@ export function canClearProviderSecret(view: ProviderSecretView | undefined): bo
   if (!view || view.kind !== 'configured') return false
   return view.source === 'settings' || view.source === 'session'
 }
+
+// The last provider list this window read, kept between launches. Listing the
+// providers asks main to load every provider plugin, which on a cold start is
+// a second or more of a bare loading line; the list changes only when a
+// provider plugin is installed or removed, so the last answer is almost always
+// today's. The tab draws it at once and reads the real list behind it.
+//
+// Names and shapes only: nothing here is a secret, and key status is never
+// cached — a row says it is checking until main has answered for its key.
+const PROVIDER_LIST_CACHE_KEY = 'sprintengine-provider-list-v1'
+
+type ProviderListStorage = Pick<Storage, 'getItem' | 'setItem'>
+
+function isCachedEntry(value: unknown): value is ConversationProviderListEntry {
+  if (!value || typeof value !== 'object') return false
+  const entry = value as Record<string, unknown>
+  return (
+    typeof entry.id === 'string' &&
+    typeof entry.displayName === 'string' &&
+    typeof entry.source === 'string' &&
+    Array.isArray(entry.models)
+  )
+}
+
+/** The provider list the last launch read, or null when there is none or it does not parse. */
+export function readCachedProviderList(storage: ProviderListStorage | null): ConversationProviderListResult | null {
+  try {
+    const raw = storage?.getItem(PROVIDER_LIST_CACHE_KEY)
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed) || !parsed.every(isCachedEntry)) return null
+    return { ok: true, providers: parsed }
+  } catch {
+    return null
+  }
+}
+
+/** Keep a list main answered for the next launch. A failed read keeps the last good one. */
+export function writeCachedProviderList(
+  storage: ProviderListStorage | null,
+  result: ConversationProviderListResult,
+): void {
+  if (!result.ok) return
+  try {
+    storage?.setItem(PROVIDER_LIST_CACHE_KEY, JSON.stringify(result.providers))
+  } catch {
+    // Storage full or unavailable: the next launch reads the list as before.
+  }
+}
