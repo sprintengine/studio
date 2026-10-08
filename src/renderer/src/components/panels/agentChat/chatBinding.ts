@@ -1,10 +1,17 @@
 import type React from 'react'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useSyncExternalStore } from 'react'
 
 import { conversationWorkingRoot, type AgentState } from '../../../../../shared/agent-state'
 import type { ConversationSessionSummary } from '../../../../../shared/conversation-runtime'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { Workspace } from '../../../types/workspace'
+import {
+  newChatWorktreeAttemptRunning,
+  pendingNewChatWorktreeFailure,
+  prepareNewChatWorktree,
+  startPendingNewChatInProject,
+  subscribeNewChatWorktreeAttempts,
+} from '../../../utils/newChatWorktree'
 import type { CliRuntimeOption } from '../../ui/CliModelPicker'
 import type { ChatReadiness } from './chatStates'
 
@@ -38,8 +45,13 @@ export type ChatBinding = {
    * workspace folder: a remote transport names its conversation itself.
    */
   sessionRoot?: string
-  /** A readiness decided by the transport (a remote link), in place of this machine's provider check. */
+  /**
+   * A readiness decided by the transport (a remote link), or by a New chat
+   * still waiting on its worktree, in place of this machine's provider check.
+   */
   readiness?: ChatReadiness
+  /** What a chat whose worktree could not be made offers instead. */
+  worktreeActions?: { onRetry: () => void; onStartInProject: () => void }
   /** The session as the host last listed it, for a transport that does not start one here. */
   session?: ConversationSessionSummary | null
   /** What sits above the transcript in place of the local history title. */
@@ -71,6 +83,24 @@ export function useLocalChatBinding(workspaceId: string, agentId: string): ChatB
     (at: number) => recordWorkspaceUserMessage(workspaceId, at),
     [recordWorkspaceUserMessage, workspaceId],
   )
+  // A New chat opened before its worktree is the launch gate: no root until
+  // the worktree is its folder, so no session can start and the first message
+  // waits; the readiness says what it is waiting on, or why it stopped.
+  const attemptRunning = useSyncExternalStore(subscribeNewChatWorktreeAttempts, () =>
+    newChatWorktreeAttemptRunning(workspaceId),
+  )
+  const pendingWorktree = agent?.chatPendingWorktree
+  const pendingGate = useMemo((): Pick<ChatBinding, 'readiness' | 'worktreeActions'> | null => {
+    if (!pendingWorktree) return null
+    const failure = attemptRunning ? null : pendingNewChatWorktreeFailure(workspaceId, pendingWorktree)
+    return {
+      readiness: failure === null ? { kind: 'preparing-worktree' } : { kind: 'worktree-failed', message: failure },
+      worktreeActions: {
+        onRetry: () => void prepareNewChatWorktree(workspaceId),
+        onStartInProject: () => void startPendingNewChatInProject(workspaceId),
+      },
+    }
+  }, [pendingWorktree, attemptRunning, workspaceId])
   return useMemo(
     () =>
       agent?.conversation
@@ -80,11 +110,12 @@ export function useLocalChatBinding(workspaceId: string, agentId: string): ChatB
             workspace,
             // A chat started in a run worktree is keyed by that worktree; the
             // workspace folder would start a second session beside it.
-            workspaceRoot: conversationWorkingRoot(agent, workspace?.folderPath),
+            workspaceRoot: pendingGate ? null : conversationWorkingRoot(agent, workspace?.folderPath),
             recordUserMessage,
             rememberModel,
+            ...pendingGate,
           }
         : null,
-    [agent, update, workspace, recordUserMessage, rememberModel],
+    [agent, update, workspace, recordUserMessage, rememberModel, pendingGate],
   )
 }

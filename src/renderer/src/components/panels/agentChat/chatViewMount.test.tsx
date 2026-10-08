@@ -116,6 +116,8 @@ async function mountChat({
   cliModelCatalog,
   whenActive = false,
   folderPath = '/Users/dev/project',
+  worktree,
+  beforeRender,
 }: {
   events?: ConversationEvent[]
   capabilities?: Record<string, unknown>
@@ -132,7 +134,11 @@ async function mountChat({
   /** Draw the chat only while it is the window's active one, as the window does. */
   whenActive?: boolean
   /** The chat's folder, which keys the transcript the window keeps for it. */
-  folderPath?: string
+  folderPath?: string | null
+  /** The chat's worktree marker. */
+  worktree?: Record<string, unknown>
+  /** What happens once the store holds the chat and before it is drawn. */
+  beforeRender?: () => void
 }) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
@@ -215,6 +221,7 @@ async function mountChat({
         id: 'workspace',
         name: 'Project',
         folderPath,
+        ...(worktree ? { worktree } : {}),
         agents: {
           agent: {
             id: 'agent',
@@ -227,6 +234,7 @@ async function mountChat({
       },
     ] as never,
   })
+  beforeRender?.()
   const host = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(host)
   const root = createRoot(host)
@@ -384,6 +392,180 @@ test('a chat whose provider reads no images is given the launcher’s image path
     expect(sendTurn).toHaveBeenCalledOnce()
     expect(sendTurn.mock.calls[0][0]).toMatchObject({ message: `It looks wrong '${LAUNCH_SHOT}'` })
     expect(sendTurn.mock.calls[0][0]).not.toHaveProperty('attachments')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+// A New chat on a worktree opens before its worktree exists
+// (utils/newChatWorktree.ts): no folder, its project in the marker, and its
+// agent waiting on the worktree.
+const PENDING_PROJECT = '/Users/dev/project'
+const PENDING_WORKTREE = '/Users/dev/.sprintengine-worktrees/project/chat-ab12'
+
+function deferredWorktree() {
+  let settle: (result: unknown) => void = () => undefined
+  const createGitWorktree = vi.fn(
+    (input: { destinationPath: string; branchName: string }) =>
+      new Promise((resolve) => {
+        settle = (result) =>
+          resolve(
+            result === 'ok'
+              ? { ok: true, data: { path: PENDING_WORKTREE, branch: input.branchName, baseRef: 'main' } }
+              : result,
+          )
+      }),
+  )
+  return { createGitWorktree, settle: (result: unknown) => settle(result) }
+}
+
+async function mountPendingChat(options: {
+  createGitWorktree: (input: { destinationPath: string; branchName: string }) => Promise<unknown>
+  startAttempt: boolean
+  sendTurn: SendTurn
+  conversationSessionStart: ReturnType<typeof vi.fn>
+}) {
+  const { prepareNewChatWorktree } = await import('../../../utils/newChatWorktree')
+  return mountChat({
+    folderPath: null,
+    worktree: { repoRoot: PENDING_PROJECT },
+    agent: {
+      chatStartupPrompt: 'fix the login',
+      chatPendingWorktree: { name: '', projectFolder: PENDING_PROJECT },
+    },
+    sendTurn: options.sendTurn,
+    api: {
+      getGitRepoRoot: async () => PENDING_PROJECT,
+      createGitWorktree: options.createGitWorktree,
+      conversationSessionStart: options.conversationSessionStart,
+    },
+    // The confirm starts the attempt as it creates the chat, before its first frame.
+    beforeRender: options.startAttempt ? () => void prepareNewChatWorktree('workspace') : undefined,
+  })
+}
+
+function sessionStartSpy() {
+  return vi.fn(async (input: { workspaceRoot: string }) => ({
+    ok: true,
+    session: {
+      sessionId: 'session',
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'mock',
+      modelId: 'mock-model',
+      status: 'ready',
+      createdAt: 1,
+      updatedAt: 1,
+      capabilities: {},
+      workspaceRoot: input.workspaceRoot,
+    },
+  }))
+}
+
+test('a chat waiting on its worktree shows the prompt as its bubble and starts nothing until the folder is set', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const conversationSessionStart = sessionStartSpy()
+  const worktree = deferredWorktree()
+  const chat = await mountPendingChat({
+    createGitWorktree: worktree.createGitWorktree,
+    startAttempt: true,
+    sendTurn,
+    conversationSessionStart,
+  })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    const pending = chat.host.querySelector('[data-pending-first-message]')
+    expect(pending?.textContent, 'the message shows at once, as the bubble it will be').toContain('fix the login')
+    expect(pending?.textContent).toContain('Preparing worktree…')
+    expect(conversationSessionStart, 'no session before the folder is set').not.toHaveBeenCalled()
+    expect(sendTurn).not.toHaveBeenCalled()
+    expect(chat.agent().chatStartupPrompt, 'the message is held, not spent').toBe('fix the login')
+
+    await chat.act(async () => worktree.settle('ok'))
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+    const workspace = useWorkspaceStore.getState().workspaces[0]
+    expect(workspace.folderPath).toBe(PENDING_WORKTREE)
+    expect(workspace.worktree).toMatchObject({ repoRoot: PENDING_PROJECT, baseRef: 'main' })
+    expect(chat.agent().chatPendingWorktree).toBeUndefined()
+    // The worktree is the root now: its transcript opens, and the message goes.
+    await chat.act(async () => {
+      chat.emit({ type: 'snapshot', page: { events: [], hasMore: false, beforeCursor: null } })
+      chat.emit({ type: 'synchronized', seq: 0 })
+    })
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(sendTurn).toHaveBeenCalledOnce()
+    expect(sendTurn.mock.calls[0][0]).toMatchObject({ message: 'fix the login' })
+    expect(conversationSessionStart).toHaveBeenCalled()
+    for (const [input] of conversationSessionStart.mock.calls) {
+      expect(input.workspaceRoot, 'the agent starts in the worktree, never the project').toBe(PENDING_WORKTREE)
+    }
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a worktree that could not be made says why in the chat and gives the prompt back to the composer', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const conversationSessionStart = sessionStartSpy()
+  const worktree = deferredWorktree()
+  const chat = await mountPendingChat({
+    createGitWorktree: worktree.createGitWorktree,
+    startAttempt: true,
+    sendTurn,
+    conversationSessionStart,
+  })
+  try {
+    await chat.act(async () => worktree.settle({ ok: false, message: 'Could not fetch origin.' }))
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(chat.host.textContent).toContain('The worktree couldn’t be made')
+    expect(chat.host.textContent).toContain('Could not fetch origin.')
+    expect(chat.draft(), 'the message is back in the composer').toBe('fix the login')
+    expect(chat.agent().chatStartupPrompt).toBeUndefined()
+    expect(chat.button('Retry')).toBeDefined()
+    expect(conversationSessionStart).not.toHaveBeenCalled()
+
+    // Start in the project: the chat runs in the checkout, as asked, and the
+    // message waits in the composer for its Enter.
+    await chat.act(async () => chat.button('Start in the project')!.click())
+    const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+    const workspace = useWorkspaceStore.getState().workspaces[0]
+    expect(workspace.folderPath).toBe(PENDING_PROJECT)
+    expect(workspace.worktree ?? null).toBeNull()
+    expect(chat.agent().chatPendingWorktree).toBeUndefined()
+    expect(sendTurn).not.toHaveBeenCalled()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chat still waiting on its worktree when the app went away comes back failed, and Retry makes it again', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const conversationSessionStart = sessionStartSpy()
+  const worktree = deferredWorktree()
+  // No attempt: the one that was running went with the window.
+  const chat = await mountPendingChat({
+    createGitWorktree: worktree.createGitWorktree,
+    startAttempt: false,
+    sendTurn,
+    conversationSessionStart,
+  })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(chat.host.textContent, 'not stuck preparing').toContain('The worktree couldn’t be made')
+    expect(chat.host.textContent).toContain('Studio closed before this chat’s worktree was made.')
+    expect(chat.draft()).toBe('fix the login')
+    expect(worktree.createGitWorktree).not.toHaveBeenCalled()
+
+    await chat.act(async () => chat.button('Retry')!.click())
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(worktree.createGitWorktree).toHaveBeenCalledOnce()
+    expect(chat.host.textContent).toContain('Preparing worktree…')
+    expect(conversationSessionStart).not.toHaveBeenCalled()
+    await chat.act(async () => worktree.settle('ok'))
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+    expect(useWorkspaceStore.getState().workspaces[0].folderPath).toBe(PENDING_WORKTREE)
   } finally {
     await chat.unmount()
   }

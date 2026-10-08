@@ -182,6 +182,7 @@ import { UnreadDivider } from './agentChat/turnMeta'
 import type { EditFromHereDraft } from './agentChat/editFromHere'
 import { forkChat, takeForkedAttachments, type ForkFromHereTarget } from './agentChat/forkFromHere'
 import { EmptyChatState, ReadinessState, readinessLabel, type ChatReadiness } from './agentChat/chatStates'
+import { PendingFirstMessage } from './agentChat/pendingFirstMessage'
 import { ComposerActionButton, ComposerContextMenu, type ComposerMenuState } from './agentChat/composerControls'
 export { ComposerContextMenu, editingShortcut } from './agentChat/composerControls'
 export type { ComposerMenuState } from './agentChat/composerControls'
@@ -1722,10 +1723,18 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const startupTakesImages =
     readiness.kind === 'ready' && capabilities?.images === true && transport.capabilities.composerContext
   const startupHandledRef = useRef(false)
+  // A New chat still waiting on its worktree holds the message (it has no
+  // root, so no history to hydrate); one whose worktree could not be made
+  // gives it back to the composer, as a chat whose provider cannot start does.
+  const worktreeFailed = readiness.kind === 'worktree-failed'
   useEffect(() => {
-    if ((!startupPrompt && !startupImages?.length && !startupFiles?.length) || startupHandledRef.current || !hydrated)
+    if (
+      (!startupPrompt && !startupImages?.length && !startupFiles?.length) ||
+      startupHandledRef.current ||
+      (!hydrated && !worktreeFailed)
+    )
       return
-    if (readiness.kind === 'loading') return
+    if (readiness.kind === 'loading' || readiness.kind === 'preparing-worktree') return
     startupHandledRef.current = true
     updateBinding({ chatStartupPrompt: undefined, chatStartupImages: undefined, chatStartupFiles: undefined })
     const started = userTurns.length > 0 || shape.hasUserMessage
@@ -1780,6 +1789,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     startupFiles,
     startupTakesImages,
     hydrated,
+    worktreeFailed,
     readiness.kind,
     userTurns.length,
     shape.hasUserMessage,
@@ -2194,6 +2204,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const restoreDraft = useCallback((draft: EditFromHereDraft) => restoreDraftRef.current(draft), [])
 
   const ready = readiness.kind === 'ready'
+  // The launcher's message, not sent yet but on its way: drawn as the bubble
+  // it will be, with what it waits on, until the send puts up its own.
+  const startupWaiting =
+    Boolean(startupPrompt || startupImages?.length || startupFiles?.length) &&
+    (ready || readiness.kind === 'loading' || readiness.kind === 'preparing-worktree')
   // The session cannot take a live turn right now (streaming, awaiting approval,
   // or an in-flight send). A submit made while busy queues instead of erroring.
   const composerBusy =
@@ -3047,11 +3062,18 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             className="relative min-h-0 flex-1"
           >
             {timelineRows.length === 0 ? (
-              !ready ? (
+              startupWaiting ? (
+                <PendingFirstMessage
+                  text={startupPrompt ?? ''}
+                  files={[...(startupImages ?? []), ...(startupFiles ?? [])]}
+                  label={ready ? 'Sending…' : readinessLabel(readiness)}
+                />
+              ) : !ready ? (
                 <ReadinessState
                   readiness={readiness}
                   canSwitchModel={!modelLocked}
                   onSwitchModel={() => setModelMenuOpen(true)}
+                  {...(binding.worktreeActions ? { worktreeActions: binding.worktreeActions } : {})}
                 />
               ) : supportsTools ? (
                 <EmptyChatState

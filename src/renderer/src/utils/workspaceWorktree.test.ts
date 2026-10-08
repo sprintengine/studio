@@ -434,3 +434,11 @@ test('workspaceWorktree', async () => {
 
   await suiteRun
 })
+
+test('a worktree chat with no folder yet files under the project its marker names', () => {
+  // A New chat whose worktree is still being made has no folder, only the
+  // marker naming the project it is cut from; it files there from its first frame.
+  assert.equal(workspaceProjectRoot({ folderPath: null, worktree: { repoRoot: '/Users/dev/app' } }), '/Users/dev/app')
+  assert.equal(workspaceProjectRoot({ folderPath: null, worktree: { branch: 'agent/x' } }), null)
+  assert.equal(workspaceProjectRoot({ folderPath: null, worktree: { repoRoot: '  ' } }), null)
+})
