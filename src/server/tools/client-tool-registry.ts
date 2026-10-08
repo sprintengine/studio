@@ -218,6 +218,17 @@ function noun(toolset: string, title: string): string {
   return toolset === 'browser' ? 'the browser' : toolset === 'canvas' ? 'the canvas' : title
 }
 
+/**
+ * Whether a call to a tool may change something. A shell's own tool says so
+ * when it does; an app's is taken to unless it says it does not, so a
+ * mutation an app forgot to mark is never retried as a read.
+ */
+function mutatesOf(builtIn: boolean, tool: StudioToolSpec): boolean {
+  return builtIn ? tool.mutates === true : tool.mutates !== false
+}
+
+const OFFER_RATE_MESSAGE = `Toolsets may be offered or withdrawn ${STUDIO_TOOL_LIMITS.offersPerMinute} times a minute.`
+
 function failure(code: string, message: string, extra?: Record<string, unknown>): StudioToolResult {
   const result = toolError(code, message) as StudioToolResult
   if (extra) result.structuredContent = { ...result.structuredContent, ...extra }
@@ -563,12 +574,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     if (builtIn && !mayOfferReserved(instance.shell, name))
       return refuse('reserved_name', `"${name}" is reserved for Studio's own tools.`)
     const retryAfterMs = rateLimited(instance)
-    if (retryAfterMs !== null)
-      return refuse(
-        'busy',
-        `Toolsets may be offered or withdrawn ${STUDIO_TOOL_LIMITS.offersPerMinute} times a minute.`,
-        retryAfterMs,
-      )
+    if (retryAfterMs !== null) return refuse('busy', OFFER_RATE_MESSAGE, retryAfterMs)
     // The bound is on a client's own toolsets. The reserved names the shell
     // offers are a fixed list, and the WSL front door offers a server more of
     // them than the bound holds: the shell's six and the Windows side's own.
@@ -651,13 +657,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     const held = instance.offers.get(toolset)
     if (!held) return { ok: false, code: 'not_offered', message: `This connection does not offer "${toolset}".` }
     const retryAfterMs = rateLimited(instance)
-    if (retryAfterMs !== null)
-      return {
-        ok: false,
-        code: 'busy',
-        message: `Toolsets may be offered or withdrawn ${STUDIO_TOOL_LIMITS.offersPerMinute} times a minute.`,
-        retryAfterMs,
-      }
+    if (retryAfterMs !== null) return { ok: false, code: 'busy', message: OFFER_RATE_MESSAGE, retryAfterMs }
     instance.offers.delete(toolset)
     instance.stale.delete(toolset)
     if (!offering(toolset).length) lastGone.set(toolset, 'withdrawn')
@@ -709,7 +709,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
       ...(offered.offer.description ? { description: offered.offer.description } : {}),
       tool,
       wireName: studioToolWireName(toolset, tool.name),
-      mutates: offered.builtIn ? tool.mutates === true : tool.mutates !== false,
+      mutates: mutatesOf(offered.builtIn, tool),
     }))
   }
 
@@ -818,10 +818,15 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
 
   // ── Calls ─────────────────────────────────────────────────────────────────
 
+  /** A toolset's title for an agent, offered now or not: its newest offer's, its binding's, or its name. */
+  function titleOf(toolset: string): string {
+    return definitions.get(toolset)?.title ?? options.store.binding(toolset)?.title ?? toolset
+  }
+
   function unavailable(toolset: string, tool: string): StudioToolResult {
     const wireName = studioToolWireName(toolset, tool)
     const definition = definitions.get(toolset)
-    const title = definition?.title ?? options.store.binding(toolset)?.title ?? toolset
+    const title = titleOf(toolset)
     const gone = lastGone.get(toolset)
     if (definition && offering(toolset).length > 0)
       // Offered, but not this tool any more.
@@ -971,7 +976,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     const wireName = studioToolWireName(toolset, tool)
     if (closed) return Promise.resolve({ result: failure('client_unavailable', 'Studio is shutting down.') })
     if (!reaches(toolset, caller)) {
-      const title = definitions.get(toolset)?.title ?? options.store.binding(toolset)?.title ?? toolset
+      const title = titleOf(toolset)
       return Promise.resolve({
         result: failure(
           'client_unavailable',
@@ -1001,7 +1006,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         wireName,
         input: input.args,
         caller,
-        mutates: definition.builtIn ? spec.mutates === true : spec.mutates !== false,
+        mutates: mutatesOf(definition.builtIn, spec),
         timeoutMs,
         instance,
         state: 'waiting',
