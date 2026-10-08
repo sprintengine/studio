@@ -6,6 +6,7 @@ import {
   STUDIO_LOCAL_SERVER_MAX_URL,
 } from '../../../packages/studio-protocol/src/public'
 import { toolError, toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import { gatewayConversation } from '../tools/client-tool-gateway'
 import type { LocalServerLinkOutcome } from './local-server-domain'
 import { readLocalServerUrl, type LocalServerConversationKey, type LocalServerLinkInput } from './local-server-record'
 
@@ -15,8 +16,10 @@ import { readLocalServerUrl, type LocalServerConversationKey, type LocalServerLi
 //
 // Whose server it is comes from the CONNECTION, never from the arguments: the
 // calling agent's workspace and agent, which the gateway knows from the
-// agent's launch. Anything else calling (the person's own scripts, a paired
-// device) is not a conversation, and is refused.
+// agent's launch, as the launch token the connection presented proves it. A
+// connection that only declared an agent (the person's own scripts, a paired
+// device, anything that can reach the socket) is not a conversation, and is
+// refused.
 
 /** Linking records a server against a conversation: a mutation, audited. */
 export const LOCAL_SERVER_LINK_TOOL = 'local_server.link'
@@ -57,8 +60,12 @@ export function createLocalServerTools(deps: LocalServerToolsDeps): McpToolRegis
       },
       mutates: true,
       handler: async (args, context) => {
-        const metadata = context?.metadata
-        if (metadata?.kind !== 'studio-agent' || !metadata.workspaceId || !metadata.agentId) {
+        // The conversation the connection's launch token proved, not the ids
+        // it declared: any local connection can declare an agent id, and a
+        // link written under one would put a server or a pull request on
+        // somebody else's conversation.
+        const conversation = gatewayConversation(context)
+        if (!conversation) {
           return toolError(
             'not_a_conversation',
             'Only an agent SprintEngine Studio started can link a local server: it is recorded as that ' +
@@ -101,7 +108,7 @@ export function createLocalServerTools(deps: LocalServerToolsDeps): McpToolRegis
         const title = typeof args.title === 'string' ? args.title.trim() : ''
         const command = typeof args.command === 'string' ? args.command.trim() : ''
         const outcome = await deps.link(
-          { workspaceId: metadata.workspaceId, agentId: metadata.agentId },
+          { workspaceId: conversation.workspaceId, agentId: conversation.agentId },
           {
             url: address.url,
             ...(title ? { title } : {}),

@@ -1,4 +1,5 @@
 import { toolError, toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import { gatewayConversation } from '../tools/client-tool-gateway'
 import type { NoteOpenedOutcome, PullRequestConversationKey } from './pull-request-record'
 
 // The gateway's pull request tool: how an agent says "I opened this" (owner
@@ -8,9 +9,10 @@ import type { NoteOpenedOutcome, PullRequestConversationKey } from './pull-reque
 // those too.
 //
 // Whose pull request it is comes from the CONNECTION, never from the
-// arguments: the calling agent's workspace and agent, which the gateway knows
-// from the agent's launch. Anything else calling (the person's own scripts, a
-// paired device) is not a conversation, and is refused.
+// arguments: the calling agent's workspace and agent, as the launch token the
+// connection presented proves them. A connection that only declared an agent
+// (the person's own scripts, a paired device, anything that can reach the
+// socket) is not a conversation, and is refused.
 
 /** Linking records a pull request against a conversation: a mutation, audited. */
 export const PULL_REQUEST_LINK_TOOL = 'pull_request.link'
@@ -45,8 +47,12 @@ export function createPullRequestTools(deps: PullRequestToolsDeps): McpToolRegis
       },
       mutates: true,
       handler: async (args, context) => {
-        const metadata = context?.metadata
-        if (metadata?.kind !== 'studio-agent' || !metadata.workspaceId || !metadata.agentId) {
+        // The conversation the connection's launch token proved, not the ids
+        // it declared: any local connection can declare an agent id, and a
+        // link written under one would put a server or a pull request on
+        // somebody else's conversation.
+        const conversation = gatewayConversation(context)
+        if (!conversation) {
           return toolError(
             'not_a_conversation',
             'Only an agent SprintEngine Studio started can link a pull request: it is recorded as that ' +
@@ -60,7 +66,7 @@ export function createPullRequestTools(deps: PullRequestToolsDeps): McpToolRegis
           return toolError('invalid_arguments', '"title" must be a string when provided.')
         }
         const outcome = await deps.link(
-          { workspaceId: metadata.workspaceId, agentId: metadata.agentId },
+          { workspaceId: conversation.workspaceId, agentId: conversation.agentId },
           { url: args.url.trim(), ...(typeof args.title === 'string' ? { title: args.title } : {}) },
         )
         if (!outcome.ok) return toolError(outcome.code, outcome.message)

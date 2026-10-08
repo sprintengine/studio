@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
+import { bindGatewayConversation } from '../tools/client-tool-gateway'
 import { localOnlyGatewayToolReason } from '../../main/automation/tailnet/tailnet-scopes'
 import type { LocalServerLinkOutcome } from './local-server-domain'
 import type { LocalServerConversationKey, LocalServerLinkInput } from './local-server-record'
@@ -11,6 +12,9 @@ import { createLocalServerTools, LOCAL_SERVER_LINK_TOOL } from './local-server-t
 const AGENT: McpConnectionContext = {
   metadata: { kind: 'studio-agent', workspaceId: 'ws-1', agentId: 'agent-1', cliId: 'claude-code' },
 }
+// What the gateway's token check does for a connection whose launch token a
+// live launch holds.
+bindGatewayConversation(AGENT, { workspaceId: 'ws-1', agentId: 'agent-1' })
 
 function toolOver(state: 'running' | 'stopped' = 'running') {
   const calls: Array<{ key: LocalServerConversationKey; input: LocalServerLinkInput }> = []
@@ -74,6 +78,9 @@ test('local_server.link refuses whatever is not an agent Studio started', async 
     { metadata: { kind: 'external-local' as const } },
     { metadata: { kind: 'remote-tailnet' as const, deviceId: 'dev-1', deviceName: 'android-phone' } },
     { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1' } },
+    // An agent declared without a launch token proves nothing: anything that
+    // can reach the socket can declare one.
+    { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-1' } },
   ]) {
     const refused = await tool.handler({ url: 'http://localhost:5173/' }, context)
     assert.equal(refused.isError, true)
@@ -82,6 +89,19 @@ test('local_server.link refuses whatever is not an agent Studio started', async 
   assert.equal(calls.length, 0)
   // A paired device is not an agent: the tool is never served over the tailnet.
   assert.notEqual(localOnlyGatewayToolReason(LOCAL_SERVER_LINK_TOOL), null)
+})
+
+test('local_server.link records under the conversation the token proved, not the one declared', async () => {
+  const { tool, calls } = toolOver()
+  const context: McpConnectionContext = {
+    metadata: { kind: 'studio-agent', workspaceId: 'ws-2', agentId: 'someone-else' },
+  }
+  bindGatewayConversation(context, { workspaceId: 'ws-1', agentId: 'agent-1' })
+  await tool.handler({ url: 'http://localhost:5173/' }, context)
+  assert.deepEqual(
+    calls.map((call) => call.key),
+    [{ workspaceId: 'ws-1', agentId: 'agent-1' }],
+  )
 })
 
 test('local_server.link refuses arguments it cannot record', async () => {
