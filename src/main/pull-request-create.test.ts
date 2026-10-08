@@ -357,3 +357,61 @@ test('a draft is written from the branch’s own commits and diff, its template 
   assert.equal(draft.input.template, '### What changed and why', 'comments are left out')
   assert.equal(draft.input.conventionalCommits, false, 'one commit on main says nothing about a convention')
 })
+
+test('the push and the creation are for the branch and commit confirmed, and refused once the checkout moved', async () => {
+  const { clone, origin } = await checkout()
+  const calls: string[][] = []
+  const gh: GhRunner = {
+    available: async () => true,
+    run: async (args) => {
+      calls.push(args)
+      return { found: true, code: 0, stdout: 'https://github.com/acme/app/pull/16\n', stderr: '' }
+    },
+  }
+  const creator = createPullRequestCreator({ gh, listBranch: lookupOf(NONE).listBranch })
+  const confirmed = await creator.state(clone)
+  assert.ok(confirmed.branch && confirmed.headSha)
+  const pin = { branch: confirmed.branch, headSha: confirmed.headSha }
+
+  // A commit lands after the person confirmed: nothing they did not see goes out.
+  await commit(clone, 'later.ts', 'export const later = 1\n', 'feat: later')
+  const pushed = await creator.push(clone, pin)
+  assert.equal(pushed.ok, false)
+  assert.match(!pushed.ok ? pushed.message : '', /moved after the pull request was confirmed/u)
+  await assert.rejects(git(origin, 'rev-parse', '--verify', 'refs/heads/feature/marks'), 'nothing was pushed')
+  const created = await creator.create(clone, { title: 'feat: marks', body: '' }, pin)
+  assert.equal(created.ok, false)
+  assert.deepEqual(calls, [], 'gh was not asked')
+
+  // Another branch checked out is refused the same way.
+  await git(clone, 'checkout', '-q', '-b', 'feature/other')
+  assert.equal((await creator.push(clone, { ...pin, headSha: await git(clone, 'rev-parse', 'HEAD') })).ok, false)
+
+  // Back where it was confirmed, the confirmed commit is what is pushed.
+  await git(clone, 'checkout', '-q', 'feature/marks')
+  await git(clone, 'reset', '-q', '--hard', pin.headSha)
+  assert.deepEqual(await creator.push(clone, pin), { ok: true, pushed: true })
+  assert.equal(await git(origin, 'rev-parse', 'refs/heads/feature/marks'), pin.headSha)
+  assert.equal((await creator.create(clone, { title: 'feat: marks', body: '' }, pin)).ok, true)
+})
+
+test('a second confirm waits for the first push and creation on the checkout, never alongside them', async () => {
+  const { clone } = await checkout()
+  let active = 0
+  let most = 0
+  const gh: GhRunner = {
+    available: async () => true,
+    run: async () => {
+      active += 1
+      most = Math.max(most, active)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      active -= 1
+      return { found: true, code: 0, stdout: 'https://github.com/acme/app/pull/17\n', stderr: '' }
+    },
+  }
+  const creator = createPullRequestCreator({ gh, listBranch: lookupOf(NONE).listBranch })
+  const text = { title: 'feat: marks', body: '' }
+  const [first, second] = await Promise.all([creator.create(clone, text), creator.create(clone, text)])
+  assert.equal(first.ok && second.ok, true)
+  assert.equal(most, 1)
+})
