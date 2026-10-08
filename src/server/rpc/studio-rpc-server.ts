@@ -46,14 +46,17 @@ import type {
  * The conversation capabilities the socket serves: every one the contract
  * defines, but the two that describe the tailnet lane's own transport — a
  * picture route beside its WebSocket, and a `hello` frame on it, which here is
- * the connection's own handshake — and `conversation-lifecycle`, whose
- * settle and visit are gateway tools this socket has no method for.
+ * the connection's own handshake — `conversation-lifecycle`, whose
+ * settle and visit are gateway tools this socket has no method for, and
+ * `conversation-queued-sends`, whose `queued` frames its conversation topic
+ * does not carry.
  */
 export const STUDIO_RPC_CONVERSATION_CAPABILITIES: string[] = CONVERSATION_CAPABILITIES.filter(
   (capability) =>
     capability !== 'conversation-images' &&
     capability !== 'conversation-hello' &&
-    capability !== 'conversation-lifecycle',
+    capability !== 'conversation-lifecycle' &&
+    capability !== 'conversation-queued-sends',
 )
 
 export type StudioRpcServerOptions = {

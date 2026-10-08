@@ -4,6 +4,13 @@
 
 ### Added
 
+- **`conversation.cancelQueued`** (operate, an owner's only), the
+  conversation lane's `cancelQueued` command as a method: it takes back a
+  message the desktop holds for a chat's turn to end, by its `queuedId`. The
+  socket does not advertise `conversation-queued-sends`, since its
+  conversation topic carries no `queued` frames, so it names no held message
+  to an app; the method is here so the socket carries every command kind the
+  lane defines.
 - **Client tools** (`client-tools`): `tools.offer`, `withdraw`, `focus`,
   `catalog`, `grants` and `grant`, the `tools.catalog` stream, the `call` /
   `cancel` server frames and `reply` / `progress` client frames, the

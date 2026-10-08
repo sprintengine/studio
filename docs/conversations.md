@@ -624,7 +624,9 @@ in the app's own process.
 - **What the view offers is what the grant and the lane allow.** A pairing
   without `conversation:operate` sees the conversation with the composer,
   approvals and stop closed. A remote view never offers a permanent approval
-  rule, a checkpoint revert, or this machine's skills, files and images. It
+  rule, a checkpoint revert, or this machine's skills and files. Images it
+  does offer, where the machine lists the chat as taking them: main puts each
+  in that machine's upload store, as the phone does, and the send names them. It
   offers the same two-preset switcher a local chat does, reading the preset the
   machine's list names; a desktop built before the list carried the preset
   leaves the switcher hidden rather than guessing. Its engine chip is the same
@@ -635,6 +637,18 @@ in the app's own process.
   send is answered when its turn ends, as on the desktop itself, and a send in
   flight across a reconnect is sent again under the same command id and
   accepted once.
+- **A queued message is the other machine's to send** (owner report
+  2026-10-08). A message typed while the chat's turn runs is handed at once to
+  the machine the chat runs on, where it advertises
+  `conversation-queued-sends`: that machine holds it among its scheduled
+  messages, shows it in the chat's own tray, and sends it when the turn ends,
+  whether or not this machine is still awake. The pane draws the rows from
+  what that machine says it holds (`watchQueued`, `queued` frames); Stop and
+  send stops the turn, which lets it go, and Edit takes it back from there.
+  Several queued in one turn go as one message, as the composer's own queue
+  sends them. A machine without the capability, or one that refuses to hold a
+  message, leaves it queued in this pane, which sends it when the turn ends
+  only while this machine is awake, as every queued message was before.
 
 ### Terminals stay on the machine
 

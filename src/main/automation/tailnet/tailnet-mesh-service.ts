@@ -297,12 +297,15 @@ export type TailnetMeshService = {
    * in the shape a chat here sends them. Each image goes to the machine's
    * upload route first, the way the phone attaches one, and the send names
    * them by the ids that route answered. Without images it is the `send`
-   * command as it always was.
+   * command as it always was. `queue` hands the message to the machine to
+   * hold until the chat's turn ends (`conversation-queued-sends`); a queued
+   * message carries no images, and one with them is refused.
    */
   conversationSend(input: {
     key: unknown
     message: unknown
     attachments?: unknown
+    queue?: unknown
   }): Promise<MeshConversationCommandResult>
   conversationToolDetail(input: { key: unknown; toolUseId: unknown }): Promise<ConversationToolDetailResult>
   conversationTurnDiff(input: { key: unknown; turnSeq: unknown; path?: unknown }): Promise<ConversationTurnDiffResult>
@@ -438,6 +441,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     },
     onAway: (connectionId) => noteMachineAway(connectionId),
     isOnBattery: () => activity.isOnBattery(),
+    capabilitiesOf: (connectionId) => peerCapabilities.get(connectionId),
     log: options.log,
   })
 
@@ -1677,6 +1681,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
           modelSwitch: tailnetPeerSupports(identity.value.capabilities, 'conversation-models'),
           permissionModes: tailnetPeerSupports(identity.value.capabilities, 'conversation-permission-modes'),
           lifecycle: tailnetPeerSupports(identity.value.capabilities, 'conversation-lifecycle'),
+          queuedSends: tailnetPeerSupports(identity.value.capabilities, 'conversation-queued-sends'),
         }
       : listed
   }
@@ -1926,6 +1931,20 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
           key: input.key,
           command: { kind: 'send', message: input.message, ...(uploadIds.length > 0 ? { uploadIds } : {}) },
         })
+      if (input.queue !== undefined && input.queue !== true)
+        return { ok: false, code: 'invalid_arguments', message: '"queue" is true or left out.' }
+      // A queued message is held over there for the turn's end, and is its
+      // words alone: the wire refuses `queue` beside pictures, since an upload
+      // is staged for its send and would be gone by the turn it waits for.
+      if (input.queue === true) {
+        if (input.attachments !== undefined && !(Array.isArray(input.attachments) && input.attachments.length === 0))
+          return {
+            ok: false,
+            code: 'invalid_arguments',
+            message: 'A queued message carries no images; send it once the turn ends instead.',
+          }
+        return conversationCommand({ key: input.key, command: { kind: 'send', message: input.message, queue: true } })
+      }
       if (input.attachments === undefined) return send([])
       const parsed = parseImageAttachments(input.attachments)
       if (!parsed.ok) return { ok: false, code: 'invalid_arguments', message: parsed.message }

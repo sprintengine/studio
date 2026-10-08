@@ -154,6 +154,12 @@ type StudioConversationMethodMap = {
     result: StudioCommandAnswer & { permissionPreset: ConversationWirePermissionPreset; permissionMode?: string }
   }
   'conversation.setModel': { params: Addressed<{ modelId: string }>; result: StudioCommandAnswer & { modelId: string } }
+  /**
+   * Takes back a message the desktop holds for the chat's turn to end, by its
+   * `id` (the conversation lane's `cancelQueued`). An owner's only: this
+   * socket names no held message to anyone else.
+   */
+  'conversation.cancelQueued': { params: Addressed<{ queuedId: string }>; result: StudioCommandAnswer }
   /** Ends the chat's live session. Idempotent by nature: stopping a stopped chat answers ok. */
   'conversation.stop': { params: Addressed<object>; result: StudioCommandAnswer }
   'conversation.loadEarlier': {
@@ -201,6 +207,7 @@ export const STUDIO_METHODS: { readonly [M in StudioMethod]: StudioMethodSpec } 
   'conversation.resolvePlan': operate,
   'conversation.setPermissionPreset': operate,
   'conversation.setModel': operate,
+  'conversation.cancelQueued': { ...operate, owner: true },
   'conversation.stop': operate,
   'conversation.loadEarlier': read(),
   'conversation.toolDetail': read(),
@@ -262,6 +269,7 @@ export const STUDIO_COMMAND_METHODS = {
   'conversation.resolvePlan': 'resolvePlan',
   'conversation.setPermissionPreset': 'setPermissionPreset',
   'conversation.setModel': 'setModel',
+  'conversation.cancelQueued': 'cancelQueued',
 } as const satisfies Partial<Record<StudioMethod, ConversationCommand['kind']>>
 
 export type StudioCommandMethod = keyof typeof STUDIO_COMMAND_METHODS

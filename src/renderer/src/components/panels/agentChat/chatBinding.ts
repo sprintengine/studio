@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 
 import { conversationWorkingRoot, type AgentState } from '../../../../../shared/agent-state'
 import type { ConversationSessionSummary } from '../../../../../shared/conversation-runtime'
+import type { MeshQueuedMessage } from '../../../../../shared/tailnet-mesh'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { Workspace } from '../../../types/workspace'
 import {
@@ -79,6 +80,12 @@ export type ChatBinding = {
    * catalog for the chat's CLI.
    */
   engine?: CliRuntimeOption
+  /**
+   * The messages the machine running the chat holds for its turn to end, as
+   * that machine last said, for a chat on another machine whose transport
+   * hands its queue over (`capabilities.hostQueue`).
+   */
+  hostQueue?: { machineName: string; messages: MeshQueuedMessage[] }
 }
 
 /** A local chat's binding: its agent record in the workspace store. Null until that record has a conversation. */

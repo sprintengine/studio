@@ -16,6 +16,7 @@ import {
   type ConversationCommandKind,
   type ConversationFrameRejection,
   type ConversationHelloAnswer,
+  type ConversationQueuedFrame,
   type ConversationServerFrame,
   type ConversationWireErrorCode,
 } from '../../../../packages/conversation-protocol/src/public'
@@ -76,6 +77,7 @@ const COMMAND_KINDS: Record<ConversationCommandKind, true> = {
   resolvePlan: true,
   setPermissionPreset: true,
   setModel: true,
+  cancelQueued: true,
 }
 
 /**
@@ -144,9 +146,12 @@ export function createResyncBackoff(now: () => number = Date.now): (deviceId: st
   }
 }
 
+/** A frame this socket sends: the first version's, and what the full contract added since. */
+type OutgoingFrame = ConversationServerFrame | ConversationQueuedFrame
+
 type LiveEntry = {
   kind: 'live'
-  frame: ConversationServerFrame
+  frame: OutgoingFrame
   /**
    * The frame as encoded when it was queued, so the writer does not encode it
    * a second time. Dropped when a later delta extends the frame in place.
@@ -184,6 +189,13 @@ export function createTailnetConversationStream(options: TailnetConversationStre
   let lastPong = now()
   let currentKey: ConversationKey | null = null
   let subscription: { dispose(): void } | null = null
+  // What this desktop holds for the chat followed, told to a client that
+  // asked (`watchQueued`); it ends when the socket follows another chat.
+  let queuedWatch: { chat: string; stop(): void } | null = null
+  const stopQueuedWatch = (): void => {
+    queuedWatch?.stop()
+    queuedWatch = null
+  }
   let frameSequence = 0
   let subscriptionGeneration = 0
   let readsInFlight = 0
@@ -199,6 +211,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     for (const waiter of bulkWaiters.splice(0)) waiter.resolve()
     subscription?.dispose()
     subscription = null
+    stopQueuedWatch()
     clearInterval(heartbeat)
     if (!socket.destroyed) {
       try {
@@ -350,12 +363,12 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     }
   }
   /** Queue one live frame, merging it into what already waits where it can. */
-  const sendLive = (source: ConversationServerFrame, subscription?: number): void => {
+  const sendLive = (source: OutgoingFrame, subscription?: number): void => {
     if (closed) return
     enqueueLive(redact(source), subscription)
   }
   /** Queue a frame already redacted, and encoded when the caller had to encode it anyway. */
-  const enqueueLive = (frame: ConversationServerFrame, subscription?: number, encoded?: string): void => {
+  const enqueueLive = (frame: OutgoingFrame, subscription?: number, encoded?: string): void => {
     const event = frame.type === 'event' ? (frame.event as ConversationEvent) : null
     const key = event ? conversationDeltaKey(event) : null
     const tail = pending.at(-1)
@@ -535,6 +548,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     subscription?.dispose()
     subscription = null
     currentKey = null
+    stopQueuedWatch()
     dropQueued()
   }
   const subscribe = async (frame: Extract<ConversationClientMessage, { type: 'subscribe' }>): Promise<void> => {
@@ -548,6 +562,9 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     const generation = ++subscriptionGeneration
     // What an earlier subscription left waiting to be sent is stale now.
     dropQueued(generation)
+    // A watch on another chat's held messages ends with the move; one on this
+    // chat (a client joining it again) carries on.
+    if (queuedWatch && queuedWatch.chat !== chatId(key)) stopQueuedWatch()
     currentKey = key
     // Every snapshot and fence names the conversation it belongs to, so a
     // client can refuse one for a conversation it no longer follows.
@@ -620,6 +637,23 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     if (frame.type === 'getTurnDiff') {
       const key = requireKey(frame.requestId)
       if (key) await result(frame.requestId, await host.getTurnDiff(key, frame.turnSeq, frame.path))
+      return
+    }
+    if (frame.type === 'watchQueued') {
+      const key = requireKey(frame.requestId)
+      if (!key) return
+      if (!host.watchQueued) {
+        await result(frame.requestId, { ok: false, message: 'This desktop holds no queued messages.' })
+        return
+      }
+      await result(frame.requestId, { ok: true })
+      // Asked again after each fence: the watch is begun afresh, so the client
+      // is told what is held now even when nothing changed meanwhile.
+      stopQueuedWatch()
+      if (closed || !currentKey || chatId(currentKey) !== chatId(key)) return
+      const wireKey = { workspaceId: key.workspaceId, agentId: key.agentId }
+      const stop = host.watchQueued(wireKey, (messages) => sendLive({ type: 'queued', key: wireKey, messages }))
+      queuedWatch = { chat: chatId(key), stop }
       return
     }
     if (frame.type === 'command') {
@@ -819,6 +853,10 @@ export function createTailnetConversationStream(options: TailnetConversationStre
   socket.on('error', () => close(WEBSOCKET_CLOSE_GOING_AWAY, ''))
   return stream
 }
+
+/** A chat's identity as one string, whatever root a key carries beside it. */
+const chatId = (key: Pick<ConversationKey, 'workspaceId' | 'agentId'>): string =>
+  JSON.stringify([key.workspaceId, key.agentId])
 
 /**
  * The refusal for a frame too large to read, from the start of it that was

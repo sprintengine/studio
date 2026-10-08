@@ -1,7 +1,10 @@
 import { join } from 'node:path'
 
 import type { ConversationEvent, ConversationSessionSummary } from '../../shared/conversation-runtime'
-import type { ConversationGatewayHost } from '../../main/automation/tailnet/tailnet-conversation-host'
+import type {
+  ConversationGatewayHost,
+  ConversationHeldMessages,
+} from '../../main/automation/tailnet/tailnet-conversation-host'
 import {
   createScheduledMessages,
   SCHEDULED_MESSAGES_FILE,
@@ -58,4 +61,47 @@ export function createStudioScheduledMessages(deps: StudioScheduledMessagesDeps)
     ...(deps.now ? { now: deps.now } : {}),
     ...(deps.log ? { log: deps.log } : {}),
   })
+}
+
+/**
+ * The scheduled messages as the conversation host's held messages: what a
+ * paired machine queued in a chat here while its turn ran is held among them,
+ * so it goes from this machine when the turn ends, shows in this chat's tray
+ * beside the ones scheduled here, and outlives a restart. Read through
+ * `scheduled` at each call, since the hosts are made before they are.
+ */
+export function studioHeldMessages(scheduled: () => ScheduledMessages): ConversationHeldMessages {
+  const heldIn = (chat: { workspaceId: string; agentId: string }) =>
+    scheduled()
+      .state()
+      .messages.filter(
+        (message) => message.queued && message.workspaceId === chat.workspaceId && message.agentId === chat.agentId,
+      )
+  return {
+    hold(chat, text, source) {
+      const held = scheduled().hold(chat, text, source)
+      return held.ok ? { ok: true } : { ok: false, message: held.reason }
+    },
+    cancel(chat, id) {
+      const message = heldIn(chat).find((entry) => entry.id === id)
+      if (!message) return { ok: false, message: 'That message is no longer queued: it was sent or taken back.' }
+      if (message.sending) return { ok: false, message: 'That message is already on its way into the chat.' }
+      scheduled().update({ kind: 'delete', id })
+      return { ok: true }
+    },
+    list(chat) {
+      return heldIn(chat)
+        .filter((message) => !message.sending)
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((message) => ({
+          id: message.id,
+          text: message.text,
+          createdAt: message.createdAt,
+          ...(message.failure !== undefined ? { failure: message.failure } : {}),
+        }))
+    },
+    onChanged(listener) {
+      return scheduled().onChanged(() => listener())
+    },
+  }
 }

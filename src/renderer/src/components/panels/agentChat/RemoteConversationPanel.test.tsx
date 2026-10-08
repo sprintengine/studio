@@ -103,6 +103,7 @@ async function mountRemote({
   models,
   modelSwitch = false,
   permissionModes = false,
+  queuedSends = false,
   capabilities = thread.capabilities,
 }: {
   access: 'read' | 'operate'
@@ -110,6 +111,7 @@ async function mountRemote({
   models?: MeshConversation['models']
   modelSwitch?: boolean
   permissionModes?: boolean
+  queuedSends?: boolean
   /** What the machine lists the chat as able to do; null for a chat at rest there, listed with no session. */
   capabilities?: MeshConversation['capabilities'] | null
 }) {
@@ -149,6 +151,7 @@ async function mountRemote({
       access,
       modelSwitch,
       permissionModes,
+      queuedSends,
     })),
     onMeshConversationSession: vi.fn(
       (input: { key: MeshConversationKey }, receive: (frame: MeshConversationFrame) => void) => {
@@ -165,7 +168,17 @@ async function mountRemote({
         submodulesExcluded: true,
       },
     })),
-    meshConversationSend: vi.fn(async () => ({ ok: true })),
+    meshConversationSend: vi.fn(
+      async (_input: {
+        key: MeshConversationKey
+        message: string
+        attachments?: unknown[]
+        queue?: boolean
+      }): Promise<{ ok: true } | { ok: false; code: string; message: string }> => ({ ok: true }),
+    ),
+    meshConversationCancelQueued: vi.fn(async (_input: { key: MeshConversationKey; queuedId: string }) => ({
+      ok: true,
+    })),
     meshConversationResolveApproval: vi.fn(async () => ({ ok: true })),
     meshConversationInterrupt: vi.fn(async () => ({ ok: true })),
     meshConversationSetPermissionPreset: vi.fn(async () => ({ ok: true })),
@@ -251,6 +264,7 @@ async function mountRemote({
         new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
       ),
     composer,
+    draft: () => editor().state.doc.toString(),
     async unmount() {
       await act(async () => root.unmount())
       dom.window.close()
@@ -342,6 +356,44 @@ test('a send goes to the machine that holds the conversation, with no session st
   }
 })
 
+test('a message queued for a machine that holds its own queue is handed to it at once, and shown from what it holds', async () => {
+  const chat = await mountRemote({ access: 'operate', queuedSends: true })
+  try {
+    await chat.act(async () => chat.type('Try it with --runInBand'))
+    await chat.act(async () => chat.enter())
+    // Handed over now, mid-turn, so it goes even if this machine sleeps.
+    expect(chat.api.meshConversationSend).toHaveBeenCalledExactlyOnceWith({
+      key,
+      message: 'Try it with --runInBand',
+      queue: true,
+    })
+    expect(chat.draft()).toBe('')
+    await chat.act(async () =>
+      chat.emit({
+        type: 'queued',
+        messages: [{ id: 'sm-1', text: 'Try it with --runInBand', createdAt: 1_700_000_000_000 }],
+      }),
+    )
+    const row = chat.host.querySelector('[aria-label="Queued message"]')
+    expect(row?.textContent).toContain('Queued')
+    expect(row?.textContent).toContain('Try it with --runInBand')
+    // The turn ending here sends nothing from here: that machine sends it.
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('approval_resolved', { requestId: 'approval-1', approved: false }) })
+      chat.emit({ type: 'event', event: event('turn_completed', { turnId: 'a' }) })
+    })
+    expect(chat.api.meshConversationSend).toHaveBeenCalledTimes(1)
+    // Edit takes it back from there into this composer.
+    await chat.act(async () => chat.button('Edit')!.click())
+    expect(chat.api.meshConversationCancelQueued).toHaveBeenCalledExactlyOnceWith({ key, queuedId: 'sm-1' })
+    expect(chat.draft()).toBe('Try it with --runInBand')
+    await chat.act(async () => chat.emit({ type: 'queued', messages: [] }))
+    expect(chat.host.querySelector('[aria-label="Queued message"]')).toBeNull()
+  } finally {
+    await chat.unmount()
+  }
+})
+
 /** Settles the turn the mounted chat is waiting on, so a send goes at once rather than queueing. */
 async function settleTurn(chat: Awaited<ReturnType<typeof mountRemote>>) {
   await chat.act(async () => {
@@ -392,6 +444,28 @@ test('an image dropped on a chat over there that takes images is attached, and g
       message: 'What is wrong here?',
       attachments: [expect.objectContaining({ mediaType: 'image/png', name: 'shot.png', dataBase64: 'iVBORw0KGgo=' })],
     })
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a message the machine could not hold waits here, and goes from here when the turn ends', async () => {
+  const chat = await mountRemote({ access: 'operate', queuedSends: true })
+  try {
+    chat.api.meshConversationSend.mockResolvedValueOnce({
+      ok: false,
+      code: 'unavailable',
+      message: 'This chat already holds as many queued messages as it can.',
+    })
+    await chat.act(async () => chat.type('Try it with --runInBand'))
+    await chat.act(async () => chat.enter())
+    expect(chat.host.querySelector('[aria-label="Queued message"]')?.textContent).toContain('Try it with --runInBand')
+    expect(chat.host.textContent).toContain('mac-mini could not hold the message')
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('approval_resolved', { requestId: 'approval-1', approved: false }) })
+      chat.emit({ type: 'event', event: event('turn_completed', { turnId: 'a' }) })
+    })
+    expect(chat.api.meshConversationSend).toHaveBeenLastCalledWith({ key, message: 'Try it with --runInBand' })
   } finally {
     await chat.unmount()
   }

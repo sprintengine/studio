@@ -43,6 +43,16 @@ import { writeFileAtomically } from '../config-file-write'
 //
 // A send the chat refuses stays as a failure, in the chat's words, with Retry:
 // a message the person wrote is never dropped without their saying so.
+//
+// A message queued on a paired machine is held here too (`hold`): typed into
+// a chat that runs on this machine while its turn was running, it is handed
+// over at once rather than kept on the machine that typed it, which would
+// send it only if it were still awake when the turn ended (owner report
+// 2026-10-08: "if I send that message and then I close my laptop, it's not
+// gonna go through"). It is due from the moment it is held, so it takes the
+// same wait on the turn a scheduled message that came due mid-turn takes,
+// and several queued in one turn go as one message, as the composer's own
+// queue sends them.
 
 export const SCHEDULED_MESSAGES_FILE = 'scheduled-messages.json'
 const FORMAT_VERSION = 1
@@ -59,6 +69,10 @@ const TURN_END_SETTLE_MS = 1_500
 const MAX_TIMER_MS = 15 * 60_000
 /** A refusal's words, as the tray keeps them. */
 const MAX_FAILURE_LENGTH = 300
+/** Held messages one chat may wait on; a machine queueing past this is refused rather than kept without end. */
+const MAX_HELD_PER_CHAT = 20
+/** Commands a held message came in on, remembered so one arriving twice is held once. */
+const MAX_HELD_SOURCES = 500
 
 type Pending = ScheduledMessage & {
   /** When to look again at a message waiting on a busy chat; not kept in the file. */
@@ -90,9 +104,19 @@ export type ScheduledMessagesDeps = {
   log?: (message: string) => void
 }
 
+export type ScheduledMessageHoldResult = { ok: true; id: string } | { ok: false; reason: string }
+
 export type ScheduledMessages = {
   /** Read the file, follow the chats, and arm for what is due. */
   start(): Promise<void>
+  /**
+   * Hold a message for the end of the chat's turn (at once, when none is
+   * running): one a paired machine queued. It joins the chat's held message
+   * that has not gone yet, a line of its own, as the composer's queue joins
+   * them. `source` names the command it came in on; the same one again is
+   * the same message, held once.
+   */
+  hold(chat: ScheduledMessageChat, text: string, source: string): ScheduledMessageHoldResult
   /** The computer woke or was unlocked: timers stood still while it slept, so read the clock again. */
   wake(): void
   /** Chats may have been deleted: forget their messages. */
@@ -121,6 +145,8 @@ export function createScheduledMessages(deps: ScheduledMessagesDeps): ScheduledM
   const log = deps.log ?? (() => undefined)
 
   let messages: Pending[] = []
+  // Source command → the held message it went into.
+  const heldSources = new Map<string, string>()
   const listeners = new Set<(state: ScheduledMessagesState) => void>()
   const unsubscribers: Array<() => void> = []
   let timer: unknown = null
@@ -335,6 +361,55 @@ export function createScheduledMessages(deps: ScheduledMessagesDeps): ScheduledM
     return state()
   }
 
+  function hold(chat: ScheduledMessageChat, input: string, source: string): ScheduledMessageHoldResult {
+    const text = input.trim()
+    if (!text) return { ok: false, reason: 'A queued message needs words.' }
+    const known = heldSources.get(source)
+    if (known !== undefined && messages.some((entry) => entry.id === known)) return { ok: true, id: known }
+    if (!deps.chatExists(chat)) return { ok: false, reason: 'The chat is not on this machine any more.' }
+    const at = now()
+    // Only one that has not gone yet takes more: one on its way has been read,
+    // and one refused waits on the person.
+    const joined = messages.find(
+      (entry) =>
+        entry.queued &&
+        sameChat(entry, chat) &&
+        !entry.sending &&
+        entry.failure === undefined &&
+        entry.text.length + 1 + text.length <= MAX_SCHEDULED_MESSAGE_LENGTH,
+    )
+    let id: string
+    if (joined) {
+      joined.text = `${joined.text}\n${text}`
+      id = joined.id
+    } else {
+      if (text.length > MAX_SCHEDULED_MESSAGE_LENGTH)
+        return { ok: false, reason: `A queued message holds at most ${MAX_SCHEDULED_MESSAGE_LENGTH} characters.` }
+      if (messages.filter((entry) => entry.queued && sameChat(entry, chat)).length >= MAX_HELD_PER_CHAT)
+        return { ok: false, reason: 'This chat already holds as many queued messages as it can.' }
+      id = newId()
+      messages = [
+        ...messages,
+        {
+          id,
+          workspaceId: chat.workspaceId,
+          agentId: chat.agentId,
+          text,
+          sendAt: at,
+          createdAt: at,
+          // Due now and, as far as the machine that queued it knew, behind a
+          // running turn: the tray says it waits on the turn from the start.
+          waitingSince: at,
+          queued: true,
+        },
+      ]
+    }
+    heldSources.set(source, id)
+    while (heldSources.size > MAX_HELD_SOURCES) heldSources.delete(heldSources.keys().next().value!)
+    changed()
+    return { ok: true, id }
+  }
+
   // ── Life ─────────────────────────────────────────────────────────────────
 
   async function start(): Promise<void> {
@@ -355,6 +430,7 @@ export function createScheduledMessages(deps: ScheduledMessagesDeps): ScheduledM
 
   return {
     start,
+    hold,
     wake() {
       if (!running) return
       if (timer !== null) clearTimer(timer)
@@ -426,6 +502,7 @@ function readPending(raw: unknown): Pending[] {
       sendAt: raw.sendAt,
       createdAt: raw.createdAt,
       ...(isTime(raw.waitingSince) ? { waitingSince: raw.waitingSince } : {}),
+      ...(raw.queued === true ? { queued: true as const } : {}),
       ...(typeof raw.failure === 'string' && raw.failure ? { failure: failureWords(raw.failure) } : {}),
       ...(typeof raw.attempt === 'number' && Number.isInteger(raw.attempt) && raw.attempt > 0
         ? { attempt: raw.attempt }
