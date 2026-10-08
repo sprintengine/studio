@@ -222,3 +222,15 @@ test("the git that gh runs inside a repository ignores the repository's filesyst
   assert.equal(env[`GIT_CONFIG_KEY_${index}`], 'core.fsmonitor')
   assert.equal(env[`GIT_CONFIG_VALUE_${index}`], 'false')
 })
+
+test('a login shell that has no gh either (exit 127) means gh is not installed', async () => {
+  const spawn: GhSpawn = async (file) => {
+    if (file === 'gh') throw Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' })
+    throw Object.assign(new Error('Command failed'), { code: 127, stdout: '', stderr: 'zsh:1: command not found: gh' })
+  }
+  const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin' })
+  const result = await gh.run(['pr', 'list'])
+  assert.equal(result.found, false)
+  assert.equal(result.stderr, '', 'the shell’s words are not reported as gh’s')
+  assert.equal(await gh.available(), false)
+})

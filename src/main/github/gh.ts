@@ -24,6 +24,9 @@ import { gitSafetyEnv } from '../git-run'
 
 const execFileAsync = promisify(execFile)
 
+/** A POSIX shell's exit status for "command not found". */
+const SHELL_COMMAND_NOT_FOUND = 127
+
 /**
  * Cap on what one `gh` call may return. A pull request diff is the biggest
  * thing we ask for; the review provider rejects anything over its own
@@ -147,7 +150,14 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
       })
       return { found: true, code: 0, stdout, stderr }
     } catch (error) {
-      return resultFromSpawnError(error)
+      const result = resultFromSpawnError(error)
+      // The shell ran, and said it has no `gh` either: the binary is absent,
+      // as a bare spawn's ENOENT says. Read as gh having run, it kept the
+      // callers' "gh missing" hold from ever starting, so every probe started
+      // the shell again, and Create PR reported the shell's words as gh's.
+      if (result.found && !result.timedOut && result.code === SHELL_COMMAND_NOT_FOUND)
+        return { found: false, code: -1, stdout: '', stderr: '' }
+      return result
     }
   }
   const run = async (args: string[], options: GhRunOptions = {}): Promise<GhResult> => {
