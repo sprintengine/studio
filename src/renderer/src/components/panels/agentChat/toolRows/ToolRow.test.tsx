@@ -11,6 +11,11 @@ import {
 import { ConversationLinkProvider } from '../conversationLinks'
 import type { TranscriptToolEntry } from '../conversationProjection'
 import { JSDOM } from 'jsdom'
+import {
+  IncrementalCodeTokenizer,
+  loadCodeLanguage,
+  normalizeCodeLanguage,
+} from '../../../../lib/highlight/codeHighlight'
 
 function tool(values: Partial<TranscriptToolEntry>): TranscriptToolEntry {
   return { kind: 'tool', id: 'tool', turnId: 'turn', name: 'Bash', status: 'done', ...values }
@@ -582,6 +587,30 @@ test('a multi-line command keeps its line breaks', () => {
   const command = Array.from(document.querySelectorAll('span')).find((span) => span.textContent?.includes('npm test'))
   expect(command?.textContent).toBe('npm test \\\n  --reporter=dot')
   expect(command?.className).toContain('whitespace-pre-wrap')
+})
+
+test('a command is coloured as the shell reads it, and its plain words keep the terminal ink', async () => {
+  const command = 'git log --oneline | grep "fix" > /tmp/fixes.txt'
+  const shell = normalizeCodeLanguage('bash')!
+  // What a mounted panel does once the grammar loads; the panel's first paint
+  // reads the result back from the highlighter's cache.
+  new IncrementalCodeTokenizer(await loadCodeLanguage(shell), shell).update(command, true)
+  const html = renderToStaticMarkup(<ToolBody tool={tool({ toolKind: 'command', input: { command } })} />)
+  const document = new JSDOM(html).window.document
+  const line = Array.from(document.querySelectorAll('span.whitespace-pre-wrap')).find((span) =>
+    span.textContent?.includes('git log'),
+  )
+  expect(line?.textContent).toBe(command)
+  expect(html).toContain('color:var(--sem-syntax-string)')
+  expect(html).not.toContain('color:var(--sem-syntax-foreground)')
+  expect(document.querySelector('.rounded-sm.border')?.className).toContain('--terminal-bg')
+})
+
+test('a command shows as plain text until the shell grammar has loaded', () => {
+  const command = 'echo "not yet tokenized" && ls -la'
+  const html = renderToStaticMarkup(<ToolBody tool={tool({ toolKind: 'command', input: { command } })} />)
+  expect(html).not.toContain('--sem-syntax-')
+  expect(new JSDOM(html).window.document.body.textContent).toContain(command)
 })
 
 test('an edit preview leaves out the no-newline-at-end-of-file marker', () => {

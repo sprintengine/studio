@@ -1,10 +1,17 @@
-import React, { memo, useMemo, useRef, useState } from 'react'
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConversationToolDetail, ConversationJsonValue } from '../../../../../../shared/conversation-runtime'
 import { presentToolItem, type ToolPresentation } from '../../../../../../shared/conversation/presentation'
 import { labelCommand } from '../../../../../../shared/conversation/commandLabel'
 import { parseAnsi, type AnsiLine } from '../../../../../../shared/conversation/ansi'
 import { Checkbox, CopyGlyphButton, GhostButton, InlineNotice, MediaButton, RowButton, Spinner } from '../../../ui'
 import { CodeBlock } from '../../../ui/CodeBlock'
+import {
+  cachedCodeLines,
+  IncrementalCodeTokenizer,
+  loadCodeLanguage,
+  normalizeCodeLanguage,
+  type CodeLine,
+} from '../../../../lib/highlight/codeHighlight'
 import { ConversationFileLink, conversationText, useConversationLinkContext } from '../conversationLinks'
 import { useConversationDisclosure } from '../conversationViewState'
 import type { TranscriptToolEntry } from '../conversationProjection'
@@ -72,6 +79,59 @@ export function ToolPanel({
   )
 }
 
+const SHELL = normalizeCodeLanguage('bash')!
+// The highlighter's base ink. A token in it is plain shell text and takes the
+// terminal's own foreground instead, so the uncoloured words of a command are
+// the same ink as the output under them.
+const SYNTAX_FOREGROUND = 'var(--sem-syntax-foreground)'
+
+// The command, coloured as the shell reads it — the program, its flags, the
+// quoted strings, the pipes and redirections each in their syntax ink — so a
+// long pipeline can be read at a glance. Plain text until the grammar has
+// loaded, and plain text if it never does: the words are the same either way.
+export function HighlightedCommand({ command }: { command: string }) {
+  const [highlighted, setHighlighted] = useState<{ command: string; lines: CodeLine[] } | null>(() => {
+    const lines = cachedCodeLines(SHELL, command)
+    return lines ? { command, lines } : null
+  })
+  useEffect(() => {
+    if (!command) return
+    const cached = cachedCodeLines(SHELL, command)
+    if (cached) {
+      setHighlighted({ command, lines: cached })
+      return
+    }
+    let cancelled = false
+    loadCodeLanguage(SHELL)
+      .then((engine) => {
+        if (!cancelled)
+          setHighlighted({ command, lines: new IncrementalCodeTokenizer(engine, SHELL).update(command, true) })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [command])
+  if (highlighted?.command !== command) return <>{command}</>
+  return (
+    <>
+      {highlighted.lines.map((line, lineIndex) => (
+        <React.Fragment key={lineIndex}>
+          {line.tokens.map((token, tokenIndex) => (
+            <span
+              key={tokenIndex}
+              style={token.color && token.color !== SYNTAX_FOREGROUND ? { color: token.color } : undefined}
+            >
+              {token.content}
+            </span>
+          ))}
+          {lineIndex < highlighted.lines.length - 1 ? '\n' : null}
+        </React.Fragment>
+      ))}
+    </>
+  )
+}
+
 // A command and what it printed, on the terminal's own ground: it is terminal
 // output, colours and all, and it reads as that rather than as more prose. The
 // command heads the panel and the output scrolls under it, so a long log never
@@ -96,7 +156,9 @@ function CommandPanel({
         <span aria-hidden="true" className="select-none py-0.5 text-[color:var(--text-subtle)]">
           $
         </span>
-        <span className="min-w-0 flex-1 whitespace-pre-wrap break-words py-0.5">{command}</span>
+        <span className="min-w-0 flex-1 whitespace-pre-wrap break-words py-0.5">
+          <HighlightedCommand command={command} />
+        </span>
         {exitCode !== undefined ? (
           // Held in a line of the command's own height, so the small status
           // sits on the command's baseline rather than floating above it.
