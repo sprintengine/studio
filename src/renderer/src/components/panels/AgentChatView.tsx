@@ -145,6 +145,13 @@ import {
   insertQuoteIntoDraft,
   quoteSelectionInto,
 } from './agentChat/quoteSelection'
+import {
+  forwardPasteToComposer,
+  isEditableElement,
+  shouldRedirectToComposer,
+  typedCharacter,
+} from './agentChat/typeToComposer'
+import { pasteIntoComposer } from '../../utils/clipboardPasteBridge'
 import { useStickToBottom } from './agentChat/useStickToBottom'
 import { ConversationRowFrame } from './agentChat/conversationRowFrame'
 import {
@@ -2318,6 +2325,53 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     if (!transcript || composerInputDisabled) return false
     return quoteSelectionInto(transcript, document.getSelection(), quoteIntoComposer)
   }
+  // Typing or pasting in the chat away from the composer lands in it
+  // (agentChat/typeToComposer). Read through a ref so the listeners are bound
+  // once per shell, not once per keystroke's render.
+  const typeIntoComposerRef = useRef<(text: string) => boolean>(() => false)
+  typeIntoComposerRef.current = (text) => {
+    const field = composerRef.current
+    if (!field || composerInputDisabled || replay !== null) return false
+    replaceComposerSelection({ selectionStart: field.selectionStart, selectionEnd: field.selectionEnd }, text)
+    return true
+  }
+  const composerEditableRef = useRef<() => HTMLElement | null>(() => null)
+  composerEditableRef.current = () => {
+    if (composerInputDisabled || replay !== null) return null
+    const editable = shellRef.current?.querySelector<HTMLElement>('[data-composer-field] .cm-content') ?? null
+    // Hidden while a question covers the composer: the answer goes there.
+    return editable && isEditableElement(editable) && !editable.closest('.hidden, [hidden]') ? editable : null
+  }
+  // On the shell through React rather than bound once at mount: the view
+  // first renders a shell of its own while the chat is loading, and this one
+  // arrives later.
+  const redirectHandlers = useMemo<React.HTMLAttributes<HTMLDivElement>>(
+    () => ({
+      onKeyDown: (event) => {
+        if (event.defaultPrevented) return
+        const text = typedCharacter(event.nativeEvent)
+        if (!text || !shouldRedirectToComposer(event.target) || !composerEditableRef.current()) return
+        if (typeIntoComposerRef.current(text)) event.preventDefault()
+      },
+      onPaste: (event) => {
+        if (event.defaultPrevented || !shouldRedirectToComposer(event.target)) return
+        const editable = composerEditableRef.current()
+        if (!editable) return
+        composerRef.current?.focus()
+        event.preventDefault()
+        if (event.clipboardData && forwardPasteToComposer(editable, event.clipboardData)) return
+        // A paste whose text the event did not carry (the clipboard bridge's
+        // case): read it, as the bridge does for the composer itself.
+        void window.api
+          .clipboardReadText()
+          .then((text) => {
+            if (text && editable.isConnected) pasteIntoComposer(editable, text)
+          })
+          .catch(() => undefined)
+      },
+    }),
+    [],
+  )
   useEffect(
     () =>
       registerMountedChatView({
@@ -3017,7 +3071,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       workspaceRoot={workspaceRoot ?? ''}
     >
       <SubagentTypesProvider value={projection.agentTypes}>
-        <ChatShell shellRef={shellRef} dropHandlers={fileDropHandlers}>
+        <ChatShell shellRef={shellRef} dropHandlers={fileDropHandlers} keyHandlers={redirectHandlers}>
           {/* No title row above the transcript: the tab names the agent, as it
             does a terminal agent, and a thread title here repeated the first
             message over its own bubble. A remote pane brings its own header. */}
@@ -3028,6 +3082,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             // Under a replay the live chat keeps running, out of reach.
             inert={replay !== null}
             role="log"
+            // Focusable, out of the tab order: a click in the transcript puts
+            // focus here rather than on the page, so what is typed next reaches
+            // the chat (and the composer, typeToComposer) and the arrow keys
+            // scroll it.
+            tabIndex={-1}
             aria-label={`${label} conversation`}
             aria-live="off"
             aria-busy={!hydrated || loadingEarlier}
@@ -3724,16 +3783,19 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
 function ChatShell({
   shellRef,
   dropHandlers,
+  keyHandlers,
   children,
 }: {
   shellRef?: React.RefObject<HTMLDivElement | null>
   dropHandlers?: React.HTMLAttributes<HTMLDivElement>
+  keyHandlers?: Pick<React.HTMLAttributes<HTMLDivElement>, 'onKeyDown' | 'onPaste'>
   children: React.ReactNode
 }) {
   return (
     <div
       ref={shellRef}
       {...dropHandlers}
+      {...keyHandlers}
       // Scopes the chat contrast setting's inks (assets/index.css).
       data-chat-pane=""
       className="relative isolate flex h-full flex-col bg-[color:var(--agent-surface)] text-meta text-[color:var(--text-default)]"

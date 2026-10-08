@@ -2532,3 +2532,45 @@ test('replies unseen past the top of the loaded page are read back to the one th
     await chat.unmount()
   }
 })
+
+test('a key typed in the transcript after clicking away from the composer lands in the composer', async () => {
+  const chat = await mountChat({})
+  try {
+    await chat.act(async () => chat.type('Check the '))
+    const transcript = chat.host.querySelector<HTMLElement>('[role="log"]')!
+    const keydown = new chat.dom.window.KeyboardEvent('keydown', { key: 'g', bubbles: true, cancelable: true })
+    await chat.act(async () => {
+      transcript.dispatchEvent(keydown)
+    })
+    expect(keydown.defaultPrevented).toBe(true)
+    expect(chat.draft()).toBe('Check the g')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chord, a navigation key or Space typed in the transcript stays where it was pressed', async () => {
+  const chat = await mountChat({})
+  try {
+    const transcript = chat.host.querySelector<HTMLElement>('[role="log"]')!
+    for (const init of [{ key: 'c', metaKey: true }, { key: 'ArrowDown' }, { key: 'Escape' }, { key: ' ' }]) {
+      const keydown = new chat.dom.window.KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true })
+      await chat.act(async () => {
+        transcript.dispatchEvent(keydown)
+      })
+      expect(keydown.defaultPrevented, init.key).toBe(false)
+    }
+    expect(chat.draft()).toBe('')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('the transcript takes focus on a click, so what is typed next reaches the chat', async () => {
+  const chat = await mountChat({})
+  try {
+    expect(chat.host.querySelector('[role="log"]')?.getAttribute('tabindex')).toBe('-1')
+  } finally {
+    await chat.unmount()
+  }
+})
