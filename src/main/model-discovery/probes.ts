@@ -11,6 +11,7 @@
 import type { DiscoveredCliModel } from '../../shared/cli-model-catalog'
 import { probeAgentSdkModels } from './agent-sdk-probe'
 import { CliModelProbeError, type CliModelProbe } from './probe-types'
+import { isRecord } from '../../shared/records'
 
 // Colour codes and zero-width characters. Cursor pads some labels with
 // U+200B, which would otherwise survive into the picker as invisible text.
@@ -32,10 +33,6 @@ function dedupeById(models: DiscoveredCliModel[]): DiscoveredCliModel[] {
     seen.add(model.id)
     return true
   })
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function text(value: unknown): string | undefined {

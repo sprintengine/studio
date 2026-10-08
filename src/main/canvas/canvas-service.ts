@@ -53,6 +53,7 @@ import { summariseChanges } from '../../shared/canvas/diff'
 import type { CanvasWorkerHost } from './canvas-worker-host'
 import { canvasReaderKey } from './canvas-service-types'
 import type { CanvasActor, CanvasService } from './canvas-service-types'
+import { errorMessage } from '../../shared/errors'
 
 /** Main → renderer pushes. The invoke channels live in `ipc/canvas-ipc.ts`. */
 export const CANVAS_SCENE_CHANNEL = 'canvas:scene'
@@ -304,10 +305,6 @@ function errorCode(error: unknown): string {
   return typeof error === 'object' && error !== null && typeof (error as { code?: unknown }).code === 'string'
     ? (error as { code: string }).code
     : ''
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function isMissing(error: unknown): boolean {

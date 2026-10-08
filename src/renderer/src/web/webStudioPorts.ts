@@ -1,6 +1,7 @@
 import type { ElectronApi } from '../../../shared/electron-api'
 import { WEB_CLOSE_REVOKED } from './webReconnect'
-import { randomId, returnToPairing, webSocketUrl } from './webLocation'
+import { prefixedId } from '../../../shared/random-id'
+import { returnToPairing, webSocketUrl } from './webLocation'
 import { markStudioOnAnotherMachine } from '../studio/windowStudioClient'
 
 // A web tab's connections to the Studio protocol: the four port functions a
@@ -21,7 +22,7 @@ export function createWebStudioPorts(): PortApi {
   const ports: PortApi = {
     studioConnect: () =>
       new Promise((resolve, reject) => {
-        const connectionId = `web-${randomId(6)}`
+        const connectionId = prefixedId('web', 6)
         const socket = new WebSocket(webSocketUrl('ws'))
         const fail = () => {
           socket.removeEventListener('open', opened)

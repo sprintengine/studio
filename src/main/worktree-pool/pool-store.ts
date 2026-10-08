@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from 'crypto'
-import { mkdir, open, readFile, readdir, rename, rm, stat, utimes, writeFile } from 'fs/promises'
+import { createHash } from 'crypto'
+import { mkdir, open, readFile, readdir, rm, stat, utimes } from 'fs/promises'
 import { hostname } from 'os'
 import { join } from 'path'
 import {
@@ -15,6 +15,9 @@ import {
   type WorktreePoolSlotState,
 } from '../../shared/ipc/worktree-pool'
 import { comparablePath, distroOfUncPath } from '../../shared/host-paths'
+import { isRecord } from '../../shared/records'
+import { writeFileAtomic } from '../../server/platform/atomic-file'
+import { processIsRunning } from '../../server/platform/process-alive'
 
 /**
  * The pool's durable records: one JSON file per pool under
@@ -139,10 +142,6 @@ export function poolIdFor(commonDir: string, hostId: string): string {
     .slice(0, 16)
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 const SLOT_STATES = new Set<WorktreePoolSlotState>([
   'creating',
   'idle',
@@ -258,28 +257,6 @@ function parsePoolRecord(text: string): PoolRecord | null {
     releasedPaths: Array.isArray(value.releasedPaths)
       ? value.releasedPaths.filter((path): path is string => typeof path === 'string')
       : [],
-  }
-}
-
-/** Write a file so a crash leaves the old content or the new, never a torn mix. */
-async function writeFileAtomic(path: string, content: string): Promise<void> {
-  const temporary = `${path}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
-  await writeFile(temporary, content, 'utf8')
-  // On Windows a rename over a file another process has open (a virus scanner,
-  // an indexer) fails for a moment with EPERM or EBUSY; it is retried briefly.
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      await rename(temporary, path)
-      return
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      if (attempt < 4 && (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES')) {
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, 50 * (attempt + 1)))
-        continue
-      }
-      await rm(temporary, { force: true }).catch(() => {})
-      throw error
-    }
   }
 }
 
@@ -416,17 +393,51 @@ export type InstanceLockDeps = {
   host?: string
 }
 
-function defaultPidAlive(pid: number): boolean {
+export type InstanceLockResult = { ok: true } | { ok: false; holder: string }
+
+/** Tries at the lock, a little apart, while another Studio is mid-takeover. */
+const LOCK_ATTEMPTS = 6
+/** A takeover marker older than this was left by a Studio that died mid-takeover (a takeover takes milliseconds). */
+const TAKEOVER_STALE_MS = 30_000
+
+/**
+ * Replace a lock judged stale with this instance's, so that two Studios
+ * judging the same dead holder at once never both end up holding it.
+ *
+ * Deleting the stale lock and creating a new one is two steps, and between
+ * them another Studio that judged the same dead holder could delete the new
+ * lock in its turn, thinking it the old one: both then hold the pool. So a
+ * takeover is done under a marker file created with O_EXCL (one takeover at a
+ * time), the lock is read again inside it and replaced only if it is still
+ * exactly what was judged stale (content and mtime), and it is replaced by
+ * renaming a whole new file over it: the lock path never stands empty for an
+ * ordinary `open(wx)` to claim meanwhile.
+ */
+async function takeOverLock(
+  lockPath: string,
+  judgedText: string | null,
+  judgedMtimeMs: number | null,
+  body: LockBody,
+): Promise<'taken' | 'changed' | 'busy'> {
+  const markerPath = `${lockPath}.takeover`
   try {
-    process.kill(pid, 0)
-    return true
+    await (await open(markerPath, 'wx')).close()
   } catch (error) {
-    // EPERM: it exists, it is simply not ours to signal.
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    const marker = await stat(markerPath).catch(() => null)
+    if (marker && Date.now() - marker.mtimeMs > TAKEOVER_STALE_MS) await rm(markerPath, { force: true })
+    return 'busy'
+  }
+  try {
+    const text = await readFile(lockPath, 'utf8').catch(() => null)
+    const info = await stat(lockPath).catch(() => null)
+    if (text !== judgedText || (info?.mtimeMs ?? null) !== judgedMtimeMs) return 'changed'
+    await writeFileAtomic(lockPath, JSON.stringify(body))
+    return 'taken'
+  } finally {
+    await rm(markerPath, { force: true })
   }
 }
-
-export type InstanceLockResult = { ok: true } | { ok: false; holder: string }
 
 /**
  * Take (or confirm) this instance's hold on a pool container. Idempotent for
@@ -438,14 +449,15 @@ export async function acquireInstanceLock(
   instanceId: string,
   deps: InstanceLockDeps = {},
 ): Promise<InstanceLockResult> {
-  const pidAlive = deps.pidAlive ?? defaultPidAlive
+  const pidAlive = deps.pidAlive ?? processIsRunning
   const now = deps.now ?? Date.now
   const host = deps.host ?? hostname()
   const lockPath = join(containerPath, POOL_LOCK_FILE)
   await mkdir(containerPath, { recursive: true })
   const body: LockBody = { pid: process.pid, host, instanceId, startedAt: now() }
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < LOCK_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await new Promise((resolveDelay) => setTimeout(resolveDelay, 10 * attempt))
     try {
       const handle = await open(lockPath, 'wx')
       try {
@@ -481,7 +493,9 @@ export async function acquireInstanceLock(
     // sleeping Studio but a dead one whose pid was reused.
     const reusedPid = sameHost && age > POOL_LOCK_PID_REUSE_MS
     if (deadHere || reusedPid || (!sameHost && age > POOL_LOCK_STALE_MS)) {
-      await rm(lockPath, { force: true })
+      // Taken over, or judged again: someone else took it first, or another
+      // takeover is under way.
+      if ((await takeOverLock(lockPath, text, info?.mtimeMs ?? null, body)) === 'taken') return { ok: true }
       continue
     }
     return { ok: false, holder: `${holder.host ?? 'unknown host'} (pid ${holder.pid ?? '?'})` }

@@ -138,7 +138,7 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
     let openPullRequest: boolean | null = null
     let mergedHeads: string[] = []
     if (branch && remote?.forge === 'github' && branch !== defaultBranch) {
-      const lookup = await lookUp(gitRoot, branch, options.fresh === true)
+      const lookup = await lookUp(gitRoot, branch, { fresh: options.fresh === true })
       openPullRequest = lookup.open
       mergedHeads = lookup.mergedHeads
     }
@@ -158,8 +158,12 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
     return `The checkout moved after the pull request was confirmed (it is now ${now}), so nothing was pushed or opened. Press Create PR again to propose what is there now.`
   }
 
-  /** Whether the branch has an open pull request (whoever opened it), and the heads its merged ones carried. */
-  async function lookUp(gitRoot: string, branch: string, fresh: boolean): Promise<Lookup> {
+  /**
+   * Whether the branch has an open pull request (whoever opened it), and the
+   * heads its merged ones carried. `fresh` asks the forge again even when a
+   * recent answer is held.
+   */
+  async function lookUp(gitRoot: string, branch: string, { fresh }: { fresh: boolean }): Promise<Lookup> {
     const key = `${gitRoot}\0${branch}`
     const held = lookups.get(key)
     if (held && !fresh && now() - held.at < LOOKUP_HOLD_MS) return held

@@ -8,6 +8,7 @@ import {
   type ShellNotice,
   type ShellRevealTarget,
 } from './shell-bridge'
+import { isRecord } from '../../shared/records'
 
 // The shell's side of the bridge: what a server out of process asks on the
 // control channel, answered by the shell's own in-process bridge. One
@@ -73,8 +74,4 @@ function shellNotice(value: unknown): ShellNotice | null {
     ...(typeof value.body === 'string' ? { body: value.body } : {}),
     ...(activate ? { activate } : {}),
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

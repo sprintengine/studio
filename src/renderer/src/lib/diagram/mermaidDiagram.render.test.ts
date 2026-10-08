@@ -161,6 +161,43 @@ test('while a diagram is drawn, an image it adds may not point off the page', as
   }
 })
 
+test('while a diagram is drawn, the page’s own images made before it still load, and nothing stays patched after', async () => {
+  // A preload the page keeps off the page and points anew (an avatar, a
+  // favicon), and one on the page outside the diagram.
+  const preload = new Image()
+  const shown = document.createElement('img')
+  document.body.append(shown)
+  const scratch = document.createElement('div')
+  scratch.id = 'dguard-page'
+  document.body.append(scratch)
+  const { Image: PageImage } = window
+  const { createElement, createElementNS } = document
+  try {
+    await withoutRemoteImages('dguard-page', async () => {
+      // Across one of the drawing's awaits, as page code runs between them.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      preload.src = 'https://example.com/avatar.png'
+      preload.srcset = 'https://example.com/avatar@2x.png 2x'
+      shown.src = 'https://example.com/shown.png'
+    })
+    expect(preload.getAttribute('src')).toBe('https://example.com/avatar.png')
+    expect(shown.getAttribute('src')).toBe('https://example.com/shown.png')
+    // A drawing's own image off the page is still refused.
+    await expect(
+      withoutRemoteImages('dguard-page', async () => {
+        document.createElement('img').src = 'https://evil.example/p.png'
+      }),
+    ).rejects.toThrow(LOADS_FROM_ELSEWHERE)
+    expect(window.Image).toBe(PageImage)
+    expect(document.createElement).toBe(createElement)
+    expect(document.createElementNS).toBe(createElementNS)
+    expect(Object.hasOwn(document, 'createElement')).toBe(false)
+  } finally {
+    shown.remove()
+    scratch.remove()
+  }
+})
+
 test('two copies of one drawing share no id, and each copy’s markers and styles point at its own', async () => {
   for (const source of ['graph TD\n  Start --> Finish', 'sequenceDiagram\n  A->>B: hi\n  B-->>A: done']) {
     const { result } = await drawnWhileWatched(source)

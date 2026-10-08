@@ -276,6 +276,14 @@ export type ConversationRegistryLink = {
   /** A person sent one of the workspace's chats a message from a paired device. */
   noteUserMessage?: (workspaceId: string, at: number) => void
   /**
+   * List as the `conversation-lifecycle` capability promises: the chats this
+   * desktop has settled left out, the rest in its sidebar's order. Only a
+   * door that advertises the capability turns it on (the tailnet lane); the
+   * Studio RPC does not advertise it, and lists every chat by `updatedAt`, as
+   * it always has.
+   */
+  lifecycleList?: boolean
+  /**
    * The sends through this host are Studio's own, not a person's (a resume
    * after a usage limit): each turn's `user_message` carries this origin, so
    * the chat draws it as Studio's and nothing counts it as the person writing.
@@ -559,7 +567,7 @@ export function createConversationGatewayHost(
       for (const workspace of listWorkspaces()) {
         // A settled chat is not drawn in the desktop's own sidebar, so no list
         // a paired device reads draws it either.
-        if (restingRecord(recordOf(workspace.workspaceId))) continue
+        if (registry.lifecycleList && restingRecord(recordOf(workspace.workspaceId))) continue
         const indexed = await runtime.listThreads(workspace)
         if (!indexed.ok) continue
         for (const thread of indexed.threads) {
@@ -589,7 +597,7 @@ export function createConversationGatewayHost(
         const id = chatId(summary)
         if (byId.has(id)) continue
         const sessions = sessionsOf.get(id) ?? NO_SESSIONS
-        if (restingRecord(recordOf(summary.workspaceId))) continue
+        if (registry.lifecycleList && restingRecord(recordOf(summary.workspaceId))) continue
         const models = await modelsFor(summary.providerId, summary, catalogs)
         byId.set(id, {
           workspaceId: summary.workspaceId,
@@ -611,13 +619,16 @@ export function createConversationGatewayHost(
       }
       // In the order the desktop's sidebar draws them: by when the person last
       // wrote to each, most recent first, never by what an agent is doing.
+      // A door without the capability keeps the order it always had.
       const orderOf = (thread: ConversationThread): number => {
         const record = recordOf(thread.workspaceId)
         return record ? workspaceLastUserMessageAt(record) : thread.updatedAt
       }
       const listed = [...byId.values()]
         .map(wholeNumbers)
-        .sort((a, b) => orderOf(b) - orderOf(a) || b.updatedAt - a.updatedAt)
+        .sort((a, b) =>
+          registry.lifecycleList ? orderOf(b) - orderOf(a) || b.updatedAt - a.updatedAt : b.updatedAt - a.updatedAt,
+        )
       return withMarks(listed)
     },
     ...(marks.selfMachine ? { machine: () => marks.selfMachine?.() ?? null } : {}),

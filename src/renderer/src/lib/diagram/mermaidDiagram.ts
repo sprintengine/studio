@@ -190,9 +190,14 @@ class RemoteImageRefused extends Error {
  * What it covers is what Mermaid does: an `Image` whose `src` it sets as a
  * property to measure the picture before the node is placed, and an
  * `<image>`'s `href` it sets as an attribute inside the scratch element it
- * draws in. The page's own images are out of its reach — React writes `src`
- * as an attribute, never inside that element, and an image the page builds
- * itself while a diagram is drawn (an attachment's preview) has a `data:` or
+ * draws in. Only images the drawing could have made are judged: one inside
+ * the scratch element, or one off the page that was made while the drawing
+ * ran (by `new Image()` or the document's `createElement`). The page's own
+ * images are out of its reach — an `<img>` React draws, which is on the page
+ * and outside that element, and any image made before the drawing began, an
+ * avatar's preload kept for reuse, say. An image the page itself makes off
+ * the page while a diagram draws is the one it cannot tell from Mermaid's;
+ * those the window makes then (an attachment's preview) have a `data:` or
  * `blob:` address. A refused image fails the drawing, and the block says why.
  */
 export async function withoutRemoteImages<T>(scratchId: string, draw: () => Promise<T>): Promise<T> {
@@ -205,9 +210,37 @@ export async function withoutRemoteImages<T>(scratchId: string, draw: () => Prom
   const { setAttribute, setAttributeNS } = element
   let refused = false
 
+  // The images made while the drawing runs, so an image off the page is
+  // judged only when the drawing could have made it.
+  const madeDuringDraw = new WeakSet<Element>()
+  const ownImage = Object.getOwnPropertyDescriptor(window, 'Image')
+  const PageImage = window.Image
+  const TrackedImage = function Image(width?: number, height?: number) {
+    const made = new PageImage(width, height)
+    madeDuringDraw.add(made)
+    return made
+  } as unknown as typeof Image
+  TrackedImage.prototype = PageImage.prototype
+  window.Image = TrackedImage
+  const ownCreateElement = Object.getOwnPropertyDescriptor(document, 'createElement')
+  const ownCreateElementNS = Object.getOwnPropertyDescriptor(document, 'createElementNS')
+  const { createElement, createElementNS } = document
+  document.createElement = function (this: Document, ...args: Parameters<Document['createElement']>) {
+    const made = createElement.apply(this, args)
+    madeDuringDraw.add(made)
+    return made
+  } as Document['createElement']
+  document.createElementNS = function (this: Document, ...args: [string | null, string]) {
+    const made = createElementNS.apply(this, args)
+    madeDuringDraw.add(made)
+    return made
+  } as Document['createElementNS']
+
+  const inScratch = (node: Element) => node.closest(`#${CSS.escape(scratchId)}`) !== null
+  // Off the page, only what the drawing made counts as the drawing's.
+  const drawnOffPage = (node: Element) => !node.isConnected && madeDuringDraw.has(node)
   const inDiagram = (node: Element) =>
-    node.closest(`#${CSS.escape(scratchId)}`) !== null ||
-    (!node.isConnected && typeof SVGImageElement !== 'undefined' && node instanceof SVGImageElement)
+    inScratch(node) || (drawnOffPage(node) && typeof SVGImageElement !== 'undefined' && node instanceof SVGImageElement)
   const refuse = (): never => {
     refused = true
     throw new RemoteImageRefused()
@@ -219,7 +252,7 @@ export async function withoutRemoteImages<T>(scratchId: string, draw: () => Prom
     Object.defineProperty(image, name, {
       ...descriptor,
       set(this: HTMLImageElement, value: unknown) {
-        if (!ON_PAGE.test(String(value)) && (!this.isConnected || inDiagram(this))) refuse()
+        if (!ON_PAGE.test(String(value)) && (drawnOffPage(this) || inScratch(this))) refuse()
         set.call(this, value)
       },
     })
@@ -251,6 +284,22 @@ export async function withoutRemoteImages<T>(scratchId: string, draw: () => Prom
     for (const [name, descriptor] of reflected) if (descriptor) Object.defineProperty(image, name, descriptor)
     element.setAttribute = setAttribute
     element.setAttributeNS = setAttributeNS
+    // Put back as they were: the document's own methods come from its
+    // prototype, so an own property added here is taken away again.
+    restoreOwn(window, 'Image', ownImage, PageImage)
+    restoreOwn(document, 'createElement', ownCreateElement, createElement)
+    restoreOwn(document, 'createElementNS', ownCreateElementNS, createElementNS)
+  }
+}
+
+function restoreOwn(target: object, key: string, own: PropertyDescriptor | undefined, value: unknown): void {
+  // An accessor took the stand-in through its setter, and takes the original back the same way.
+  if (own?.set) (target as Record<string, unknown>)[key] = value
+  else if (own) Object.defineProperty(target, key, own)
+  else {
+    Reflect.deleteProperty(target, key)
+    // Not inherited after all (a stand-in global): set it back as it was read.
+    if ((target as Record<string, unknown>)[key] !== value) (target as Record<string, unknown>)[key] = value
   }
 }
 

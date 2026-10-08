@@ -2,6 +2,7 @@ import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 
 import { isMachineChannel, MACHINE_QUIET_CHANNELS, notOnMachineYet } from '../../../shared/machine-channels'
 import { isMachinePath, machinePath, parseMachinePath } from '../../../shared/machine-paths'
+import { isRecord } from '../../../shared/records'
 
 // The desktop's file and git channels, for a workspace on an SSH machine
 // (phase 8; the owner's ruling that the server holds raw access to its
@@ -43,10 +44,6 @@ const PATH_FIELDS = new Set([
   'absolutePath',
   'checkoutPath',
 ])
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 type Found = { id: string } | { mixed: true } | null
 

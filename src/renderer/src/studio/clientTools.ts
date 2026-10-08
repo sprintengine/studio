@@ -144,9 +144,3 @@ export async function setConversationToolGrant(
   const commandId = `grant-${globalThis.crypto.randomUUID()}`
   return (await client.request('tools.grant', { key, toolset, granted, commandId })).grants
 }
-
-/** Tests only: start again from no catalog. */
-export function resetClientToolsForTests(next: readonly Listing[] = []): void {
-  started = next.length > 0
-  publish(next)
-}

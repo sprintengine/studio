@@ -63,13 +63,6 @@ function subscribeSshDirectory(listener: () => void): () => void {
   return () => sshDirectory.listeners.delete(listener)
 }
 
-/** Test seam: forget the window's SSH directory. */
-export function resetSshDirectoryForTests(): void {
-  sshDirectory.machines = []
-  sshDirectory.listeners.clear()
-  sshDirectory.started = false
-}
-
 /**
  * The machine a workspace runs on, as a ref: its SSH machine (looked up by
  * saved id), the paired machine it was born on, or the machine on this

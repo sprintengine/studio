@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import {
-  isPathInside,
   pastedImagePaths,
   pathsForPathlessFiles,
   quotePromptPath,
@@ -68,11 +67,11 @@ test('an image inside the project is typed as its path; only one from outside at
   assert.deepEqual(pastedImagePaths('/Users/dev/repo/a.png', ['']), ['/Users/dev/repo/a.png'], 'no root, no rule')
 })
 
-test('a path is inside a folder only at a separator', () => {
-  assert.equal(isPathInside('/Users/dev/repo', '/Users/dev/repo/'), true)
-  assert.equal(isPathInside('/Users/dev/repo/a/b.png', '/Users/dev/repo'), true)
-  assert.equal(isPathInside('/Users/dev/repo2/b.png', '/Users/dev/repo'), false)
-  assert.equal(isPathInside('D:\\work\\a.png', 'd:\\Work'), true)
+test('a pasted WSL path to a file in a Windows workspace stays text', () => {
+  assert.equal(pastedImagePaths('/mnt/c/Users/dev/repo/shot.png', ['C:\\Users\\dev\\repo']), null)
+  assert.deepEqual(pastedImagePaths('/mnt/c/Users/dev/other/shot.png', ['C:\\Users\\dev\\repo']), [
+    '/mnt/c/Users/dev/other/shot.png',
+  ])
 })
 
 test('words split the way a shell splits them', () => {

@@ -92,8 +92,6 @@ export function runGatewayCall<T>(scope: GatewayCallScope, handler: () => T): T 
   return callScope.run(scope, handler)
 }
 
-export type ClientToolGateway = ReturnType<typeof createClientToolGateway>
-
 export function createClientToolGateway(options: {
   registry: ClientToolRegistry
   /**
@@ -286,9 +284,4 @@ function sameDefinition(a: ClientToolDefinition, b: ClientToolDefinition): boole
     a.mutates === b.mutates &&
     JSON.stringify(a.tool) === JSON.stringify(b.tool)
   )
-}
-
-/** The scope of the tool call running now, for the dispatcher to read back after it. */
-export function currentGatewayCall(): GatewayCallScope | undefined {
-  return callScope.getStore()
 }

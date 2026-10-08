@@ -138,6 +138,7 @@ import type { ChangelistEdit } from '../shared/git/changelists'
 import type { TerminalSessionDeltaEntry, TerminalSessionsDelta } from '../shared/ipc/terminal'
 import { parsePromptCacheReading } from '../shared/prompt-cache'
 import { noteStatusLineRateLimits } from './usage-limits/store'
+import { broadcastToAllWindows } from './window-broadcast'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
@@ -671,11 +672,7 @@ function flushTerminalSessionsBroadcast(): void {
 
   if (upserts.length > 0 || removed.length > 0) {
     const delta: TerminalSessionsDelta = { upserts, removed }
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
-        win.webContents.send('terminal:sessions-delta', delta)
-      }
-    }
+    broadcastToAllWindows('terminal:sessions-delta', delta)
   }
   // Main-process listeners hear the same beat the windows do, so none of them
   // has to poll the session list.
@@ -2812,10 +2809,7 @@ function reportUndeliveredPrompt(
   })
   undeliveredPrompts.push(event)
   if (undeliveredPrompts.length > MAX_UNDELIVERED_PROMPTS) undeliveredPrompts.shift()
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (win.isDestroyed() || win.webContents.isDestroyed() || isCanvasWorkerWindow(win)) continue
-    win.webContents.send('terminal:prompt-undelivered')
-  }
+  broadcastToAllWindows('terminal:prompt-undelivered', undefined, { skipCanvasWorker: true })
 }
 
 function attachTerminalSession(

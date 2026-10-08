@@ -8,7 +8,7 @@ import { WEB_BROWSE_FOLDERS_CHANNEL, type FolderBrowserListing } from '../../../
 import { pickServerFolder } from './FolderBrowserDialog'
 import { refuse } from './unsupported'
 import { ipc } from './webIpcRouter'
-import { randomId } from './webLocation'
+import { randomId } from '../../../shared/random-id'
 import { createWebStudioPorts } from './webStudioPorts'
 import { uploadFilesToServer } from './webUploads'
 import { webCanvasPaneApi } from './canvas/webCanvasPane'

@@ -234,6 +234,11 @@ export interface WorkspaceStore
    * stamp), or as on disk again (`null`). See `WorkspaceWorktree.reclaimedAt`.
    */
   setWorkspaceWorktreeReclaimed: (id: WorkspaceId, reclaimedAt: number | null) => void
+  /**
+   * Give a New chat that opened before its worktree was made the folder it
+   * runs in: the worktree with its marker, or the project itself with none.
+   */
+  setWorkspaceChatFolder: (id: WorkspaceId, folderPath: string, worktree: WorkspaceWorktree | null) => void
   /** Take a chat out of auto-settling (idle and merge alike), or put it back. */
   setWorkspaceAutoSettle: (id: WorkspaceId, enabled: boolean) => void
   /**

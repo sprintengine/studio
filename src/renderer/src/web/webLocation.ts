@@ -34,13 +34,6 @@ export function webWindowId(): string {
   return 'primary'
 }
 
-/** A random id from `getRandomValues`, which, unlike `randomUUID`, exists outside a secure context too. */
-export function randomId(bytes = 12): string {
-  const values = new Uint8Array(bytes)
-  crypto.getRandomValues(values)
-  return [...values].map((value) => value.toString(16).padStart(2, '0')).join('')
-}
-
 /** The browser was removed in Studio, or its session ran out: back to pairing. */
 export function returnToPairing(): void {
   window.location.replace(webPageUrl('./pair'))

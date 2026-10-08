@@ -1,5 +1,6 @@
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { dirname } from 'path'
+import { errorMessage } from '../shared/errors'
 
 // The account badge shows the provider profile photo. The account service hands
 // the desktop a remote URL (Google `picture`, GitHub `avatar_url`); the
@@ -192,8 +193,4 @@ function isHttpsUrl(value: string): boolean {
   } catch {
     return false
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

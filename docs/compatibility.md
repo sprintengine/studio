@@ -247,6 +247,11 @@ capability of their own. The members are optional and the tools new, so no
 peer is refused over any of it: a client offers no Settle for a desktop that
 does not advertise it, and an older one answers either tool "Unknown tool"
 (`docs/conversations.md`, "Rest, order and read state in the list").
+The leaving out and the order are the capability's promise, so they hold only
+where it is advertised: the Studio RPC does not advertise it, and its
+`conversation.list` is the list it always was, every chat (settled ones
+included) most recently moved first. The members ride along there too, as
+optional additions a client that does not read them never sees.
 Mark unread (2026-10-07) is a gateway tool beside them,
 `conversation.mark_unread`, advertised as `chat-mark-unread` (no
 `conversation-` prefix: it names a tool, not the conversation lane). It

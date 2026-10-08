@@ -27,6 +27,7 @@ import {
   type ElevatedLaunchResult,
   type WindowsInstallTarget,
 } from './windows-update-install'
+import { broadcastToAllWindows } from './window-broadcast'
 
 type WriteDiagnosticLog = (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
 
@@ -939,9 +940,7 @@ export class SprintEngineUpdateService {
 
   private updateState(patch: Partial<AppUpdateState>): void {
     this.state = { ...this.state, ...patch }
-    BrowserWindow.getAllWindows().forEach((win) => {
-      if (!win.isDestroyed()) win.webContents.send('update:state-changed', this.getState())
-    })
+    broadcastToAllWindows('update:state-changed', this.getState())
   }
 
   /** One line in the diagnostics log per updater step, so the next failure can be read back. */

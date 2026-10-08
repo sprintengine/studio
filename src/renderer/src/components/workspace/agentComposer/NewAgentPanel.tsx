@@ -37,6 +37,7 @@ import {
 } from '../../../utils/imageFileTransfer'
 import { workspaceRunsHere } from '../../../utils/attachedFiles'
 import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
+import { ComposerDropOverlay } from '../../panels/agentChat/ComposerDropOverlay'
 import { attachmentRejection, MAX_ATTACHMENTS_PER_TURN } from '../../panels/agentChat/imageAttachments'
 import {
   ComposerField,
@@ -2024,13 +2025,7 @@ export default function NewAgentPanel({
           data-new-chat-composer="true"
           {...dropHandlers}
         >
-          {/* Opaque, not a scrim: the field's own text ghosting through the
-              drop state reads as a rendering artifact rather than a state. */}
-          {dropActive ? (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[var(--sem-radius-composer)] bg-[color:var(--bg-app)] text-meta font-medium text-[color:var(--accent-primary)]">
-              Drop to attach
-            </div>
-          ) : null}
+          {dropActive ? <ComposerDropOverlay ground="app" /> : null}
           {slashQuery !== null ? (
             <ScheduleSlashPicker
               ref={slashRef}

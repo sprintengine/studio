@@ -1,5 +1,6 @@
 import { createIpcRouter, type RendererIpc, type RouterPort } from '../../../preload/ipc-router-core'
 import { SERVER_IPC_CHANNELS } from '../../../shared/ipc-channel-owners'
+import { backoffDelayMs, type ExponentialBackoffOptions } from '../../../shared/exponentialBackoff'
 import { assertJsonSafe } from '../../../shared/json-safe'
 import { WEB_TUNNEL_CHANNELS, webTunnelAllows } from '../../../shared/web-client'
 import { WEB_CLOSE_REVOKED, WEB_TUNNEL_REOPENED_EVENT, watchWebReconnectTriggers } from './webReconnect'
@@ -102,9 +103,13 @@ async function checkStillPaired(): Promise<void> {
   }
 }
 
+// A quarter second, doubling to ten; each wait is jittered by a quarter either
+// way so tabs a server restart dropped together do not all knock at once.
+const RECONNECT_BACKOFF: ExponentialBackoffOptions = { baseMs: 250, maxMs: 10_000 }
+
 function schedule(): void {
   if (timer) return
-  const delay = Math.min(10_000, 250 * 2 ** attempt) * (0.75 + Math.random() * 0.5)
+  const delay = (backoffDelayMs(attempt, RECONNECT_BACKOFF) ?? RECONNECT_BACKOFF.maxMs) * (0.75 + Math.random() * 0.5)
   attempt = Math.min(attempt + 1, 6)
   timer = setTimeout(connect, delay)
 }

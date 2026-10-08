@@ -127,7 +127,8 @@ import { setBuildExtensionOpener } from '../extensions/buildExtensionHost'
 import { extensionBriefMarkdown } from '../../../../shared/extension-scaffold'
 import { createWorkspaceChatOpener } from './manager/workspaceChatOpener'
 import { confirmNewChatWith } from './manager/newChatConfirm'
-import { createNewChatWorktree } from '../../utils/newChatWorktree'
+import { createNewChatWorktree, prepareNewChatWorktree } from '../../utils/newChatWorktree'
+import type { AgentState } from '../../../../shared/agent-state'
 import { openChatLink } from './manager/chatLinkOpener'
 import {
   markLaunchedAgentProjected,
@@ -2857,6 +2858,9 @@ export default function WorkspaceManager() {
     // Its files attached by path, sent as the first message's `files`.
     startupFiles?: string[],
     background?: boolean,
+    // Opened before its worktree: `folderPath` is null, the marker names the
+    // project alone, and the agent waits on this (utils/newChatWorktree.ts).
+    pendingWorktree?: NonNullable<AgentState['chatPendingWorktree']>,
   ): WorkspaceId | null => {
     const seed = conversationNewChatSeed(confirm, {
       prompt: startupPrompt,
@@ -2868,9 +2872,13 @@ export default function WorkspaceManager() {
     if (!seed) return null
     return createSoloChatWorkspace({
       folderPath,
-      seedAgent: { agentPatch: seed.agentPatch },
+      seedAgent: {
+        agentPatch: { ...seed.agentPatch, ...(pendingWorktree ? { chatPendingWorktree: pendingWorktree } : {}) },
+      },
       ...(worktree ? { worktree } : {}),
       ...(background ? { background } : {}),
+      // With no folder yet, the machine is the one the project is on.
+      ...(pendingWorktree ? { hostId: pendingWorktree.hostId ?? hostIdForFolder(pendingWorktree.projectFolder) } : {}),
     })
   }
 
@@ -3677,14 +3685,35 @@ export default function WorkspaceManager() {
             general.reasoning,
             inBackground,
           ),
-        startConversation: (conversation, folderPath, prompt, worktree, images, files, inBackground) => {
+        startConversation: (conversation, folderPath, prompt, worktree, images, files, inBackground, pending) => {
           setLastNewChatAgent({ kind: 'conversation' })
-          return openConversationInNewChat(folderPath, conversation, prompt, worktree, images, files, inBackground)
+          return openConversationInNewChat(
+            folderPath,
+            conversation,
+            prompt,
+            worktree,
+            images,
+            files,
+            inBackground,
+            pending,
+          )
         },
+        prepareWorktree: (workspaceId) => void prepareNewChatWorktree(workspaceId),
+        titleFromPrompt: (workspaceId, prompt) =>
+          void generatedWorkspaceTitleRequester().titleFromPrompt(workspaceId, prompt),
         recordProjectUse,
         closePanel: closeNewChatPanel,
       },
-      { confirm, scopedFolder, startupPrompt, extension, startupImages, startupFiles, background },
+      {
+        confirm,
+        scopedFolder,
+        startupPrompt,
+        extension,
+        startupImages,
+        startupFiles,
+        background,
+        hostId: newChatHostRef.current,
+      },
     )
 
   // ⌘⏎ from New chat started `workspaceId` out of sight (or did not, and has

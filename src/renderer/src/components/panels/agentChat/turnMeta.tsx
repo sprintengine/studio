@@ -8,17 +8,10 @@ import type { TranscriptEntry } from './conversationProjection'
 import { apiKeyBillingNotice } from '../../../../../shared/conversation/apiKeySource'
 import { CONVERSATION_DEFAULT_MODEL_ID } from '../../../../../shared/conversation-harness'
 import { CompactGlyph } from './toolRows/ToolKindGlyph'
+import { formatTokenCount } from '../../../utils/tokenFormat'
 
 type AssistantEntry = Extract<TranscriptEntry, { kind: 'assistant' }>
 type CompactionEntry = Extract<TranscriptEntry, { kind: 'compaction' }>
-
-// 950 → "950", 12_345 → "12.3k", 1_200_000 → "1.2M".
-export function formatTokenCount(count: number): string {
-  const value = Math.max(0, Math.round(count))
-  if (value < 1000) return String(value)
-  const [scaled, unit] = value < 999_500 ? [value / 1000, 'k'] : [value / 1_000_000, 'M']
-  return `${scaled >= 100 ? Math.round(scaled) : Number(scaled.toFixed(1))}${unit}`
-}
 
 // A provider's model id as the footer names it. The dated snapshot suffix is
 // noise next to the family and version; the harness's "default" is not a name.

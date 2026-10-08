@@ -47,6 +47,7 @@ import {
 import { parseSkillRepoRef, skillRepoName } from './github-tree'
 import { scanSkillTree, type SkillTreeEntry } from './scan'
 import { isRecord } from '../../shared/records'
+import { mapWithLimit } from '../../shared/concurrency'
 
 export const CLAUDE_PLUGIN_MANIFEST_PATH = '.claude-plugin/plugin.json'
 export const CLAUDE_MARKETPLACE_MANIFEST_PATH = '.claude-plugin/marketplace.json'
@@ -133,16 +134,7 @@ export async function scanPluginTree(input: PluginTreeScanInput): Promise<Plugin
     if (plan.dir !== null) plan.readIndex = budget++
   }
 
-  const plugins: ScannedPlugin[] = new Array(plans.length)
-  let cursor = 0
-  const workers = Array.from({ length: Math.min(READ_CONCURRENCY, plans.length) }, async () => {
-    while (cursor < plans.length) {
-      const index = cursor
-      cursor += 1
-      plugins[index] = await realisePlan(plans[index], input, blobs)
-    }
-  })
-  await Promise.all(workers)
+  const plugins = await mapWithLimit(plans, READ_CONCURRENCY, (plan) => realisePlan(plan, input, blobs))
 
   const declared = plugins.flatMap((plugin) => plugin.components.mcpServers)
   // A root `.mcp.json` or MCP-registry `server.json` outside any plugin: the

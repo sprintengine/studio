@@ -7,6 +7,7 @@ import { TAILNET_HEALTH_PATH } from './tailnet-gateway-server'
 import { isTailnetAddress } from './tailnet-interface'
 import { runTailscale } from './tailscale-cli'
 import { isRecord } from '../../../shared/records'
+import { mapWithLimit } from '../../../shared/concurrency'
 
 // Which machines are on this tailnet, and which of them answer as a Studio.
 //
@@ -286,23 +287,6 @@ export function readHealthPayload(body: string): TailnetPeerStudio | null {
     transportVersion: transportVersion as number,
     protocolVersions: versions.map((entry) => entry.slice(0, 64)),
   }
-}
-
-/** Run `worker` over every item, never more than `limit` at once. */
-async function mapWithLimit<In, Out>(
-  items: readonly In[],
-  limit: number,
-  worker: (item: In) => Promise<Out>,
-): Promise<Out[]> {
-  const results = new Array<Out>(items.length)
-  let next = 0
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    for (let index = next++; index < items.length; index = next++) {
-      results[index] = await worker(items[index])
-    }
-  })
-  await Promise.all(runners)
-  return results
 }
 
 function message(error: unknown): string {
