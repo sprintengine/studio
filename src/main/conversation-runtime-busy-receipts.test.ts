@@ -62,7 +62,7 @@ test('a send refused as busy writes no receipt, and the same id runs once the tu
 
   // A send made as a steer is not turned away up front: the steer path answers it.
   const steered = await runtime.sendTurn({ sessionId, message: 'steer', commandId: 'phone-steer', steer: true })
-  assert.notEqual(steered.code, 'busy')
+  assert.notEqual('code' in steered ? steered.code : undefined, 'busy')
 
   assert.ok((await runtime.respondToRequest({ sessionId, requestId, approved: true })).ok)
   const sent = await runtime.sendTurn({ sessionId, message: 'from the phone', commandId: 'phone-1' })
