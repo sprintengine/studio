@@ -665,6 +665,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const {
     events,
     hydrated,
+    caughtUp,
     hasMore,
     beforeCursor,
     loadingEarlier,
@@ -1058,7 +1059,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const minimap = useMemo(() => <TimelineMinimap navigation={turnNavigation} />, [turnNavigation])
   const { isRestoring: isRestoringScroll } = useConversationScrollRestore({
     memory: scrollMemoryRef.current,
-    hydrated,
+    // Not on a kept chat's held transcript: the catch-up behind it may bring
+    // a divider to land on instead of the place remembered.
+    hydrated: caughtUp,
     searching,
     landsElsewhere: landsAtDivider,
     hasMore,
@@ -1178,8 +1181,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   }, [opening])
   useEffect(() => {
     if (!opening || landedOpening === opening || !hydrated) return
-    setLandedOpening(opening)
     const index = unreadRowIndex
+    // A kept chat opened again draws what it held at once, and what was written
+    // since arrives behind this join's fence: the reply nobody has seen may be
+    // in that catch-up. Until it is in, no divider is not the answer yet, and
+    // the opening waits for it rather than being spent on the end.
+    if (index < 0 && !caughtUp) return
+    setLandedOpening(opening)
     if (index < 0 || searching) return
     atBottomRef.current = false
     setAtBottom(false)
@@ -1193,7 +1201,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       if (openingRef.current !== opening) return
       void listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false })
     })
-  }, [opening, landedOpening, hydrated, unreadRowIndex, searching, atBottomRef, setAtBottom])
+  }, [opening, landedOpening, hydrated, caughtUp, unreadRowIndex, searching, atBottomRef, setAtBottom])
   const followedInitialSnapshot = useRef(false)
   useEffect(() => {
     if (!hydrated) return

@@ -717,6 +717,56 @@ test('a chat already loaded opens at its New divider on its first frame when it 
   }
 })
 
+test('a kept chat whose unseen reply comes in its catch-up still opens at the New divider', async () => {
+  const { noteChatLeft } = await import('./unreadDivider')
+  const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+  const before = [
+    eventAt(1_000, 'user_message', { turnId: 'a', text: 'Check the build' }),
+    eventAt(1_100, 'turn_started', { turnId: 'a' }),
+    eventAt(1_200, 'content_delta', { turnId: 'a', text: 'It builds.' }),
+    eventAt(2_000, 'turn_completed', { turnId: 'a' }),
+    eventAt(3_000, 'user_message', { turnId: 'b', text: 'Now the tests' }),
+  ]
+  // Read and left while the agent was still at it: the window keeps what it
+  // had then.
+  const folderPath = '/Users/dev/kept-catch-up'
+  const first = await mountChat({ events: before, folderPath })
+  await first.act(async () =>
+    first.emit({ type: 'synchronized', seq: before.at(-1)!.seq!, generation: 'kept' } as ConversationSessionFrame),
+  )
+  await first.unmount()
+  // While it is closed, the agent answers.
+  const after = [
+    eventAt(3_100, 'turn_started', { turnId: 'b' }),
+    eventAt(3_600, 'content_delta', { turnId: 'b', text: 'They pass.' }),
+    eventAt(4_000, 'turn_completed', { turnId: 'b' }),
+  ]
+  scrolledToIndex.length = 0
+  mountedAt.length = 0
+  const chat = await mountChat({ events: [], whenActive: true, folderPath })
+  try {
+    useWorkspaceStore.setState((state) => ({
+      workspaces: state.workspaces.map((workspace) => ({ ...workspace, lastVisitedAt: 2_500 })),
+    }))
+    await chat.act(async () => useWorkspaceStore.getState().setActiveWorkspace('workspace'))
+    expect(listedKeys.current.indexOf('assistant:b'), 'the held transcript has no reply to b yet').toBe(-1)
+    // The catch-up behind this join's fence.
+    await chat.act(async () => {
+      for (const next of after) chat.emit({ type: 'event', event: next })
+      chat.emit({ type: 'synchronized', seq: after.at(-1)!.seq!, generation: 'kept' } as ConversationSessionFrame)
+    })
+    for (let turn = 0; turn < 50 && !scrolledToIndex.length; turn++)
+      await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
+    const divider = listedKeys.current.indexOf('assistant:b')
+    expect(divider).toBeGreaterThan(0)
+    expect(chat.host.innerHTML).toContain('New since you last looked')
+    expect(scrolledToIndex.at(-1), 'it lands at the divider').toEqual({ index: divider, viewPosition: 0 })
+  } finally {
+    noteChatLeft('workspace')
+    await chat.unmount()
+  }
+})
+
 test('a turn never shows a dollar figure, even when the provider reports one', async () => {
   const events = [
     event('user_message', { turnId: 'priced', text: 'Summarize' }),
