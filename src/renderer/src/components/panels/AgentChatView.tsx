@@ -764,9 +764,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const [anchoredUserId, setAnchoredUserId] = useState<string | null>(null)
   const chromeRef = useRef<TimelineChrome | null>(null)
   const composerRef = useRef<ComposerFieldHandle | null>(null)
-  // Completed assistant replies the user has "seen" (was at the bottom for);
-  // the jump pill counts completions past this baseline while scrolled up.
-  const repliesSeenRef = useRef(0)
+  // The newest completed reply the reader has seen: the latest one whenever
+  // they are at the end, and the latest the chat opened with until then. The
+  // jump pill counts the replies completed after it while scrolled up — after
+  // it in the transcript, so a page of older replies loaded above is not news.
+  const replySeenRef = useRef<{ turnId: string | null } | null>(null)
 
   // Resolve provider/model/key readiness from the conversation IPC.
   useEffect(() => {
@@ -2697,9 +2699,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     [chrome, flashRowId, hydrated, replayThroughSeq, unreadRowId],
   )
 
-  const completedReplies = shape.completedReplies
-  if (atBottom && repliesSeenRef.current !== completedReplies) repliesSeenRef.current = completedReplies
-  const newReplies = atBottom ? 0 : Math.max(0, completedReplies - repliesSeenRef.current)
+  const latestCompletedTurnId = shape.latestCompletedTurnId ?? null
+  if (hydrated && (atBottom || !replySeenRef.current) && replySeenRef.current?.turnId !== latestCompletedTurnId)
+    replySeenRef.current = { turnId: latestCompletedTurnId }
+  const newReplies =
+    atBottom || !replySeenRef.current ? 0 : repliesCompletedAfter(shapeEntries, replySeenRef.current.turnId)
   // Install trailing space in the same render as the optimistic prompt, before
   // the scroll effect runs. Otherwise a send from scrollback is clamped to the
   // old scroll range and leaves the new prompt at the bottom.
@@ -3801,7 +3805,7 @@ function transcriptShape(entries: readonly TranscriptEntry[]) {
   const promptHistory: string[] = []
   const checkpointSeqs = new Set<number>()
   let lastFailedTurnId: string | undefined
-  let completedReplies = 0
+  let latestCompletedTurnId: string | undefined
   let hasUserMessage = false
   let hasConversation = false
   for (const entry of entries) {
@@ -3815,7 +3819,7 @@ function transcriptShape(entries: readonly TranscriptEntry[]) {
     if (entry.kind !== 'assistant') continue
     hasConversation = true
     if (entry.status === 'failed') lastFailedTurnId = entry.turnId
-    if (entry.status === 'complete') completedReplies++
+    if (entry.status === 'complete') latestCompletedTurnId = entry.turnId
     if (entry.checkpointAvailable && entry.checkpointTurnSeq !== undefined) checkpointSeqs.add(entry.checkpointTurnSeq)
   }
   return {
@@ -3823,11 +3827,27 @@ function transcriptShape(entries: readonly TranscriptEntry[]) {
     promptHistory,
     checkpointSeqs,
     lastFailedTurnId,
-    completedReplies,
+    latestCompletedTurnId,
     hasUserMessage,
     hasConversation,
     latestTurnId: latestReplyTurnId(entries),
   }
+}
+
+// The replies completed after the one the reader last saw, counted back from
+// the end: a page of older history loaded above it adds none. A seen reply that
+// has left the transcript (the conversation went back past it) leaves nothing
+// to count from, so nothing is called new rather than everything; none seen at
+// all makes every completed reply new.
+export function repliesCompletedAfter(entries: readonly TranscriptEntry[], seenTurnId: string | null): number {
+  let count = 0
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index]!
+    if (entry.kind !== 'assistant') continue
+    if (seenTurnId !== null && entry.turnId === seenTurnId) return count
+    if (entry.status === 'complete') count++
+  }
+  return seenTurnId === null ? count : 0
 }
 
 // Model groups: one per provider, merging each provider's own live catalog

@@ -2087,3 +2087,43 @@ test('Retry re-sends a failed message’s stored images', async () => {
     await chat.unmount()
   }
 })
+
+function answeredTurn(turnId: string, question: string, answer: string): ConversationEvent[] {
+  return [
+    event('user_message', { turnId, text: question }),
+    event('turn_started', { turnId }),
+    event('content_delta', { turnId, text: answer }),
+    event('turn_completed', { turnId }),
+  ]
+}
+
+test('Load earlier does not call the older replies it loads new; a reply finishing after it is', async () => {
+  const older = [...answeredTurn('o1', 'Old one', 'Old answer one.'), ...answeredTurn('o2', 'Old two', 'Old answer two.')]
+  const recent = answeredTurn('n1', 'New one', 'New answer.')
+  const chat = await mountChat({
+    events: recent,
+    folderPath: '/Users/dev/earlier',
+    api: {
+      conversationLoadEarlier: async () => ({ ok: true, page: { events: older, hasMore: false, beforeCursor: null } }),
+    },
+  })
+  try {
+    await chat.act(async () => {
+      chat.emit({ type: 'snapshot', page: { events: recent, hasMore: true, beforeCursor: recent[0]!.seq! } })
+      chat.emit({ type: 'synchronized', seq: recent.at(-1)!.seq! })
+    })
+    const load = chat.button('Load earlier')
+    expect(load, 'the older page is offered').toBeDefined()
+    await chat.act(async () => load!.click())
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(chat.host.textContent).toContain('Old answer one.')
+    expect(chat.button('Jump to latest'), 'scrolled up into history, the pill only offers the way back').toBeDefined()
+    expect(chat.host.textContent).not.toMatch(/\d+ new repl/)
+    await chat.act(async () => {
+      for (const next of answeredTurn('n2', 'Next', 'Next answer.')) chat.emit({ type: 'event', event: next })
+    })
+    expect(chat.button('1 new reply'), 'the one that finished since is news').toBeDefined()
+  } finally {
+    await chat.unmount()
+  }
+})
