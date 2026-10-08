@@ -2326,6 +2326,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   })
   const openFindRef = useRef(find.openFind)
   openFindRef.current = find.openFind
+  // Declared below; read through a ref by the window's hand-offs (mountedChatViews).
+  const quoteIntoComposerRef = useRef<(markdown: string) => void>(() => undefined)
   const quoteIntoComposer = useCallback(
     (markdown: string) => {
       const field = composerRef.current
@@ -2337,6 +2339,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     },
     [setDraft],
   )
+  quoteIntoComposerRef.current = quoteIntoComposer
   // Replay: the conversation played back from its first message, drawn over
   // this view (agentChat/conversationReplayView). It reads the whole log, so
   // the turns this view has not paged in yet are fetched first; leaving, or
@@ -2383,6 +2386,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     () =>
       registerMountedChatView({
         workspaceId,
+        agentId,
         isFocused: () => Boolean(shellRef.current?.contains(document.activeElement)),
         toggleModelPicker: () => toggleModelPickerRef.current(),
         cycleEffort: () => cycleEffortRef.current(),
@@ -2391,8 +2395,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         startReplay: () => startReplayRef.current(),
         quoteSelection: () => quoteSelectionRef.current(),
         openFind: () => openFindRef.current(),
+        insertQuote: (text) => {
+          quoteIntoComposerRef.current(text)
+          composerRef.current?.focus()
+        },
       }),
-    [workspaceId, stepTurn],
+    [workspaceId, agentId, stepTurn],
   )
   const modelPickerShortcutLabel = useMemo(() => {
     const keybinding = getEffectiveKeybindings(MODEL_PICKER_TOGGLE_COMMAND, keybindingSettings)[0]
