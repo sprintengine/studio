@@ -30,7 +30,7 @@ function harness(worktree: NewChatWorktreeResult = { ok: false, message: 'unused
   let worktreesMade = 0
   let closed = 0
   const host: NewChatConfirmHost = {
-    makeExtension: async (parentDir, id) => `${parentDir}/${id}`,
+    makeExtension: async ({ id, folder }) => folder ?? `/Users/dev/Documents/SprintEngine/Extensions/${id}`,
     makeWorktree: async () => {
       worktreesMade += 1
       return worktree
@@ -225,4 +225,26 @@ test('a chat with no project counts as no project use', async () => {
   const { host, projectUses } = harness()
   await confirmNewChatWith(host, { confirm: { kind: 'terminal' }, scopedFolder: null })
   assert.deepEqual(projectUses(), [])
+})
+
+test('an extension starts in its own folder, needs no project, and counts that folder as used', async () => {
+  const confirm = {
+    kind: 'conversation' as const,
+    provider: { providerId: 'claude', modelId: 'default', modelLabel: 'Claude' },
+  }
+  const made = harness()
+  await confirmNewChatWith(made.host, { confirm, scopedFolder: null, extension: { id: 'pr-radar' } })
+  assert.deepEqual(made.started, [
+    { kind: 'conversation', folderPath: '/Users/dev/Documents/SprintEngine/Extensions/pr-radar' },
+  ])
+  assert.deepEqual(made.projectUses(), ['/Users/dev/Documents/SprintEngine/Extensions/pr-radar'])
+
+  const picked = harness()
+  await confirmNewChatWith(picked.host, {
+    confirm,
+    scopedFolder: PROJECT,
+    extension: { id: 'weekly-summary', folder: '/Users/dev/code/weekly-summary' },
+  })
+  assert.deepEqual(picked.started, [{ kind: 'conversation', folderPath: '/Users/dev/code/weekly-summary' }])
+  assert.deepEqual(picked.projectUses(), ['/Users/dev/code/weekly-summary'], 'not the project the door was on')
 })

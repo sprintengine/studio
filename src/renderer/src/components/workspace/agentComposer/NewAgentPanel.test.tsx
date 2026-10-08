@@ -3356,12 +3356,19 @@ test('NewAgentPanel', async () => {
     // a required name chip where the worktree chip sits, and ideas that fill
     // the box rather than start anything.
 
-    const extensionDoor = async (targets: Record<string, string> = {}) => {
+    const EXTENSIONS_HOME = '/Users/dev/Documents/SprintEngine/Extensions'
+    const extensionDoor = async (targets: Record<string, string> = {}, picks: Array<string | null> = []) => {
       const api = (dom.window as unknown as { api: Record<string, unknown> }).api
       const asked: Array<Record<string, unknown>> = []
-      api.extensionScaffoldTarget = async (input: { parentDir: string; id: string }) => {
+      const opened: unknown[] = []
+      api.extensionScaffoldHome = async () => EXTENSIONS_HOME
+      api.openDir = async (options?: unknown) => {
+        opened.push(options)
+        return picks.shift() ?? null
+      }
+      api.extensionScaffoldTarget = async (input: { folder?: string; id: string }) => {
         asked.push(input)
-        return { state: targets[input.id] ?? 'free', folder: `${input.parentDir}/${input.id}` }
+        return { state: targets[input.id] ?? 'free', folder: input.folder ?? `${EXTENSIONS_HOME}/${input.id}` }
       }
       const view = await render({
         initialSelection: { kind: 'conversation' },
@@ -3391,7 +3398,8 @@ test('NewAgentPanel', async () => {
         })
         await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
       }
-      return { view, asked, setValue, nameField, settle, enter }
+      const folderChip = () => view.container.querySelector('[data-extension-folder]')
+      return { view, asked, opened, setValue, nameField, folderChip, settle, enter }
     }
 
     await check('extension mode: the builder skill, a name chip, and ideas that fill the box', async () => {
@@ -3406,6 +3414,9 @@ test('NewAgentPanel', async () => {
         'empty',
       )
       assert.equal(door.view.container.querySelector('[data-worktree-chip]'), null, 'no worktree chip')
+      // Where it goes is the extensions home, not the project the door was on.
+      assert.equal(door.folderChip()?.getAttribute('data-extension-folder'), 'home')
+      assert.equal(door.view.container.querySelector('[data-project-trigger]'), null, 'no project picker')
       assert.ok(text.includes('Show all 10'))
 
       const idea = door.view.find((el) => el.tagName === 'BUTTON' && (el.textContent ?? '').includes('PR review badge'))
@@ -3423,7 +3434,11 @@ test('NewAgentPanel', async () => {
       await door.setValue(door.nameField()!, 'PR Radar')
       assert.equal(door.nameField()!.value, 'pr-radar', 'the name is kept to the id rule as it is typed')
       await door.settle()
-      assert.deepEqual(door.asked.at(-1), { parentDir: '/proj', id: 'pr-radar' })
+      assert.deepEqual(door.asked.at(-1), { id: 'pr-radar' })
+      assert.ok(
+        door.folderChip()?.querySelector('button')?.getAttribute('aria-label')?.includes(`${EXTENSIONS_HOME}/pr-radar`),
+        'the strip names the new folder',
+      )
       await door.enter()
       assert.equal(door.view.launches.length, 1)
       const launch = door.view.launches[0]!
@@ -3465,6 +3480,39 @@ test('NewAgentPanel', async () => {
       assert.ok(door.view.text().includes('focus-timer is already an extension'), 'carrying on is said')
       await door.enter()
       assert.deepEqual(door.view.launches[0]?.extension, { id: 'focus-timer' })
+      door.view.unmount()
+    })
+
+    await check('extension mode: a folder picked is the extension’s own, and names it', async () => {
+      seedStore()
+      const door = await extensionDoor({}, ['/Users/dev/code/Weekly Summary'])
+      await door.setValue(composerField(door.view.container), 'A weekly summary of my work.')
+      await door.setValue(door.nameField()!, 'something-else')
+      await act(async () => {
+        door
+          .folderChip()!
+          .querySelector('button')!
+          .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      await door.settle()
+      assert.deepEqual(door.opened, [{ defaultPath: EXTENSIONS_HOME }], 'the dialog opens on the extensions home')
+      assert.equal(door.folderChip()?.getAttribute('data-extension-folder'), 'picked')
+      assert.equal(door.nameField()!.value, 'weekly-summary', 'the name is the folder’s')
+      assert.equal(door.nameField()!.readOnly, true, 'and is not typed over')
+      assert.deepEqual(door.asked.at(-1), { id: 'weekly-summary', folder: '/Users/dev/code/Weekly Summary' })
+      await door.enter()
+      assert.deepEqual(door.view.launches[0]?.extension, {
+        id: 'weekly-summary',
+        folder: '/Users/dev/code/Weekly Summary',
+      })
+      // The × goes back to a new folder, under the name that was typed.
+      const reset = door.view.container.querySelector('[aria-label="Make it in a new folder instead"]')
+      await act(async () => {
+        reset!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      assert.equal(door.folderChip()?.getAttribute('data-extension-folder'), 'home')
+      assert.equal(door.nameField()!.value, 'something-else')
+      assert.equal(door.nameField()!.readOnly, false)
       door.view.unmount()
     })
 

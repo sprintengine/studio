@@ -1799,9 +1799,11 @@ export type ElectronApi = {
   updateBacklogMockups: (input: BacklogMockupsInput) => Promise<BacklogMutationResult>
   createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
   // ── extension-platform additions ──
-  // Build an extension (the New chat door's extension mode): what is at
-  // `<project>/<name>` while the name is typed (null for a name that is not an
-  // id yet), and the project made there.
+  // Build an extension (the New chat door's extension mode): the folder new
+  // extensions are made in when the person picks none, what is at the
+  // extension's folder while the name is typed (null for a name that is not
+  // an id yet), and the project made there.
+  extensionScaffoldHome: () => Promise<string>
   extensionScaffoldTarget: (input: ExtensionScaffoldTargetInput) => Promise<ExtensionScaffoldTarget | null>
   extensionScaffoldCreate: (input: ExtensionScaffoldCreateInput) => Promise<ExtensionScaffoldCreateResult>
 }

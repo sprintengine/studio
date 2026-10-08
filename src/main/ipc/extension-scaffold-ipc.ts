@@ -1,5 +1,5 @@
 // "Build an extension" (the New chat door's extension mode): see whether a
-// name is free in the chosen project, and scaffold the project there.
+// name is free where the extension goes, and scaffold the project there.
 //
 // The project is written by the SDK's own scaffolder — the one
 // `sprintengine-module init` runs — from the templates and the
@@ -14,17 +14,17 @@
 // not on npm yet, and a company registry may never carry it. A build without
 // the tarball (a checkout that never ran sdk:bundle) depends on the npm release.
 //
-// Where it goes: always a NEW folder, `<project>/<id>`, inside a project folder
-// that exists. The id is held to the module-id rule (no separators, no dots),
-// so the folder cannot land anywhere but directly inside the project, and a
-// folder already there is never written into: an empty one is filled, one
-// holding an extension is handed back as it is, anything else is refused. So
-// nothing that exists is ever overwritten, which is why the door's own project
-// picker (open projects, recent folders, Browse…) is enough to choose it and
-// no dialog of this module's is needed.
+// Where it goes: by default a NEW folder, `<extensions home>/<id>`, in a home
+// for extensions made the first time one is (Documents/SprintEngine/Extensions).
+// The person may pick the folder instead, and then the folder is the
+// extension's and its name is the id. The id is held to the module-id rule
+// (no separators, no dots), so a new folder cannot land anywhere but directly
+// inside its parent, and a folder already there is never written into: an
+// empty one is filled, one holding an extension is handed back as it is,
+// anything else is refused. So nothing that exists is ever overwritten.
 
-import { existsSync, lstatSync, readdirSync, statSync, type Stats } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { existsSync, lstatSync, mkdirSync, readdirSync, statSync, type Stats } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 
 import { app, type IpcMain } from 'electron'
 
@@ -49,6 +49,7 @@ import { assertAppSender } from './ipc-sender'
 
 export const EXTENSION_SCAFFOLD_TARGET_CHANNEL = 'extensions:scaffold:target'
 export const EXTENSION_SCAFFOLD_CREATE_CHANNEL = 'extensions:scaffold:create'
+export const EXTENSION_SCAFFOLD_HOME_CHANNEL = 'extensions:scaffold:home'
 
 /** The SDK version a scaffolded project depends on: this build's own. */
 export const SCAFFOLD_SDK_VERSION: string = sdkPackage.version
@@ -96,6 +97,8 @@ export type ExtensionScaffoldDeps = {
   roots: () => ScaffoldRoots
   /** Where extensions are installed on this computer, one folder per id. */
   moduleRoot: () => string
+  /** Where a new extension's folder is made when the person picks none. */
+  home: () => string
   sdkVersion: string
   scaffold: (options: ScaffoldModuleOptions) => Promise<ScaffoldModuleResult>
 }
@@ -104,9 +107,25 @@ function defaultDeps(): ExtensionScaffoldDeps {
   return {
     roots: () => resolveScaffoldRoots(),
     moduleRoot: () => defaultUserModuleRoot(),
+    home: () => defaultExtensionsHome(),
     sdkVersion: SCAFFOLD_SDK_VERSION,
     scaffold: scaffoldModuleProject,
   }
+}
+
+/**
+ * Documents/SprintEngine/Extensions: beside the person's other projects, where
+ * a Finder or an editor finds it, and not in the hidden folder installed
+ * extensions are copied into.
+ */
+export function defaultExtensionsHome(): string {
+  let documents: string
+  try {
+    documents = app.getPath('documents')
+  } catch {
+    documents = app.getPath('home')
+  }
+  return join(documents, 'SprintEngine', 'Extensions')
 }
 
 function isString(value: unknown): value is string {
@@ -151,40 +170,68 @@ export function createExtensionScaffoldHandlers(overrides: Partial<ExtensionScaf
   const deps: ExtensionScaffoldDeps = { ...defaultDeps(), ...overrides }
   const isInstalled = (id: string) => () => existsSync(join(deps.moduleRoot(), id))
 
-  return {
-    target(input: ExtensionScaffoldTargetInput | undefined): ExtensionScaffoldTarget | null {
-      if (!input || !isString(input.parentDir) || !isString(input.id) || extensionIdProblem(input.id)) return null
+  // Where the input puts the extension, or null when it names nowhere
+  // usable. The home is the one parent that need not exist yet: `create`
+  // makes it.
+  const place = (input: ExtensionScaffoldTargetInput): { parent: string; folder: string; home: boolean } | null => {
+    if (input.folder !== undefined) {
+      if (!isString(input.folder) || input.folder.trim() === '') return null
+      const folder = resolve(input.folder)
+      return { parent: dirname(folder), folder, home: false }
+    }
+    if (input.parentDir !== undefined) {
+      if (!isString(input.parentDir) || input.parentDir.trim() === '') return null
       const parent = resolve(input.parentDir)
-      const folder = join(parent, input.id)
-      return { state: targetState(parent, folder, isInstalled(input.id)), folder }
+      return { parent, folder: join(parent, input.id), home: false }
+    }
+    const parent = resolve(deps.home())
+    return { parent, folder: join(parent, input.id), home: true }
+  }
+  const stateOf = (where: { parent: string; folder: string; home: boolean }, id: string) =>
+    where.home && !existsSync(where.parent)
+      ? isInstalled(id)()
+        ? 'installed'
+        : 'free'
+      : targetState(where.parent, where.folder, isInstalled(id))
+
+  return {
+    home(): string {
+      return resolve(deps.home())
+    },
+
+    target(input: ExtensionScaffoldTargetInput | undefined): ExtensionScaffoldTarget | null {
+      if (!input || !isString(input.id) || extensionIdProblem(input.id)) return null
+      const where = place(input)
+      if (!where) return null
+      return { state: stateOf(where, input.id), folder: where.folder }
     },
 
     async create(input: ExtensionScaffoldCreateInput | undefined): Promise<ExtensionScaffoldCreateResult> {
       if (!input || typeof input !== 'object')
         return { ok: false, code: 'invalid_input', message: 'Nothing to create.' }
-      const { id, parentDir, ideaMarkdown } = input
+      const { id, ideaMarkdown } = input
       if (!isString(id)) return { ok: false, code: 'invalid_id', message: 'Name the extension.' }
       const idProblem = extensionIdProblem(id)
       if (idProblem) return { ok: false, code: 'invalid_id', message: idProblem }
-      if (!isString(parentDir) || parentDir.trim() === '') {
-        return { ok: false, code: 'no_parent', message: 'Choose the project the extension goes in.' }
-      }
+      const where = place(input)
+      if (!where) return { ok: false, code: 'no_parent', message: 'Choose the folder the extension goes in.' }
       if (ideaMarkdown !== undefined && (!isString(ideaMarkdown) || ideaMarkdown.length > MAX_IDEA_CHARS)) {
         return { ok: false, code: 'invalid_input', message: `The brief is longer than ${MAX_IDEA_CHARS} characters.` }
       }
 
-      const parent = resolve(parentDir)
-      const folder = join(parent, id)
-      const state = targetState(parent, folder, isInstalled(id))
+      const { parent, folder } = where
+      const state = stateOf(where, id)
       if (state === 'no_parent') {
-        return { ok: false, code: 'no_parent', message: `${parent} is not a folder any more. Choose another project.` }
+        return { ok: false, code: 'no_parent', message: `${parent} is not a folder any more. Choose another folder.` }
       }
       if (state === 'extension') return { ok: true, folder, existing: true }
       if (state === 'taken') {
         return {
           ok: false,
           code: 'dir_not_empty',
-          message: `${folder} already has files in it. Choose another name.`,
+          message: `${folder} already has files in it. ${
+            input.folder !== undefined ? 'Choose an empty folder.' : 'Choose another name.'
+          }`,
         }
       }
       if (state === 'installed') {
@@ -192,6 +239,15 @@ export function createExtensionScaffoldHandlers(overrides: Partial<ExtensionScaf
           ok: false,
           code: 'installed',
           message: `An extension named ${id} is already installed on this computer. Choose another name.`,
+        }
+      }
+
+      if (where.home) {
+        try {
+          mkdirSync(parent, { recursive: true })
+        } catch (caught) {
+          const reason = caught instanceof Error ? caught.message : String(caught)
+          return { ok: false, code: 'io_error', message: `${parent} could not be made: ${reason}` }
         }
       }
 
@@ -217,6 +273,7 @@ export function registerExtensionScaffoldIpc(
   ipcMain: IpcMain,
   handlers: ReturnType<typeof createExtensionScaffoldHandlers> = createExtensionScaffoldHandlers(),
 ): void {
+  ipcMain.handle(EXTENSION_SCAFFOLD_HOME_CHANNEL, () => handlers.home())
   ipcMain.handle(EXTENSION_SCAFFOLD_TARGET_CHANNEL, (_event, input: ExtensionScaffoldTargetInput | undefined) =>
     handlers.target(input),
   )
