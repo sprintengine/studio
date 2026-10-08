@@ -68,6 +68,7 @@ import type {
 } from '../shared/electron-api'
 import { isPathInsideOrEqual } from './path-containment'
 import { workspaceSidecarPath } from './workspace-sidecar'
+import { errorMessage } from '../shared/errors'
 
 // The volatile half of an item's links, and nothing else: resolved statuses, the
 // agent terminal currently holding an item, module metadata keyed to a live
@@ -1752,6 +1753,3 @@ function isMissingFileError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && (error as NodeJS.ErrnoException).code === 'ENOENT')
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}

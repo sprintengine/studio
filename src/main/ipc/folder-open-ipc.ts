@@ -11,6 +11,7 @@ import {
   type FolderOpenTargetAvailability,
   type FolderOpenTargetId,
 } from '../../shared/folder-open-targets'
+import { errorMessage } from '../../shared/errors'
 
 /**
  * How a target is launched. `reveal` is the OS file manager and goes through
@@ -184,7 +185,7 @@ export function registerFolderOpenIpc(ipcMain: IpcMain, deps: FolderOpenIpcDepen
     try {
       await deps.assertPathReachable(folderPath)
     } catch (error) {
-      return { ok: false, target, reason: 'path_unavailable', message: describeError(error) }
+      return { ok: false, target, reason: 'path_unavailable', message: errorMessage(error) }
     }
 
     // Resolved again at launch time rather than trusted from the probe: an
@@ -199,7 +200,7 @@ export function registerFolderOpenIpc(ipcMain: IpcMain, deps: FolderOpenIpcDepen
         await deps.showItemInFolder(folderPath)
         return { ok: true, target }
       } catch (error) {
-        return { ok: false, target, reason: 'launch_failed', message: describeError(error) }
+        return { ok: false, target, reason: 'launch_failed', message: errorMessage(error) }
       }
     }
 
@@ -209,7 +210,7 @@ export function registerFolderOpenIpc(ipcMain: IpcMain, deps: FolderOpenIpcDepen
     try {
       outcome = await deps.runLauncher(launcher.command, [...launcher.args, folderPath])
     } catch (error) {
-      return { ok: false, target, reason: 'launch_failed', message: describeError(error) }
+      return { ok: false, target, reason: 'launch_failed', message: errorMessage(error) }
     }
     if (!outcome.ok) {
       return { ok: false, target, reason: 'launch_failed', message: outcome.message }
@@ -343,11 +344,11 @@ function runLauncher(command: string, args: string[], settleMs: number): Promise
     try {
       child = spawn(command, args, { stdio: 'ignore', detached: true, windowsHide: true })
     } catch (error) {
-      settle({ ok: false, message: describeError(error) })
+      settle({ ok: false, message: errorMessage(error) })
       return
     }
     settleTimer = setTimeout(() => settle({ ok: true }), settleMs)
-    child.on('error', (error) => settle({ ok: false, message: describeError(error) }))
+    child.on('error', (error) => settle({ ok: false, message: errorMessage(error) }))
     child.on('close', (code) => {
       settle(code === 0 ? { ok: true } : { ok: false, message: `${command} exited with code ${String(code)}.` })
     })
@@ -355,6 +356,3 @@ function runLauncher(command: string, args: string[], settleMs: number): Promise
   })
 }
 
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}

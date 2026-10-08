@@ -13,6 +13,7 @@ import { readFile } from 'fs/promises'
 
 import type { McpTransport } from '../../shared/electron-api'
 import type { PluginMcpConfigFormat } from '../../shared/plugin-manifest'
+import { errorMessage } from '../../shared/errors'
 
 /**
  * One server entry exactly as a CLI's own config file states it, before it is
@@ -79,6 +80,3 @@ export function createFileMcpConfigReader(
   }
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}

@@ -67,6 +67,7 @@ import {
   writeSlotMarker,
   type SlotGitRunner,
 } from './slot-git'
+import { errorMessage as messageOf } from '../../shared/errors'
 
 /**
  * The pool of reusable agent worktrees.
@@ -320,10 +321,6 @@ function tail(text: string | null | undefined, max = NOTE_TAIL_CHARS): string | 
   const value = (text ?? '').trim()
   if (!value) return null
   return value.length > max ? `…${value.slice(-max)}` : value
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /** Why a step that answers `{ ok, message }` failed, or null when it did not. */

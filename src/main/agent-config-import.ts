@@ -27,6 +27,7 @@ import { normalizeMcpClients, normalizeMcpServerConfig, type McpConfigService } 
 import { parseClaudeCodeMcpServers } from './mcp-config-readers/claude-code'
 import { parseCodexMcpServers } from './mcp-config-readers/codex'
 import type { RawMcpServer } from './mcp-config-readers/reader'
+import { errorMessage } from '../shared/errors'
 
 type BuiltinSkillInstaller = {
   list(): Promise<BuiltinSkill[]>
@@ -291,7 +292,7 @@ function readMcpConfigPath(
       .map((server) => normalizeDetectedServer(source, sourceLabel, server))
       .filter((server): server is DiscoveredMcpServer => Boolean(server))
   } catch (error) {
-    warnings.push(`${sourceLabel} could not be read as ${source.source} MCP config: ${errorMessage(error)}`)
+    warnings.push(`${sourceLabel} could not be read as ${source.source} MCP config: ${errorMessage(error, 'Unknown error.')}`)
     return []
   }
 }
@@ -367,7 +368,7 @@ function readSkillDirectory(
         }
       })
   } catch (error) {
-    warnings.push(`${sourceLabel} could not be listed: ${errorMessage(error)}`)
+    warnings.push(`${sourceLabel} could not be listed: ${errorMessage(error, 'Unknown error.')}`)
     return []
   }
 }
@@ -422,6 +423,3 @@ function homeRelativeLabel(home: string, path: string): string {
   return rel && !rel.startsWith('..') ? `~/${rel}` : path
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Unknown error.'
-}

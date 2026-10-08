@@ -1,5 +1,6 @@
 import { readFile, rm } from 'fs/promises'
 import { join } from 'path'
+import { errorMessage } from '../shared/errors'
 
 // The hosted relay kept its state in one file in userData: whether it was on,
 // the relay URL, this desktop's relay instance id, the phones paired THROUGH THE
@@ -31,13 +32,13 @@ export async function removeRetiredRelayState(userDataDir: string): Promise<Reti
     raw = await readFile(path, 'utf8')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { outcome: 'absent' }
-    return { outcome: 'failed', message: messageOf(error) }
+    return { outcome: 'failed', message: errorMessage(error) }
   }
   const counts = countRecords(raw)
   try {
     await rm(path, { force: true })
   } catch (error) {
-    return { outcome: 'failed', message: messageOf(error) }
+    return { outcome: 'failed', message: errorMessage(error) }
   }
   return { outcome: 'removed', ...counts }
 }
@@ -56,6 +57,3 @@ function countRecords(raw: string): { relayPairings: number; pushRegistrations: 
   }
 }
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}

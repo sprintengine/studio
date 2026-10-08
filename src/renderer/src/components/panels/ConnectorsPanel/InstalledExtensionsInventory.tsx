@@ -66,6 +66,7 @@ import { groupInstalledBySource } from '../../workspace/globalSurface/extensions
 import { ConnectorRow, ConnectorSectionHeading } from './ConnectorRow'
 import { ModuleUpdateBanner, type ModuleUpdateFlow, type ModuleUpdateNotice } from './ExtensionUpdateBanner'
 import { cliOnlyRegistryIds, deriveManageUpdateBanner } from './extensionUpdates'
+import { errorMessage } from '../../../../../shared/errors'
 
 // Per-row actions, all optional: the host wires only the handlers that exist
 // today (no new IPC), and rows without a matching handler carry no affordance.
@@ -746,6 +747,3 @@ function UseSkillMenu({
   )
 }
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback
-}

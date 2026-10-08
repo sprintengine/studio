@@ -6,6 +6,7 @@ import {
   type ServerToSupervisor,
   type SupervisorToServer,
 } from '../../server/bootstrap/envelope'
+import { errorMessage } from '../../shared/errors'
 
 // The shell's side of the Studio server process (phase 6 spec, section 7.1).
 // It forks the server, hands it the envelope, waits for `ready`, pings it,
@@ -225,7 +226,7 @@ export function createServerSupervisor(deps: SupervisorDeps): ServerSupervisor {
       next = deps.fork()
     } catch (error) {
       log(`fork failed: ${error instanceof Error ? error.message : String(error)}`)
-      handleExit({ code: null, signal: null }, `The server could not be started: ${errorText(error)}`)
+      handleExit({ code: null, signal: null }, `The server could not be started: ${errorMessage(error)}`)
       return
     }
     child = next
@@ -279,7 +280,7 @@ export function createServerSupervisor(deps: SupervisorDeps): ServerSupervisor {
           try {
             listener(frame)
           } catch (error) {
-            log(`ready listener threw: ${errorText(error)}`)
+            log(`ready listener threw: ${errorMessage(error)}`)
           }
         }
         return
@@ -422,7 +423,7 @@ export function createServerSupervisor(deps: SupervisorDeps): ServerSupervisor {
         child.postMessage(message, transfer)
         return true
       } catch (error) {
-        log(`post to the server failed: ${errorText(error)}`)
+        log(`post to the server failed: ${errorMessage(error)}`)
         return false
       }
     },
@@ -524,6 +525,3 @@ export function createServerSupervisor(deps: SupervisorDeps): ServerSupervisor {
   return supervisor
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}

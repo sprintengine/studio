@@ -12,6 +12,7 @@ import {
   type DataDirLock,
   type StudioRole,
 } from './data-dir'
+import { errorMessage } from '../../shared/errors'
 
 // How a core takes its data directory: the run lock, then the record of whose
 // cipher seals it. The two roles answer a problem in opposite ways.
@@ -88,7 +89,7 @@ function takeForDesktop(
       source: 'workspace',
       title,
       message,
-      ...(error === undefined ? {} : { details: errorText(error) }),
+      ...(error === undefined ? {} : { details: errorMessage(error) }),
     })
 
   let lock: DataDirLock | null = null
@@ -141,7 +142,7 @@ function takeForDesktop(
 function takeForServer(platform: StudioPlatform, deps: TakeDataDirDeps): TakenDataDir {
   const dataDir = platform.paths.dataDir()
   const unusable = (error: unknown): never => {
-    throw new StudioDataDirUnusableError(`The data directory ${dataDir} cannot be used: ${errorText(error)}`)
+    throw new StudioDataDirUnusableError(`The data directory ${dataDir} cannot be used: ${errorMessage(error)}`)
   }
   let taken: ReturnType<typeof acquireDataDirLock>
   try {
@@ -183,6 +184,3 @@ function waitForExit(pid: number, deps: TakeDataDirDeps): Promise<void> {
   })
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
