@@ -27,6 +27,7 @@ import { createServerLog, type ServerLog } from './server-log'
 import { createServerStateMirror, type ServerStateMirror } from './server-mirror'
 import { createServerSupervisor, type ServerSupervisor, type ShutdownProgress } from './supervisor'
 import { forkUtilityServer } from './utility-launcher'
+import { prefixedId } from '../../shared/random-id'
 
 // The shell's half of the Studio server out of process, put together: the
 // supervisor that forks and watches it, the log its output goes to, the port
@@ -170,7 +171,7 @@ export function createDesktopServerHost(options: {
         throw new Error('Studio server is not running yet.')
       }
       const { port1, port2 } = new MessageChannelMain()
-      const clientId = `shell-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+      const clientId = prefixedId('shell', 6)
       if (!supervisor.post({ t: 'attach-client', clientId, windowId: null, kind: 'shell' }, [port1])) {
         port2.close()
         throw new Error('Studio server is restarting.')
@@ -203,7 +204,7 @@ export function createDesktopServerHost(options: {
       if ((await supervisor.whenReady(STUDIO_CONNECT_WAIT_MS)) !== 'ready') {
         throw new Error('Studio server is not running, so this window cannot reach its chats yet.')
       }
-      const clientId = `studio-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+      const clientId = prefixedId('studio', 6)
       if (!supervisor.post({ t: 'attach-client', clientId, windowId: null, kind: 'studio-connection' }, [port])) {
         throw new Error('Studio server is restarting; try again.')
       }

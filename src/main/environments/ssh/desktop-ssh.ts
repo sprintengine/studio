@@ -14,6 +14,7 @@ import { SERVER_EVENTS, SHELL_METHODS } from '../../../server/desktop/server-met
 import { PanePartitions } from './pane-partitions'
 import { SshEnvironments } from './ssh-environments'
 import { broadcastToAllWindows } from '../../window-broadcast'
+import { prefixedId } from '../../../shared/random-id'
 
 // The desktop's SSH machines (phase 8), composed in main: the saved machines
 // and their sessions, their IPC, the pane's partitions behind their forwards,
@@ -119,7 +120,7 @@ function serveSshToServer(server: ShellServerLink, environments: SshEnvironments
     if (purpose !== 'backend' && purpose !== 'studio') throw new Error('That is not a stream the server opens.')
     const { stream, label } = await environments.openStream(key, purpose)
     const { port1, port2 } = new MessageChannelMain()
-    const clientId = `ssh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    const clientId = prefixedId('ssh', 6)
     if (!server.attachSshPort?.(clientId, port2)) {
       stream.destroy()
       port1.close()
