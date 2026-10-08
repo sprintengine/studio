@@ -189,6 +189,12 @@ function launchEnv(profileDir) {
   env.SPRINTENGINE_STARTUP_TIMELINE = '1'
   env.SPRINTENGINE_USER_DATA_DIR = profileDir
   env.SPRINTENGINE_ALLOW_MULTI_INSTANCE = '1'
+  // A fresh profile scans Claude Code's and Codex's saved sessions for the
+  // import offer; on a machine with thousands of them that scan is part of the
+  // boot being timed. Empty directories inside the profile keep the numbers
+  // about the build rather than about whose machine ran it.
+  env.CLAUDE_CONFIG_DIR = join(profileDir, 'claude-config')
+  env.CODEX_HOME = join(profileDir, 'codex-home')
   if (args.serverMode) env.SPRINTENGINE_SERVER_MODE = args.serverMode
   return env
 }
