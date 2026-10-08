@@ -206,8 +206,7 @@ export function createScheduledAgentsModuleRegistry(
     create: async (moduleId, draft) =>
       refusedForRun('create') ?? service.create(draft, { ownerModuleId: moduleId, capPreset: capFor(moduleId) }),
     update: async (moduleId, id, draft) =>
-      refusedForRun('change') ??
-      service.update(id, draft, { ownerModuleId: moduleId, capPreset: capFor(moduleId) }),
+      refusedForRun('change') ?? service.update(id, draft, { ownerModuleId: moduleId, capPreset: capFor(moduleId) }),
     remove: async (moduleId, id) => refusedForRun('remove') ?? service.remove(id, { ownerModuleId: moduleId }),
     list: async (moduleId) => service.list({ ownerModuleId: moduleId }),
     runNow: async (moduleId, id) => {

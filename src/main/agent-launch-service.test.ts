@@ -382,10 +382,7 @@ test('agent-launch-service', async () => {
     assert.equal(launched.ok, true, JSON.stringify(launched))
     const record = app.spawns[0]!.agentRecord!
     assert.equal(record.launchedByScheduledAgentId, 'sa-1')
-    assert.equal(
-      agentStateFromLaunchRecord(record, { sessionId: 'session-1' }).launchedByScheduledAgentId,
-      'sa-1',
-    )
+    assert.equal(agentStateFromLaunchRecord(record, { sessionId: 'session-1' }).launchedByScheduledAgentId, 'sa-1')
   })
 
   run("the project's Knowledge Graph reaches a headless launch", async () => {
