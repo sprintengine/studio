@@ -5,8 +5,8 @@
 //
 // It lives here, in a neutral module, because it used to live inside the review
 // provider while a second, weaker spawner sat in `automations/pull-request.ts`.
-// The two were not equivalent: only this one retries through the user's login
-// shell, and a GUI-launched app on macOS does not inherit the shell PATH, so a
+// The two were not equivalent: only this one looks gh up on the user's login
+// shell PATH, and a GUI-launched app on macOS does not inherit the shell PATH, so a
 // Homebrew or nvm `gh` was invisible to the weaker one — which reported "no
 // pull request" for a pull request that was plainly there. One runner, one
 // answer.
@@ -17,15 +17,14 @@
 // "I could not ask" are different facts, and only the first may be recorded.
 
 import { execFile } from 'node:child_process'
+import { delimiter } from 'node:path'
 import { promisify } from 'node:util'
 
 import { resolveWindowsProgramOnPath } from '../command-on-path'
 import { gitSafetyEnv } from '../git-run'
+import { createLoginShellPathResolver, findExecutable, searchDirectories } from '../login-shell-path'
 
 const execFileAsync = promisify(execFile)
-
-/** A POSIX shell's exit status for "command not found". */
-const SHELL_COMMAND_NOT_FOUND = 127
 
 /**
  * Cap on what one `gh` call may return. A pull request diff is the biggest
@@ -55,18 +54,17 @@ export interface GhRunOptions {
   cwd?: string
   /**
    * How long the child may run before it is KILLED. Without it a caller that
-   * merely stops waiting (a `Promise.race` against a timer) leaves a `gh` — and,
-   * on the login-shell fallback, a whole `$SHELL -ilc` — running behind every
-   * abandoned read, so a hover on an unreachable host leaks one process per
-   * probe. Passed straight to `execFile`'s own `timeout`/`killSignal`, so the
+   * merely stops waiting (a `Promise.race` against a timer) leaves a `gh`
+   * running behind every abandoned read, so a hover on an unreachable host
+   * leaks one process per probe. Passed straight to `execFile`'s own `timeout`/`killSignal`, so the
    * process table is what enforces it.
    */
   timeoutMs?: number
   /**
-   * Variables gh must NOT see, removed from the child's environment and —
-   * because the login-shell fallback sources the person's rc files, which is
-   * exactly where a token export lives — unset again inside that shell before
-   * gh runs. Only fixed variable names belong here, never a value.
+   * Variables gh must NOT see, removed from the child's environment. gh is
+   * always spawned itself, never through a shell that would source the
+   * person's rc files (exactly where a token export lives) and set them
+   * again. Only fixed variable names belong here, never a value.
    */
   unsetEnv?: readonly string[]
 }
@@ -93,26 +91,72 @@ export type GhSpawn = (
 
 export type GhRunnerEnvironment = {
   spawn?: GhSpawn
-  /** `process.env.SHELL` by default; the login shell the PATH fallback runs through. */
+  /** `process.env.SHELL` by default; the person's shell, asked once for its PATH. */
   shell?: string | undefined
   platform?: NodeJS.Platform
   /** Where `gh` is on Windows; {@link resolveWindowsProgramOnPath} by default. */
   resolveWindowsProgram?: (name: string) => Promise<string | null>
+  /** Where a binary is among directories; {@link findExecutable} by default. */
+  findExecutable?: (binary: string, directories: string[]) => Promise<string | null>
 }
 
-// Default gh runner: a direct spawn, then — when the binary is not on PATH — a
-// retry through the user's login+interactive shell. A GUI-launched app on macOS
-// does not inherit the shell PATH, so a Homebrew/nvm `gh` is invisible to a bare
-// spawn but present in the shell that PTY terminals use (mirrors detectCli's
-// $SHELL -ilc fallback in cli-runtime-install.ts).
-export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): GhRunner {
+export type DefaultGhRunner = GhRunner & {
+  /** Forget where gh was found, and the login PATH it was found on: the next call looks again. */
+  forgetLocation(): void
+}
+
+/** Where gh was found off the app's PATH, and the PATH to run it with. */
+type GhLocation = { file: string; path: string }
+
+// Default gh runner: a direct spawn, and — when the binary is not on the app's
+// PATH — gh looked up on the PATH the person's own shell has. A GUI-launched
+// app on macOS does not inherit that PATH, so a Homebrew or nvm `gh` is
+// invisible to a bare spawn. The shell is asked for its PATH once (the same
+// lookup CLI detection makes, login-shell-path.ts), gh's absolute path is
+// remembered, and every call after spawns it directly: a `$SHELL -ilc 'gh …'`
+// per call sourced the person's rc files on every pull request read.
+export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): DefaultGhRunner {
   const spawn: GhSpawn =
     environment.spawn ??
     ((file, args, options) => execFileAsync(file, args, options) as Promise<{ stdout: string; stderr: string }>)
   const shell = environment.shell !== undefined ? environment.shell : process.env.SHELL
   const platform = environment.platform ?? process.platform
   const resolveWindowsProgram = environment.resolveWindowsProgram ?? ((name) => resolveWindowsProgramOnPath(name))
+  const find = environment.findExecutable ?? findExecutable
+  const loginShellPath = createLoginShellPathResolver({
+    run: async (descriptor, env) => {
+      try {
+        const { stdout } = await spawn(descriptor.file, descriptor.args, {
+          maxBuffer: GH_MAX_BUFFER_BYTES,
+          windowsHide: true,
+          env,
+          timeout: descriptor.timeoutMs,
+          killSignal: 'SIGTERM',
+        })
+        return { code: 0, stdout, timedOut: false }
+      } catch (error) {
+        const result = resultFromSpawnError(error)
+        return { code: result.code, stdout: result.stdout, timedOut: result.timedOut === true }
+      }
+    },
+    shell: () => shell,
+  })
+  let located: Promise<GhLocation | null> | null = null
 
+  const runFile = async (file: string, args: string[], options: GhRunOptions, path?: string): Promise<GhResult> => {
+    try {
+      const { stdout, stderr } = await spawn(file, args, {
+        ...(options.cwd ? { cwd: options.cwd } : {}),
+        ...spawnTimeout(options),
+        maxBuffer: GH_MAX_BUFFER_BYTES,
+        windowsHide: true,
+        env: { ...ghEnv(options), ...(path ? { PATH: path } : {}) },
+      })
+      return { found: true, code: 0, stdout, stderr }
+    } catch (error) {
+      return resultFromSpawnError(error)
+    }
+  }
   const runDirect = async (args: string[], options: GhRunOptions): Promise<GhResult> => {
     // On Windows a bare `gh` would be looked for in `cwd` — the repository —
     // before PATH, so a `gh.exe` a repository ships would run in its place. The
@@ -124,52 +168,52 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
       if (!resolved) return { found: false, code: -1, stdout: '', stderr: '' }
       file = resolved
     }
-    try {
-      const { stdout, stderr } = await spawn(file, args, {
-        ...(options.cwd ? { cwd: options.cwd } : {}),
-        ...spawnTimeout(options),
-        maxBuffer: GH_MAX_BUFFER_BYTES,
-        windowsHide: true,
-        env: ghEnv(options),
-      })
-      return { found: true, code: 0, stdout, stderr }
-    } catch (error) {
-      return resultFromSpawnError(error)
-    }
+    return runFile(file, args, options)
   }
-  const runViaShell = async (args: string[], options: GhRunOptions): Promise<GhResult | null> => {
-    const descriptor = buildShellGhDescriptor(args, shell, platform, options.unsetEnv)
-    if (!descriptor) return null
-    try {
-      const { stdout, stderr } = await spawn(descriptor.file, descriptor.args, {
-        ...(options.cwd ? { cwd: options.cwd } : {}),
-        ...spawnTimeout(options),
-        maxBuffer: GH_MAX_BUFFER_BYTES,
-        windowsHide: true,
-        env: ghEnv(options),
-      })
-      return { found: true, code: 0, stdout, stderr }
-    } catch (error) {
-      const result = resultFromSpawnError(error)
-      // The shell ran, and said it has no `gh` either: the binary is absent,
-      // as a bare spawn's ENOENT says. Read as gh having run, it kept the
-      // callers' "gh missing" hold from ever starting, so every probe started
-      // the shell again, and Create PR reported the shell's words as gh's.
-      if (result.found && !result.timedOut && result.code === SHELL_COMMAND_NOT_FOUND)
-        return { found: false, code: -1, stdout: '', stderr: '' }
-      return result
-    }
+  /**
+   * gh on the person's shell PATH, looked up once and shared by every
+   * concurrent caller. "Not found" is not kept, but the PATH it was looked
+   * for on is (login-shell-path.ts), so looking again walks directories and
+   * starts no shell.
+   */
+  const locate = (): Promise<GhLocation | null> => {
+    if (located) return located
+    const pending = (async (): Promise<GhLocation | null> => {
+      const loginPath = await loginShellPath.resolve(process.env)
+      const directories = searchDirectories(loginPath, process.env.PATH)
+      const file = await find('gh', directories)
+      // Run with the PATH it was found on, so the git and credential helpers
+      // gh starts are the ones a terminal would give it.
+      return file ? { file, path: directories.join(delimiter) } : null
+    })().catch(() => null)
+    located = pending
+    void pending.then((found) => {
+      if (!found && located === pending) located = null
+    })
+    return pending
   }
   const run = async (args: string[], options: GhRunOptions = {}): Promise<GhResult> => {
+    const known = located ? await located : null
+    if (known) {
+      const result = await runFile(known.file, args, options, known.path)
+      if (result.found) return result
+      // Moved or uninstalled since: look again below.
+      located = null
+    }
     const direct = await runDirect(args, options)
-    if (direct.found) return direct
-    return (await runViaShell(args, options)) ?? direct
+    if (direct.found || (platform !== 'darwin' && platform !== 'linux')) return direct
+    const found = await locate()
+    return found ? runFile(found.file, args, options, found.path) : direct
   }
   return {
     run,
     async available() {
       const result = await run(['--version'])
       return result.found && result.code === 0
+    },
+    forgetLocation() {
+      located = null
+      loginShellPath.invalidate()
     },
   }
 }
@@ -204,36 +248,23 @@ function resultFromSpawnError(error: unknown): GhResult {
   }
 }
 
-/** The `$SHELL -ilc 'gh …'` command line, or null where that fallback does not apply. */
-export function buildShellGhDescriptor(
-  args: string[],
-  shell: string | undefined,
-  platform: NodeJS.Platform = process.platform,
-  unsetEnv: readonly string[] = [],
-): { file: string; args: string[] } | null {
-  if (platform !== 'darwin' && platform !== 'linux') return null
-  const shellPath = shell?.trim()
-  if (!shellPath) return null
-  const shellName = shellPath.split('/').pop()
-  if (shellName !== 'zsh' && shellName !== 'bash') return null
-  const command = ['gh', ...args].map(posixSingleQuote).join(' ')
-  const names = unsetEnv.filter((name) => /^[A-Z_][A-Z0-9_]*$/.test(name))
-  const unset = names.length > 0 ? `unset ${names.join(' ')}; ` : ''
-  return { file: shellPath, args: ['-ilc', `${unset}${command}`] }
-}
-
-function posixSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`
-}
-
 /**
  * The shared runner every main-process caller uses. One process-wide instance
  * so "one runner" is literally true — a second `createDefaultGhRunner()` in a
  * call site would be a second spawner's worth of drift waiting to happen.
  */
-let shared: GhRunner | null = null
+let shared: DefaultGhRunner | null = null
 
 export function sharedGhRunner(): GhRunner {
   if (!shared) shared = createDefaultGhRunner()
   return shared
+}
+
+/**
+ * Forget where the shared runner found gh. Called with the app's forced
+ * re-check of the CLIs (an install, an update, Settings' refresh), which is
+ * when a gh installed or moved from a terminal should be seen.
+ */
+export function forgetSharedGhLocation(): void {
+  shared?.forgetLocation()
 }

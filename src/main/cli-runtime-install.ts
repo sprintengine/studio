@@ -16,6 +16,7 @@ import { hostRegistry } from './hosts/host-registry'
 import { LOCAL_HOST_ID, distroOfHostId, isWslHostId, type ExecutionHostId } from '../shared/execution-host'
 import { ansiPlainText } from '../shared/conversation/ansi'
 import { createLoginShellPathResolver, findExecutable, searchDirectories } from './login-shell-path'
+import { forgetSharedGhLocation } from './github/gh'
 import { access, constants as fsConstants } from 'node:fs/promises'
 
 // Exit code our probe scripts use to signal "binary not found on PATH" so we
@@ -245,6 +246,8 @@ const loginShellPath = createLoginShellPathResolver({
 export function invalidateLoginShellPath(): void {
   loginShellPath.invalidate()
   cliExecutables.invalidate()
+  // gh is looked up on the same PATH, and a forced re-check should see it too.
+  forgetSharedGhLocation()
 }
 
 // Host macOS/Linux: resolve the binary against the session's login-shell PATH

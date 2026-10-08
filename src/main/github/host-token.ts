@@ -11,12 +11,11 @@
 // ANY host out of GH_ENTERPRISE_TOKEN / GITHUB_ENTERPRISE_TOKEN (and GITHUB_TOKEN
 // in a codespace) when one is exported, so asking with those in the
 // environment would hand a company token to whatever host was typed — a typo
-// of the company's hostname included. They are unset for the call, inside the
-// login shell as well, where an rc file would otherwise export them again.
+// of the company's hostname included. They are unset for the call.
 //
 // A token is remembered for a few minutes: a repository read runs dozens of
-// git commands, each asking for its host's token, and a `gh` spawn — through a
-// login shell when the binary is not on PATH — per command would cost more
+// git commands, each asking for its host's token, and a `gh` spawn per
+// command would cost more
 // than the reads themselves. "No sign-in" is remembered only for a moment, so
 // someone who runs `gh auth login` because the read told them to and presses
 // Try again is read with it.

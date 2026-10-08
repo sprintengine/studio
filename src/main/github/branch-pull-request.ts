@@ -211,11 +211,11 @@ async function runGh(args: string[], options: { cwd?: string }, deps: BranchPull
 
 /**
  * The JSON document in `gh`'s stdout — which is not always ALL of it. The
- * runner's PATH fallback runs `$SHELL -ilc 'gh …'`, and that is the NORMAL path
- * for a GUI-launched macOS app with a Homebrew or nvm `gh`: an interactive login
- * shell prints whatever the user's rc files print ("Now using node v22.…") on
- * the same stdout, and feeding that to `JSON.parse` made every read permanently
- * 'bad-output'.
+ * runner used to reach a Homebrew or nvm `gh` through `$SHELL -ilc 'gh …'`,
+ * and an interactive login shell prints whatever the user's rc files print
+ * ("Now using node v22.…") on the same stdout; a `gh` wrapper script or an
+ * injected runner can still do the same, and feeding that to `JSON.parse`
+ * made every read permanently 'bad-output'.
  *
  * So: the whole output first (the direct-spawn case, unchanged), then the first
  * `[`- or `{`-anchored document that parses, matched to its own closing bracket

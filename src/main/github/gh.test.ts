@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { buildShellGhDescriptor, createDefaultGhRunner, sharedGhRunner, type GhSpawn } from './gh'
+import { createDefaultGhRunner, sharedGhRunner, type GhSpawn } from './gh'
 import { test } from 'vitest'
 
 test('gh', async () => {
@@ -38,58 +38,40 @@ test('gh', async () => {
     return Promise.reject(Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' }))
   }
 
+  /** A Homebrew gh: found when the login PATH has its directory. */
+  async function homebrewGh(binary: string, directories: string[]): Promise<string | null> {
+    return binary === 'gh' && directories.includes('/opt/homebrew/bin') ? '/opt/homebrew/bin/gh' : null
+  }
+
   // Wrapped in a main() because this suite bundles to CommonJS, where a
   // top-level await is not available.
   async function main(): Promise<void> {
     // ---------------------------------------------------------------------------
-    // The PATH fallback: a GUI-launched app inherits no shell PATH, so a bare spawn
-    // of a Homebrew `gh` fails with ENOENT and the runner retries through the login
-    // shell that PTY terminals use.
+    // Off the app's PATH: a GUI-launched app inherits no shell PATH, so a bare
+    // spawn of a Homebrew `gh` fails with ENOENT. The person's shell is asked
+    // for its PATH, gh is found on it, and spawned by its absolute path.
     // ---------------------------------------------------------------------------
     {
       const { spawn, calls } = spawnStub((call) =>
-        call.file === 'gh' ? enoent() : Promise.resolve({ stdout: 'gh version 2.55.0', stderr: '' }),
+        call.file === 'gh'
+          ? enoent()
+          : call.file === '/bin/zsh'
+            ? Promise.resolve({ stdout: 'Now using node v22\nSPRINTENGINE_LOGIN_PATH:/opt/homebrew/bin:/usr/bin\n', stderr: '' })
+            : Promise.resolve({ stdout: 'gh version 2.55.0', stderr: '' }),
       )
-      const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin' })
+      const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin', findExecutable: homebrewGh })
       const result = await gh.run(['pr', 'list', '--head', "it's-a-branch"], { cwd: '/repo' })
 
-      assert.equal(result.found, true, 'gh found through the login shell is found')
+      assert.equal(result.found, true, 'gh found on the login PATH is found')
       assert.equal(result.code, 0)
       assert.equal(result.stdout, 'gh version 2.55.0')
       assert.deepEqual(
         calls.map((call) => call.file),
-        ['gh', '/bin/zsh'],
-        'direct first, then the shell',
+        ['gh', '/bin/zsh', '/opt/homebrew/bin/gh'],
+        'direct first, then the shell for its PATH, then gh itself',
       )
-      assert.deepEqual(calls[1].args, ['-ilc', `'gh' 'pr' 'list' '--head' 'it'\\''s-a-branch'`])
-      assert.deepEqual(
-        calls.map((call) => call.cwd),
-        ['/repo', '/repo'],
-        'the cwd reaches both attempts',
-      )
-    }
-
-    // A quote in an argument must not break out of the shell command line.
-    {
-      const descriptor = buildShellGhDescriptor(['pr', 'view', "a'; rm -rf /"], '/bin/bash', 'linux')
-      assert.deepEqual(descriptor, {
-        file: '/bin/bash',
-        args: ['-ilc', `'gh' 'pr' 'view' 'a'\\''; rm -rf /'`],
-      })
-      // A variable to keep from gh is unset inside the login shell too, after the
-      // rc files that would export it have run; a name that is not a plain
-      // identifier is dropped rather than spliced into the command.
-      assert.deepEqual(
-        buildShellGhDescriptor(['auth', 'token'], '/bin/zsh', 'darwin', [
-          'GH_ENTERPRISE_TOKEN',
-          'X; rm -rf /',
-          'GH_TOKEN',
-        ]),
-        { file: '/bin/zsh', args: ['-ilc', "unset GH_ENTERPRISE_TOKEN GH_TOKEN; 'gh' 'auth' 'token'"] },
-      )
-      assert.equal(buildShellGhDescriptor(['--version'], '/bin/zsh', 'win32'), null, 'no shell retry on Windows')
-      assert.equal(buildShellGhDescriptor(['--version'], undefined, 'darwin'), null, 'no $SHELL, no retry')
-      assert.equal(buildShellGhDescriptor(['--version'], '/usr/bin/fish', 'darwin'), null, 'only zsh/bash take -ilc')
+      assert.deepEqual(calls[2].args, ['pr', 'list', '--head', "it's-a-branch"], 'arguments go to gh as they are')
+      assert.equal(calls[2].cwd, '/repo')
     }
 
     // ---------------------------------------------------------------------------
@@ -99,10 +81,10 @@ test('gh', async () => {
     // ---------------------------------------------------------------------------
     {
       const { spawn, calls } = spawnStub(() => enoent())
-      const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin' })
+      const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin', findExecutable: async () => null })
       const missing = await gh.run(['pr', 'list'])
-      assert.equal(missing.found, false, 'ENOENT from both attempts means the binary is absent')
-      assert.equal(calls.length, 2, 'the fallback was tried before giving up')
+      assert.equal(missing.found, false, 'ENOENT, and no gh on the login PATH, means the binary is absent')
+      assert.ok(calls.length > 1, 'the login PATH was asked before giving up')
       assert.equal(await gh.available(), false)
     }
     {
@@ -142,13 +124,21 @@ test('gh', async () => {
       assert.equal(calls[1].timeout, undefined)
       assert.equal(calls[1].killSignal, undefined)
 
-      // The fallback carries it too — that is the spawn that costs the most.
-      const viaShell = spawnStub((call) =>
-        call.file === 'gh' ? enoent() : Promise.resolve({ stdout: '[]', stderr: '' }),
+      // A gh found on the login PATH carries it too.
+      const offPath = spawnStub((call) =>
+        call.file === 'gh'
+          ? enoent()
+          : Promise.resolve({ stdout: 'SPRINTENGINE_LOGIN_PATH:/opt/homebrew/bin\n', stderr: '' }),
       )
-      const shellGh = createDefaultGhRunner({ spawn: viaShell.spawn, shell: '/bin/zsh', platform: 'darwin' })
-      await shellGh.run(['pr', 'list'], { timeoutMs: 5_000 })
-      assert.equal(viaShell.calls[1].timeout, 5_000, 'the login shell is killed on the same bound')
+      const located = createDefaultGhRunner({
+        spawn: offPath.spawn,
+        shell: '/bin/zsh',
+        platform: 'darwin',
+        findExecutable: homebrewGh,
+      })
+      await located.run(['pr', 'list'], { timeoutMs: 5_000 })
+      const ghCall = offPath.calls.find((call) => call.file === '/opt/homebrew/bin/gh')
+      assert.equal(ghCall?.timeout, 5_000, 'the located gh is killed on the same bound')
     }
     {
       // `execFile` reports its own timeout as a killed child: a signal, no exit
@@ -223,14 +213,39 @@ test("the git that gh runs inside a repository ignores the repository's filesyst
   assert.equal(env[`GIT_CONFIG_VALUE_${index}`], 'false')
 })
 
-test('a login shell that has no gh either (exit 127) means gh is not installed', async () => {
+test('gh off the app PATH is looked up once: many calls start at most one shell, then gh directly', async () => {
+  const files: string[] = []
   const spawn: GhSpawn = async (file) => {
+    files.push(file)
     if (file === 'gh') throw Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' })
-    throw Object.assign(new Error('Command failed'), { code: 127, stdout: '', stderr: 'zsh:1: command not found: gh' })
+    if (file === '/bin/zsh') return { stdout: 'SPRINTENGINE_LOGIN_PATH:/opt/homebrew/bin:/usr/bin\n', stderr: '' }
+    return { stdout: '[]', stderr: '' }
   }
-  const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin' })
+  const findExecutable = async (_binary: string, directories: string[]) =>
+    directories.includes('/opt/homebrew/bin') ? '/opt/homebrew/bin/gh' : null
+  const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin', findExecutable })
+  // Concurrent first calls share the one lookup, and later ones reuse it.
+  await Promise.all([gh.run(['pr', 'list']), gh.run(['pr', 'list']), gh.run(['pr', 'list'])])
+  for (let call = 0; call < 5; call += 1) await gh.run(['pr', 'list'])
+  assert.equal(files.filter((file) => file === '/bin/zsh').length, 1)
+  assert.equal(files.filter((file) => file === '/opt/homebrew/bin/gh').length, 8)
+
+  // A forced re-check asks the shell again.
+  gh.forgetLocation()
+  await gh.run(['pr', 'list'])
+  assert.equal(files.filter((file) => file === '/bin/zsh').length, 2)
+})
+
+test('no gh on the login PATH either means gh is not installed, and starts no further shells', async () => {
+  const files: string[] = []
+  const spawn: GhSpawn = async (file) => {
+    files.push(file)
+    if (file === 'gh') throw Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' })
+    return { stdout: 'SPRINTENGINE_LOGIN_PATH:/usr/bin\n', stderr: '' }
+  }
+  const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin', findExecutable: async () => null })
   const result = await gh.run(['pr', 'list'])
   assert.equal(result.found, false)
-  assert.equal(result.stderr, '', 'the shell’s words are not reported as gh’s')
   assert.equal(await gh.available(), false)
+  assert.equal(files.filter((file) => file === '/bin/zsh').length, 1, 'the PATH is kept; only gh is looked for again')
 })
