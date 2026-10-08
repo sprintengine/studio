@@ -2,7 +2,8 @@
 // this hookless module free of the barrel's whole component graph.
 import type React from 'react'
 import { MenuOption } from '../../ui/MenuOption'
-import { LockGlyph, PresetDialGlyph, SparkGlyph, UnlockedGlyph } from '../../AppIcons'
+import { LockGlyph, PresetDialGlyph, RuleShieldGlyph, SparkGlyph, UnlockedGlyph } from '../../AppIcons'
+import { EditChangelistGlyph } from '../../ui/GitActionGlyphs'
 import type { CliPermissionPreset } from '../../../types/workspace'
 import type { CliPermissionModeSpec } from '../../../../../shared/cli-permission-mode'
 
@@ -129,13 +130,29 @@ export function agentPermissionChipLabel(
 // AppIcons: an open lock for Bypass, a spark for Auto, a closed lock for
 // Manual, a quiet dial for the CLI's own default. All-or-nothing per the menu
 // spec's leading-slot rule — every row carries one.
+//
+// A CLI's own mode that sits at a preset beside that preset's own mode takes a
+// glyph of its own, or a menu listing both draws two rows with one mark: a
+// pencil for Accept edits (edits go through, commands ask) beside Auto's
+// spark, a shield for Don't ask (never asks, held to the allow rules) beside
+// Manual's lock.
+const MODE_GLYPH: Record<string, (props: { className?: string }) => React.JSX.Element> = {
+  acceptEdits: EditChangelistGlyph,
+  dontAsk: RuleShieldGlyph,
+}
+
 export function PresetGlyph({
   preset,
+  mode,
   className = 'icon-xs shrink-0',
 }: {
   preset: CliPermissionPreset
+  /** The CLI's own mode at that preset, when it is not the preset's own. */
+  mode?: string | null
   className?: string
 }) {
+  const ModeGlyph = mode ? MODE_GLYPH[mode] : undefined
+  if (ModeGlyph) return <ModeGlyph className={className} />
   if (preset === 'bypass') return <UnlockedGlyph className={className} />
   if (preset === 'auto') return <SparkGlyph className={className} />
   if (preset === 'manual') return <LockGlyph className={className} />
@@ -267,7 +284,7 @@ export function PermissionPresetMenuRows({
             onClick={() => onSelect(option)}
             icon={
               <span className="mt-0.5 inline-flex shrink-0">
-                <PresetGlyph preset={option.value} />
+                <PresetGlyph preset={option.value} mode={option.mode} />
               </span>
             }
             trailing={

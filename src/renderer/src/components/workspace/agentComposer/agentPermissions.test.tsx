@@ -94,3 +94,18 @@ test('the rows mark the mode in force, and a mode the target cannot run stays li
   assert.equal((markup.match(/ disabled=""/g) ?? []).length, 1)
   assert.equal((markup.match(/does not support this permission preset/g) ?? []).length, 1)
 })
+
+test('every Claude Code mode leads with a glyph of its own', () => {
+  const markup = renderToStaticMarkup(
+    createElement(PermissionPresetMenuRows, {
+      options: optionsFor('claude-code'),
+      value: 'auto',
+      onSelect: () => {},
+    }),
+  )
+  // Each row's first drawing is its leading glyph; the trailing check is only on the row in force.
+  const rows = markup.split('role="menuitemradio"').slice(1)
+  const glyphs = rows.map((row) => row.match(/<svg[\s\S]*?<\/svg>/)?.[0])
+  assert.equal(glyphs.length, 6)
+  assert.equal(new Set(glyphs).size, 6, 'Manual, Accept edits, Auto, Don’t ask, Bypass and No flag are told apart')
+})
