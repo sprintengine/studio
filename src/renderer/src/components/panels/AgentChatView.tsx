@@ -1402,6 +1402,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // running turn never took in, with nothing left in the queue to show for
   // them, so the queue is the default and a steer is always a choice.
   const submitComposer = useCallback(() => {
+    // Typed into while the chat cannot send yet (a New chat still waiting on
+    // its worktree): the words stay where they are until it can.
+    if (readiness.kind !== 'ready') return
     const text = draft.trim()
     if (
       !text &&
@@ -1432,6 +1435,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     void sendTurn(text, attachments, draftMetadata, true)
     setAttachments([])
   }, [
+    readiness.kind,
     attachments,
     draft,
     draftMetadata,
@@ -1549,13 +1553,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     if (started) return
     const text = startupPrompt ?? ''
     const paths = startupImages ?? []
-    const metadata = startupFiles?.length
-      ? { ...draftMetadata, files: [...new Set([...startupFiles, ...draftMetadata.files])] }
-      : draftMetadata
-    // Left as the draft, the files are its cards again.
+    // The message carries the launcher's own files. The draft is not part of
+    // it: a chat that waited on its worktree took type-ahead, whose mentions
+    // and files stay with the words they were typed with.
+    const metadata = { skillIds: [], mentions: [], files: startupFiles ?? [] }
+    // Left as the draft, the files are its cards again, and the message goes
+    // back ahead of anything typed while the chat waited.
     const keepAsDraft = (words: string) => {
-      setDraft((current) => current || words)
-      if (startupFiles?.length) setDraftMetadata(metadata)
+      setDraft((current) => restoreRefusedText(current, words))
+      if (startupFiles?.length)
+        setDraftMetadata((current) => ({ ...current, files: [...new Set([...startupFiles, ...current.files])] }))
     }
     if (!startupTakesImages) {
       const withPaths = [text, ...paths.map(quotePromptPath)].filter(Boolean).join(' ')
@@ -1601,7 +1608,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     readiness.kind,
     userTurns.length,
     shape.hasUserMessage,
-    draftMetadata,
     sendTurn,
     setDraft,
     setDraftMetadata,
@@ -2035,8 +2041,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Retry and other "act now" affordances stay disabled while busy or not ready.
   const composerDisabled = !ready || composerBusy
   // The textarea itself is only disabled before the provider is ready — it stays
-  // editable through a stream so type-ahead works (D6/1776).
-  const composerInputDisabled = !ready
+  // editable through a stream so type-ahead works (D6/1776). A New chat waiting
+  // on its worktree takes type-ahead too, and one whose worktree failed holds
+  // the message it gave back: neither can send (Send and Enter wait on ready).
+  const composerInputDisabled =
+    !ready && readiness.kind !== 'preparing-worktree' && readiness.kind !== 'worktree-failed'
   // One rule for both send affordances — the footer button and the right-click
   // menu's Send item (1793) — so they can never label or gate a commit
   // differently from each other or from Enter.

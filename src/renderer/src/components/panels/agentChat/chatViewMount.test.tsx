@@ -556,6 +556,64 @@ test('a worktree that could not be made says why in the chat and gives the promp
   }
 })
 
+test('a chat waiting on its worktree takes type-ahead that Enter does not send, and it outlasts the folder change', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const conversationSessionStart = sessionStartSpy()
+  const worktree = deferredWorktree()
+  const chat = await mountPendingChat({
+    createGitWorktree: worktree.createGitWorktree,
+    startAttempt: true,
+    sendTurn,
+    conversationSessionStart,
+  })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(chat.field().getAttribute('contenteditable'), 'the composer takes input while it waits').toBe('true')
+    await chat.act(async () => chat.type('and the signup page'))
+    await chat.act(async () => void chat.enter())
+    expect(sendTurn, 'Enter sends nothing before the chat can').not.toHaveBeenCalled()
+    expect(chat.draft()).toBe('and the signup page')
+    expect(chat.host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled).toBe(true)
+
+    await chat.act(async () => worktree.settle('ok'))
+    await chat.act(async () => {
+      chat.emit({ type: 'snapshot', page: { events: [], hasMore: false, beforeCursor: null } })
+      chat.emit({ type: 'synchronized', seq: 0 })
+    })
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(sendTurn).toHaveBeenCalledOnce()
+    expect(sendTurn.mock.calls[0][0], 'the first message is the launcher’s alone').toMatchObject({
+      message: 'fix the login',
+    })
+    expect(chat.draft(), 'what was typed meanwhile is still in the composer').toBe('and the signup page')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a worktree that failed puts the message back ahead of what was typed while it was being made', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const worktree = deferredWorktree()
+  const chat = await mountPendingChat({
+    createGitWorktree: worktree.createGitWorktree,
+    startAttempt: true,
+    sendTurn,
+    conversationSessionStart: sessionStartSpy(),
+  })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    await chat.act(async () => chat.type('and the signup page'))
+    await chat.act(async () => worktree.settle({ ok: false, message: 'Could not fetch origin.' }))
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(chat.draft()).toBe('fix the login\nand the signup page')
+    expect(chat.field().getAttribute('contenteditable'), 'the box the message is back in can be edited').toBe('true')
+    await chat.act(async () => void chat.enter())
+    expect(sendTurn, 'nothing sends from a chat with no folder').not.toHaveBeenCalled()
+  } finally {
+    await chat.unmount()
+  }
+})
+
 test('a chat still waiting on its worktree when the app went away comes back failed, and Retry makes it again', async () => {
   const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
   const conversationSessionStart = sessionStartSpy()
