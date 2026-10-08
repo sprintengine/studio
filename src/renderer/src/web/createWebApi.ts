@@ -130,6 +130,10 @@ const browserEmptyStates = {
   listFolderOpenTargets: async () => [],
   setBackgroundMode: async () => undefined,
   setTelemetryEnabled: async () => undefined,
+  // The titles setting the server titles chats by is the desktop window's to
+  // push: a tab's own settings start at the defaults, and its mount push would
+  // overwrite a choice the person made on the desktop.
+  setTextGenerationSettings: async () => undefined,
   // A browser tab has no quit to ask about.
   getQuitConfirmation: async () => null,
   setQuitConfirmation: async () => null,

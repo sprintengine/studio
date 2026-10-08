@@ -407,3 +407,68 @@ test('only Mark unread’s own command may move the visit clock back', () => {
   service.updateWorkspaceFields('ws-one', { lastVisitedAt: 21_000 }, 'ui')
   assert.equal(visitClock(), 21_000)
 })
+
+test("main's own title carries the lock and never outranks a person's rename", () => {
+  const record: Workspace = {
+    id: 'ws-chat',
+    name: 'Chat 3',
+    mode: 'standard',
+    folderPath: '/Users/dev/app',
+    templateId: 'solo-chat',
+    layoutModel: { global: {}, borders: [], layout: { type: 'row', children: [] } },
+    agents: {},
+    worktreeState: { containerPath: null, entries: {}, updatedAt: null },
+    memory: { relativeRoot: null },
+    editorState: { openFiles: [], activeFilePath: null },
+    createdAt: 1,
+  }
+  let clock = 20_000
+  const registry = createWorkspaceRegistryService({
+    store: createInMemoryWorkspaceRegistryStore({
+      ...emptyWorkspaceRegistryFile(1),
+      revision: 1,
+      workspaces: [toWorkspaceRegistryRecord(record, 1)],
+      workspaceWindows: [
+        {
+          id: 'primary',
+          kind: 'primary',
+          workspaceIds: ['ws-chat'],
+          activeWorkspaceId: 'ws-chat',
+          bounds: null,
+          isMaximized: false,
+          displayId: null,
+          createdAt: 1,
+          lastFocusedAt: 1,
+        },
+      ],
+      primaryWorkspaceWindowId: 'primary',
+      activeWorkspaceId: 'ws-chat',
+    }),
+    now: () => clock,
+  })
+  const service = createWorkspaceSyncService({ registry, now: () => clock })
+  const heard: string[] = []
+  service.subscribeEvents((event) => heard.push(event.type))
+
+  const titled = service.renameWorkspace('ws-chat', 'Fix the upload retry', true, 'system')
+  assert.equal(titled.ok, true)
+  assert.equal(registry.getRecord('ws-chat')?.name, 'Fix the upload retry')
+  assert.equal(registry.getRecord('ws-chat')?.titleLocked, true)
+  assert.deepEqual(heard, ['workspace.renamed'], 'every window hears it, as it hears any main write')
+
+  // A rename the person typed before main's title landed, still on its way
+  // from their window, is not stale: main's title took no stamp of its own.
+  clock += 5_000
+  const typed = service.dispatch({
+    sourceWindowId: 'primary',
+    command: {
+      type: 'workspace.rename',
+      payload: { workspaceId: 'ws-chat', name: 'Upload work', titleLocked: true, editedAt: 19_000 },
+    },
+  })
+  assert.equal(typed.ok, true)
+  assert.equal(registry.getRecord('ws-chat')?.name, 'Upload work')
+
+  assert.equal(service.renameWorkspace('ws-gone', 'Anything', true, 'system').ok, false)
+  assert.equal(service.renameWorkspace('ws-chat', '   ', true, 'system').ok, false)
+})

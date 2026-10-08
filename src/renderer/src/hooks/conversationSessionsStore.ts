@@ -5,9 +5,9 @@
 // lifecycle event says something a surface draws may have moved. Streaming
 // deltas and partial tool output are ignored: they are per-token, and the
 // sidebar line reads `currentToolTitle`, which moves only when a tool starts
-// or its final output lands. A user message counts: it is what the chat's
-// title is taken from, and it lands before the provider's first event, which
-// may take a while to arrive.
+// or its final output lands. A user message counts: it starts the turn and
+// changes what the person last said, and it lands before the provider's first
+// event, which may take a while to arrive.
 //
 // Three things keep the list from re-rendering the shell for nothing, the
 // shape `terminalSessionsStore` already has:

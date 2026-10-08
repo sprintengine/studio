@@ -90,6 +90,7 @@ import { undeliveredPromptEntry, undeliveredPromptNotice } from '../../utils/und
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
+import { initTextGenerationSettingsSync } from '../../utils/textGenerationSettingsSync'
 import {
   addNewAgentTab,
   addTerminalTab,
@@ -192,7 +193,6 @@ import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionGroup, type SessionItem } from './WorkspaceActions'
 import {
   buildSidebarWorkspaceOrder,
-  conversationTitleOffers,
   getSessionItems,
   getWorkspaceActivity,
   showsNoWorkspaceState,
@@ -451,6 +451,10 @@ export default function WorkspaceManager() {
   // The usage-data choice is read by main on every event it records, including
   // ones with no window open, so it is mirrored the same way.
   useEffect(() => initTelemetryConsentSync(), [])
+  // Chats are titled by the process that runs them, which may have no window
+  // to ask when one starts (a phone's New chat), so the titles setting is
+  // mirrored the same way.
+  useEffect(() => initTextGenerationSettingsSync(), [])
   const workspaces = useWorkspaceStore(useShallow((s) => selectWorkspaceManagerWorkspaces(s.workspaces)))
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)
@@ -723,9 +727,6 @@ export default function WorkspaceManager() {
   // action is idempotent, but calling it on every broadcast would run an immer
   // `set` per snapshot and churn subscribers for nothing.
   const titledPromptAtRef = useRef<Map<string, number>>(new Map())
-  // The same, for chat agents: the last user text each conversation session
-  // offered. Their summaries carry the text but no per-prompt timestamp.
-  const titledConversationTextRef = useRef<Map<string, string>>(new Map())
   const reconciledLaunchFlagsRef = useRef(false)
   const workspaceLayoutLastFocusedAtRef = useRef<Record<string, number>>({})
   const workspaceLayoutRetentionReasonsRef = useRef<Record<string, WorkspaceLayoutRetentionReason>>({})
@@ -2245,19 +2246,6 @@ export default function WorkspaceManager() {
     reconcileWorkspaceAgentLaunchFlags,
     projectLaunchedAgentSessions,
   ])
-
-  // Chat agents are named after their first real prompt through the same
-  // requester as terminals, so the heuristic, the model-written upgrade and
-  // the hand-rename lock all behave identically. A chat has no prompt hook;
-  // its runtime summary carries what the person sent instead.
-  useEffect(() => {
-    const known = new Set(workspaces.map((workspace) => workspace.id))
-    for (const offer of conversationTitleOffers(conversationSessions, titledConversationTextRef.current, (id) =>
-      known.has(id),
-    )) {
-      generatedWorkspaceTitleRequester().titleFromPrompt(offer.workspaceId, offer.prompt)
-    }
-  }, [conversationSessions, workspaces])
 
   useEffect(() => {
     if (window.api.platform === 'darwin' || !clientSupports('window-controls')) return

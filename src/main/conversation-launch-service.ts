@@ -513,12 +513,14 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
     }
     let chatWorkspaceId = workspace.id
     if (newChat) {
-      // Named after the message it is about to be sent, as a window names a chat
-      // after its first prompt. Only a window titles a chat, and a chat started
-      // here (from a phone, a paired machine, a schedule) may have no window
-      // showing it, so without this it kept "Chat N" everywhere, the phone
-      // included. The name stays open: a window's model-written title still
-      // replaces it when one is on.
+      // Named after the message it is about to be sent, so the chat has its
+      // title the moment it is listed anywhere, a phone included, rather than
+      // "Chat N" until its first message has gone. The name stays open: the
+      // chat's titler (`text-generation/chat-titler.ts`) hears that message
+      // like any other, locks the name, and replaces it with a model-written
+      // title when one is on. A chat made with no prompt (a phone's New chat
+      // with pictures, whose first message follows through its ordinary send)
+      // is named by the titler from that message instead.
       const firstTitle = request.sendFirst !== false && request.prompt ? deriveWorkspaceTitle(request.prompt) : null
       // Born with its agent, in one event, so a window never shows the
       // template's tab with no agent behind it.

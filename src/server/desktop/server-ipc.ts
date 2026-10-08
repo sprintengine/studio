@@ -25,6 +25,7 @@ import { registerMeshIpc } from '../../main/ipc/mesh-ipc'
 import { registerStudioLocalAppsIpc } from '../../main/ipc/studio-local-apps-ipc'
 import { registerUsageLimitResumeIpc } from '../../main/ipc/usage-limit-resume-ipc'
 import { registerScheduledMessagesIpc } from '../../main/ipc/scheduled-messages-ipc'
+import { registerTextGenerationSettingsIpc } from '../../main/ipc/text-generation-settings-ipc'
 import { registerUsageLimitsIpc } from '../../main/ipc/usage-limits-ipc'
 import { registerWorkspaceBackupIpc } from '../../main/ipc/workspace-backup-ipc'
 import { registerWorkspaceSyncIpc } from '../../main/ipc/workspace-sync-ipc'
@@ -46,7 +47,8 @@ import type { StudioGateway } from '../core/studio-gateway'
 // machines, the gateway's settings and the tailnet and mesh, the paired local
 // apps, workspace backups, model discovery, the composer's command lists,
 // the subscription usage limits and the resumes after them, backlog files,
-// provider credentials and the GitHub token, and the chats.
+// provider credentials and the GitHub token, and the chats, with the copy of
+// the model-written titles setting the server titles them by.
 // What is not: anything that acts on a window, a terminal or the shell's own
 // caches (the git panel, the file explorer, skills and the marketplace,
 // modules' enablement and trust), which stays with the shell until phase 10.
@@ -67,6 +69,7 @@ export type ServerDomainIpcDeps = {
     | 'platform'
     | 'usageLimitResumes'
     | 'scheduledMessages'
+    | 'textGenerationSettings'
   > & { hosts: HostRegistry; agentLaunchSettings: AgentLaunchSettingsStore }
   gateway: StudioGateway
   studioRpc: StudioRpcService
@@ -107,6 +110,8 @@ export function registerServerDomainIpc(registry: IpcRegistryLike, deps: ServerD
   // The messages a person scheduled into a chat, sent when their time comes.
   registerScheduledMessagesIpc(ipc, core.scheduledMessages)
   registerLaunchSettingsIpc(ipc, { launchSettings: core.agentLaunchSettings })
+  // The titles setting each window pushes; the chats are titled where they run.
+  registerTextGenerationSettingsIpc(ipc, core.textGenerationSettings)
   registerHostsIpc(ipc, { hosts: core.hosts })
   registerBacklogIpc(ipc)
   registerGitHubTokenIpc(ipc, deps.githubTokenStore)

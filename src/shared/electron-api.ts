@@ -26,7 +26,12 @@ import type {
 } from './tours/tour-types'
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type { ConversationPeek } from './conversation-peek'
-import type { ChatTitleRequest, PullRequestTextResult, TextGenerationResult } from './text-generation/contract'
+import type {
+  ChatTitleRequest,
+  PullRequestTextResult,
+  TextGenerationResult,
+  TextGenerationSettings,
+} from './text-generation/contract'
 import type {
   CreatePullRequestOutcome,
   CreatePullRequestState,
@@ -1579,6 +1584,9 @@ export type ElectronApi = {
   // failure is a typed `{ ok: false }` the caller answers by keeping what it
   // had. See src/shared/text-generation/contract.ts.
   generateChatTitle: (request: ChatTitleRequest) => Promise<TextGenerationResult>
+  // Renderer → main mirror of `appSettings.textGeneration`. The process that
+  // runs the chats titles them by this copy, with or without a window open.
+  setTextGenerationSettings: (settings: TextGenerationSettings) => Promise<void>
   // The chat's "Create PR" (src/main/pull-request-create.ts): whether it may
   // show for a checkout, a drafted title and description, the push, and the
   // creation. This computer's checkouts only. Never rejects.
