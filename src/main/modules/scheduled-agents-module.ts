@@ -72,15 +72,21 @@ export function createScheduledAgentsModule(
       // chat it started in: the start is recorded as that failure instead.
       const refusedBeforeRecorded = new Map<string, string>()
       const firstSendFailed = (agentId: string, workspaceId: string, message: string): void => {
-        void store.failRun(agentId, workspaceId, message).then((failed) => {
-          if (failed) {
-            service?.notifyChanged()
-            return
-          }
-          refusedBeforeRecorded.set(workspaceId, message)
-          while (refusedBeforeRecorded.size > 32)
-            refusedBeforeRecorded.delete(refusedBeforeRecorded.keys().next().value!)
-        })
+        void store
+          .failRun(agentId, workspaceId, message)
+          .then((failed) => {
+            if (failed) {
+              service?.notifyChanged()
+              return
+            }
+            refusedBeforeRecorded.set(workspaceId, message)
+            while (refusedBeforeRecorded.size > 32)
+              refusedBeforeRecorded.delete(refusedBeforeRecorded.keys().next().value!)
+          })
+          // The store refuses writes while its file cannot be read.
+          .catch((error: unknown) =>
+            console.warn(`[scheduled-agents] ${error instanceof Error ? error.message : String(error)}`),
+          )
       }
       const scheduler = createScheduledAgentsScheduler({
         list: () => store.list(),
