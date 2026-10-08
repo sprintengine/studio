@@ -30,6 +30,7 @@ import type { ChatTitleRequest, PullRequestTextResult, TextGenerationResult } fr
 import type {
   CreatePullRequestOutcome,
   CreatePullRequestState,
+  PullRequestCheckoutPin,
   PushForPullRequestOutcome,
 } from './git/pull-request-create'
 import type {
@@ -1584,8 +1585,14 @@ export type ElectronApi = {
   }) => Promise<PullRequestTextResult>
   /** The dialog closed while its draft was being written: the drafting CLI is stopped. */
   cancelPullRequestDraft: (draftId: string) => Promise<void>
-  pushForPullRequest: (cwd: string) => Promise<PushForPullRequestOutcome>
-  createPullRequest: (input: { cwd: string; title: string; body: string }) => Promise<CreatePullRequestOutcome>
+  /** `pin`: the branch and commit the person confirmed; refused when the checkout has moved off it. */
+  pushForPullRequest: (cwd: string, pin?: PullRequestCheckoutPin) => Promise<PushForPullRequestOutcome>
+  createPullRequest: (input: {
+    cwd: string
+    title: string
+    body: string
+    pin?: PullRequestCheckoutPin
+  }) => Promise<CreatePullRequestOutcome>
   /** Create a new design-system bundle in a user-chosen folder — seeded from an existing bundle, or bare from the shipped templates. Never overwrites; rolls back on failure. */
   seedDesignSystemBundle: (
     sourceDir: string | null,

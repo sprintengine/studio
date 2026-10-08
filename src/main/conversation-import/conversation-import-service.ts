@@ -82,6 +82,11 @@ export function createConversationImportService(deps: ConversationImportServiceD
   // A chat is only on record once its history is read, so without this two
   // imports racing would each read the session and each make a chat of it.
   const importing = new Set<string>()
+  // What the last scan found, by `source:id`. An import is of sessions the
+  // picker just listed, so it reads those files again rather than walking
+  // both CLI homes a second time; one the scan did not list sends it back to
+  // a full scan.
+  let lastScan: Map<string, ScannedSession> | null = null
 
   const sources: Array<{
     source: ConversationImportSource
@@ -141,6 +146,7 @@ export function createConversationImportService(deps: ConversationImportServiceD
         if (await folders.get(session.folderPath)) sessions.push(session)
       }
     }
+    lastScan = new Map(sessions.map((session) => [`${session.source}:${session.sessionId}`, session]))
     // Nothing found because a CLI's home could not be read is not "no
     // sessions": the person may have many, behind a permission.
     if (sessions.length === 0 && unreadable.length > 0) throw new Error(`no access to ${unreadable.join('; ')}`)
@@ -182,13 +188,15 @@ export function createConversationImportService(deps: ConversationImportServiceD
   async function importSessions(input: ConversationImportInput): Promise<ConversationImportResult> {
     const asked = Array.isArray(input?.sessions) ? input.sessions : []
     if (asked.length === 0) return { ok: true, imported: [], skipped: 0, failed: [] }
-    let scanned: ScannedSession[]
-    try {
-      scanned = (await scanAll()).sessions
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : 'Saved sessions could not be read.' }
+    let byKey = lastScan
+    if (!byKey || asked.some(({ source, sessionId }) => !byKey!.has(`${source}:${sessionId}`))) {
+      try {
+        await scanAll()
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Saved sessions could not be read.' }
+      }
+      byKey = lastScan ?? new Map<string, ScannedSession>()
     }
-    const byKey = new Map(scanned.map((session) => [`${session.source}:${session.sessionId}`, session]))
     const settings = effectiveAgentLaunchSettings(deps.getLaunchSettings())
     const result: Extract<ConversationImportResult, { ok: true }> = { ok: true, imported: [], skipped: 0, failed: [] }
     for (const { source, sessionId } of asked) {

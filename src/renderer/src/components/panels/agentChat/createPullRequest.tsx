@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 
-import type { CreatePullRequestState } from '../../../../../shared/git/pull-request-create'
+import type { CreatePullRequestState, PullRequestCheckoutPin } from '../../../../../shared/git/pull-request-create'
 import type { BranchPullRequest } from '../../../../../shared/git/pull-request'
 import { resolveStoreTextGenerationEngine } from '../../../store/generatedWorkspaceTitle'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -131,17 +131,21 @@ export function CreatePullRequestControl({
   }, [held, onHoldChange])
   useEffect(() => () => onHoldChange?.(false), [onHoldChange])
 
-  const create = async (text: { title: string; body: string }) => {
+  // `pin`: the branch and commit the dialog opened on. The push and the
+  // creation are refused once the checkout has moved off it.
+  const create = async (text: { title: string; body: string }, pin: PullRequestCheckoutPin | null) => {
     setDialogOpen(false)
     const api = window.api
     setProgress({ step: 'pushing' })
-    const pushed = await api.pushForPullRequest(cwd).catch((error: unknown) => failed(error))
+    const pushed = await api.pushForPullRequest(cwd, pin ?? undefined).catch((error: unknown) => failed(error))
     if (!pushed.ok) {
       setProgress({ step: 'failed', message: pushed.message })
       return
     }
     setProgress({ step: 'creating' })
-    const created = await api.createPullRequest({ cwd, ...text }).catch((error: unknown) => failed(error))
+    const created = await api
+      .createPullRequest({ cwd, ...text, ...(pin ? { pin } : {}) })
+      .catch((error: unknown) => failed(error))
     if (!created.ok) {
       setProgress({ step: 'failed', message: created.message })
       return
@@ -213,7 +217,7 @@ export function CreatePullRequestControl({
         <CreatePullRequestDialog
           cwd={cwd}
           onCancel={() => setDialogOpen(false)}
-          onCreate={(text) => void create(text)}
+          onCreate={(text, pin) => void create(text, pin)}
         />
       ) : null}
     </span>
@@ -236,7 +240,7 @@ function CreatePullRequestDialog({
 }: {
   cwd: string
   onCancel: () => void
-  onCreate: (text: { title: string; body: string }) => void
+  onCreate: (text: { title: string; body: string }, pin: PullRequestCheckoutPin | null) => void
 }): React.JSX.Element {
   const titleId = useId()
   const titleFieldId = useId()
@@ -246,6 +250,22 @@ function CreatePullRequestDialog({
   const [drafting, setDrafting] = useState(true)
   const [draftError, setDraftError] = useState<string | null>(null)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  // The branch and commit the draft is written from, read as the dialog
+  // opens: what "Create" confirms, and so all the push and creation may use.
+  const pin = useRef<PullRequestCheckoutPin | null>(null)
+  useEffect(() => {
+    let alive = true
+    if (typeof window.api?.createPullRequestState !== 'function') return
+    void window.api
+      .createPullRequestState(cwd)
+      .then((state) => {
+        if (alive && state?.branch && state.headSha) pin.current = { branch: state.branch, headSha: state.headSha }
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [cwd])
 
   useEffect(() => {
     let alive = true
@@ -294,7 +314,7 @@ function CreatePullRequestDialog({
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault()
     if (!title.trim() || drafting) return
-    onCreate({ title: title.trim(), body })
+    onCreate({ title: title.trim(), body }, pin.current)
   }
 
   return (

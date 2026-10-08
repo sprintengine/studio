@@ -141,7 +141,9 @@ export function createScheduledAgentsService(deps: ScheduledAgentsServiceDeps): 
         message:
           fired.refused === 'still_working'
             ? 'Its last run is still working.'
-            : 'That scheduled agent is already starting a run.',
+            : fired.refused === 'stopped'
+              ? 'Studio is quitting, so the run did not start.'
+              : 'That scheduled agent is already starting a run.',
       }
     },
     async markFailureSeen(id) {

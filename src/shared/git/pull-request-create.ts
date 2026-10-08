@@ -73,9 +73,18 @@ export type CreatePullRequestState = {
   readiness: CreatePullRequestReadiness
   gitRoot: string | null
   branch: string | null
+  /** The commit the branch is at, which a confirmed Create PR pushes and proposes. */
+  headSha: string | null
   base: string | null
   forge: PullRequestForge | null
 }
+
+/**
+ * The branch and commit a person confirmed a pull request for. The push and
+ * the creation are refused when the checkout has moved off it since, rather
+ * than proposing a branch or commits they did not see.
+ */
+export type PullRequestCheckoutPin = { branch: string; headSha: string }
 
 /** A creation's end: created by `gh`, already there, a forge page to open, or why not. */
 export type CreatePullRequestOutcome =

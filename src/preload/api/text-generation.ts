@@ -10,6 +10,7 @@ import type {
 import type {
   CreatePullRequestOutcome,
   CreatePullRequestState,
+  PullRequestCheckoutPin,
   PushForPullRequestOutcome,
 } from '../../shared/git/pull-request-create'
 
@@ -26,10 +27,14 @@ export const textGenerationApi = {
   }): Promise<PullRequestTextResult> => ipcRenderer.invoke('pull-request-create:draft', request),
   cancelPullRequestDraft: (draftId: string): Promise<void> =>
     ipcRenderer.invoke('pull-request-create:draft-cancel', draftId),
-  pushForPullRequest: (cwd: string): Promise<PushForPullRequestOutcome> =>
-    ipcRenderer.invoke('pull-request-create:push', cwd),
-  createPullRequest: (input: { cwd: string; title: string; body: string }): Promise<CreatePullRequestOutcome> =>
-    ipcRenderer.invoke('pull-request-create:create', input),
+  pushForPullRequest: (cwd: string, pin?: PullRequestCheckoutPin): Promise<PushForPullRequestOutcome> =>
+    ipcRenderer.invoke('pull-request-create:push', cwd, pin),
+  createPullRequest: (input: {
+    cwd: string
+    title: string
+    body: string
+    pin?: PullRequestCheckoutPin
+  }): Promise<CreatePullRequestOutcome> => ipcRenderer.invoke('pull-request-create:create', input),
 } satisfies Pick<
   ElectronApi,
   | 'generateChatTitle'

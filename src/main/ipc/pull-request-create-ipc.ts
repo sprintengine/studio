@@ -2,6 +2,7 @@ import path from 'node:path'
 
 import type { IpcMain } from 'electron'
 
+import type { PullRequestCheckoutPin } from '../../shared/git/pull-request-create'
 import type { PullRequestTextRequest, PullRequestTextResult } from '../../shared/text-generation/contract'
 import { writeDiagnosticLog } from '../diagnostics-service'
 import { createPullRequestCreator, type PullRequestCreator } from '../pull-request-create'
@@ -69,10 +70,12 @@ export function registerPullRequestCreateIpc(ipcMain: IpcMain, deps: PullRequest
     drafts.delete(draftId)
   })
 
-  ipcMain.handle('pull-request-create:push', async (_, cwd: unknown) => {
+  ipcMain.handle('pull-request-create:push', async (_, cwd: unknown, pin: unknown) => {
     const folder = folderOf(cwd)
     if (!folder) return { ok: false, message: 'No checkout to push.' }
-    return creator.push(folder).catch((error: unknown) => ({ ok: false, message: describe(error) }))
+    return creator
+      .push(folder, pinOf(pin) ?? undefined)
+      .catch((error: unknown) => ({ ok: false, message: describe(error) }))
   })
 
   ipcMain.handle('pull-request-create:create', async (_, input: unknown) => {
@@ -82,9 +85,26 @@ export function registerPullRequestCreateIpc(ipcMain: IpcMain, deps: PullRequest
       return { ok: false, message: 'Malformed pull request.' }
     }
     return creator
-      .create(folder, { title: record.title.slice(0, 300), body: record.body.slice(0, 65_000) })
+      .create(
+        folder,
+        { title: record.title.slice(0, 300), body: record.body.slice(0, 65_000) },
+        pinOf(record.pin) ?? undefined,
+      )
       .catch((error: unknown) => ({ ok: false, message: describe(error) }))
   })
+}
+
+/**
+ * The branch and commit the window confirmed, or nothing. Optional: a window
+ * that sends none (an older one) is pushed and created for as the checkout
+ * stands.
+ */
+function pinOf(value: unknown): PullRequestCheckoutPin | null {
+  if (!value || typeof value !== 'object') return null
+  const { branch, headSha } = value as Record<string, unknown>
+  if (typeof branch !== 'string' || !branch || branch.length > 255 || branch.includes('\0')) return null
+  if (typeof headSha !== 'string' || !/^[0-9a-f]{7,64}$/iu.test(headSha)) return null
+  return { branch, headSha }
 }
 
 /** An absolute folder, or nothing: a relative one would resolve against main's own. */

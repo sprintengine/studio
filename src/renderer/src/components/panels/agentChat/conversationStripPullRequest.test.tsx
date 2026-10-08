@@ -288,11 +288,20 @@ test('a held Create PR failure on a checkout no longer ready is dismissed, not r
 })
 
 test('a pull request the branch already had is opened, not claimed for this chat', async () => {
+  const pins: unknown[] = []
   const api = (dom.window as unknown as { api: Record<string, unknown> }).api
   Object.assign(api, {
     draftPullRequestText: async () => ({ ok: true, value: { title: 'feat: marks', body: 'Body' }, ms: 1 }),
-    pushForPullRequest: async () => ({ ok: true, pushed: false }),
-    createPullRequest: async () => ({ ok: true, kind: 'existing', url: 'https://github.com/acme/app/pull/41' }),
+    // The branch and commit the dialog opens on ride the push and the creation.
+    createPullRequestState: async () => ({ branch: 'feature/marks', headSha: 'abc1234def' }),
+    pushForPullRequest: async (_cwd: string, pin: unknown) => {
+      pins.push(pin)
+      return { ok: true, pushed: false }
+    },
+    createPullRequest: async (input: { pin?: unknown }) => {
+      pins.push(input.pin)
+      return { ok: true, kind: 'existing', url: 'https://github.com/acme/app/pull/41' }
+    },
   })
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')
   useWorkspaceStore.setState((state) => ({
@@ -326,6 +335,8 @@ test('a pull request the branch already had is opened, not claimed for this chat
   await act(async () => create?.click())
   await waitFor(() => (settled > 0 ? true : null))
   expect(opened).toContain('https://github.com/acme/app/pull/41')
+  const pin = { branch: 'feature/marks', headSha: 'abc1234def' }
+  expect(pins).toEqual([pin, pin])
   // Nothing was recorded, so there is no failure to record it either.
   expect(container.querySelector('[data-create-pull-request-error]')).toBe(null)
   await act(async () => root.unmount())

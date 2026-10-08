@@ -63,6 +63,7 @@ import { readPullRequestState as readPullRequestStateDefault } from '../../main/
 import {
   createPullRequestWatchPoller,
   PR_WATCH_BOOT_SCAN_MAX_AGE_MS,
+  type WatchPollerFocus,
   type WatchPollerTimers,
 } from '../../main/github/pull-request-watch-poller'
 
@@ -136,6 +137,8 @@ export type PullRequestRecordOptions = {
   loadStoredOnStart?: boolean
   now?: () => number
   timers?: WatchPollerTimers
+  /** Whether an app window has focus: the watch slows while none does. Absent, it never slows. */
+  focus?: WatchPollerFocus
   random?: () => number
   logWarning?: (message: string, error: unknown) => void
 }
@@ -265,6 +268,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     },
     probe: (url) => refresh(url),
     timers,
+    ...(options.focus ? { focus: options.focus } : {}),
     ...(options.now ? { now: options.now } : {}),
     ...(options.random ? { random: options.random } : {}),
   })

@@ -135,51 +135,55 @@ export function createScheduledAgentsModule(
             ...(workspaceId ? { workspaceId } : {}),
           }).catch(() => undefined)
         },
-        run: (agent) =>
-          runScheduledAgent(withinOwnerModuleCeiling(agent, getModulePermissions), {
-            launchConversation: (request) => conversationLaunchService.launch(request),
-            getRepoRoot: (folderPath, hostId) => withGitHost(gitHostFor(hostId), () => getGitRepoRoot(folderPath)),
-            createWorktree: async (input) => {
-              const created = await withGitHost(gitHostFor(input.hostId), () =>
-                createGitWorktree({
-                  repoRoot: input.repoRoot,
-                  containerPath: input.containerPath,
-                  destinationPath: input.destinationPath,
-                  branchName: input.branchName,
-                  baseRef: 'HEAD',
-                  // On the default branch, from the worktree pool when this
-                  // process keeps one: a run starts from what is merged, not
-                  // from whatever branch the checkout happens to be on.
-                  fromPool: true,
-                  copyIncludedFiles: true,
-                  // The chat is created after its worktree, so the branch names the owner.
-                  agentLockOwner: input.branchName,
-                  // Named to the pool too: it serves this machine's own git
-                  // alone, and a run on a WSL machine (its folder may well be a
-                  // Windows drive) must get a fresh worktree from that git.
-                  ...(input.hostId ? { hostId: input.hostId } : {}),
-                }),
-              )
-              return created.ok
-                ? {
-                    ok: true,
-                    path: created.data.path,
-                    branch: created.data.branch ?? input.branchName,
-                    leaseId: created.data.leaseId,
-                  }
-                : { ok: false, message: created.message }
+        run: (agent, signal) =>
+          runScheduledAgent(
+            withinOwnerModuleCeiling(agent, getModulePermissions),
+            {
+              launchConversation: (request) => conversationLaunchService.launch(request),
+              getRepoRoot: (folderPath, hostId) => withGitHost(gitHostFor(hostId), () => getGitRepoRoot(folderPath)),
+              createWorktree: async (input) => {
+                const created = await withGitHost(gitHostFor(input.hostId), () =>
+                  createGitWorktree({
+                    repoRoot: input.repoRoot,
+                    containerPath: input.containerPath,
+                    destinationPath: input.destinationPath,
+                    branchName: input.branchName,
+                    baseRef: 'HEAD',
+                    // On the default branch, from the worktree pool when this
+                    // process keeps one: a run starts from what is merged, not
+                    // from whatever branch the checkout happens to be on.
+                    fromPool: true,
+                    copyIncludedFiles: true,
+                    // The chat is created after its worktree, so the branch names the owner.
+                    agentLockOwner: input.branchName,
+                    // Named to the pool too: it serves this machine's own git
+                    // alone, and a run on a WSL machine (its folder may well be a
+                    // Windows drive) must get a fresh worktree from that git.
+                    ...(input.hostId ? { hostId: input.hostId } : {}),
+                  }),
+                )
+                return created.ok
+                  ? {
+                      ok: true,
+                      path: created.data.path,
+                      branch: created.data.branch ?? input.branchName,
+                      leaseId: created.data.leaseId,
+                    }
+                  : { ok: false, message: created.message }
+              },
+              // A pool slot goes back to the pool; a fresh worktree is removed.
+              discardWorktree: async ({ repoRoot, path, leaseId, hostId }) => {
+                const pool = leaseId ? activeWorktreePool() : null
+                if (pool && leaseId) {
+                  await pool.release(leaseId)
+                  return
+                }
+                await withGitHost(gitHostFor(hostId), () => removeGitWorktree({ repoRoot, path, force: true }))
+              },
+              onFirstSendFailed: (workspaceId, message) => firstSendFailed(agent.id, workspaceId, message),
             },
-            // A pool slot goes back to the pool; a fresh worktree is removed.
-            discardWorktree: async ({ repoRoot, path, leaseId, hostId }) => {
-              const pool = leaseId ? activeWorktreePool() : null
-              if (pool && leaseId) {
-                await pool.release(leaseId)
-                return
-              }
-              await withGitHost(gitHostFor(hostId), () => removeGitWorktree({ repoRoot, path, force: true }))
-            },
-            onFirstSendFailed: (workspaceId, message) => firstSendFailed(agent.id, workspaceId, message),
-          }),
+            signal,
+          ),
       })
       const scheduledAgents = createScheduledAgentsService({ store, scheduler })
       service = scheduledAgents
