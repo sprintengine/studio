@@ -1,4 +1,6 @@
-import { access, appendFile, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { createReadStream, createWriteStream } from 'node:fs'
+import { access, appendFile, open, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { pipeline } from 'node:stream/promises'
 import { isAbsolute, join } from 'node:path'
 
 import { distroOfUncPath, toWslPath } from '../../shared/host-paths'
@@ -6,7 +8,7 @@ import { isMachinePath, parseMachinePath } from '../../shared/machine-paths'
 import { sidecarRelativePath } from '../../shared/workspace-sidecar'
 import { ensureSidecarDirNoLinks, workspaceSidecarPath } from '../workspace-sidecar'
 import type { RecordingFailure, RecordingOutput, RecordingOutputs } from './browser-recorder'
-import { withWebmDuration } from './webm-duration'
+import { webmDurationPatch } from './webm-duration'
 
 // Where a browser recording is saved: in the project's own folder, in
 // `.sprintengine/browser/recordings/`. That folder ignores itself (the same
@@ -41,6 +43,8 @@ const EXTENSION = '.webm'
 const PARTIAL_SUFFIX = '.part'
 /** How many names a recording tries before giving up: a folder this full is not one to add to. */
 const MAX_NAME_ATTEMPTS = 1_000
+/** How much of a recording is read to set its length: Chromium writes Info in its first few hundred bytes. */
+const HEAD_BYTES = 64 * 1024
 
 // Every check is asynchronous: a WSL workspace is a `\\wsl.localhost\…` share,
 // and a synchronous call on it would hold main while the distribution answers.
@@ -50,7 +54,10 @@ export type RecordingFs = {
   /** Make an empty file, or answer false when one is already there. */
   createNew(path: string): Promise<boolean>
   appendFile(path: string, data: Uint8Array): Promise<void>
-  readFile(path: string): Promise<Uint8Array>
+  /** Up to `length` bytes from the start of a file. */
+  readHead(path: string, length: number): Promise<Uint8Array>
+  /** Append `from`'s bytes from `start` on to `to`, streamed rather than read whole. */
+  appendFrom(from: string, start: number, to: string): Promise<void>
   rename(from: string, to: string): Promise<void>
   remove(path: string): Promise<void>
   size(path: string): Promise<number>
@@ -72,7 +79,17 @@ const nodeFs: RecordingFs = {
       },
     ),
   appendFile: (path, data) => appendFile(path, data),
-  readFile: async (path) => new Uint8Array(await readFile(path)),
+  readHead: async (path, length) => {
+    const handle = await open(path, 'r')
+    try {
+      const buffer = new Uint8Array(length)
+      const { bytesRead } = await handle.read(buffer, 0, length, 0)
+      return buffer.subarray(0, bytesRead)
+    } finally {
+      await handle.close()
+    }
+  },
+  appendFrom: (from, start, to) => pipeline(createReadStream(from, { start }), createWriteStream(to, { flags: 'a' })),
   rename: (from, to) => rename(from, to),
   remove: (path) => rm(path, { force: true }),
   size: async (path) => (await stat(path)).size,
@@ -142,15 +159,22 @@ export function createWorkspaceRecordingOutputs(deps: WorkspaceRecordingOutputsD
         append: (bytes) => fs.appendFile(partial, bytes),
         async finish(durationMs) {
           // The length goes into the header; a file this edit does not
-          // understand is kept as it is, playable without one.
-          const recorded = await fs.readFile(partial)
-          const withLength = withWebmDuration(recorded, durationMs)
-          if (withLength) {
-            await fs.writeFile(file, withLength)
-            await fs.remove(partial)
-          } else {
-            await fs.rename(partial, file)
+          // understand is kept as it is, playable without one. Only the head
+          // is read: the rest, up to 60 MB of it, is copied across as it is.
+          const patch = webmDurationPatch(await fs.readHead(partial, HEAD_BYTES), await fs.size(partial), durationMs)
+          let patched = false
+          if (patch) {
+            try {
+              await fs.writeFile(file, patch.head)
+              await fs.appendFrom(partial, patch.replaces, file)
+              patched = true
+            } catch {
+              // A half-written copy is not kept; the recording itself is.
+              await fs.remove(file)
+            }
           }
+          if (patched) await fs.remove(partial)
+          else await fs.rename(partial, file)
           return { bytes: await fs.size(file) }
         },
         async discard() {
