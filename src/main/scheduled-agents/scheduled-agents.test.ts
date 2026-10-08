@@ -737,3 +737,27 @@ test('an entry that no longer validates is written back as it was, not dropped b
     file.cleanup()
   }
 })
+
+test('a run whose record cannot be written is logged, not left as an unhandled rejection', async () => {
+  const time = fakeTime(Date.UTC(2026, 8, 30, 12, 59))
+  const logs: string[] = []
+  const ran: string[] = []
+  const scheduler = createScheduledAgentsScheduler({
+    list: () => [agent()],
+    run: async () => ({ at: time.now(), ok: true, workspaceId: 'w' }),
+    recordRun: async () => {
+      throw new Error('disk full')
+    },
+    onRan: (entry) => ran.push(entry.id),
+    log: (message) => logs.push(message),
+    now: time.now,
+    setTimer: time.setTimer,
+    clearTimer: time.clearTimer,
+  })
+  scheduler.start()
+  await time.advanceTo(Date.UTC(2026, 8, 30, 13, 0))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(ran, ['sa-1'], 'the run still counts as run')
+  assert.match(logs[0] ?? '', /could not be recorded: disk full/u)
+  scheduler.stop()
+})

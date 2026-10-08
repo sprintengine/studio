@@ -95,7 +95,12 @@ export function createScheduledAgentsModule(
           // closed, and its chat carries on as any other. One whose run failed
           // stays, saying so, until the person has seen it.
           if (agent.schedule.once !== undefined && run.ok) {
-            void store.remove(agent.id).then(() => service?.notifyChanged())
+            void store
+              .remove(agent.id)
+              .catch((error: unknown) =>
+                console.warn(`[scheduled-agents] ${error instanceof Error ? error.message : String(error)}`),
+              )
+              .then(() => service?.notifyChanged())
             return
           }
           service?.notifyChanged()
@@ -107,6 +112,7 @@ export function createScheduledAgentsModule(
         // A skipped time is not a failed run — nothing was tried, and the
         // schedule's card has nothing to say about it — but it is written down,
         // so "why did it not run at nine" has an answer.
+        log: (message) => console.warn(`[scheduled-agents] ${message}`),
         onSkipped: (agent, reason) => {
           // The skipped time moved its next run on: say so, or every window
           // keeps showing the passed time as "now" until something else changes.
