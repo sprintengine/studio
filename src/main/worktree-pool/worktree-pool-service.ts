@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { rm } from 'fs/promises'
 import { basename, dirname, isAbsolute, resolve } from 'path'
 import {
@@ -306,6 +306,12 @@ type PoolRuntime = {
   fetchFailedAt: number | null
   /** Recovery, run once this instance holds the pool's container. */
   recovered: Promise<void> | null
+  /**
+   * Slots the automatic eviction last kept for their ignored files, by the
+   * verdict key they were kept under (`keptKey`): not checked again until it
+   * changes. Not persisted.
+   */
+  keptVerdicts: Map<string, string>
 }
 
 type ResolvedRepo = { repoRoot: string; commonDir: string }
@@ -449,6 +455,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         fetch: null,
         fetchFailedAt: null,
         recovered: null,
+        keptVerdicts: new Map(),
       }
       pools.set(record.poolId, pool)
     }
@@ -1599,8 +1606,16 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
    * Remove an idle slot from disk and from the pool. True when it is gone;
    * otherwise why not, worded for the person who asked (Settings): the slot is
    * left idle, or held when it turned out to hold work.
+   *
+   * `keptKey`: an automatic eviction's verdict key for the slot; a slot kept
+   * for its ignored files is remembered under it (`keptVerdicts`).
    */
-  async function evictSlot(pool: PoolRuntime, slot: SlotRecord, why: string): Promise<true | string> {
+  async function evictSlot(
+    pool: PoolRuntime,
+    slot: SlotRecord,
+    why: string,
+    keptKey: string | null = null,
+  ): Promise<true | string> {
     const putBack = async (kept: string | null = slot.kept): Promise<void> => {
       await withPool(pool, async () => {
         slot.state = 'idle'
@@ -1687,6 +1702,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
             files.length > 0 ? `has ignored files that may be someone’s work: ${listedPaths}` : null,
           ].filter((reason): reason is string => reason !== null)
           await putBack(reasons.join('; '))
+          if (keptKey !== null) pool.keptVerdicts.set(slot.id, keptKey)
           log(`${slot.path}: kept (${reasons.join('; ')})`)
           return files.length > 0
             ? `It has ignored files that may be someone’s work (${listedPaths}). Clear its ignored files first if they can go.`
@@ -1732,10 +1748,34 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       .sort((a, b) => (b.lastUsedAt ?? b.createdAt) - (a.lastUsedAt ?? a.createdAt))
     const others = pool.record.slots.length - idle.length
     const limit = enabled ? Math.min(keepIdle, Math.max(0, maxSlots - others)) : 0
+    const chats = chatsKey()
     for (const slot of idle.slice(limit)) {
       if (stopped) return
-      await evictSlot(pool, slot, 'over the idle limit')
+      // Kept last time for the same reasons: every return and every settings
+      // change would otherwise re-read each such slot's ignored files.
+      const key = keptKey(slot, chats)
+      if (pool.keptVerdicts.get(slot.id) === key) continue
+      await evictSlot(pool, slot, 'over the idle limit', key)
     }
+  }
+
+  /** The chats on record, as one comparable string; a slot kept for one's history waits on this changing. */
+  function chatsKey(): string {
+    const ids = deps.knownWorkspaceIds?.()
+    if (!ids) return 'unknown'
+    return createHash('sha256')
+      .update([...ids].sort().join('\0'))
+      .digest('hex')
+  }
+
+  /**
+   * What an automatic eviction's "kept" verdict on a slot rests on: when it
+   * was last used (a lease and its return change what is in it) and which
+   * chats are on record (one deleted lets its history go). Clearing the
+   * slot's ignored files forgets the verdict outright.
+   */
+  function keptKey(slot: SlotRecord, chats: string): string {
+    return `${slot.lastUsedAt ?? slot.createdAt}\0${chats}`
   }
 
   // ── Disk ─────────────────────────────────────────────────────────────────
@@ -1803,10 +1843,13 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       .flatMap((pool) => pool.record.slots.map((slot) => ({ pool, slot })))
       .filter(({ pool, slot }) => slot.state === 'idle' && !pool.busy.has(slot.id))
       .sort((a, b) => (a.slot.lastUsedAt ?? a.slot.createdAt) - (b.slot.lastUsedAt ?? b.slot.createdAt))
+    const chats = chatsKey()
     for (const { pool, slot } of idle) {
       if (total <= limit || stopped) break
       const bytes = slot.size?.bytes ?? 0
-      if ((await evictSlot(pool, slot, 'over the disk limit')) === true) total -= bytes
+      const key = keptKey(slot, chats)
+      if (pool.keptVerdicts.get(slot.id) === key) continue
+      if ((await evictSlot(pool, slot, 'over the disk limit', key)) === true) total -= bytes
     }
   }
 
@@ -1835,6 +1878,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       log(`${slot.path}: ignored files cleared`)
       await withPool(pool, async () => {
         slot.kept = null
+        pool.keptVerdicts.delete(slot.id)
         await persist(pool)
       })
     } finally {

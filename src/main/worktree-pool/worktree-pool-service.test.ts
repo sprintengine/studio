@@ -505,6 +505,31 @@ test('an idle slot with ignored files that may be work is not removed until a pe
   assert.equal(await exists(first.path), false)
 })
 
+test('an idle slot kept for its ignored files is not checked again until it is used or the chats change', async () => {
+  let calls = 0
+  const counting: SlotGitRunner = (cwd, args, options) => {
+    calls += 1
+    return defaultSlotGitRunner(cwd, args, options)
+  }
+  let chats = ['chat-1']
+  const harness = makeService({ git: counting, knownWorkspaceIds: () => chats })
+  const first = await lease(harness, 'first')
+  await writeFile(join(first.path, '.env'), 'TOKEN=edited\n')
+  await returnAll(harness)
+  await harness.service.updateSettings({ keepIdle: 0 })
+  assert.match((await slotAt(harness, 'pool-01')).kept ?? '', /\.env/)
+
+  const before = calls
+  await harness.service.updateSettings({ keepIdle: 0, maxSlots: 8 })
+  assert.equal(calls, before, 'the same verdict, with no git asked again')
+
+  // A chat deleted since: checked again (and kept again, for its .env).
+  chats = []
+  await harness.service.updateSettings({ keepIdle: 0, maxSlots: 6 })
+  assert.ok(calls > before)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+})
+
 test('an idle slot holding only what tools rebuild (a virtualenv, logs, caches) is removed', async () => {
   const harness = makeService()
   const first = await lease(harness, 'first')
