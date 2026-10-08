@@ -1,5 +1,5 @@
 import { createReadStream, readdirSync, readFileSync } from 'node:fs'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { createGunzip, gzip } from 'node:zlib'
@@ -147,11 +147,4 @@ function collectTree(dir: string): Array<{ path: string; data: Buffer }> {
   }
   walk(dir)
   return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-}
-
-/** Drop a cut binary whose archive is gone or stale (tests, a pin bump). */
-export async function forgetNodeBinary(target: RemoteNodeTarget, cacheDir: string): Promise<void> {
-  const pkg = remoteNodePackage(target)
-  await rm(join(cacheDir, `${pkg.dirName}.node`), { force: true })
-  await rm(join(cacheDir, `${pkg.dirName}.node.sha256`), { force: true })
 }

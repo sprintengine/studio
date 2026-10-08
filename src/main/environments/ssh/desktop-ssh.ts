@@ -1,6 +1,6 @@
 import { hostname } from 'node:os'
 
-import { app, BrowserWindow, ipcMain, MessageChannelMain, net, powerMonitor, session } from 'electron'
+import { app, ipcMain, MessageChannelMain, net, powerMonitor, session } from 'electron'
 
 import { writeDiagnosticLog } from '../../diagnostics-service'
 import { allowMachinePartitions } from '../../browser/guest-policy'
@@ -13,6 +13,8 @@ import { splicePort } from '../../../server/ipc/port-duplex'
 import { SERVER_EVENTS, SHELL_METHODS } from '../../../server/desktop/server-methods'
 import { PanePartitions } from './pane-partitions'
 import { SshEnvironments } from './ssh-environments'
+import { broadcastToAllWindows } from '../../window-broadcast'
+import { prefixedId } from '../../../shared/random-id'
 
 // The desktop's SSH machines (phase 8), composed in main: the saved machines
 // and their sessions, their IPC, the pane's partitions behind their forwards,
@@ -41,11 +43,7 @@ export function createDesktopSsh(deps: {
     isDefaultProfile: app.isPackaged && !readStudioEnv('SPRINTENGINE_USER_DATA_DIR')?.trim(),
     startedBy: `Studio on ${hostname()}`,
     fetch: (url, init) => net.fetch(url, init),
-    broadcast: (channel, payload) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (!window.isDestroyed()) window.webContents.send(channel, payload)
-      }
-    },
+    broadcast: (channel, payload) => broadcastToAllWindows(channel, payload),
     onForget: (saved, options) =>
       panePartitions.forget(saved.id, {
         clearBrowsingData: options.clearBrowsingData,
@@ -122,7 +120,7 @@ function serveSshToServer(server: ShellServerLink, environments: SshEnvironments
     if (purpose !== 'backend' && purpose !== 'studio') throw new Error('That is not a stream the server opens.')
     const { stream, label } = await environments.openStream(key, purpose)
     const { port1, port2 } = new MessageChannelMain()
-    const clientId = `ssh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    const clientId = prefixedId('ssh', 6)
     if (!server.attachSshPort?.(clientId, port2)) {
       stream.destroy()
       port1.close()

@@ -9,13 +9,6 @@ import { refuse } from './unsupported'
 
 type Listener = (...args: any[]) => void
 
-/** Shell-side pushes a web tab raises itself (none come from a main process). */
-const listeners = new Map<string, Set<Listener>>()
-
-export function emitWebShellPush(channel: string, ...args: unknown[]): void {
-  for (const listener of [...(listeners.get(channel) ?? [])]) listener({ sender: null, ports: [] }, ...args)
-}
-
 /** `ipcRenderer`'s shape, for the router's channels that are not the server's. */
 export const webShellIpc = {
   invoke(channel: string): Promise<any> {
@@ -25,15 +18,9 @@ export const webShellIpc = {
     // A fire-and-forget to a main process that is not there: noted, not thrown.
     refuse(channel)
   },
-  on(channel: string, listener: Listener): void {
-    let set = listeners.get(channel)
-    if (!set) listeners.set(channel, (set = new Set()))
-    set.add(listener)
-  },
-  removeListener(channel: string, listener: Listener): void {
-    listeners.get(channel)?.delete(listener)
-  },
-  removeAllListeners(channel: string): void {
-    listeners.delete(channel)
-  },
+  // No main process pushes to a web tab, and the tab raises no shell push of
+  // its own, so a subscription here has nothing to hear and nothing to keep.
+  on(_channel: string, _listener: Listener): void {},
+  removeListener(_channel: string, _listener: Listener): void {},
+  removeAllListeners(_channel: string): void {},
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app } from 'electron'
 import { existsSync, watch as fsWatch, type FSWatcher } from 'fs'
 import { copyFile, mkdir, readFile, readdir, writeFile, rm } from 'fs/promises'
 import { join, resolve, sep } from 'path'
@@ -14,6 +14,7 @@ import {
   type StudioLauncherRef,
 } from './integrations/launcher'
 import { hostIdForPath, recordIntegrationWrite } from './integrations/ledger'
+import { broadcastToAllWindows } from './window-broadcast'
 
 // =============================================================================
 // Types
@@ -352,12 +353,6 @@ function synapseKey(src: string, dst: string): string {
   return `${src}\0${dst}`
 }
 
-function broadcast(channel: string, payload: unknown): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send(channel, payload)
-  }
-}
-
 async function readJsonlFromOffset(path: string, offset: number): Promise<{ lines: string[]; nextOffset: number }> {
   let handle: FileHandle | null = null
   try {
@@ -447,7 +442,7 @@ async function tailSessionFile(
   session.fileOffset = nextOffset
   for (const line of lines) {
     const event = processEventLine(state, sessionId, line)
-    if (event && options.broadcastEvents) broadcast('memory-activity:event', event)
+    if (event && options.broadcastEvents) broadcastToAllWindows('memory-activity:event', event)
   }
 }
 
@@ -553,11 +548,11 @@ export function getMemoryActivitySynapses(workspaceRoot: string): ActivitySynaps
 }
 
 function broadcastStatus(state: WorkspaceState): void {
-  broadcast('memory-activity:status', getMemoryActivityStatus(state.workspaceRoot))
+  broadcastToAllWindows('memory-activity:status', getMemoryActivityStatus(state.workspaceRoot))
 }
 
 function broadcastSynapses(state: WorkspaceState): void {
-  broadcast('memory-activity:synapses', {
+  broadcastToAllWindows('memory-activity:synapses', {
     workspaceRoot: state.workspaceRoot,
     synapses: [...state.synapses.values()],
   })

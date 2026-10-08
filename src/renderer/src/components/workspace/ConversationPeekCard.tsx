@@ -10,6 +10,7 @@ import type { SessionContextUsage } from '../../../../shared/electron-api'
 import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { PullRequestPeekMark } from './PullRequestMark'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
+import { formatTokenCount } from '../../utils/tokenFormat'
 
 // The conversation peek — one hover surface for "what is this chat", opened
 // from a sidebar row and from an agent tab.
@@ -188,26 +189,11 @@ function LabelWithAge({ label, aged }: { label: string; aged: { label: string; s
 }
 
 /**
- * A token count in the card's terse voice: `850`, `4.5k`, `84k`, `1.2M`. One
- * decimal only where a whole number would hide a real difference (under ten
- * thousand, and in millions), and never a trailing `.0`.
- */
-export function formatTokenCount(tokens: number): string {
-  if (!Number.isFinite(tokens) || tokens <= 0) return '0'
-  const trim = (value: number) => value.toFixed(1).replace(/\.0$/u, '')
-  if (tokens < 1_000) return String(Math.round(tokens))
-  if (tokens < 10_000) return `${trim(tokens / 1_000)}k`
-  if (tokens < 999_500) return `${Math.round(tokens / 1_000)}k`
-  return `${trim(tokens / 1_000_000)}M`
-}
-
-/**
  * The context line's words: "84k / 200k tokens · 42%", or "42% of context
  * used" when the runtime has not said how big its window is.
  *
  * The used count is DERIVED from the whole percent the session reports, so it
- * is good to one percent of the window — which is all a glance asks of it, and
- * is why it is never shown finer than `formatTokenCount` rounds.
+ * is good to one percent of the window — which is all a glance asks of it.
  */
 export function contextUsageText(usage: SessionContextUsage): string {
   const percentage = Math.max(0, Math.min(100, Math.round(usage.usedPercentage)))

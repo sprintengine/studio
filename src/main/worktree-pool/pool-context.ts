@@ -70,9 +70,7 @@ export function tail(text: string | null | undefined, max = NOTE_TAIL_CHARS): st
   return value.length > max ? `…${value.slice(-max)}` : value
 }
 
-export function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
+export { errorMessage as messageOf } from '../../shared/errors'
 
 /** Why a step that answers `{ ok, message }` failed, or null when it did not. */
 export function failureOf(result: unknown): string | null {

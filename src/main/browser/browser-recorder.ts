@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import type { BrowserRecordingStart, BrowserRecordingState } from '../../shared/browser'
+import { slugify } from '../../shared/paths'
 
 // Recording a browser tab to video, for an agent: the lifecycle around one
 // recording per tab (start, the limits that end it, stop, the file it leaves).
@@ -170,12 +171,7 @@ type Recording = {
 
 /** A file name's middle part: what the page was, made safe for any file system. */
 export function recordingStem(label: string, at: Date): string {
-  const slug =
-    label
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/gu, '-')
-      .replace(/^-+|-+$/gu, '')
-      .slice(0, 40) || 'page'
+  const slug = slugify(label).slice(0, 40) || 'page'
   const pad = (value: number) => String(value).padStart(2, '0')
   const stamp = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`
   return `recording-${slug}-${stamp}`

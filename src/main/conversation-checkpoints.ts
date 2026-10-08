@@ -13,6 +13,9 @@ import type {
   ConversationRevertInput,
   ConversationRevertResult,
 } from '../shared/conversation-runtime'
+import { errorMessage } from '../shared/errors'
+
+const CHECKPOINT_FAILED = 'Checkpoint operation failed.'
 
 export type ConversationCheckpointResult = { ok: true; ref: string } | { ok: false; message: string; skipped?: boolean }
 
@@ -58,7 +61,7 @@ export class ConversationCheckpoints {
       await this.git(root, ['update-ref', ref, await this.commit(root, await this.worktreeTree(root), turnSeq, point)])
       return { ok: true, ref }
     } catch (error) {
-      return { ok: false, message: errorMessage(error) }
+      return { ok: false, message: errorMessage(error, CHECKPOINT_FAILED) }
     }
   }
 
@@ -102,7 +105,7 @@ export class ConversationCheckpoints {
             ])
       return { ok: true, diff, ...(patch !== undefined ? { patch } : {}) }
     } catch (error) {
-      return { ok: false, message: errorMessage(error) }
+      return { ok: false, message: errorMessage(error, CHECKPOINT_FAILED) }
     }
   }
 
@@ -155,7 +158,7 @@ export class ConversationCheckpoints {
       }
       return { ok: true, files, reverted: true, undoRef: recovery, ...(kept.size ? { kept: [...kept] } : {}) }
     } catch (error) {
-      return { ok: false, message: errorMessage(error) }
+      return { ok: false, message: errorMessage(error, CHECKPOINT_FAILED) }
     }
   }
 
@@ -480,7 +483,4 @@ async function lstatIn(root: string, path: string): Promise<Stats | null> {
 }
 function isSidecar(path: string): boolean {
   return SIDECARS.some((sidecar) => path === sidecar || path.startsWith(`${sidecar}/`))
-}
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Checkpoint operation failed.'
 }

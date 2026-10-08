@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs'
 import type { DiagnosticLogInput } from '../../shared/ipc/diagnostics'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
 import type { StudioPlatform } from '../platform/platform'
+import { processIsRunning } from '../platform/process-alive'
 import {
   acquireDataDirLock,
   readDataDirSecrets,
@@ -11,6 +12,7 @@ import {
   type DataDirLock,
   type StudioRole,
 } from './data-dir'
+import { errorMessage } from '../../shared/errors'
 
 // How a core takes its data directory: the run lock, then the record of whose
 // cipher seals it. The two roles answer a problem in opposite ways.
@@ -87,7 +89,7 @@ function takeForDesktop(
       source: 'workspace',
       title,
       message,
-      ...(error === undefined ? {} : { details: errorText(error) }),
+      ...(error === undefined ? {} : { details: errorMessage(error) }),
     })
 
   let lock: DataDirLock | null = null
@@ -140,7 +142,7 @@ function takeForDesktop(
 function takeForServer(platform: StudioPlatform, deps: TakeDataDirDeps): TakenDataDir {
   const dataDir = platform.paths.dataDir()
   const unusable = (error: unknown): never => {
-    throw new StudioDataDirUnusableError(`The data directory ${dataDir} cannot be used: ${errorText(error)}`)
+    throw new StudioDataDirUnusableError(`The data directory ${dataDir} cannot be used: ${errorMessage(error)}`)
   }
   let taken: ReturnType<typeof acquireDataDirLock>
   try {
@@ -180,17 +182,4 @@ function waitForExit(pid: number, deps: TakeDataDirDeps): Promise<void> {
     }
     look()
   })
-}
-
-function processIsRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

@@ -1,5 +1,6 @@
 import type { ExecutionHostId } from '../../shared/execution-host'
 import { distroOfUncPath, isWindowsPath, toWslPath, wslToWindowsPath } from '../../shared/host-paths'
+import { isRecord } from '../../shared/records'
 
 // Paths at the edge between the Windows front door and a WSL server (phase 7
 // spec, 5.6). The server speaks Linux paths end to end; the front door's
@@ -27,10 +28,6 @@ export type WslPathEdge = {
   args(member: string, args: unknown[]): unknown[]
   /** A call's answer as the front door's callers read it. */
   result(member: string, value: unknown): unknown
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**

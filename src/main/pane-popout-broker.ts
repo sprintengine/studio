@@ -243,5 +243,3 @@ export function createPanePopOutBroker(deps: PanePopOutBrokerDeps) {
     },
   }
 }
-
-export type PanePopOutBroker = ReturnType<typeof createPanePopOutBroker>

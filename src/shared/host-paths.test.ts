@@ -4,6 +4,7 @@ import { test } from 'vitest'
 import {
   comparablePath,
   distroOfUncPath,
+  isPathInside,
   isWindowsPath,
   isWslDriveMountPath,
   linuxPathUnderRoot,
@@ -161,6 +162,20 @@ test('the separator of a Windows result can be forward', () => {
 test('drive letters compare without regard to case, Linux paths with it', () => {
   assert.equal(comparablePath('C:\\Users\\Dev'), comparablePath('/mnt/c/users/dev/'))
   assert.notEqual(comparablePath('/home/Dev'), comparablePath('/home/dev'))
+})
+
+test('a path is inside a folder only at a separator', () => {
+  assert.equal(isPathInside('/Users/dev/repo', '/Users/dev/repo/'), true)
+  assert.equal(isPathInside('/Users/dev/repo/a/b.png', '/Users/dev/repo'), true)
+  assert.equal(isPathInside('/Users/dev/repo2/b.png', '/Users/dev/repo'), false)
+  assert.equal(isPathInside('D:\\work\\a.png', 'd:\\Work'), true)
+  assert.equal(isPathInside('/Users/dev/repo', ''), false, 'an empty folder contains nothing')
+})
+
+test('a WSL spelling is inside the Windows spelling of the same folder', () => {
+  assert.equal(isPathInside('\\\\wsl$\\Ubuntu\\home\\dev\\repo\\a.png', '//wsl.localhost/ubuntu/home/dev/repo'), true)
+  assert.equal(isPathInside('/mnt/c/Users/dev/repo/a.png', 'C:\\Users\\dev\\repo'), true)
+  assert.equal(isPathInside('\\\\wsl$\\Ubuntu\\home\\dev\\repo2', '\\\\wsl$\\Ubuntu\\home\\dev\\repo'), false)
 })
 
 test("a distribution's two share names, in any case, are one folder; the Linux path after them is not folded", () => {

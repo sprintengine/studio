@@ -1,4 +1,5 @@
 import { existsSync } from 'fs'
+import { errorMessage } from '../shared/errors'
 
 // Where the search panels' ripgrep lives, and what to say when it cannot run.
 //
@@ -82,8 +83,4 @@ export function describeRipgrepSpawnFailure(
     return { message: `Search can't run: ripgrep at ${binaryPath} could not be started (${code}).`, unusable: true }
   }
   return { message: errorMessage(error), unusable: false }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

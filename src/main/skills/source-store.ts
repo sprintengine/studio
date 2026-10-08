@@ -19,6 +19,7 @@ import {
   type ScanResult,
   type SkillSource,
 } from '../../shared/skills'
+import { errorMessage } from '../../shared/errors'
 
 const FILE_NAME = 'skill-sources.json'
 
@@ -439,10 +440,6 @@ function describeSourceId(value: unknown): string {
   if (!value || typeof value !== 'object') return '(not an object)'
   const id = (value as Record<string, unknown>).id
   return typeof id === 'string' && id.length > 0 ? id : '(no id)'
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function isPersistableScan(value: unknown): value is ScanResult {

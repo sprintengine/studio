@@ -1,4 +1,5 @@
 import { isAbsolute } from 'node:path'
+import { isRecord } from '../../shared/records'
 
 // What a process that starts a Studio server hands it, what the server says
 // back, and the exit codes that tell the starter whether to try again.
@@ -278,10 +279,6 @@ export function parseServerBootstrapEnvelope(value: unknown): EnvelopeParseResul
     return fail('flags must map names to true or false.')
   }
   return { ok: true, envelope: value as unknown as ServerBootstrapEnvelope }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function absolutePath(value: unknown): value is string {

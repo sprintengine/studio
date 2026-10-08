@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { GhostButton } from '../../ui'
+import { formatTokenCount } from '../../../utils/tokenFormat'
 import { ComposerTrayRow } from './composerTray'
 import { CompactGlyph } from './toolRows/ToolKindGlyph'
 
@@ -47,13 +48,8 @@ export function ContextWindowNotice({
         </>
       }
     >
-      Context {Math.min(100, Math.round(fraction * 100))}% full · {formatTokens(used)} of {formatTokens(total)} tokens
+      Context {Math.min(100, Math.round(fraction * 100))}% full · {formatTokenCount(used)} of {formatTokenCount(total)}{' '}
+      tokens
     </ComposerTrayRow>
   )
-}
-
-function formatTokens(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`
-  if (value >= 1_000) return `${Math.round(value / 1_000)}k`
-  return String(value)
 }

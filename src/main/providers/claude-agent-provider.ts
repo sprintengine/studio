@@ -50,6 +50,7 @@ import {
 } from './claude-wsl-child'
 import { localLaunchToken } from './cli-host-child'
 import { launchIdentityOfEnv } from '../../server/core/gateway-launch-tokens'
+import { processIsRunning } from '../../server/platform/process-alive'
 import {
   CLAUDE_COMMANDS_CLI,
   claudeCommandsFromInit,
@@ -1595,14 +1596,7 @@ export async function sweepStaleSkillPlugins(tempDir: string): Promise<void> {
 }
 
 function isRunning(pid: number): boolean {
-  if (pid === process.pid) return true
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    // EPERM: it exists, it just is not ours to signal.
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
-  }
+  return pid === process.pid || processIsRunning(pid)
 }
 
 // The project instructions Claude Code would read from a trusted checkout. The

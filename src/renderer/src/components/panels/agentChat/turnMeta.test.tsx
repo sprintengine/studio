@@ -1,14 +1,7 @@
 import { expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { TranscriptEntry } from './conversationProjection'
-import {
-  compactionLabel,
-  CompactionDivider,
-  formatTokenCount,
-  formatTurnModel,
-  TurnMeta,
-  turnMetaParts,
-} from './turnMeta'
+import { compactionLabel, CompactionDivider, formatTurnModel, TurnMeta, turnMetaParts } from './turnMeta'
 
 type Assistant = Extract<TranscriptEntry, { kind: 'assistant' }>
 
@@ -19,14 +12,6 @@ const turn = (values: Partial<Assistant> = {}): Assistant => ({
   reasoning: '',
   status: 'complete',
   ...values,
-})
-
-test('token counts read in thousands and millions', () => {
-  expect(formatTokenCount(950)).toBe('950')
-  expect(formatTokenCount(12_345)).toBe('12.3k')
-  expect(formatTokenCount(182_000)).toBe('182k')
-  expect(formatTokenCount(999_700)).toBe('1M')
-  expect(formatTokenCount(1_240_000)).toBe('1.2M')
 })
 
 test('a model id drops its snapshot date, and the harness default is not shown as a name', () => {

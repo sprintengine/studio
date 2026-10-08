@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { PaletteCommandGroup, PaletteScope } from '../commandPaletteSearch'
 import type { Workspace } from '../../types/workspace'
+import { errorMessage } from '../../../../shared/errors'
 
 /**
  * The mark a row that is not a file or an extension wears — named, not drawn,
@@ -168,10 +169,6 @@ type ProviderState = {
 
 const IDLE: ProviderState = { commands: [], loading: false, error: null }
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 /**
  * Run every provider against the query and merge what they say.
  *
@@ -260,11 +257,11 @@ export function usePaletteProviders(
             void produced
               .then((commands) => put(provider.id, () => ({ commands, loading: false, error: null })))
               .catch((error: unknown) =>
-                put(provider.id, () => ({ commands: [], loading: false, error: messageOf(error) })),
+                put(provider.id, () => ({ commands: [], loading: false, error: errorMessage(error) })),
               )
           }
         } catch (error) {
-          put(provider.id, () => ({ commands: [], loading: false, error: messageOf(error) }))
+          put(provider.id, () => ({ commands: [], loading: false, error: errorMessage(error) }))
         }
         // Only a provider still in flight says it is working: a synchronous
         // filter must never flash "Searching…" for a frame.

@@ -34,6 +34,7 @@ import {
   STUDIO_LOCAL_SERVER_MAX_URL,
 } from '../../../packages/studio-protocol/src/public'
 import { writeFileAtomically } from '../../main/config-file-write'
+import { isRecord } from '../../shared/records'
 
 const STORE_DIR = 'local-servers'
 const STORE_FILE = 'linked.json'
@@ -407,7 +408,7 @@ function parseStoreFile(raw: string): LinkedLocalServer[] | null {
   } catch {
     return null
   }
-  if (!isObject(parsed) || parsed.version !== STORE_VERSION || !Array.isArray(parsed.servers)) return null
+  if (!isRecord(parsed) || parsed.version !== STORE_VERSION || !Array.isArray(parsed.servers)) return null
   const servers: LinkedLocalServer[] = []
   const ids = new Set<string>()
   for (const value of parsed.servers) {
@@ -420,7 +421,7 @@ function parseStoreFile(raw: string): LinkedLocalServer[] | null {
 }
 
 function parseEntry(value: unknown): LinkedLocalServer | null {
-  if (!isObject(value)) return null
+  if (!isRecord(value)) return null
   const { id, workspaceId, agentId, url, title, command, cwd, linkedAt } = value
   if (!text(id, 200) || !text(workspaceId, 200) || !text(agentId, 200) || typeof url !== 'string') return null
   if (typeof linkedAt !== 'number' || !Number.isFinite(linkedAt)) return null
@@ -440,10 +441,6 @@ function parseEntry(value: unknown): LinkedLocalServer | null {
     ...(cwd ? { cwd } : {}),
     linkedAt,
   }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function text(value: unknown, max: number): value is string {

@@ -16,6 +16,7 @@ import { hostname as osHostname } from 'node:os'
 import { join } from 'node:path'
 
 import { isDataKeySealed } from '../platform/secret-cipher'
+import { processIsRunning } from '../platform/process-alive'
 
 // One core per data directory, and a record of whose cipher seals its secrets.
 //
@@ -279,16 +280,6 @@ function refused(holder: DataDirHolder, path: string): DataDirLockResult {
     message:
       `${who} has this data directory open. One Studio runs against a data directory at a time. ` +
       `If none is running, remove ${path} and start again.`,
-  }
-}
-
-function processIsRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    // EPERM: it exists, and belongs to someone else.
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
   }
 }
 

@@ -10,6 +10,7 @@
 
 import { parseCliPermissionModeId } from './cli-permission-mode'
 import { parseCliPermissionPreset } from './cli-permission-preset'
+import { isRecord } from './records'
 
 // ── Manifest shape ───────────────────────────────────────────────────────────
 
@@ -400,10 +401,6 @@ const SKILL_FORMATS = ['agent-skills-v1', 'claude-code', 'codex', 'opencode', 'g
 const PROVIDER_ONLY_FIELDS = ['providerType', 'models', 'adapter', 'openaiCompatible', 'signature'] as const
 const AUTH_TYPES = ['api-key'] as const
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 /**
  * Validate an untrusted value as a CLI plugin manifest. Pure structural check
  * mirroring the app's required-field rules: a manifest that passes here is
@@ -413,7 +410,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
  */
 export function validateCliPluginManifest(value: unknown): CliManifestResult {
   const issues: CliManifestIssue[] = []
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     return { ok: false, issues: [{ path: '', message: 'CLI plugin manifest must be a JSON object.' }] }
   }
 
@@ -477,13 +474,13 @@ export function parseCliPluginManifest(source: string): CliManifestResult {
 }
 
 function validatePermissionPresets(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'permissionPresets', message: 'permissionPresets must be an object.' })
     return
   }
   for (const [name, preset] of Object.entries(value)) {
     const path = `permissionPresets.${name}`
-    if (!isObject(preset)) {
+    if (!isRecord(preset)) {
       issues.push({ path, message: 'Preset must be an object.' })
       continue
     }
@@ -493,7 +490,7 @@ function validatePermissionPresets(value: unknown, issues: CliManifestIssue[]): 
     }
     if (
       preset.env !== undefined &&
-      (!isObject(preset.env) || Object.values(preset.env).some((entry) => typeof entry !== 'string'))
+      (!isRecord(preset.env) || Object.values(preset.env).some((entry) => typeof entry !== 'string'))
     ) {
       issues.push({ path: `${path}.env`, message: 'env must be an object of strings.' })
     }
@@ -530,7 +527,7 @@ function validateArgv(value: unknown, path: string, issues: CliManifestIssue[]):
   value.forEach((token, index) => {
     const tokenPath = `${path}[${index}]`
     if (typeof token === 'string') return
-    if (!isObject(token)) {
+    if (!isRecord(token)) {
       issues.push({ path: tokenPath, message: 'argv tokens must be strings or directive objects.' })
       return
     }
@@ -554,7 +551,7 @@ function validateArgv(value: unknown, path: string, issues: CliManifestIssue[]):
 }
 
 function validateLaunch(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'launch', message: 'launch must be an object.' })
     return
   }
@@ -563,14 +560,14 @@ function validateLaunch(value: unknown, issues: CliManifestIssue[]): void {
     issues.push({ path: 'launch.cwd', message: 'launch.cwd must be a string when present.' })
   }
   if (value.env !== undefined) {
-    if (!isObject(value.env) || Object.values(value.env).some((v) => typeof v !== 'string')) {
+    if (!isRecord(value.env) || Object.values(value.env).some((v) => typeof v !== 'string')) {
       issues.push({ path: 'launch.env', message: 'launch.env must be an object of string values.' })
     }
   }
 }
 
 function validateResume(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'resume', message: 'resume must be an object when present.' })
     return
   }
@@ -581,19 +578,19 @@ function validateResume(value: unknown, issues: CliManifestIssue[]): void {
 }
 
 function validatePromptInjection(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'promptInjection', message: 'promptInjection must be an object.' })
     return
   }
   if (typeof value.mode !== 'string' || !INJECTION_MODES.includes(value.mode as CliPromptInjectionMode)) {
     issues.push({ path: 'promptInjection.mode', message: `mode must be one of: ${INJECTION_MODES.join(', ')}.` })
   }
-  if (value.mode === 'send-after-ready' && !isObject(value.readiness)) {
+  if (value.mode === 'send-after-ready' && !isRecord(value.readiness)) {
     issues.push({ path: 'promptInjection.readiness', message: 'send-after-ready requires a readiness signal.' })
   } else if (value.readiness !== undefined) {
     validateReadiness(value.readiness, issues)
   }
-  if (value.mode === 'send-after-ready' && isObject(value.overflow) && value.overflow.mode === 'file') {
+  if (value.mode === 'send-after-ready' && isRecord(value.overflow) && value.overflow.mode === 'file') {
     issues.push({
       path: 'promptInjection.overflow.mode',
       message: 'send-after-ready types the first message in, so its overflow must be input.',
@@ -603,7 +600,7 @@ function validatePromptInjection(value: unknown, issues: CliManifestIssue[]): vo
 }
 
 function validateReadiness(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'promptInjection.readiness', message: 'readiness must be an object when present.' })
     return
   }
@@ -641,7 +638,7 @@ function isValidRegExp(pattern: string): boolean {
 }
 
 function validatePromptOverflow(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'promptInjection.overflow', message: 'overflow must be an object when present.' })
     return
   }
@@ -657,7 +654,7 @@ function validatePromptOverflow(value: unknown, issues: CliManifestIssue[]): voi
   if (env !== undefined) {
     if (value.mode !== 'input') {
       issues.push({ path: 'promptInjection.overflow.env', message: 'overflow.env is only valid for input.' })
-    } else if (!isObject(env) || !Object.values(env).every((entry) => typeof entry === 'string')) {
+    } else if (!isRecord(env) || !Object.values(env).every((entry) => typeof entry === 'string')) {
       issues.push({ path: 'promptInjection.overflow.env', message: 'overflow.env must map names to strings.' })
     }
   }
@@ -670,7 +667,7 @@ function validatePromptOverflow(value: unknown, issues: CliManifestIssue[]): voi
 }
 
 function validateContextInjection(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'contextInjection', message: 'contextInjection must be an object when present.' })
     return
   }
@@ -701,9 +698,9 @@ function validateContextInjection(value: unknown, issues: CliManifestIssue[]): v
     }
   }
 
-  const hasEnv = isObject(value.env) && Object.keys(value.env).length > 0
+  const hasEnv = isRecord(value.env) && Object.keys(value.env).length > 0
   if (value.env !== undefined) {
-    if (!isObject(value.env) || Object.values(value.env).some((entry) => typeof entry !== 'string')) {
+    if (!isRecord(value.env) || Object.values(value.env).some((entry) => typeof entry !== 'string')) {
       issues.push({
         path: 'contextInjection.env',
         message: 'contextInjection.env must be an object of string templates.',
@@ -740,7 +737,7 @@ function validateContextInjection(value: unknown, issues: CliManifestIssue[]): v
 }
 
 function validateCompletion(value: unknown, path: string, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path, message: `${path} must be an object.` })
     return
   }
@@ -766,7 +763,7 @@ function validateCompletion(value: unknown, path: string, issues: CliManifestIss
 }
 
 function validateMcpConfig(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'mcpConfig', message: 'mcpConfig must be an object.' })
     return
   }
@@ -813,12 +810,12 @@ function isSafeWorkspaceRelativePath(value: unknown): value is string {
 }
 
 function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'agentStateSpec', message: 'agentStateSpec must be an object when present.' })
     return
   }
   const registration = value.registration
-  if (!isObject(registration)) {
+  if (!isRecord(registration)) {
     issues.push({ path: 'agentStateSpec.registration', message: 'agentStateSpec.registration must be an object.' })
   } else {
     if (
@@ -862,14 +859,14 @@ function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): voi
   if (value.statusLine !== undefined) {
     if (typeof value.statusLine !== 'boolean') {
       issues.push({ path: 'agentStateSpec.statusLine', message: 'statusLine must be a boolean when present.' })
-    } else if (value.statusLine && isObject(registration) && registration.scope === 'user') {
+    } else if (value.statusLine && isRecord(registration) && registration.scope === 'user') {
       // A user-global registration has no project `.claude/` to read the
       // person's own status line out of, so the install skips it entirely.
       issues.push({
         path: 'agentStateSpec.statusLine',
         message: 'statusLine is not supported for a user-scoped registration.',
       })
-    } else if (value.statusLine && isObject(registration) && registration.kind !== 'settings-json') {
+    } else if (value.statusLine && isRecord(registration) && registration.kind !== 'settings-json') {
       // The setting being written is Claude Code's `statusLine`, which lives in
       // the same settings JSON the hooks do. Declaring it against any other
       // registration kind is an authoring error, not a silent no-op.
@@ -886,7 +883,7 @@ function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): voi
   const seen = new Set<string>()
   value.events.forEach((entry, index) => {
     const path = `agentStateSpec.events[${index}]`
-    if (!isObject(entry)) {
+    if (!isRecord(entry)) {
       issues.push({ path, message: 'Event spec must be an object.' })
       return
     }
@@ -915,7 +912,7 @@ function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): voi
       const value = entry[clause]
       if (value === undefined) continue
       if (
-        !isObject(value) ||
+        !isRecord(value) ||
         !(AGENT_STATE_DISCRIMINATOR_FIELDS as readonly string[]).includes(value.field as string)
       ) {
         issues.push({
@@ -937,7 +934,7 @@ function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): voi
 }
 
 function validateCapabilities(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'capabilities', message: 'capabilities must be an object.' })
     return
   }
@@ -958,7 +955,7 @@ function validateCapabilities(value: unknown, issues: CliManifestIssue[]): void 
 // bound to it, so a manifest that never spends that variable would pass the
 // same flag twice and hand the CLI one directory it was not given.
 function validateLaunchPlugins(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'launchPlugins', message: 'launchPlugins must be an object when present.' })
     return
   }
@@ -982,7 +979,7 @@ function validateLaunchPlugins(value: unknown, issues: CliManifestIssue[]): void
 // in it — and, because declaring this suppresses the separate theme flag, would
 // silently drop the theme as well.
 function validateLaunchSettings(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'launchSettings', message: 'launchSettings must be an object when present.' })
     return
   }
@@ -1002,7 +999,7 @@ function validateLaunchSettings(value: unknown, issues: CliManifestIssue[]): voi
 }
 
 function validateThemeSelection(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'themeSelection', message: 'themeSelection must be an object when present.' })
     return
   }
@@ -1013,7 +1010,7 @@ function validateThemeSelection(value: unknown, issues: CliManifestIssue[]): voi
     })
   }
   if (value.schemes !== undefined) {
-    if (!isObject(value.schemes)) {
+    if (!isRecord(value.schemes)) {
       issues.push({
         path: 'themeSelection.schemes',
         message: 'themeSelection.schemes must be an object mapping "light" and "dark" to theme names.',
@@ -1033,7 +1030,7 @@ function validateThemeSelection(value: unknown, issues: CliManifestIssue[]): voi
 }
 
 function validateReasoningSelection(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'reasoningSelection', message: 'reasoningSelection must be an object when present.' })
     return
   }
@@ -1052,7 +1049,7 @@ function validateReasoningSelection(value: unknown, issues: CliManifestIssue[]):
   } else {
     value.levels.forEach((level, index) => {
       const path = `reasoningSelection.levels[${index}]`
-      if (!isObject(level)) {
+      if (!isRecord(level)) {
         issues.push({ path, message: 'Reasoning level must be an object.' })
         return
       }
@@ -1078,7 +1075,7 @@ function validateReasoningSelection(value: unknown, issues: CliManifestIssue[]):
 }
 
 function validateModelSelection(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'modelSelection', message: 'modelSelection must be an object when present.' })
     return
   }
@@ -1094,7 +1091,7 @@ function validateModelSelection(value: unknown, issues: CliManifestIssue[]): voi
     } else {
       value.options.forEach((option, index) => {
         const path = `modelSelection.options[${index}]`
-        if (!isObject(option)) {
+        if (!isRecord(option)) {
           issues.push({ path, message: 'Model option must be an object.' })
           return
         }
@@ -1113,13 +1110,13 @@ function validateModelSelection(value: unknown, issues: CliManifestIssue[]): voi
 }
 
 function validateVariables(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'variables', message: 'variables must be an object.' })
     return
   }
   for (const [name, decl] of Object.entries(value)) {
     const path = `variables.${name}`
-    if (!isObject(decl)) {
+    if (!isRecord(decl)) {
       issues.push({ path, message: 'Variable declaration must be an object.' })
       continue
     }
@@ -1140,7 +1137,7 @@ function validateVariables(value: unknown, issues: CliManifestIssue[]): void {
 }
 
 function validateAuth(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'auth', message: 'auth must be an object when present.' })
     return
   }
@@ -1152,7 +1149,7 @@ function validateAuth(value: unknown, issues: CliManifestIssue[]): void {
 }
 
 function validateSkillIntegration(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'skillIntegration', message: 'skillIntegration must be an object when present.' })
     return
   }
@@ -1186,7 +1183,7 @@ function validateSkillIntegration(value: unknown, issues: CliManifestIssue[]): v
 }
 
 function validateSkillInstallTarget(value: unknown, path: string, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path, message: 'Skill install target must be an object.' })
     return
   }
@@ -1222,7 +1219,7 @@ function validateSkillInstallTarget(value: unknown, path: string, issues: CliMan
 }
 
 function validateSkillInvocation(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
+  if (!isRecord(value)) {
     issues.push({ path: 'skillIntegration.invocation', message: 'invocation must be an object when present.' })
     return
   }

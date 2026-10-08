@@ -1,4 +1,4 @@
-import { BrowserWindow, type IpcMain } from 'electron'
+import type { IpcMain } from 'electron'
 import type {
   WorktreeDependencyInstallView,
   WorktreeInventory,
@@ -12,6 +12,7 @@ import { removeGitWorktree } from '../git'
 import { createWorktreeInventory, type WorktreeInventoryDeps } from '../worktree-pool/worktree-inventory'
 import type { DependencyInstaller } from '../worktree-pool/dependency-install'
 import type { WorktreePoolService } from '../worktree-pool/worktree-pool-service'
+import { broadcastToAllWindows } from '../window-broadcast'
 
 /**
  * The windows' side of the worktree pool: a snapshot of a repository's pool,
@@ -32,11 +33,11 @@ function isString(value: unknown): value is string {
 /** A leased worktree's dependency install started, moved on, or ended (`WorktreeDependencyInstallView`). */
 export const WORKTREE_INSTALL_CHANGED_CHANNEL = 'worktree-install:changed'
 
+/** A pool's snapshot moved (`WorktreePoolSnapshot`); one channel for every pool. */
+const WORKTREE_POOL_CHANGED_CHANNEL = 'worktree-pool:changed'
+
 export function broadcastWorktreePoolChanged(snapshot: WorktreePoolSnapshot): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-    window.webContents.send('worktree-pool:changed', snapshot)
-  }
+  broadcastToAllWindows(WORKTREE_POOL_CHANGED_CHANNEL, snapshot)
 }
 
 export function registerWorktreePoolIpc(

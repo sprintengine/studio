@@ -24,9 +24,11 @@
  * files and for network paths on Windows, and cached by path, size and
  * modification time.
  */
-import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs'
+import { readFileSync } from 'fs'
 import { realpath, stat } from 'fs/promises'
 import { isAbsolute, join } from 'path'
+
+import { writeFileAtomicSync } from '../server/platform/atomic-file'
 
 import {
   isNetworkPath,
@@ -101,17 +103,9 @@ export function createAttachedFileRegistry(deps: AttachedFileRegistryDeps) {
 
   function save(): void {
     pendingWrite = null
-    const target = filePath()
-    const tmp = `${target}.tmp-${process.pid}`
     try {
-      writeFileSync(tmp, `${JSON.stringify({ paths: [...load()] })}\n`, 'utf8')
-      renameSync(tmp, target)
+      writeFileAtomicSync(filePath(), `${JSON.stringify({ paths: [...load()] })}\n`)
     } catch {
-      try {
-        unlinkSync(tmp)
-      } catch {
-        // The temp file may never have been written.
-      }
       // Kept in memory for this run; only a restart forgets it.
     }
   }

@@ -1,6 +1,7 @@
-import { randomUUID } from 'crypto'
-import { chmod, realpath, rename, stat, unlink, writeFile } from 'fs/promises'
-import { basename, dirname, join, resolve } from 'path'
+import { realpath, stat } from 'fs/promises'
+import { resolve } from 'path'
+
+import { writeFileAtomic } from '../server/platform/atomic-file'
 
 // ── Writing a config file the person owns ──────────────────────────────────
 //
@@ -22,7 +23,8 @@ import { basename, dirname, join, resolve } from 'path'
 // 2. A write never truncates in place. The new bytes go to a temporary file in
 //    the same directory and are renamed over the old one, so a reader (another
 //    writer, or the CLI starting up) sees the old file or the new one, never an
-//    empty or half-written one.
+//    empty or half-written one. That part is `writeFileAtomic`, shared with
+//    every other store that replaces a file whole.
 
 const configFileLocks = new Map<string, Promise<unknown>>()
 
@@ -67,34 +69,6 @@ export async function writeFileAtomically(path: string, content: string): Promis
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') throw error
   }
-  const temporary = join(dirname(target), `.${basename(target)}.${process.pid}.${randomUUID()}.tmp`)
-  try {
-    await writeFile(temporary, content, { encoding: 'utf8', ...(mode === undefined ? {} : { mode }) })
-    // `mode` on writeFile is masked by the umask; set it exactly.
-    if (mode !== undefined) await chmod(temporary, mode)
-    await renameWithRetry(temporary, target)
-  } catch (error) {
-    await unlink(temporary).catch(() => undefined)
-    throw error
-  }
-}
-
-/**
- * Windows refuses a rename over a file another process has open without
- * FILE_SHARE_DELETE (an editor, a scanner, the CLI reading its config) for
- * the moment it holds it. A few short retries ride that out; elsewhere the
- * rename either works or fails for good.
- */
-async function renameWithRetry(from: string, to: string): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await rename(from, to)
-      return
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException | undefined)?.code
-      const transient = code === 'EPERM' || code === 'EACCES' || code === 'EBUSY'
-      if (process.platform !== 'win32' || !transient || attempt >= 4) throw error
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 25 * (attempt + 1)))
-    }
-  }
+  // `mode` on a write is masked by the umask; the existing bits are kept exactly.
+  await writeFileAtomic(target, content, mode === undefined ? {} : { mode, exactMode: true })
 }

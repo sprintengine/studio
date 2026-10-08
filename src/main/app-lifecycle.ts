@@ -41,6 +41,7 @@ import { readHostedSourcesFeed } from './hosted-feed/sources-feed-service'
 import { detectCliMachines, readCliVersionAdvisories } from './cli-version-advisory-service'
 import { hostRegistry } from './hosts/host-registry'
 import { recordIntegrationWrite } from './integrations/ledger'
+import { anyWindowFocused } from './window-broadcast'
 
 type RegisterAppLifecycleOptions = {
   diagnosticsEnabled: boolean
@@ -965,9 +966,7 @@ const UPDATE_INSTALL_QUIT_FALLBACK_MS = 30_000
  */
 function bindElectronPowerActivity(): void {
   const syncFocus = (): void => {
-    const focused =
-      !powerActivity.isScreenLocked() &&
-      BrowserWindow.getAllWindows().some((win) => !win.isDestroyed() && !isCanvasWorkerWindow(win) && win.isFocused())
+    const focused = !powerActivity.isScreenLocked() && anyWindowFocused({ skipCanvasWorker: true })
     powerActivity.noteFocus(focused)
   }
   app.on('browser-window-focus', syncFocus)
