@@ -441,6 +441,28 @@ test('while a measurement runs, pool changes start no reads; one answered late d
   expect(asked).toEqual([false, true, false, false])
 })
 
+test('turning reuse off says the ready worktrees go, and nothing changes unless confirmed', async () => {
+  const saved: unknown[] = []
+  Object.assign((window as unknown as { api: object }).api, {
+    setWorktreePoolSettings: async (patch: object) => {
+      saved.push(patch)
+      return { enabled: true, keepIdle: 3, maxSlots: 12, diskLimitGb: 30, ...patch }
+    },
+  })
+  await render()
+  const toggle = host.querySelector<HTMLElement>('[role="switch"]')!
+  await click(toggle)
+  let dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')
+  expect(dialog?.textContent).toContain('Stop reusing worktrees?')
+  expect(dialog?.textContent).toContain('The 2 ready worktrees are removed now')
+  await click(button(dialog!, 'Cancel'))
+  expect(saved).toEqual([])
+  await click(toggle)
+  dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')
+  await click(button(dialog!, 'Turn off and remove'))
+  expect(saved).toEqual([{ enabled: false }])
+})
+
 test('settings that cannot be read are said so, not shown as saved defaults', async () => {
   Object.assign((window as unknown as { api: object }).api, {
     getWorktreePoolSettings: () => Promise.reject(new Error('settings file unreadable')),

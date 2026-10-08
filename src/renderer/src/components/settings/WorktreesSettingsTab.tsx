@@ -244,6 +244,28 @@ export function WorktreesSettingsTab({
     }
   }
 
+  // Off means no idle slot is kept (the pool's limit drops to none), so every
+  // ready worktree is removed at once: said, and asked, before it happens.
+  const setPoolEnabled = async (enabled: boolean) => {
+    if (!enabled && totals.ready > 0) {
+      const confirmed = await dialog.confirm({
+        title: 'Stop reusing worktrees?',
+        body: (
+          <p>
+            The {totals.ready} ready worktree{totals.ready === 1 ? ' is' : 's are'} removed now
+            {totals.bytes.ready ? `, freeing up to ${formatBytes(totals.bytes.ready)}` : ''}, except any holding a
+            chat&apos;s history or files that may be someone&apos;s work. Worktrees in use or holding changes stay. New
+            chats get a fresh worktree, with no dependencies installed.
+          </p>
+        ),
+        confirmLabel: 'Turn off and remove',
+        tone: 'danger',
+      })
+      if (!confirmed) return
+    }
+    await updateSettings({ enabled })
+  }
+
   const updateInstall = (repoRoot: string, setting: WorktreeDependencyInstallSetting) =>
     void updateSettings({ dependencyInstall: withDependencyInstall(settings.dependencyInstall, repoRoot, setting) })
 
@@ -599,9 +621,9 @@ export function WorktreesSettingsTab({
       <SettingCard className="mb-6">
         <SettingToggle
           label="Reuse worktrees for new chats"
-          description="A new chat or an agent's worktree comes from the pool instead of a fresh checkout, reset to the default branch as fetched at that moment. Its ignored files (node_modules, build output) are kept, so installs are faster."
+          description="A new chat or an agent's worktree comes from the pool instead of a fresh checkout, reset to the default branch as fetched at that moment. Its ignored files (node_modules, build output) are kept, so installs are faster. Turning it off removes every ready worktree; ones in use or holding work stay."
           enabled={settings.enabled}
-          onChange={(enabled) => void updateSettings({ enabled })}
+          onChange={(enabled) => void setPoolEnabled(enabled)}
         />
         <SettingRow
           label="Ready worktrees to keep"
