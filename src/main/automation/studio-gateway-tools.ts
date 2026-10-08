@@ -80,8 +80,6 @@ export function createStudioGatewayTools(options: {
    * call is held to it. Absent, module tools run uncapped.
    */
   callerPermissionCeiling?: (context: McpConnectionContext | undefined) => CliPermissionPreset | null
-  /** Whose scheduled run a module tool's caller is part of (launch-permission-cap.ts). */
-  callerScheduledRun?: (context: McpConnectionContext | undefined) => string | null
   warn?: (message: string) => void
 }): () => McpToolRegistration[] {
   const coreNames = new Set<string>()
@@ -115,12 +113,7 @@ export function createStudioGatewayTools(options: {
         continue
       }
       names.add(registration.name)
-      merged.push(
-        gateOnModuleEnablement(contribution, options.isModuleEnabled, {
-          permissionCeiling: options.callerPermissionCeiling,
-          scheduledRun: options.callerScheduledRun,
-        }),
-      )
+      merged.push(gateOnModuleEnablement(contribution, options.isModuleEnabled, options.callerPermissionCeiling))
     }
     return merged
   }
@@ -136,22 +129,15 @@ export function createStudioGatewayTools(options: {
 function gateOnModuleEnablement(
   contribution: McpToolContribution,
   isModuleEnabled: (moduleId: string) => boolean,
-  caller: {
-    permissionCeiling: ((context: McpConnectionContext | undefined) => CliPermissionPreset | null) | undefined
-    scheduledRun: ((context: McpConnectionContext | undefined) => string | null) | undefined
-  },
+  callerPermissionCeiling: ((context: McpConnectionContext | undefined) => CliPermissionPreset | null) | undefined,
 ): McpToolRegistration {
   const { moduleId, moduleDisplayName, registration } = contribution
   return {
     ...registration,
     handler: async (args, context) =>
       isModuleEnabled(moduleId)
-        ? runAsModuleToolCall(
-            {
-              permissionCeiling: caller.permissionCeiling?.(context) ?? null,
-              scheduledRun: caller.scheduledRun?.(context) ?? null,
-            },
-            () => registration.handler(args, context),
+        ? runAsModuleToolCall({ permissionCeiling: callerPermissionCeiling?.(context) ?? null }, () =>
+            registration.handler(args, context),
           )
         : toolError(
             `${moduleId}_module_disabled`,

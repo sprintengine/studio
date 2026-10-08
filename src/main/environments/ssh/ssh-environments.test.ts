@@ -181,38 +181,3 @@ test('an empty pasted code, or one the login would not take, ends the sign-in in
   })
   assert.deepEqual(ops, ['start', 'wait', 'paste', 'cancel'])
 })
-
-test.skipIf(!HAS_SSH)(
-  'on Windows a machine behind a jump host is given no askpass, and one reached directly is',
-  async () => {
-    const userDataDir = join(dir, 'user-data-windows')
-    writeFileSync(config, `${readFileSync(config, 'utf8')}Host direct-box\n  HostName 192.0.2.11\n`)
-    const store = new SshEnvironments({
-      userDataDir,
-      app: { version: '0.4.0', channel: 'latest' },
-      packaged: false,
-      resourcesDir: null,
-      appRoot: null,
-      isDefaultProfile: true,
-      startedBy: 'Studio on dev-macbook-air',
-      broadcast: () => undefined,
-      configFile: config,
-      platform: 'win32',
-    })
-    const jumped = await store.add({ destination: 'build-box' })
-    const direct = await store.add({ destination: 'direct-box' })
-    assert.ok(jumped.ok && jumped.id && direct.ok && direct.id)
-    const inner = store as unknown as {
-      brokerReady: unknown
-      clearAskpass(id: string): Promise<string | null>
-      askpassFor(id: string): unknown
-    }
-    inner.brokerReady = { issue: () => undefined }
-    // Not yet checked: withheld.
-    assert.equal(inner.askpassFor(direct.id!), null)
-    assert.match((await inner.clearAskpass(jumped.id!)) ?? '', /jump host or a proxy command/u)
-    assert.equal(inner.askpassFor(jumped.id!), null)
-    assert.equal(await inner.clearAskpass(direct.id!), null)
-    assert.equal(inner.askpassFor(direct.id!), inner.brokerReady)
-  },
-)

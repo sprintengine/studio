@@ -300,9 +300,6 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       ...(connector?.ok ? { connectorMcpSettings: connector.resolved.mcpSettings } : {}),
       ...(request.spawnSkillId?.trim() ? { spawnSkillId: request.spawnSkillId.trim() } : {}),
       ...(worktreePath ? { worktreePath } : {}),
-      ...(request.launchedByScheduledAgentId?.trim()
-        ? { launchedByScheduledAgentId: request.launchedByScheduledAgentId.trim() }
-        : {}),
     }
     // The caller's machine, else the workspace's. Absent from both, the spawn
     // reads the folder (a folder inside a distribution runs there) and

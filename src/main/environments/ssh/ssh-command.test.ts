@@ -1,8 +1,5 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test } from 'vitest'
 
 import {
@@ -13,7 +10,6 @@ import {
   findSshBinary,
   parseDestination,
   parseSshG,
-  reachesThroughHop,
   resolveDestination,
   sshEnvironment,
 } from './ssh-command'
@@ -235,38 +231,3 @@ test("a remote's banner cannot put a command into the ssh-keygen line a person c
   assert.match(failure.message, /ssh-keygen -R <its host name>/u)
   assert.match(failure.message, /your known_hosts file/u)
 })
-
-test('on Windows ssh never takes keyboard-interactive, whose question is the remote’s text', () => {
-  const windows = buildSshArgs(destination('build-box'), { batch: false, platform: 'win32' })
-  assert.deepEqual(windows.slice(-6), ['-o', 'KbdInteractiveAuthentication=no', '--', 'build-box', 'sh', '-s'])
-  const mac = buildSshArgs(destination('build-box'), { batch: false, platform: 'darwin' })
-  assert.ok(!mac.includes('KbdInteractiveAuthentication=no'))
-})
-
-test.skipIf(spawnSync('ssh', ['-V']).status !== 0)(
-  'a machine reached through a jump host or a proxy command is told apart from one reached directly',
-  async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'se-hop-'))
-    try {
-      const config = join(dir, 'ssh_config')
-      writeFileSync(
-        config,
-        [
-          'Host jumped',
-          '  HostName 192.0.2.10',
-          '  ProxyJump bastion',
-          'Host proxied',
-          '  HostName 192.0.2.11',
-          '  ProxyCommand nc %h %p',
-          'Host direct',
-          '  HostName 192.0.2.12',
-          '',
-        ].join('\n'),
-      )
-      const hop = (name: string) => reachesThroughHop('ssh', destination(name), { configFile: config })
-      assert.deepEqual([await hop('jumped'), await hop('proxied'), await hop('direct')], [true, true, false])
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  },
-)

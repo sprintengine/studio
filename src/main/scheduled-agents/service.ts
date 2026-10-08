@@ -14,11 +14,7 @@ import {
 } from '../../shared/scheduled-agents'
 import { refuseScheduledAgentRun } from '../automation/launch-permission-cap'
 import { moduleConversationCeiling } from '../module-host/module-conversation-service'
-import {
-  clampToModuleToolCaller,
-  moduleToolCallerCeiling,
-  moduleToolCallerScheduledRun,
-} from '../module-host/module-tool-caller'
+import { clampToModuleToolCaller, moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import type { ScheduledAgentsScheduler } from './scheduler'
 import type { ScheduledAgentsStore } from './store'
 
@@ -192,26 +188,13 @@ export function createScheduledAgentsModuleRegistry(
         lowerToModuleCeiling(preset, getModulePermissions(moduleId)) ?? undefined,
         moduleToolCallerCeiling(),
       ) ?? null
-  // Asked during a scheduled run's tool call (the run's chat, or anything it
-  // started), a module's write is refused as the run's own `schedule.*` call
-  // is: a module tool must not be the way round "runs don't schedule runs".
-  const refusedForRun = (action: string): { ok: false; message: string } | null =>
-    moduleToolCallerScheduledRun()
-      ? {
-          ok: false,
-          message: `This was asked during a scheduled agent's run, and a scheduled run may not ${action} one.`,
-        }
-      : null
   return {
-    create: async (moduleId, draft) =>
-      refusedForRun('create') ?? service.create(draft, { ownerModuleId: moduleId, capPreset: capFor(moduleId) }),
-    update: async (moduleId, id, draft) =>
-      refusedForRun('change') ?? service.update(id, draft, { ownerModuleId: moduleId, capPreset: capFor(moduleId) }),
-    remove: async (moduleId, id) => refusedForRun('remove') ?? service.remove(id, { ownerModuleId: moduleId }),
+    create: (moduleId, draft) => service.create(draft, { ownerModuleId: moduleId, capPreset: capFor(moduleId) }),
+    update: (moduleId, id, draft) =>
+      service.update(id, draft, { ownerModuleId: moduleId, capPreset: capFor(moduleId) }),
+    remove: (moduleId, id) => service.remove(id, { ownerModuleId: moduleId }),
     list: async (moduleId) => service.list({ ownerModuleId: moduleId }),
     runNow: async (moduleId, id) => {
-      const forRun = refusedForRun('run')
-      if (forRun) return forRun
       const stored = service.list({ ownerModuleId: moduleId }).find((agent) => agent.id === id)
       // Asked during a capped agent's tool call, a run that could start looser
       // than that agent is refused, as the agent's own `schedule.run` is.

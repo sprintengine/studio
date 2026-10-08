@@ -7,7 +7,6 @@ import { afterAll, beforeAll, test } from 'vitest'
 import {
   closingResponseHead,
   isLoopbackTarget,
-  openDirect,
   parseAuthority,
   requestBodyLength,
   SshPaneForward,
@@ -265,32 +264,4 @@ test('a plain request body is framed by its Content-Length, or not passed on', (
   assert.equal(upgraded.rest.toString(), 'frames')
   assert.equal(closingResponseHead(Buffer.from('HTTP/1.1 200 OK\r\n'), false), 'more')
   assert.equal(closingResponseHead(Buffer.from('nonsense\r\n\r\n'), false), 'bad')
-})
-
-test("loopback mode's direct connections refuse a name that resolves to this computer's loopback or a link-local address", async () => {
-  const server: Server = createServer((socket) => socket.end())
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const port = (server.address() as AddressInfo).port
-  try {
-    const answers: Record<string, Array<{ address: string; family: number }>> = {
-      'rebound.example': [{ address: '127.0.0.1', family: 4 }],
-      'range.example': [{ address: '127.0.0.2', family: 4 }],
-      'mixed.example': [
-        { address: '192.0.2.10', family: 4 },
-        { address: '::1', family: 6 },
-      ],
-      'metadata.example': [{ address: '169.254.169.254', family: 4 }],
-      'link-local.example': [{ address: 'fe80::1', family: 6 }],
-      'six-to-four.example': [{ address: '2002:7f00:1::', family: 6 }],
-    }
-    const resolveHost = async (host: string) => answers[host] ?? []
-    for (const host of Object.keys(answers))
-      await assert.rejects(openDirect(host, port, resolveHost), { code: 'refused' })
-    await assert.rejects(
-      openDirect('gone.example', port, () => Promise.reject(new Error('ENOTFOUND'))),
-      { code: 'unreachable' },
-    )
-  } finally {
-    server.close()
-  }
 })

@@ -1,7 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import type { LookupAddress } from 'node:dns'
-import { lookup } from 'node:dns/promises'
-import { BlockList, connect as connectTcp, createServer, isIP, type Server, type Socket } from 'node:net'
+import { connect as connectTcp, createServer, isIP, type Server, type Socket } from 'node:net'
 import type { Duplex } from 'node:stream'
 
 import type { SshPaneTraffic } from '../../../shared/ssh-environments'
@@ -448,65 +446,9 @@ export class SshPaneForward {
   }
 }
 
-// Link-local addresses (a cloud machine's metadata service answers on
-// 169.254.169.254 and fe80::) and the loopback or link-local carried inside a
-// NAT64 or 6to4 address: no dev server answers there, and a page must not be
-// pointed at them by a name. The relay on the machine refuses the same set.
-const NEVER_BY_NAME = new BlockList()
-NEVER_BY_NAME.addSubnet('169.254.0.0', 16, 'ipv4')
-NEVER_BY_NAME.addSubnet('::ffff:a9fe:0', 112, 'ipv6')
-NEVER_BY_NAME.addSubnet('fe80::', 10, 'ipv6')
-NEVER_BY_NAME.addSubnet('64:ff9b::7f00:0', 104, 'ipv6')
-NEVER_BY_NAME.addSubnet('64:ff9b::a9fe:0', 112, 'ipv6')
-NEVER_BY_NAME.addSubnet('2002:7f00::', 24, 'ipv6')
-NEVER_BY_NAME.addSubnet('2002:a9fe::', 32, 'ipv6')
-
-function linkLocalOrWrapped(address: string): boolean {
-  const family = isIP(address)
-  return family !== 0 && NEVER_BY_NAME.check(address, family === 4 ? 'ipv4' : 'ipv6')
-}
-
-/**
- * A connection from this computer, for a pane in loopback mode: everything but
- * the machine's loopback goes from here. A name is resolved first, and refused
- * when it resolves to this computer's own loopback (a rebinding site): the pane
- * guard judged it by its name. The connection uses those addresses.
- */
-export async function openDirect(
-  host: string,
-  port: number,
-  resolveHost: (host: string) => Promise<LookupAddress[]> = (name) => lookup(name, { all: true }),
-): Promise<Duplex> {
-  const bare = host.replace(/^\[(.*)\]$/u, '$1')
-  let addresses: LookupAddress[]
-  try {
-    addresses = isIP(bare) ? [{ address: bare, family: isIP(bare) }] : await resolveHost(bare)
-  } catch (error) {
-    throw Object.assign(error instanceof Error ? error : new Error(String(error)), { code: 'unreachable' })
-  }
-  if (addresses.length === 0 || addresses.some((entry) => isLoopbackTarget(entry.address)))
-    throw Object.assign(
-      new Error(`${host} resolves to this computer's own loopback, which a pane on a machine does not reach.`),
-      {
-        code: 'refused',
-      },
-    )
-  if (addresses.some((entry) => linkLocalOrWrapped(entry.address)))
-    throw Object.assign(
-      new Error(
-        `${host} resolves to a link-local address, or the loopback in another form, which a pane does not open.`,
-      ),
-      { code: 'refused' },
-    )
+function openDirect(host: string, port: number): Promise<Duplex> {
   return new Promise((resolve, reject) => {
-    const socket = connectTcp({
-      host: bare,
-      port,
-      lookup: (_name, options, callback) =>
-        options.all
-          ? (callback as (error: null, addresses: LookupAddress[]) => void)(null, addresses)
-          : callback(null, addresses[0]!.address, addresses[0]!.family),
-    })
+    const socket = connectTcp({ host, port })
     const timer = setTimeout(() => {
       socket.destroy()
       reject(Object.assign(new Error('The connection timed out.'), { code: 'timeout' }))

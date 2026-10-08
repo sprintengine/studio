@@ -7,7 +7,7 @@ import {
   latestTurnEnd,
   movesWorkspaceList,
 } from '../../main/automation/conversation-lifecycle'
-import { launchPermissionCeiling, scheduledRunOfCaller } from '../../main/automation/launch-permission-cap'
+import { launchPermissionCeiling } from '../../main/automation/launch-permission-cap'
 import { createStudioGatewayTools } from '../../main/automation/studio-gateway-tools'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
 import { toolSuccess, toolError } from '../../shared/modules/mcp-tools'
@@ -90,7 +90,6 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
     ...createConversationTools({
       launch: (request) => core.conversationLaunchService.launch(request),
       resolveAgentPermissionPreset: core.resolveAgentPermissionPreset,
-      resolveScheduledRun: core.resolveScheduledRun,
       lifecycle: core.conversationLifecycle,
       ...(options.linkLaunchedAgent ? { linkLaunchedAgent: options.linkLaunchedAgent } : {}),
     }),
@@ -105,9 +104,6 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
     // A module tool runs under its caller's launch cap, so a chat the module
     // starts for a capped agent is no looser than that agent.
     callerPermissionCeiling: (context) => launchPermissionCeiling(context, core.resolveAgentPermissionPreset),
-    // And as part of its caller's scheduled run, if it is one: a chat it
-    // starts carries the run, and it may not change a schedule for it.
-    callerScheduledRun: (context) => scheduledRunOfCaller(context, core.resolveScheduledRun),
     warn: (details) => {
       void writeDiagnosticLog({
         level: 'warning',

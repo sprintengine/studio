@@ -704,14 +704,3 @@ test('several connectors start the chat with each of their servers, once each, a
   if (!result.ok) assert.equal(result.code, 'connector_unavailable')
   assert.deepEqual(refused.record.starts, [])
 })
-
-test("a chat a scheduled run starts keeps the run on its agent's record", async () => {
-  const { service, record } = harness()
-  const result = await service.launch({ workspaceId: 'ws-1', cli: 'claude-code', launchedByScheduledAgentId: ' sa-1 ' })
-  assert.equal(result.ok, true)
-  assert.equal(record.writes[0]?.agent?.launchedByScheduledAgentId, 'sa-1')
-
-  const { service: plain, record: plainRecord } = harness()
-  await plain.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
-  assert.equal(plainRecord.writes[0]?.agent?.launchedByScheduledAgentId, undefined)
-})

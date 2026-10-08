@@ -29,7 +29,7 @@ import { ConversationSessionApi } from '../conversation-session-api'
 import { createModuleGitHubRegistry } from '../module-host/module-github'
 import { createModuleSecretsRegistry } from '../module-host/module-secrets'
 import { createModuleStorageRegistry } from '../module-host/module-storage'
-import { moduleToolCallerCeiling, moduleToolCallerScheduledRun } from '../module-host/module-tool-caller'
+import { moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
 
@@ -162,8 +162,6 @@ export function createAgentRuntimeModule(
         getModulePermissions: options.getModulePermissions,
         // A chat a module's MCP tool starts is held to the calling agent's preset.
         getCallerPermissionCeiling: moduleToolCallerCeiling,
-        // And carries the run that agent is part of, if it is a scheduled run's.
-        getCallerScheduledRun: moduleToolCallerScheduledRun,
       })
       host.provideService(ConversationModuleServiceToken, () => conversations.registry)
       host.onShutdown(() => conversations.dispose())

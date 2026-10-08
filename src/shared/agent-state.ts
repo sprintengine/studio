@@ -233,12 +233,6 @@ export type AgentState = {
   // is retried finds the chat its first attempt made rather than making a
   // second. Set once at launch and never edited.
   launchCommandId?: string
-  // The scheduled agent whose run started this agent, through any chain of
-  // launches: the run's chat launched it, or an agent that one launched did.
-  // A scheduled run may not make, change or fire a schedule, and neither may
-  // anything it starts, or one launch would be the way round the rule. Set
-  // once at launch and never edited.
-  launchedByScheduledAgentId?: string
 }
 
 type AgentBacklogItemRef = {

@@ -47,12 +47,6 @@ export type AgentLaunchRequest = {
   /** Built-in skill installed into the working directory before the CLI starts. */
   spawnSkillId?: string
   /**
-   * The scheduled agent whose run is launching this agent (the caller is the
-   * run's chat, or something it started). Kept on the agent's record
-   * (`AgentState.launchedByScheduledAgentId`), so it schedules nothing either.
-   */
-  launchedByScheduledAgentId?: string
-  /**
    * The agent's id, when the CALLER owns it. A module agent session is keyed by
    * something the module already has (a review id, a document id) so a second
    * start finds the live terminal instead of spawning a twin; the minted
@@ -121,8 +115,6 @@ export type AgentLaunchRecord = {
   worktreePath?: string
   /** The machine main launched on, so the agent resumes on the same one. */
   hostId?: ExecutionHostId
-  /** See `AgentLaunchRequest.launchedByScheduledAgentId`. */
-  launchedByScheduledAgentId?: string
 }
 
 export type AgentLaunchResult =

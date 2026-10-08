@@ -19,9 +19,7 @@ import {
 import {
   capLaunchPermissionPreset,
   launchPermissionCeiling,
-  scheduledRunOfCaller,
   type AgentPermissionResolver,
-  type ScheduledRunResolver,
 } from './launch-permission-cap'
 
 /**
@@ -46,12 +44,6 @@ export type ConversationToolsDeps = {
   launch: ConversationLaunchService['launch']
   /** The calling agent's own preset, which a chat it starts may not exceed (launch-permission-cap.ts). */
   resolveAgentPermissionPreset: AgentPermissionResolver
-  /**
-   * Whose scheduled run the caller is part of, carried onto the chat it
-   * starts so that chat schedules nothing either (launch-permission-cap.ts).
-   * Absent, nothing is carried.
-   */
-  resolveScheduledRun?: ScheduledRunResolver
   /** A chat's rest and visit clock, written to the desktop's own record (conversation-lifecycle.ts). */
   lifecycle: Pick<ConversationLifecycle, 'settle' | 'visit' | 'markUnread'>
   /**
@@ -198,7 +190,6 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           launchPermissionCeiling(context, deps.resolveAgentPermissionPreset),
         )
         if ('refused' in capped) return toolError(capped.refused.code, capped.refused.message)
-        const run = deps.resolveScheduledRun ? scheduledRunOfCaller(context, deps.resolveScheduledRun) : null
         const launched = await deps.launch({
           workspaceId: args.workspaceId.trim(),
           ...(args.newChat === true ? { newChat: true } : {}),
@@ -209,7 +200,6 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           ...(typeof args.prompt === 'string' ? { prompt: args.prompt } : {}),
           ...(typeof args.name === 'string' ? { name: args.name } : {}),
           ...(capped.permissionPreset ? { permissionPreset: capped.permissionPreset } : {}),
-          ...(run ? { launchedByScheduledAgentId: run } : {}),
         })
         if (!launched.ok) return toolError(launched.code, launched.message)
         const parent = launchingAgentOf(context)

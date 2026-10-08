@@ -73,10 +73,8 @@ import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import {
   capScheduledAgentPreset,
   capLaunchPermissionPreset,
-  createScheduledRunResolver,
   launchPermissionCeiling,
   refuseScheduledAgentRun,
-  scheduledRunOfCaller,
   type AgentPermissionResolver,
 } from './launch-permission-cap'
 import { normalizeExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
@@ -330,8 +328,6 @@ type LaunchPlan = {
   host?: ExecutionHostId
   /** A bundled skill the prompt invokes; the launch carries it (see `launchSkills`). */
   spawnSkillId?: string
-  /** The scheduled run the caller is part of, carried onto what it launches (`scheduledRunPlan`). */
-  launchedByScheduledAgentId?: string
 }
 
 type LaunchWorktree = { path: string; branch: string }
@@ -448,19 +444,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   function connectionWorkspace(context: McpConnectionContext | undefined): Workspace | null {
     const workspaceId = context?.metadata.workspaceId
     return workspaceId ? findWorkspace(workspaceId) : null
-  }
-
-  // Whose scheduled run a caller is part of: the run's chat, or anything it
-  // started (launch-permission-cap.ts).
-  const resolveScheduledRun = createScheduledRunResolver({
-    readWorkspace: (workspaceId) => findWorkspace(workspaceId),
-    listTerminalSessions: () => backends.listTerminalSessions(),
-  })
-
-  /** What a launch made for this caller carries: the run it is part of, if any. */
-  function scheduledRunPlan(context: McpConnectionContext | undefined): { launchedByScheduledAgentId?: string } {
-    const run = scheduledRunOfCaller(context, resolveScheduledRun)
-    return run ? { launchedByScheduledAgentId: run } : {}
   }
 
   // backlog.assign and backlog.work additionally need the live app workspace
@@ -719,7 +702,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       ...(plan.agentId ? { agentId: plan.agentId } : {}),
       ...(plan.host ? { host: plan.host } : {}),
       ...(plan.spawnSkillId ? { spawnSkillId: plan.spawnSkillId } : {}),
-      ...(plan.launchedByScheduledAgentId ? { launchedByScheduledAgentId: plan.launchedByScheduledAgentId } : {}),
     })
     if (!launched.ok) return failure(launched.code, launched.message)
     const { agentId, sessionId } = launched
@@ -1191,7 +1173,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           worktreeRequested: options.worktreeRequested,
           worktreeName: options.worktreeName,
           worktreeBaseRef: options.worktreeBaseRef,
-          ...scheduledRunPlan(context),
         },
         { afterStart: link },
       )
@@ -1569,7 +1550,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         cliModel: optionalString(args.cliModel),
         ...(requestedPreset ? { permissionPreset: requestedPreset } : {}),
         worktreeRequested: false,
-        ...scheduledRunPlan(context),
       })
       if (!('agentId' in launched)) return launched
       return success({
@@ -2185,7 +2165,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           // The launch carries the skill its `/backlog` invocation names; the
           // ensure above wrote nothing for a launch that does.
           spawnSkillId: BACKLOG_SKILL_ID,
-          ...scheduledRunPlan(context),
         },
         {
           // Assigned once the agent exists, after its worktree's install.
@@ -2250,16 +2229,15 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // come and go under it.
   //
   // The caller is the chat whose agent declared itself on this connection
-  // (`launchPermissionCeiling` reads the same identity), or anything a run's
-  // chat launched, however many launches down: each carries the run on its
-  // record. A caller that declared no workspace is not a run's chat as far as
-  // anything here can tell, and keeps what it had.
+  // (`launchPermissionCeiling` reads the same identity). A caller that
+  // declared no workspace is not a run's chat as far as anything here can
+  // tell, and keeps what it had.
   function refuseScheduledRunCaller(context: McpConnectionContext | undefined, action: string): McpToolResult | null {
-    if (!scheduledRunOfCaller(context, resolveScheduledRun)) return null
+    if (context?.metadata.kind !== 'studio-agent') return null
+    if (!connectionWorkspace(context)?.scheduledAgentId) return null
     return failure(
       'scheduled_run_refused',
-      `This agent was started by a scheduled agent's run, itself or through agents the run launched, and a ` +
-        `scheduled run may not ${action} one. ` +
+      `This chat was started by a scheduled agent, and a scheduled run may not ${action} one. ` +
         'Ask the person to change schedules from the app.',
     )
   }
