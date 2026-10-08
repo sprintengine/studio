@@ -400,6 +400,47 @@ test('a running dependency install shows on its worktree’s row, and Cancel sto
   expect(rowNamed('pool-01')?.textContent).toContain('Open chat')
 })
 
+test('while a measurement runs, pool changes start no reads; one answered late does not undo a later one', async () => {
+  let poolChanged: (() => void) | null = null
+  let finishMeasure: ((value: WorktreeInventory) => void) | null = null
+  const asked: boolean[] = []
+  const renamed = (name: string): WorktreeInventory => ({
+    ...inventory,
+    projects: inventory.projects.map((project) => ({
+      ...project,
+      worktrees: project.worktrees.map((entry) => ({ ...entry, branch: name })),
+    })),
+  })
+  Object.assign((window as unknown as { api: object }).api, {
+    onWorktreePoolChanged: (cb: () => void) => {
+      poolChanged = cb
+      return () => {}
+    },
+    getWorktreeInventory: (input: WorktreeInventoryInput) => {
+      asked.push(input.measure === true)
+      if (input.measure) return new Promise<WorktreeInventory>((resolve) => (finishMeasure = resolve))
+      return Promise.resolve(renamed(`feat/read-${asked.length}`))
+    },
+  })
+  await render()
+  expect(asked).toEqual([false, true])
+  // The measurement is still running: a change announced now is its to answer.
+  await act(async () => {
+    poolChanged?.()
+    await new Promise((resolve) => setTimeout(resolve, 450))
+  })
+  expect(asked).toEqual([false, true])
+  // A removal reads again, quickly, and its answer lands first…
+  await click(button(rowNamed('pool-03')!, 'Remove'))
+  await click(button(document.body.querySelector<HTMLElement>('[role="dialog"]')!, 'Remove'))
+  expect(asked).toEqual([false, true, false])
+  expect(host.textContent).toContain('feat/read-3')
+  // …so the measurement's older picture is not applied; one more read brings its sizes in.
+  await act(async () => finishMeasure?.(renamed('feat/stale')))
+  expect(host.textContent).not.toContain('feat/stale')
+  expect(asked).toEqual([false, true, false, false])
+})
+
 test('an empty category reads 0 KB in the legend and the bar’s label, not 1 KB', async () => {
   const onlyInUse: WorktreeInventory = {
     ...inventory,

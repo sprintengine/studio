@@ -128,6 +128,14 @@ export function WorktreesSettingsTab({
   // Dependency installs running in leased worktrees, by worktree; shown on its row with Cancel.
   const [installs, setInstalls] = useState<ReadonlyMap<string, WorktreeDependencyInstallView>>(new Map())
   const mounted = useRef(true)
+  // Each read is numbered, and an answer older than one already applied is
+  // dropped: a slow read answered after a quicker, later one would otherwise
+  // put an older picture back.
+  const latestRead = useRef(0)
+  const appliedRead = useRef(0)
+  // Measurements in flight. Their answer reads the pools after measuring, so
+  // a change announced meanwhile needs no read of its own.
+  const measuringNow = useRef(0)
 
   const read = useCallback(async (measure: boolean) => {
     if (!hasApi()) return
@@ -135,17 +143,31 @@ export function WorktreesSettingsTab({
     // subscribed to: a background agent's write elsewhere must not re-read
     // every worktree.
     const repoRoots = inventoryRootsOf(useWorkspaceStore.getState().workspaces)
-    if (measure) setMeasuring(true)
+    const sequence = ++latestRead.current
+    if (measure) {
+      measuringNow.current += 1
+      setMeasuring(true)
+    }
     try {
       const next = await window.api.getWorktreeInventory({ repoRoots, measure })
       if (!mounted.current) return
+      if (sequence < appliedRead.current) {
+        // A measurement overtaken by a quicker read: its sizes are kept in
+        // main now, and one more quick read brings them in.
+        if (measure) void read(false)
+        return
+      }
+      appliedRead.current = sequence
       setInventory(next)
       setLoadError(null)
       setNow(Date.now())
     } catch (error) {
-      if (mounted.current) setLoadError(error instanceof Error ? error.message : String(error))
+      if (mounted.current && sequence >= appliedRead.current) {
+        setLoadError(error instanceof Error ? error.message : String(error))
+      }
     } finally {
-      if (measure && mounted.current) setMeasuring(false)
+      if (measure) measuringNow.current -= 1
+      if (measure && mounted.current && measuringNow.current === 0) setMeasuring(false)
     }
   }, [])
 
@@ -159,6 +181,8 @@ export function WorktreesSettingsTab({
       .catch(() => {})
     let timer: ReturnType<typeof setTimeout> | null = null
     const unsubscribe = window.api?.onWorktreePoolChanged?.(() => {
+      // A measurement under way answers with the pools as they are after it.
+      if (measuringNow.current > 0) return
       // A lease or a return moves several records in a row; one re-read covers them.
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => void read(false), 400)

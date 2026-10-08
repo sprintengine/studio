@@ -356,9 +356,14 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     return run
   }
 
-  async function persist(pool: PoolRuntime): Promise<void> {
+  /**
+   * Write the record, and tell the windows. `sizeOnly`: a measurement, which
+   * the window that asked for it reads in its answer; announcing each one
+   * would have an open Settings ▸ Worktrees re-read every worktree per slot.
+   */
+  async function persist(pool: PoolRuntime, options: { sizeOnly?: boolean } = {}): Promise<void> {
     await deps.store.write(pool.record)
-    deps.onChange?.(snapshotOf(pool))
+    if (!options.sizeOnly) deps.onChange?.(snapshotOf(pool))
   }
 
   function slotById(pool: PoolRuntime, slotId: string): SlotRecord | undefined {
@@ -1606,7 +1611,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     await withPool(pool, async () => {
       if (!pool.record.slots.includes(slot)) return
       slot.size = size
-      await persist(pool)
+      await persist(pool, { sizeOnly: true })
     })
   }
 

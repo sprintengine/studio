@@ -685,6 +685,25 @@ test('measuring takes no pool’s lock: a pool this run has not used keeps its s
   assert.equal((await slotAt(next, 'pool-01')).size?.bytes, GB, 'the stored size is shown')
 })
 
+test('a measurement is not announced to the windows; a lease is', async () => {
+  let changes = 0
+  const service = createWorktreePoolService({
+    store: createPoolStore(userData),
+    log: () => {},
+    timers: false,
+    fetchFreshMs: 0,
+    measure: fakeMeasure(GB),
+    onChange: () => (changes += 1),
+  })
+  const leased = await service.lease({ repoRoot: repo, name: 'announced' })
+  assert.equal(leased.ok, true)
+  assert.ok(changes > 0)
+  const before = changes
+  await service.measure()
+  assert.equal(changes, before, 'sizes alone fire no change')
+  assert.equal((await service.snapshot(repo))?.slots[0].size?.bytes, GB)
+})
+
 test('quitting stops a disk measurement part-way, and a short wait is not stretched by a step that hangs', async () => {
   let started = 0
   let aborted = false
