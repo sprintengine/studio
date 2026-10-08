@@ -124,7 +124,8 @@ test('ProjectSourceMenu', async () => {
       )
       assert.doesNotMatch(noBrowse, /Browse…/)
       assert.match(noBrowse, /Import from Git/)
-      assert.match(noBrowse, /No matching projects\./)
+      assert.match(noBrowse, /No projects yet\./, 'with nothing typed, nothing failed to match')
+      assert.doesNotMatch(noBrowse, /No matching projects/)
     })
 
     // ── The stepped Git view, rendered for real inside the hosting Popover ──
@@ -210,6 +211,37 @@ test('ProjectSourceMenu', async () => {
         clones,
       }
     }
+
+    await check('opening the list puts the focus in its search field, once the surface shows', async () => {
+      const { focusProjectSearch } = await import('./ProjectSourceMenu')
+      const surface = dom.window.document.createElement('div')
+      surface.innerHTML = '<input aria-label="Search projects"><button>sprintengine</button>'
+      dom.window.document.body.appendChild(surface)
+      const field = surface.querySelector('input')!
+      // Still hidden while the popover measures it: the first focus lands nowhere.
+      const realFocus = field.focus.bind(field)
+      let tries = 0
+      field.focus = () => {
+        tries += 1
+        if (tries > 1) realFocus()
+      }
+      focusProjectSearch(surface)
+      assert.notEqual(dom.window.document.activeElement, field)
+      await settle()
+      assert.equal(dom.window.document.activeElement, field, 'the next frame puts it there')
+      surface.remove()
+    })
+
+    await check('a search that finds nothing says so', async () => {
+      const view = await mount(async () => ({ ok: false, message: 'unused' }))
+      try {
+        const search = surface()!.querySelector<HTMLInputElement>('[aria-label="Search projects"]')!
+        await type(search, 'nothing-like-it')
+        assert.match(surface()!.textContent ?? '', /No matching projects\./)
+      } finally {
+        view.unmount()
+      }
+    })
 
     await check('Import from Git swaps the same surface to the repo step, and back preserves the search', async () => {
       repoAnswer = async () => ({ ok: false, reason: 'no_token' })

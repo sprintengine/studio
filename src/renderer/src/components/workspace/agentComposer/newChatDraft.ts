@@ -43,6 +43,12 @@ export type NewChatDraft = {
   engine: NewChatDraftEngine | null
   skills: WorkspaceSkill[]
   mcpServers: AgentComposerConnector[]
+  /**
+   * The Worktree chip as it was left: null off, '' on with a name made up at
+   * start, anything else the name typed. Absent until the panel has written
+   * it, which opens the chip as the door always opens it.
+   */
+  worktreeName?: string | null
 }
 
 const EMPTY_DRAFT: NewChatDraft = {

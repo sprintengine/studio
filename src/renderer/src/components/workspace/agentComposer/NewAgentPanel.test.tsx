@@ -540,8 +540,9 @@ test('NewAgentPanel', async () => {
       const strip = view.container.querySelector('[data-composer-strip]')
       assert.ok((strip?.textContent ?? '').includes('Worktree'), 'the switch reads Worktree while on')
       const on = [...view.container.querySelectorAll('button')].find(
-        (button) => button.getAttribute('aria-label') === 'Worktree on',
+        (button) => button.getAttribute('aria-label') === 'Run in a worktree',
       )
+      assert.equal(on?.getAttribute('aria-pressed'), 'true', 'the same switch, pressed')
       await act(async () => {
         on!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
@@ -817,7 +818,8 @@ test('NewAgentPanel', async () => {
       )
       await act(async () => {
         ;(chip as HTMLElement).focus()
-        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        // Where the browser sends a key: to whatever holds the focus.
+        chip!.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       })
       assert.equal(view.closed(), 1, 'Escape cancels from anywhere on the surface')
       view.unmount()
@@ -1013,6 +1015,36 @@ test('NewAgentPanel', async () => {
       const matched = SUGGESTION_BANK.find((entry) => entry.prompt === prompt)
       assert.ok(matched, 'the card sent the bank’s real instruction, not its title')
       assert.notEqual(prompt, matched?.title, 'and never the label')
+      view.unmount()
+    })
+
+    await check('the cards leave once the box holds words or attachments, and come back when it is empty', async () => {
+      seedStore()
+      const { SUGGESTION_BANK } = await import('./suggestionBank')
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      const cards = () =>
+        [...view.container.querySelectorAll('button')].filter((button) =>
+          SUGGESTION_BANK.some((entry) => (button.textContent ?? '').startsWith(entry.title)),
+        )
+      assert.ok(cards().length > 0, 'an empty box offers cards')
+      const field = composerField(view.container)
+      await act(async () => {
+        typeIntoComposer(field, 'my own task')
+      })
+      assert.equal(cards().length, 0, 'a card would throw the typed words away')
+      await act(async () => {
+        typeIntoComposer(field, '')
+      })
+      assert.ok(cards().length > 0, 'cleared, the box offers them again')
+      const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')!
+      const file = new dom.window.File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' })
+      Object.defineProperty(input, 'files', { value: [file], configurable: true })
+      await act(async () => {
+        input.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+      })
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 20)))
+      assert.equal(cards().length, 0, 'nor send a staged image with a card’s text')
+      assert.equal(view.launches.length, 0)
       view.unmount()
     })
 
@@ -1828,6 +1860,94 @@ test('NewAgentPanel', async () => {
         await enter()
         assert.equal(remoteLaunches.length, 2, 'and is accepted once the first settles')
         view.unmount()
+      },
+    )
+
+    await check('a remote launch refuses attached files rather than typing this disk’s paths there', async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      writeNewChatDraft('win-files', { prompt: 'summarise', files: ['/Users/dev/Desktop/Q3 budget.xlsx'] })
+      meshConnections = [machine('m1', 'Air')]
+      meshBrowseAnswer = (id) => ({
+        connectionId: id,
+        reachable: true,
+        unreachableReason: null,
+        unauthorized: false,
+        scopes: [],
+        workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
+        gaps: [],
+      })
+      const remoteLaunches: Array<Record<string, unknown>> = []
+      const view = await remoteRender({
+        initialSelection: { kind: 'conversation' },
+        draftKey: 'win-files',
+        onLaunchRemote: async (launch: Record<string, unknown>) => {
+          remoteLaunches.push(launch)
+        },
+      })
+      await settle()
+      await pickMachine(view, 'Air')
+      useToastStore.setState({ toasts: [] })
+      const field = composerField(view.container)
+      await act(async () => {
+        field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      })
+      assert.equal(remoteLaunches.length, 0, 'nothing launched with a file attached')
+      const refusal = useToastStore.getState().toasts.find((toast) => toast.title === 'That chat cannot travel yet')
+      assert.ok(
+        refusal?.description?.includes('the attached files'),
+        `it names the files; got: ${refusal?.description}`,
+      )
+      view.unmount()
+      resetNewChatDraftsForTests()
+    })
+
+    await check(
+      'a terminal agent on a WSL machine is typed its files as Linux spells this computer’s drives',
+      async () => {
+        seedStore()
+        resetRememberedMachineForTests()
+        meshConnections = []
+        const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+        resetNewChatDraftsForTests()
+        writeNewChatDraft('win-wsl', {
+          prompt: 'summarise',
+          files: ['C:\\Users\\dev\\Q3 budget.xlsx'],
+          images: [{ id: 'i', mediaType: 'image/png', dataBase64: 'AAAA', byteLength: 4, path: 'C:\\Temp\\shot.png' }],
+        })
+        hostsAnswer = {
+          hosts: [
+            { id: 'local', kind: 'windows', label: 'This PC (Windows)', pathStyle: 'windows', state: 'ready' },
+            { id: 'wsl:Ubuntu', kind: 'wsl', label: 'WSL: Ubuntu', pathStyle: 'wsl', state: 'ready', enabled: true },
+          ],
+          wsl: { available: true },
+        }
+        try {
+          const view = await render({
+            initialSelection: { kind: 'general' },
+            draftKey: 'win-wsl',
+            folderPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo',
+            projectOptions: [],
+            onSelectProject: () => {},
+          })
+          await settle()
+          const field = composerField(view.container)
+          await act(async () => {
+            field.dispatchEvent(
+              new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+            )
+          })
+          const launch = view.launches.at(-1)
+          assert.equal(launch?.hostId, 'wsl:Ubuntu')
+          assert.equal(launch?.prompt, "summarise /mnt/c/Temp/shot.png '/mnt/c/Users/dev/Q3 budget.xlsx'")
+          view.unmount()
+        } finally {
+          hostsAnswer = { hosts: [], wsl: null }
+          resetRememberedMachineForTests()
+          resetNewChatDraftsForTests()
+        }
       },
     )
 

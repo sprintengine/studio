@@ -15,11 +15,13 @@ import {
 } from '../useFolderRepositoryIdentities'
 import { resolveDefaultParentPath } from '../newWorkspace/folderCreation'
 import {
+  focusProjectSearch,
   ProjectSourceMenu,
   type ProjectCloneRequest,
   type ProjectCloneResult,
   type ProjectSourceOption,
 } from './ProjectSourceMenu'
+import { ChipCaretGlyph } from './agentSpawnShared'
 
 // "Which project is this about?", as one chip.
 //
@@ -231,6 +233,7 @@ export function ProjectScopePicker({
       ariaLabel={ariaLabel}
       popupRole="menu"
       placement="bottom-start"
+      onOpenAutoFocus={focusProjectSearch}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         // Exactly the machine trigger's box, because it is now literally the
         // same component: the scope line is one row of sibling chips, and the
@@ -257,7 +260,7 @@ export function ProjectScopePicker({
           />
           {label}
           {branch ? ` · ${branch}` : ''}
-          <ChevronGlyph />
+          <ChipCaretGlyph />
         </ChipButton>
       )}
     >
@@ -284,18 +287,4 @@ export function ProjectScopePicker({
 // project and its recent-folders twin count once.
 function folderPathKey(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-}
-
-function ChevronGlyph() {
-  return (
-    <svg className="icon-xs text-[color:var(--text-subtle)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="m4 6.5 4 3.5 4-3.5"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
 }

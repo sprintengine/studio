@@ -720,6 +720,35 @@ test('NewAgentPanel launch paths', async () => {
       useWorkspaceStore.setState({ appSettings: settings } as never)
     })
 
+    await check('a stay chord rebound to Alt and a letter matches the key, not the character it types', async () => {
+      seedStore()
+      const settings = useWorkspaceStore.getState().appSettings
+      useWorkspaceStore.setState({
+        appSettings: {
+          ...settings,
+          keybindings: { ...settings.keybindings, overrides: { 'chat.new.launchInBackground': ['Alt+K'] } },
+        },
+      } as never)
+      const view = await render({ initialSelection: { kind: 'conversation' }, launchesInBackground: true })
+      await act(async () => typeIntoComposer(composerField(view.container), 'one'))
+      // Option+K on a Mac keyboard types "˚"; the key is still K.
+      await act(async () => {
+        composerField(view.container).dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', {
+            key: '˚',
+            code: 'KeyK',
+            altKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        )
+      })
+      assert.equal(view.launches.length, 1, 'the rebound chord starts the chat')
+      assert.equal(view.launches[0]?.stay, true)
+      view.unmount()
+      useWorkspaceStore.setState({ appSettings: settings } as never)
+    })
+
     await check('a ⌘⏎ launch that started nothing hands the prompt back', async () => {
       seedStore()
       const launches: Array<Record<string, unknown>> = []
@@ -737,6 +766,61 @@ test('NewAgentPanel launch paths', async () => {
       assert.equal(launches.length, 1)
       assert.equal(composerText(composerField(view.container)), 'Cut a worktree for this.')
       view.unmount()
+    })
+
+    const nameWorktree = async (view: Harness, name: string): Promise<HTMLInputElement> => {
+      const field = view.container.querySelector<HTMLInputElement>('input[aria-label^="Worktree name"]')
+      assert.ok(field, 'the door offers the worktree name')
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!.call(field, name)
+        field!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      return field!
+    }
+
+    await check('⌘⏎ with a named worktree leaves the next chat to make up its own', async () => {
+      seedStore()
+      const { resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      const view = await render({
+        initialSelection: { kind: 'conversation' },
+        launchesInBackground: true,
+        draftKey: 'w',
+      })
+      const name = await nameWorktree(view, 'fix-login')
+      await act(async () => typeIntoComposer(composerField(view.container), 'Fix the login.'))
+      await pressEnter(view, { metaKey: true })
+      await settle()
+      assert.deepEqual(view.launches[0]?.worktree, { name: 'fix-login' })
+      assert.equal(name.value, '', 'the name went with the chat it was typed for')
+      await act(async () => typeIntoComposer(composerField(view.container), 'Write the notes.'))
+      await pressEnter(view, { metaKey: true })
+      assert.deepEqual(
+        view.launches[1]?.worktree,
+        { name: '' },
+        'the next one is still in a worktree, made up at start',
+      )
+      view.unmount()
+      resetNewChatDraftsForTests()
+    })
+
+    await check('a ⌘⏎ launch that started nothing hands the worktree name back too', async () => {
+      seedStore()
+      const { resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      const view = await render({
+        initialSelection: { kind: 'conversation' },
+        launchesInBackground: true,
+        draftKey: 'w',
+        onLaunch: () => Promise.resolve(false),
+      })
+      const name = await nameWorktree(view, 'fix-login')
+      await act(async () => typeIntoComposer(composerField(view.container), 'Fix the login.'))
+      await pressEnter(view, { metaKey: true })
+      await settle()
+      assert.equal(name.isConnected ? name.value : null, 'fix-login')
+      view.unmount()
+      resetNewChatDraftsForTests()
     })
 
     if (failures > 0) {

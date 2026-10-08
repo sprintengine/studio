@@ -30,6 +30,23 @@ export type ProjectSourceOption = { path: string; label: string }
 export type ProjectCloneRequest = { url: string; parentDir: string; folderName: string }
 export type ProjectCloneResult = { ok: true; path: string } | { ok: false; message: string }
 
+/**
+ * The hosting popover's open-focus for a project list that leads with its
+ * search field: focus goes to the field. `autoFocus` alone lands nowhere — the
+ * surface is still hidden while it is first measured, and a hidden field
+ * takes no focus — so a miss is tried again on the next frame, once it shows.
+ */
+export function focusProjectSearch(surface: HTMLElement): void {
+  const field = surface.querySelector<HTMLInputElement>('input[aria-label^="Search projects"]')
+  if (!field) return
+  field.focus()
+  if (document.activeElement !== field) {
+    requestAnimationFrame(() => {
+      if (field.isConnected) field.focus()
+    })
+  }
+}
+
 export function ProjectSourceMenu({
   options,
   recentOptions = [],
@@ -320,7 +337,11 @@ export function ProjectSourceMenu({
         </div>
       ) : null}
       {visible.length === 0 && visibleRecent.length === 0 ? (
-        <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">No matching projects.</div>
+        // "No matching" answers a search; before anything is typed there is
+        // nothing it could fail to match.
+        <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">
+          {needle ? 'No matching projects.' : 'No projects yet.'}
+        </div>
       ) : null}
     </div>
   )

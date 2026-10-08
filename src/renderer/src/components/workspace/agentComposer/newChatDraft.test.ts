@@ -121,3 +121,15 @@ test('newChatDraft', async () => {
 
   console.log('newChatDraft.test.ts: ok')
 })
+
+test('the worktree chip is parked as it was left: off, on, or named', () => {
+  resetNewChatDraftsForTests()
+  assert.equal(writeNewChatDraft('w1', { prompt: 'hi' }).worktreeName, undefined, 'unwritten, the door decides')
+  assert.equal(writeNewChatDraft('w1', { worktreeName: 'fix-login' }).worktreeName, 'fix-login')
+  assert.equal(writeNewChatDraft('w1', { worktreeName: null }).worktreeName, null, 'off stays off')
+  assert.equal(writeNewChatDraft('w1', { worktreeName: '' }).worktreeName, '')
+  // A name is the person's words, not a project's configuration.
+  writeNewChatDraft('w1', { folderPath: '/w/app', worktreeName: 'fix-login' })
+  assert.equal(rescopeNewChatDraft('w1', '/w/other')?.worktreeName, 'fix-login')
+  resetNewChatDraftsForTests()
+})

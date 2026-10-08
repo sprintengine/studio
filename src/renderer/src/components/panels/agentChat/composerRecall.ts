@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react'
-import type { ComposerKeyEvent } from './ComposerField'
+import { isImeKey, type ComposerKeyEvent } from './ComposerField'
 
 export type ComposerRecall = { index: number | null; stashed: string }
 export const EMPTY_RECALL: ComposerRecall = { index: null, stashed: '' }
@@ -39,7 +39,7 @@ export function useComposerRecall(history: readonly string[], draft: string, set
     shown.current = null
   }, [])
   const handleRecallKeyDown = (event: ComposerKeyEvent): boolean => {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.nativeEvent.isComposing) return false
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || isImeKey(event)) return false
     if (!['ArrowUp', 'ArrowDown', 'Escape'].includes(event.key)) return false
     if (shown.current !== null && shown.current !== draft) detachRecall()
     // The field measures its own line boxes, soft wraps included; counting

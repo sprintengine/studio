@@ -2,7 +2,22 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 import { composerDisabled, composerField, composerText, typeIntoComposer } from '../../../../../../tests/composer-field'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+
+// The "+" menu as the panel renders it, counted: a pass-through behind the
+// same memo, so a count that moves is a prop that changed identity.
+const plusMenuRenders = vi.hoisted(() => ({ count: 0 }))
+vi.mock('./ComposerPlusMenu', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ComposerPlusMenu')>()
+  const React = (await import('react')).default
+  return {
+    ...actual,
+    ComposerPlusMenu: React.memo(function CountedPlusMenu(props: React.ComponentProps<typeof actual.ComposerPlusMenu>) {
+      plusMenuRenders.count += 1
+      return React.createElement(actual.ComposerPlusMenu, props)
+    }),
+  }
+})
 
 test('NewAgentPanel interaction', async () => {
   // The launch surface behind the tab strip's "+". Rendered for real,
@@ -401,6 +416,14 @@ test('NewAgentPanel interaction', async () => {
         )
       })
       assert.equal(view.launches.length, 0, 'Enter that commits an IME composition is not a send')
+      // WebKit's committing Enter: the composition has already ended, but the
+      // key is still the input method's.
+      await act(async () => {
+        field.dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true, cancelable: true }),
+        )
+      })
+      assert.equal(view.launches.length, 0, 'an Enter sent as keyCode 229 is not a send either')
       await act(async () => {
         field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       })
@@ -488,6 +511,50 @@ test('NewAgentPanel interaction', async () => {
       view.unmount()
     })
 
+    await check('Escape in another pane leaves the "+" tab and its prompt alone', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      await typeInto(view, 'half a thought')
+      const elsewhere = dom.window.document.createElement('input')
+      dom.window.document.body.appendChild(elsewhere)
+      try {
+        await pressEscape(elsewhere)
+        assert.equal(view.closed(), 0, 'an Escape in a field outside the panel is not a cancel')
+        await pressEscape(dom.window.document.body)
+        assert.equal(view.closed(), 0, 'nor one with nothing focused, beside other panes')
+        await pressEscape(composerField(view.container))
+        assert.equal(view.closed(), 1, 'an Escape on the panel still cancels')
+      } finally {
+        elsewhere.remove()
+        view.unmount()
+      }
+    })
+
+    await check('the door closes on an Escape with nothing focused', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' }, showCloseButton: true })
+      view.container.setAttribute('data-new-chat-door', '')
+      await pressEscape(dom.window.document.body)
+      assert.equal(view.closed(), 1)
+      view.unmount()
+    })
+
+    await check('an Escape that drops an input method’s candidates keeps New chat and its draft', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      const field = await typeInto(view, 'にほん')
+      for (const init of [{ isComposing: true }, { keyCode: 229 }]) {
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, ...init }),
+          )
+        })
+      }
+      assert.equal(view.closed(), 0)
+      assert.equal(composerText(field), 'にほん')
+      view.unmount()
+    })
+
     await check('the skills picker opened from the "+" closes on Escape back to the "+"', async () => {
       seedStore()
       const view = await render({ initialSelection: { kind: 'conversation' } })
@@ -498,6 +565,17 @@ test('NewAgentPanel interaction', async () => {
       assert.equal(dom.window.document.querySelector('[role="dialog"]'), null, 'Escape closes it')
       assert.equal(view.closed(), 0, 'and not the panel')
       assert.ok(dom.window.document.activeElement === plusOf(view), 'focus is back on the "+"')
+      view.unmount()
+    })
+
+    await check('typing in the prompt does not redraw the "+" menu', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' }, draftKey: 'win-plus' })
+      await settle()
+      const before = plusMenuRenders.count
+      for (const text of ['r', 're', 'rev', 'review the diff']) await typeInto(view, text)
+      await settle()
+      assert.equal(plusMenuRenders.count, before, 'its props held steady through every keystroke')
       view.unmount()
     })
 
@@ -650,6 +728,35 @@ test('NewAgentPanel interaction', async () => {
       // image is its path.
       assert.match(String(third.launches[0]?.prompt), /^keep me \/tmp\/a\.png$/, 'and rides the launch')
       assert.equal(third.launches[0]?.images, undefined, 'as a path, not an image')
+      third.unmount()
+      resetNewChatDraftsForTests()
+    })
+
+    await check('a parked draft keeps the worktree chip as it was left', async () => {
+      seedStore()
+      const { readNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      const nameField = (view: Harness) =>
+        view.container.querySelector<HTMLInputElement>('input[aria-label^="Worktree name"]')
+      const first = await render({ draftKey: 'win-3', initialSelection: { kind: 'conversation' } })
+      assert.ok(nameField(first), 'the door opens with the worktree on')
+      await act(async () => {
+        const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!
+        setValue.call(nameField(first), 'fix-login')
+        nameField(first)!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      first.unmount()
+      assert.equal(readNewChatDraft('win-3')?.worktreeName, 'fix-login')
+      const second = await render({ draftKey: 'win-3', initialSelection: { kind: 'conversation' } })
+      assert.equal(nameField(second)?.value, 'fix-login', 'the typed name comes back')
+      const chip = second.container.querySelector<HTMLElement>('[data-worktree-chip] button')!
+      await act(async () => {
+        chip.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      second.unmount()
+      const third = await render({ draftKey: 'win-3', initialSelection: { kind: 'conversation' } })
+      assert.equal(nameField(third), null, 'and a chip turned off stays off')
+      assert.equal(third.container.querySelector('[data-worktree-chip]')?.getAttribute('data-worktree-chip'), 'off')
       third.unmount()
       resetNewChatDraftsForTests()
     })

@@ -340,3 +340,21 @@ export function TerminalSessionIcon({ className }: { className?: string }) {
     </svg>
   )
 }
+
+/**
+ * The caret a toolbar chip that opens a menu ends on: the engine, machine and
+ * project chips of the New chat composer, which have to read as one set.
+ */
+export function ChipCaretGlyph() {
+  return (
+    <svg className="icon-xs text-[color:var(--text-subtle)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="m4 6.5 4 3.5 4-3.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}

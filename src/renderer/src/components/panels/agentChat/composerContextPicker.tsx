@@ -18,7 +18,7 @@ import { AttachmentChip } from '../../ui/AttachmentChip'
 import { recentFileVisit, workspaceFileVisits } from '../../../utils/recentFileVisits'
 import { rankConversationCommands, SlashCommandMenu, type SlashCommandMenuStatus } from './slashCommandMenu'
 import { useConversationTransport } from './conversationTransport'
-import type { ComposerKeyEvent } from './ComposerField'
+import { isImeKey, type ComposerKeyEvent } from './ComposerField'
 
 type TriggerRange = ComposerTrigger['range']
 
@@ -258,7 +258,7 @@ export function useComposerContextPicker({
 
   const handleKeyDown = useCallback(
     (event: ComposerKeyEvent): boolean => {
-      if (!trigger || event.nativeEvent.isComposing) return false
+      if (!trigger || isImeKey(event)) return false
       // A token under the caret is not a request to pick: "ping @alice" + Enter
       // sends, arrows move the caret and Tab moves focus unless the open picker
       // has a highlighted result to act on. Shift+Enter is always a newline.

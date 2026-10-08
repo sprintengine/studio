@@ -167,6 +167,12 @@
       event.preventDefault()
       live.enterPending = true
     })
+    // Typing on after that Enter is the person carrying on, not the chat they
+    // asked for: the held Enter no longer speaks for what the field says, as
+    // the real composer drops it on the next key.
+    input.addEventListener('input', function () {
+      live.enterPending = false
+    })
     // Every control in the copy is inert; a press anywhere on it keeps the
     // caret in the field rather than dropping focus onto nothing.
     host.addEventListener('mousedown', function (event) {
