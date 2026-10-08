@@ -13,7 +13,7 @@ function command(definition: CommandDefinition): CommandDefinition {
 export const COMMAND_REGISTRY = [
   command({
     id: 'app.settings.open',
-    title: 'Open Settings',
+    title: 'Open settings',
     category: 'settings',
     scopes: ['global'],
     defaultKeybindings: ['Primary+,'],
@@ -21,14 +21,14 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'app.updates.check',
-    title: 'Check For Updates',
+    title: 'Check for updates',
     category: 'settings',
     scopes: ['global'],
     handlerPath: { kind: 'app-menu', command: 'app.updates.check' },
   }),
   command({
     id: 'commandPalette.open',
-    title: 'Open Command Palette',
+    title: 'Open command palette',
     category: 'command_palette',
     scopes: ['global'],
     defaultKeybindings: ['Primary+K', 'Primary+Shift+P'],
@@ -47,7 +47,7 @@ export const COMMAND_REGISTRY = [
   // turning off ⌘K with it (double-shift review, 2026-09-10).
   command({
     id: 'search.everywhere',
-    title: 'Search Everywhere',
+    title: 'Search everywhere',
     category: 'command_palette',
     scopes: ['global'],
     defaultKeybindings: ['Shift Shift'],
@@ -60,7 +60,7 @@ export const COMMAND_REGISTRY = [
   // the behaviour a user pressing a search shortcut expects.
   command({
     id: 'search.files.open',
-    title: 'Search in Files',
+    title: 'Search in files',
     category: 'command_palette',
     scopes: ['global'],
     defaultKeybindings: ['Primary+Shift+F'],
@@ -72,7 +72,7 @@ export const COMMAND_REGISTRY = [
   // and to null otherwise, so it works with no active workspace.
   command({
     id: 'chat.new',
-    title: 'New Chat',
+    title: 'New chat',
     category: 'workspace',
     scopes: ['global'],
     defaultKeybindings: ['Primary+N'],
@@ -89,7 +89,7 @@ export const COMMAND_REGISTRY = [
   // conflicts like any other command.
   command({
     id: 'chat.new.launchInBackground',
-    title: 'Start Chat and Stay on New Chat',
+    title: 'Start chat and stay on New chat',
     category: 'workspace',
     scopes: ['new-chat'],
     defaultKeybindings: ['Primary+Enter'],
@@ -107,7 +107,7 @@ export const COMMAND_REGISTRY = [
   // composer, so it works there too.
   command({
     id: 'chat.nextWaiting',
-    title: 'Go to Next Chat That Needs You',
+    title: 'Go to next chat that needs you',
     category: 'workspace',
     scopes: ['global'],
     defaultKeybindings: ['Primary+Shift+J'],
@@ -120,14 +120,14 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'chat.newConversation',
-    title: 'New Conversation',
+    title: 'New conversation',
     category: 'workspace',
     scopes: ['global'],
     handlerPath: { kind: 'workspace-manager', handler: 'openNewChatPanel(undefined, null, { kind: "conversation" })' },
   }),
   command({
     id: 'chat.newTerminalAgent',
-    title: 'New Terminal Agent',
+    title: 'New terminal agent',
     category: 'workspace',
     scopes: ['global'],
     handlerPath: { kind: 'workspace-manager', handler: 'openNewChatPanel(undefined, null, { kind: "general" })' },
@@ -140,7 +140,7 @@ export const COMMAND_REGISTRY = [
   // palette row) and the view's own binding resolution dispatch.
   command({
     id: 'chat.modelPicker.toggle',
-    title: 'Toggle Model Picker',
+    title: 'Toggle model picker',
     category: 'panel',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+M'],
@@ -162,7 +162,7 @@ export const COMMAND_REGISTRY = [
   // terminal agent running the CLI's own resume.
   command({
     id: 'chat.resumeInTerminal',
-    title: 'Continue Chat in Terminal',
+    title: 'Continue chat in terminal',
     category: 'panel',
     scopes: ['workspace'],
     defaultKeybindings: [],
@@ -176,7 +176,7 @@ export const COMMAND_REGISTRY = [
   // (the composer), ⌘⇧↑/↓ stays the text field's select-to-start/end.
   command({
     id: 'chat.turn.previous',
-    title: 'Jump to Previous Turn',
+    title: 'Jump to previous turn',
     category: 'panel',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+ArrowUp'],
@@ -185,7 +185,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'chat.turn.next',
-    title: 'Jump to Next Turn',
+    title: 'Jump to next turn',
     category: 'panel',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+ArrowDown'],
@@ -198,7 +198,7 @@ export const COMMAND_REGISTRY = [
   // the bare keys (Space, the arrows, Esc) while it has focus.
   command({
     id: 'chat.replay.start',
-    title: 'Replay Conversation',
+    title: 'Replay conversation',
     category: 'panel',
     scopes: ['workspace'],
     defaultKeybindings: [],
@@ -213,7 +213,7 @@ export const COMMAND_REGISTRY = [
   // focus is there with it.
   command({
     id: 'chat.quoteSelection',
-    title: 'Quote Selection in Reply',
+    title: 'Quote selection in reply',
     category: 'panel',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+.'],
@@ -222,7 +222,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'workspace.close',
-    title: 'Close Workspace',
+    title: 'Close workspace',
     category: 'workspace',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+W'],
@@ -235,7 +235,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'workspace.switch.next',
-    title: 'Switch Workspace Forward',
+    title: 'Switch workspace forward',
     category: 'workspace',
     scopes: ['workspace-navigation'],
     defaultKeybindings: ['Primary+`', 'Meta+Alt+ArrowRight'],
@@ -248,7 +248,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'workspace.switch.previous',
-    title: 'Switch Workspace Back',
+    title: 'Switch workspace back',
     category: 'workspace',
     scopes: ['workspace-navigation'],
     defaultKeybindings: ['Primary+Shift+`', 'Meta+Alt+ArrowLeft'],
@@ -261,7 +261,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'workspace.history.back',
-    title: 'Go Back (Recent Workspace)',
+    title: 'Go back (recent workspace)',
     category: 'workspace',
     scopes: ['workspace-navigation'],
     availability: ['activeWorkspace'],
@@ -274,7 +274,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'workspace.history.forward',
-    title: 'Go Forward (Recent Workspace)',
+    title: 'Go forward (recent workspace)',
     category: 'workspace',
     scopes: ['workspace-navigation'],
     availability: ['activeWorkspace'],
@@ -289,7 +289,7 @@ export const COMMAND_REGISTRY = [
     const workspaceNumber = index + 1
     return command({
       id: `workspace.switch.${workspaceNumber}`,
-      title: `Switch to Workspace ${workspaceNumber}`,
+      title: `Switch to workspace ${workspaceNumber}`,
       category: 'workspace',
       scopes: ['workspace-navigation'],
       defaultKeybindings: [`Primary+${workspaceNumber}`],
@@ -303,7 +303,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'workspace.sidebar.toggle',
-    title: 'Toggle Sidebar',
+    title: 'Toggle sidebar',
     category: 'workspace',
     scopes: ['global'],
     defaultKeybindings: ['Primary+B'],
@@ -311,7 +311,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'layout.tab.next',
-    title: 'Next Tab',
+    title: 'Next tab',
     category: 'workspace',
     scopes: ['global'],
     // Tab cycling uses the physical Control key on every platform. On macOS,
@@ -328,7 +328,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'layout.tab.previous',
-    title: 'Previous Tab',
+    title: 'Previous tab',
     category: 'workspace',
     scopes: ['global'],
     defaultKeybindings: ['Ctrl+Shift+Tab', 'Meta+Shift+['],
@@ -341,7 +341,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'layout.tab.close',
-    title: 'Close Layout Tab',
+    title: 'Close layout tab',
     category: 'workspace',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+W'],
@@ -366,7 +366,7 @@ export const COMMAND_REGISTRY = [
   // main-process target probe, which the renderer cannot report as availability.
   command({
     id: 'workspace.folder.reveal',
-    title: 'Reveal Workspace Folder',
+    title: 'Reveal workspace folder',
     category: 'workspace',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+O'],
@@ -380,7 +380,7 @@ export const COMMAND_REGISTRY = [
   // their pane tab.
   command({
     id: 'pane.toggle',
-    title: 'Toggle Workspace Pane',
+    title: 'Toggle workspace pane',
     category: 'panel',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Alt+B'],
@@ -389,7 +389,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'panel.files.toggle',
-    title: 'Toggle File Explorer',
+    title: 'Toggle file explorer',
     category: 'panel',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+E'],
@@ -398,7 +398,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'panel.editor.toggle',
-    title: 'Toggle Code Editor',
+    title: 'Toggle code editor',
     category: 'panel',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+O'],
@@ -407,7 +407,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'panel.git.toggle',
-    title: 'Toggle Git Panel',
+    title: 'Toggle Git panel',
     category: 'git',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+G'],
@@ -419,7 +419,7 @@ export const COMMAND_REGISTRY = [
   // "+" menu and a chat's own agent lanes open it.
   command({
     id: 'panel.agents.toggle',
-    title: 'Toggle Agents',
+    title: 'Toggle agents',
     category: 'panel',
     scopes: ['workspace'],
     availability: ['activeWorkspace'],
@@ -434,7 +434,7 @@ export const COMMAND_REGISTRY = [
   // where a person who draws every day binds it.
   command({
     id: 'panel.canvas.toggle',
-    title: 'Toggle Canvas',
+    title: 'Toggle canvas',
     category: 'panel',
     scopes: ['workspace'],
     availability: ['activeWorkspace', 'canvasEnabled'],
@@ -446,7 +446,7 @@ export const COMMAND_REGISTRY = [
   // It ships unbound; users can bind it in Shortcuts settings.
   command({
     id: 'panel.knowledge-graph.toggle',
-    title: 'Toggle Knowledge Graph',
+    title: 'Toggle knowledge graph',
     category: 'panel',
     scopes: ['workspace'],
     availability: ['activeWorkspace', 'memoryGraphEnabled'],
@@ -454,7 +454,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'git.worktrees.open',
-    title: 'Git: Manage Worktrees',
+    title: 'Git: Manage worktrees',
     category: 'git',
     scopes: ['workspace'],
     availability: ['activeWorkspace'],
@@ -468,7 +468,7 @@ export const COMMAND_REGISTRY = [
   // per the plan's no-risky-default rule).
   command({
     id: 'git.refresh',
-    title: 'Git: Refresh Status',
+    title: 'Git: Refresh status',
     category: 'git',
     scopes: ['workspace'],
     availability: ['activeWorkspace', 'gitPanelActive'],
@@ -476,7 +476,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'git.fetch',
-    title: 'Git: Fetch Remotes',
+    title: 'Git: Fetch remotes',
     category: 'git',
     scopes: ['workspace'],
     availability: ['activeWorkspace', 'gitPanelActive'],
@@ -484,7 +484,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'git.commit',
-    title: 'Git: Commit Staged Changes',
+    title: 'Git: Commit staged changes',
     category: 'git',
     scopes: ['workspace'],
     availability: ['activeWorkspace', 'gitPanelActive'],
@@ -503,7 +503,7 @@ export const COMMAND_REGISTRY = [
   // carries no hint for it either, per the kit's menu rule.
   command({
     id: 'git.changes.showDiff',
-    title: 'Git: Show Diff For The Selected File',
+    title: 'Git: Show diff for the selected file',
     category: 'git',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+D'],
@@ -512,7 +512,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'git.changes.discard',
-    title: 'Git: Discard Changes In The Selected Files',
+    title: 'Git: Discard changes in the selected files',
     category: 'git',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Alt+Z'],
@@ -521,7 +521,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'git.changes.moveToChangelist',
-    title: 'Git: Move The Selected Files To Another Changelist',
+    title: 'Git: Move the selected files to another changelist',
     category: 'git',
     scopes: ['workspace'],
     availability: ['activeWorkspace', 'gitPanelActive'],
@@ -533,7 +533,7 @@ export const COMMAND_REGISTRY = [
   // the top bar's Remote glyph (WorkspaceActions → RemotePopover).
   command({
     id: 'terminal.new',
-    title: 'Open Plain Terminal',
+    title: 'Open plain terminal',
     category: 'terminal',
     scopes: ['workspace'],
     defaultKeybindings: ["Primary+Shift+'"],
@@ -545,7 +545,7 @@ export const COMMAND_REGISTRY = [
   // and stop kills a session (destructive) so it ships without a default key.
   command({
     id: 'terminal.focus',
-    title: 'Focus Terminal',
+    title: 'Focus terminal',
     category: 'terminal',
     scopes: ['workspace'],
     availability: ['activeWorkspace', 'terminalActive'],
@@ -564,7 +564,7 @@ export const COMMAND_REGISTRY = [
   // `isGlobalShortcutSuppressedTarget` treats as editable.
   command({
     id: 'terminal.find',
-    title: 'Find in Terminal',
+    title: 'Find in terminal',
     category: 'terminal',
     scopes: ['terminal'],
     defaultKeybindings: ['Primary+F'],
@@ -584,7 +584,7 @@ export const COMMAND_REGISTRY = [
   // textarea, which `isGlobalShortcutSuppressedTarget` treats as editable.
   command({
     id: 'terminal.promptPrevious',
-    title: 'Jump to Previous Prompt',
+    title: 'Jump to previous prompt',
     category: 'terminal',
     scopes: ['terminal'],
     defaultKeybindings: ['Primary+Shift+ArrowUp'],
@@ -594,7 +594,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'terminal.promptNext',
-    title: 'Jump to Next Prompt',
+    title: 'Jump to next prompt',
     category: 'terminal',
     scopes: ['terminal'],
     defaultKeybindings: ['Primary+Shift+ArrowDown'],
@@ -604,7 +604,7 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'terminal.stop',
-    title: 'Stop Active Terminal',
+    title: 'Stop active terminal',
     category: 'terminal',
     scopes: ['workspace'],
     availability: ['activeWorkspace', 'terminalActive'],
@@ -616,7 +616,7 @@ export const COMMAND_REGISTRY = [
   // Codex chat open to open them from. Unbound.
   command({
     id: 'usage.limits.show',
-    title: 'Show Usage Limits',
+    title: 'Show usage limits',
     category: 'settings',
     scopes: ['global'],
     handlerPath: { kind: 'workspace-manager', handler: 'setUsageLimitsOpen(true)' },
@@ -625,7 +625,7 @@ export const COMMAND_REGISTRY = [
   // unbound (users can bind it in Shortcuts settings).
   command({
     id: 'diagnostics.open',
-    title: 'Diagnostics: Performance Panel',
+    title: 'Diagnostics: Performance panel',
     category: 'diagnostics',
     scopes: ['global'],
     availability: ['diagnosticsEnabled'],

@@ -96,7 +96,7 @@ test('KeyboardShortcutsTab', async () => {
   assert.equal(conflictTone(settingsConflicts), 'error', 'same-scope conflict is blocking/error')
   const message = conflictMessage(settingsConflicts)
   assert.ok(message && message.startsWith('Conflicts with '), 'message leads with Conflicts with')
-  assert.ok(message.includes('Open Command Palette'), 'message names the conflicting command title')
+  assert.ok(message.includes('Open command palette'), 'message names the conflicting command title')
   // Disabling one side clears the conflict (no effective binding contributed).
   const afterDisable = computeConflicts(
     buildShortcutRows(COMMAND_REGISTRY, {
