@@ -202,6 +202,7 @@ import type {
   ConversationToolDetailResult,
   ConversationAttachmentInput,
   ConversationAttachmentResult,
+  ConversationImageAttachment,
   ConversationPlanDocumentInput,
   ConversationPlanDocumentResult,
   ConversationSubscribeInput,
@@ -977,11 +978,20 @@ export type ElectronApi = {
     beforeCursor: number
     turnLimit?: number
   }) => Promise<ConversationPageResult>
-  // `queue`: hand the message to the machine to hold until the chat's turn
-  // ends, and answer once it holds it. Needs `conversation-queued-sends` there.
+  /**
+   * A message to a chat on a paired machine. `attachments` are the images a
+   * chat here sends with a turn; main puts each in that machine's upload store
+   * and the send names them. A chat that does not take images refuses the
+   * message in words rather than sending the words alone.
+   *
+   * `queue`: hand the message to the machine to hold until the chat's turn
+   * ends, and answer once it holds it. Needs `conversation-queued-sends`
+   * there, and words alone: a held message carries no images.
+   */
   meshConversationSend: (input: {
     key: MeshConversationKey
     message: string
+    attachments?: ConversationImageAttachment[]
     queue?: boolean
   }) => Promise<MeshConversationCommandResult>
   // Take back a message the machine holds for the turn's end, by its id there.

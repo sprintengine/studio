@@ -34,10 +34,12 @@ import {
   type MeshConversationListResult,
 } from '../../../shared/tailnet-mesh'
 import type {
+  ConversationImageAttachment,
   ConversationPageResult,
   ConversationToolDetailResult,
   ConversationTurnDiffResult,
 } from '../../../shared/conversation-runtime'
+import { parseImageAttachments } from '../../conversation-ipc-inputs'
 import { createRemoteConversationCache } from './tailnet-remote-conversation-cache'
 import {
   createRemoteConversations,
@@ -60,6 +62,7 @@ import {
   parseTailnetEndpoint,
   readRemoteIdentity,
   type RemoteJsonSocket,
+  uploadRemoteConversationImage,
 } from './tailnet-remote-client'
 import { asRecord, isRecord } from '../../../shared/records'
 import { parseCliPermissionPreset } from '../../../shared/cli-permission-preset'
@@ -289,6 +292,21 @@ export type TailnetMeshService = {
     turnLimit?: unknown
   }): Promise<ConversationPageResult>
   conversationCommand(input: { key: unknown; command: unknown }): Promise<MeshConversationCommandResult>
+  /**
+   * Send a message to a followed conversation, with the images attached to it
+   * in the shape a chat here sends them. Each image goes to the machine's
+   * upload route first, the way the phone attaches one, and the send names
+   * them by the ids that route answered. Without images it is the `send`
+   * command as it always was. `queue` hands the message to the machine to
+   * hold until the chat's turn ends (`conversation-queued-sends`); a queued
+   * message carries no images, and one with them is refused.
+   */
+  conversationSend(input: {
+    key: unknown
+    message: unknown
+    attachments?: unknown
+    queue?: unknown
+  }): Promise<MeshConversationCommandResult>
   conversationToolDetail(input: { key: unknown; toolUseId: unknown }): Promise<ConversationToolDetailResult>
   conversationTurnDiff(input: { key: unknown; turnSeq: unknown; path?: unknown }): Promise<ConversationTurnDiffResult>
   /**
@@ -1714,6 +1732,88 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     }
   }
 
+  async function conversationCommand(input: {
+    key: unknown
+    command: unknown
+  }): Promise<MeshConversationCommandResult> {
+    const key = meshConversationKeyOf(input.key)
+    if (!key) return { ok: false, code: 'invalid_arguments', message: 'Name the conversation to send to.' }
+    const command = isRecord(input.command) ? input.command : null
+    if (command?.kind === 'setPermissionPreset') {
+      const connection = connectionFor(key.connectionId)
+      const refused = connection ? permissionModeRefusal(connection, command.preset) : null
+      if (refused) return refused
+    }
+    const result = await remoteConversations.command(key, input.command)
+    // A command carried out (a model switched, a preset changed) changes
+    // what the list says, and the list is re-read straight after it.
+    if (result.ok) forgetSharedReads(key.connectionId, 'conversations')
+    return result
+  }
+
+  // ── Images sent to paired machines ────────────────────────────────────────
+  //
+  // A message from here to a chat over there carries its images as the phone's
+  // does: each is put in that machine's upload store under this pairing and
+  // the chat's live session, and the send names them by id. The store keeps an
+  // upload for the device and the session that made it, so the session named
+  // has to be the one the machine lists for this chat now, read from its list
+  // rather than taken from a window.
+  async function uploadConversationImages(
+    connection: StoredMeshConnection,
+    key: { workspaceId: string; agentId: string },
+    attachments: ConversationImageAttachment[],
+  ): Promise<{ ok: true; uploadIds: string[] } | { ok: false; code: string; message: string }> {
+    // A machine that said what it can do and left uploads out cannot take a
+    // picture, and is not asked. One that has not said is asked, and a route
+    // it does not have reads as the same thing.
+    const unsupported = `${connection.machineName} does not take pictures from another desktop yet. Update Studio there to attach them.`
+    const capabilities = peerCapabilities.get(connection.id)
+    if (capabilities && !tailnetPeerSupports(capabilities, 'upload'))
+      return { ok: false, code: 'images_unsupported', message: unsupported }
+    const listed = await shareRead(sharedLists, connection.id, () => listConversationsNow(connection))
+    if (!listed.ok) return listed
+    if (listed.access !== 'operate')
+      return {
+        ok: false,
+        code: 'conversation_operate_required',
+        message: `This pairing may follow conversations on ${connection.machineName} but not drive them.`,
+      }
+    const thread = listed.conversations.find(
+      (entry) => entry.workspaceId === key.workspaceId && entry.agentId === key.agentId,
+    )
+    // A chat over there names a session and what it can do only while one is
+    // live, and an upload is kept for a live session, so a chat at rest takes
+    // its images once a message has woken it.
+    if (!thread?.sessionId || thread.capabilities?.images !== true)
+      return {
+        ok: false,
+        code: 'images_unsupported',
+        message: `This chat on ${connection.machineName} does not take images.`,
+      }
+    const uploadIds: string[] = []
+    for (const [index, attachment] of attachments.entries()) {
+      const uploaded = await uploadRemoteConversationImage({
+        endpoint: endpointOf(connection),
+        token: connection.deviceToken,
+        sessionId: thread.sessionId,
+        name: attachmentUploadName(attachment, index),
+        mediaType: attachment.mediaType,
+        bytes: Buffer.from(attachment.dataBase64, 'base64'),
+      })
+      if (!uploaded.ok) {
+        if (uploaded.code === 'unauthorized')
+          recordReachability(connection, { reachable: false, unauthorized: true, detail: uploaded.message })
+        // A build from before the route answers it as any unknown route.
+        if (uploaded.code === 'not_found' || uploaded.code === 'http_404')
+          return { ok: false, code: 'images_unsupported', message: unsupported }
+        return uploaded
+      }
+      uploadIds.push(uploaded.value.uploadId)
+    }
+    return { ok: true, uploadIds }
+  }
+
   /**
    * Drop this machine's credential for one peer, and everything hanging off it.
    *
@@ -1823,20 +1923,39 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       )
     },
 
-    async conversationCommand(input): Promise<MeshConversationCommandResult> {
+    conversationCommand,
+
+    async conversationSend(input): Promise<MeshConversationCommandResult> {
+      const send = (uploadIds: string[]) =>
+        conversationCommand({
+          key: input.key,
+          command: { kind: 'send', message: input.message, ...(uploadIds.length > 0 ? { uploadIds } : {}) },
+        })
+      if (input.queue !== undefined && input.queue !== true)
+        return { ok: false, code: 'invalid_arguments', message: '"queue" is true or left out.' }
+      // A queued message is held over there for the turn's end, and is its
+      // words alone: the wire refuses `queue` beside pictures, since an upload
+      // is staged for its send and would be gone by the turn it waits for.
+      if (input.queue === true) {
+        if (input.attachments !== undefined && !(Array.isArray(input.attachments) && input.attachments.length === 0))
+          return {
+            ok: false,
+            code: 'invalid_arguments',
+            message: 'A queued message carries no images; send it once the turn ends instead.',
+          }
+        return conversationCommand({ key: input.key, command: { kind: 'send', message: input.message, queue: true } })
+      }
+      if (input.attachments === undefined) return send([])
+      const parsed = parseImageAttachments(input.attachments)
+      if (!parsed.ok) return { ok: false, code: 'invalid_arguments', message: parsed.message }
+      if (parsed.attachments.length === 0) return send([])
       const key = meshConversationKeyOf(input.key)
       if (!key) return { ok: false, code: 'invalid_arguments', message: 'Name the conversation to send to.' }
-      const command = isRecord(input.command) ? input.command : null
-      if (command?.kind === 'setPermissionPreset') {
-        const connection = connectionFor(key.connectionId)
-        const refused = connection ? permissionModeRefusal(connection, command.preset) : null
-        if (refused) return refused
-      }
-      const result = await remoteConversations.command(key, input.command)
-      // A command carried out (a model switched, a preset changed) changes
-      // what the list says, and the list is re-read straight after it.
-      if (result.ok) forgetSharedReads(key.connectionId, 'conversations')
-      return result
+      const connection = connectionFor(key.connectionId)
+      if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
+      const uploaded = await uploadConversationImages(connection, key, parsed.attachments)
+      if (!uploaded.ok) return uploaded
+      return send(uploaded.uploadIds)
     },
 
     async conversationToolDetail(input): Promise<ConversationToolDetailResult> {
@@ -1930,6 +2049,18 @@ function unknownConnectionBrowse(connectionId: unknown): MeshBrowse {
     workspaces: [],
     gaps: [],
   }
+}
+
+/**
+ * The name an image goes up under. The upload route takes none without one,
+ * and an image pasted from the clipboard has none of its own, so it is named
+ * by its place in the message and its type.
+ */
+function attachmentUploadName(attachment: ConversationImageAttachment, index: number): string {
+  const named = attachment.name?.trim()
+  if (named) return named.slice(0, 200)
+  const extension = attachment.mediaType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png'
+  return `image-${index + 1}.${extension}`
 }
 
 function endpointOf(connection: StoredMeshConnection): { host: string; port: number } {

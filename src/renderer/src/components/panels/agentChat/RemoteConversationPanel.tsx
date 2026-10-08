@@ -103,10 +103,11 @@ function remoteConversationSession(
       tools: true,
       approvals: capabilities?.approvals ?? true,
       questions: capabilities?.questions ?? true,
-      // The remote send carries no mode or effort, and images need an upload
-      // path this view does not drive yet.
+      // The remote send carries no mode or effort. It carries images where
+      // the machine lists the chat as taking them: main puts each in that
+      // machine's upload store, as the phone does, and the send names them.
       planMode: false,
-      images: false,
+      images: capabilities?.images === true,
       skills: 'none',
       reasoningEfforts: null,
       interrupt: capabilities?.interrupt ?? true,
@@ -167,6 +168,8 @@ export default function RemoteConversationPanel({
   permissionModesRef.current = permissionModes
   const queuedSendsRef = useRef(queuedSends)
   queuedSendsRef.current = queuedSends
+  const threadRef = useRef(thread)
+  threadRef.current = thread
   const transport = useMemo(() => {
     const base = createRemoteConversationTransport({
       key,
@@ -177,8 +180,18 @@ export default function RemoteConversationPanel({
     })
     const capabilities = base.capabilities
     const setModel = base.setModel
+    const send = base.send
     return {
       ...base,
+      // A chat at rest over there is listed without a session, and so without
+      // what it can do: its first message wakes one, and the list is read
+      // again once that message is answered, so the composer learns whether
+      // the chat takes images without waiting for the link to drop.
+      send: async (turn: Parameters<typeof send>[0]) => {
+        const result = await send(turn)
+        if (result.ok && !threadRef.current?.capabilities) setListVersion((version) => version + 1)
+        return result
+      },
       get capabilities(): ConversationTransportCapabilities {
         return {
           ...capabilities,

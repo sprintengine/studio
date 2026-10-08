@@ -68,8 +68,15 @@ export type ConversationTransportCapabilities = {
    * the provider declares `liveModelSwitch` — mid-conversation too.
    */
   modelSwitch: boolean
-  /** Attach skills, mention files, and attach images from this machine. */
+  /** Attach skills and mention files from this machine. */
   composerContext: boolean
+  /**
+   * Carry the images a message attaches to wherever the chat runs. Offered
+   * only where the session says its provider reads them (`capabilities.images`).
+   * A paired machine's chat carries them too: main puts each in that
+   * machine's upload store, as the phone does, and the send names them.
+   */
+  imageAttachments: boolean
   /** The local history index: the editable title, cost, search. */
   localHistory: boolean
   /** Paths in the transcript name files on this machine's disk. */
@@ -179,6 +186,7 @@ const LOCAL_CAPABILITIES: ConversationTransportCapabilities = {
   checkpointRevert: true,
   modelSwitch: true,
   composerContext: true,
+  imageAttachments: true,
   localHistory: true,
   localFiles: true,
   optimisticTurns: true,
@@ -329,14 +337,18 @@ export function createRemoteConversationTransport(input: {
       checkpointRevert: false,
       modelSwitch: false,
       composerContext: false,
+      // Whether this chat takes them is the machine's list's to say, through
+      // the session the pane builds from it.
+      imageAttachments: true,
       localHistory: false,
       localFiles: false,
       optimisticTurns: false,
       reportsPreset: false,
       // Turned on from the machine's list, when it advertises the four modes.
       permissionModes: false,
-      // The Fleet's send carries the message alone; a steer would need the
-      // wire to say so, so a remote Send now stops the turn and sends after.
+      // The Fleet's send carries the message and its images, and no steer; a
+      // steer would need the wire to say so, so a remote Send now stops the
+      // turn and sends after.
       steer: false,
       // Turned on from the machine's list, when it advertises queued sends.
       hostQueue: false,
@@ -351,7 +363,16 @@ export function createRemoteConversationTransport(input: {
       window.api.meshConversationLoadEarlier({ key, beforeCursor: page.beforeCursor, turnLimit: page.turnLimit }),
     toolDetail: (detail) => window.api.meshConversationToolDetail({ key, toolUseId: detail.toolUseId }),
     turnDiff: (diff) => window.api.meshConversationTurnDiff({ key, turnSeq: diff.turnSeq, path: diff.path }),
-    send: async (turn) => commandResult(await window.api.meshConversationSend({ key, message: turn.message })),
+    // The images go as a chat here sends them; main uploads each to the
+    // machine before the send that names them.
+    send: async (turn) =>
+      commandResult(
+        await window.api.meshConversationSend({
+          key,
+          message: turn.message,
+          ...(turn.attachments?.length ? { attachments: turn.attachments } : {}),
+        }),
+      ),
     queue: async (turn) =>
       commandResult(await window.api.meshConversationSend({ key, message: turn.message, queue: true })),
     cancelQueued: async (held) =>

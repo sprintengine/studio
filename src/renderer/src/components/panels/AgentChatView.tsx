@@ -1404,8 +1404,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // message queued while its turn runs is handed to that machine at once, and
   // that machine sends it when the turn ends, so it goes even if this one is
   // asleep or closed by then (owner report 2026-10-08). Only words are handed
-  // over, as that machine keeps nothing else for later, and only while the
-  // queue here is empty: a message refused there waits here instead, and
+  // over, as that machine keeps nothing else for later: a message with images
+  // waits here and goes with them when the turn ends, as before. And only
+  // while the queue here is empty: a message refused there waits here, and
   // what follows it joins it here, so one message is never split between the
   // two machines.
   const hostQueue = transport.capabilities.hostQueue && transport.queue ? (binding.hostQueue ?? null) : null
@@ -1599,7 +1600,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // would carry them: beside the words, drawn as cards in its first bubble.
   const startupFiles = agent?.chatStartupFiles
   const startupTakesImages =
-    readiness.kind === 'ready' && capabilities?.images === true && transport.capabilities.composerContext
+    readiness.kind === 'ready' && capabilities?.images === true && transport.capabilities.imageAttachments
   const startupHandledRef = useRef(false)
   // A New chat still waiting on its worktree holds the message (it has no
   // root, so no history to hydrate); one whose worktree could not be made
@@ -2411,10 +2412,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const assistantName = supportsTools
     ? (session?.displayName ?? providerEntry?.displayName ?? currentModelLabel)
     : currentModelLabel
-  // Image attach (D3/1774) is offered only where a provider actually reads the
-  // turn's attachments, and only once the session can take a turn — a control
-  // that stages images no one will receive is worse than no control.
-  const imagesEnabled = ready && capabilities?.images === true && transport.capabilities.composerContext
+  // Image attach is offered only where a provider actually reads the turn's
+  // attachments, the transport carries them there, and the session can take a
+  // turn — a control that stages images no one will receive is worse than no
+  // control.
+  const imagesEnabled = ready && capabilities?.images === true && transport.capabilities.imageAttachments
   // Files attached by path are cards only where the agent can read them by
   // that path and the card can open them: a chat on this computer (not a
   // paired machine's, an SSH machine's or a WSL distribution's), in a window

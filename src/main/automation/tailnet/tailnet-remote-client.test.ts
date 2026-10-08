@@ -3,8 +3,8 @@ import { createServer, type Server } from 'node:http'
 import type { Socket } from 'node:net'
 import { afterEach, test, vi } from 'vitest'
 
-import { openRemoteConversationSocket } from './tailnet-remote-client'
-import { TAILNET_CONVERSATION_PATH, TAILNET_WS_TICKET_PATH } from './tailnet-routes'
+import { openRemoteConversationSocket, uploadRemoteConversationImage } from './tailnet-remote-client'
+import { TAILNET_CONVERSATION_PATH, TAILNET_UPLOAD_PATH, TAILNET_WS_TICKET_PATH } from './tailnet-routes'
 import {
   computeWebSocketAcceptKey,
   createWebSocketFrameDecoder,
@@ -111,4 +111,62 @@ test('a conversation socket listens for the far end instead of pinging it, and e
   await sleep(1_500)
   assert.equal(opened.value.isOpen(), false, 'silence past the window ends the link')
   assert.deepEqual(closes, ['That machine stopped answering.'])
+})
+
+test('an image goes up the upload route as its own bytes, and the answer names its upload or says why not', async () => {
+  const seen: Array<{ method?: string; url?: string; headers: Record<string, unknown>; body: Buffer }> = []
+  let answer: { status: number; body?: unknown } = { status: 200, body: { uploadId: 'upload-1', bytes: 4 } }
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = []
+    request.on('data', (chunk: Buffer) => chunks.push(chunk))
+    request.on('end', () => {
+      seen.push({ method: request.method, url: request.url, headers: request.headers, body: Buffer.concat(chunks) })
+      response.writeHead(answer.status, { 'content-type': 'application/json' })
+      response.end(answer.body === undefined ? '' : JSON.stringify(answer.body))
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  far = {
+    server,
+    port: (server.address() as { port: number }).port,
+    socket: () => null,
+    received: { ping: 0, pong: 0 },
+  }
+  const upload = () =>
+    uploadRemoteConversationImage({
+      endpoint: { host: '127.0.0.1', port: far!.port },
+      token: 'device-token',
+      sessionId: 'session 1',
+      name: 'screen shot.png',
+      mediaType: 'image/png',
+      bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    })
+
+  assert.deepEqual(await upload(), { ok: true, value: { uploadId: 'upload-1' } })
+  const [request] = seen
+  assert.equal(request.method, 'POST')
+  const url = new URL(request.url ?? '', 'http://far.invalid')
+  assert.equal(url.pathname, TAILNET_UPLOAD_PATH)
+  assert.equal(url.searchParams.get('sessionId'), 'session 1')
+  assert.equal(url.searchParams.get('name'), 'screen shot.png')
+  assert.equal(request.headers['content-type'], 'image/png', 'the type is the image’s, not JSON')
+  assert.equal(request.headers.authorization, 'Bearer device-token')
+  assert.equal(request.headers.origin, undefined, 'no Origin, which the listener refuses')
+  assert.deepEqual([...request.body], [0x89, 0x50, 0x4e, 0x47], 'the bytes as they are, not encoded')
+
+  answer = {
+    status: 409,
+    body: { error: { code: 'images_unsupported', message: 'This conversation cannot accept images.' } },
+  }
+  assert.deepEqual(await upload(), {
+    ok: false,
+    code: 'images_unsupported',
+    message: 'This conversation cannot accept images.',
+  })
+  answer = { status: 401 }
+  const revoked = await upload()
+  assert.equal(revoked.ok ? '' : revoked.code, 'unauthorized')
+  answer = { status: 404 }
+  const older = await upload()
+  assert.equal(older.ok ? '' : older.code, 'http_404', 'a route the machine does not have is told apart')
 })

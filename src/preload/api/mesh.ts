@@ -30,6 +30,7 @@ import {
   MESH_CONVERSATION_EARLIER_CHANNEL,
   MESH_CONVERSATION_FOLLOW_CHANNEL,
   MESH_CONVERSATION_LIST_CHANNEL,
+  MESH_CONVERSATION_SEND_CHANNEL,
   MESH_CONVERSATION_TOOL_DETAIL_CHANNEL,
   MESH_CONVERSATION_TOOL_IMAGE_CHANNEL,
   MESH_CONVERSATION_TURN_DIFF_CHANNEL,
@@ -42,6 +43,7 @@ import {
   type MeshConversationListResult,
 } from '../../shared/tailnet-mesh'
 import type {
+  ConversationImageAttachment,
   ConversationPageResult,
   ConversationToolDetailResult,
   ConversationTurnDiffResult,
@@ -152,11 +154,18 @@ export const meshApi = {
     turnLimit?: number
   }): Promise<ConversationPageResult> =>
     ipcRenderer.invoke(MESH_CONVERSATION_EARLIER_CHANNEL, input) as Promise<ConversationPageResult>,
-  meshConversationSend: (input: { key: MeshConversationKey; message: string; queue?: boolean }) =>
-    command(
-      input.key,
-      input.queue ? { kind: 'send', message: input.message, queue: true } : { kind: 'send', message: input.message },
-    ),
+  meshConversationSend: (input: {
+    key: MeshConversationKey
+    message: string
+    attachments?: ConversationImageAttachment[]
+    queue?: boolean
+  }): Promise<MeshConversationCommandResult> =>
+    ipcRenderer.invoke(MESH_CONVERSATION_SEND_CHANNEL, {
+      key: input.key,
+      message: input.message,
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      ...(input.queue ? { queue: true } : {}),
+    }) as Promise<MeshConversationCommandResult>,
   meshConversationCancelQueued: (input: { key: MeshConversationKey; queuedId: string }) =>
     command(input.key, { kind: 'cancelQueued', queuedId: input.queuedId }),
   meshConversationInterrupt: (input: { key: MeshConversationKey }) => command(input.key, { kind: 'interrupt' }),

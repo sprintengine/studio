@@ -44,6 +44,19 @@ vi.mock('@legendapp/list/react', () => ({
   }),
 }))
 
+// Decoding an image needs a real <img> and canvas, which jsdom lacks; what the
+// pane does with the decoded attachment is what these tests drive.
+vi.mock('./imageAttachments', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./imageAttachments')>()),
+  readImageAttachment: async (file: File, id: string) => ({
+    id,
+    mediaType: file.type || 'image/png',
+    dataBase64: 'iVBORw0KGgo=',
+    name: file.name,
+    byteLength: 8,
+  }),
+}))
+
 const key: MeshConversationKey = {
   connectionId: 'connection',
   workspaceId: 'remote-workspace',
@@ -91,6 +104,7 @@ async function mountRemote({
   modelSwitch = false,
   permissionModes = false,
   queuedSends = false,
+  capabilities = thread.capabilities,
 }: {
   access: 'read' | 'operate'
   permissionPreset?: MeshConversation['permissionPreset']
@@ -98,6 +112,8 @@ async function mountRemote({
   modelSwitch?: boolean
   permissionModes?: boolean
   queuedSends?: boolean
+  /** What the machine lists the chat as able to do; null for a chat at rest there, listed with no session. */
+  capabilities?: MeshConversation['capabilities'] | null
 }) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
@@ -126,6 +142,7 @@ async function mountRemote({
       conversations: [
         {
           ...thread,
+          ...(capabilities ? { capabilities } : { capabilities: undefined, sessionId: undefined }),
           modelId: listedModel,
           ...(permissionPreset ? { permissionPreset } : {}),
           ...(models ? { models } : {}),
@@ -155,6 +172,7 @@ async function mountRemote({
       async (_input: {
         key: MeshConversationKey
         message: string
+        attachments?: unknown[]
         queue?: boolean
       }): Promise<{ ok: true } | { ok: false; code: string; message: string }> => ({ ok: true }),
     ),
@@ -278,11 +296,10 @@ test('a conversation on a paired machine renders in the chat view and is driven 
     })
 
     // Neither the model nor the permission preset of a conversation over
-    // there is this machine's to pick, and nothing offers to attach a file
-    // from this disk.
-    // The "+" that would attach one (or skills) is not drawn at all.
-    expect(chat.host.querySelector('[data-composer-options]')).toBeNull()
-    expect(chat.host.querySelector('[aria-label="Attach an image"]')).toBeNull()
+    // there is this machine's to pick. The "+" is drawn because the machine
+    // lists this chat as taking images, which go over with the message; a
+    // chat that does not take them draws none (below).
+    expect(chat.host.querySelector('[data-composer-options]')).not.toBeNull()
     // The strip under the composer marks the machine the chat runs on with its
     // glyph alone, named in its tooltip and accessible name; this computer has
     // no checkout of it, so no branch and no counts.
@@ -377,6 +394,61 @@ test('a message queued for a machine that holds its own queue is handed to it at
   }
 })
 
+/** Settles the turn the mounted chat is waiting on, so a send goes at once rather than queueing. */
+async function settleTurn(chat: Awaited<ReturnType<typeof mountRemote>>) {
+  await chat.act(async () => {
+    chat.emit({ type: 'event', event: event('approval_resolved', { requestId: 'approval-1', approved: true }) })
+    chat.emit({ type: 'event', event: event('turn_completed', { turnId: 'a' }) })
+  })
+}
+
+/** A drop of files from the system, each with its path on this disk. */
+function dropFiles(
+  chat: Awaited<ReturnType<typeof mountRemote>>,
+  files: Array<{ name: string; type: string; path: string }>,
+) {
+  const dropped = files.map((file) => new File(['x'], file.name, { type: file.type }))
+  const paths = new Map(dropped.map((file, index) => [file, files[index]!.path]))
+  Object.assign(chat.api, {
+    getPathForFile: (file: File) => paths.get(file) ?? '',
+    attachFile: (file: File) => paths.get(file) ?? '',
+  })
+  const drop = new chat.document.defaultView!.MouseEvent('drop', { bubbles: true, cancelable: true })
+  Object.defineProperty(drop, 'dataTransfer', {
+    value: {
+      types: ['Files'],
+      items: dropped.map((file) => ({ kind: 'file', getAsFile: () => file })),
+      files: dropped,
+      getData: () => '',
+    },
+  })
+  chat.composer().dispatchEvent(drop)
+  return drop
+}
+
+test('an image dropped on a chat over there that takes images is attached, and goes with the message over the mesh', async () => {
+  const chat = await mountRemote({ access: 'operate' })
+  try {
+    await settleTurn(chat)
+    let drop: Event | undefined
+    await chat.act(async () => {
+      drop = dropFiles(chat, [{ name: 'shot.png', type: 'image/png', path: '/Users/dev/Desktop/shot.png' }])
+    })
+    expect(drop!.defaultPrevented, 'the drop is claimed, not handed to the field').toBe(true)
+    expect(chat.composer().textContent, 'the path is not typed into the message').not.toContain('/Users/dev')
+    expect(chat.host.querySelector('[aria-label="Remove shot.png"]'), 'the image waits in the composer').not.toBeNull()
+    await chat.act(async () => chat.type('What is wrong here?'))
+    await chat.act(async () => chat.enter())
+    expect(chat.api.meshConversationSend).toHaveBeenCalledExactlyOnceWith({
+      key,
+      message: 'What is wrong here?',
+      attachments: [expect.objectContaining({ mediaType: 'image/png', name: 'shot.png', dataBase64: 'iVBORw0KGgo=' })],
+    })
+  } finally {
+    await chat.unmount()
+  }
+})
+
 test('a message the machine could not hold waits here, and goes from here when the turn ends', async () => {
   const chat = await mountRemote({ access: 'operate', queuedSends: true })
   try {
@@ -394,6 +466,40 @@ test('a message the machine could not hold waits here, and goes from here when t
       chat.emit({ type: 'event', event: event('turn_completed', { turnId: 'a' }) })
     })
     expect(chat.api.meshConversationSend).toHaveBeenLastCalledWith({ key, message: 'Try it with --runInBand' })
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chat over there that does not take images offers none, and a dropped image is typed as its path', async () => {
+  const chat = await mountRemote({ access: 'operate', capabilities: { ...thread.capabilities!, images: false } })
+  try {
+    await settleTurn(chat)
+    // Nothing else goes in the "+" for a chat over there, so with no images it is not drawn.
+    expect(chat.host.querySelector('[data-composer-options]')).toBeNull()
+    await chat.act(async () => {
+      dropFiles(chat, [{ name: 'shot.png', type: 'image/png', path: '/Users/dev/Desktop/shot.png' }])
+    })
+    expect(chat.composer().textContent).toContain('/Users/dev/Desktop/shot.png')
+    expect(chat.host.querySelector('[aria-label="Remove shot.png"]')).toBeNull()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chat at rest over there is read again once its first message is answered, to learn whether it takes images', async () => {
+  const chat = await mountRemote({ access: 'operate', capabilities: null })
+  try {
+    await settleTurn(chat)
+    expect(
+      chat.host.querySelector('[data-composer-options]'),
+      'a chat listed without a session offers no images',
+    ).toBeNull()
+    const reads = chat.api.meshConversationList.mock.calls.length
+    await chat.act(async () => chat.type('Wake up'))
+    await chat.act(async () => chat.enter())
+    expect(chat.api.meshConversationSend).toHaveBeenCalledExactlyOnceWith({ key, message: 'Wake up' })
+    expect(chat.api.meshConversationList.mock.calls.length).toBe(reads + 1)
   } finally {
     await chat.unmount()
   }

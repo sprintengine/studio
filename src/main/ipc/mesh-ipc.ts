@@ -18,6 +18,7 @@ import {
   MESH_CONVERSATION_EARLIER_CHANNEL,
   MESH_CONVERSATION_FOLLOW_CHANNEL,
   MESH_CONVERSATION_LIST_CHANNEL,
+  MESH_CONVERSATION_SEND_CHANNEL,
   MESH_CONVERSATION_TOOL_DETAIL_CHANNEL,
   MESH_CONVERSATION_TOOL_IMAGE_CHANNEL,
   MESH_CONVERSATION_TURN_DIFF_CHANNEL,
@@ -164,6 +165,18 @@ export function registerMeshIpc(ipcMain: IpcMain, service: AutomationService): v
   ipcMain.handle(MESH_CONVERSATION_COMMAND_CHANNEL, (_event, input: unknown) => {
     const record = asRecord(input) ?? {}
     return service.mesh().conversationCommand({ key: record.key, command: record.command })
+  })
+  // A message with the images attached to it: main puts each in the other
+  // machine's upload store and sends the message naming them. One with none
+  // is the `send` command.
+  ipcMain.handle(MESH_CONVERSATION_SEND_CHANNEL, (_event, input: unknown) => {
+    const record = asRecord(input) ?? {}
+    return service.mesh().conversationSend({
+      key: record.key,
+      message: record.message,
+      attachments: record.attachments,
+      queue: record.queue,
+    })
   })
   ipcMain.handle(MESH_CONVERSATION_TOOL_DETAIL_CHANNEL, (_event, input: unknown) => {
     const record = asRecord(input) ?? {}
