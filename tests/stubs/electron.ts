@@ -54,6 +54,10 @@ export const ipcMain = {
   },
 }
 
+// The renderer's index.html as a packaged build loads it: the frame
+// `isAppSender` (src/main/ipc/ipc-sender.ts) recognises as the app asking.
+const appFrame = { parent: null, url: 'file:///Applications/Studio.app/out/renderer/index.html' }
+
 export const ipcRenderer = {
   async invoke(channel: string, ...args: unknown[]) {
     const handler = invokeHandlers.get(channel)
@@ -68,7 +72,9 @@ export const ipcRenderer = {
     // suites model, and a handler reaching past `id` / `isDestroyed` / `once` /
     // `send` still fails on the missing member rather than getting a plausible
     // answer.
-    return handler({ sender: webContents }, ...args)
+    // `senderFrame` is the app's own top-level document, so a handler that
+    // answers only the app's window (`assertAppSender`) answers this one too.
+    return handler({ sender: webContents, senderFrame: appFrame }, ...args)
   },
   on(channel: string, listener: (...args: any[]) => void) {
     const listeners = rendererListeners.get(channel) ?? new Set()
