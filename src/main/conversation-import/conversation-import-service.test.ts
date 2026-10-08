@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
@@ -272,4 +272,21 @@ test('a machine with neither CLI has nothing to import', async () => {
   const home = await mkdtemp(join(tmpdir(), 'sprintengine-import-empty-'))
   roots.add(home)
   assert.deepEqual(await harness(home).service.scan(), { ok: true, folders: [], sources: [] })
+})
+
+test('a CLI home that is there but cannot be read says so, rather than offering nothing', async () => {
+  // Root reads any folder; the permission this stands in for is not one it lacks.
+  if (process.platform === 'win32' || process.getuid?.() === 0) return
+  const home = await mkdtemp(join(tmpdir(), 'sprintengine-import-locked-'))
+  roots.add(home)
+  const projects = join(home, '.claude', 'projects')
+  await mkdir(projects, { recursive: true })
+  await chmod(projects, 0o000)
+  try {
+    const scan = await harness(home).service.scan()
+    assert.equal(scan.ok, false)
+    assert.match(!scan.ok ? scan.message : '', /Claude Code's sessions in .*projects/u)
+  } finally {
+    await chmod(projects, 0o755)
+  }
 })

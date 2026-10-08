@@ -50,7 +50,10 @@ async function rolloutFiles(root: string, depth = 0): Promise<string[]> {
   let names: string[]
   try {
     names = await readdir(root)
-  } catch {
+  } catch (error) {
+    // The sessions folder itself unreadable is said, not passed off as empty;
+    // one day's folder that cannot be read is skipped.
+    if (depth === 0 && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     return []
   }
   const files: string[] = []

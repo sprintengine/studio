@@ -38,8 +38,11 @@ export async function scanClaudeCodeSessions(projectsDir: string): Promise<Scann
   let folders: string[]
   try {
     folders = await readdir(projectsDir)
-  } catch {
-    return []
+  } catch (error) {
+    // Gone is empty; there but unreadable (permissions, a privacy prompt
+    // declined) is said, not passed off as "no sessions".
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
   }
   const sessions: ScannedSession[] = []
   for (const folder of folders) {
