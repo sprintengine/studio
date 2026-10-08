@@ -1,18 +1,12 @@
 import { parseMachinePath } from '../../../../../shared/machine-paths'
 import React from 'react'
 import type { AgentCli, CliPermissionPreset, WorkspaceSkill } from '../../../../../shared/electron-api'
-import type {
-  MeshBrowse,
-  MeshConnection,
-  MeshWorkspace,
-  MeshWorkspaceCheckout,
-} from '../../../../../shared/tailnet-mesh'
+import type { MeshBrowse, MeshConnection } from '../../../../../shared/tailnet-mesh'
 import { sameRepository, type RepositoryIdentity } from '../../../../../shared/repository-identity'
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
-import { ExtensionsGlyph, FolderTypeIcon, GitBranchGlyph, RemoteMachineGlyph } from '../../AppIcons'
+import { ExtensionsGlyph, GitBranchGlyph } from '../../AppIcons'
 import {
   distroOfHostId,
-  hostIdForFolder,
   hostIdToRecord,
   isWslHostId,
   LOCAL_HOST_ID,
@@ -23,11 +17,10 @@ import { distroOfUncPath, isWindowsPath, toWslPath } from '../../../../../shared
 import type { AgentCliAvailabilityMap } from '../../../../../shared/electron-api'
 import { useExecutionHosts } from '../../../hooks/useExecutionHosts'
 import { useFileDropTarget } from '../../../hooks/useFileDropTarget'
-import type { SshEnvironmentSummary } from '../../../../../shared/ssh-environments'
 import { useSshMachines } from '../../settings/SshMachinesSection'
 import { FolderIdentityIcon } from '../FolderIdentityIcon'
-import { useProjectColor, useProjectColors } from '../../../hooks/useProjectColors'
-import { projectColorKey, resolveProjectColor, type ProjectColor } from '../../../utils/projectColor'
+import { useProjectColor } from '../../../hooks/useProjectColors'
+import { projectColorKey } from '../../../utils/projectColor'
 import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import {
@@ -54,21 +47,15 @@ import {
 import { basename } from '../../../utils/paths'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
-  CardButton,
-  ChipButton,
   CloseIconButton,
   COMPOSER_SURFACE_CLASS,
   FOCUS_RING_WITHIN_EDITOR_CLASS,
   HiddenFileInput,
-  MachineGlyph,
-  MENU_LIST_CLASS,
   Input,
   EmptyState,
   GhostButton,
   InlineSkillPicker,
   LinkButton,
-  MenuOption,
-  Popover,
   SendButton,
   SendGlyph,
   StarGlyph,
@@ -80,16 +67,12 @@ import {
 import { AttachmentChip } from '../../ui/AttachmentChip'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
-import { MENU_GROUP_LABEL_CLASS } from '../../ui/menuClasses'
-import type { MachineRef } from '../../../../../shared/machine-identity'
-import { hostMachineRef, sshMachineRef, useMachineIdentity } from '../../../hooks/useMachineIdentity'
 import { CliInstallCta } from '../cliInstallRoute'
-import { ChipCaretGlyph, menuRadioRowKeyDown } from './agentSpawnShared'
 import { SpawnPermissionFooter } from './spawnFooter'
 import { EnginePickerChip } from './enginePicker'
 import { ProjectScopePicker } from './ProjectScopePicker'
-import { remoteProjectOfWorkspace, remoteProjectsOf, type RemoteProject } from './remoteProjects'
-import { focusProjectSearch, type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
+import { remoteProjectOfWorkspace, remoteProjectsOf } from './remoteProjects'
+import { type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
 import { mergeDraftConnectors, readNewChatDraft, writeNewChatDraft, type NewChatDraftImage } from './newChatDraft'
 import {
   bootComposerRect,
@@ -100,11 +83,26 @@ import {
 } from './bootComposer'
 import { showToast } from '../../../store/toastStore'
 import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
-import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
+import { drawSuggestions, newSuggestionSeed } from './suggestionBank'
 import { WorktreeChip } from './WorktreeChip'
 import { ScheduleFailureTray, ScheduleTag } from './schedule/SchedulePicker'
 import { StartAsGlyph, startAsLabel, type StartAs } from './ComposerOptionsMenu'
 import { ComposerPlusMenu } from './ComposerPlusMenu'
+import { MachineScopePicker } from './MachineScopePicker'
+import { ExtensionIdeaCard, SuggestionCard } from './NewChatCards'
+import {
+  browseOf,
+  defaultNewChatHostId,
+  hostRefusesFolder,
+  lastSshFolders,
+  machineAvailabilityOf,
+  machineBrowseStale,
+  machineCopyOf,
+  rememberedMachine,
+  sortMachines,
+  type MachineBrowseEntry,
+} from './newChatMachines'
+import { RemoteProjectPicker, type RemoteTargetState } from './RemoteProjectPicker'
 import { ComposerStrip } from './ComposerStrip'
 import { FrontTruncatedText } from '../../ui/FrontTruncatedText'
 import { ScheduledRuns } from './schedule/ScheduledRuns'
@@ -208,6 +206,15 @@ export function slowFolderHint(
   if (folderDistro) return `In ${folderDistro} — slow from Windows. Run on WSL: ${folderDistro} for full speed.`
   return null
 }
+
+// The machine helpers moved to ./newChatMachines; these stay importable from
+// the panel for the tests that reach them through it.
+export {
+  defaultNewChatHostId,
+  hostRefusesFolder,
+  resetRememberedMachineForTests,
+  sortMachines,
+} from './newChatMachines'
 
 /** One choosable project scope: a folder some open workspace lives in. */
 export type NewAgentProjectOption = { path: string; label: string }
@@ -341,134 +348,6 @@ export type RemoteNewChatLaunch = {
   remoteRepository: RepositoryIdentity | null
 }
 
-/**
- * Whether a paired machine holds the project in hand (one-project-across-
- * machines): the machine dropdown lists each machine with this, so picking
- * one keeps the project instead of asking for it again. `unknown` before the
- * machine has been asked; `none` when there is no project to match.
- */
-export type MachineAvailability =
-  | { state: 'none' }
-  | { state: 'loading' }
-  | { state: 'has'; workspace: MeshWorkspace }
-  | { state: 'lacks'; reason: string }
-  | { state: 'unreachable'; reason: string }
-
-/** A machine's last browse, stamped so a stale or failed one is asked again. */
-type MachineBrowseEntry = 'loading' | { browse: MeshBrowse; at: number }
-const MACHINE_BROWSE_HOLD_MS = 30_000
-
-function browseOf(entry: MachineBrowseEntry | undefined): MeshBrowse | 'loading' | undefined {
-  return entry === 'loading' || entry === undefined ? entry : entry.browse
-}
-
-function machineBrowseStale(entry: MachineBrowseEntry | undefined, now = Date.now()): boolean {
-  if (entry === undefined) return true
-  if (entry === 'loading') return false
-  return !entry.browse.reachable || entry.browse.unauthorized || now - entry.at > MACHINE_BROWSE_HOLD_MS
-}
-
-/** Which of a machine's workspaces is the repository in hand, if any. */
-export function machineCopyOf(browse: MeshBrowse, identity: RepositoryIdentity | null): MeshWorkspace | null {
-  if (!identity) return null
-  const copies = browse.workspaces.filter((workspace) => sameRepository(workspace.repository, identity))
-  // A plain checkout over a worktree of the same repository (its worktrees
-  // share its remote): the copy a person means is the clone, not a branch
-  // of it that happens to be open there.
-  return (
-    copies.find((workspace) => !/\/\.sprintengine-worktrees\//u.test(workspace.folderPath ?? '')) ?? copies[0] ?? null
-  )
-}
-
-export function machineAvailabilityOf(
-  machine: MeshConnection,
-  browse: MeshBrowse | 'loading' | undefined,
-  identity: RepositoryIdentity | null,
-): MachineAvailability {
-  if (!identity) return { state: 'none' }
-  if (browse === undefined || browse === 'loading') return { state: 'loading' }
-  if (!browse.reachable) {
-    return { state: 'unreachable', reason: browse.unreachableReason ?? `${machine.machineName} is not answering.` }
-  }
-  if (browse.unauthorized)
-    return {
-      state: 'unreachable',
-      reason: `${machine.machineName} refused this pairing — re-pair from Settings → Remote.`,
-    }
-  const copy = machineCopyOf(browse, identity)
-  if (copy) return { state: 'has', workspace: copy }
-  const gap = browse.gaps.find((entry) => entry.part === 'workspaces')
-  if (gap) return { state: 'lacks', reason: gap.message }
-  return { state: 'lacks', reason: `No copy of ${identity.name} on ${machine.machineName}.` }
-}
-
-type RemoteTargetState = {
-  connection: MeshConnection
-  /** What `workspace.list` served: the machine's open CHATS, not its projects. */
-  workspaces: MeshWorkspace[] | null
-  /** Those chats folded into the folders they stand in — the list the chip offers. */
-  projects: RemoteProject[] | null
-  error: string | null
-  picked: RemoteProject | null
-  /** The picked project's checkout facts, for the branch the launch names; null until read, or unreadable. */
-  checkout: MeshWorkspaceCheckout | null
-  /** What the machine said it can do, from its browse; null until it answered, or when it said nothing. */
-  capabilities: readonly string[] | null
-}
-
-// The machine picked last, for THIS session only (never persisted): reopening
-// New chat keeps the target a person just used, while a fresh app start opens
-// on This device — a remote is never preselected on first open.
-let lastPickedMachineId: string | null = null
-// The same, for a machine on this computer (a WSL distribution). Null follows
-// the folder: a folder inside a distribution defaults to it, anything else
-// here.
-let lastPickedHostId: ExecutionHostId | null = null
-// The SSH machine picked last, and the folder typed for each, for this session.
-let lastPickedSshId: string | null = null
-const lastSshFolders = new Map<string, string>()
-
-/** Test seam: forget the session's remembered machine. */
-export function resetRememberedMachineForTests(): void {
-  lastPickedMachineId = null
-  lastPickedHostId = null
-  lastPickedSshId = null
-  lastSshFolders.clear()
-}
-
-/**
- * The machine a New chat runs on. A machine chosen in this door for the
- * folder in it now wins, whichever side of the Windows ↔ WSL line the folder
- * is on (owner ruling 2026-10-03). With none, the distribution a folder inside
- * WSL lives in, else the machine picked last, else this machine (owner
- * decision 2026-09-24): a pick carried over from another folder stands until
- * the folder names a distribution of its own.
- */
-export function defaultNewChatHostId(
-  folder: string | null | undefined,
-  picked: ExecutionHostId | null,
-  chosen: ExecutionHostId | null = null,
-): ExecutionHostId {
-  return chosen ?? hostIdForFolder(folder) ?? picked ?? LOCAL_HOST_ID
-}
-
-/**
- * Why a machine on this computer cannot take a folder, or null when it can.
- * A WSL machine opens its own disk and the Windows drives, and This PC opens
- * every distribution's share, but one distribution cannot open another's.
- */
-export function hostRefusesFolder(host: ExecutionHostId, folder: string | null | undefined): string | null {
-  const folderHost = hostIdForFolder(folder)
-  if (!folderHost || !isWslHostId(host) || host === folderHost) return null
-  return `WSL: ${distroOfHostId(host)} cannot open a folder inside ${distroOfHostId(folderHost)}.`
-}
-
-// This device first, then paired machines alphabetically — a list that
-// reorders as pairings come and go is one nobody can learn.
-export function sortMachines(machines: MeshConnection[]): MeshConnection[] {
-  return [...machines].sort((a, b) => a.machineName.localeCompare(b.machineName, undefined, { sensitivity: 'base' }))
-}
-
 // A scheduled agent keeps its skills by id and name; the composer's chips
 // want the skill as the inventory lists it, and the id and name are what they
 // show and what the run attaches.
@@ -554,7 +433,7 @@ export default function NewAgentPanel({
   const { listing: hostListing } = useExecutionHosts()
   const localHosts: ExecutionHostSummary[] = hostChoosable ? (hostListing?.hosts ?? []) : []
   const [pickedHostId, setPickedHostId] = React.useState<ExecutionHostId | null>(() =>
-    editing ? editing.hostId : lastPickedHostId,
+    editing ? editing.hostId : rememberedMachine.hostId,
   )
   const scopeFolder = folderPath !== undefined ? folderPath : null
   // The machine chosen in this door, and the folder it was chosen for. It
@@ -576,7 +455,7 @@ export default function NewAgentPanel({
     : LOCAL_HOST_ID
   const pickLocalHost = (next: ExecutionHostId): void => {
     const remembered = next === LOCAL_HOST_ID ? null : next
-    lastPickedHostId = remembered
+    rememberedMachine.hostId = remembered
     setPickedHostId(remembered)
     setChosenHost({ hostId: next, folder: scopeFolder })
     pickSsh(null)
@@ -588,11 +467,11 @@ export default function NewAgentPanel({
     hostChoosable && window.api?.sshMachinesEnabled ? window.api : null,
   )
   const sshMachines = hostChoosable && !editing ? sshMachinesAll : []
-  const [pickedSshId, setPickedSshId] = React.useState<string | null>(() => (editing ? null : lastPickedSshId))
+  const [pickedSshId, setPickedSshId] = React.useState<string | null>(() => (editing ? null : rememberedMachine.sshId))
   const pickedSsh = sshMachines.find((machine) => machine.id === pickedSshId) ?? null
   const [sshFolder, setSshFolder] = React.useState(() => (pickedSshId ? (lastSshFolders.get(pickedSshId) ?? '') : ''))
   const pickSsh = (id: string | null): void => {
-    lastPickedSshId = id
+    rememberedMachine.sshId = id
     setPickedSshId(id)
     setSshFolder(id ? (lastSshFolders.get(id) ?? '') : '')
   }
@@ -792,7 +671,9 @@ export default function NewAgentPanel({
           setRemoteMachines(sorted)
           if (!rememberedApplied.current) {
             rememberedApplied.current = true
-            const remembered = lastPickedMachineId ? sorted.find((machine) => machine.id === lastPickedMachineId) : null
+            const remembered = rememberedMachine.machineId
+              ? sorted.find((machine) => machine.id === rememberedMachine.machineId)
+              : null
             if (remembered) pickRemoteMachineRef.current(remembered)
           }
         })
@@ -902,7 +783,7 @@ export default function NewAgentPanel({
     connection: MeshConnection | null,
     keep: RepositoryIdentity | null = activeIdentity,
   ): void => {
-    lastPickedMachineId = connection?.id ?? null
+    rememberedMachine.machineId = connection?.id ?? null
     if (!connection) {
       // Back to This device with a project in hand: keep it when a local clone
       // of the same repository is open here (changing the machine keeps the
@@ -2537,483 +2418,7 @@ export default function NewAgentPanel({
   )
 }
 
-// ── Pieces ─────────────────────────────────────────────────────────────────
-
-/**
- * A machine's mark in a menu row's leading slot, or the empty slot the width of
- * one for this computer, which wears none (owner ruling 2026-10-04).
- */
-function MachineSlot({ machine, className = 'icon-xs shrink-0' }: { machine: MachineRef; className?: string }) {
-  const identity = useMachineIdentity(machine)
-  return identity ? (
-    <MachineGlyph identity={identity} className={className} />
-  ) : (
-    <span aria-hidden="true" className={className} />
-  )
-}
-
-/** The trigger's mark: the picked machine's, and nothing for this computer. */
-function TriggerMachineMark({ machine }: { machine: MachineRef }) {
-  const identity = useMachineIdentity(machine)
-  return identity ? <MachineGlyph identity={identity} /> : null
-}
-
-/**
- * The machine dropdown (remote-sessions-ux / new-chat-on-a-remote-machine):
- * This device is the first entry and the default; every other machine follows
- * wearing its own mark — its kind's drawing in its colour (owner ruling
- * 2026-10-04) — under "Other machines". One dropdown — the owner rejected a
- * separate Local/Remote switch as redundant.
- *
- * On Windows the machines on THIS computer lead it (owner decision
- * 2026-09-24): "This PC (Windows)", then each WSL distribution turned on in
- * Settings ▸ Machines ("WSL: Ubuntu", the default one marked), then a divider
- * and the paired machines. With one machine here (macOS, Linux, or Windows
- * with no distribution turned on) the first row is the "This device" it
- * always was.
- */
-function MachineScopePicker({
-  machines,
-  selected,
-  onSelect,
-  sshMachines = [],
-  selectedSshId = null,
-  onSelectSsh,
-  localHosts = [],
-  selectedHostId = LOCAL_HOST_ID,
-  onSelectHost,
-  hostDisabledReason,
-  availability,
-  onOpen,
-  projectName,
-}: {
-  machines: MeshConnection[]
-  selected: MeshConnection | null
-  onSelect: (connection: MeshConnection | null) => void
-  /** This computer's machines, this one first. One entry (or none) draws the plain "This device" row. */
-  localHosts?: ExecutionHostSummary[]
-  selectedHostId?: ExecutionHostId
-  onSelectHost?: (hostId: ExecutionHostId) => void
-  /** Why a machine here cannot be picked right now, or null. */
-  hostDisabledReason?: (host: ExecutionHostSummary) => string | null
-  /** Whether each machine holds the project in hand (one-project-across-machines); `none` lists it plainly. */
-  availability?: (machine: MeshConnection) => MachineAvailability
-  onOpen?: () => void
-  /** The project in hand, named in the dimmed rows' reasons and the list's heading. */
-  projectName?: string | null
-  /** SSH machines (phase 8), after this computer's: each its own Studio server. */
-  sshMachines?: SshEnvironmentSummary[]
-  selectedSshId?: string | null
-  onSelectSsh?: (id: string) => void
-}) {
-  const [open, setOpen] = React.useState(false)
-  const selectedSsh = sshMachines.find((machine) => machine.id === selectedSshId) ?? null
-  const availabilityOf = (machine: MeshConnection): MachineAvailability => availability?.(machine) ?? { state: 'none' }
-  const chosen = (machine: MeshConnection): boolean => {
-    const state = availabilityOf(machine).state
-    return state !== 'lacks' && state !== 'unreachable'
-  }
-  const rowKey = (event: React.KeyboardEvent<HTMLButtonElement>, activate: () => void) =>
-    menuRadioRowKeyDown(event, '[data-machine-option="true"]', activate)
-  const hostRows = localHosts.length > 1 ? localHosts : []
-  const selectedHost = selected || selectedSsh ? null : (hostRows.find((host) => host.id === selectedHostId) ?? null)
-  // The machine the trigger names, as its mark knows it. This computer has none.
-  const selectedRef: MachineRef = selected
-    ? { kind: 'paired', name: selected.machineName }
-    : selectedSsh
-      ? sshMachineRef(selectedSsh)
-      : hostMachineRef(selectedHost?.id ?? null)
-  const localSelected =
-    selected === null && selectedSsh === null && (hostRows.length === 0 || selectedHostId === LOCAL_HOST_ID)
-  // This machine can be ruled out too: a folder inside a distribution runs there.
-  const localReason = hostRows[0] ? (hostDisabledReason?.(hostRows[0]) ?? null) : null
-  const activateLocal = (): void => {
-    if (localReason) return
-    if (hostRows.length > 0) onSelectHost?.(LOCAL_HOST_ID)
-    else onSelect(null)
-    setOpen(false)
-  }
-  const focusChecked = React.useCallback((surface: HTMLElement) => {
-    const target =
-      surface.querySelector<HTMLButtonElement>('[data-machine-option="true"][aria-checked="true"]:not([disabled])') ??
-      surface.querySelector<HTMLButtonElement>('[data-machine-option="true"]:not([disabled])')
-    target?.focus()
-    if (target && document.activeElement !== target) {
-      requestAnimationFrame(() => {
-        if (surface.isConnected) target.focus()
-      })
-    }
-  }, [])
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (next) onOpen?.()
-      }}
-      ariaLabel="Machine this chat runs on"
-      popupRole="menu"
-      placement="bottom-start"
-      surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
-      onOpenAutoFocus={focusChecked}
-      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        // The kit's quiet chip, the context strip's control (owner ruling
-        // 2026-10-04): the machine's own mark, its name and the caret.
-        <ChipButton ref={ref} variant="raised" onClick={togglePopover} data-machine-trigger="true" {...triggerProps}>
-          <TriggerMachineMark machine={selectedRef} />
-          {selected
-            ? selected.machineName
-            : selectedSsh
-              ? selectedSsh.label
-              : selectedHost && hostRows.length > 0
-                ? selectedHost.label
-                : 'This device'}
-          <ChipCaretGlyph />
-        </ChipButton>
-      )}
-    >
-      {/* The surface is the menu; these are its rows. The leading slot is
-          all-or-nothing per the menu spec, so This device renders an empty slot
-          the width of the machine glyph rather than sliding its label left. */}
-      <MenuOption
-        role="menuitemradio"
-        selected={localSelected}
-        stacked={Boolean(localReason)}
-        disabled={Boolean(localReason)}
-        data-machine-option="true"
-        tabIndex={localSelected ? 0 : -1}
-        onKeyDown={(event) => rowKey(event, activateLocal)}
-        onClick={activateLocal}
-        icon={<span aria-hidden="true" className="icon-xs shrink-0" />}
-      >
-        {localReason ? (
-          <>
-            <span className="block truncate text-body font-medium">{hostRows[0]?.label}</span>
-            <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{localReason}</span>
-          </>
-        ) : (
-          (hostRows[0]?.label ?? 'This device')
-        )}
-      </MenuOption>
-      {hostRows
-        .filter((host) => host.id !== LOCAL_HOST_ID)
-        .map((host) => {
-          const reason = hostDisabledReason?.(host) ?? null
-          const isSelected = selected === null && host.id === selectedHostId
-          const activate = () => {
-            if (reason) return
-            onSelectHost?.(host.id)
-            setOpen(false)
-          }
-          return (
-            <MenuOption
-              key={host.id}
-              role="menuitemradio"
-              selected={isSelected}
-              stacked={Boolean(reason)}
-              disabled={Boolean(reason)}
-              data-machine-option="true"
-              data-machine-host={host.id}
-              tabIndex={isSelected ? 0 : -1}
-              onKeyDown={(event) => rowKey(event, activate)}
-              onClick={activate}
-              icon={
-                <MachineSlot
-                  machine={hostMachineRef(host.id)}
-                  className={`icon-xs shrink-0${reason ? ' mt-0.5' : ''}`}
-                />
-              }
-              trailing={
-                !reason && host.isDefaultDistro ? (
-                  <span className="shrink-0 text-micro text-[color:var(--text-disabled)]">default</span>
-                ) : null
-              }
-            >
-              <span className={reason ? 'block truncate text-body font-medium' : 'block truncate'}>{host.label}</span>
-              {reason ? (
-                <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{reason}</span>
-              ) : null}
-            </MenuOption>
-          )
-        })}
-      {/* Every machine not on this computer, under the one mark that means
-          "another machine" in general. */}
-      {sshMachines.length > 0 || machines.length > 0 ? (
-        <div className={`${MENU_GROUP_LABEL_CLASS} flex items-center gap-1.5 pb-1 pt-2`}>
-          <RemoteMachineGlyph className="icon-xs shrink-0" />
-          Other machines
-        </div>
-      ) : null}
-      {sshMachines.map((machine) => {
-        // A machine Studio cannot run on, or whose server this app cannot
-        // speak to, is listed with why, and cannot be picked.
-        const reason = machine.state === 'unsupported' || machine.state === 'version-blocked' ? machine.stateText : null
-        const isSelected = selected === null && machine.id === selectedSshId
-        const hint = reason ?? (machine.state === 'connected' ? null : machine.stateText)
-        const activate = () => {
-          if (reason) return
-          onSelectSsh?.(machine.id)
-          setOpen(false)
-        }
-        return (
-          <MenuOption
-            key={machine.id}
-            role="menuitemradio"
-            selected={isSelected}
-            stacked={Boolean(hint)}
-            disabled={Boolean(reason)}
-            data-machine-option="true"
-            data-machine-ssh={machine.id}
-            tabIndex={isSelected ? 0 : -1}
-            onKeyDown={(event) => rowKey(event, activate)}
-            onClick={activate}
-            icon={
-              <MachineSlot machine={sshMachineRef(machine)} className={`icon-xs shrink-0${hint ? ' mt-0.5' : ''}`} />
-            }
-          >
-            <span className={hint ? 'block truncate text-body font-medium' : 'block truncate'}>{machine.label}</span>
-            {hint ? <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span> : null}
-          </MenuOption>
-        )
-      })}
-      {machines.map((machine) => {
-        const state = availabilityOf(machine)
-        const pickable = chosen(machine)
-        const activate = () => {
-          if (!pickable) return
-          onSelect(machine)
-          setOpen(false)
-        }
-        // With a project in hand the row says whether the machine has it:
-        // a copy's name when it does, the reason when it does not (dimmed,
-        // kept in the list — the menu spec's rule for a row that cannot be
-        // chosen). With none, the row is the plain machine line it always was.
-        const hint =
-          state.state === 'has'
-            ? `Has ${projectName ?? 'the project'}${state.workspace.folderPath ? ` at ${state.workspace.folderPath}` : ''}`
-            : state.state === 'lacks' || state.state === 'unreachable'
-              ? state.reason
-              : state.state === 'loading'
-                ? 'Asking what it holds…'
-                : null
-        return (
-          <MenuOption
-            key={machine.id}
-            role="menuitemradio"
-            selected={selected?.id === machine.id}
-            stacked={Boolean(hint)}
-            disabled={!pickable}
-            data-machine-option="true"
-            data-machine-availability={state.state}
-            tabIndex={selected?.id === machine.id ? 0 : -1}
-            onKeyDown={(event) => rowKey(event, activate)}
-            onClick={activate}
-            icon={
-              <MachineSlot
-                machine={{ kind: 'paired', name: machine.machineName }}
-                className={`icon-xs shrink-0${hint ? ' mt-0.5' : ''}`}
-              />
-            }
-            trailing={
-              hint ? null : (
-                <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">
-                  {machine.endpoint}
-                </span>
-              )
-            }
-          >
-            <span className={hint ? 'block truncate text-body font-medium' : 'block truncate'}>
-              {machine.machineName}
-            </span>
-            {hint ? <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span> : null}
-          </MenuOption>
-        )
-      })}
-    </Popover>
-  )
-}
-
-/**
- * A remote machine's projects: its workspaces, served over the mesh client.
- * Loading and unreachable states are said plainly — a machine that does not
- * answer keeps its entry with the reason, never a silent empty list.
- */
-function RemoteProjectPicker({
-  target,
-  color,
-  onPick,
-}: {
-  target: RemoteTargetState
-  /**
-   * The picked project's hue — the SAME hue the local clone of that repository
-   * wears here (decision 3: a project is a repository, and the machine is a
-   * glyph on the line rather than a second colour). Null until a project is
-   * picked, and null for a picked project whose machine could not say which
-   * repository it is: that one keeps the plain solid glyph rather than being
-   * keyed by a path on someone else's disk.
-   */
-  color: ProjectColor | null
-  onPick: (project: RemoteProject) => void
-}) {
-  const [open, setOpen] = React.useState(false)
-  const [query, setQuery] = React.useState('')
-  // Each row's own hue, out of the same store the local list reads. A remote
-  // project carries the repository its machine read, so the row for this
-  // disk's project is the colour it is here — which is how a person picks the
-  // right one out of a machine holding a dozen.
-  const projectColors = useProjectColors()
-  const colorOfProject = (project: RemoteProject): ProjectColor | null =>
-    project.repository
-      ? resolveProjectColor(projectColors, projectColorKey({ folderPath: null, repository: project.repository }))
-      : null
-  const needle = query.trim().toLowerCase()
-  const visibleProjects =
-    target.projects === null
-      ? null
-      : needle
-        ? target.projects.filter(
-            (project) =>
-              project.name.toLowerCase().includes(needle) || project.folderPath.toLowerCase().includes(needle),
-          )
-        : target.projects
-  const label = target.error
-    ? 'Unavailable'
-    : target.projects === null
-      ? 'Loading…'
-      : (target.picked?.name ?? 'Choose a project')
-  // Dashed says one thing and only one: there is no folder here, so there is no
-  // project (decision 6). That is true of "Choose a project" — the machine
-  // answered and nothing has been picked — and false of "Loading…" and
-  // "Unavailable", which are open questions rather than an answer of "none". A
-  // dash on those would report an unfiled chat where there is a machine that
-  // has not spoken yet, so they keep the plain solid glyph.
-  const unfiled = !target.picked && target.projects !== null && !target.error
-  return (
-    <Popover
-      open={open}
-      onOpenChange={setOpen}
-      ariaLabel={`Project on ${target.connection.machineName}`}
-      popupRole="menu"
-      placement="bottom-start"
-      surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
-      onOpenAutoFocus={focusProjectSearch}
-      // As the local project chip: its name gives way first on a narrow strip.
-      className="min-w-0"
-      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        // The same stable hook the local chip carries: the two never render
-        // together, so a pass looking for "the project control on the scope
-        // line" finds whichever one is there.
-        <ChipButton ref={ref} variant="raised" onClick={togglePopover} data-project-trigger="true" {...triggerProps}>
-          {/* The bare glyph, not `FolderIdentityIcon`: a logo is detected by
-              reading THIS disk, and the folder is on another machine. */}
-          <FolderTypeIcon className="icon-xs shrink-0" color={color} unfiled={unfiled} />
-          <span className="min-w-0 truncate">{label}</span>
-          <ChipCaretGlyph />
-        </ChipButton>
-      )}
-    >
-      <>
-        {target.projects !== null && target.projects.length > 0 && !target.error ? (
-          // The same search-first shape the local selector opens on, with the
-          // same words: the list is projects either way, so the placeholder
-          // says so rather than naming the machine the chip beside it names.
-          <div className="px-1.5 pb-1">
-            <Input
-              type="text"
-              size="sm"
-              autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search projects…"
-              aria-label={`Search projects on ${target.connection.machineName}`}
-            />
-          </div>
-        ) : null}
-        {target.error ? (
-          <div className="px-2.5 py-1.5 text-meta text-[color:var(--tone-error)]">{target.error}</div>
-        ) : visibleProjects === null ? (
-          <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">Loading projects…</div>
-        ) : visibleProjects.length === 0 ? (
-          <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">
-            {needle ? 'No matching projects.' : 'No projects open on that machine.'}
-          </div>
-        ) : (
-          visibleProjects.map((project) => (
-            <MenuOption
-              key={project.key}
-              role="menuitemradio"
-              selected={target.picked?.key === project.key}
-              stacked
-              onClick={() => {
-                onPick(project)
-                setOpen(false)
-              }}
-              icon={<FolderTypeIcon className="mt-0.5 icon-xs shrink-0" color={colorOfProject(project)} />}
-            >
-              {/* The FOLDER's name and the folder's path — the same two lines
-                  the local list gives a project. What stands in it is the
-                  machine's business, not a second name for the row. */}
-              <span className="block truncate text-body font-medium">{project.name}</span>
-              <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">
-                {project.folderPath}
-              </span>
-            </MenuOption>
-          ))
-        )}
-      </>
-    </Popover>
-  )
-}
-
 // An image staged on the prompt: the chat composer's attachment shape (so the
 // shared strip renders it) plus the file path that stands in for it once the
 // prompt becomes text.
 type PromptImage = NewChatDraftImage
-
-function SuggestionCard({
-  entry,
-  disabled,
-  onLaunch,
-}: {
-  entry: SuggestionEntry
-  disabled: boolean
-  onLaunch: () => void
-}) {
-  return (
-    // The kit's tile: a block button whose content is a composition rather than
-    // a label. `bordered` keeps the hairline at rest, so hover moves the ground
-    // and nothing else — a grid that reflows under the pointer is the defect
-    // the tile spec rules out. The inset stays with the caller, because a
-    // tile's padding is a composition decision — and so does the radius:
-    // `radius.composer-companion`, so the tiles read as one set with the
-    // composer above them rather than as ramp cards parked beside it.
-    <CardButton
-      variant="bordered"
-      onClick={onLaunch}
-      disabled={disabled}
-      className="rounded-[var(--sem-radius-composer-companion)] px-3 py-2.5"
-    >
-      <div className="text-body font-medium text-[color:var(--text-strong)]">{entry.title}</div>
-      <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{entry.description}</p>
-      <span className="mt-1.5 inline-block self-start rounded border border-[color:var(--border-default)] px-1.5 text-micro text-[color:var(--text-subtle)]">
-        {entry.outcome}
-      </span>
-    </CardButton>
-  )
-}
-
-function ExtensionIdeaCard({ idea, onPick }: { idea: ExtensionIdea; onPick: () => void }) {
-  return (
-    // The suggestion tile's shape; the surface it adds leads, because the cards
-    // together are a map of what an extension can be.
-    <CardButton
-      variant="bordered"
-      onClick={onPick}
-      className="rounded-[var(--sem-radius-composer-companion)] px-3 py-2.5"
-    >
-      <span className="text-micro text-[color:var(--text-subtle)]">{idea.surface}</span>
-      <div className="mt-0.5 text-body font-medium text-[color:var(--text-strong)]">{idea.title}</div>
-      <p className="mt-0.5 text-meta leading-5 text-[color:var(--text-muted)]">{idea.description}</p>
-    </CardButton>
-  )
-}
