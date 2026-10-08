@@ -5,13 +5,7 @@ import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import type { ConversationJsonValue } from '../../shared/conversation-runtime'
 import { asRecord } from '../../shared/records'
 import { ImportedTranscriptBuilder, recordTime, type ImportedConversation } from './imported-transcript'
-import {
-  newestRecordTime,
-  readJsonLines,
-  readJsonLinesWindow,
-  stringField,
-  type ScannedSession,
-} from './session-files'
+import { newestRecordTime, readJsonLines, readJsonLinesWindow, stringField, type ScannedSession } from './session-files'
 
 // Codex saves each session as `<home>/sessions/YYYY/MM/DD/rollout-*.jsonl`.
 // Its first record (`session_meta`) names the session, the folder it ran in

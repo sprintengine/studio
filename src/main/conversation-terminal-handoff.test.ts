@@ -330,7 +330,10 @@ test("a chat's start for a handoff is its record's: worktree, engine, preset and
 
 test('a second handoff while one is under way gets its answer, not a second terminal', async () => {
   const app = harness()
-  const [first, second] = await Promise.all([app.handoff({ sessionId: 'conv-1' }), app.handoff({ sessionId: 'conv-1' })])
+  const [first, second] = await Promise.all([
+    app.handoff({ sessionId: 'conv-1' }),
+    app.handoff({ sessionId: 'conv-1' }),
+  ])
   assert.deepEqual(first, second)
   assert.equal(app.launches.length, 1)
   assert.deepEqual(app.steps, ['target', 'stop', 'launch', 'note', 'end'])

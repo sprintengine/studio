@@ -6,13 +6,7 @@ import type { ConversationToolOutputPayload, ConversationToolStartedPayload } fr
 import { resolveClaudeConfigDir } from '../claude-config-dir'
 import { mapSdkMessage } from '../providers/claude-agent-provider'
 import { ImportedTranscriptBuilder, recordTime, type ImportedConversation } from './imported-transcript'
-import {
-  newestRecordTime,
-  readJsonLines,
-  readJsonLinesWindow,
-  stringField,
-  type ScannedSession,
-} from './session-files'
+import { newestRecordTime, readJsonLines, readJsonLinesWindow, stringField, type ScannedSession } from './session-files'
 
 // Claude Code saves each session as `<config>/projects/<folder>/<id>.jsonl`,
 // one record per line: the person's messages and the tool results the CLI

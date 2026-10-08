@@ -56,7 +56,10 @@ test('gh', async () => {
         call.file === 'gh'
           ? enoent()
           : call.file === '/bin/zsh'
-            ? Promise.resolve({ stdout: 'Now using node v22\nSPRINTENGINE_LOGIN_PATH:/opt/homebrew/bin:/usr/bin\n', stderr: '' })
+            ? Promise.resolve({
+                stdout: 'Now using node v22\nSPRINTENGINE_LOGIN_PATH:/opt/homebrew/bin:/usr/bin\n',
+                stderr: '',
+              })
             : Promise.resolve({ stdout: 'gh version 2.55.0', stderr: '' }),
       )
       const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin', findExecutable: homebrewGh })
@@ -81,7 +84,12 @@ test('gh', async () => {
     // ---------------------------------------------------------------------------
     {
       const { spawn, calls } = spawnStub(() => enoent())
-      const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin', findExecutable: async () => null })
+      const gh = createDefaultGhRunner({
+        spawn,
+        shell: '/bin/zsh',
+        platform: 'darwin',
+        findExecutable: async () => null,
+      })
       const missing = await gh.run(['pr', 'list'])
       assert.equal(missing.found, false, 'ENOENT, and no gh on the login PATH, means the binary is absent')
       assert.ok(calls.length > 1, 'the login PATH was asked before giving up')
