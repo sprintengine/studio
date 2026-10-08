@@ -515,14 +515,20 @@ the desktop's own sidebar — agrees with it. A desktop that advertises
 - **`conversation.settle`** `{ workspaceId, settled? }` (default `true`)
   writes the same patch as the row menu's Settle, or with `false` its
   Un-settle, and answers `{ ok: true, workspaceId, settledAt }` (`null` when
-  the chat is in the list). It is refused as `working` while an agent in the
-  chat is working, and `unknown_workspace` for a chat the desktop does not
+  the chat is in the list). It is refused as `working` while anything in the
+  chat would be cut short — a turn starting, running or waiting on a person,
+  an agent it launched still working in the background, or one of its agent
+  terminals mid-turn — and `unknown_workspace` for a chat the desktop does not
   have; settling a settled chat again changes nothing. The desktop then does
   what its own Settle does: the chat's agents stop, and a window that has it
   in front moves on to the next chat.
 - **`conversation.visit`** `{ workspaceId, visitedAt? }` moves the chat's
   `lastVisitedAt` forward to `visitedAt` (now when omitted, and never past the
-  desktop's now) and answers `{ ok: true, workspaceId, lastVisitedAt }`. It is
+  desktop's now) and answers `{ ok: true, workspaceId, lastVisitedAt }`. A
+  `visitedAt` no later than the chat's `visitRewoundAt` is a reading taken
+  before its last Mark unread and changes nothing. A desktop following a paired
+  machine's chat sends no `visitedAt`, so that machine stamps the visit by its
+  own clock. It is
   not activity: the chat keeps its place and a settled one stays settled. The
   desktop stamps its own windows' visits the same way: at once when the chat
   in front has an unseen finish, otherwise at most every ten seconds while it
@@ -549,7 +555,9 @@ the desktop's own sidebar — agrees with it. A desktop that advertises
 The change feed says the conversation list moved when a chat is settled or
 brought back, renamed, or written to, marked unread, and for a visit when it
 is the first since the chat's agent finished (the visits stamped while a chat
-stays on screen are not a push each).
+stays on screen are not a push each). A change to the record's clocks alone
+(a visit, a Mark unread, a keystroke, a message, a turn's end) does not say
+the workspace list moved, since `workspace.list` carries none of them.
 
 `lastVisitedAt` going back is new with `conversation.mark_unread`, and a
 client from before it reads it as it reads any visit clock: as of 2026-10-07
