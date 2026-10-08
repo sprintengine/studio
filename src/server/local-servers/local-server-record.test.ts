@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { afterEach, test } from 'vitest'
+import { afterEach, test, vi } from 'vitest'
 
 import {
   createLocalServerRecord,
@@ -146,6 +146,30 @@ test('the record is written to one file and read back after a restart', async ()
   await reread.whenLoaded()
   assert.deepEqual(reread.forConversation(A), record.forConversation(A))
   assert.deepEqual(reread.forConversation(B), record.forConversation(B))
+})
+
+test('a write that failed is tried again rather than left until the next change', async () => {
+  const dir = await dataDir()
+  const store = dirname(localServerStorePath(dir))
+  await mkdir(store, { recursive: true })
+  const { record, logs } = recordIn(dir)
+  await record.whenLoaded()
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    // The folder refuses writes for a while, as a full or locked disk does.
+    await chmod(store, 0o500)
+    record.link(A, { url: 'http://localhost:5173/' })
+    await record.flush()
+    assert.match(logs.join('\n'), /could not write the local server record/u)
+    await chmod(store, 0o700)
+    vi.advanceTimersByTime(5_000)
+    await record.flush()
+  } finally {
+    vi.useRealTimers()
+    await chmod(store, 0o700)
+  }
+  const stored = JSON.parse(await readFile(localServerStorePath(dir), 'utf8')) as { servers: unknown[] }
+  assert.equal(stored.servers.length, 1)
 })
 
 test('a record that cannot be read is kept aside and the record starts empty', async () => {
