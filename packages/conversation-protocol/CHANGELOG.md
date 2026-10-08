@@ -4,6 +4,14 @@
 
 ### Added
 
+- **A listed chat names its branch.** `branch` is an optional member of
+  `ConversationThread`: the branch the chat's folder is checked out on, as its
+  HEAD names it, which the desktop's own sidebar shows on the chat's line.
+  Absent for a folder that is not a repository, on a detached HEAD, and from a
+  desktop built before it was listed. `parseConversationServerFrame` keeps it
+  when it is one line with no spaces, at most 255 characters, and leaves out
+  anything else. The pinned files are unchanged.
+
 - **A queued message is held by the desktop the chat runs on.**
   `CONVERSATION_QUEUED_SENDS_CAPABILITY` (`conversation-queued-sends`) names a
   desktop that holds a message queued while a chat is mid-turn and sends it

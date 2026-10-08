@@ -31,26 +31,28 @@ test("a Claude rate_limit_event's info becomes its window: a fraction to a perce
       isUsingOverage: false,
     }),
   ).toEqual({
-    update: {
-      id: 'seven_day',
-      label: 'Weekly',
-      usedPercent: 82,
-      resetsAt: RESET_S * 1000,
-      durationMs: 7 * 24 * HOUR,
-      status: 'warning',
-    },
+    updates: [
+      {
+        id: 'seven_day',
+        label: 'Weekly',
+        usedPercent: 82,
+        resetsAt: RESET_S * 1000,
+        durationMs: 7 * 24 * HOUR,
+        status: 'warning',
+      },
+    ],
     type: 'seven_day',
     rejected: null,
   })
   // A model's own weekly is a row of its own, scoped to that model.
   expect(
-    readClaudeRateLimitInfo({ status: 'allowed', rateLimitType: 'seven_day_opus', utilization: 0.1 })?.update,
+    readClaudeRateLimitInfo({ status: 'allowed', rateLimitType: 'seven_day_opus', utilization: 0.1 })?.updates[0],
   ).toMatchObject({ id: 'seven_day_opus', label: 'Weekly · Opus', usedPercent: 10, status: 'allowed', scope: 'model' })
 })
 
 test('the weekly of the model extra usage covers is a model row, named by the session’s model', () => {
   const info = { status: 'allowed_warning', rateLimitType: 'seven_day_overage_included', utilization: 0.9 }
-  expect(readClaudeRateLimitInfo(info, 'claude-fable-5')?.update).toMatchObject({
+  expect(readClaudeRateLimitInfo(info, 'claude-fable-5')?.updates[0]).toMatchObject({
     id: 'seven_day_overage_included',
     label: 'Weekly · Fable',
     usedPercent: 90,
@@ -58,8 +60,8 @@ test('the weekly of the model extra usage covers is a model row, named by the se
     scope: 'model',
     status: 'warning',
   })
-  expect(readClaudeRateLimitInfo(info, 'default')?.update?.label).toBe('Weekly · Model')
-  expect(readClaudeRateLimitInfo(info)?.update?.label).toBe('Weekly · Model')
+  expect(readClaudeRateLimitInfo(info, 'default')?.updates[0]?.label).toBe('Weekly · Model')
+  expect(readClaudeRateLimitInfo(info)?.updates[0]?.label).toBe('Weekly · Model')
 })
 
 test('a rejected Claude event is a refusal with its window and reset, unless extra usage carries the turn', () => {
@@ -72,7 +74,7 @@ test('a rejected Claude event is a refusal with its window and reset, unless ext
     overageDisabledReason: 'out_of_credits',
   })
   expect(refused?.rejected).toEqual({ windowId: 'five_hour', resetsAt: RESET_S * 1000 })
-  expect(refused?.update).toMatchObject({ id: 'five_hour', usedPercent: 100, status: 'rejected' })
+  expect(refused?.updates[0]).toMatchObject({ id: 'five_hour', usedPercent: 100, status: 'rejected' })
   const carried = readClaudeRateLimitInfo({
     status: 'rejected',
     resetsAt: RESET_S,
@@ -82,7 +84,7 @@ test('a rejected Claude event is a refusal with its window and reset, unless ext
     isUsingOverage: true,
   })
   expect(carried?.rejected).toBe(null)
-  expect(carried?.update?.status).toBe('warning')
+  expect(carried?.updates[0]?.status).toBe('warning')
   // `overageInUse` says the same as `isUsingOverage`.
   const inUse = readClaudeRateLimitInfo({
     status: 'rejected',
@@ -92,12 +94,92 @@ test('a rejected Claude event is a refusal with its window and reset, unless ext
     overageInUse: true,
   })
   expect(inUse?.rejected).toBe(null)
-  expect(inUse?.update?.status).toBe('warning')
+  expect(inUse?.updates[0]?.status).toBe('warning')
+})
+
+test('every window an event carries is read, not only the one that limits now', () => {
+  // A Max plan whose weekly is the fuller: the event is about the weekly, and
+  // the session (5h) window's share rides only in `unifiedWindows`. It used
+  // to be read as a reset with no share, "Within the limit" over an empty bar.
+  const reading = readClaudeRateLimitInfo({
+    status: 'allowed',
+    resetsAt: RESET_S,
+    rateLimitType: 'seven_day',
+    utilization: 0.3,
+    unifiedWindows: {
+      five_hour: { utilization: 0.25, resetsAt: RESET_S - 3600 },
+      seven_day: { utilization: 0.31, resetsAt: RESET_S },
+      seven_day_overage_included: { utilization: 0.12, resetsAt: RESET_S },
+    },
+  })
+  expect(reading?.updates).toEqual([
+    {
+      id: 'seven_day',
+      label: 'Weekly',
+      // The event's own fields stand for the window it is about.
+      usedPercent: 30,
+      resetsAt: RESET_S * 1000,
+      durationMs: 7 * 24 * HOUR,
+      status: 'allowed',
+    },
+    {
+      id: 'five_hour',
+      label: 'Session (5h)',
+      usedPercent: 25,
+      resetsAt: (RESET_S - 3600) * 1000,
+      durationMs: 5 * HOUR,
+      status: 'allowed',
+    },
+    {
+      id: 'seven_day_overage_included',
+      label: 'Weekly · Model',
+      usedPercent: 12,
+      resetsAt: RESET_S * 1000,
+      durationMs: 7 * 24 * HOUR,
+      scope: 'model',
+      status: 'allowed',
+    },
+  ])
+})
+
+test('a window from `unifiedWindows` past its cap is carried while the event lets requests through', () => {
+  const allowed = readClaudeRateLimitInfo({
+    status: 'allowed_warning',
+    rateLimitType: 'seven_day',
+    utilization: 0.9,
+    unifiedWindows: { five_hour: { utilization: 1.2, resetsAt: RESET_S } },
+  })
+  expect(allowed?.updates[1]).toMatchObject({ id: 'five_hour', usedPercent: 100, status: 'warning' })
+  // Refused, the refusal is the event's window's; another window's share says
+  // nothing either way, and the store reads it.
+  const refused = readClaudeRateLimitInfo({
+    status: 'rejected',
+    rateLimitType: 'seven_day',
+    utilization: 1,
+    unifiedWindows: { five_hour: { utilization: 0.4, resetsAt: RESET_S } },
+  })
+  expect(refused?.updates[1]).toMatchObject({ id: 'five_hour', usedPercent: 40 })
+  expect(refused?.updates[1] && 'status' in refused.updates[1]).toBe(false)
+  // An event whose own fields carry no share takes it from its window there.
+  const bare = readClaudeRateLimitInfo({
+    status: 'allowed',
+    rateLimitType: 'five_hour',
+    unifiedWindows: { five_hour: { utilization: 0.25, resetsAt: RESET_S } },
+  })
+  expect(bare?.updates).toEqual([
+    expect.objectContaining({ id: 'five_hour', usedPercent: 25, resetsAt: RESET_S * 1000 }),
+  ])
+  // A window it does not know, or a share that is not a number, is left out.
+  const odd = readClaudeRateLimitInfo({
+    status: 'allowed',
+    unifiedWindows: { monthly: { utilization: 0.5, resetsAt: RESET_S }, five_hour: { utilization: 'half' } },
+  })
+  expect(odd?.updates).toEqual([])
 })
 
 test('a Claude event about a kind that is not a plan window moves no window, and junk is nothing', () => {
   expect(readClaudeRateLimitInfo({ status: 'allowed', rateLimitType: 'overage', utilization: 0.4 })).toEqual({
-    update: null,
+    updates: [],
     type: 'overage',
     rejected: null,
   })
