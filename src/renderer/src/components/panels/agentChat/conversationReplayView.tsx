@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef } from 'react'
+import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 
 import type { ConversationEvent } from '../../../../../shared/conversation-runtime'
 import { CloseIconButton, IconButton, OutlineButton } from '../../ui/Buttons'
@@ -16,7 +16,7 @@ import { TourProgress, type TourProgressMark } from '../../ui/TourStrip'
 import { createConversationProjectionState, syncConversationProjection } from './incrementalConversationProjection'
 import type { UserTurn } from './conversationProjection'
 import { ConversationRowFrame } from './conversationRowFrame'
-import { deriveConversationTimelineRows } from './conversationTimeline'
+import { deriveConversationTimelineRows, type ConversationTimelineRow } from './conversationTimeline'
 import {
   buildReplayScript,
   initialReplayState,
@@ -241,6 +241,8 @@ function ReplayPlayer({
   }, [rows])
 
   const { scrollerRef, endRef, anchorId, anchorRef, onScroll, onManualScroll, follow } = useReplayFollow(rows)
+  const [windowTurns, setWindowTurns] = useState(REPLAY_WINDOW_TURNS)
+  const windowStart = useMemo(() => replayWindowStart(rows, windowTurns), [rows, windowTurns])
   const act = (action: ReplayAction) => {
     if (action.type !== 'pause' && action.type !== 'speed' && action.type !== 'continuous') follow()
     dispatch(action)
@@ -347,13 +349,22 @@ function ReplayPlayer({
           onTouchMove={onManualScroll}
           className={`chat-column-gutter relative min-h-0 flex-1 overflow-y-auto py-4 focus:outline-none ${FOCUS_RING_INSET_CLASS}`}
         >
+          {windowStart > 0 ? (
+            <div className="flex justify-center pb-3">
+              <OutlineButton size="xs" onClick={() => setWindowTurns((turns) => turns + REPLAY_WINDOW_TURNS)}>
+                Show earlier messages
+              </OutlineButton>
+            </div>
+          ) : null}
           <div className="space-y-1">
-            {rows.map((row) => (
-              <div key={row.id} ref={row.id === anchorId ? anchorRef : undefined} data-replay-row-kind={row.kind}>
-                <ConversationRowFrame id={row.id} live seen={enteredRef.current} flash={false} onFlashEnd={noop}>
-                  <TimelineRow row={row} chrome={chrome} />
-                </ConversationRowFrame>
-              </div>
+            {rows.slice(windowStart).map((row) => (
+              <ReplayRow
+                key={row.id}
+                row={row}
+                chrome={chrome}
+                anchorRef={row.id === anchorId ? anchorRef : undefined}
+                seen={enteredRef.current}
+              />
             ))}
           </div>
           <div ref={endRef} aria-hidden />
@@ -369,6 +380,50 @@ function ReplayPlayer({
 }
 
 function noop(): void {}
+
+/**
+ * How many of the latest messages a replay draws, with their replies, before
+ * "Show earlier messages". Every row it draws is a row each tick reconciles and
+ * the follow measures, and a replay played to the end of a long chat would
+ * otherwise hold the whole transcript in the page at once.
+ */
+const REPLAY_WINDOW_TURNS = 20
+
+/** Where the drawn rows start: at the `turns`-th message from the end, or the first row. */
+function replayWindowStart(rows: readonly { kind: string }[], turns: number): number {
+  let seen = 0
+  for (let index = rows.length - 1; index >= 0; index--) {
+    if (rows[index]!.kind !== 'user') continue
+    seen++
+    if (seen === turns) return index
+  }
+  return 0
+}
+
+/**
+ * One row of the replay. Drawn again only when its row, the chrome or its
+ * anchoring changes: a tick reveals a token or a step, which is one row's
+ * change, and the rest of the transcript above it stays as it was.
+ */
+const ReplayRow = memo(function ReplayRow({
+  row,
+  chrome,
+  anchorRef,
+  seen,
+}: {
+  row: ConversationTimelineRow
+  chrome: TimelineChrome
+  anchorRef: React.Ref<HTMLDivElement> | undefined
+  seen: Set<string>
+}) {
+  return (
+    <div ref={anchorRef} data-replay-row-kind={row.kind}>
+      <ConversationRowFrame id={row.id} live seen={seen} flash={false} onFlashEnd={noop}>
+        <TimelineRow row={row} chrome={chrome} />
+      </ConversationRowFrame>
+    </div>
+  )
+})
 
 /**
  * Keep the replay in view: the newest message at the top of the view, then the

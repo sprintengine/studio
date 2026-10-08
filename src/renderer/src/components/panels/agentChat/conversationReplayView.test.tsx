@@ -2,6 +2,21 @@ import { JSDOM } from 'jsdom'
 import { expect, test, vi } from 'vitest'
 import type { ConversationEvent, ConversationEventType } from '../../../../../shared/conversation-runtime'
 
+// Each row the replay draws, counted: what a tick costs the transcript above it.
+const rowRenders = vi.hoisted(() => ({ count: 0 }))
+vi.mock('./timelineRows', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./timelineRows')>()
+  const { createElement } = await import('react')
+  return {
+    ...actual,
+    // Not memoized itself, so it counts each time the replay draws the row.
+    TimelineRow: (props: import('react').ComponentProps<typeof actual.TimelineRow>) => {
+      rowRenders.count++
+      return createElement(actual.TimelineRow, props)
+    },
+  }
+})
+
 let seq = 0
 function event(type: ConversationEventType, payload: Record<string, unknown>): ConversationEvent {
   seq++
@@ -32,7 +47,7 @@ const EVENTS = [
 // jsdom lays nothing out, so the replay's scroller is given a size, a scroll
 // position that sticks, and rows that sit where `layout.top` says; scrollTo is
 // the replay's, recorded, and reports its scroll the way a browser does.
-async function mountReplay() {
+async function mountReplay(events: ConversationEvent[] = EVENTS) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
   const globals = {
@@ -84,7 +99,7 @@ async function mountReplay() {
   await act(async () =>
     root.render(
       createElement(ConversationReplayView, {
-        source: { status: 'ready', events: EVENTS },
+        source: { status: 'ready', events },
         title: 'Build',
         assistantName: 'Claude',
         cli: null,
@@ -158,6 +173,53 @@ test('the replay’s log is a tab stop with the kit’s inset ring, and Page Up 
     await replay.act(async () => void (next = replay.key('ArrowRight', log)))
     expect(next!.defaultPrevented, 'the player still takes its arrows').toBe(true)
     expect(replay.host.textContent).toContain('the pager.')
+  } finally {
+    await replay.unmount()
+  }
+})
+
+test('a long replay draws its latest twenty messages, and a step redraws only the rows it changes', async () => {
+  const long: ConversationEvent[] = []
+  for (let index = 0; index < 30; index++) {
+    const turnId = `t${index}`
+    long.push(
+      event('user_message', { turnId, text: `Question ${index}` }),
+      event('turn_started', { turnId }),
+      event('content_delta', { turnId, text: `Answer ${index}.` }),
+      event('turn_completed', { turnId }),
+    )
+  }
+  const replay = await mountReplay(long)
+  const messages = () => replay.host.querySelectorAll('[data-replay-row-kind="user"]').length
+  try {
+    // Played to the end: the whole conversation is revealed.
+    await replay.act(async () => void replay.key('End'))
+    expect(replay.host.textContent).toContain('Answer 29.')
+    expect(messages(), 'the latest twenty, not all thirty').toBe(20)
+    expect(replay.host.textContent).not.toContain('Question 9')
+
+    // Back to the last message, then played on: each tick reveals a little of
+    // its reply, and the rows above it are left alone.
+    await replay.act(async () => void replay.key('ArrowLeft'))
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await replay.act(async () => void replay.key(' '))
+      rowRenders.count = 0
+      let ticks = 0
+      for (; ticks < 20 && !replay.host.textContent?.includes('Answer 29.'); ticks++)
+        await replay.act(async () => vi.advanceTimersByTime(500))
+      expect(replay.host.textContent).toContain('Answer 29.')
+      expect(rowRenders.count, 'the reply’s row a tick, not the transcript').toBeLessThanOrEqual(ticks * 2 + 2)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const earlier = [...replay.host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Show earlier messages'),
+    )
+    await replay.act(async () => earlier!.click())
+    expect(messages()).toBe(30)
+    expect(replay.host.textContent).toContain('Question 0')
   } finally {
     await replay.unmount()
   }
