@@ -214,6 +214,9 @@ export function TerminalLineView({
           )}
         </RowTooltip>
       ) : null}
+      {/* A chat's words, where a local chat's line puts them: after its
+          marks, taking the width the seat leaves. */}
+      {line.text ? <span className="min-w-0 flex-1 truncate">{line.text}</span> : null}
       {/* The line's own seat: working mark + how long, the failure dot, a
           waiting mark when the row needs to say which line, else how long it
           has sat idle. The seat's min-w is what the row's revealed actions

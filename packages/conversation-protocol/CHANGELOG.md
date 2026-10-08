@@ -22,6 +22,15 @@
   request under their ids; it never sends a `queued` frame to a client that
   did not ask. The pinned files are unchanged.
 
+- **A listed chat previews its agent's last reply.** `lastAssistantText` is
+  an optional member of `ConversationThread`: the opening of the reply as
+  written, at most `CONVERSATION_MAX_REPLY_PREVIEW` (240) characters, the line
+  the desktop's own sidebar shows under the chat's title. Absent for a chat
+  whose agent has not answered since the person last wrote.
+  `parseConversationServerFrame` keeps it when it is text with words in it,
+  cuts one past the cap, and leaves out anything else. The pinned files are
+  unchanged.
+
 - **A listed chat says when it was last marked unread.** `visitRewoundAt` is
   an optional member of `ConversationThread`, beside `lastVisitedAt`, kept by
   `parseConversationServerFrame` when it is a time and left out otherwise. A
