@@ -19,8 +19,8 @@ import { mkdir, rename, unlink, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import {
   parseWorkspaceRegistryFile,
+  serializeWorkspaceRegistryContent,
   serializeWorkspaceRegistryFile,
-  workspaceRegistryContentEqual,
   type WorkspaceRegistryFile,
 } from '../shared/workspace-registry'
 
@@ -53,7 +53,11 @@ export function createWorkspaceRegistryStore(deps: WorkspaceRegistryStoreDeps) {
   let writeSequence = 0
   let pendingTimer: ReturnType<typeof setTimeout> | null = null
   let pendingFile: WorkspaceRegistryFile | null = null
-  let lastPersisted: WorkspaceRegistryFile | null = null
+  // The content key of the newest file accepted for writing (pending, in
+  // flight or on disk), so each commit stringifies only its own side. The file
+  // read at boot is keyed lazily: a session that never writes never pays for it.
+  let acceptedContent: string | null = null
+  let loadedFile: WorkspaceRegistryFile | null = null
 
   function filePath(): string {
     return join(deps.resolveUserDataDir(), WORKSPACE_REGISTRY_FILE_NAME)
@@ -111,17 +115,24 @@ export function createWorkspaceRegistryStore(deps: WorkspaceRegistryStoreDeps) {
         details: `failing_field=${dropped.reason}`,
       })
     }
-    lastPersisted = parsed.file
+    loadedFile = parsed.file
+    acceptedContent = null
     return { status: 'loaded', file: parsed.file, droppedRecords: parsed.droppedRecords }
   }
 
   /**
    * Queue a debounced write. A content-identical file is a no-op: no write, no
    * churn — the authority persists after every accepted mutation, and an
-   * unchanged blob is not a new revision.
+   * unchanged blob is not a new revision. The comparison is against the newest
+   * accepted file rather than the one on disk, so a change reverted inside the
+   * debounce still replaces the pending write instead of being dropped.
    */
   function write(file: WorkspaceRegistryFile): void {
-    if (lastPersisted && workspaceRegistryContentEqual(lastPersisted, file)) return
+    if (acceptedContent === null && loadedFile) acceptedContent = serializeWorkspaceRegistryContent(loadedFile)
+    loadedFile = null
+    const content = serializeWorkspaceRegistryContent(file)
+    if (content === acceptedContent) return
+    acceptedContent = content
     pendingFile = file
     if (pendingTimer) clearTimeout(pendingTimer)
     pendingTimer = setTimeout(() => {
@@ -144,6 +155,7 @@ export function createWorkspaceRegistryStore(deps: WorkspaceRegistryStoreDeps) {
     const file = pendingFile
     if (!file) return writeQueue
     pendingFile = null
+    const content = acceptedContent
     // Writes serialize behind one another and each gets its own temp file: two
     // mutations in the same tick would otherwise race on a shared temp path and
     // could land the older revision last.
@@ -157,9 +169,11 @@ export function createWorkspaceRegistryStore(deps: WorkspaceRegistryStoreDeps) {
           await mkdir(dirname(target), { recursive: true })
           await writeFile(tmp, serializeWorkspaceRegistryFile(file), { mode: 0o600 })
           await rename(tmp, target)
-          lastPersisted = file
         } catch (error) {
           await unlink(tmp).catch(() => undefined)
+          // Forget the key unless a newer file has been accepted since, so a
+          // retry of the same content is not mistaken for a no-op.
+          if (acceptedContent === content) acceptedContent = null
           // Never a silent success: the diagnostic names the file, in-memory
           // state stays authoritative for the session, and the next mutation
           // retries the write.

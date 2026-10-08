@@ -134,6 +134,13 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
     return tooLargeForDetailedDiff ? [] : getGitLineChanges(gitBaseContent.content, activeContent)
   }, [activeContent, activeFile?.path, gitBaseContent, showPreview])
+  // The same element while the text and its line changes are, so a re-render
+  // for anything else (a git status refresh, a menu opening) does not parse
+  // and lay out the whole document again.
+  const markdownPreview = useMemo(
+    () => (showPreview ? renderMarkdown(activeContent, { lineChanges: previewGitLineChanges }) : null),
+    [activeContent, previewGitLineChanges, showPreview],
+  )
 
   useEffect(() => {
     if (filePath) setActiveFile(workspaceId, filePath)
@@ -671,9 +678,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
                 tall. It reads from the same token the button's height does,
                 which is what keeps the two in step if the control ramp moves. */}
             <div aria-hidden="true" className="h-control-xs" />
-            <div className="max-w-4xl mx-auto">
-              {renderMarkdown(activeContent, { lineChanges: previewGitLineChanges })}
-            </div>
+            <div className="max-w-4xl mx-auto">{markdownPreview}</div>
           </div>
         ) : (
           <div className="h-full" onContextMenu={openEditorContextMenu}>

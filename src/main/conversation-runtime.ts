@@ -435,11 +435,12 @@ export class ConversationRuntime {
   // The highest such number is also recorded beside the transcript, so the
   // next run numbers above it rather than reusing numbers a client has seen.
   private readonly nonDurableLogs = new Map<string, NonDurableLog>()
-  // Per tool detail path: the detail being built, its streamed output, and
-  // the write in flight.
+  // Per tool detail path: the detail being built, its streamed output, the
+  // newest write, and the write still waiting its turn that later details join.
   private readonly toolDetails = new Map<string, ConversationToolDetail>()
   private readonly toolStreams = new Map<string, ToolOutputStream>()
   private readonly toolDetailWrites = new Map<string, Promise<void>>()
+  private readonly queuedToolDetailWrites = new Map<string, QueuedToolDetailWrite>()
   private readonly toolPreviews = new Map<string, ToolPreviewThrottle>()
   private readonly toolPreviewIntervalMs: number
   private eventSequence = 0
@@ -2944,7 +2945,7 @@ export class ConversationRuntime {
    */
   private async prepareToolEvent(session: RuntimeSession, event: ConversationEvent): Promise<ConversationEvent> {
     if (event.type !== 'tool_started' && event.type !== 'tool_output') return event
-    const payload = redactConversationValue({ ...event.payload })
+    const payload = redactToolPayload(event.payload)
     const toolUseId =
       typeof payload.toolUseId === 'string'
         ? payload.toolUseId
@@ -3052,6 +3053,11 @@ export class ConversationRuntime {
    * Write a detail file behind any earlier write for the same tool. A detail
    * whose input was never seen this run (the tool started before a restart)
    * keeps the input already on disk.
+   *
+   * A write that has not started yet takes the newer detail instead of a
+   * second write queueing behind it: a provider that re-sends a running
+   * tool's whole output on every update would otherwise rewrite the file once
+   * per update, each copy larger than the last, and only the newest is read.
    */
   private queueToolDetailWrite(
     session: RuntimeSession,
@@ -3059,15 +3065,26 @@ export class ConversationRuntime {
     detail: ConversationToolDetail,
     mergeInput = false,
   ): Promise<void> {
+    const waiting = this.queuedToolDetailWrites.get(path)
+    if (waiting) {
+      waiting.detail = detail
+      waiting.mergeInput ||= mergeInput
+      return waiting.write
+    }
+    const queued: QueuedToolDetailWrite = { detail, mergeInput, write: Promise.resolve() }
     const write = (this.toolDetailWrites.get(path) ?? Promise.resolve())
       .catch(() => undefined)
       .then(async () => {
-        if (mergeInput) {
+        // Started: a newer detail now queues behind this write.
+        if (this.queuedToolDetailWrites.get(path) === queued) this.queuedToolDetailWrites.delete(path)
+        if (queued.mergeInput) {
           const previous = await readToolDetail(session.workspaceRoot, path)
-          if (previous.ok) detail.input = previous.detail.input
+          if (previous.ok) queued.detail.input = previous.detail.input
         }
-        await writeToolDetail(session.workspaceRoot, path, detail)
+        await writeToolDetail(session.workspaceRoot, path, queued.detail)
       })
+    queued.write = write
+    this.queuedToolDetailWrites.set(path, queued)
     this.toolDetailWrites.set(path, write)
     void write
       .finally(() => {
@@ -4370,6 +4387,25 @@ function importedToolPayload(
   if (typeof payload.exitCode === 'number') detail.exitCode = payload.exitCode
   if (mime !== undefined) detail.mime = mime
   return payload
+}
+
+type QueuedToolDetailWrite = { detail: ConversationToolDetail; mergeInput: boolean; write: Promise<void> }
+
+/**
+ * A tool event's payload, redacted. Redaction goes by key, so output that is
+ * only text (a string, or the list of text blocks some providers send) has
+ * nothing in it to redact; it is set aside and put back rather than taken
+ * through a JSON round trip, which a provider re-sending the whole output on
+ * every update would pay again for each one.
+ */
+function redactToolPayload(payload: ConversationEvent['payload']): Record<string, unknown> {
+  const output = payload?.output
+  const plainText =
+    typeof output === 'string' || (Array.isArray(output) && output.every((entry) => typeof entry === 'string'))
+  if (!plainText) return redactConversationValue({ ...payload })
+  const redacted: Record<string, unknown> = redactConversationValue({ ...payload, output: '' })
+  redacted.output = output
+  return redacted
 }
 
 function redactEvent(event: ConversationEvent): ConversationEvent {
