@@ -60,7 +60,17 @@ import type { Workspace } from '../../types/workspace'
 // (AppIcons, mirrored in design-system/glyphs/git-branch.svg) — this chip and
 // the sidebar row's branch glyph sit on adjacent chrome and must agree.
 import { GitBranchGlyph, RemoteMachineGlyph } from '../AppIcons'
-import { IntelliJMark, VsCodeMark } from '../brand/EditorMarks'
+import {
+  CursorMark,
+  GoLandMark,
+  IntelliJMark,
+  PyCharmMark,
+  SublimeTextMark,
+  VsCodeMark,
+  WebStormMark,
+  WindsurfMark,
+  ZedMark,
+} from '../brand/EditorMarks'
 
 // Folder glyph for the project chip. Same stroke idiom as GitBranchGlyph
 // (1.3px round strokes on a 16px box) so the two identity chips read as a set.
@@ -87,7 +97,14 @@ function FolderGlyph({ className }: { className?: string }) {
 // list fails to compile here instead of silently drawing the wrong mark.
 const TARGET_MARK: Record<FolderOpenTargetId, React.ReactNode> = {
   vscode: <VsCodeMark className="size-icon-sm" />,
+  cursor: <CursorMark className="size-icon-sm" />,
+  windsurf: <WindsurfMark className="size-icon-sm" />,
+  zed: <ZedMark className="size-icon-sm" />,
+  sublime: <SublimeTextMark className="size-icon-sm" />,
   intellij: <IntelliJMark className="size-icon-sm" />,
+  webstorm: <WebStormMark className="size-icon-sm" />,
+  pycharm: <PyCharmMark className="size-icon-sm" />,
+  goland: <GoLandMark className="size-icon-sm" />,
   finder: <FolderGlyph className="size-icon-sm" />,
 }
 

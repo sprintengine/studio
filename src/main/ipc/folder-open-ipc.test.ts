@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import {
   createFolderOpenIpcDependencies,
+  launcherTakesPath,
   pickInstalledBundle,
   registerFolderOpenIpc,
   resolveFolderOpenLauncher,
@@ -10,7 +11,11 @@ import {
   type FolderOpenLauncher,
   type LauncherProbe,
 } from './folder-open-ipc'
-import type { FolderOpenResult, FolderOpenTargetAvailability } from '../../shared/folder-open-targets'
+import {
+  FOLDER_OPEN_TARGET_IDS,
+  type FolderOpenResult,
+  type FolderOpenTargetAvailability,
+} from '../../shared/folder-open-targets'
 import { test } from 'vitest'
 
 test('folder-open-ipc', async () => {
@@ -118,6 +123,7 @@ test('folder-open-ipc', async () => {
       kind: 'command',
       command: 'C:\\Windows\\system32\\cmd.exe',
       args: ['/d', '/s', '/c', 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd'],
+      viaCommandProcessor: true,
     })
     assert.equal(resolveFolderOpenLauncher('intellij', windows), null)
   }
@@ -212,11 +218,13 @@ test('folder-open-ipc', async () => {
       kind: 'command',
       command: 'C:\\Windows\\system32\\cmd.exe',
       args: ['/d', '/s', '/c', 'C:\\Users\\dev\\AppData\\Local\\JetBrains\\Toolbox\\scripts\\idea.cmd'],
+      viaCommandProcessor: true,
     })
     assert.deepEqual(resolveFolderOpenLauncher('vscode', windowsDefaults), {
       kind: 'command',
       command: 'C:\\Windows\\system32\\cmd.exe',
       args: ['/d', '/s', '/c', 'C:\\Users\\dev\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code.cmd'],
+      viaCommandProcessor: true,
     })
   }
 
@@ -263,11 +271,10 @@ test('folder-open-ipc', async () => {
     })
 
     const targets = (await probeTargets(null)) as FolderOpenTargetAvailability[]
-    assert.deepEqual(targets, [
-      { id: 'vscode', available: false },
-      { id: 'intellij', available: true },
-      { id: 'finder', available: true },
-    ])
+    assert.deepEqual(
+      targets,
+      FOLDER_OPEN_TARGET_IDS.map((id) => ({ id, available: id !== 'vscode' })),
+    )
   }
 
   async function assertOpenSucceeds(): Promise<void> {
@@ -409,4 +416,106 @@ test('folder-open-ipc', async () => {
   }
 
   await suiteRun
+})
+
+function editorProbe(platform: NodeJS.Platform, installed: string[]): LauncherProbe {
+  const present = new Set(installed)
+  return {
+    platform,
+    env: { PATH: '/usr/local/bin:/usr/bin', HOME: '/Users/dev' },
+    exists: (candidate) => present.has(candidate),
+  }
+}
+
+test('each editor is offered only when its CLI or its app is installed', () => {
+  const nothing = editorProbe('darwin', [])
+  for (const target of FOLDER_OPEN_TARGET_IDS) {
+    if (target === 'finder') continue
+    assert.equal(resolveFolderOpenLauncher(target, nothing), null, `${target} is absent when nothing is installed`)
+  }
+})
+
+test('the newer editors resolve through the CLI shim each one installs', () => {
+  const shims = {
+    cursor: 'cursor',
+    windsurf: 'windsurf',
+    zed: 'zed',
+    sublime: 'subl',
+    webstorm: 'webstorm',
+    pycharm: 'pycharm',
+    goland: 'goland',
+  } as const
+  for (const [target, cli] of Object.entries(shims) as [keyof typeof shims, string][]) {
+    const onPath = editorProbe('linux', [`/usr/local/bin/${cli}`])
+    assert.deepEqual(resolveFolderOpenLauncher(target, onPath), {
+      kind: 'command',
+      command: `/usr/local/bin/${cli}`,
+      args: [],
+    })
+  }
+})
+
+test('without a CLI, the newer editors open through their macOS app bundle', () => {
+  const bundles = {
+    cursor: '/Applications/Cursor.app',
+    windsurf: '/Applications/Windsurf.app',
+    zed: '/Applications/Zed Preview.app',
+    sublime: '/Applications/Sublime Text.app',
+    webstorm: '/Users/dev/Applications/JetBrains Toolbox/WebStorm.app',
+    pycharm: '/Applications/PyCharm CE.app',
+    goland: '/Users/dev/Applications/GoLand.app',
+  } as const
+  for (const [target, bundle] of Object.entries(bundles) as [keyof typeof bundles, string][]) {
+    assert.deepEqual(resolveFolderOpenLauncher(target, editorProbe('darwin', [bundle])), {
+      kind: 'command',
+      command: '/usr/bin/open',
+      args: ['-a', bundle],
+    })
+  }
+})
+
+test('a JetBrains IDE installed by Toolbox is found by its scripts-folder shim', () => {
+  const shim = '/Users/dev/Library/Application Support/JetBrains/Toolbox/scripts/webstorm'
+  assert.deepEqual(resolveFolderOpenLauncher('webstorm', editorProbe('darwin', [shim])), {
+    kind: 'command',
+    command: shim,
+    args: [],
+  })
+})
+
+test('a Windows shim run through cmd.exe is never handed a folder path cmd would read as commands', async () => {
+  const windows: LauncherProbe = {
+    platform: 'win32',
+    env: { Path: 'C:\\Program Files\\Microsoft VS Code\\bin', ComSpec: 'C:\\Windows\\system32\\cmd.exe' },
+    exists: (candidate) => candidate === 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd',
+  }
+  const viaCmd = resolveFolderOpenLauncher('vscode', windows)!
+  for (const path of ['C:\\R&D\\app', 'C:\\a|b', 'C:\\50%off', 'C:\\wow!', 'C:\\x^y', 'C:\\a<b', 'C:\\a>b']) {
+    assert.equal(launcherTakesPath(viaCmd, path), false, path)
+  }
+  assert.equal(launcherTakesPath(viaCmd, 'C:\\Users\\dev\\My Project (2)'), true)
+  const exe = resolveFolderOpenLauncher('vscode', {
+    ...windows,
+    exists: (candidate) => candidate === 'C:\\Program Files\\Microsoft VS Code\\bin\\code.exe',
+  })!
+  assert.equal(launcherTakesPath(exe, 'C:\\R&D\\app'), true, 'an .exe is spawned directly, with no command processor')
+
+  const handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>()
+  const launched: string[][] = []
+  registerFolderOpenIpc({ handle: (channel: string, handler: never) => handlers.set(channel, handler) } as never, {
+    showItemInFolder: async () => {},
+    resolveLauncher: () => viaCmd,
+    runLauncher: async (_command, args) => {
+      launched.push(args)
+      return { ok: true }
+    },
+    assertPathReachable: async () => {},
+  })
+  const result = (await handlers.get('fs:open-folder-in-target')!(null, {
+    target: 'vscode',
+    path: 'C:\\R&D\\app',
+  })) as FolderOpenResult
+  assert.equal(result.ok, false)
+  assert.equal(result.ok ? null : result.reason, 'launch_failed')
+  assert.deepEqual(launched, [], 'nothing was run')
 })

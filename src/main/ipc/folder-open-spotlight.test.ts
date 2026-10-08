@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test, vi } from 'vitest'
 
+import { FOLDER_OPEN_TARGET_IDS } from '../../shared/folder-open-targets'
+
 // The real-machine editor probe asks Spotlight without holding the main
 // thread. The boot-discovery pass runs it right after the main window is
 // created, so a synchronous `mdfind` there delayed the window's own document.
@@ -44,7 +46,7 @@ afterEach(() => {
   Object.defineProperty(process, 'platform', { value: realPlatform })
 })
 
-test('the editor probe answers from Spotlight without blocking, and shares one lookup', async () => {
+test('the editor probe answers from Spotlight without blocking, in one lookup for every editor', async () => {
   const { listFolderOpenTargetAvailability, resolveFolderOpenLauncherHere } = await import('./folder-open-ipc')
 
   // The boot pass and a workspace bar ask in the same moment.
@@ -53,22 +55,46 @@ test('the editor probe answers from Spotlight without blocking, and shares one l
 
   // Both calls have returned while Spotlight is still working: nothing ran synchronously.
   assert.equal(spawned.execFileSync, 0)
-  const intellijLookups = spawned.execFile.filter(({ args }) => args[0]?.includes('com.jetbrains.intellij'))
-  assert.equal(intellijLookups.length, 1, 'one mdfind for IntelliJ, however many callers ask')
+  // Microtasks run, so every missing editor has asked.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(spawned.execFile.length, 1, 'one mdfind, however many editors and callers ask')
+  const [{ args, callback }] = spawned.execFile
+  assert.deepEqual(args.slice(0, 2), ['-attr', 'kMDItemCFBundleIdentifier'])
+  assert.ok(args[2]?.includes('com.jetbrains.intellij') && args[2]?.includes('com.microsoft.VSCode'))
 
-  for (const { args, callback } of spawned.execFile) {
-    callback(null, args[0]?.includes('com.jetbrains.intellij') ? '/Volumes/work/IntelliJ IDEA.app\n' : '')
-  }
+  callback(
+    null,
+    [
+      '/Volumes/work/IntelliJ IDEA.app   kMDItemCFBundleIdentifier = com.jetbrains.intellij',
+      '/Users/dev/.Trash/Zed.app   kMDItemCFBundleIdentifier = dev.zed.Zed',
+      '',
+    ].join('\n'),
+  )
 
   assert.deepEqual(await launcher, {
     kind: 'command',
     command: '/usr/bin/open',
     args: ['-a', '/Volumes/work/IntelliJ IDEA.app'],
   })
-  assert.deepEqual(await availability, [
-    { id: 'vscode', available: false },
-    { id: 'intellij', available: true },
-    { id: 'finder', available: true },
-  ])
+  assert.deepEqual(
+    await availability,
+    FOLDER_OPEN_TARGET_IDS.map((id) => ({ id, available: id === 'intellij' || id === 'finder' })),
+    'a trashed copy is not an install',
+  )
   assert.equal(spawned.execFileSync, 0)
+})
+
+test('Spotlight’s listing is split by bundle id', async () => {
+  const { parseSpotlightBundles } = await import('./folder-open-ipc')
+  const bundles = parseSpotlightBundles(
+    [
+      '/Applications/Cursor.app   kMDItemCFBundleIdentifier = com.todesktop.230313mzl4w4u92',
+      '/Volumes/work/My Tools/Zed.app   kMDItemCFBundleIdentifier = "dev.zed.Zed"',
+      '/Applications/Zed.app   kMDItemCFBundleIdentifier = dev.zed.Zed',
+      'not a listing line',
+    ].join('\n'),
+  )
+  assert.deepEqual(bundles.get('com.todesktop.230313mzl4w4u92'), ['/Applications/Cursor.app'])
+  assert.deepEqual(bundles.get('dev.zed.Zed'), ['/Volumes/work/My Tools/Zed.app', '/Applications/Zed.app'])
+  assert.equal(bundles.size, 2)
 })
