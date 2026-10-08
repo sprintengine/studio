@@ -382,6 +382,9 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   const pullRequests = createPullRequestDomain({
     dataDir,
     conversations,
+    // An open pull request is probed every couple of minutes while a window
+    // is in front, and far less often while none is.
+    recordOptions: { focus: powerActivity },
     workspaceFolder: (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
     log: (message, error) => {
       void writeDiagnosticLog({
