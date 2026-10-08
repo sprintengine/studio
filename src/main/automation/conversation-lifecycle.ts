@@ -1,6 +1,7 @@
 import type { WorkspaceRegistryActor, WorkspaceRegistryRecord } from '../../shared/workspace-registry'
 import type { WorkspaceFieldsPatch, WorkspaceSyncCommandResult, WorkspaceSyncEvent } from '../../shared/workspace-sync'
 import { isSettledWorkspace, settleWorkspacePatch, wakeWorkspacePatch } from '../../shared/workspace-lifecycle'
+import type { ConversationSessionSummary } from '../../shared/conversation-runtime'
 
 // A chat's rest and its two person-clocks, written for a paired device.
 //
@@ -230,3 +231,29 @@ const UNLISTED_CLOCKS = new Set<keyof WorkspaceFieldsPatch>([
   'lastUserMessageAt',
   'lastTurnEndedAt',
 ])
+
+const epoch = (value: number | null | undefined): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0
+
+/**
+ * When a chat last finished a turn: the latest of the reading given (its
+ * transcript's index, which keeps it across a restart and for turns that
+ * ended before a session of this run held it) and of what the sessions this
+ * run holds read off the same events. With no `agentId`, any of the
+ * workspace's chats. Never `updatedAt`, which a rename, a session starting or
+ * stopping, or a usage report moves too. The one reading of it the list, the
+ * change feed and Mark unread all take, so they cannot disagree.
+ */
+export function latestTurnEnd(
+  sessions: ReadonlyArray<Pick<ConversationSessionSummary, 'workspaceId' | 'agentId' | 'lastTurnEndedAt'>>,
+  key: { workspaceId: string; agentId?: string },
+  known?: number | null,
+): number | undefined {
+  let latest = epoch(known) ? known : undefined
+  for (const session of sessions) {
+    if (session.workspaceId !== key.workspaceId) continue
+    if (key.agentId !== undefined && session.agentId !== key.agentId) continue
+    if (epoch(session.lastTurnEndedAt) && session.lastTurnEndedAt > (latest ?? -1)) latest = session.lastTurnEndedAt
+  }
+  return latest
+}

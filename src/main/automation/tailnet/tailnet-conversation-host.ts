@@ -22,6 +22,7 @@ import type {
 import type { ConversationBackend } from '../../../server/core/conversation-backend'
 import type { ConversationModelCatalog } from '../../conversation-model-catalog'
 import { ConversationSessionApi } from '../../conversation-session-api'
+import { latestTurnEnd } from '../conversation-lifecycle'
 import { randomUUID } from 'node:crypto'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../shared/launch-settings'
 import { parseCliPermissionModeId } from '../../../shared/cli-permission-mode'
@@ -208,6 +209,12 @@ const SEND_BUSY_RETRY_MS = 1_000
 export type ConversationListMarks = {
   /** The machine a workspace's chats run on; null when it cannot be named yet. */
   machineOf?: (workspaceId: string) => ConversationWireHost | null
+  /**
+   * The same, as a reader made once per list: what every workspace's machine
+   * is named against (this machine's host name, the launch settings) is read
+   * once for the list rather than once per workspace. Preferred to `machineOf`.
+   */
+  machineReader?: () => (workspaceId: string) => ConversationWireHost | null
   /** The pull requests the record holds for these chats, keyed `workspaceId:agentId`. */
   pullRequestsOf?: (
     keys: Array<{ workspaceId: string; agentId: string }>,
@@ -221,26 +228,6 @@ const restingRecord = (record: ConversationListWorkspace | null): boolean =>
 
 const epoch = (value: number | null | undefined): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0
-
-/**
- * When a chat's agent last finished a turn: the later of what its transcript
- * says (the thread index, which keeps it across a restart and for turns that
- * ended before it was kept) and what any session this run held for it read
- * off the same events. Never `updatedAt`, which a rename, a session starting
- * or stopping, or a usage report moves too.
- */
-function turnEndOf(
-  key: { workspaceId: string; agentId: string },
-  sessions: readonly ConversationSessionSummary[],
-  indexed: number | undefined,
-): number | undefined {
-  let latest = epoch(indexed) ? indexed : undefined
-  for (const session of sessions) {
-    if (session.workspaceId !== key.workspaceId || session.agentId !== key.agentId) continue
-    if (epoch(session.lastTurnEndedAt) && session.lastTurnEndedAt > (latest ?? -1)) latest = session.lastTurnEndedAt
-  }
-  return latest
-}
 
 /** A listed chat's lifecycle members, each left out when there is nothing true to say. */
 function lifecycleOf(
@@ -492,14 +479,20 @@ export function createConversationGatewayHost(
   // record for the whole list. A failed read leaves the rows without them, as
   // from a desktop that never listed them: the list itself still answers.
   const withMarks = async (listed: ConversationThread[]): Promise<ConversationThread[]> => {
-    if (!marks.machineOf && !marks.pullRequestsOf) return listed
+    if (!marks.machineOf && !marks.machineReader && !marks.pullRequestsOf) return listed
     const machines = new Map<string, ConversationWireHost | null>()
+    let read: ((workspaceId: string) => ConversationWireHost | null) | undefined
+    try {
+      read = marks.machineReader?.() ?? marks.machineOf
+    } catch {
+      read = undefined
+    }
     const machineOf = (workspaceId: string): ConversationWireHost | null => {
-      if (!marks.machineOf) return null
+      if (!read) return null
       if (!machines.has(workspaceId)) {
         let found: ConversationWireHost | null = null
         try {
-          found = marks.machineOf(workspaceId)
+          found = read(workspaceId)
         } catch {
           found = null
         }
@@ -546,6 +539,19 @@ export function createConversationGatewayHost(
       const result = api.listSessions()
       const all = result.ok ? result.sessions : []
       const live = all.filter((session) => session.status !== 'stopped').sort((a, b) => b.updatedAt - a.updatedAt)
+      // Each chat's sessions, and its newest live one, found once for the
+      // whole list rather than searched for again for every thread.
+      const chatId = (key: { workspaceId: string; agentId: string }) => `${key.workspaceId}:${key.agentId}`
+      const sessionsOf = new Map<string, ConversationSessionSummary[]>()
+      for (const session of all) {
+        const id = chatId(session)
+        const held = sessionsOf.get(id)
+        if (held) held.push(session)
+        else sessionsOf.set(id, [session])
+      }
+      const liveOf = new Map<string, ConversationSessionSummary>()
+      for (const session of live) if (!liveOf.has(chatId(session))) liveOf.set(chatId(session), session)
+      const NO_SESSIONS: ConversationSessionSummary[] = []
       // One catalog read per provider for the whole list.
       const catalogs = new Map<string, Promise<ConversationModelCatalog | null>>()
       const byId = new Map<string, ConversationThread>()
@@ -557,14 +563,14 @@ export function createConversationGatewayHost(
         const indexed = await runtime.listThreads(workspace)
         if (!indexed.ok) continue
         for (const thread of indexed.threads) {
-          const summary = live.find(
-            (session) => session.workspaceId === workspace.workspaceId && session.agentId === thread.agentId,
-          )
+          const key = { workspaceId: workspace.workspaceId, agentId: thread.agentId }
+          const sessions = sessionsOf.get(chatId(key)) ?? NO_SESSIONS
+          const summary = liveOf.get(chatId(key))
           const models = await modelsFor(thread.providerId, summary, catalogs)
-          byId.set(`${workspace.workspaceId}:${thread.agentId}`, {
+          byId.set(chatId(key), {
             workspaceId: workspace.workspaceId,
             agentId: thread.agentId,
-            title: nameFor({ workspaceId: workspace.workspaceId, agentId: thread.agentId }) ?? thread.title,
+            title: nameFor(key) ?? thread.title,
             phase: summary?.phase ?? 'completed',
             updatedAt: thread.updatedAt,
             createdAt: thread.createdAt,
@@ -572,19 +578,17 @@ export function createConversationGatewayHost(
             modelId: thread.model,
             turnCount: thread.turnCount,
             lastSeq: thread.lastSeq,
-            ...permissionFor({ workspaceId: workspace.workspaceId, agentId: thread.agentId }, all),
+            ...permissionFor(key, sessions),
             ...(models ? { models } : {}),
             ...(summary ? { sessionId: summary.sessionId, capabilities: wireCapabilities(summary) } : {}),
-            ...lifecycleOf(
-              recordOf(workspace.workspaceId),
-              turnEndOf({ workspaceId: workspace.workspaceId, agentId: thread.agentId }, all, thread.lastTurnEndedAt),
-            ),
+            ...lifecycleOf(recordOf(workspace.workspaceId), latestTurnEnd(sessions, key, thread.lastTurnEndedAt)),
           })
         }
       }
       for (const summary of live) {
-        const id = `${summary.workspaceId}:${summary.agentId}`
+        const id = chatId(summary)
         if (byId.has(id)) continue
+        const sessions = sessionsOf.get(id) ?? NO_SESSIONS
         if (restingRecord(recordOf(summary.workspaceId))) continue
         const models = await modelsFor(summary.providerId, summary, catalogs)
         byId.set(id, {
@@ -598,11 +602,11 @@ export function createConversationGatewayHost(
           modelId: summary.modelId,
           turnCount: 0,
           lastSeq: 0,
-          ...permissionFor(summary, all),
+          ...permissionFor(summary, sessions),
           ...(models ? { models } : {}),
           sessionId: summary.sessionId,
           capabilities: wireCapabilities(summary),
-          ...lifecycleOf(recordOf(summary.workspaceId), turnEndOf(summary, all, undefined)),
+          ...lifecycleOf(recordOf(summary.workspaceId), latestTurnEnd(sessions, summary)),
         })
       }
       // In the order the desktop's sidebar draws them: by when the person last

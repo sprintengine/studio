@@ -38,7 +38,7 @@ import { getSharedCredentialStore } from '../../main/secret-store'
 import { createWorkspaceRegistryService } from '../../main/workspace-registry-service'
 import { createWorkspaceRegistryStore } from '../../main/workspace-registry-store'
 import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
-import { createConversationLifecycle } from '../../main/automation/conversation-lifecycle'
+import { createConversationLifecycle, latestTurnEnd } from '../../main/automation/conversation-lifecycle'
 import { conversationSummaryPhase } from '../../shared/conversation/phase'
 import type { ConversationMessageOrigin, ConversationSessionSummary } from '../../shared/conversation-runtime'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
@@ -453,8 +453,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     ...(sshServers?.machineOf ? { sshMachineOf: (id: string) => sshServers.machineOf?.(id) ?? null } : {}),
   })
   const listMarks = {
-    machineOf: (workspaceId: string) =>
-      conversationHostOf(workspaceRegistry.getRecord(workspaceId) ?? null, machineContext()),
+    machineReader: () => {
+      const context = machineContext()
+      return (workspaceId: string) => conversationHostOf(workspaceRegistry.getRecord(workspaceId) ?? null, context)
+    },
     pullRequestsOf: async (keys: Array<{ workspaceId: string; agentId: string }>) => {
       const found = await pullRequests.list({ conversations: keys })
       return new Map(
@@ -488,13 +490,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       )
     },
     latestChatTurnEnd: (workspaceId) => {
-      const listed = conversations.listSessions()
-      if (!listed.ok) return undefined
-      let latest: number | undefined
-      for (const session of listed.sessions)
-        if (session.workspaceId === workspaceId && (session.lastTurnEndedAt ?? -1) > (latest ?? -1))
-          latest = session.lastTurnEndedAt
-      return latest
+      const listed = conversations.listSessions({ workspaceId })
+      return listed.ok ? latestTurnEnd(listed.sessions, { workspaceId }) : undefined
     },
   })
   // `origin` is for Studio's own sends (a resume after a usage limit): they

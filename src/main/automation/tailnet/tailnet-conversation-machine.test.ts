@@ -217,6 +217,26 @@ test('each listed chat names its machine and its pull requests, read once for th
   }
 })
 
+test('a per-list machine reader is made once for each list, and preferred to `machineOf`', async () => {
+  let readers = 0
+  const f = await listFixture({
+    machineReader: () => {
+      readers += 1
+      return () => ({ id: 'local', kind: 'desktop', label: 'build-box', color: 'orange' })
+    },
+    machineOf: () => assert.fail('the reader answers'),
+  })
+  try {
+    const listed = await f.host.list()
+    assert.equal(listed.length, 2)
+    for (const thread of listed) assert.equal(thread.host?.label, 'build-box')
+    await f.host.list()
+    assert.equal(readers, 2, 'one reader, and so one read of what it names machines against, per list')
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('a failed read leaves the rows without the field, and the list still answers', async () => {
   const f = await listFixture({
     machineOf: () => {
