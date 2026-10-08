@@ -93,6 +93,23 @@ vi.mock('./imageAttachments', async (importOriginal) => ({
   }),
 }))
 
+// The composer's "+" menu, counted each time its memo lets a render through:
+// a wrapper with the same shallow comparison the menu's own memo makes.
+const plusMenuRenders = vi.hoisted(() => ({ count: 0 }))
+vi.mock('../../workspace/agentComposer/ComposerPlusMenu', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../workspace/agentComposer/ComposerPlusMenu')>()
+  const { createElement, memo } = await import('react')
+  return {
+    ...actual,
+    ComposerPlusMenu: memo(function CountedComposerPlusMenu(
+      props: import('react').ComponentProps<typeof actual.ComposerPlusMenu>,
+    ) {
+      plusMenuRenders.count++
+      return createElement(actual.ComposerPlusMenu, props)
+    }),
+  }
+})
+
 type SendTurn = (input: {
   mode?: string
   message?: string
@@ -2102,6 +2119,10 @@ function answeredTurn(turnId: string, question: string, answer: string): Convers
 test('Load earlier does not call the older replies it loads new; a reply finishing after it is', async () => {
   const older = [...answeredTurn('o1', 'Old one', 'Old answer one.'), ...answeredTurn('o2', 'Old two', 'Old answer two.')]
   const recent = answeredTurn('n1', 'New one', 'New answer.')
+  // Opened at its end, as a chat read to the end was left: a place remembered
+  // mid-history from another test would page the history in by itself.
+  const { rememberConversationScroll } = await import('./conversationViewState')
+  rememberConversationScroll('workspace:agent', { offset: 0, atEnd: true })
   const chat = await mountChat({
     events: recent,
     folderPath: '/Users/dev/earlier',
@@ -2117,14 +2138,40 @@ test('Load earlier does not call the older replies it loads new; a reply finishi
     const load = chat.button('Load earlier')
     expect(load, 'the older page is offered').toBeDefined()
     await chat.act(async () => load!.click())
-    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    // Over the Studio protocol the page arrives a few turns later.
+    for (let turn = 0; turn < 50 && !chat.host.textContent?.includes('Old answer one.'); turn++)
+      await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
     expect(chat.host.textContent).toContain('Old answer one.')
     expect(chat.button('Jump to latest'), 'scrolled up into history, the pill only offers the way back').toBeDefined()
     expect(chat.host.textContent).not.toMatch(/\d+ new repl/)
     await chat.act(async () => {
       for (const next of answeredTurn('n2', 'Next', 'Next answer.')) chat.emit({ type: 'event', event: next })
     })
+    for (let turn = 0; turn < 50 && !chat.button('1 new reply'); turn++)
+      await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
     expect(chat.button('1 new reply'), 'the one that finished since is news').toBeDefined()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('typing and a streamed reply leave the composer’s "+" menu as it was', async () => {
+  const chat = await mountChat({
+    capabilities: { images: true, skills: 'workspace' },
+    events: [
+      event('user_message', { turnId: 'live', text: 'And the other cache?' }),
+      event('turn_started', { turnId: 'live' }),
+    ],
+  })
+  try {
+    expect(chat.host.querySelector('[data-composer-options]')).not.toBeNull()
+    plusMenuRenders.count = 0
+    for (const draft of ['W', 'Wh', 'Why', 'Why n', 'Why not']) await chat.act(async () => chat.type(draft))
+    for (const text of ['The ', 'cache ', 'was ', 'keyed ', 'on the path.'])
+      await chat.act(async () => chat.emit({ type: 'event', event: event('content_delta', { turnId: 'live', text }) }))
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 60)))
+    expect(chat.host.textContent).toContain('keyed on the path.')
+    expect(plusMenuRenders.count).toBe(0)
   } finally {
     await chat.unmount()
   }

@@ -2497,23 +2497,54 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     clientSupports('drag-paths')
 
   const skillInventory = useWorkspaceSkills(workspaceRoot, null, supportsSkills)
-  const attachedSkills = draftMetadata.skillIds.map(
-    (id): WorkspaceSkill =>
-      pickedSkills[id] ??
-      skillInventory.skills.find((skill) => skill.id === id) ?? {
-        id,
-        name: id,
-        source: 'custom',
-        harnesses: [],
-        installState: 'installed',
-      },
+  // Held from render to render, as the "+" menu that takes them is memoized:
+  // a list rebuilt each render redrew the menu on every keystroke and token.
+  const attachedSkills = useMemo(
+    () =>
+      draftMetadata.skillIds.map(
+        (id): WorkspaceSkill =>
+          pickedSkills[id] ??
+          skillInventory.skills.find((skill) => skill.id === id) ?? {
+            id,
+            name: id,
+            source: 'custom',
+            harnesses: [],
+            installState: 'installed',
+          },
+      ),
+    [draftMetadata.skillIds, pickedSkills, skillInventory.skills],
   )
-  const setAttachedSkills = (skills: WorkspaceSkill[]) => {
-    const ids = [...new Set(skills.map((skill) => skill.id))].slice(0, 32)
-    setPickedSkills((current) => ({ ...current, ...Object.fromEntries(skills.map((skill) => [skill.id, skill])) }))
-    updateBinding({ conversationSkills: ids })
-    setDraftMetadata((current) => ({ ...current, skillIds: ids }))
-  }
+  const setAttachedSkills = useCallback(
+    (skills: WorkspaceSkill[]) => {
+      const ids = [...new Set(skills.map((skill) => skill.id))].slice(0, 32)
+      setPickedSkills((current) => ({ ...current, ...Object.fromEntries(skills.map((skill) => [skill.id, skill])) }))
+      updateBinding({ conversationSkills: ids })
+      setDraftMetadata((current) => ({ ...current, skillIds: ids }))
+    },
+    [updateBinding, setDraftMetadata],
+  )
+  const plusMenuSkills = useMemo(
+    () =>
+      supportsSkills
+        ? {
+            workspaceRoot,
+            // A chat stages skills itself, so the workspace-wide inventory is
+            // its list; it reads no MCP servers.
+            pluginId: null,
+            skills: attachedSkills,
+            onSkillsChange: setAttachedSkills,
+            mcpServers: NO_MCP_SERVERS,
+            onMcpServersChange: ignoreMcpServers,
+            includeMcps: false,
+          }
+        : undefined,
+    [supportsSkills, workspaceRoot, attachedSkills, setAttachedSkills],
+  )
+  const removeDraftFile = useCallback(
+    (path: string) =>
+      setDraftMetadata((current) => ({ ...current, files: current.files.filter((entry) => entry !== path) })),
+    [setDraftMetadata],
+  )
   const removeContextTrigger = (range: { start: number; end: number }) => {
     setDraft((current) => current.slice(0, range.start) + current.slice(range.end))
     pendingCaretRef.current = range.start
@@ -3005,13 +3036,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // or `gh` here.
   const createPullRequestCwd =
     transport.kind !== 'remote' && transport.capabilities.localFiles && !stripFacts.machine ? workspaceRoot : null
+  // A turn ending moves the transcript's shape, and a token never does: read
+  // when the shape moves, not on every streamed frame, which scanned back over
+  // the whole running turn's events each time.
   const lastTurnEnd = useMemo(() => {
     for (let index = events.length - 1; index >= 0; index -= 1) {
       const event = events[index]
       if (event.type === 'turn_completed' || event.type === 'turn_failed') return event.id
     }
     return ''
-  }, [events])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structureRevision])
   const [createPullRequestAsk, setCreatePullRequestAsk] = useState(0)
   const createPullRequestState = useCreatePullRequestState(
     // Not asked while the conversation owns an open pull request: the slot is that one's.
@@ -3396,12 +3431,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 reading={attachingCount}
                 onRemove={removeAttachment}
                 files={draftMetadata.files}
-                onRemoveFile={(path) =>
-                  setDraftMetadata((current) => ({
-                    ...current,
-                    files: current.files.filter((entry) => entry !== path),
-                  }))
-                }
+                onRemoveFile={removeDraftFile}
                 className="px-5 pt-4"
               />
               {/* The files and folders @-mentioned into the draft. The skills
@@ -3542,21 +3572,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     placement="top-start"
                     onAttach={imagesEnabled || filesEnabled ? openFilePicker : undefined}
                     schedule={scheduleOption}
-                    skills={
-                      supportsSkills
-                        ? {
-                            workspaceRoot,
-                            // A chat stages skills itself, so the workspace-wide
-                            // inventory is its list; it reads no MCP servers.
-                            pluginId: null,
-                            skills: attachedSkills,
-                            onSkillsChange: setAttachedSkills,
-                            mcpServers: NO_MCP_SERVERS,
-                            onMcpServersChange: ignoreMcpServers,
-                            includeMcps: false,
-                          }
-                        : undefined
-                    }
+                    skills={plusMenuSkills}
                   />
                 ) : null}
                 {/* The tags: when the message is to go, then each skill attached to the next turn. */}
