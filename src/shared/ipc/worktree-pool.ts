@@ -175,6 +175,12 @@ export type WorktreePoolActionInput =
   | { kind: 'evict'; repoRoot: string; slotId: string }
   /** Delete an idle slot's ignored files (`git clean -dX`): the space, at the price of the next install. */
   | { kind: 'clear-ignored'; repoRoot: string; slotId: string }
+  /**
+   * Give a lease back at once: a New chat that was closed while its worktree
+   * was being made has no one to use the slot (utils/newChatWorktree.ts).
+   * The same return a sweep makes, so a slot with changes is held, not reset.
+   */
+  | { kind: 'release'; leaseId: string }
 
 export type WorktreePoolActionResult = { ok: true; message: string | null } | { ok: false; message: string }
 

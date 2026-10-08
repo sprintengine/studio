@@ -368,6 +368,28 @@ test('the launcher’s prompt is sent as the first message the moment the chat i
   }
 })
 
+// The launcher's prompt is on screen as its pending bubble before it is sent;
+// its row takes that bubble's place without the entrance a new row plays.
+test('the launcher’s prompt lands in place of its pending bubble, while a typed message slides in', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({ agent: { chatStartupPrompt: 'hi' }, sendTurn })
+  const userFrame = (text: string) =>
+    Array.from(chat.host.querySelectorAll('[data-conversation-row-kind="user"]')).find((row) =>
+      row.textContent?.includes(text),
+    )?.parentElement
+  try {
+    await chat.act(async () => undefined)
+    expect(userFrame('hi'), 'the first message is drawn').toBeDefined()
+    expect(userFrame('hi')?.className ?? '').not.toContain('conversation-row-enter')
+
+    await chat.act(async () => chat.type('and again'))
+    await chat.act(async () => void chat.enter())
+    expect(userFrame('and again')?.className).toContain('conversation-row-enter')
+  } finally {
+    await chat.unmount()
+  }
+})
+
 // The launcher holds a staged screenshot as a file; macOS's own thumbnail sits
 // in a temporary folder like this one.
 const LAUNCH_SHOT = '/var/folders/x1/T/TemporaryItems/NSIRD_screencaptureui_ab12/Screenshot 2026-10-04 at 12.15.13.png'
@@ -551,6 +573,64 @@ test('a worktree that could not be made says why in the chat and gives the promp
     expect(workspace.worktree ?? null).toBeNull()
     expect(chat.agent().chatPendingWorktree).toBeUndefined()
     expect(sendTurn).not.toHaveBeenCalled()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chat waiting on its worktree takes type-ahead that Enter does not send, and it outlasts the folder change', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const conversationSessionStart = sessionStartSpy()
+  const worktree = deferredWorktree()
+  const chat = await mountPendingChat({
+    createGitWorktree: worktree.createGitWorktree,
+    startAttempt: true,
+    sendTurn,
+    conversationSessionStart,
+  })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(chat.field().getAttribute('contenteditable'), 'the composer takes input while it waits').toBe('true')
+    await chat.act(async () => chat.type('and the signup page'))
+    await chat.act(async () => void chat.enter())
+    expect(sendTurn, 'Enter sends nothing before the chat can').not.toHaveBeenCalled()
+    expect(chat.draft()).toBe('and the signup page')
+    expect(chat.host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled).toBe(true)
+
+    await chat.act(async () => worktree.settle('ok'))
+    await chat.act(async () => {
+      chat.emit({ type: 'snapshot', page: { events: [], hasMore: false, beforeCursor: null } })
+      chat.emit({ type: 'synchronized', seq: 0 })
+    })
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(sendTurn).toHaveBeenCalledOnce()
+    expect(sendTurn.mock.calls[0][0], 'the first message is the launcher’s alone').toMatchObject({
+      message: 'fix the login',
+    })
+    expect(chat.draft(), 'what was typed meanwhile is still in the composer').toBe('and the signup page')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a worktree that failed puts the message back ahead of what was typed while it was being made', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const worktree = deferredWorktree()
+  const chat = await mountPendingChat({
+    createGitWorktree: worktree.createGitWorktree,
+    startAttempt: true,
+    sendTurn,
+    conversationSessionStart: sessionStartSpy(),
+  })
+  try {
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    await chat.act(async () => chat.type('and the signup page'))
+    await chat.act(async () => worktree.settle({ ok: false, message: 'Could not fetch origin.' }))
+    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(chat.draft()).toBe('fix the login\nand the signup page')
+    expect(chat.field().getAttribute('contenteditable'), 'the box the message is back in can be edited').toBe('true')
+    await chat.act(async () => void chat.enter())
+    expect(sendTurn, 'nothing sends from a chat with no folder').not.toHaveBeenCalled()
   } finally {
     await chat.unmount()
   }

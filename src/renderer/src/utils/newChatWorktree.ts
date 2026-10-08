@@ -8,7 +8,17 @@ import { publishDiagnosticSync } from './diagnostics'
 import { agentWorktreePaths, newChatWorktreeName, workspaceProjectRootOf } from './workspaceWorktree'
 
 export type NewChatWorktreeResult =
-  { ok: true; folderPath: string; worktree: WorkspaceWorktree } | { ok: false; message: string }
+  | {
+      ok: true
+      folderPath: string
+      worktree: WorkspaceWorktree
+      /**
+       * How to give the worktree back if nobody takes it: the repository git
+       * made it in, and its pool lease when it is a pool slot.
+       */
+      made?: { repoRoot: string; leaseId: string | null }
+    }
+  | { ok: false; message: string }
 
 /**
  * The worktree the New chat door asked for under ⋯ (found at the seam of
@@ -73,7 +83,9 @@ export async function createNewChatWorktree(
       branchName: paths.branchName,
       baseRef: 'HEAD',
       copyIncludedFiles: true,
-      // The chat is created after its worktree, so the branch names the owner.
+      // The branch names the owner: the door's other chats are created after
+      // their worktree, and a chat agent's that waits on it (below) has no
+      // folder yet, so neither is recorded anywhere that could name it.
       agentLockOwner: paths.branchName,
       fromPool: true,
       ...(worktreeHostId ? { hostId: worktreeHostId } : {}),
@@ -87,6 +99,7 @@ export async function createNewChatWorktree(
         baseRef: result.data.baseRef,
         repoRoot: projectFolder,
       },
+      made: { repoRoot, leaseId: result.data.leaseId ?? null },
     }
   } catch (error) {
     return fail('Worktree failed', error instanceof Error ? error.message : String(error))
@@ -161,9 +174,13 @@ export function prepareNewChatWorktree(workspaceId: WorkspaceId): Promise<boolea
   const run = (async () => {
     const made = await createNewChatWorktree(attempt.projectFolder, attempt.name, attempt.hostId ?? null)
     // Started in the project, or closed, while the worktree was being made:
-    // the chat is no longer this attempt's to finish.
+    // the chat is no longer this attempt's to finish, and nothing will ever
+    // use the worktree, so it goes back now rather than at a sweep an hour on.
     const still = pendingChatOf(workspaceId)
-    if (!still) return false
+    if (!still) {
+      if (made.ok) await giveBackUnusedWorktree(made, attempt.hostId ?? null)
+      return false
+    }
     const store = useWorkspaceStore.getState()
     if (!made.ok) {
       store.updateAgent(workspaceId, still.agentId, { chatPendingWorktree: { ...attempt, failure: made.message } })
@@ -184,11 +201,31 @@ export function prepareNewChatWorktree(workspaceId: WorkspaceId): Promise<boolea
 }
 
 /**
+ * A worktree made for a chat that went before it landed, given back the way a
+ * closed chat's is, without the wait: a pool slot is returned (held instead if
+ * anything in it changed), and a fresh worktree is removed only while git
+ * finds it clean. One made by another machine's git is left to the sweep, as
+ * this one cannot remove it. Failure is silence: the sweep still finds it.
+ */
+async function giveBackUnusedWorktree(
+  made: Extract<NewChatWorktreeResult, { ok: true }>,
+  hostId: ExecutionHostId | null,
+): Promise<void> {
+  if (!made.made) return
+  try {
+    if (made.made.leaseId) await window.api.worktreePoolAction({ kind: 'release', leaseId: made.made.leaseId })
+    else if (!hostId) await window.api.removeGitWorktree({ repoRoot: made.made.repoRoot, path: made.folderPath })
+  } catch {
+    // Left for the sweep.
+  }
+}
+
+/**
  * Give up on the worktree and run the chat in the project it was to be cut
- * from. Refused while an attempt is still running, which may yet land.
+ * from. An attempt still running finds the chat no longer waiting when it
+ * lands, and gives back what it made.
  */
 export function startPendingNewChatInProject(workspaceId: WorkspaceId): boolean {
-  if (attempts.has(workspaceId)) return false
   const found = pendingChatOf(workspaceId)
   if (!found) return false
   const store = useWorkspaceStore.getState()

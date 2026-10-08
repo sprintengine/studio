@@ -526,6 +526,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   }
 
   async function action(input: WorktreePoolActionInput): Promise<WorktreePoolActionResult> {
+    if (input.kind === 'release') return releaseAction(input.leaseId)
     const pool = await poolFor(input.repoRoot, false)
     if (!pool) return { ok: false, message: 'This repository has no worktree pool.' }
     if (!(await ready(pool))) return { ok: false, message: 'Another Studio is using this pool.' }
@@ -537,6 +538,16 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     }
     if (input.kind === 'clear-ignored') return clearIgnored(ctx, pool, slot)
     return heldAction(ctx, pool, slot, input.action, input.message)
+  }
+
+  /** A lease given back by the window that took it, whose chat went before it landed. */
+  async function releaseAction(leaseId: string): Promise<WorktreePoolActionResult> {
+    const outcome = await release(ctx, leaseId)
+    if (outcome === 'returned') return { ok: true, message: 'Returned to the pool.' }
+    if (outcome === 'held') return { ok: true, message: 'Held: it has changes a person should look at.' }
+    if (outcome === 'not-found') return { ok: false, message: 'No such lease.' }
+    if (outcome === 'busy') return { ok: false, message: 'Another Studio is using this pool.' }
+    return { ok: false, message: 'Something is still running in it; the next sweep returns it.' }
   }
 
   /** The lease an agent took through MCP, by the slot path it was given. */
