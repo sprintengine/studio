@@ -9,18 +9,25 @@ import { promisify } from 'node:util'
 import { test } from 'vitest'
 
 import type { GitCheckoutChange } from '../shared/ipc/git'
-import { classifyGitDirEntry, createGitRepoWatch, resolveGitDirs } from './git-repo-watch'
+import { classifyGitDirEntry, createGitRepoWatch, readCheckoutState, resolveGitDirs } from './git-repo-watch'
 
 type FakeDirWatch = { dir: string; recursive: boolean; fire: (filename: string | null) => void; closed: boolean }
 
 function harness(options: { missing?: Set<string> } = {}) {
   const missing = options.missing ?? new Set<string>()
+  // What the fallback reads per checkout; a path left out reads as unreadable.
+  const readings = new Map<string, string | null>()
+  const reads: string[] = []
   const dirs: FakeDirWatch[] = []
   const emitted: GitCheckoutChange[][] = []
   const timers: Array<{ callback: () => void; cleared: boolean }> = []
   const repeating: Array<() => void> = []
   const watch = createGitRepoWatch({
     emit: (changes) => emitted.push(changes),
+    readCheckout: async (checkoutPath) => {
+      reads.push(checkoutPath)
+      return readings.get(checkoutPath) ?? null
+    },
     resolveDirs: async (checkoutPath) => {
       if (checkoutPath.includes('not-a-repo')) return null
       if (checkoutPath.endsWith('wt-a')) {
@@ -71,7 +78,12 @@ function harness(options: { missing?: Set<string> } = {}) {
     assert.ok(found, `watching ${path}`)
     return found
   }
-  return { watch, dirs, emitted, flush, dir, repeating, missing }
+  /** One fallback tick, run to the end. */
+  const tickFallback = async (): Promise<void> => {
+    repeating.forEach((tick) => tick())
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+  return { watch, dirs, emitted, flush, dir, repeating, missing, readings, reads, tickFallback }
 }
 
 test('what a change in a git directory means', () => {
@@ -199,11 +211,11 @@ test('nothing is delivered while no window is focused, and it all arrives on foc
 })
 
 test('the slow fallback and agent activity reach checkouts no watcher can see into', async () => {
-  const { watch, emitted, flush, repeating } = harness()
+  const { watch, emitted, flush, repeating, tickFallback } = harness()
   await watch.retain('/Users/dev/not-a-repo')
   await watch.retain('/Users/dev/app')
   assert.equal(repeating.length, 1, 'one fallback timer for everything')
-  repeating[0]()
+  await tickFallback()
   flush()
   assert.deepEqual(emitted[0].map((change) => [change.checkoutKey, change.reason]).sort(), [
     ['/Users/dev/app', 'fallback'],
@@ -214,6 +226,37 @@ test('the slow fallback and agent activity reach checkouts no watcher can see in
   watch.noteActivity('/Users/dev/unwatched')
   flush()
   assert.deepEqual(emitted[1], [{ checkoutKey: '/Users/dev/app', kinds: ['worktree'], reason: 'activity' }])
+})
+
+test('the fallback reads each checkout once and marks only the ones whose reading moved', async () => {
+  const { watch, emitted, flush, readings, reads, tickFallback } = harness()
+  readings.set('/Users/dev/app', 'main clean')
+  readings.set('/Users/dev/app/wt-a', 'wt-a clean')
+  await watch.retain('/Users/dev/app')
+  await watch.retain('/Users/dev/app/wt-a')
+  const marked = (): string[] => (emitted.at(-1) ?? []).map((change) => change.checkoutKey).sort()
+
+  await tickFallback()
+  flush()
+  assert.deepEqual(marked(), ['/Users/dev/app', '/Users/dev/app/wt-a'], 'a first reading has nothing to match')
+  assert.deepEqual(reads.sort(), ['/Users/dev/app', '/Users/dev/app/wt-a'], 'one reading per checkout')
+
+  const batches = emitted.length
+  await tickFallback()
+  flush()
+  assert.equal(emitted.length, batches, 'nothing moved, so no view goes back to git')
+
+  readings.set('/Users/dev/app/wt-a', 'wt-a edited')
+  await tickFallback()
+  flush()
+  assert.deepEqual(emitted.at(-1), [
+    { checkoutKey: '/Users/dev/app/wt-a', kinds: ['refs', 'worktree'], reason: 'fallback' },
+  ])
+
+  readings.set('/Users/dev/app', null)
+  await tickFallback()
+  flush()
+  assert.deepEqual(marked(), ['/Users/dev/app'], 'a reading that failed counts as moved')
 })
 
 test('a real commit is reported through the real watchers', async () => {
@@ -335,6 +378,27 @@ test('worktrees added and removed after the first are still reported', async () 
     await real.settle()
     await real.git('worktree', 'remove', join(real.scratch, 'wt-2'))
     assert.ok(await real.refsReported(), 'a removal once worktrees/ exists')
+  } finally {
+    await real.cleanup()
+  }
+})
+
+test('a checkout reading moves with a working-tree edit and a commit, and holds still otherwise', async () => {
+  const real = await realRepo()
+  assert.ok(real)
+  try {
+    const first = await readCheckoutState(real.repo)
+    assert.ok(first)
+    assert.equal(await readCheckoutState(real.repo), first, 'nothing moved, the same reading')
+
+    await writeFile(join(real.repo, 'a.txt'), 'edited\n')
+    const edited = await readCheckoutState(real.repo)
+    assert.notEqual(edited, first, 'an edit no watcher saw')
+
+    await real.git('commit', '-q', '-am', 'second')
+    const committed = await readCheckoutState(real.repo)
+    assert.notEqual(committed, edited, 'a commit moves HEAD')
+    assert.notEqual(committed, first)
   } finally {
     await real.cleanup()
   }

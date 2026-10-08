@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { watch as fsWatch, type FSWatcher } from 'fs'
 import { isAbsolute, join, resolve } from 'path'
 import type { GitCheckoutChange, GitCheckoutChangeKind } from '../shared/ipc/git'
@@ -49,9 +50,12 @@ import { runGitCommand } from './git-run'
  * - **Nothing is sent while no window is focused.** Changes are held and
  *   delivered as one batch on focus, so a machine with the app in the
  *   background runs no view reads at all.
- * - **A slow fallback** (five minutes, focused only) marks everything stale
- *   once, for the changes no watcher can see: a working-tree edit nobody
- *   reported, a filesystem whose watch events do not arrive (network mounts).
+ * - **A slow fallback** (five minutes, focused only) for the changes no
+ *   watcher can see: a working-tree edit nobody reported, a filesystem whose
+ *   watch events do not arrive (network mounts). It takes one reading of each
+ *   checkout (`readCheckoutState`) and marks stale only the ones whose reading
+ *   moved since the last tick, rather than sending every view of every
+ *   checkout back to git.
  *
  * A repository inside a WSL distribution is watched from inside it: a watch
  * Windows places on a `\\wsl.localhost` path is accepted but hears nothing,
@@ -65,12 +69,11 @@ import { runGitCommand } from './git-run'
 export type { GitCheckoutChange, GitCheckoutChangeKind }
 
 /**
- * Five minutes: the top of the range. Each tick re-reads every retained
- * checkout's sidebar row (about twenty git processes each), so this number is
- * most of the idle cost that remains. What it backs up is narrow: a ref
- * written behind a watcher's back, or a working-tree edit made outside any
- * watched folder by something that is not an agent (an agent's turn end is
- * reported on its own).
+ * Five minutes: the top of the range. A checkout whose reading moved has its
+ * sidebar row re-read (about twenty git processes), so this number is most of
+ * the idle cost that remains. What it backs up is narrow: a ref written behind
+ * a watcher's back, or a working-tree edit made outside any watched folder by
+ * something that is not an agent (an agent's turn end is reported on its own).
  */
 export const GIT_REPO_WATCH_FALLBACK_MS = 5 * 60_000
 export const GIT_REPO_WATCH_DEBOUNCE_MS = 300
@@ -105,6 +108,20 @@ export async function resolveGitDirs(checkoutPath: string): Promise<GitDirs | nu
   const [toplevel, gitDir, common] = echoed ? lines.slice(1) : lines
   if (!toplevel || !gitDir || !common) return null
   return { toplevel, gitDir, commonDir: isAbsolute(common) ? common : resolve(checkoutPath, common) }
+}
+
+/**
+ * One git process that moves whenever anything the fallback stands in for
+ * does: the branch, HEAD and upstream with its ahead/behind, and every
+ * changed, staged or untracked path. Hashed, since only equality is asked of
+ * it. Null when it could not be read, which counts as moved. A ref other than
+ * the checkout's own branch and upstream, moved where no watcher sees it, is
+ * not in it; that is left to the next view read anything else causes.
+ */
+export async function readCheckoutState(checkoutPath: string): Promise<string | null> {
+  const result = await runGitCommand(checkoutPath, ['status', '--porcelain=v2', '--branch', '-z'])
+  if (!result.ok) return null
+  return createHash('sha1').update(result.stdout).digest('hex')
 }
 
 // Files in a git directory whose change means the checkout's status moved.
@@ -150,6 +167,8 @@ type CheckoutRecord = {
   refCount: number
   dirs: GitDirs | null
   resolving: Promise<void> | null
+  /** The fallback's last reading; undefined before its first. */
+  reading?: string | null
 }
 
 type DirWatch = { watcher: GitDirWatcher | null; users: number; recursive: boolean }
@@ -159,6 +178,7 @@ const LATE_COMMON_DIRS = new Set(['worktrees', 'reftable'])
 
 export type GitRepoWatchDeps = {
   resolveDirs?: (checkoutPath: string) => Promise<GitDirs | null>
+  readCheckout?: (checkoutPath: string) => Promise<string | null>
   watch?: WatchFn
   emit: (changes: GitCheckoutChange[]) => void
   debounceMs?: number
@@ -171,6 +191,7 @@ export type GitRepoWatchDeps = {
 
 export function createGitRepoWatch(deps: GitRepoWatchDeps) {
   const resolveDirs = deps.resolveDirs ?? resolveGitDirs
+  const readCheckout = deps.readCheckout ?? readCheckoutState
   const watch: WatchFn =
     deps.watch ??
     ((path, options, listener) =>
@@ -188,6 +209,7 @@ export function createGitRepoWatch(deps: GitRepoWatchDeps) {
   let flushTimer: unknown = null
   let focused = true
   let fallbackTimer: unknown = null
+  let fallbackRunning = false
 
   const dirKey = (path: string): string => checkoutKey(path)
 
@@ -364,12 +386,33 @@ export function createGitRepoWatch(deps: GitRepoWatchDeps) {
     return list
   }
 
+  // One checkout at a time: the point is to stay out of the way. A path that
+  // is not a checkout has nothing to read and is marked as before, so a view
+  // still notices it becoming one.
+  const runFallback = async (): Promise<void> => {
+    if (!focused || fallbackRunning) return
+    fallbackRunning = true
+    try {
+      for (const record of [...checkouts.values()]) {
+        if (checkouts.get(record.key) !== record) continue
+        if (!record.dirs) {
+          mark([record.key], ['worktree', 'refs'], 'fallback')
+          continue
+        }
+        const reading = await readCheckout(record.dirs.toplevel).catch(() => null)
+        if (checkouts.get(record.key) !== record) continue
+        const moved = reading === null || reading !== record.reading
+        record.reading = reading
+        if (moved) mark([record.key], ['worktree', 'refs'], 'fallback')
+      }
+    } finally {
+      fallbackRunning = false
+    }
+  }
+
   const ensureFallback = (): void => {
     if (checkouts.size > 0 && fallbackTimer === null) {
-      fallbackTimer = setRepeating(() => {
-        if (!focused) return
-        mark(checkouts.keys(), ['worktree', 'refs'], 'fallback')
-      }, fallbackMs)
+      fallbackTimer = setRepeating(() => void runFallback(), fallbackMs)
     } else if (checkouts.size === 0 && fallbackTimer !== null) {
       clearRepeating(fallbackTimer)
       fallbackTimer = null
