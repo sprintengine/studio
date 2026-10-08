@@ -135,7 +135,7 @@ export function createScheduledAgentsModule(
             ...(workspaceId ? { workspaceId } : {}),
           }).catch(() => undefined)
         },
-        run: (agent) =>
+        run: (agent, signal) =>
           runScheduledAgent(withinOwnerModuleCeiling(agent, getModulePermissions), {
             launchConversation: (request) => conversationLaunchService.launch(request),
             getRepoRoot: (folderPath, hostId) => withGitHost(gitHostFor(hostId), () => getGitRepoRoot(folderPath)),
@@ -179,7 +179,7 @@ export function createScheduledAgentsModule(
               await withGitHost(gitHostFor(hostId), () => removeGitWorktree({ repoRoot, path, force: true }))
             },
             onFirstSendFailed: (workspaceId, message) => firstSendFailed(agent.id, workspaceId, message),
-          }),
+          }, signal),
       })
       const scheduledAgents = createScheduledAgentsService({ store, scheduler })
       service = scheduledAgents
