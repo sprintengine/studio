@@ -31,6 +31,7 @@ import { conversationCommandsFor, publishConversationCommands } from '../convers
 import { CODEX_COMPACT_COMMAND, codexCompactRequest, codexConversationCommands } from '../conversation-commands/codex'
 import type { ConversationCommand } from '../../shared/conversation/commands'
 import { codexPlanInput, codexTool, codexToolResult } from './codex-items'
+import { saveToolResultImages, type SaveToolResultImages } from './tool-result-images'
 import type { ThreadForkParams, ThreadItem, TurnPlanUpdatedNotification } from './codex-protocol'
 import {
   CONVERSATION_IDENTITY_ENV_KEYS,
@@ -172,6 +173,8 @@ export type CodexConversationProviderOptions = {
   createTransport?: (options: CodexRpcOptions) => CodexRpcTransport
   // Where a picture Codex generated without saving it is written; returns its path.
   saveGeneratedImage?: (input: { sessionId: string; itemId: string; base64: string }) => Promise<string>
+  // Where a step's returned pictures are written; tests stand in.
+  saveToolImages?: SaveToolResultImages
   // Readies a WSL machine for a chat whose `codex` runs there; tests stand in.
   prepareWslTarget?: (hostId: ExecutionHostId) => Promise<WslCliTarget>
   // The app's MCP gateway on the machine the chat's `codex` runs on. Null
@@ -625,6 +628,22 @@ export function createCodexConversationProvider(
     const partialBytes = turn.outputBytes.get(id)
     // With no aggregate, the streamed chunks are the output: close it without repeating them.
     const streamedOnly = item.type === 'commandExecution' && item.aggregatedOutput == null && partialBytes !== undefined
+    // A step's pictures (a screenshot an MCP server returned), kept to show under it.
+    // On disk before the step says where they are.
+    let images: string[] = []
+    if (result.images?.length && state.input.workspaceRoot) {
+      const write = (options.saveToolImages ?? saveToolResultImages)({
+        key: {
+          workspaceRoot: state.input.workspaceRoot,
+          workspaceId: state.input.workspaceId,
+          agentId: state.input.agentId,
+        },
+        toolUseId: id,
+        images: result.images,
+      })
+      await write.written
+      images = write.paths
+    }
     emit(state, 'tool_output', {
       toolUseId: id,
       toolCallId: id,
@@ -632,6 +651,7 @@ export function createCodexConversationProvider(
       ...(streamedOnly ? { outputMode: 'append', totalBytes: partialBytes } : {}),
       status: result.status,
       ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
+      ...(images.length ? { images } : {}),
     })
   }
   // Where a generated picture is on disk: where Codex saved it, or where this

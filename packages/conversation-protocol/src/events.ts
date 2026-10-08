@@ -218,6 +218,15 @@ export type ConversationToolOutputPayload = {
    * resumed it, and this is how a reader finds the lane it started in.
    */
   taskId?: string
+  /**
+   * The pictures the step returned (a browser screenshot, say), as files on
+   * the desktop that ran it, in the order the tool returned them; at most
+   * eight. The bytes are not in `output`. Optional and additive: absent, the
+   * step returned no picture, or ran on a desktop from before this member.
+   * The paths name files on that desktop, so a reader on another device can
+   * say a step has pictures but cannot open them.
+   */
+  images?: string[]
 }
 
 export type ConversationSubagentState = 'running' | 'completed' | 'failed' | 'stopped'

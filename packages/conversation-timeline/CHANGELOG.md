@@ -4,6 +4,11 @@
 
 ### Added
 
+- A tool entry carries `images`, the pictures its step returned, read from
+  a `tool_output`'s `images` member (paths that are text, at most eight,
+  `MAX_TOOL_IMAGES`) by `readImagePaths`. The full and the incremental
+  projection read it alike; a step that returned none has no member.
+
 - A user entry carries `files`, the files the message attached by path, read
   from a `user_message`'s `files` member (`{ path }` each), and a local turn
   passes its own through. `parseConversationAttachedFiles` is the reader and

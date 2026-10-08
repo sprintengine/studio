@@ -836,3 +836,39 @@ test('a remote chat asks its machine for a step’s picture by the step, and say
     }
   }
 })
+
+test("a step's returned pictures are drawn in its body, one preview each", () => {
+  const html = renderToStaticMarkup(
+    <ToolBody
+      tool={tool({
+        name: 'mcp__sprintengine-studio__browser_screenshot',
+        output: 'Captured 1280×800.',
+        images: [
+          '/Users/dev/Studio/conversation-images/s/shot-1.png',
+          '/Users/dev/Studio/conversation-images/s/shot-2.png',
+        ],
+      })}
+    />,
+  )
+  const pictures = new JSDOM(html).window.document.querySelector('[data-tool-images]')
+  expect(pictures?.children).toHaveLength(2)
+  expect(html).toContain('Captured 1280×800.')
+  expect(renderToStaticMarkup(<ToolBody tool={tool({ name: 'mcp__x__y', output: 'ok' })} />)).not.toContain(
+    'data-tool-images',
+  )
+})
+
+test('a step called with nothing that answered only with a picture draws the picture alone, with no `{}`', () => {
+  const html = renderToStaticMarkup(
+    <ToolBody
+      tool={tool({
+        name: 'mcp__sprintengine-studio__browser_screenshot',
+        input: {},
+        output: '',
+        images: ['/Users/dev/Studio/conversation-images/c1/shot-1.png'],
+      })}
+    />,
+  )
+  expect(html).toContain('data-tool-images')
+  expect(html).not.toContain('{}')
+})

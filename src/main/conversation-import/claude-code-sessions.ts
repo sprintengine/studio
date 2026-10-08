@@ -202,11 +202,18 @@ export async function readClaudeCodeSession(path: string, fallbackAt: number): P
       const blocks = Array.isArray(content) ? content : []
       const results = blocks.filter((block) => asRecord(block)?.type === 'tool_result')
       if (results.length > 0) {
-        const mapped = mapSdkMessage(state, {
-          type: 'user',
-          message: { role: 'user', content: results },
-          tool_use_result: record.toolUseResult,
-        })
+        // No pictures are kept from an import: a history can hold hundreds of
+        // screenshots, and writing them all is not what bringing a chat in
+        // should cost. Its steps show their words, as they always did.
+        const mapped = mapSdkMessage(
+          state,
+          {
+            type: 'user',
+            message: { role: 'user', content: results },
+            tool_use_result: record.toolUseResult,
+          },
+          { saveToolImages: false },
+        )
         for (const event of mapped)
           if (event.type === 'tool_output')
             builder.toolOutput(withoutTurn(event.payload) as Omit<ConversationToolOutputPayload, 'turnId'>, at)

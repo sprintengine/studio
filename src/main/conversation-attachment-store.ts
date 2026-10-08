@@ -23,6 +23,12 @@ import { ATTACHMENT_IMAGE_EXTENSIONS } from './attachment-image-file'
 
 /** Where, under the data directory, sent pictures are kept. */
 export const CONVERSATION_ATTACHMENTS_DIRECTORY = 'conversation-attachments'
+/**
+ * Where the pictures a conversation's steps returned are kept
+ * (providers/tool-result-images.ts), in a folder named as this store names
+ * its own, so deleting the conversation takes them too.
+ */
+export const CONVERSATION_TOOL_IMAGES_DIRECTORY = 'conversation-images'
 const STORE_DIRECTORY = CONVERSATION_ATTACHMENTS_DIRECTORY
 const REF_PATTERN = /^([0-9a-f]{32})\/([0-9a-f-]{36})\.([a-z]+)$/u
 const MEDIA_TYPE_BY_EXTENSION = new Map(
@@ -139,10 +145,15 @@ export class ConversationAttachmentStore {
     }
   }
 
-  /** Removes every image a conversation kept; called when the conversation itself is deleted. */
+  /**
+   * Removes every image a conversation kept, the ones sent with its turns and
+   * the ones its steps returned; called when the conversation itself is deleted.
+   */
   async deleteConversation(key: ConversationKey): Promise<void> {
     const root = this.root
-    if (!root) return
-    await rm(join(root, ConversationAttachmentStore.folderFor(key)), { recursive: true, force: true })
+    if (!root || !this.userDataDir) return
+    const folder = ConversationAttachmentStore.folderFor(key)
+    await rm(join(root, folder), { recursive: true, force: true })
+    await rm(join(this.userDataDir, CONVERSATION_TOOL_IMAGES_DIRECTORY, folder), { recursive: true, force: true })
   }
 }
