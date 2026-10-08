@@ -628,6 +628,24 @@ test('an ignored file where the new base adds a tracked one holds the slot rathe
   assert.equal(await readFile(join(first.path, '.env'), 'utf8'), 'SECRET=mine\n')
 })
 
+test('a file the new base stops ignoring holds the slot instead of being cleaned away', async () => {
+  await pushToOrigin('.gitignore', 'node_modules/\n.env\npkg/.env.local\n')
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await mkdir(join(first.path, 'pkg'), { recursive: true })
+  await writeFile(join(first.path, 'pkg', '.env.local'), 'TOKEN=mine\n')
+  await returnAll(harness)
+  assert.equal((await slotAt(harness, first.slotId)).state, 'idle', 'ignored, so the return was clean')
+  // The default branch drops the rule: after a reset the file is untracked.
+  await pushToOrigin('.gitignore', 'node_modules/\n.env\n')
+  const second = await lease(harness, 'second')
+  assert.notEqual(second.path, first.path)
+  const held = await slotAt(harness, first.slotId)
+  assert.equal(held.state, 'held')
+  assert.match(held.held?.detail ?? '', /pkg\//)
+  assert.equal(await readFile(join(first.path, 'pkg', '.env.local'), 'utf8'), 'TOKEN=mine\n')
+})
+
 test('returns beyond the idle limit remove the least recently used idle slot', async () => {
   const harness = makeService()
   await harness.service.updateSettings({ keepIdle: 1 })

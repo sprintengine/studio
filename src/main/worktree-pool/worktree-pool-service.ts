@@ -44,12 +44,15 @@ import {
   type SlotRecord,
 } from './pool-store'
 import {
+  amongIgnored,
+  cleanWouldRemove,
   clearStaleIndexLock,
   commitIsReachable,
   defaultSlotGitRunner,
   fetchBase,
   hasFile,
   hasSlotMarker,
+  ignoredPaths,
   ignoredFilesInTheWay,
   isPerAgentFile,
   operationInProgress,
@@ -819,6 +822,15 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         return false
       }
     }
+    // The ignored files as the tree stands before the move. A file whose
+    // ignore rule the new base drops (an `.env.local` the old `.gitignore`
+    // named) turns untracked with the move, and `clean -fd` below would
+    // delete it as if it were the old tree's leftovers.
+    const ignoredBefore = await ignoredPaths(git, slot.path)
+    if (ignoredBefore === null) {
+      await hold(pool, slot, 'error', 'could not list its ignored files before the reset')
+      return false
+    }
     await withPool(pool, async () => {
       slot.op = { kind: 'reset', startedAt: now(), pid: process.pid, fromSha: from, toSha: target }
       await persist(pool)
@@ -841,6 +853,20 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     const reset = await git(slot.path, ['read-tree', '--reset', '-u', 'HEAD'])
     if (!reset.ok) {
       await hold(pool, slot, 'error', `reset failed: ${tail(reset.message)}`)
+      return false
+    }
+    const removable = await cleanWouldRemove(git, slot.path)
+    const wasIgnored = removable?.filter((path) => amongIgnored(path, ignoredBefore)) ?? null
+    if (wasIgnored === null || wasIgnored.length > 0) {
+      await hold(
+        pool,
+        slot,
+        'dirty',
+        wasIgnored === null
+          ? 'could not check what cleaning up after the reset would remove'
+          : `files the new base no longer ignores, which cleaning up would delete: ${wasIgnored.slice(0, 5).join(', ')}`,
+        { changedPaths: wasIgnored?.length ?? null },
+      )
       return false
     }
     const cleaned = await git(slot.path, ['clean', '-fd', '--quiet'])
