@@ -6,7 +6,13 @@ import type { ConversationToolOutputPayload, ConversationToolStartedPayload } fr
 import { resolveClaudeConfigDir } from '../claude-config-dir'
 import { mapSdkMessage } from '../providers/claude-agent-provider'
 import { ImportedTranscriptBuilder, recordTime, type ImportedConversation } from './imported-transcript'
-import { readJsonLines, readJsonLinesWindow, stringField, type ScannedSession } from './session-files'
+import {
+  newestRecordTime,
+  readJsonLines,
+  readJsonLinesWindow,
+  stringField,
+  type ScannedSession,
+} from './session-files'
 
 // Claude Code saves each session as `<config>/projects/<folder>/<id>.jsonl`,
 // one record per line: the person's messages and the tool results the CLI
@@ -55,8 +61,10 @@ async function scanSessionFile(path: string): Promise<ScannedSession | null> {
   const info = await stat(path)
   if (!info.isFile() || info.size === 0) return null
   let head: ReturnType<typeof readHead> | null = null
+  let headRecords: Array<Record<string, unknown>> = []
   for (const bytes of HEAD_BYTES) {
-    head = readHead(await readJsonLinesWindow(path, 0, bytes))
+    headRecords = await readJsonLinesWindow(path, 0, bytes)
+    head = readHead(headRecords)
     if (head.excluded) return null
     if ((head.folderPath && head.firstPrompt) || info.size <= bytes) break
   }
@@ -71,7 +79,8 @@ async function scanSessionFile(path: string): Promise<ScannedSession | null> {
     title: title ?? null,
     firstPrompt: head.firstPrompt,
     startedAt: head.startedAt ?? info.mtimeMs,
-    updatedAt: info.mtimeMs,
+    // The file's end, or all of it when it is short enough to have been read whole.
+    updatedAt: newestRecordTime(tail.length > 0 ? tail : headRecords) ?? info.mtimeMs,
   }
 }
 

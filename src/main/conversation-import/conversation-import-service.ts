@@ -240,7 +240,9 @@ export function createConversationImportService(deps: ConversationImportServiceD
       ...(permission.mode ? { cliPermissionMode: permission.mode } : {}),
       importedFrom: { source: session.source, sessionId: session.sessionId },
     }
-    const lastActiveAt = Math.min(Math.max(history.updatedAt, session.updatedAt), now())
+    // The history's own last time, which falls back to the scan's: a file's
+    // modified time is moved by a copy or a backup, not only by the session.
+    const lastActiveAt = Math.min(history.updatedAt, now())
     const created = deps.createWorkspace({
       name: title,
       folderPath: session.folderPath,
