@@ -781,37 +781,39 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     return [...list].sort((a, b) => compare(score(a), score(b)))[0]
   }
 
-  /** Where one call goes: its conversation's affinity if that client still offers the tool, else the best other. */
-  function route(
-    caller: ClientToolCaller,
-    toolset: string,
-    tool: string,
-  ): { instance: Instance; notice?: string } | null {
+  type Route = { instance: Instance; notice?: string; key: string; affinity: Affinity }
+
+  /**
+   * Where one call goes: its conversation's affinity if that client still
+   * offers the tool, else the best other. Nothing is saved until `keep`: a
+   * call answered busy before it is sent must not use up the notice that the
+   * toolset moved.
+   */
+  function route(caller: ClientToolCaller, toolset: string, tool: string): Route | null {
     const key = affinityKey(caller, toolset)
     const affinity = affinities.get(key)
     const list = candidates(toolset, tool)
-    if (affinity?.instanceKey) {
-      const held = instances.get(affinity.instanceKey)
-      if (held && list.includes(held)) {
-        // Used, so kept longest: the bound drops the affinities nobody uses.
-        affinities.delete(key)
-        affinities.set(key, affinity)
-        return { instance: held }
-      }
-    }
+    const held = affinity?.instanceKey ? instances.get(affinity.instanceKey) : undefined
+    if (affinity && held && list.includes(held)) return { instance: held, key, affinity }
     const best = rank(list, caller, toolset)
     if (!best) return null
-    const movedFrom = affinity && affinity.instanceKey === null ? affinity.movedFrom : undefined
-    affinities.delete(key)
-    affinities.set(key, { instanceKey: best.key })
-    // One per conversation and toolset: the oldest go first past a bound.
-    while (affinities.size > MAX_AFFINITIES) affinities.delete(affinities.keys().next().value!)
+    // Moved: its client went (the grace ran out), or still runs and no longer
+    // offers it (a withdrawal), and another client takes it.
+    const movedFrom = !affinity ? undefined : affinity.instanceKey === null ? affinity.movedFrom : held?.clientName
     const offered = best.offers.get(toolset)!
     const notice =
       movedFrom !== undefined
         ? `${noun(toolset, offered.title).replace(/^./, (first) => first.toUpperCase())} is now in ${best.clientName}. ${toolset === 'browser' ? 'Tab ids from before no longer apply.' : 'What it handed out before may no longer apply.'}`
         : undefined
-    return { instance: best, ...(notice ? { notice } : {}) }
+    return { instance: best, ...(notice ? { notice } : {}), key, affinity: { instanceKey: best.key } }
+  }
+
+  /** The route a call took, kept: used, so kept longest, and the bound drops the affinities nobody uses. */
+  function keep(routed: Route): void {
+    affinities.delete(routed.key)
+    affinities.set(routed.key, routed.affinity)
+    // One per conversation and toolset: the oldest go first past a bound.
+    while (affinities.size > MAX_AFFINITIES) affinities.delete(affinities.keys().next().value!)
   }
 
   // ── Calls ─────────────────────────────────────────────────────────────────
@@ -945,6 +947,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
       finish(call, unavailable(call.toolset, call.tool))
       return
     }
+    keep(next)
     call.instance = next.instance
     if (next.notice) call.notice = next.notice
     // A new client has never seen this id, so it is not a redelivery there.
@@ -987,6 +990,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     if (sentCount(instance) >= STUDIO_TOOL_LIMITS.callsInFlightPerConnection)
       return Promise.resolve(busy(instance.clientName))
     if (!instance.owner && !takeToken(instance.clientId)) return Promise.resolve(busy(instance.clientName))
+    keep(routed)
     const timeoutMs = spec.timeoutMs ?? STUDIO_TOOL_LIMITS.defaultTimeoutMs
     return new Promise<ClientToolCallOutcome>((resolve) => {
       const id = `${callPrefix}-${++sequence}`

@@ -496,6 +496,32 @@ test('when the grace runs out, a read is routed once more and a mutation is answ
   )
 })
 
+test('a toolset withdrawn to another client says it moved, on the first call that is not answered busy', async () => {
+  const first = connect('owner', { shell: 'all', instanceId: 'desktop-one-0123456789' })
+  registry.offer(first.connectionId, toolset('browser', [tool('status')]))
+  const mover = agent('mover')
+  void registry.call({ caller: mover, toolset: 'browser', tool: 'status', args: {} })
+  registry.reply(first.connectionId, { t: 'reply', id: lastCall(first).id, ok: true, result: text('one') })
+  const second = connect('owner', { shell: 'all', instanceId: 'desktop-two-0123456789' })
+  registry.offer(second.connectionId, toolset('browser', [tool('status')]))
+  registry.withdraw(first.connectionId, 'browser')
+  // The client it moved to is at its bound of calls in flight.
+  const running = Array.from({ length: 16 }, (_, index) =>
+    registry.call({ caller: agent(`busy-${index}`), toolset: 'browser', tool: 'status', args: {} }),
+  )
+  const refused = await settled(registry.call({ caller: mover, toolset: 'browser', tool: 'status', args: {} }))
+  assert.equal(code(refused.result), 'busy')
+  const calls = second.frames.filter((frame): frame is StudioCallFrame => frame.t === 'call')
+  registry.reply(second.connectionId, { t: 'reply', id: calls[0].id, ok: true, result: text('done') })
+  await running[0]
+  const moved = registry.call({ caller: mover, toolset: 'browser', tool: 'status', args: {} })
+  registry.reply(second.connectionId, { t: 'reply', id: lastCall(second).id, ok: true, result: text('two') })
+  assert.deepEqual(
+    (await moved).result,
+    text('The browser is now in Studio desktop. Tab ids from before no longer apply.\n\ntwo'),
+  )
+})
+
 test('a read whose client is gone with nobody else to take it answers client_unavailable', async () => {
   reach.set('game-app', 'all')
   const gone = connect('game-app')
