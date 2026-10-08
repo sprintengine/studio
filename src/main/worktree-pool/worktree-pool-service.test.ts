@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, test } from 'vitest'
 
 import { cleanupAgentWorktrees } from '../agent-worktree-cleanup'
 import { lockAgentWorktree, setAgentWorktreeLockProfile } from '../agent-worktree-lock'
-import { createGitWorktree, restoreGitWorktree } from '../git'
+import { createGitWorktree, removeGitWorktree, restoreGitWorktree } from '../git'
 import { listGitWorktrees } from '../git-worktree-list'
 import { installWorktreePool } from './active-pool'
 import { createDependencyInstaller, DEPENDENCY_INSTALL_RECORD, installDependencyInstaller } from './dependency-install'
@@ -1664,6 +1664,42 @@ test('clearing an idle slot deletes its ignored files and keeps it; a slot remem
   const after = await slotAt(harness, 'pool-01')
   assert.equal(after.state, 'idle')
   assert.equal(after.size?.bytes, GB, 'measured again')
+})
+
+test('removing a worktree outside the pool from Settings is checked as an eviction is', async () => {
+  const harness = makeService()
+  const leased = await lease(harness, 'pooled')
+  const live: string[] = []
+  const inventory = createWorktreeInventory({
+    pool: harness.service,
+    livePaths: () => live,
+    knownWorkspaceIds: () => [],
+    removeWorktree: removeGitWorktree,
+  })
+  const byHand = join(caseDir, 'by-hand')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'feature/by-hand', byHand, 'origin/main')
+
+  const pooled = await inventory.removeOther({ repoRoot: repo, path: leased.path })
+  assert.equal(pooled.ok, false, 'a pool slot is the pool’s to remove')
+
+  live.push(join(byHand, 'src'))
+  const working = await inventory.removeOther({ repoRoot: repo, path: byHand })
+  assert.equal(working.ok, false)
+  assert.match(working.message ?? '', /working in it/)
+  live.length = 0
+
+  // An edited `.env` is ignored, so git status never shows it.
+  await writeFile(join(byHand, '.env'), 'TOKEN=mine\n')
+  const kept = await inventory.removeOther({ repoRoot: repo, path: byHand })
+  assert.equal(kept.ok, false)
+  assert.match(kept.message ?? '', /\.env/)
+  assert.equal(await exists(byHand), true)
+
+  await rm(join(byHand, '.env'))
+  const removed = await inventory.removeOther({ repoRoot: repo, path: byHand })
+  assert.equal(removed.ok, true, removed.message ?? '')
+  assert.equal(await exists(byHand), false)
+  assert.equal(await git(repo, 'branch', '--list', 'feature/by-hand'), 'feature/by-hand', 'the branch is kept')
 })
 
 test('the inventory lists every worktree but the checkout, with pool slots, merge state, changes and sizes', async () => {

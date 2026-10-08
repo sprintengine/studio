@@ -234,7 +234,10 @@ export function registerCoreIpc(
     },
   )
   registerGitRepoWatchIpc(machineIpc)
-  registerWorktreePoolIpc(ipcMain, services.worktreePool, services.dependencyInstaller)
+  registerWorktreePoolIpc(ipcMain, services.worktreePool, services.dependencyInstaller, {
+    livePaths: services.liveWorkPaths,
+    knownWorkspaceIds: () => chatIdsOnRecord(services.workspaceSyncService.getSnapshot().state.workspaces),
+  })
   registerVersionControlIpc(machineIpc)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain, { applyLive: options.applyModuleEnablementLive })

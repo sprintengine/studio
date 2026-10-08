@@ -8,7 +8,8 @@ import type {
   WorktreePoolSettings,
   WorktreePoolSnapshot,
 } from '../../shared/ipc/worktree-pool'
-import { createWorktreeInventory } from '../worktree-pool/worktree-inventory'
+import { removeGitWorktree } from '../git'
+import { createWorktreeInventory, type WorktreeInventoryDeps } from '../worktree-pool/worktree-inventory'
 import type { DependencyInstaller } from '../worktree-pool/dependency-install'
 import type { WorktreePoolService } from '../worktree-pool/worktree-pool-service'
 
@@ -42,6 +43,7 @@ export function registerWorktreePoolIpc(
   ipcMain: IpcMain,
   pool: WorktreePoolService,
   installer: DependencyInstaller | null = null,
+  checks: Pick<WorktreeInventoryDeps, 'livePaths' | 'knownWorkspaceIds'> = {},
 ): void {
   ipcMain.handle(
     'worktree-pool:action',
@@ -94,7 +96,18 @@ export function registerWorktreePoolIpc(
     isString(id) ? (installer?.cancel(id) ?? false) : false,
   )
 
-  const inventory = createWorktreeInventory({ pool })
+  const inventory = createWorktreeInventory({ pool, ...checks, removeWorktree: removeGitWorktree })
+  // Remove or Free up space on a worktree the pool does not own: checked as
+  // an eviction is (live work, hidden edits, ignored files that may be work).
+  ipcMain.handle(
+    'worktree-pool:remove-other',
+    async (_, input: { repoRoot?: unknown; path?: unknown } | null): Promise<WorktreePoolActionResult> => {
+      if (!input || !isString(input.repoRoot) || !isString(input.path)) {
+        return { ok: false, message: 'No worktree named.' }
+      }
+      return inventory.removeOther({ repoRoot: input.repoRoot, path: input.path })
+    },
+  )
   ipcMain.handle(
     'worktree-pool:inventory',
     async (_, input: WorktreeInventoryInput | null): Promise<WorktreeInventory> =>

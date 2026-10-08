@@ -14,6 +14,8 @@ import type {
 export const worktreePoolApi = {
   worktreePoolAction: (input: WorktreePoolActionInput): Promise<WorktreePoolActionResult> =>
     ipcRenderer.invoke('worktree-pool:action', input),
+  removeOtherWorktree: (input: { repoRoot: string; path: string }): Promise<WorktreePoolActionResult> =>
+    ipcRenderer.invoke('worktree-pool:remove-other', input),
   getWorktreePoolSnapshot: (repoRoot: string): Promise<WorktreePoolSnapshot | null> =>
     ipcRenderer.invoke('worktree-pool:snapshot', repoRoot),
   // One channel for every pool, filtered in the renderer on the repository,
@@ -40,6 +42,7 @@ export const worktreePoolApi = {
 } satisfies Pick<
   ElectronApi,
   | 'worktreePoolAction'
+  | 'removeOtherWorktree'
   | 'getWorktreePoolSnapshot'
   | 'onWorktreePoolChanged'
   | 'getWorktreePoolSettings'

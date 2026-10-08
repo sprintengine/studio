@@ -6,15 +6,29 @@ import type {
   WorktreeInventoryEntry,
   WorktreeInventoryInput,
   WorktreeInventoryProject,
+  WorktreePoolActionResult,
 } from '../../shared/ipc/worktree-pool'
 import { hostIdForFolder, isWslHostId } from '../../shared/execution-host'
 import { comparablePath } from '../../shared/host-paths'
 import { changesAlreadyIn } from '../agent-worktree-cleanup'
+import {
+  hiddenEditPaths,
+  ignoredPathsAtRisk,
+  insideAny,
+  isChatTranscriptPath,
+  pathSpellings,
+} from '../agent-worktree-keep-checks'
 import { listGitWorktrees } from '../git-worktree-list'
 import { pathExists } from '../git-utils'
 import { MEASURE_CONCURRENCY, measureDiskUsage, type MeasureDiskUsage } from './disk-usage'
 import { isNetworkSharePath } from './pool-store'
-import { defaultSlotGitRunner, resolvePoolBaseRef, type SlotGitRunner } from './slot-git'
+import {
+  commitIsReachable,
+  defaultSlotGitRunner,
+  readSlotStatus,
+  resolvePoolBaseRef,
+  type SlotGitRunner,
+} from './slot-git'
 import type { WorktreePoolService } from './worktree-pool-service'
 
 /**
@@ -22,8 +36,8 @@ import type { WorktreePoolService } from './worktree-pool-service'
  * with their leases, and the worktrees the pool does not own (made by hand,
  * by an agent before the pool, or kept out of it), each with whether its work
  * is on the default branch, whether it holds changes, and what it takes on
- * disk. Read-only: removing one goes through the pool (a slot) or
- * `removeGitWorktree` (anything else), which check again.
+ * disk. Removing one goes through the pool (a slot) or `removeOther`
+ * (anything else), each of which checks it again.
  *
  * Only this machine's own repositories: a WSL distribution's or a network
  * share's worktrees are made by other git, and measuring across that boundary
@@ -34,11 +48,17 @@ const MAX_CHANGES_LISTED = 12
 const CONCURRENCY = 4
 
 export type WorktreeInventoryDeps = {
-  pool: Pick<WorktreePoolService, 'load' | 'measure' | 'snapshots'> | null
+  pool: Pick<WorktreePoolService, 'load' | 'measure' | 'snapshots' | 'ownsPath'> | null
   git?: SlotGitRunner
   measure?: MeasureDiskUsage
   listWorktrees?: (repoRoot: string) => Promise<GitWorktreeEntry[] | null>
   now?: () => number
+  /** Where live work sits (terminals, chats working now): a worktree one is in is never removed. */
+  livePaths?: () => string[] | Promise<string[]>
+  /** The ids of every chat on record, or null when unknown: a worktree holding one's history is kept. */
+  knownWorkspaceIds?: () => Iterable<string> | null
+  /** The removal itself, once every check passed (git.ts `removeGitWorktree`, which checks status again). */
+  removeWorktree?: (input: { repoRoot: string; path: string }) => Promise<{ ok: boolean; message: string | null }>
 }
 
 /** `git status --porcelain=v1 -z` → entries, a rename's source path folded into its entry. */
@@ -186,7 +206,70 @@ export function createWorktreeInventory(deps: WorktreeInventoryDeps) {
     }
   }
 
-  return { read }
+  /**
+   * Remove a worktree the pool does not own, for Settings ▸ Worktrees ("Remove",
+   * "Free up space"), with the checks the pool's own eviction and the agent
+   * worktree cleanup apply before a folder goes: nothing live works in it, no
+   * uncommitted changes, no commits only its detached HEAD holds, no edits
+   * hidden from `git status`, and no ignored file that may be someone's work
+   * or a chat's history (agent-worktree-keep-checks.ts). The answer says why
+   * it was kept, in the person's words.
+   */
+  async function removeOther(input: { repoRoot: string; path: string }): Promise<WorktreePoolActionResult> {
+    const { repoRoot, path } = input
+    await deps.pool?.load()
+    if (deps.pool?.ownsPath(path)) {
+      return { ok: false, message: 'It is in the worktree pool; remove it as a pool worktree.' }
+    }
+    const live = ((await deps.livePaths?.()) ?? []).filter(Boolean)
+    const worktreeSpellings = await pathSpellings(path)
+    for (const each of live) {
+      if (insideAny(await pathSpellings(each), worktreeSpellings)) {
+        return { ok: false, message: 'A terminal or a chat is working in it. Close it first.' }
+      }
+    }
+    if (!(await pathExists(path))) return { ok: false, message: 'Its folder is gone already; prune it instead.' }
+    const status = await readSlotStatus(git, path)
+    if (!status.ok) return { ok: false, message: `Could not read its status: ${status.message}` }
+    if (status.status.changedPaths > 0) {
+      return { ok: false, message: 'It has uncommitted changes. Commit, stash or discard them first.' }
+    }
+    const oid = status.status.oid
+    if (status.status.branch === null && oid && !(await commitIsReachable(git, path, oid))) {
+      return { ok: false, message: 'It holds commits no branch has. Put them on a branch first.' }
+    }
+    const hidden = await hiddenEditPaths(path, git)
+    if (!hidden.ok) return { ok: false, message: hidden.message }
+    if (hidden.paths.length > 0) {
+      return {
+        ok: false,
+        message: `It has edits git status does not show (${hidden.paths.slice(0, 3).join(', ')}), so it is kept.`,
+      }
+    }
+    const ignored = await ignoredPathsAtRisk(repoRoot, path, git, { knownWorkspaceIds: deps.knownWorkspaceIds ?? null })
+    if (!ignored.ok) return { ok: false, message: 'Could not check its ignored files, so it is kept.' }
+    if (ignored.paths.length > 0) {
+      const files = ignored.paths.filter((entry) => !isChatTranscriptPath(entry))
+      if (files.length === 0) {
+        return {
+          ok: false,
+          message: 'It holds the history of a chat still on record. Delete the chat to let it go.',
+        }
+      }
+      const more = files.length > 3 ? ` and ${files.length - 3} more` : ''
+      return {
+        ok: false,
+        message: `It has ignored files that may be someone’s work (${files.slice(0, 3).join(', ')}${more}), so it is kept.`,
+      }
+    }
+    if (!deps.removeWorktree) return { ok: false, message: 'Removing worktrees is not available here.' }
+    const removed = await deps.removeWorktree({ repoRoot, path })
+    return removed.ok
+      ? { ok: true, message: null }
+      : { ok: false, message: removed.message ?? 'Git did not remove it.' }
+  }
+
+  return { read, removeOther }
 }
 
 export type WorktreeInventoryService = ReturnType<typeof createWorktreeInventory>
