@@ -2,7 +2,7 @@ import type { AgentWorktreeCleanupReport } from '../../../shared/electron-api'
 import { agentLeaseKey } from '../../../shared/ipc/worktree-pool'
 import { workspaceProjectRootOf } from '../../../shared/worktree-paths'
 import type { Workspace } from '../types/workspace'
-import { isPathOrChild, samePath } from './paths'
+import { samePath } from './paths'
 import { isSettledWorkspace } from './workspaceSettle'
 
 type CleanupWorkspace = Pick<Workspace, 'id' | 'folderPath' | 'worktree' | 'agents' | 'worktreeState' | 'settledAt'>
@@ -19,17 +19,17 @@ type CleanupWorkspace = Pick<Workspace, 'id' | 'folderPath' | 'worktree' | 'agen
  * - every worktree entry still `assigned` to an agent that exists, or
  *   mid-`removing`.
  *
- * Except a SETTLED chat that lives in a worktree of its own (it carries the
- * `worktree` marker): its folder, and every path its records point at inside
- * that folder, are offered to the sweep. New chats start in a worktree by
- * default, and a chat that has come to rest would otherwise hold a checkout
- * (and its dependencies) for good. Offered, not given: main still keeps it
- * unless it is clean, merged, an hour idle and locked by this profile, and
- * the branch survives the removal, so returning to the chat checks it out
- * again (`chatWorktreeRestore.ts`). A settled chat someone has open in a
- * window (`activeWorkspaceIds`) keeps its folder while it is looked at, and
- * a settled chat WITHOUT the marker sits in the project's own checkout,
- * which is never the sweep's to take.
+ * Except a SETTLED chat, which counts as deleted (owner ruling 2026-10-08):
+ * nothing it records keeps anything. Its folder, every path its agents and
+ * worktree entries point at, its agents (so a slot one of them leased for
+ * itself goes back) and its branches are all left out, and the sweep's own
+ * rules decide. Offered, not given: main still keeps a worktree with changes,
+ * or with ignored files that may be work, and removing a worktree never
+ * deletes an unmerged branch, so returning to the chat checks it out again
+ * when its branch is still there (`chatWorktreeRestore.ts`). A settled chat
+ * someone has open in a window (`activeWorkspaceIds`) keeps everything while
+ * it is looked at. A project's own checkout is never the sweep's to take,
+ * whichever chat sits in it.
  *
  * An entry still marked `assigned` to an agent that no longer exists is an
  * orphan from before agents released their worktrees, and is NOT protected:
@@ -38,9 +38,10 @@ type CleanupWorkspace = Pick<Workspace, 'id' | 'folderPath' | 'worktree' | 'agen
  * Every agent the records hold is named, because a worktree pool slot an agent
  * leased for itself (MCP `worktree.lease`) is in use while that agent exists,
  * wherever its terminal sits. Each is named with its chat as well
- * (`agentKeys`): an agent id is unique only within its chat. Every branch a chat or worktree entry records is
- * named too: main deletes merged `agent/` branches, but never one a chat may
- * still be restored from (`chatWorktreeRestore.ts`).
+ * (`agentKeys`): an agent id is unique only within its chat. Every branch a
+ * chat or worktree entry records is named too: main deletes merged `agent/`
+ * branches, but never one a chat that is not settled may still be restored
+ * from (`chatWorktreeRestore.ts`).
  *
  * Every project root the records mention is swept. Main's own rules decide
  * what in it is an agent worktree at all (`agent/<slug>` in the app's
@@ -67,28 +68,26 @@ export function agentWorktreeCleanupPlan(
   }
 
   for (const workspace of workspaces) {
-    const offered = offersItsWorktree(workspace) && !active.has(workspace.id) ? workspace.folderPath : null
-    const protect = (path: string): void => {
-      if (!offered || !isPathOrChild(path, offered)) protectedPaths.add(path)
-    }
-    if (workspace.folderPath) protect(workspace.folderPath)
-    if (workspace.worktree?.branch) keepBranches.add(workspace.worktree.branch)
     addRoot(workspaceProjectRootOf(workspace))
+    // Settled and not open anywhere: as good as deleted, and nothing it records keeps anything.
+    if (isSettledWorkspace(workspace) && !active.has(workspace.id)) continue
+    if (workspace.folderPath) protectedPaths.add(workspace.folderPath)
+    if (workspace.worktree?.branch) keepBranches.add(workspace.worktree.branch)
     const entries = workspace.worktreeState?.entries ?? {}
     for (const [agentId, agent] of Object.entries(workspace.agents ?? {})) {
       agentIds.add(agentId)
       agentKeys.add(agentLeaseKey(workspace.id, agentId))
       const execution = agent?.execution
       if (!execution) continue
-      if (execution.cwd) protect(execution.cwd)
+      if (execution.cwd) protectedPaths.add(execution.cwd)
       const entry = execution.worktreeId ? entries[execution.worktreeId] : undefined
-      if (entry?.path) protect(entry.path)
+      if (entry?.path) protectedPaths.add(entry.path)
     }
     for (const entry of Object.values(entries)) {
       if (entry.branch) keepBranches.add(entry.branch)
       if (entry.status === 'removing') protectedPaths.add(entry.path)
       if (entry.status === 'assigned' && (!entry.ownerAgentId || workspace.agents?.[entry.ownerAgentId])) {
-        protect(entry.path)
+        protectedPaths.add(entry.path)
       }
     }
   }
@@ -108,11 +107,6 @@ export function openWorkspaceIds(state: {
   workspaceWindows: ReadonlyArray<{ activeWorkspaceId: string | null }>
 }): Array<string | null> {
   return [state.activeWorkspaceId, ...state.workspaceWindows.map((windowState) => windowState.activeWorkspaceId)]
-}
-
-/** A settled chat in a worktree of its own, whose folder the sweep may take (see above). */
-export function offersItsWorktree(workspace: CleanupWorkspace): workspace is CleanupWorkspace & { folderPath: string } {
-  return Boolean(workspace.folderPath && workspace.worktree?.branch) && isSettledWorkspace(workspace)
 }
 
 /**

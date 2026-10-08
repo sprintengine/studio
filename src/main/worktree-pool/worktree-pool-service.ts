@@ -143,9 +143,10 @@ export type WorktreePoolServiceDeps = {
   /** How much disk a slot takes (disk-usage.ts). */
   measure?: MeasureDiskUsage
   /**
-   * The ids of every chat on record, settled ones included (the workspace
+   * The ids of every chat on record that is not settled (the workspace
    * registry), or null when unknown. A slot holding the history of one of them
-   * is never removed (agent-worktree-keep-checks.ts).
+   * is never removed (agent-worktree-keep-checks.ts); a settled chat counts
+   * as deleted.
    */
   knownWorkspaceIds?: () => Iterable<string> | null
 }

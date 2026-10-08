@@ -66,7 +66,7 @@ afterAll(async () => {
   if (scratch) await rm(scratch, { recursive: true, force: true })
 })
 
-test('only clean agent worktrees whose work is on the default branch are removed', async () => {
+test('clean agent worktrees nothing uses are removed; merged branches go with them, unmerged ones stay', async () => {
   // Merged: its one commit was pushed to origin/main and fetched.
   const merged = await addWorktree('merged')
   await writeFile(join(merged, 'feature.txt'), 'done\n')
@@ -82,7 +82,8 @@ test('only clean agent worktrees whose work is on the default branch are removed
   await mkdir(join(untouched, 'node_modules', 'left-pad'), { recursive: true })
   await writeFile(join(untouched, 'node_modules', 'left-pad', 'index.js'), 'module.exports = 1\n')
 
-  // Unmerged: a commit origin/main does not have.
+  // Unmerged: a commit origin/main does not have. Nothing uses it (its chat
+  // settled), so it goes, and the commit stays on its branch.
   const unmerged = await addWorktree('unmerged')
   await writeFile(join(unmerged, 'wip.txt'), 'wip\n')
   await git(unmerged, 'add', '.')
@@ -115,19 +116,20 @@ test('only clean agent worktrees whose work is on the default branch are removed
   assert.deepEqual(verdicts, {
     merged: 'removed',
     untouched: 'removed',
-    unmerged: 'unmerged',
+    unmerged: 'removed',
     dirty: 'dirty',
     'in-use': 'in-use',
     live: 'in-use',
     locked: 'locked',
+    // Another worktree: the same rules, and a day unused before it may go.
+    manual: 'recent',
   })
   assert.equal(dry.defaultRef, 'origin/main')
-  assert.equal(dry.entries.find((entry) => entry.verdict === 'unmerged')?.uniqueCommits, 1)
   assert.equal(dry.entries.find((entry) => entry.verdict === 'dirty')?.changedPaths, 1)
   assert.ok(await exists(merged), 'a dry run removes nothing')
   assert.ok(logs.some((line) => line.startsWith('would remove') && line.includes('merged')))
   assert.ok(
-    logs.some((line) => line.startsWith('kept (unmerged)')),
+    logs.some((line) => line.startsWith('kept (dirty)')),
     'keeps are logged too',
   )
 
@@ -140,11 +142,12 @@ test('only clean agent worktrees whose work is on the default branch are removed
       .filter((entry) => entry.verdict === 'removed')
       .map((entry) => entry.path.split('/').pop())
       .sort(),
-    ['merged', 'untouched'],
+    ['merged', 'unmerged', 'untouched'],
   )
   assert.equal(await exists(merged), false)
   assert.equal(await exists(untouched), false)
-  for (const kept of [unmerged, dirty, inUse, live, locked, manual]) assert.ok(await exists(kept), `${kept} is kept`)
+  assert.equal(await exists(unmerged), false)
+  for (const kept of [dirty, inUse, live, locked, manual]) assert.ok(await exists(kept), `${kept} is kept`)
   // Its work is on the default branch, so its branch goes too (owner ruling
   // 2026-10-05); unmerged work keeps both.
   assert.equal(await git(repo, 'branch', '--list', 'agent/merged'), '', 'a merged branch is deleted')
@@ -154,6 +157,111 @@ test('only clean agent worktrees whose work is on the default branch are removed
     /agent\/unmerged/,
     'unmerged work keeps its branch',
   )
+})
+
+test('a worktree the app did not make goes once it is merged, clean and a day unused, even unattended', async () => {
+  const dayLater = (): number => Date.now() + 25 * 60 * 60_000
+  // Made by hand beside the repository, on a branch that never got a commit.
+  const handMade = join(scratch, 'app-review')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'review/thing', handMade, 'origin/main')
+  // An agent CLI's own worktree, inside the main checkout.
+  const nested = join(repo, '.claude', 'worktrees', 'agent-1')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'worktree-agent-1', nested, 'origin/main')
+  // Detached on a commit the default branch has.
+  const detached = join(scratch, 'app-detached')
+  await git(repo, 'worktree', 'add', '-q', '--detach', detached, 'origin/main')
+  // Work the default branch lacks.
+  const unmerged = join(scratch, 'app-unmerged')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'feat/unmerged', unmerged, 'origin/main')
+  await writeFile(join(unmerged, 'wip.txt'), 'wip\n')
+  await git(unmerged, 'add', '.')
+  await git(unmerged, 'commit', '-q', '-m', 'wip')
+  // Locked by a person: nothing here placed it, so nothing here lifts it.
+  const locked = join(scratch, 'app-locked')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'feat/locked', locked, 'origin/main')
+  await git(repo, 'worktree', 'lock', locked)
+  // Open in a workspace: in use, and NOT locked for it (only agent worktrees are).
+  const open = join(scratch, 'app-open')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'feat/open', open, 'origin/main')
+
+  const verdictsOf = (report: Awaited<ReturnType<typeof cleanupAgentWorktrees>>) =>
+    Object.fromEntries(
+      report.entries
+        .filter((entry) => [handMade, nested, detached, unmerged, locked, open].includes(entry.path))
+        .map((entry) => [entry.path.split('/').pop(), entry.verdict]),
+    )
+
+  // Used within the day: kept, however merged and clean.
+  const soon = await cleanupAgentWorktrees(
+    { repoRoot: repo, protectedPaths: [open], dryRun: true, ownedOnly: true },
+    { log: () => {}, now: later },
+  )
+  assert.deepEqual(verdictsOf(soon), {
+    'app-review': 'recent',
+    'agent-1': 'recent',
+    'app-detached': 'recent',
+    'app-unmerged': 'recent',
+    'app-locked': 'locked',
+    'app-open': 'in-use',
+  })
+
+  // Swept from a workspace opened on a worktree, the main checkout is listed
+  // too, and is never a candidate.
+  const fromWorktree = await cleanupAgentWorktrees(
+    { repoRoot: open, protectedPaths: [open], dryRun: true },
+    { log: () => {}, now: dayLater },
+  )
+  assert.ok(fromWorktree.entries.length > 0)
+  assert.equal(
+    fromWorktree.entries.some((entry) => entry.path === repo),
+    false,
+    'the main checkout is never a candidate',
+  )
+
+  const swept = await cleanupAgentWorktrees(
+    { repoRoot: repo, protectedPaths: [open], ownedOnly: true, keepBranches: [] },
+    { log: () => {}, now: dayLater },
+  )
+  assert.deepEqual(verdictsOf(swept), {
+    'app-review': 'removed',
+    'agent-1': 'removed',
+    'app-detached': 'removed',
+    'app-unmerged': 'unmerged',
+    'app-locked': 'locked',
+    'app-open': 'in-use',
+  })
+  for (const gone of [handMade, nested, detached]) assert.equal(await exists(gone), false, `${gone} is removed`)
+  for (const kept of [unmerged, locked, open]) assert.ok(await exists(kept), `${kept} is kept`)
+
+  // Unmerged, a week unused: it goes, and its commit stays on its branch.
+  // Commits only a detached HEAD holds keep theirs for good.
+  const orphan = join(scratch, 'app-orphan')
+  await git(repo, 'worktree', 'add', '-q', '--detach', orphan, 'origin/main')
+  await writeFile(join(orphan, 'lost.txt'), 'only here\n')
+  await git(orphan, 'add', '.')
+  await git(orphan, 'commit', '-q', '-m', 'on no branch')
+  const weekLater = (): number => Date.now() + 8 * 24 * 60 * 60_000
+  const commit = await git(unmerged, 'rev-parse', 'HEAD')
+  const stale = await cleanupAgentWorktrees(
+    { repoRoot: repo, protectedPaths: [open], ownedOnly: true, keepBranches: [] },
+    { log: () => {}, now: weekLater },
+  )
+  assert.equal(verdictsOf(stale)['app-unmerged'], 'removed')
+  assert.match(
+    stale.entries.find((entry) => entry.path === unmerged)?.detail ?? '',
+    /1 commit\(s\) stay on feat\/unmerged/,
+  )
+  assert.equal(await exists(unmerged), false)
+  assert.equal(await git(repo, 'rev-parse', 'feat/unmerged'), commit, 'the branch keeps the work')
+  assert.equal(stale.entries.find((entry) => entry.path === orphan)?.verdict, 'unmerged')
+  assert.ok(await exists(orphan), 'a detached HEAD on commits no branch has is kept')
+  const openBlock = (await git(repo, 'worktree', 'list', '--porcelain'))
+    .split('\n\n')
+    .find((block) => block.includes(open))
+  assert.ok(openBlock && !openBlock.includes('\nlocked'), 'an open worktree is not locked for being open')
+  // Its branch is not an agent branch: removing the worktree keeps it.
+  assert.match(await git(repo, 'branch', '--list', 'review/thing'), /review\/thing/)
+  await git(repo, 'worktree', 'unlock', locked)
 })
 
 /** A branch whose two commits reach origin/main as ONE squash commit. */
@@ -182,7 +290,7 @@ async function squashMerged(slug: string, extra?: string): Promise<string> {
   return path
 }
 
-test('a squash-merged branch is removable; one carrying more work is kept', async () => {
+test('a squash-merged branch is deleted with its worktree; one carrying more work keeps its branch', async () => {
   const squashed = await squashMerged('squashed')
   const moreWork = await squashMerged('more-work', 'late.txt')
 
@@ -194,8 +302,12 @@ test('a squash-merged branch is removable; one carrying more work is kept', asyn
   assert.equal(byName.squashed?.verdict, 'removed', 'its changes are already on origin/main')
   assert.match(byName.squashed?.detail ?? '', /squash-merged/)
   assert.equal(await exists(squashed), false)
-  assert.equal(byName['more-work']?.verdict, 'unmerged', 'a commit the squash did not carry keeps it')
-  assert.ok(await exists(moreWork))
+  // Nothing uses it, so the worktree goes; the commit the squash did not
+  // carry stays on its branch.
+  assert.equal(byName['more-work']?.verdict, 'removed')
+  assert.doesNotMatch(byName['more-work']?.detail ?? '', /squash-merged/)
+  assert.equal(await exists(moreWork), false)
+  assert.equal(report.deletedBranches?.includes('agent/more-work'), false)
   assert.equal(await git(repo, 'branch', '--list', 'agent/squashed'), '', 'a squash-merged branch is deleted')
   assert.match(await git(repo, 'branch', '--list', 'agent/more-work'), /agent\/more-work/, 'more work keeps its branch')
 })
@@ -215,8 +327,11 @@ test('a git without merge-tree --write-tree falls back to the ancestry rule', as
     },
   )
   const entry = report.entries.find((candidate) => candidate.path === squashed)
-  assert.equal(entry?.verdict, 'unmerged', 'an unsupported test is not "merged"')
-  assert.ok(await exists(squashed))
+  // An unsupported test is not "merged": the worktree goes as unmerged work
+  // does, and its branch is not deleted.
+  assert.equal(entry?.verdict, 'removed')
+  assert.doesNotMatch(entry?.detail ?? '', /squash-merged/)
+  assert.match(await git(repo, 'branch', '--list', 'agent/old-git'), /agent\/old-git/)
 })
 
 test('with no default branch to compare against, nothing is removed', async () => {
