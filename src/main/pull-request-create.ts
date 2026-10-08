@@ -289,14 +289,46 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
     return pushed.ok ? { ok: true, pushed: true } : { ok: false, message: gitFailure('push', pushed) }
   }
 
-  /** `owner:branch` for a branch pushed to a fork, as `gh pr create --head` names it; the branch alone on origin. */
-  async function headOf(gitRoot: string, branch: string, defaultBranch: string | null): Promise<string> {
+  /**
+   * The remote gh opens the pull request on, chosen as gh chooses it: the one
+   * `gh repo set-default` marked, then `upstream`, `github`, `origin`, then
+   * the first there is. A clone of a fork usually has the fork as origin and
+   * the parent as upstream, and the pull request goes to the parent.
+   */
+  async function baseRemoteOf(gitRoot: string): Promise<string | null> {
+    const remotes = ((await out(gitRoot, ['remote'])) ?? '').split('\n').filter(Boolean)
+    const marked = (await out(gitRoot, ['config', '--get-regexp', '^remote\\..*\\.gh-resolved$'])) ?? ''
+    for (const line of marked.split('\n')) {
+      const [key, value] = line.split(/\s+/u)
+      const name = key?.slice('remote.'.length, -'.gh-resolved'.length)
+      if (value === 'base' && name && remotes.includes(name)) return name
+    }
+    return ['upstream', 'github', 'origin'].find((name) => remotes.includes(name)) ?? remotes[0] ?? null
+  }
+
+  /**
+   * What `gh pr create` is told: the repository the pull request opens on
+   * (`--repo`, so gh and this agree on it), and the head, `owner:branch`
+   * whenever the branch is pushed to a repository other than that one (a
+   * fork, whichever remote names it), the branch alone when it is the same.
+   */
+  async function headOf(
+    gitRoot: string,
+    branch: string,
+    defaultBranch: string | null,
+  ): Promise<{ head: string; repo: string | null }> {
+    const baseRemote = await baseRemoteOf(gitRoot)
+    const baseUrl = baseRemote ? await out(gitRoot, ['remote', 'get-url', baseRemote]) : null
+    const base = baseUrl ? forgeOfRemote(baseUrl) : null
+    const repo = base ? base.webUrl.replace(/^[a-z]+:\/\//u, '') : null
     const target = await pushTargetOf(gitRoot, branch, defaultBranch)
-    if (!target.ok || target.remote === 'origin') return branch
-    // The remote's own address names the fork's owner (a push URL may be a mirror).
+    if (!target.ok || !base) return { head: branch, repo }
+    // The remote's own address names its owner (a push URL may be a mirror).
     const url = (await out(gitRoot, ['remote', 'get-url', target.remote])) ?? target.remote
-    const owner = forgeOfRemote(url)?.webUrl.split('/').at(-2)
-    return owner ? `${owner}:${branch}` : branch
+    const pushed = forgeOfRemote(url)
+    if (!pushed || pushed.webUrl.toLowerCase() === base.webUrl.toLowerCase()) return { head: branch, repo }
+    const owner = pushed.webUrl.split('/').at(-2)
+    return { head: owner ? `${owner}:${branch}` : branch, repo }
   }
 
   /** Open the pull request: `gh pr create` on GitHub, the forge's own page elsewhere. */
@@ -318,6 +350,7 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
       const bodyFile = path.join(scratch, 'body.md')
       await writeFile(bodyFile, text.body, 'utf8')
       const gh = deps.gh ?? sharedGhRunner()
+      const { head, repo } = await headOf(gitRoot, facts.branch, facts.defaultBranch)
       const result = await gh.run(
         [
           'pr',
@@ -325,11 +358,12 @@ export function createPullRequestCreator(deps: PullRequestCreateDeps = {}) {
           '--base',
           facts.defaultBranch,
           '--head',
-          await headOf(gitRoot, facts.branch, facts.defaultBranch),
+          head,
           '--title',
           title,
           '--body-file',
           bodyFile,
+          ...(repo ? ['--repo', repo] : []),
         ],
         { cwd: gitRoot, timeoutMs: GH_CREATE_TIMEOUT_MS },
       )

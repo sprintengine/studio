@@ -212,6 +212,33 @@ test('a branch set to push to a fork is pushed there, under its own name, and it
   await assert.rejects(git(origin, 'rev-parse', '--verify', 'refs/heads/feature/marks'), 'still nothing on origin')
 })
 
+test('a clone of a fork, its parent as upstream, opens the pull request on the parent from the fork', async () => {
+  const { clone } = await checkout()
+  // origin is the person's fork; upstream is the repository it was forked from.
+  await git(clone, 'remote', 'set-url', 'origin', 'git@github.com:dev/app.git')
+  await git(clone, 'remote', 'add', 'upstream', 'https://github.com/acme/app.git')
+  const calls: string[][] = []
+  const gh: GhRunner = {
+    available: async () => true,
+    run: async (args) => {
+      calls.push(args)
+      return { found: true, code: 0, stdout: 'https://github.com/acme/app/pull/15\n', stderr: '' }
+    },
+  }
+  const creator = createPullRequestCreator({ gh, listBranch: lookupOf(NONE).listBranch })
+  await creator.create(clone, { title: 'feat: marks', body: '' })
+  const flag = (name: string) => calls[0]![calls[0]!.indexOf(name) + 1]
+  assert.equal(flag('--head'), 'dev:feature/marks')
+  assert.equal(flag('--repo'), 'github.com/acme/app')
+
+  // `gh repo set-default` marking origin as the base: the fork is the base, and the head is the branch alone.
+  await git(clone, 'config', 'remote.origin.gh-resolved', 'base')
+  calls.length = 0
+  await creator.create(clone, { title: 'feat: marks', body: '' })
+  assert.equal(flag('--head'), 'feature/marks')
+  assert.equal(flag('--repo'), 'github.com/dev/app')
+})
+
 test('a push remote is chosen as git chooses it: the branch’s own, then the default, then a fork it tracks', async () => {
   const { clone, origin } = await checkout()
   const fork = path.join(path.dirname(origin), 'fork.git')
