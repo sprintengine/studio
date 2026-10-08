@@ -165,7 +165,7 @@ import {
   attachmentRejection,
   readImageAttachment,
 } from './agentChat/imageAttachments'
-import { ConversationPendingDock, type ApprovalModeSwitch } from './agentChat/pendingDock'
+import { ConversationPendingDock, coversComposer, type ApprovalModeSwitch } from './agentChat/pendingDock'
 import { QueuedTurnRow, queuedTurnSendNow } from './agentChat/queuedTurnBubble'
 import { ComposerTray, ComposerTrayRow } from './agentChat/composerTray'
 import { WorktreeInstallTrayRow } from './agentChat/worktreeInstallRow'
@@ -2474,12 +2474,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
 
   const pendingApprovalEntries = shape.pendingApprovals
   const pendingApprovalEntry = pendingApprovalEntries[0]
+  // A question takes the composer's place, so no placeholder speaks for it;
+  // the tray's requests leave the field showing beneath them.
   const composerPlaceholder = pendingApprovalEntry
-    ? pendingApprovalEntry.requestKind === 'question'
-      ? 'Answer the question above to continue'
-      : pendingApprovalEntry.requestKind === 'plan'
-        ? 'Respond to the plan above to continue'
-        : 'Respond to the request above to continue'
+    ? pendingApprovalEntry.requestKind === 'plan'
+      ? 'Respond to the plan above to continue'
+      : 'Respond to the request above to continue'
     : !ready
       ? readinessLabel(readiness)
       : projection.activeTurn
@@ -2727,6 +2727,27 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const dismissNotice = (notice: string) => setDismissedNotices((current) => new Set(current).add(notice))
   const billingNotice = apiKeyBillingNotice(projection.apiKeySource)
   const requestPending = pendingApprovalEntries.length > 0
+  // A question waiting takes the composer's place. The composer stays mounted
+  // behind it, unseen, so the draft — its words, pasted images, files and
+  // mentions — is exactly as it was once the question is answered.
+  const questionCoversComposer = pendingApprovalEntries.some(
+    (entry) => entry.status === 'pending' && coversComposer(entry),
+  )
+  const draftHeld =
+    draft.trim().length > 0 ||
+    attachments.length > 0 ||
+    draftMetadata.files.length > 0 ||
+    draftMetadata.mentions.length > 0
+  // The card held focus and has gone with its answer: the keyboard returns to
+  // the field it came from, rather than to the page.
+  const questionCoveredRef = useRef(false)
+  useEffect(() => {
+    const uncovered = questionCoveredRef.current && !questionCoversComposer
+    questionCoveredRef.current = questionCoversComposer
+    if (!uncovered) return
+    const active = document.activeElement
+    if (!active || active === document.body) composerRef.current?.focus()
+  }, [questionCoversComposer])
 
   // The chat's permissions, on the engine picker's trailing row beside effort —
   // the same place a launch from New chat picks them — bound to this chat's
@@ -3166,6 +3187,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               ) : null}
 
               <ConversationPendingDock
+                placement="tray"
                 pendingApprovals={pendingApprovalEntries}
                 workspaceRoot={workspaceRoot ?? undefined}
                 onApprove={resolveApproval}
@@ -3225,11 +3247,32 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
              * disabled placeholder says why the composer is waiting. Under the
              * box, the strip says where the agent works and how full its
              * context is.
+             *
+             * A question from the agent is answered in the box's place: the
+             * card wears the composer's surface, and the composer is hidden
+             * rather than unmounted, so its draft is still there when the
+             * answer is in.
              */}
+            {questionCoversComposer ? (
+              <div
+                className={`relative overflow-hidden ${COMPOSER_SURFACE_CLASS} border-[color:var(--border-default)]`}
+              >
+                <ConversationPendingDock
+                  placement="composer"
+                  pendingApprovals={pendingApprovalEntries}
+                  workspaceRoot={workspaceRoot ?? undefined}
+                  onApprove={resolveApproval}
+                  busy={respondingRequestId !== null || !operate}
+                  // Said only when something is waiting, so nobody retypes a
+                  // message they believe the card replaced.
+                  footnote={draftHeld ? 'Your draft is kept for after you answer' : null}
+                />
+              </div>
+            ) : null}
             <div
               className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_EDITOR_CLASS} ${
                 dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
-              }`}
+              } ${questionCoversComposer ? 'hidden' : ''}`}
             >
               {dropActive ? <ComposerDropOverlay ground="surface" /> : null}
               {contextPicker.picker}
