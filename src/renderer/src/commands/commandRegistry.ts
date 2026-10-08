@@ -409,6 +409,25 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'workspace-manager', handler: 'setPaneOpen(windowActiveWorkspaceId, !paneOpen)' },
   }),
+  // The pane's "+" from the keyboard: the menu of what can be opened there,
+  // with the pane shown first if it was closed. T for "tab", as a new tab is
+  // what it makes; ⌘T is bound nowhere else in the app. From the composer on
+  // macOS, but never from an editor or a terminal, nor from a text field off
+  // macOS, where Ctrl+T is the transpose (`shellTakesChordFrom`).
+  command({
+    id: 'pane.add',
+    title: 'Open in the pane…',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+T'],
+    allowInEditableTarget: true,
+    availability: ['activeWorkspace'],
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspacePane',
+      action: 'setPaneOpen(windowActiveWorkspaceId, true) -> setAddMenuOpen(true)',
+    },
+  }),
   command({
     id: 'panel.files.toggle',
     title: 'Toggle file explorer',

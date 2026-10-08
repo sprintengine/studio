@@ -329,3 +329,25 @@ test('a pane never names a browser tab that is out in a window of its own', asyn
   // Main keeps this "none" from clearing the pop-out's word (browser-ipc).
   assert.deepEqual(activeNotes, [null], 'the window holding the page names it, not the pane')
 })
+
+// ⌘T: the window routes `pane.add` to the pane on screen, which opens its "+"
+// menu as a click on "+" would. Another workspace's command is not this pane's.
+test('the "+" menu opens from the keyboard command for this workspace only', async () => {
+  const { dispatchPanelCommandEvent } = await import('../../../utils/panelCommands')
+  const container = await renderPane({ open: true, activeTabId: 't1', tabs: [{ id: 't1', kind: 'files' }] }, false)
+  const browserRow = () =>
+    [...dom.window.document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) =>
+      item.textContent?.startsWith('Browser'),
+    ) ?? null
+  act(() => dispatchPanelCommandEvent('pane.add', 'ws-another'))
+  assert.equal(browserRow(), null, 'a command for another workspace leaves this menu shut')
+  act(() => dispatchPanelCommandEvent('pane.add', WS))
+  assert.ok(browserRow(), 'the menu lists what can be opened')
+  assert.equal(button(container, 'Open in the pane')?.getAttribute('aria-expanded'), 'true')
+  act(() => browserRow()!.click())
+  assert.equal(browserRow(), null, 'picking a row closes the menu')
+  assert.ok(
+    (await paneOf())?.tabs.some((tab) => tab.kind === 'browser'),
+    'and opens what was picked',
+  )
+})

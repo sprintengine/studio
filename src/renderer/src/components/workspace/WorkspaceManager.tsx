@@ -4126,6 +4126,13 @@ export default function WorkspaceManager() {
         setPaneOpen(windowActiveWorkspaceId, !open)
         return true
       }
+      if (commandId === 'pane.add') {
+        // The pane on screen; behind New chat or a door there is none.
+        if (!windowActiveWorkspaceId || newChatPanelOpen || activeGlobalSurface) return false
+        setPaneOpen(windowActiveWorkspaceId, true)
+        dispatchPanelCommand(commandId, windowActiveWorkspaceId)
+        return true
+      }
       if (commandId === 'panel.files.toggle' && windowActiveWorkspaceId) {
         togglePaneKind(windowActiveWorkspaceId, 'files')
         return true

@@ -24,6 +24,8 @@ const SWAPS: Readonly<Record<string, string | null>> = {
   'Primary+Shift+`': 'Alt+Shift+`',
   // A private window in one browser; the palette keeps Primary+K.
   'Primary+Shift+P': null,
+  // A new browser tab; the pane's "+" is a click away.
+  'Primary+T': null,
 }
 
 function swap(chord: string): string | null {

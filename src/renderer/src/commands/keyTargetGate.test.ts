@@ -37,6 +37,17 @@ test('the settle chord is taken from the composer and the page, never from an ed
   }
 })
 
+test('the pane "+" chord is taken from the composer on macOS only, and never from an editor or a terminal', () => {
+  expect(shellTakesChordFrom('pane.add', composer, 'darwin')).toBe(true)
+  expect(shellTakesChordFrom('pane.add', composer, 'windows')).toBe(false)
+  expect(shellTakesChordFrom('pane.add', composer, 'linux')).toBe(false)
+  for (const platform of ['darwin', 'windows', 'linux'] as const) {
+    expect(shellTakesChordFrom('pane.add', plain, platform)).toBe(true)
+    expect(shellTakesChordFrom('pane.add', monaco, platform)).toBe(false)
+    expect(shellTakesChordFrom('pane.add', terminal, platform)).toBe(false)
+  }
+})
+
 test('any other command is left to the dispatcher', () => {
   expect(shellTakesChordFrom('chat.nextWaiting', monaco, 'darwin')).toBe(true)
 })
