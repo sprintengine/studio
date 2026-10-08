@@ -16,6 +16,7 @@ import {
   hiddenEditPaths,
   ignoredPathsAtRisk,
   insideAny,
+  pathInside,
   pathSpellings,
 } from './agent-worktree-keep-checks'
 
@@ -125,12 +126,6 @@ const DEFAULT_REF_CANDIDATES = ['origin/main', 'origin/master', 'main', 'master'
 /** How long git must have left a worktree alone before the sweep may take it. */
 export const AGENT_WORKTREE_MIN_IDLE_MS = 60 * 60_000
 
-function isInside(child: string, parent: string): boolean {
-  const a = normalizeComparablePath(child)
-  const b = normalizeComparablePath(parent)
-  return a === b || a.startsWith(`${b}/`)
-}
-
 function listed(paths: readonly string[]): string {
   const shown = paths.slice(0, 3).join(', ')
   return paths.length > 3 ? `${shown} and ${paths.length - 3} more` : shown
@@ -213,7 +208,7 @@ export async function cleanupAgentWorktrees(
       !worktree.bare &&
       worktree.branch?.startsWith(AGENT_BRANCH_PREFIX) === true &&
       repoRootFromWorktreePath(worktree.path) !== null &&
-      !isInside(root, worktree.path) &&
+      !pathInside(root, worktree.path) &&
       !pool?.ownsPath(worktree.path),
   )
 

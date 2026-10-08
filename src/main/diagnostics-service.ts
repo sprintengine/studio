@@ -40,3 +40,24 @@ export async function writeDiagnosticLog(input: DiagnosticLogInput): Promise<Dia
   await appendFile(logPath, `${JSON.stringify(entry)}\n`, 'utf-8')
   return entry
 }
+
+/**
+ * A `log(line)` for a service that narrates what it does (the worktree pool,
+ * the dependency installer): each line goes to the console, as it did, and
+ * into the diagnostics log under `title`, where a person reporting a problem
+ * can find it after the console is gone. The returned promise settles once
+ * the line is written; a line that cannot be written has nowhere else to go,
+ * and is dropped.
+ */
+export function diagnosticLogger(
+  title: string,
+  level: DiagnosticLogInput['level'] = 'info',
+): (line: string) => Promise<void> {
+  return (line) => {
+    console.info(`[${title}] ${line}`)
+    return writeDiagnosticLog({ level, source: 'workspace', title, message: line }).then(
+      () => undefined,
+      () => undefined,
+    )
+  }
+}

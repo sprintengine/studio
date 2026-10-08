@@ -19,6 +19,7 @@ import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
 import { createDesktopSsh, type DesktopSsh } from './environments/ssh/desktop-ssh'
 import { isMachinePath } from '../shared/machine-paths'
 import { workspaceProjectRootOf } from '../shared/worktree-paths'
+import { dependencyInstallSettingFor } from '../shared/ipc/worktree-pool'
 import type { WorkspaceEnvironmentRef } from '../renderer/src/types/workspace'
 import { sessionSshPreview } from './environments/ssh/ssh-preview'
 import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../server/wsl/wsl-tool-relay'
@@ -167,7 +168,7 @@ import { sendSplashProgress, showUpdateProgressWindow } from './splash-window'
 import { GitHubTokenStore } from './github-token-store'
 import { installSharedCredentialStore } from './secret-store'
 import { createWorkspaceBackupService } from './workspace-backup'
-import { writeDiagnosticLog } from './diagnostics-service'
+import { diagnosticLogger, writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
 import { declaredPermissionPresets } from './plugin-render'
 import { createStudioPluginService } from './studio-plugin-service'
@@ -1405,14 +1406,23 @@ export function createAppServices(
   // worktree cleanup hands back the slots nothing uses. It does nothing on its
   // own: reading its records is all that happens here, and a pool recovers
   // from an interrupted run the first time it is used.
+  // Where live work sits, for the pool and the agent worktree cleanup alike:
+  // every live terminal, the checkout it observes, and the folder of every chat
+  // whose provider session is working now. One list, so neither recycles a
+  // folder the other would have kept.
+  const liveWorkPaths = async (): Promise<string[]> => [
+    ...listLiveTerminalSessions().flatMap((session) =>
+      [session.cwd, session.observedCheckout?.cwd, session.observedCheckout?.gitRoot].filter(
+        (path): path is string => typeof path === 'string' && path.length > 0,
+      ),
+    ),
+    ...(await conversations.liveConversationWorkspaceRoots().catch(() => [])),
+  ]
   const worktreePool = createWorktreePoolService({
     store: createPoolStore(app.getPath('userData')),
-    livePaths: () =>
-      listLiveTerminalSessions().flatMap((session) =>
-        [session.cwd, session.observedCheckout?.cwd].filter(
-          (path): path is string => typeof path === 'string' && path.length > 0,
-        ),
-      ),
+    livePaths: liveWorkPaths,
+    // Recovery, holds and evictions are what a person asks about later.
+    log: diagnosticLogger('worktree-pool'),
     onChange: broadcastWorktreePoolChanged,
     seedIncludedFiles: seedWorktreeIncludedFiles,
     // Settled chats included: a slot holding a chat's history is never removed.
@@ -1429,6 +1439,7 @@ export function createAppServices(
   const dependencyInstaller = createDependencyInstaller({
     env: () => dependencyInstallEnv.read(),
     forgetEnv: () => dependencyInstallEnv.forget(),
+    log: diagnosticLogger('worktree-install'),
     onChange: (view) => broadcastToWorkspaceWindows(WORKTREE_INSTALL_CHANGED_CHANNEL, view),
   })
   installDependencyInstaller(dependencyInstaller)
@@ -1438,6 +1449,12 @@ export function createAppServices(
     pool: worktreePool,
     findWorkspace: (workspaceId) =>
       workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ?? null,
+    // The install a chat's own leased worktree gets, when the project opted in.
+    installDependencies: async (request) =>
+      dependencyInstaller.prepare({
+        ...request,
+        setting: dependencyInstallSettingFor(await worktreePool.getSettings(), request.repoRoot),
+      }),
   })
 
   const canvasSubscribers = createCanvasSubscriberRegistry()
@@ -2096,6 +2113,7 @@ export function createAppServices(
     canvasService,
     canvasSubscribers,
     worktreePool,
+    liveWorkPaths,
     dependencyInstaller,
     automationService,
     studioRpcService,

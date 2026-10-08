@@ -544,7 +544,20 @@ export default function WorktreeManager({
     })
   }
 
+  // Asked first, in the words Settings ▸ Worktrees uses for the same removal.
   const handlePoolEvict = async (slot: WorktreePoolSlotView) => {
+    const confirmed = await dialog.confirm({
+      title: `Remove ${slot.id}?`,
+      body: (
+        <p>
+          Deletes the folder. It has no uncommitted changes. The next chat gets a new worktree, with no dependencies
+          installed.
+        </p>
+      ),
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    })
+    if (!confirmed) return
     await runWorktreeAction('Removing the pooled worktree', async () => {
       const result = await window.api.worktreePoolAction({ kind: 'evict', repoRoot, slotId: slot.id })
       setMessage(
@@ -804,7 +817,7 @@ export default function WorktreeManager({
                           { kind: 'separator' as const, id: 'pool-sep' },
                           {
                             id: 'pool-evict',
-                            label: 'Remove from the worktree pool',
+                            label: 'Remove from the worktree pool…',
                             destructive: true,
                             onSelect: () => void handlePoolEvict(poolSlot),
                             disabled: formDisabled,

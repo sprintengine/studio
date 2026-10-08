@@ -9,11 +9,12 @@ import { afterAll, beforeAll, beforeEach, test } from 'vitest'
 import { cleanupAgentWorktrees } from '../agent-worktree-cleanup'
 import { setAgentWorktreeLockProfile } from '../agent-worktree-lock'
 import { createGitWorktree, restoreGitWorktree } from '../git'
+import { listGitWorktrees } from '../git-worktree-list'
 import { installWorktreePool } from './active-pool'
 import { createDependencyInstaller, DEPENDENCY_INSTALL_RECORD, installDependencyInstaller } from './dependency-install'
 import { acquireInstanceLock, createPoolStore, POOL_RECORD_VERSION, poolIdFor, type PoolRecord } from './pool-store'
 import { agentLeaseKey } from '../../shared/ipc/worktree-pool'
-import { parseSlotStatus } from './slot-git'
+import { defaultSlotGitRunner, parseSlotStatus, type SlotGitRunner } from './slot-git'
 import type { MeasureDiskUsage } from './disk-usage'
 import { createWorktreeInventory } from './worktree-inventory'
 import { createWorktreePoolService } from './worktree-pool-service'
@@ -73,12 +74,16 @@ function makeService(
     instanceId?: string
     measure?: MeasureDiskUsage
     knownWorkspaceIds?: () => Iterable<string> | null
+    git?: SlotGitRunner
+    fetchBackoffMs?: number
   } = {},
 ) {
   const live = options.live ?? []
   const clock = { offset: 0 }
   const service = createWorktreePoolService({
     store: createPoolStore(userData),
+    ...(options.git ? { git: options.git } : {}),
+    ...(options.fetchBackoffMs !== undefined ? { fetchBackoffMs: options.fetchBackoffMs } : {}),
     livePaths: () => live,
     log: process.env.POOL_TEST_LOG ? (line) => console.log(line) : () => {},
     timers: false,
@@ -357,6 +362,20 @@ test('a lease passes over an idle slot a terminal sits in and makes a new one', 
   const second = await lease(harness, 'second')
   assert.notEqual(second.path, first.path)
   assert.equal(second.created, true)
+  assert.equal((await slotAt(harness, 'pool-01')).state, 'idle', 'left as it was')
+})
+
+test('a chat or terminal reached through a symlink still keeps its idle slot from being reset', async () => {
+  const live: string[] = []
+  const harness = makeService({ live })
+  const first = await lease(harness, 'first')
+  await returnAll(harness)
+  // The container opened through a link, as a chat that recorded `~/code/…` would.
+  const link = join(caseDir, 'linked-worktrees')
+  await symlink(container, link)
+  live.push(join(link, basename(first.path), 'src'))
+  const second = await lease(harness, 'second')
+  assert.notEqual(second.path, first.path)
   assert.equal((await slotAt(harness, 'pool-01')).state, 'idle', 'left as it was')
 })
 
@@ -644,6 +663,47 @@ test('quitting waits for a lease in flight before giving the pool’s lock up', 
   await pending
 })
 
+test('measuring takes no pool’s lock: a pool this run has not used keeps its stored sizes', async () => {
+  const first = makeService({ measure: fakeMeasure(GB) })
+  await lease(first, 'first')
+  await first.service.measure()
+  await first.service.shutdown()
+  assert.equal(await exists(join(container, '.pool.lock')), false)
+
+  // The next start opens Settings ▸ Worktrees before any lease.
+  let measured = 0
+  const next = makeService({
+    instanceId: 'next-start',
+    measure: async (path) => {
+      measured += 1
+      return fakeMeasure(2 * GB)(path)
+    },
+  })
+  await next.service.measure()
+  assert.equal(measured, 0)
+  assert.equal(await exists(join(container, '.pool.lock')), false, 'the container is left to whoever uses it')
+  assert.equal((await slotAt(next, 'pool-01')).size?.bytes, GB, 'the stored size is shown')
+})
+
+test('a measurement is not announced to the windows; a lease is', async () => {
+  let changes = 0
+  const service = createWorktreePoolService({
+    store: createPoolStore(userData),
+    log: () => {},
+    timers: false,
+    fetchFreshMs: 0,
+    measure: fakeMeasure(GB),
+    onChange: () => (changes += 1),
+  })
+  const leased = await service.lease({ repoRoot: repo, name: 'announced' })
+  assert.equal(leased.ok, true)
+  assert.ok(changes > 0)
+  const before = changes
+  await service.measure()
+  assert.equal(changes, before, 'sizes alone fire no change')
+  assert.equal((await service.snapshot(repo))?.slots[0].size?.bytes, GB)
+})
+
 test('quitting stops a disk measurement part-way, and a short wait is not stretched by a step that hangs', async () => {
   let started = 0
   let aborted = false
@@ -714,13 +774,21 @@ test('a second Studio holding the container gets no slot; a dead holder is taken
 
 test('a slot deleted from outside is forgotten and pruned, never leased', async () => {
   const harness = makeService()
+  // A person's own worktree whose folder is missing (on a volume not mounted
+  // now) is theirs: forgetting the slot must not prune it too.
+  const own = join(caseDir, 'elsewhere', 'mine')
+  await git(repo, 'worktree', 'add', '-q', '--detach', own)
+  await rm(own, { recursive: true, force: true })
   const first = await lease(harness, 'first')
   await returnAll(harness)
   await rm(first.path, { recursive: true, force: true })
   const second = await lease(harness, 'second')
   assert.equal(second.created, true)
   assert.equal((await snapshot(harness)).slots.length, 1)
-  assert.doesNotMatch(await git(repo, 'worktree', 'list', '--porcelain'), /prunable/)
+  const listed = await git(repo, 'worktree', 'list', '--porcelain')
+  // The new slot took the old one's name; the old registration is gone.
+  assert.equal(listed.split(`${basename(first.path)}\n`).length - 1, 1)
+  assert.match(listed, /elsewhere\/mine\n/, 'the person’s missing worktree is still registered')
 })
 
 test('recovery removes a half-made slot, returns an interrupted lease, and resumes its own reset', async () => {
@@ -910,9 +978,153 @@ test('createGitWorktree with fromPool leases from the installed pool, and withou
   assert.equal(pooled.data.branch, 'agent/pooled')
   assert.equal(pooled.data.baseRef, 'origin/main')
   assert.ok(pooled.data.leaseId)
+  // Built from the lease, with no listing read back, and as git would list it.
+  const listed = await listGitWorktrees(repo)
+  const asListed = listed.ok ? listed.data.worktrees.find((worktree) => worktree.path === pooled.data.path) : null
+  assert.ok(asListed, 'git lists the slot at the path the lease gave')
+  const { baseRef: _baseRef, leaseId: _leaseId, dependencyInstall: _install, ...entry } = pooled.data
+  assert.deepEqual(entry, asListed)
 
   const taken = await createGitWorktree(input('pooled'))
   assert.equal(taken.ok, false, 'an existing branch is reported, not papered over with a fresh worktree')
+})
+
+test('a pool that throws on a lease is a pool declining: createGitWorktree makes a fresh worktree', async () => {
+  const throwing = {
+    lease: () => Promise.reject(new Error('record not writable')),
+  } as unknown as Parameters<typeof installWorktreePool>[0]
+  installWorktreePool(throwing)
+  const created = await createGitWorktree({
+    repoRoot: repo,
+    containerPath: container,
+    destinationPath: join(container, 'fallback'),
+    branchName: 'agent/fallback',
+    baseRef: 'HEAD',
+    fromPool: true,
+  })
+  assert.equal(created.ok, true, created.ok ? '' : created.message)
+  if (!created.ok) return
+  assert.equal(created.data.path.endsWith('fallback'), true)
+  assert.equal(created.data.leaseId, null)
+})
+
+test('after a failed fetch, leases fork from the ref as it stands without trying again until the backoff ends', async () => {
+  // Offline: the remote is unreachable.
+  await git(repo, 'remote', 'set-url', 'origin', join(caseDir, 'gone.git'))
+  const before = await git(repo, 'rev-parse', 'origin/main')
+  let fetches = 0
+  const counting: SlotGitRunner = (cwd, args, options) => {
+    if (args[0] === 'fetch') fetches += 1
+    return defaultSlotGitRunner(cwd, args, options)
+  }
+  const harness = makeService({ git: counting, fetchBackoffMs: HOUR })
+  const first = await lease(harness, 'offline-one')
+  assert.equal(fetches, 1)
+  assert.equal(first.baseSha, before)
+  assert.match(first.baseNote ?? '', /could not be fetched/)
+  const second = await lease(harness, 'offline-two')
+  assert.equal(fetches, 1, 'no second wait on a remote that just failed')
+  assert.match(second.baseNote ?? '', /was not fetched/)
+  // Past the backoff it is tried again, and once it works the note goes.
+  await git(repo, 'remote', 'set-url', 'origin', origin)
+  harness.clock.offset += 2 * HOUR
+  const third = await lease(harness, 'online-again')
+  assert.equal(fetches, 2)
+  assert.equal(third.baseNote, null)
+})
+
+test('a lease’s submodule update and LFS pull run under a deadline, and failing is a note, not a failed lease', async () => {
+  await pushToOrigin('.gitmodules', '')
+  await pushToOrigin('.gitattributes', '*.bin filter=lfs diff=lfs merge=lfs -text\n')
+  const deadlines = new Map<string, number | null | undefined>()
+  const recording: SlotGitRunner = (cwd, args, options) => {
+    if (args[0] === 'submodule' || args[0] === 'lfs') {
+      deadlines.set(args[0], options?.timeoutMs)
+      // As a run past its deadline answers.
+      return Promise.resolve({ ok: false, stdout: '', stderr: '', message: `${args[0]} did not finish` })
+    }
+    return defaultSlotGitRunner(cwd, args, options)
+  }
+  const harness = makeService({ git: recording })
+  const leased = await lease(harness, 'with-modules')
+  assert.ok((deadlines.get('submodule') ?? 0) > 0, 'submodule update has a deadline')
+  assert.ok((deadlines.get('lfs') ?? 0) > 0, 'lfs pull has a deadline')
+  assert.match((await slotAt(harness, leased.slotId)).error ?? '', /submodules: .*; lfs: /)
+})
+
+test('a .worktreeinclude copy that fails is logged and the lease goes ahead', async () => {
+  const lines: string[] = []
+  const answers: Array<() => Promise<unknown>> = [
+    () => Promise.reject(new Error('disk full')),
+    () => Promise.resolve({ ok: false, message: 'source unreadable' }),
+  ]
+  const service = createWorktreePoolService({
+    store: createPoolStore(userData),
+    log: (line) => lines.push(line),
+    timers: false,
+    fetchFreshMs: 0,
+    seedIncludedFiles: () => answers.shift()!(),
+  })
+  for (const name of ['seed-throws', 'seed-fails']) {
+    const leased = await service.lease({ repoRoot: repo, name, copyIncludedFiles: true })
+    assert.equal(leased.ok, true)
+  }
+  assert.ok(lines.some((line) => /could not copy the \.worktreeinclude files \(disk full\)/.test(line)))
+  assert.ok(lines.some((line) => /could not copy the \.worktreeinclude files \(source unreadable\)/.test(line)))
+})
+
+test('a recovery that failed is tried again at the next use, not remembered as done', async () => {
+  let listings = 0
+  const flaky: SlotGitRunner = (cwd, args, options) => {
+    if (args[0] === 'worktree' && args[1] === 'list') {
+      listings += 1
+      if (listings === 1) return Promise.resolve({ ok: false, stdout: '', stderr: '', message: 'volume busy' })
+    }
+    return defaultSlotGitRunner(cwd, args, options)
+  }
+  const harness = makeService({ git: flaky })
+  await lease(harness, 'first')
+  assert.equal(listings, 1)
+  await lease(harness, 'second')
+  assert.equal(listings, 2, 'recovery ran again')
+  await lease(harness, 'third')
+  assert.equal(listings, 2, 'and, once it succeeded, not again')
+})
+
+test('a fresh worktree made because the pool declined forks from the base the pool already fetched', async () => {
+  // A ref only the pool names: the fresh path's own lookup would say origin/main.
+  await git(repo, 'update-ref', 'refs/remotes/origin/pool-base', 'HEAD')
+  const declining = {
+    lease: async () => ({
+      ok: false,
+      reason: 'full',
+      message: 'full',
+      base: { ref: 'origin/pool-base', sha: await git(repo, 'rev-parse', 'HEAD'), note: null },
+    }),
+  } as unknown as Parameters<typeof installWorktreePool>[0]
+  installWorktreePool(declining)
+  const created = await createGitWorktree({
+    repoRoot: repo,
+    containerPath: container,
+    destinationPath: join(container, 'declined'),
+    branchName: 'agent/declined',
+    baseRef: 'HEAD',
+    fromPool: true,
+  })
+  assert.equal(created.ok, true, created.ok ? '' : created.message)
+  if (!created.ok) return
+  assert.equal(created.data.baseRef, 'origin/pool-base')
+})
+
+test('a record that cannot be written fails its caller and nothing else (no unhandled rejection)', async () => {
+  // A file where the store's folder should be: every write fails.
+  await writeFile(join(caseDir, 'not-a-folder'), '')
+  const store = createPoolStore(join(caseDir, 'not-a-folder'))
+  const record = { poolId: '0123456789abcdef', slots: [] } as unknown as PoolRecord
+  await assert.rejects(store.write(record))
+  await assert.rejects(store.writeSettings({} as never))
+  // Give a stray rejection the turn it needs to be reported.
+  await new Promise((resolveWait) => setTimeout(resolveWait, 20))
 })
 
 test('a project that opted in installs in a leased slot once per lockfile, and records it in git’s admin directory', async () => {
@@ -1091,6 +1303,38 @@ test('worktree.lease serves only an agent Studio started, and only that agent ca
   const released = await releaseTool.handler({ path }, agent)
   assert.equal((released.structuredContent as { released: boolean }).released, true)
   assert.equal((await slotAt(harness, 'pool-01')).state, 'idle')
+})
+
+test('worktree.lease runs the project’s opted-in install before answering, and says how it went', async () => {
+  const harness = makeService()
+  const asked: Array<{ repoRoot: string; path: string; branch: string }> = []
+  const tools = createWorktreePoolTools({
+    pool: harness.service,
+    findWorkspace: () => ({ folderPath: repo }),
+    installDependencies: async (request) => {
+      asked.push(request)
+      return {
+        id: 'i1',
+        repoRoot: request.repoRoot,
+        path: request.path,
+        branch: request.branch,
+        command: 'npm ci',
+        reason: 'first',
+        state: 'succeeded',
+        startedAt: 0,
+        endedAt: 1,
+        lastLine: null,
+        output: null,
+        exitCode: 0,
+      }
+    },
+  })
+  const agent = { metadata: { kind: 'studio-agent' as const, workspaceId: 'ws-1', agentId: 'agent-1' } }
+  const leased = await tools[0].handler({ name: 'with-install' }, agent)
+  const answer = leased.structuredContent as { path: string; branch: string; dependencies: string }
+  assert.deepEqual(asked, [{ repoRoot: await realpath(repo), path: answer.path, branch: 'agent/with-install' }])
+  assert.match(answer.dependencies, /npm ci` succeeded/)
+  assert.doesNotMatch(tools[0].description, /never installs/)
 })
 
 test('slot status parsing reads branch, commit and every kind of change', () => {

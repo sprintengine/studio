@@ -399,3 +399,101 @@ test('a running dependency install shows on its worktree’s row, and Cancel sto
   expect(rowNamed('pool-01')?.textContent).not.toContain('installing dependencies')
   expect(rowNamed('pool-01')?.textContent).toContain('Open chat')
 })
+
+test('while a measurement runs, pool changes start no reads; one answered late does not undo a later one', async () => {
+  let poolChanged: (() => void) | null = null
+  let finishMeasure: ((value: WorktreeInventory) => void) | null = null
+  const asked: boolean[] = []
+  const renamed = (name: string): WorktreeInventory => ({
+    ...inventory,
+    projects: inventory.projects.map((project) => ({
+      ...project,
+      worktrees: project.worktrees.map((entry) => ({ ...entry, branch: name })),
+    })),
+  })
+  Object.assign((window as unknown as { api: object }).api, {
+    onWorktreePoolChanged: (cb: () => void) => {
+      poolChanged = cb
+      return () => {}
+    },
+    getWorktreeInventory: (input: WorktreeInventoryInput) => {
+      asked.push(input.measure === true)
+      if (input.measure) return new Promise<WorktreeInventory>((resolve) => (finishMeasure = resolve))
+      return Promise.resolve(renamed(`feat/read-${asked.length}`))
+    },
+  })
+  await render()
+  expect(asked).toEqual([false, true])
+  // The measurement is still running: a change announced now is its to answer.
+  await act(async () => {
+    poolChanged?.()
+    await new Promise((resolve) => setTimeout(resolve, 450))
+  })
+  expect(asked).toEqual([false, true])
+  // A removal reads again, quickly, and its answer lands first…
+  await click(button(rowNamed('pool-03')!, 'Remove'))
+  await click(button(document.body.querySelector<HTMLElement>('[role="dialog"]')!, 'Remove'))
+  expect(asked).toEqual([false, true, false])
+  expect(host.textContent).toContain('feat/read-3')
+  // …so the measurement's older picture is not applied; one more read brings its sizes in.
+  await act(async () => finishMeasure?.(renamed('feat/stale')))
+  expect(host.textContent).not.toContain('feat/stale')
+  expect(asked).toEqual([false, true, false, false])
+})
+
+test('turning reuse off says the ready worktrees go, and nothing changes unless confirmed', async () => {
+  const saved: unknown[] = []
+  Object.assign((window as unknown as { api: object }).api, {
+    setWorktreePoolSettings: async (patch: object) => {
+      saved.push(patch)
+      return { enabled: true, keepIdle: 3, maxSlots: 12, diskLimitGb: 30, ...patch }
+    },
+  })
+  await render()
+  const toggle = host.querySelector<HTMLElement>('[role="switch"]')!
+  await click(toggle)
+  let dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')
+  expect(dialog?.textContent).toContain('Stop reusing worktrees?')
+  expect(dialog?.textContent).toContain('The 2 ready worktrees are removed now')
+  await click(button(dialog!, 'Cancel'))
+  expect(saved).toEqual([])
+  await click(toggle)
+  dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')
+  await click(button(dialog!, 'Turn off and remove'))
+  expect(saved).toEqual([{ enabled: false }])
+})
+
+test('settings that cannot be read are said so, not shown as saved defaults', async () => {
+  Object.assign((window as unknown as { api: object }).api, {
+    getWorktreePoolSettings: () => Promise.reject(new Error('settings file unreadable')),
+  })
+  await render()
+  expect(host.textContent).toContain("Could not read the pool's settings: settings file unreadable")
+})
+
+test('an empty category reads 0 KB in the legend and the bar’s label, not 1 KB', async () => {
+  const onlyInUse: WorktreeInventory = {
+    ...inventory,
+    projects: inventory.projects.map((project) => ({
+      ...project,
+      pool: project.pool ? { ...project.pool, slots: project.pool.slots.slice(0, 1) } : null,
+      worktrees: [],
+    })),
+  }
+  Object.assign(window.api, { getWorktreeInventory: async () => onlyInUse })
+  await render()
+  expect(host.textContent).toContain('Holding work 0 KB')
+  expect(host.textContent).not.toContain('1 KB')
+  expect(host.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('Ready to reuse 0 KB')
+})
+
+test('the overview reflows with the page’s width, each label on one line beside its swatch', async () => {
+  await render()
+  const overview = host.querySelector<HTMLElement>('[aria-label="Overview"]')!
+  expect(overview.parentElement?.className).toContain('@container')
+  expect(overview.className).toContain('grid-cols-2')
+  for (const label of ['Ready to reuse', 'Holding work']) {
+    const span = [...overview.querySelectorAll('span')].find((candidate) => candidate.textContent === label)
+    expect(span?.className).toContain('truncate')
+  }
+})

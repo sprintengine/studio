@@ -128,6 +128,14 @@ export function WorktreesSettingsTab({
   // Dependency installs running in leased worktrees, by worktree; shown on its row with Cancel.
   const [installs, setInstalls] = useState<ReadonlyMap<string, WorktreeDependencyInstallView>>(new Map())
   const mounted = useRef(true)
+  // Each read is numbered, and an answer older than one already applied is
+  // dropped: a slow read answered after a quicker, later one would otherwise
+  // put an older picture back.
+  const latestRead = useRef(0)
+  const appliedRead = useRef(0)
+  // Measurements in flight. Their answer reads the pools after measuring, so
+  // a change announced meanwhile needs no read of its own.
+  const measuringNow = useRef(0)
 
   const read = useCallback(async (measure: boolean) => {
     if (!hasApi()) return
@@ -135,17 +143,31 @@ export function WorktreesSettingsTab({
     // subscribed to: a background agent's write elsewhere must not re-read
     // every worktree.
     const repoRoots = inventoryRootsOf(useWorkspaceStore.getState().workspaces)
-    if (measure) setMeasuring(true)
+    const sequence = ++latestRead.current
+    if (measure) {
+      measuringNow.current += 1
+      setMeasuring(true)
+    }
     try {
       const next = await window.api.getWorktreeInventory({ repoRoots, measure })
       if (!mounted.current) return
+      if (sequence < appliedRead.current) {
+        // A measurement overtaken by a quicker read: its sizes are kept in
+        // main now, and one more quick read brings them in.
+        if (measure) void read(false)
+        return
+      }
+      appliedRead.current = sequence
       setInventory(next)
       setLoadError(null)
       setNow(Date.now())
     } catch (error) {
-      if (mounted.current) setLoadError(error instanceof Error ? error.message : String(error))
+      if (mounted.current && sequence >= appliedRead.current) {
+        setLoadError(error instanceof Error ? error.message : String(error))
+      }
     } finally {
-      if (measure && mounted.current) setMeasuring(false)
+      if (measure) measuringNow.current -= 1
+      if (measure && mounted.current && measuringNow.current === 0) setMeasuring(false)
     }
   }, [])
 
@@ -156,9 +178,19 @@ export function WorktreesSettingsTab({
     void window.api
       ?.getWorktreePoolSettings?.()
       .then((value) => mounted.current && setSettings(value))
-      .catch(() => {})
+      // The controls below would otherwise show the defaults as if they were saved.
+      .catch(
+        (error: unknown) =>
+          mounted.current &&
+          setResult({
+            tone: 'error',
+            text: `Could not read the pool's settings: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+      )
     let timer: ReturnType<typeof setTimeout> | null = null
     const unsubscribe = window.api?.onWorktreePoolChanged?.(() => {
+      // A measurement under way answers with the pools as they are after it.
+      if (measuringNow.current > 0) return
       // A lease or a return moves several records in a row; one re-read covers them.
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => void read(false), 400)
@@ -180,7 +212,9 @@ export function WorktreesSettingsTab({
       .then((views) => {
         if (live) setInstalls((current) => views.reduce(applyInstallChange, current))
       })
-      .catch(() => {})
+      // Installs still show as they start and end (the subscription above);
+      // only one already running when the page opened is missed.
+      .catch((error: unknown) => console.warn('[worktrees] could not list the running installs', error))
     return () => {
       live = false
       unsubscribe?.()
@@ -208,6 +242,28 @@ export function WorktreesSettingsTab({
     } catch (error) {
       setResult({ tone: 'error', text: error instanceof Error ? error.message : String(error) })
     }
+  }
+
+  // Off means no idle slot is kept (the pool's limit drops to none), so every
+  // ready worktree is removed at once: said, and asked, before it happens.
+  const setPoolEnabled = async (enabled: boolean) => {
+    if (!enabled && totals.ready > 0) {
+      const confirmed = await dialog.confirm({
+        title: 'Stop reusing worktrees?',
+        body: (
+          <p>
+            The {totals.ready} ready worktree{totals.ready === 1 ? ' is' : 's are'} removed now
+            {totals.bytes.ready ? `, freeing up to ${formatBytes(totals.bytes.ready)}` : ''}, except any holding a
+            chat&apos;s history or files that may be someone&apos;s work. Worktrees in use or holding changes stay. New
+            chats get a fresh worktree, with no dependencies installed.
+          </p>
+        ),
+        confirmLabel: 'Turn off and remove',
+        tone: 'danger',
+      })
+      if (!confirmed) return
+    }
+    await updateSettings({ enabled })
   }
 
   const updateInstall = (repoRoot: string, setting: WorktreeDependencyInstallSetting) =>
@@ -487,41 +543,45 @@ export function WorktreesSettingsTab({
       <ActionResultMessage message={result} className="mb-4" />
 
       <SettingCard className="mb-6 px-4 py-4">
-        <div className="grid grid-cols-5 gap-4" aria-label="Overview">
-          <Stat
-            label="Worktrees"
-            value={String(totals.count)}
-            sub={`in ${projects.length} project${projects.length === 1 ? '' : 's'}`}
-          />
-          <Stat
-            label="In use"
-            swatch={USAGE_SEGMENTS[0].color}
-            value={String(totals.inUse)}
-            sub={
-              totals.chats
-                ? `by ${totals.chats} chat${totals.chats === 1 ? '' : 's'}`
-                : totals.inUse
-                  ? 'by chats and agents'
-                  : 'none right now'
-            }
-          />
-          <Stat
-            label="Ready to reuse"
-            swatch={USAGE_SEGMENTS[1].color}
-            value={String(totals.ready)}
-            sub="kept for reuse"
-          />
-          <Stat
-            label="Holding work"
-            swatch={USAGE_SEGMENTS[2].color}
-            value={String(totals.held)}
-            sub={totals.held ? 'needs you' : 'nothing waiting'}
-          />
-          <Stat
-            label="On disk"
-            value={totals.bytes.all ? formatBytes(totals.bytes.all) : '—'}
-            sub={settings.diskLimitGb !== null ? `pool limit ${settings.diskLimitGb} GB` : 'no pool limit'}
-          />
+        {/* Reflows with the page's own width, not the window's: five across only where
+            every label fits on its line. */}
+        <div className="@container">
+          <div className="grid grid-cols-2 gap-4 @[480px]:grid-cols-3 @[720px]:grid-cols-5" aria-label="Overview">
+            <Stat
+              label="Worktrees"
+              value={String(totals.count)}
+              sub={`in ${projects.length} project${projects.length === 1 ? '' : 's'}`}
+            />
+            <Stat
+              label="In use"
+              swatch={USAGE_SEGMENTS[0].color}
+              value={String(totals.inUse)}
+              sub={
+                totals.chats
+                  ? `by ${totals.chats} chat${totals.chats === 1 ? '' : 's'}`
+                  : totals.inUse
+                    ? 'by chats and agents'
+                    : 'none right now'
+              }
+            />
+            <Stat
+              label="Ready to reuse"
+              swatch={USAGE_SEGMENTS[1].color}
+              value={String(totals.ready)}
+              sub="kept for reuse"
+            />
+            <Stat
+              label="Holding work"
+              swatch={USAGE_SEGMENTS[2].color}
+              value={String(totals.held)}
+              sub={totals.held ? 'needs you' : 'nothing waiting'}
+            />
+            <Stat
+              label="On disk"
+              value={totals.bytes.all ? formatBytes(totals.bytes.all) : '—'}
+              sub={settings.diskLimitGb !== null ? `pool limit ${settings.diskLimitGb} GB` : 'no pool limit'}
+            />
+          </div>
         </div>
         <div
           className="mt-4 flex h-2 overflow-hidden rounded-full bg-[color:var(--bg-well)]"
@@ -561,9 +621,9 @@ export function WorktreesSettingsTab({
       <SettingCard className="mb-6">
         <SettingToggle
           label="Reuse worktrees for new chats"
-          description="A new chat or an agent's worktree comes from the pool instead of a fresh checkout, reset to the default branch as fetched at that moment. Its ignored files (node_modules, build output) are kept, so installs are faster."
+          description="A new chat or an agent's worktree comes from the pool instead of a fresh checkout, reset to the default branch as fetched at that moment. Its ignored files (node_modules, build output) are kept, so installs are faster. Turning it off removes every ready worktree; ones in use or holding work stay."
           enabled={settings.enabled}
-          onChange={(enabled) => void updateSettings({ enabled })}
+          onChange={(enabled) => void setPoolEnabled(enabled)}
         />
         <SettingRow
           label="Ready worktrees to keep"
@@ -717,16 +777,22 @@ export function WorktreesSettingsTab({
 
 function Swatch({ color }: { color: string }) {
   return (
-    <span aria-hidden className="inline-block size-2 rounded-[var(--radius-chip)]" style={{ backgroundColor: color }} />
+    <span
+      aria-hidden
+      className="inline-block size-2 shrink-0 rounded-[var(--radius-chip)]"
+      style={{ backgroundColor: color }}
+    />
   )
 }
 
 function Stat({ label, value, sub, swatch }: { label: string; value: string; sub: string; swatch?: string }) {
   return (
     <div className="min-w-0">
-      <div className="flex items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
+      {/* One line, so the swatch sits beside the label and every value below
+          stays level with its neighbours'. */}
+      <div className="flex min-w-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
         {swatch ? <Swatch color={swatch} /> : null}
-        {label}
+        <span className="truncate">{label}</span>
       </div>
       <div className="mt-1 text-title font-semibold tabular-nums text-[color:var(--text-strong)]">{value}</div>
       <div className="truncate text-meta text-[color:var(--text-subtle)]">{sub}</div>

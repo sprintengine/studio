@@ -171,7 +171,7 @@ async function readRecord(recordPath: string | null): Promise<InstallRecord | nu
  * what it installed — a JavaScript project with neither `node_modules` nor
  * Yarn's Plug'n'Play map.
  */
-export async function planDependencyInstall(input: {
+async function planDependencyInstall(input: {
   worktreePath: string
   setting: WorktreeDependencyInstallSetting | null
   recordPath: string | null
@@ -227,7 +227,7 @@ export async function planDependencyInstall(input: {
  * ABI does not load in another), the registry and manager configuration
  * beside the lockfile, and `patches/`. A change to any of them installs again.
  */
-export async function installFingerprint(input: {
+async function installFingerprint(input: {
   worktreePath: string
   files: ReadonlySet<string>
   command: string
@@ -282,7 +282,7 @@ async function hashPatches(dir: string, hash: Hash): Promise<void> {
  * so a version manager's node is the one asked. Null when there is none, or it
  * does not answer in time.
  */
-export function readNodeVersion(env: NodeJS.ProcessEnv): Promise<string | null> {
+function readNodeVersion(env: NodeJS.ProcessEnv): Promise<string | null> {
   return new Promise((done) => {
     execFile(
       'node',

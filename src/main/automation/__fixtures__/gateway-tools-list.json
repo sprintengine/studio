@@ -266,7 +266,7 @@
     },
     {
       "name": "worktree.lease",
-      "sha256": "74aaae965b55687db134c913a61d66ce89f1e922cdc222e0385eb473a0f47333"
+      "sha256": "cb80ba5b3e97b0b15e7c55d877d6e59e89ddf9a78248c7b46807e4b56724d6e8"
     },
     {
       "name": "worktree.release",
@@ -572,7 +572,7 @@
     },
     {
       "name": "worktree.lease",
-      "sha256": "74aaae965b55687db134c913a61d66ce89f1e922cdc222e0385eb473a0f47333"
+      "sha256": "cb80ba5b3e97b0b15e7c55d877d6e59e89ddf9a78248c7b46807e4b56724d6e8"
     },
     {
       "name": "worktree.release",

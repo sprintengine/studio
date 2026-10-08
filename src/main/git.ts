@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'path'
-import { lockAgentWorktree, relockWorktree, unlockWorktree } from './agent-worktree-lock'
+import { agentWorktreeLockOwner, lockAgentWorktree, relockWorktree, unlockWorktree } from './agent-worktree-lock'
 import { excludeFromWorktree } from './integrations/worktree-exclude'
 import { cloneTree } from './clone-tree'
 import {
@@ -18,6 +18,7 @@ import { listGitWorktrees } from './git-worktree-list'
 import { activeWorktreePool } from './worktree-pool/active-pool'
 import { activeDependencyInstaller } from './worktree-pool/dependency-install'
 import { defaultSlotGitRunner, resolveAgentForkBase } from './worktree-pool/slot-git'
+import type { WorktreePoolLeaseResult } from './worktree-pool/worktree-pool-service'
 import { withWorktreeRegistryLock } from './worktree-registry-lock'
 import { repoRootFromWorktreePath, WORKTREE_CONTAINER_DIR, worktreeContainerPath } from '../shared/worktree-paths'
 import { dependencyInstallSettingFor, type WorktreeDependencyInstallView } from '../shared/ipc/worktree-pool'
@@ -527,45 +528,65 @@ async function createAgentWorktreeFromPool(
   input: GitWorktreeCreateInput,
 ): Promise<GitWorktreeOperationResult<GitWorktreeCreated>> {
   const pool = activeWorktreePool()
+  // The base the pool already fetched for this very request, when it then
+  // declined: the fresh worktree forks from it rather than fetching again.
+  let poolBaseRef: string | null = null
   if (pool) {
-    const leased = await pool.lease({
-      repoRoot: input.repoRoot,
-      name: input.branchName.slice('agent/'.length),
-      owner: input.agentLockOwner ?? null,
-      hostId: input.hostId ?? null,
-      copyIncludedFiles: input.copyIncludedFiles === true,
-    })
+    // A pool that throws (a record it could not write, a git it could not
+    // start) is a pool declining like any other: the fresh worktree below is
+    // what the chat gets.
+    const leased = await pool
+      .lease({
+        repoRoot: input.repoRoot,
+        name: input.branchName.slice('agent/'.length),
+        owner: input.agentLockOwner ?? null,
+        hostId: input.hostId ?? null,
+        copyIncludedFiles: input.copyIncludedFiles === true,
+      })
+      .catch((error: unknown): WorktreePoolLeaseResult => ({
+        ok: false,
+        reason: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      }))
     if (leased.ok) {
-      const listed = await listGitWorktrees(leased.path)
-      const entry = listed.ok
-        ? listed.data.worktrees.find(
-            (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(leased.path),
-          )
-        : undefined
-      if (entry) {
-        return {
-          ok: true,
-          data: await withDependencyInstall(
-            { ...entry, baseRef: leased.baseRef, leaseId: leased.leaseId },
-            leased.repoRoot,
-            input,
-          ),
-          message: null,
-        }
+      // The entry is what the lease just made, not a listing read back: the
+      // slot's path is git's own spelling, and a listing that failed now would
+      // only send the chat to a fresh worktree on a branch the slot already has.
+      const agentLock = agentWorktreeLockOwner(leased.lockReason)
+      const entry: GitWorktreeEntry = {
+        path: leased.path,
+        head: leased.baseSha,
+        branch: leased.branch,
+        branchRef: `refs/heads/${leased.branch}`,
+        detached: false,
+        bare: false,
+        locked: leased.lockReason !== null,
+        lockedReason: leased.lockReason,
+        ...(agentLock ? { agentLock } : {}),
+        prunable: false,
+        prunableReason: null,
       }
-      // Leased, yet git does not list it: give it straight back rather than
-      // hand out a path nobody can account for.
-      await pool.release(leased.leaseId)
-      console.warn(`[git] pool worktree ${leased.path} is not listed by git; creating a fresh worktree`)
+      return {
+        ok: true,
+        data: await withDependencyInstall(
+          { ...entry, baseRef: leased.baseRef, leaseId: leased.leaseId },
+          leased.repoRoot,
+          input,
+        ),
+        message: null,
+      }
     } else if (leased.reason === 'branch-exists' || leased.reason === 'invalid-name') {
       return { ok: false, message: leased.message }
-    } else if (leased.reason !== 'disabled' && leased.reason !== 'unsupported') {
-      console.info(`[git] worktree pool declined (${leased.reason}: ${leased.message}); creating a fresh worktree`)
+    } else {
+      if (leased.reason !== 'disabled' && leased.reason !== 'unsupported') {
+        console.info(`[git] worktree pool declined (${leased.reason}: ${leased.message}); creating a fresh worktree`)
+      }
+      poolBaseRef = leased.base?.ref ?? null
     }
   }
   const root = await resolveRepoRoot(input.repoRoot)
   if (!root.ok) return root
-  const forkBase = await resolveAgentForkBase(defaultSlotGitRunner, root.data)
+  const forkBase = poolBaseRef ?? (await resolveAgentForkBase(defaultSlotGitRunner, root.data))
   const created = await createGitWorktree({ ...input, fromPool: false, baseRef: forkBase ?? input.baseRef })
   return created.ok ? { ...created, data: await withDependencyInstall(created.data, root.data, input) } : created
 }
