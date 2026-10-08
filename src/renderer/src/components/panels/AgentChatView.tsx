@@ -1538,7 +1538,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // would carry them: beside the words, drawn as cards in its first bubble.
   const startupFiles = agent?.chatStartupFiles
   const startupTakesImages =
-    readiness.kind === 'ready' && capabilities?.images === true && transport.capabilities.composerContext
+    readiness.kind === 'ready' && capabilities?.images === true && transport.capabilities.imageAttachments
   const startupHandledRef = useRef(false)
   // A New chat still waiting on its worktree holds the message (it has no
   // root, so no history to hydrate); one whose worktree could not be made
@@ -2311,10 +2311,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const assistantName = supportsTools
     ? (session?.displayName ?? providerEntry?.displayName ?? currentModelLabel)
     : currentModelLabel
-  // Image attach (D3/1774) is offered only where a provider actually reads the
-  // turn's attachments, and only once the session can take a turn — a control
-  // that stages images no one will receive is worse than no control.
-  const imagesEnabled = ready && capabilities?.images === true && transport.capabilities.composerContext
+  // Image attach is offered only where a provider actually reads the turn's
+  // attachments, the transport carries them there, and the session can take a
+  // turn — a control that stages images no one will receive is worse than no
+  // control.
+  const imagesEnabled = ready && capabilities?.images === true && transport.capabilities.imageAttachments
   // Files attached by path are cards only where the agent can read them by
   // that path and the card can open them: a chat on this computer (not a
   // paired machine's, an SSH machine's or a WSL distribution's), in a window

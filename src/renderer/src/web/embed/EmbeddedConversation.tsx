@@ -37,6 +37,7 @@ const READ_ONLY = {
   checkpointRevert: false,
   modelSwitch: false,
   composerContext: false,
+  imageAttachments: false,
   localHistory: false,
   localFiles: false,
   optimisticTurns: false,
