@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type JSX } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitStatus } from '../../hooks/useGitStatus'
 import { getGitScopeStatusAppearance, getGitStatusAppearance } from '../../utils/gitStatusAppearance'
@@ -361,8 +361,14 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const [graph, setGraph] = useState<GitGraphState>({ status: 'loading' })
   const [loadingMoreGraph, setLoadingMoreGraph] = useState(false)
   const [message, setMessage] = useState<GitPanelMessage | null>(null)
-  const [commitMessage, setCommitMessage] = useState(() =>
-    initialGitPanelState ? (initialGitPanelState.commitDraftsByScopeId[initialGitPanelState.activeScopeId] ?? '') : '',
+  // Held outside the panel's state: only the composer reads it while it is
+  // typed, so a keystroke re-renders the composer and not the change list.
+  const [commitMessage] = useState(() =>
+    createCommitMessageStore(
+      initialGitPanelState
+        ? (initialGitPanelState.commitDraftsByScopeId[initialGitPanelState.activeScopeId] ?? '')
+        : '',
+    ),
   )
   const [busy, setBusy] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<GitPanelView>(() => initialGitPanelState?.activeView ?? 'changes')
@@ -498,20 +504,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // serialize path (and still fires on a layer switch, which does not unmount).
   // Switching scope flushes the outgoing draft and loads the incoming one so a
   // half-written message never bleeds across worktrees.
-  const commitMessageRef = useRef(commitMessage)
-  commitMessageRef.current = commitMessage
   const draftScopeRef = useRef(activeScopeId)
   const commitDraftTimerRef = useRef<number | null>(null)
   const handleCommitMessageChange = useCallback(
     (text: string) => {
-      setCommitMessage(text)
+      commitMessage.set(text)
       const scopeId = draftScopeRef.current
       if (commitDraftTimerRef.current) window.clearTimeout(commitDraftTimerRef.current)
       commitDraftTimerRef.current = window.setTimeout(() => {
         setGitCommitDraft(workspaceId, scopeId, text)
       }, 400)
     },
-    [workspaceId, setGitCommitDraft],
+    [commitMessage, workspaceId, setGitCommitDraft],
   )
   useEffect(() => {
     if (draftScopeRef.current === activeScopeId) return
@@ -521,20 +525,20 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       window.clearTimeout(commitDraftTimerRef.current)
       commitDraftTimerRef.current = null
     }
-    setGitCommitDraft(workspaceId, draftScopeRef.current, commitMessageRef.current)
+    setGitCommitDraft(workspaceId, draftScopeRef.current, commitMessage.get())
     const incoming =
       useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.gitPanelState?.commitDraftsByScopeId[
         activeScopeId
       ] ?? ''
-    setCommitMessage(incoming)
+    commitMessage.set(incoming)
     draftScopeRef.current = activeScopeId
-  }, [activeScopeId, workspaceId, setGitCommitDraft])
+  }, [activeScopeId, commitMessage, workspaceId, setGitCommitDraft])
   useEffect(() => {
     return () => {
       if (commitDraftTimerRef.current) window.clearTimeout(commitDraftTimerRef.current)
-      setGitCommitDraft(workspaceId, draftScopeRef.current, commitMessageRef.current)
+      setGitCommitDraft(workspaceId, draftScopeRef.current, commitMessage.get())
     }
-  }, [workspaceId, setGitCommitDraft])
+  }, [commitMessage, workspaceId, setGitCommitDraft])
 
   const refreshBranches = useCallback(async () => {
     if (!repoRoot || typeof window.api.getGitBranches !== 'function') {
@@ -730,9 +734,6 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     const standard = named.find((branch) => STANDARD_BASE_BRANCHES.includes(branch.name))
     return standard?.name ?? named[0]?.name ?? null
   }, [branchOptions])
-  // "Checked" is exactly "in the index", and commit is index-only — so the
-  // button is live when the line above it reads more than zero.
-  const readyToCommit = changeCounts.checked > 0 && Boolean(commitMessage.trim())
   const activeScopeLabel = activeScope?.label ?? 'Current checkout'
   const activeScopePath = repoRoot ?? activeRootPath ?? ''
   const activeScopeAppearance = getGitScopeStatusAppearance(activeScope)
@@ -1481,7 +1482,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     if (!repoRoot) return false
     const result = await runAction(
       'Committing',
-      () => window.api.commitGitChanges(repoRoot, commitMessage),
+      () => window.api.commitGitChanges(repoRoot, commitMessage.get()),
       'Committed changes.',
     )
     if (!result?.ok) return false
@@ -1489,7 +1490,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       window.clearTimeout(commitDraftTimerRef.current)
       commitDraftTimerRef.current = null
     }
-    setCommitMessage('')
+    commitMessage.set('')
     clearGitCommitDraft(workspaceId, activeScopeId)
     return true
   }
@@ -2549,7 +2550,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           <CommitComposer
             busy={busy}
             commitMessage={commitMessage}
-            readyToCommit={readyToCommit}
+            hasChecked={changeCounts.checked > 0}
             countsLabel={formatCommitCounts(changeCounts)}
             onCommit={handleCommit}
             onCommitAndPush={handleCommitAndPush}
@@ -2877,10 +2878,34 @@ function StashList({
   )
 }
 
+/** A commit message any component can read, and only its readers re-render for. */
+type CommitMessageStore = {
+  get(): string
+  set(text: string): void
+  subscribe(listener: () => void): () => void
+}
+
+function createCommitMessageStore(initial: string): CommitMessageStore {
+  let text = initial
+  const listeners = new Set<() => void>()
+  return {
+    get: () => text,
+    set(next) {
+      if (next === text) return
+      text = next
+      for (const listener of listeners) listener()
+    },
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+}
+
 function CommitComposer({
   busy,
-  commitMessage,
-  readyToCommit,
+  commitMessage: commitMessageStore,
+  hasChecked,
   countsLabel,
   onCommit,
   onCommitAndPush,
@@ -2891,8 +2916,9 @@ function CommitComposer({
   placeholder,
 }: {
   busy: string | null
-  commitMessage: string
-  readyToCommit: boolean
+  commitMessage: CommitMessageStore
+  /** Whether the index holds anything; with a message, that is a commit. */
+  hasChecked: boolean
   /** `N of M files` — checked of total. The line the mockup's foot carries. */
   countsLabel: string
   onCommit: () => Promise<boolean>
@@ -2906,6 +2932,10 @@ function CommitComposer({
    *  stays "Commit message" — a placeholder is a suggestion, not a label. */
   placeholder?: string
 }) {
+  const commitMessage = useSyncExternalStore(commitMessageStore.subscribe, commitMessageStore.get)
+  // "Checked" is exactly "in the index", and commit is index-only — so the
+  // button is live when the line above it reads more than zero.
+  const readyToCommit = hasChecked && Boolean(commitMessage.trim())
   return (
     // No band ground of its own: the box below brings the composer's material,
     // and a raised band behind a raised box flattens the step between them.

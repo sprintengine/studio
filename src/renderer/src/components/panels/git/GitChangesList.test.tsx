@@ -239,7 +239,7 @@ test('GitChangesList', async () => {
     )
     assert.match(
       source,
-      /onCheckedChange=\{\(\) => onToggleRow\(row\)\}/,
+      /onCheckedChange=\{\(\) => actions\.toggleRow\(row\)\}/,
       'the row box hands over its handler unconditionally',
     )
     assert.ok(
