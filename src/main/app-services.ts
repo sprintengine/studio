@@ -165,7 +165,7 @@ import { sendSplashProgress, showUpdateProgressWindow } from './splash-window'
 import { GitHubTokenStore } from './github-token-store'
 import { installSharedCredentialStore } from './secret-store'
 import { createWorkspaceBackupService } from './workspace-backup'
-import { writeDiagnosticLog } from './diagnostics-service'
+import { diagnosticLogger, writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
 import { declaredPermissionPresets } from './plugin-render'
 import { createStudioPluginService } from './studio-plugin-service'
@@ -1407,6 +1407,8 @@ export function createAppServices(
   const worktreePool = createWorktreePoolService({
     store: createPoolStore(app.getPath('userData')),
     livePaths: liveWorkPaths,
+    // Recovery, holds and evictions are what a person asks about later.
+    log: diagnosticLogger('worktree-pool'),
     onChange: broadcastWorktreePoolChanged,
     seedIncludedFiles: seedWorktreeIncludedFiles,
     // Settled chats included: a slot holding a chat's history is never removed.
@@ -1423,6 +1425,7 @@ export function createAppServices(
   const dependencyInstaller = createDependencyInstaller({
     env: () => dependencyInstallEnv.read(),
     forgetEnv: () => dependencyInstallEnv.forget(),
+    log: diagnosticLogger('worktree-install'),
     onChange: (view) => broadcastToWorkspaceWindows(WORKTREE_INSTALL_CHANGED_CHANNEL, view),
   })
   installDependencyInstaller(dependencyInstaller)
