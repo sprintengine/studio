@@ -1283,9 +1283,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     if (!conversation || !workspace || renamedFromModelRef.current || providers.length === 0) return
     if (!isModelDerivedChatName(agent?.name, conversation.modelId, derivedNameLabels)) return
     renamedFromModelRef.current = true
+    // The other agents' names as they are now: read once, here, rather than
+    // drawn from, so the chat does not redraw with every agent it sits beside.
+    const agents = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)?.agents
     updateBinding({
       name: pickRandomAgentName(
-        Object.entries(workspace.agents)
+        Object.entries(agents ?? {})
           .filter(([id]) => id !== agentId)
           .map(([, other]) => other.name),
       ),

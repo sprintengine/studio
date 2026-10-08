@@ -8,6 +8,7 @@ import { useMachineIdentity, useWorkspaceMachineRef } from '../../../hooks/useMa
 import { selectModuleEnabled } from '../../../modules'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { Workspace } from '../../../types/workspace'
+import type { ChatWorkspace } from './chatBinding'
 import { dispatchFileReveal } from '../../../utils/fileReveal'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import { useCheckoutChanges } from '../../workspace/checkoutChanges'
@@ -45,7 +46,7 @@ export function useConversationStripFacts({
 }: {
   workspaceId: string
   agentId: string
-  workspace: Workspace | null
+  workspace: ChatWorkspace | null
   workspaceRoot: string | null
   transport: Pick<ConversationTransport, 'kind' | 'machineName' | 'capabilities'>
 }): {
@@ -77,7 +78,11 @@ export function useConversationStripFacts({
   const checkout = transport.capabilities.localFiles ? workspaceRoot : null
   const gitBranch = useGitBranch(checkout)
   const workspaceWorktree = workspace ? resolveWorkspaceWorktree(workspace) : null
-  const execution = workspace?.agents?.[agentId]?.execution
+  // Its own field, not the agent record: an agent is rewritten on every turn.
+  const agentExecution = useWorkspaceStore(
+    (state) => state.workspaces.find((candidate) => candidate.id === workspaceId)?.agents[agentId]?.execution,
+  )
+  const execution = workspace ? agentExecution : undefined
   // A worktree only when the agent actually works in one: its own (a worktree
   // launch), or the workspace's, when the workspace is a worktree.
   const agentWorktree = execution?.mode === 'worktree' && Boolean(execution.cwd?.trim())

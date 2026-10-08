@@ -487,3 +487,28 @@ test('a first message whose session will not start leaves the transcript and goe
     await chat.unmount()
   }
 })
+
+test('the workspace record moving on what the chat does not read redraws none of it', async () => {
+  const chat = await mountChat(history(10))
+  try {
+    const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+    chat.counter?.reset()
+    // The visit stamp, written every few seconds while the chat is on screen,
+    // and a layout write, as a tab click makes.
+    await chat.act(async () => useWorkspaceStore.getState().recordWorkspaceVisit('workspace', Date.now()))
+    await chat.act(async () =>
+      useWorkspaceStore.setState((state) => ({
+        workspaces: state.workspaces.map((workspace) => ({ ...workspace, layoutModel: { layout: {} } as never })),
+      })),
+    )
+    await chat.settle()
+    if (process.env.CHAT_BENCH_REPORT)
+      process.stderr.write(`\nVISIT renders=${chat.counter?.totalRenders()} commits=${chat.counter?.commits}\n`)
+    if (chat.counter) {
+      expect(chat.counter.renders('ConversationChatBody')).toBe(0)
+      expect(chat.counter.totalRenders()).toBe(0)
+    }
+  } finally {
+    await chat.unmount()
+  }
+})
