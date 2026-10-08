@@ -161,6 +161,31 @@ export function sortByProjectUse<T>(
   return ranked.map((entry) => entry.item)
 }
 
+/**
+ * `items` with the one used last first: by the later of its recorded use
+ * (`usage`) and `lastUsedOf` (a host's own clock, such as when a chat in it was
+ * last written to); never-used ones after them, in the order given. A new
+ * array; `items` is not reordered.
+ *
+ * The New-chat picker's order (owner, 2026-10-08): the project just worked in
+ * goes to the top at once, where frecency would keep last week's favourite
+ * above it until it had been used as often.
+ */
+export function sortByLastUse<T>(
+  items: readonly T[],
+  folderOf: (item: T) => string | null | undefined,
+  usage: ProjectUsageMap | null | undefined,
+  lastUsedOf: (item: T) => number | null | undefined = () => null,
+): T[] {
+  const ranked = items.map((item, index) => {
+    const key = projectUsageKey(folderOf(item))
+    const recorded = key ? (usage?.[key]?.lastUsedAt ?? 0) : 0
+    return { item, index, at: Math.max(recorded, lastUsedOf(item) ?? 0) }
+  })
+  ranked.sort((left, right) => right.at - left.at || left.index - right.index)
+  return ranked.map((entry) => entry.item)
+}
+
 function decay(elapsedMs: number): number {
   return Math.pow(2, -elapsedMs / PROJECT_USE_HALF_LIFE_MS)
 }

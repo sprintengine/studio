@@ -196,6 +196,7 @@ import {
   buildSidebarWorkspaceOrder,
   getSessionItems,
   getWorkspaceActivity,
+  newChatProjectOptionsOf,
   showsNoWorkspaceState,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
@@ -3482,21 +3483,10 @@ export default function WorkspaceManager() {
     return () => setBacklogHandoffHost(null)
   }, [handBacklogItemToAgent])
 
-  // The panel's project chip: distinct folders across this window's open
-  // workspaces, in rail order. Browse admits a folder the studio doesn't know.
-  const newChatProjectOptions = useMemo(() => {
-    const seen = new Set<string>()
-    const options: Array<{ path: string; label: string }> = []
-    for (const workspace of workspaces) {
-      const path = workspace.folderPath?.trim()
-      if (!path) continue
-      const key = path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-      if (seen.has(key)) continue
-      seen.add(key)
-      options.push({ path, label: newChatFolderLabel(path) })
-    }
-    return options
-  }, [workspaces])
+  // The panel's project chip: one row per project open here, never a chat's
+  // worktree folder (`newChatProjectOptionsOf`). Browse admits a folder the
+  // studio doesn't know.
+  const newChatProjectOptions = useMemo(() => newChatProjectOptionsOf(workspaces), [workspaces])
   const selectNewChatProject = (path: string) => {
     setNewChatPanelState((prev) => (prev ? { ...prev, folderPath: path, folderLabel: newChatFolderLabel(path) } : prev))
   }
