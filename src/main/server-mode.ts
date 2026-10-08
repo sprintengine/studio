@@ -1,5 +1,7 @@
-import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+
+import { writeFileAtomicSync } from '../server/platform/atomic-file'
 
 import {
   DEFAULT_SERVER_MODE,
@@ -46,10 +48,7 @@ export function readServerMode(
 
 /** What the next launch runs in. Written whole and renamed into place. */
 export function writeServerMode(userDataDir: string, mode: ServerMode): void {
-  const path = join(userDataDir, SERVER_MODE_FILENAME)
-  const staged = `${path}.${process.pid}.tmp`
-  writeFileSync(staged, `${JSON.stringify({ mode }, null, 2)}\n`, { mode: 0o600 })
-  renameSync(staged, path)
+  writeFileAtomicSync(join(userDataDir, SERVER_MODE_FILENAME), `${JSON.stringify({ mode }, null, 2)}\n`, { mode: 0o600 })
 }
 
 let sessionMode: ServerMode = DEFAULT_SERVER_MODE

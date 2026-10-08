@@ -1,5 +1,7 @@
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+
+import { writeFileAtomicSync } from '../../../server/platform/atomic-file'
 
 import {
   parseSshPreview,
@@ -30,10 +32,9 @@ export function readSavedSshPreview(userDataDir: string): boolean {
 
 /** What the next launch has. Written whole and renamed into place. */
 export function writeSshPreview(userDataDir: string, enabled: boolean): void {
-  const path = join(userDataDir, SSH_PREVIEW_FILENAME)
-  const staged = `${path}.${process.pid}.tmp`
-  writeFileSync(staged, `${JSON.stringify({ enabled }, null, 2)}\n`, { mode: 0o600 })
-  renameSync(staged, path)
+  writeFileAtomicSync(join(userDataDir, SSH_PREVIEW_FILENAME), `${JSON.stringify({ enabled }, null, 2)}\n`, {
+    mode: 0o600,
+  })
 }
 
 let session = false

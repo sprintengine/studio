@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto'
-import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -9,6 +9,7 @@ import {
   type StudioScope,
 } from '../../../packages/studio-protocol/src/public'
 import { hashSecret, secretsMatch } from '../../main/automation/tailnet/secret-hash'
+import { writeFileAtomicSync } from '../platform/atomic-file'
 
 // The browsers paired with this server, and how each proves it (phase 9 spec,
 // 6.2 and 6.3; decisions R14, R15 and R18).
@@ -207,10 +208,7 @@ export function createWebSessionStore(options: {
   }
 
   function save(): void {
-    const staged = `${path}.${process.pid}.tmp`
-    writeFileSync(staged, `${JSON.stringify({ sessions }, null, 2)}\n`, { mode: 0o600 })
-    if (process.platform !== 'win32') chmodSync(staged, 0o600)
-    renameSync(staged, path)
+    writeFileAtomicSync(path, `${JSON.stringify({ sessions }, null, 2)}\n`, { mode: 0o600, exactMode: true })
   }
 
   const view = ({ secretHash: _secretHash, ...session }: StoredSession): WebSession => ({

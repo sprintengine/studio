@@ -5,10 +5,8 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   unlinkSync,
-  writeFileSync,
 } from 'node:fs'
 import { connect, createServer, type Server, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -20,6 +18,7 @@ import {
   parseStudioServerDiscovery,
   studioServerDiscovery,
 } from '../../../packages/studio-protocol/src/public'
+import { writeFileAtomicSync } from '../platform/atomic-file'
 import type { StudioRpcConnection } from './studio-rpc-connection'
 
 // The owner socket: where the Studio RPC listens on this machine.
@@ -182,10 +181,7 @@ export function createStudioRpcListener(options: StudioRpcListenerOptions): Stud
       2,
     )}\n`
     // Written beside and renamed over, so a client never reads half a file.
-    const staged = `${discoveryPath}.${process.pid}.tmp`
-    writeFileSync(staged, body, { mode: 0o600 })
-    if (platform !== 'win32') chmodSync(staged, 0o600)
-    renameSync(staged, discoveryPath)
+    writeFileAtomicSync(discoveryPath, body, { mode: 0o600, exactMode: platform !== 'win32' })
   }
 
   function readDiscovery(): ReturnType<typeof parseStudioServerDiscovery> {
