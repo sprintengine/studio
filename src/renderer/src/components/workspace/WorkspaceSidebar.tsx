@@ -87,6 +87,9 @@ import {
   buildRemoteBand,
   openSpecOfConversation,
   remoteConversationTitle,
+  followedRemoteRestsToKeep,
+  FOLLOWED_REMOTE_RESTS_KEY,
+  readFollowedRemoteRests,
   remoteLifecycleWritable,
   remoteRestToFollow,
   unattachedConversations,
@@ -305,6 +308,25 @@ function didWorkspaceDragLeaveSidebar(event: React.DragEvent, sidebar: HTMLEleme
 function tabDragAgentId(payload: TabDragPayload): string | null {
   const agentId = payload.config?.agentId
   return typeof agentId === 'string' && agentId ? agentId : null
+}
+
+// The settles of a paired machine's chats the rows here have followed
+// (`remoteRestToFollow`). Storage that cannot be read or written leaves them
+// for this run only, as they were before they were kept.
+function readStoredFollowedRests(): string | null {
+  try {
+    return window.localStorage.getItem(FOLLOWED_REMOTE_RESTS_KEY)
+  } catch {
+    return null
+  }
+}
+
+function storeFollowedRests(serialized: string): void {
+  try {
+    window.localStorage.setItem(FOLLOWED_REMOTE_RESTS_KEY, serialized)
+  } catch {
+    // Kept for this run only.
+  }
 }
 
 function WorkspaceSidebar({
@@ -1383,19 +1405,21 @@ function WorkspaceSidebar({
   // the row here follows, once (`remoteRestToFollow`). The window that routes
   // the row settles it; any other window that has it in front learns from the
   // broadcast and moves on (`settledElsewhere`).
-  const followedRemoteRest = useRef(new Map<string, number>())
+  // Kept across a restart: a row brought back here after its machine settled
+  // the chat stays back, rather than being settled again by the first browse.
+  const followedRemoteRest = useRef<Map<string, number> | null>(null)
   useEffect(() => {
-    const due = remoteRestToFollow({
-      workspaces: railWorkspaces,
-      browses: remoteBrowses,
-      followed: followedRemoteRest.current,
-    })
+    followedRemoteRest.current ??= readFollowedRemoteRests(readStoredFollowedRests())
+    const followed = followedRemoteRest.current
+    const due = remoteRestToFollow({ workspaces: railWorkspaces, browses: remoteBrowses, followed })
+    if (due.length === 0) return
     for (const { workspaceId, settledAt } of due) {
-      followedRemoteRest.current.set(workspaceId, settledAt)
+      followed.set(workspaceId, settledAt)
       const workspace = railWorkspaces.find((candidate) => candidate.id === workspaceId)
       if (!workspace || isSettledWorkspace(workspace)) continue
       if (useWorkspaceStore.getState().speaksForWorkspace(workspaceId)) settleWorkspaceById(workspaceId)
     }
+    storeFollowedRests(followedRemoteRestsToKeep(followed, railWorkspaces))
   }, [railWorkspaces, remoteBrowses, settleWorkspaceById])
 
   // Which project header a remote conversation files under. The same rule the
