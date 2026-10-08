@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { Checkbox, GhostButton, InlineNotice, Input, MicroChip, StatusDot } from '../ui'
+import { Checkbox, EmptyState, GhostButton, InlineNotice, Input, MicroChip, StatusDot } from '../ui'
 import type { Tone } from '../ui'
 import { SettingCard, SettingsSectionTitle } from './SettingsAtoms'
 import { listOpenProjectKnowledge, relativePathBetween, type ProjectKnowledgeEntry } from '../../utils/projectKnowledge'
@@ -195,7 +195,7 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
   }, [selectedEntries, setProjectKnowledgeRoot, validate])
 
   if (projects.length === 0) {
-    return <p className="text-body leading-5 text-[color:var(--text-subtle)]">Open a workspace first.</p>
+    return <EmptyState density="list" title="Open a workspace first." />
   }
 
   // The list card (setting-row → The list card, 2026-09-15): the band above

@@ -3,7 +3,7 @@ import type { DesignSystemAttachSource } from '../../../../shared/design-system/
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../../../../shared/design-system/bundle-scaffold'
 import type { DesignSystemBundleReadFailure } from '../../../../shared/design-system/bundle-view'
 import type { DesignSystemLibraryEntry } from '../../../../shared/design-system/library'
-import { GhostButton, InlineNotice, OutlineButton, PrimaryButton, SettingCard } from '../ui'
+import { EmptyState, GhostButton, InlineNotice, OutlineButton, PrimaryButton, SettingCard } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { DesignSystemAttachStep } from '../workspace/newWorkspace/DesignSystemAttachStep'
 import { pathJoin } from '../../utils/paths'
@@ -208,7 +208,9 @@ export function DesignSystemSettings({ workspaceRoot }: { workspaceRoot: string 
   )
 
   if (!workspaceRoot) {
-    return <p className="text-body leading-5 text-[color:var(--text-muted)]">Open a workspace first.</p>
+    // The kit's empty state at list density, as every other Settings page
+    // says it has nothing to show — not a bare line in a dialect of its own.
+    return <EmptyState density="list" title="Open a workspace first." />
   }
   if (bundle.kind === 'probing') return null
 

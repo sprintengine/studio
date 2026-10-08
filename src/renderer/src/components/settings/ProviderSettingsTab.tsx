@@ -17,6 +17,7 @@ import {
   EmptyState,
   InlineNotice,
   Input,
+  LoadingOverlay,
   OutlineButton,
   PrimaryButton,
 } from '../ui'
@@ -158,7 +159,9 @@ export function ProviderSettingsTab() {
       ) : null}
 
       {tabState.kind === 'loading' ? (
-        <p className="text-body leading-5 text-[color:var(--text-muted)]">Loading…</p>
+        // The kit's loading state, not a bare word: the same working mark and
+        // one sentence every other surface still fetching shows.
+        <LoadingOverlay label="Loading providers…" className="py-8" />
       ) : null}
 
       {tabState.kind === 'error' ? (
