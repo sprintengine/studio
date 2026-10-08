@@ -160,7 +160,113 @@ function renderMenuEntries(entries: ChangeRowMenuEntry[], onClose: () => void): 
   })
 }
 
-export function GitChangesList({
+/** What a row asks of the list. One object for the list's lifetime, so a row
+ *  whose own data did not change skips rendering when the panel re-renders. */
+type GitChangeRowActions = {
+  toggleRow: (row: GitChangeRow) => void
+  rowClick: (row: GitChangeRow, event: React.MouseEvent) => boolean
+  activateRow: (row: GitChangeRow) => void
+  contextSelect: (row: GitChangeRow) => void
+  openRowMenu: (menu: RowMenuState) => void
+  registerRowNode: (rowKey: string, node: HTMLElement | null) => void
+}
+
+// One changed file. Memoized on its own data: a panel holding a few hundred of
+// these re-renders for many reasons (a busy flag, a message, the toolbar), and
+// none of them is a reason to rebuild every row.
+const GitChangeRowItem = React.memo(function GitChangeRowItem({
+  listId,
+  row,
+  groupTitle,
+  selected,
+  resting,
+  cursor,
+  actions,
+}: {
+  listId: string
+  row: GitChangeRow
+  groupTitle: string
+  selected: boolean
+  resting: boolean
+  cursor: boolean
+  actions: GitChangeRowActions
+}): JSX.Element {
+  const appearance = getGitStatusAppearance(row.status)
+  const statusWord = gitStatusWord(row.status)
+  // Stable per row: a ref callback that changed identity every render would
+  // be detached and attached again on each one.
+  const registerNode = React.useCallback(
+    (node: HTMLElement | null) => actions.registerRowNode(row.key, node),
+    [actions, row.key],
+  )
+  return (
+    <CheckRow
+      id={changeRowDomId(listId, row.key)}
+      ref={registerNode}
+      data-git-change-row="true"
+      role="option"
+      checked={row.checked}
+      // Always present. `check-row` only swallows the click when
+      // it has a handler to run, so a box that dropped its
+      // handler while busy would let the click through to the row
+      // and OPEN THE DIFF — a tick that shows a diff instead.
+      onCheckedChange={() => actions.toggleRow(row)}
+      glyph={<FileTypeGlyph name={row.filename} tone="kind" className="icon-sm" />}
+      name={
+        // The status tint travels with the name, and the word
+        // travels with it: T5 dropped the trailing status letter,
+        // so this clause is the only non-colour carrier left and
+        // colour alone is not an accessible signal.
+        <span className={appearance.textClass}>
+          {row.filename}
+          {statusWord ? <span className="sr-only">, {statusWord}</span> : null}
+          {/* The chip below is the visible half; a chip is a
+              drawing, so the sentence that says what THIS row
+              is — and what its box will do, which is not what
+              every other box on screen does — travels with the
+              name where a screen reader meets it first. */}
+          {row.partial ? (
+            <span className="sr-only">
+              , partial: {groupTitle}’s changes only. Ticking stages that list’s hunks of this file.
+            </span>
+          ) : null}
+        </span>
+      }
+      directory={
+        row.partial ? (
+          // The chip trails the directory and never shrinks:
+          // the path is what gets cut in a narrow panel, the
+          // fact that this row is a piece of a file is not.
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="min-w-0 truncate">{row.directory}</span>
+            <MicroChip>partial</MicroChip>
+          </span>
+        ) : (
+          row.directory || undefined
+        )
+      }
+      selected={selected}
+      resting={resting}
+      cursor={cursor}
+      onClick={(event) => {
+        if (actions.rowClick(row, event)) return
+        actions.activateRow(row)
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        actions.contextSelect(row)
+        // A keyboard-summoned menu (Shift+F10, the Menu key)
+        // carries no pointer; open it on the row rather than at
+        // the viewport corner.
+        const rect = event.currentTarget.getBoundingClientRect()
+        actions.openRowMenu({ x: event.clientX || rect.left, y: event.clientY || rect.bottom, row, groupTitle })
+      }}
+    />
+  )
+})
+
+export const GitChangesList = React.memo(function GitChangesList({
   listId,
   groups,
   visibleRows,
@@ -190,6 +296,24 @@ export function GitChangesList({
   // person is driving, and exactly one edge may be on screen at a time.
   const [listFocused, setListFocused] = React.useState(false)
   const listRef = React.useRef<HTMLDivElement | null>(null)
+  // The panel hands over fresh closures on every render. The rows reach them
+  // through this ref, by way of one actions object that never changes, so a
+  // new closure is not a reason for a row to render again.
+  const handlers = React.useRef({ onToggleRow, onRowClick, onActivateRow, onContextSelect, registerRowNode })
+  React.useLayoutEffect(() => {
+    handlers.current = { onToggleRow, onRowClick, onActivateRow, onContextSelect, registerRowNode }
+  })
+  const rowActions = React.useMemo<GitChangeRowActions>(
+    () => ({
+      toggleRow: (row) => handlers.current.onToggleRow(row),
+      rowClick: (row, event) => handlers.current.onRowClick(row, event),
+      activateRow: (row) => handlers.current.onActivateRow(row),
+      contextSelect: (row) => handlers.current.onContextSelect(row),
+      openRowMenu: setRowMenu,
+      registerRowNode: (rowKey, node) => handlers.current.registerRowNode(rowKey, node),
+    }),
+    [],
+  )
 
   const cursorIndex = cursorRowKey ? visibleRows.findIndex((row) => row.key === cursorRowKey) : -1
 
@@ -362,78 +486,17 @@ export function GitChangesList({
             <div id={regionId} hidden={!expanded}>
               <div role="listbox" aria-multiselectable="true" aria-label={group.title}>
                 {group.rows.map((row) => {
-                  const appearance = getGitStatusAppearance(row.status)
-                  const statusWord = gitStatusWord(row.status)
                   const isSelected = selectedRowKeys.has(row.key)
                   return (
-                    <CheckRow
+                    <GitChangeRowItem
                       key={row.key}
-                      id={changeRowDomId(listId, row.key)}
-                      ref={(node) => registerRowNode(row.key, node)}
-                      data-git-change-row="true"
-                      role="option"
-                      checked={row.checked}
-                      // Always present. `check-row` only swallows the click when
-                      // it has a handler to run, so a box that dropped its
-                      // handler while busy would let the click through to the row
-                      // and OPEN THE DIFF — a tick that shows a diff instead.
-                      onCheckedChange={() => onToggleRow(row)}
-                      glyph={<FileTypeGlyph name={row.filename} tone="kind" className="icon-sm" />}
-                      name={
-                        // The status tint travels with the name, and the word
-                        // travels with it: T5 dropped the trailing status letter,
-                        // so this clause is the only non-colour carrier left and
-                        // colour alone is not an accessible signal.
-                        <span className={appearance.textClass}>
-                          {row.filename}
-                          {statusWord ? <span className="sr-only">, {statusWord}</span> : null}
-                          {/* The chip below is the visible half; a chip is a
-                              drawing, so the sentence that says what THIS row
-                              is — and what its box will do, which is not what
-                              every other box on screen does — travels with the
-                              name where a screen reader meets it first. */}
-                          {row.partial ? (
-                            <span className="sr-only">
-                              , partial: {group.title}’s changes only. Ticking stages that list’s hunks of this file.
-                            </span>
-                          ) : null}
-                        </span>
-                      }
-                      directory={
-                        row.partial ? (
-                          // The chip trails the directory and never shrinks:
-                          // the path is what gets cut in a narrow panel, the
-                          // fact that this row is a piece of a file is not.
-                          <span className="flex min-w-0 items-center gap-1">
-                            <span className="min-w-0 truncate">{row.directory}</span>
-                            <MicroChip>partial</MicroChip>
-                          </span>
-                        ) : (
-                          row.directory || undefined
-                        )
-                      }
+                      listId={listId}
+                      row={row}
+                      groupTitle={group.title}
                       selected={isSelected && listFocused}
                       resting={isSelected && !listFocused}
                       cursor={cursorRowKey === row.key}
-                      onClick={(event) => {
-                        if (onRowClick(row, event)) return
-                        onActivateRow(row)
-                      }}
-                      onContextMenu={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        onContextSelect(row)
-                        // A keyboard-summoned menu (Shift+F10, the Menu key)
-                        // carries no pointer; open it on the row rather than at
-                        // the viewport corner.
-                        const rect = event.currentTarget.getBoundingClientRect()
-                        setRowMenu({
-                          x: event.clientX || rect.left,
-                          y: event.clientY || rect.bottom,
-                          row,
-                          groupTitle: group.title,
-                        })
-                      }}
+                      actions={rowActions}
                     />
                   )
                 })}
@@ -478,4 +541,4 @@ export function GitChangesList({
       ) : null}
     </div>
   )
-}
+})

@@ -283,7 +283,7 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       tombstones,
     }
     seeded = true
-    options.store.write(persistableFile(file))
+    options.store.write(persistableFile(file), { lazy: isVisitClockOnly(event) })
     for (const listener of listeners) listener(state)
   }
 
@@ -715,6 +715,19 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * A window showing a chat stamps its visit clock every ten seconds, and each
+ * stamp would otherwise rewrite the whole registry file. Memory, subscribers
+ * and every device reading the clock see the stamp at once; only the disk
+ * waits, for the next other write, the lazy interval, or quit. Marking a chat
+ * unread is a gesture, not a stamp, and is written straight away.
+ */
+function isVisitClockOnly(event: WorkspaceSyncEvent): boolean {
+  if (event.type !== 'workspace.fields_updated') return false
+  const fields = Object.keys(event.payload.patch)
+  return fields.length > 0 && fields.every((field) => field === 'lastVisitedAt')
+}
 
 function ensurePrimaryWindow(state: WorkspaceSyncState): void {
   if (state.workspaceWindows.some((windowState) => windowState.id === state.primaryWorkspaceWindowId)) return

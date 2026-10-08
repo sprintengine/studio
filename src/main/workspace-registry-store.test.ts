@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, test } from 'vitest'
+import { afterEach, test, vi } from 'vitest'
 import { createWorkspaceRegistryStore, WORKSPACE_REGISTRY_FILE_NAME } from './workspace-registry-store'
 import {
   emptyWorkspaceRegistryFile,
@@ -12,6 +12,19 @@ import {
   type WorkspaceRegistryFile,
 } from '../shared/workspace-registry'
 import type { Workspace } from '../renderer/src/types/workspace'
+
+const fileWrites = vi.hoisted(() => ({ count: 0 }))
+
+vi.mock('fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs/promises')>()
+  return {
+    ...actual,
+    writeFile: (...args: Parameters<typeof actual.writeFile>) => {
+      fileWrites.count += 1
+      return actual.writeFile(...args)
+    },
+  }
+})
 
 const dirs: string[] = []
 
@@ -108,4 +121,52 @@ test('a failed write does not make the same content look persisted', async () =>
   store.write(registry('Alpha', 2))
   await store.flush()
   assert.equal(persistedName(dir), 'Alpha', 'the retry of identical content still writes')
+})
+
+test('visit stamps every ten seconds are written once per lazy interval, and quit writes the last', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    const dir = tempDir()
+    const store = createWorkspaceRegistryStore({
+      resolveUserDataDir: () => dir,
+      persistDebounceMs: 250,
+      lazyPersistMs: 60_000,
+    })
+    fileWrites.count = 0
+    for (let stamp = 1; stamp <= 18; stamp++) {
+      store.write(registry(`Visited ${stamp}`, stamp), { lazy: true })
+      await vi.advanceTimersByTimeAsync(10_000)
+    }
+    store.write(registry('Visited at quit', 19), { lazy: true })
+    await store.flush()
+    assert.equal(persistedName(dir), 'Visited at quit', 'quit writes the stamp still waiting')
+    // One per minute of stamping, and the one at quit.
+    assert.ok(fileWrites.count <= 4, `${fileWrites.count} writes for 19 stamps over three minutes`)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('an ordinary write takes a waiting lazy one with it on its own short debounce', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    const dir = tempDir()
+    const store = createWorkspaceRegistryStore({
+      resolveUserDataDir: () => dir,
+      persistDebounceMs: 250,
+      lazyPersistMs: 60_000,
+    })
+    store.write(registry('Visited', 1), { lazy: true })
+    await vi.advanceTimersByTimeAsync(1_000)
+    assert.equal(existsSync(join(dir, WORKSPACE_REGISTRY_FILE_NAME)), false, 'a lazy write waits')
+
+    store.write(registry('Renamed', 2))
+    // A stamp landing inside the short debounce does not push it back.
+    store.write(registry('Renamed and visited', 3), { lazy: true })
+    await vi.advanceTimersByTimeAsync(250)
+    await store.flush()
+    assert.equal(persistedName(dir), 'Renamed and visited')
+  } finally {
+    vi.useRealTimers()
+  }
 })
