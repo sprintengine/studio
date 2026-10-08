@@ -43,6 +43,7 @@ function handlers() {
   return createExtensionScaffoldHandlers({
     roots: () => ({ templatesRoot: join(SDK, 'templates'), skillsRoot: join(SDK, 'skills'), sdkTarball }),
     moduleRoot: () => join(parent, 'installed-modules'),
+    home: () => join(parent, 'Documents', 'SprintEngine', 'Extensions'),
   })
 }
 
@@ -93,6 +94,41 @@ describe('extensions:scaffold:target', () => {
     assert.equal(h.target({ parentDir: parent, id: '' }), null)
     assert.equal(h.target({ parentDir: parent, id: '../escape' }), null)
     assert.equal(h.target({ parentDir: parent, id: 'pr-' }), null)
+  })
+})
+
+describe('where the extension goes', () => {
+  test('with no folder named, a new one in the extensions home, which is made when first needed', async () => {
+    const h = handlers()
+    const home = join(parent, 'Documents', 'SprintEngine', 'Extensions')
+    assert.equal(h.home(), home)
+    assert.deepEqual(h.target({ id: 'pr-radar' }), { state: 'free', folder: join(home, 'pr-radar') })
+    assert.equal(existsSync(home), false, 'asking makes nothing')
+    const made = await h.create({ id: 'pr-radar' })
+    assert.equal(made.ok, true, JSON.stringify(made))
+    if (made.ok) assert.equal(made.folder, join(home, 'pr-radar'))
+    assert.equal(existsSync(join(home, 'pr-radar', 'module', 'manifest.json')), true)
+    assert.equal(h.target({ id: 'pr-radar' })?.state, 'extension', 'and is carried on after')
+  })
+
+  test('a folder the person picked is the extension’s own: filled when empty, refused when not', async () => {
+    const h = handlers()
+    const picked = join(parent, 'weekly-summary')
+    mkdirSync(picked)
+    assert.deepEqual(h.target({ id: 'weekly-summary', folder: picked }), { state: 'free', folder: picked })
+    const made = await h.create({ id: 'weekly-summary', folder: picked })
+    assert.equal(made.ok, true, JSON.stringify(made))
+    if (made.ok) assert.equal(made.folder, picked, 'in the folder itself, not a new one inside it')
+    assert.equal(existsSync(join(picked, 'module', 'manifest.json')), true)
+
+    const notes = join(parent, 'notes')
+    mkdirSync(notes)
+    writeFileSync(join(notes, 'README.md'), 'mine')
+    assert.equal(h.target({ id: 'notes', folder: notes })?.state, 'taken')
+    const refused = await h.create({ id: 'notes', folder: notes })
+    assert.equal(refused.ok === false && refused.code, 'dir_not_empty')
+    assert.match(refused.ok === false ? refused.message : '', /Choose an empty folder/)
+    assert.equal(existsSync(join(notes, 'package.json')), false)
   })
 })
 

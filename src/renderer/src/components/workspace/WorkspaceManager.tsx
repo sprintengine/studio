@@ -127,7 +127,7 @@ import { composerDraftStore } from '../panels/agentChat/draftStore'
 import { setBuildExtensionOpener } from '../extensions/buildExtensionHost'
 import { extensionBriefMarkdown } from '../../../../shared/extension-scaffold'
 import { createWorkspaceChatOpener } from './manager/workspaceChatOpener'
-import { confirmNewChatWith } from './manager/newChatConfirm'
+import { confirmNewChatWith, type NewChatExtension } from './manager/newChatConfirm'
 import { createNewChatWorktree, prepareNewChatWorktree } from '../../utils/newChatWorktree'
 import type { AgentState } from '../../../../shared/agent-state'
 import { openChatLink } from './manager/chatLinkOpener'
@@ -3587,7 +3587,7 @@ export default function WorkspaceManager() {
     confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
     folderPathOverride?: string | null,
     startupPrompt?: string,
-    extension?: { id: string },
+    extension?: NewChatExtension,
     // A chat's staged images, sent as images with `startupPrompt`.
     startupImages?: string[],
     // A chat's files attached by path, sent as its first message's `files`.
@@ -3615,7 +3615,7 @@ export default function WorkspaceManager() {
     confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
     folderPathOverride?: string | null,
     startupPrompt?: string,
-    extension?: { id: string },
+    extension?: NewChatExtension,
     startupImages?: string[],
     startupFiles?: string[],
     background?: boolean,
@@ -3642,16 +3642,20 @@ export default function WorkspaceManager() {
     confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
     scopedFolder: string | null,
     startupPrompt?: string,
-    extension?: { id: string },
+    extension?: NewChatExtension,
     startupImages?: string[],
     startupFiles?: string[],
     background?: boolean,
   ): Promise<WorkspaceId | null> =>
     confirmNewChatWith(
       {
-        makeExtension: async (parentDir, id, prompt) => {
+        makeExtension: async ({ id, folder }, prompt) => {
           const made = await window.api
-            .extensionScaffoldCreate({ parentDir, id, ideaMarkdown: extensionBriefMarkdown(id, prompt) })
+            .extensionScaffoldCreate({
+              id,
+              ...(folder ? { folder } : {}),
+              ideaMarkdown: extensionBriefMarkdown(id, prompt),
+            })
             .catch((caught: unknown) => ({
               ok: false as const,
               message: caught instanceof Error ? caught.message : 'The project could not be created.',

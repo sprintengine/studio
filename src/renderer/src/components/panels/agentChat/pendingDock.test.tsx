@@ -8,6 +8,7 @@ import {
   ConversationPermissionCard,
   ConversationPlanCard,
   ConversationQuestionCard,
+  coversComposer,
   orderedPendingRequests,
 } from './pendingDock'
 import type { TranscriptEntry } from './conversationProjection'
@@ -410,6 +411,72 @@ test('a question arriving mid-sentence in a text field does not take focus eithe
       busy={false}
     />,
     (document) => expect(document.activeElement).toBe(field),
+  )
+})
+
+test('a question covers the composer while a permission stays in the tray', () => {
+  const question = request('q', {
+    requestKind: 'question',
+    questions: [{ question: 'Pick one', options: [{ label: 'A', description: '' }], multiSelect: false }],
+  })
+  // A question with no questions renders as a permission card, so it stays.
+  const bare = request('bare', { requestKind: 'question' })
+  expect([question, bare, request('tool')].map(coversComposer)).toEqual([true, false, false])
+  const render = (placement: 'tray' | 'composer') =>
+    renderToStaticMarkup(
+      <ConversationPendingDock
+        placement={placement}
+        pendingApprovals={[request('tool'), question]}
+        onApprove={() => undefined}
+        busy={false}
+        footnote="Your draft is kept for after you answer"
+      />,
+    )
+  const tray = render('tray')
+  expect(tray).toContain('Permission request')
+  expect(tray).not.toContain('Question from the agent')
+  // One request per dock, so neither counts the other's.
+  expect(tray).not.toContain('1/2')
+  const composer = render('composer')
+  expect(composer).toContain('Question from the agent')
+  expect(composer).not.toContain('Permission request')
+  expect(composer).toContain('Your draft is kept for after you answer')
+})
+
+test('a question covering the composer takes focus mid-sentence, and lets the keys in flight fall on nothing', async () => {
+  const onAnswer = vi.fn()
+  await mountDock(
+    (document) => document.querySelector('textarea')!.focus(),
+    <ConversationQuestionCard
+      requestId="q"
+      questions={[{ question: 'Pick one', options: [{ label: 'A', description: '' }], multiSelect: false }]}
+      onAnswer={onAnswer}
+      busy={false}
+      coversComposer
+    />,
+    async (document, act) => {
+      const card = document.querySelector<HTMLElement>('[role="group"]')!
+      expect(document.activeElement).toBe(card)
+      const press = (key: string) =>
+        act(() =>
+          card.dispatchEvent(
+            new document.defaultView!.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+          ),
+        )
+      // "…option 1⏎" typed for the message neither picks nor answers.
+      await press('1')
+      await press('Enter')
+      expect(onAnswer).not.toHaveBeenCalled()
+      expect(document.querySelector('[aria-checked="true"]')).toBeNull()
+      vi.spyOn(performance, 'now').mockReturnValue(performance.now() + 1000)
+      try {
+        await press('1')
+        await press('Enter')
+      } finally {
+        vi.restoreAllMocks()
+      }
+      expect(onAnswer).toHaveBeenCalledExactlyOnceWith('q', true, { 'Pick one': 'A' })
+    },
   )
 })
 

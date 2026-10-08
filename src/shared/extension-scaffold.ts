@@ -16,7 +16,7 @@ export const EXTENSION_BUILDER_SKILL_ID = 'sprintengine-extension-builder'
 export const EXTENSION_START_TEMPLATE_ID = 'blank'
 
 /**
- * What is at `<parentDir>/<id>` right now, asked while the name is typed:
+ * What is at the extension's folder right now, asked while the name is typed:
  * `free` (nothing there, or an empty folder), `extension` (a project with a
  * module manifest, which the chat opens and carries on), `taken` (anything
  * else, which is never written over), `installed` (the folder is free, but an
@@ -27,9 +27,18 @@ export const EXTENSION_START_TEMPLATE_ID = 'blank'
 export type ExtensionScaffoldTargetState = 'free' | 'extension' | 'taken' | 'installed' | 'no_parent'
 
 export type ExtensionScaffoldTargetInput = {
-  /** The project the door is on; the extension's own folder is made inside it. */
-  parentDir: string
-  /** The extension's name as the chip holds it: the folder name and the module id. */
+  /**
+   * The extension's own folder, picked by the person: filled when it is
+   * empty, carried on when it holds an extension. Its name is the id.
+   */
+  folder?: string
+  /**
+   * The folder a new `<parentDir>/<id>` is made inside. With neither this nor
+   * `folder`, the extension gets a new folder in this computer's extensions
+   * home (`extensionScaffoldHome`), which is made the first time it is needed.
+   */
+  parentDir?: string
+  /** The extension's name as the chip holds it: the module id, and the new folder's name. */
   id: string
 }
 

@@ -1,5 +1,6 @@
-// The dock above the composer that holds what the agent is waiting on:
-// permission requests, plans to approve and questions to answer.
+// The dock that holds what the agent is waiting on: permission requests and
+// plans to approve sit in the tray above the composer, and a question to
+// answer covers the composer itself.
 
 import React, { useRef, useEffect, useState } from 'react'
 import {
@@ -58,6 +59,17 @@ export function orderedPendingRequests(entries: readonly ApprovalEntry[]): Appro
     .sort((a, b) => order[a.requestKind ?? 'tool'] - order[b.requestKind ?? 'tool'])
 }
 
+/**
+ * Whether a request is answered in the composer's place rather than above it.
+ * A question is: while it waits nothing can be sent, so the card takes the box
+ * the reply would have gone in, and the draft waits behind it untouched. A
+ * permission or a plan stays in the tray, read beside the box. A question that
+ * arrived without its questions renders as a permission card, so it stays too.
+ */
+export function coversComposer(entry: ApprovalEntry): boolean {
+  return entry.requestKind === 'question' && Boolean(entry.questions?.length)
+}
+
 export function approvalOutsideWorkspace(entry: ApprovalEntry, workspaceRoot?: string): boolean {
   if (!workspaceRoot) return false
   if (entry.cwd && !isPathWithinApprovalRoot(entry.cwd.replaceAll('\\', '/'), workspaceRoot)) return true
@@ -109,6 +121,11 @@ const NON_TEXT_INPUTS = new Set(['button', 'checkbox', 'radio', 'range', 'color'
  * Focus a newly shown card's target unless the person is typing elsewhere; in
  * that case return the sentence to announce politely instead. Re-runs when
  * `key` changes (a question card's next question).
+ *
+ * A card that covers the composer takes focus even then: the field being typed
+ * into has just gone inert under it, and focus left there is focus nowhere.
+ * `onTookTyping` is told, so the card can let the keys already on their way
+ * land on nothing rather than on its shortcuts.
  */
 function useArrivalFocus(
   active: boolean,
@@ -116,13 +133,16 @@ function useArrivalFocus(
   target: () => HTMLElement | null,
   message: string,
   key?: unknown,
+  covering?: { onTookTyping: () => void },
 ): string {
   const [announcement, setAnnouncement] = useState('')
   useEffect(() => {
     if (!active) return
-    if (isTypingOutside(containerRef.current)) setAnnouncement(message)
+    const typing = isTypingOutside(containerRef.current)
+    if (typing && !covering) setAnnouncement(message)
     else {
       setAnnouncement('')
+      if (typing) covering?.onTookTyping()
       target()?.focus()
     }
     // Only an arrival (or the next question) moves focus; a re-render must not.
@@ -143,6 +163,12 @@ function ArrivalAnnouncement({ text }: { text: string }) {
 
 const DOCK_TONE_STATE = { warn: 'needs_input', error: 'failed', accent: 'in_progress' } as const
 
+// How long a card that took focus from a sentence being typed ignores its own
+// shortcuts: long enough for the keys already in flight — a digit, the Enter
+// that was meant to send — to fall on nothing, short enough to be over before
+// anyone has read the question.
+const TYPING_GRACE_MS = 600
+
 // The shared card shell docked above the composer: eyebrow row led by the
 // lifecycle glyph of what is being asked, content, then a footer of actions. Question,
 // permission and plan requests all render inside it so pending asks read as
@@ -154,6 +180,7 @@ export function DockShell({
   onKeyDown,
   containerRef,
   ariaLabel,
+  footnote,
   children,
 }: {
   tone: 'warn' | 'error' | 'accent'
@@ -172,6 +199,8 @@ export function DockShell({
   onKeyDown?: (event: React.KeyboardEvent) => void
   containerRef?: React.Ref<HTMLDivElement>
   ariaLabel: string
+  /** A quiet line at the start of the footer, across from the actions. */
+  footnote?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
@@ -198,6 +227,9 @@ export function DockShell({
           card cost a row of height in a dock that is already the tallest
           thing above the composer, to tell a regular what they know. */}
       <div className="flex items-center gap-2.5 px-3 pb-2.5 pt-2">
+        {footnote ? (
+          <span className="min-w-0 truncate text-meta text-[color:var(--text-subtle)]">{footnote}</span>
+        ) : null}
         <div className="ml-auto flex shrink-0 gap-2">{actions}</div>
       </div>
     </div>
@@ -234,6 +266,8 @@ export const ConversationPendingDock = React.memo(function ConversationPendingDo
   modeSwitches,
   onApproveAndSwitch,
   busy,
+  placement,
+  footnote,
 }: {
   pendingApproval?: ApprovalEntry
   pendingApprovals?: ApprovalEntry[]
@@ -243,8 +277,17 @@ export const ConversationPendingDock = React.memo(function ConversationPendingDo
   modeSwitches?: ApprovalModeSwitch[]
   onApproveAndSwitch?: (requestId: string, preset: CliPermissionPreset) => void
   busy: boolean
+  /**
+   * Which requests this dock holds: the tray's (permissions and plans) or the
+   * composer's (questions, see `coversComposer`). Unset, it holds them all.
+   */
+  placement?: 'tray' | 'composer'
+  /** Passed to a question card's footer. */
+  footnote?: React.ReactNode
 }) {
-  const entries = orderedPendingRequests(pendingApprovals ?? (pendingApproval ? [pendingApproval] : []))
+  const entries = orderedPendingRequests(pendingApprovals ?? (pendingApproval ? [pendingApproval] : [])).filter(
+    (entry) => !placement || coversComposer(entry) === (placement === 'composer'),
+  )
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selectedIndex = Math.max(
     0,
@@ -284,6 +327,8 @@ export const ConversationPendingDock = React.memo(function ConversationPendingDo
               onAnswer={onApprove}
               busy={busy}
               active={index === selectedIndex}
+              coversComposer={placement === 'composer'}
+              footnote={footnote}
             />
           ) : entry.requestKind === 'plan' ? (
             <ConversationPlanCard entry={entry} onApprove={onApprove} busy={busy} active={index === selectedIndex} />
@@ -580,23 +625,30 @@ export function ConversationQuestionCard({
   onAnswer,
   busy,
   active = true,
+  coversComposer = false,
+  footnote,
 }: {
   requestId: string
   questions: ConversationQuestion[]
   onAnswer: (requestId: string, approved: boolean, answers?: Record<string, string>) => void
   busy: boolean
   active?: boolean
+  /** The card sits in the composer's place, so it takes focus from the field. */
+  coversComposer?: boolean
+  footnote?: React.ReactNode
 }) {
   const [stepIndex, setStepIndex] = useState(0)
   const [selected, setSelected] = useState<Record<string, string[]>>({})
   const [otherText, setOtherText] = useState<Record<string, string>>({})
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const quietUntil = useRef(0)
   const announcement = useArrivalFocus(
     active,
     containerRef,
     () => containerRef.current,
     'The agent asked a question. Shift+Tab from the message box to answer it.',
     stepIndex,
+    coversComposer ? { onTookTyping: () => (quietUntil.current = performance.now() + TYPING_GRACE_MS) } : undefined,
   )
 
   const question = questions[Math.min(stepIndex, questions.length - 1)]
@@ -648,6 +700,7 @@ export function ConversationQuestionCard({
 
   const handleKeyDown = (event: React.KeyboardEvent): void => {
     if (busy || event.defaultPrevented || event.nativeEvent.isComposing) return
+    if (performance.now() < quietUntil.current) return
     if (event.key === 'Enter' && event.target !== event.currentTarget) return
     if (event.key >= '1' && event.key <= '9') {
       const option = question.options[Number(event.key) - 1]
@@ -678,6 +731,7 @@ export function ConversationQuestionCard({
       containerRef={containerRef}
       onKeyDown={handleKeyDown}
       ariaLabel="Question from the agent"
+      footnote={footnote}
       actions={
         <>
           <GhostButton onClick={() => onAnswer(requestId, false)} disabled={busy}>
