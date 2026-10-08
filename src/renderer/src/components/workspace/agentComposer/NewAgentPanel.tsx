@@ -22,6 +22,7 @@ import {
 import { distroOfUncPath } from '../../../../../shared/host-paths'
 import type { AgentCliAvailabilityMap } from '../../../../../shared/electron-api'
 import { useExecutionHosts } from '../../../hooks/useExecutionHosts'
+import { useFileDropTarget } from '../../../hooks/useFileDropTarget'
 import type { SshEnvironmentSummary } from '../../../../../shared/ssh-environments'
 import { useSshMachines } from '../../settings/SshMachinesSection'
 import { FolderIdentityIcon } from '../FolderIdentityIcon'
@@ -1029,8 +1030,6 @@ export default function NewAgentPanel({
   // screenshot (or an image dragged out of a browser) exists only as bytes and
   // is saved to a temp file first. Either way the box shows the image, not the
   // path: the thumbnail is the attachment.
-  const [dropActive, setDropActive] = React.useState(false)
-  const dragDepthRef = React.useRef(0)
   const [attachNote, setAttachNote] = React.useState<string | null>(null)
   const [images, setImages] = React.useState<PromptImage[]>(() => draft?.images ?? [])
   // Files attached by path: cards in the box. A chat on this computer sends
@@ -1823,6 +1822,13 @@ export default function NewAgentPanel({
   // same install route either way, because installing a CLI is the answer to
   // both.
   const terminalUnavailable = (composer.noAgentCliInstalled && localHosts.length <= 1) || chatUnavailable
+  // A drag holding files lights the box as where they will land; a plain shell
+  // takes none.
+  const { active: dropActive, handlers: dropHandlers } = useFileDropTarget({
+    enabled: !isTerminalLaunch,
+    accepts: dataTransferHasDroppableFiles,
+    onDrop: dropFiles,
+  })
   const boxHasContent = prompt.trim() !== '' || images.length > 0 || files.length > 0 || attachingCount > 0
 
   // The capture: this panel, untouched, in a window with no chats, is what
@@ -2094,33 +2100,11 @@ export default function NewAgentPanel({
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           data-new-chat-composer="true"
-          onDragEnter={(event) => {
-            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-            dragDepthRef.current += 1
-            setDropActive(true)
-          }}
-          onDragOver={(event) => {
-            // Claiming the drag is what stops the window from navigating to the
-            // dropped file, so it has to happen on every dragover.
-            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-            event.preventDefault()
-          }}
-          onDragLeave={(event) => {
-            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-            if (dragDepthRef.current === 0) setDropActive(false)
-          }}
-          onDrop={(event) => {
-            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
-            event.preventDefault()
-            dragDepthRef.current = 0
-            setDropActive(false)
-            dropFiles(event.dataTransfer)
-          }}
+          {...dropHandlers}
         >
           {/* Opaque, not a scrim: the field's own text ghosting through the
               drop state reads as a rendering artifact rather than a state. */}
-          {dropActive && !isTerminalLaunch ? (
+          {dropActive ? (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[var(--sem-radius-composer)] bg-[color:var(--bg-app)] text-meta font-medium text-[color:var(--accent-primary)]">
               Drop to attach
             </div>
