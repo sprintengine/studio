@@ -48,7 +48,7 @@ function TodoStepGlyph({ status }: { status: TodoStepStatus }) {
   )
 }
 
-export function ConversationTodoStrip({
+export const ConversationTodoStrip = React.memo(function ConversationTodoStrip({
   entries,
   activeTurn,
 }: {
@@ -119,4 +119,4 @@ export function ConversationTodoStrip({
       ) : null}
     </div>
   )
-}
+})
