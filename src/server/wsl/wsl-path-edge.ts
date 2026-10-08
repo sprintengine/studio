@@ -58,7 +58,10 @@ export function createPathEdge(spelling: PathSpelling): PathEdge {
 
   const rootIn = (root: string): string => {
     if (!spelling.isClientPath(root)) return root
-    const server = spelling.toServer(root)
+    // A root typed with a separator at its end is the same folder: the server
+    // keys its chats by the root, and its children are found under it.
+    const translated = spelling.toServer(root)
+    const server = translated.length > 1 ? translated.replace(/\/+$/u, '') || '/' : translated
     spelled.set(server, root)
     return server
   }

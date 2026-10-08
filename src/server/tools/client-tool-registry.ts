@@ -114,6 +114,13 @@ export type ClientToolRegistryOptions = {
    * later is covered.
    */
   servedFamilies: () => Iterable<string>
+  /**
+   * Every tool name Studio serves itself (`pull_request.link`). An MCP client
+   * that takes no dot writes a tool `<toolset>_<tool>`, so an app's `pull` and
+   * `request_link` would read as Studio's own; such an offer is refused. Read
+   * on every offer.
+   */
+  servedTools?: () => Iterable<string>
   /** Names reserved beyond the protocol's floor (every module id). Read on every offer. */
   reservedNames?: () => Iterable<string>
   /** An app's reach, from its pairing. Owners name theirs on the offer. */
@@ -204,11 +211,23 @@ const DEFAULT_GRACE_MS = STUDIO_TOOL_LIMITS.reconnectGraceMs
 const BUSY_RETRY_MS = 500
 const MAX_AFFINITIES = 8192
 const MAX_PENDING_CANCELS = 256
+const MAX_DEPARTED = 1024
 const SHELL_KIND_ORDER: Record<StudioClientKind, number> = { desktop: 0, web: 1, headless: 2, app: 3 }
 
 function noun(toolset: string, title: string): string {
   return toolset === 'browser' ? 'the browser' : toolset === 'canvas' ? 'the canvas' : title
 }
+
+/**
+ * Whether a call to a tool may change something. A shell's own tool says so
+ * when it does; an app's is taken to unless it says it does not, so a
+ * mutation an app forgot to mark is never retried as a read.
+ */
+function mutatesOf(builtIn: boolean, tool: StudioToolSpec): boolean {
+  return builtIn ? tool.mutates === true : tool.mutates !== false
+}
+
+const OFFER_RATE_MESSAGE = `Toolsets may be offered or withdrawn ${STUDIO_TOOL_LIMITS.offersPerMinute} times a minute.`
 
 function failure(code: string, message: string, extra?: Record<string, unknown>): StudioToolResult {
   const result = toolError(code, message) as StudioToolResult
@@ -234,6 +253,11 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
   // record says which client, this says which of its processes.
   const startedInstances = new Map<string, string>()
   const buckets = new Map<string, { tokens: number; at: number }>()
+  // Instances whose grace ran out after they were sent calls, by key, with the
+  // cancels for what they were running. The process may only have been slow
+  // to come back: it is told what it may stop, and a reply it still sends is
+  // dropped rather than read as a frame out of place, which ends the connection.
+  const departed = new Map<string, StudioCancelFrame[]>()
   let sequence = 0
   let closed = false
   const callPrefix = randomBytes(6).toString('hex')
@@ -262,9 +286,23 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
 
   // ── Names and reach ───────────────────────────────────────────────────────
 
+  // A family's head before its first `_` is reserved with it: a toolset has
+  // no underscore, so `pull` is the only name whose flattened tools could
+  // read as `pull_request`'s.
   function servedHere(name: string): boolean {
-    for (const family of options.servedFamilies()) if (family === name) return true
+    for (const family of options.servedFamilies()) if (family === name || family.split('_')[0] === name) return true
     return false
+  }
+  /** The first of a toolset's tools whose flattened spelling is one Studio serves itself. */
+  function flattenedClash(toolset: StudioToolsetOffer): string | null {
+    if (!options.servedTools) return null
+    const served = new Set<string>()
+    for (const name of options.servedTools()) served.add(name.replaceAll('.', '_'))
+    for (const tool of toolset.tools) {
+      const flattened = `${toolset.name}_${tool.name}`
+      if (served.has(flattened)) return flattened
+    }
+    return null
   }
   function reserved(name: string): boolean {
     if (STUDIO_RESERVED_TOOLSET_NAMES.includes(name)) return true
@@ -360,6 +398,8 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         for (const frame of instance.pendingCancels.splice(0)) safeSend(connection, frame)
       }
     } else {
+      const before = departed.get(key)
+      departed.delete(key)
       instance = {
         key,
         clientId: connection.clientId,
@@ -378,9 +418,10 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         stale: new Set(),
         staleTimer: null,
         pendingCancels: [],
-        called: false,
+        called: before !== undefined,
       }
       instances.set(key, instance)
+      for (const frame of before ?? []) safeSend(connection, frame)
     }
     byConnection.set(connection.connectionId, instance)
   }
@@ -419,6 +460,16 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     if (instance.staleTimer) clearTimeout(instance.staleTimer)
     instance.staleTimer = null
     instance.stale.clear()
+    if (instance.called) {
+      // What it was sent is answered here or elsewhere now: it may stop.
+      const cancels = [...instance.pendingCancels]
+      for (const call of calls.values())
+        if (call.instance === instance && call.sentTo.size > 0)
+          cancels.push({ t: 'cancel', id: call.id, reason: 'client_replaced' })
+      departed.delete(instance.key)
+      departed.set(instance.key, cancels.slice(-MAX_PENDING_CANCELS))
+      while (departed.size > MAX_DEPARTED) departed.delete(departed.keys().next().value!)
+    }
     instance.pendingCancels = []
     for (const call of [...calls.values()])
       if (call.instance === instance)
@@ -517,16 +568,13 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     const name = toolset.name
     // A name Studio serves itself is no one's to shadow, its own shell's included.
     if (servedHere(name)) return refuse('reserved_name', `Studio serves "${name}" tools itself.`)
+    const clash = flattenedClash(toolset)
+    if (clash) return refuse('reserved_name', `Studio serves a tool agents may see as "${clash}" itself.`)
     const builtIn = reserved(name)
     if (builtIn && !mayOfferReserved(instance.shell, name))
       return refuse('reserved_name', `"${name}" is reserved for Studio's own tools.`)
     const retryAfterMs = rateLimited(instance)
-    if (retryAfterMs !== null)
-      return refuse(
-        'busy',
-        `Toolsets may be offered or withdrawn ${STUDIO_TOOL_LIMITS.offersPerMinute} times a minute.`,
-        retryAfterMs,
-      )
+    if (retryAfterMs !== null) return refuse('busy', OFFER_RATE_MESSAGE, retryAfterMs)
     // The bound is on a client's own toolsets. The reserved names the shell
     // offers are a fixed list, and the WSL front door offers a server more of
     // them than the bound holds: the shell's six and the Windows side's own.
@@ -609,13 +657,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     const held = instance.offers.get(toolset)
     if (!held) return { ok: false, code: 'not_offered', message: `This connection does not offer "${toolset}".` }
     const retryAfterMs = rateLimited(instance)
-    if (retryAfterMs !== null)
-      return {
-        ok: false,
-        code: 'busy',
-        message: `Toolsets may be offered or withdrawn ${STUDIO_TOOL_LIMITS.offersPerMinute} times a minute.`,
-        retryAfterMs,
-      }
+    if (retryAfterMs !== null) return { ok: false, code: 'busy', message: OFFER_RATE_MESSAGE, retryAfterMs }
     instance.offers.delete(toolset)
     instance.stale.delete(toolset)
     if (!offering(toolset).length) lastGone.set(toolset, 'withdrawn')
@@ -667,7 +709,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
       ...(offered.offer.description ? { description: offered.offer.description } : {}),
       tool,
       wireName: studioToolWireName(toolset, tool.name),
-      mutates: offered.builtIn ? tool.mutates === true : tool.mutates !== false,
+      mutates: mutatesOf(offered.builtIn, tool),
     }))
   }
 
@@ -739,45 +781,52 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     return [...list].sort((a, b) => compare(score(a), score(b)))[0]
   }
 
-  /** Where one call goes: its conversation's affinity if that client still offers the tool, else the best other. */
-  function route(
-    caller: ClientToolCaller,
-    toolset: string,
-    tool: string,
-  ): { instance: Instance; notice?: string } | null {
+  type Route = { instance: Instance; notice?: string; key: string; affinity: Affinity }
+
+  /**
+   * Where one call goes: its conversation's affinity if that client still
+   * offers the tool, else the best other. Nothing is saved until `keep`: a
+   * call answered busy before it is sent must not use up the notice that the
+   * toolset moved.
+   */
+  function route(caller: ClientToolCaller, toolset: string, tool: string): Route | null {
     const key = affinityKey(caller, toolset)
     const affinity = affinities.get(key)
     const list = candidates(toolset, tool)
-    if (affinity?.instanceKey) {
-      const held = instances.get(affinity.instanceKey)
-      if (held && list.includes(held)) {
-        // Used, so kept longest: the bound drops the affinities nobody uses.
-        affinities.delete(key)
-        affinities.set(key, affinity)
-        return { instance: held }
-      }
-    }
+    const held = affinity?.instanceKey ? instances.get(affinity.instanceKey) : undefined
+    if (affinity && held && list.includes(held)) return { instance: held, key, affinity }
     const best = rank(list, caller, toolset)
     if (!best) return null
-    const movedFrom = affinity && affinity.instanceKey === null ? affinity.movedFrom : undefined
-    affinities.delete(key)
-    affinities.set(key, { instanceKey: best.key })
-    // One per conversation and toolset: the oldest go first past a bound.
-    while (affinities.size > MAX_AFFINITIES) affinities.delete(affinities.keys().next().value!)
+    // Moved: its client went (the grace ran out), or still runs and no longer
+    // offers it (a withdrawal), and another client takes it.
+    const movedFrom = !affinity ? undefined : affinity.instanceKey === null ? affinity.movedFrom : held?.clientName
     const offered = best.offers.get(toolset)!
     const notice =
       movedFrom !== undefined
         ? `${noun(toolset, offered.title).replace(/^./, (first) => first.toUpperCase())} is now in ${best.clientName}. ${toolset === 'browser' ? 'Tab ids from before no longer apply.' : 'What it handed out before may no longer apply.'}`
         : undefined
-    return { instance: best, ...(notice ? { notice } : {}) }
+    return { instance: best, ...(notice ? { notice } : {}), key, affinity: { instanceKey: best.key } }
+  }
+
+  /** The route a call took, kept: used, so kept longest, and the bound drops the affinities nobody uses. */
+  function keep(routed: Route): void {
+    affinities.delete(routed.key)
+    affinities.set(routed.key, routed.affinity)
+    // One per conversation and toolset: the oldest go first past a bound.
+    while (affinities.size > MAX_AFFINITIES) affinities.delete(affinities.keys().next().value!)
   }
 
   // ── Calls ─────────────────────────────────────────────────────────────────
 
+  /** A toolset's title for an agent, offered now or not: its newest offer's, its binding's, or its name. */
+  function titleOf(toolset: string): string {
+    return definitions.get(toolset)?.title ?? options.store.binding(toolset)?.title ?? toolset
+  }
+
   function unavailable(toolset: string, tool: string): StudioToolResult {
     const wireName = studioToolWireName(toolset, tool)
     const definition = definitions.get(toolset)
-    const title = definition?.title ?? options.store.binding(toolset)?.title ?? toolset
+    const title = titleOf(toolset)
     const gone = lastGone.get(toolset)
     if (definition && offering(toolset).length > 0)
       // Offered, but not this tool any more.
@@ -903,6 +952,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
       finish(call, unavailable(call.toolset, call.tool))
       return
     }
+    keep(next)
     call.instance = next.instance
     if (next.notice) call.notice = next.notice
     // A new client has never seen this id, so it is not a redelivery there.
@@ -926,7 +976,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     const wireName = studioToolWireName(toolset, tool)
     if (closed) return Promise.resolve({ result: failure('client_unavailable', 'Studio is shutting down.') })
     if (!reaches(toolset, caller)) {
-      const title = definitions.get(toolset)?.title ?? options.store.binding(toolset)?.title ?? toolset
+      const title = titleOf(toolset)
       return Promise.resolve({
         result: failure(
           'client_unavailable',
@@ -945,6 +995,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     if (sentCount(instance) >= STUDIO_TOOL_LIMITS.callsInFlightPerConnection)
       return Promise.resolve(busy(instance.clientName))
     if (!instance.owner && !takeToken(instance.clientId)) return Promise.resolve(busy(instance.clientName))
+    keep(routed)
     const timeoutMs = spec.timeoutMs ?? STUDIO_TOOL_LIMITS.defaultTimeoutMs
     return new Promise<ClientToolCallOutcome>((resolve) => {
       const id = `${callPrefix}-${++sequence}`
@@ -955,7 +1006,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         wireName,
         input: input.args,
         caller,
-        mutates: definition.builtIn ? spec.mutates === true : spec.mutates !== false,
+        mutates: mutatesOf(definition.builtIn, spec),
         timeoutMs,
         instance,
         state: 'waiting',
@@ -1013,6 +1064,20 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
       return
     }
     finish(call, frame.result)
+  }
+
+  /**
+   * A reply under a call's id whose body Studio could not read: the call is
+   * answered `invalid_result` rather than left to its deadline.
+   */
+  function unreadableReply(connectionId: string, id: string): void {
+    const instance = connectionOf(connectionId)
+    const call = calls.get(id)
+    if (!call || !instance || call.instance !== instance) return
+    finish(
+      call,
+      failure('invalid_result', `${instance.clientName} answered ${call.wireName} in a shape Studio cannot read.`),
+    )
   }
 
   function progress(connectionId: string, frame: StudioProgressFrame): void {
@@ -1093,6 +1158,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         if (entry.instance === instance)
           finish(entry, failure('client_unavailable', `${instance.clientName} is no longer paired with Studio.`))
     }
+    for (const key of [...departed.keys()]) if (key.startsWith(`${clientId}\u0000`)) departed.delete(key)
     let names: string[] = []
     try {
       names = options.store.forgetClient(clientId)
@@ -1137,6 +1203,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     }
     instances.clear()
     byConnection.clear()
+    departed.clear()
   }
 
   return {
@@ -1146,6 +1213,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     withdraw,
     focus,
     reply,
+    unreadableReply,
     progress,
     call,
     cancelCallsFor,

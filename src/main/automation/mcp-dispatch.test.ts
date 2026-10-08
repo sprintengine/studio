@@ -191,3 +191,49 @@ test('without a live token a declared agent is only a claim: no conversation is 
     revokeGatewayLaunchToken(live)
   }
 })
+
+test('a call queued behind a slow one does not run once its socket has closed', async () => {
+  const socketPath = join(mkdtempSync(join(tmpdir(), 'se-dispatch-sock-')), 'automation.sock')
+  const ran: Array<string | undefined> = []
+  let release = () => {}
+  const slow = new Promise<void>((resolve) => (release = resolve))
+  const tool: McpToolRegistration = {
+    name: 'workspace.list',
+    description: 'test tool',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async (_args, context) => {
+      ran.push(context?.metadata.kind)
+      await slow
+      return { content: [{ type: 'text', text: '{}' }], structuredContent: {} }
+    },
+  }
+  const server = createMcpSocketServer({
+    socketPath,
+    serverName: 'test',
+    serverVersion: '0.0.0-test',
+    resolveTools: () => [tool],
+  })
+  await server.start()
+  const socket = connect(socketPath)
+  try {
+    await new Promise<void>((resolve, reject) => {
+      socket.once('connect', () => resolve())
+      socket.once('error', reject)
+    })
+    const frame = (payload: Record<string, unknown>) => `${JSON.stringify({ jsonrpc: '2.0', ...payload })}\n`
+    socket.write(frame({ id: 1, method: 'tools/call', params: { name: 'workspace.list', arguments: {} } }))
+    socket.write(frame({ id: 2, method: 'tools/call', params: { name: 'workspace.list', arguments: {} } }))
+    for (let tries = 0; ran.length === 0 && tries < 500; tries++) await new Promise((resolve) => setTimeout(resolve, 5))
+    assert.equal(ran.length, 1)
+    socket.destroy()
+    // The server hears the close before the first call ends.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    release()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal(ran.length, 1, 'the queued call never ran under a fresh identity')
+  } finally {
+    socket.destroy()
+    await server.stop()
+    rmSync(dirname(socketPath), { recursive: true, force: true })
+  }
+})

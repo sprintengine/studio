@@ -25,7 +25,6 @@ import { createTailnetNotifier } from '../../main/tailnet-notifications'
 import { createWorkspaceBackupService } from '../../main/workspace-backup'
 import { conversationTurnInProgress } from '../../shared/conversation/phase'
 import { isWslHostId } from '../../shared/execution-host'
-import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../../shared/product-identity'
 import { TAILNET_EVENT_CHANNEL } from '../../shared/tailnet'
 import { MESH_EVENT_CHANNEL } from '../../shared/tailnet-mesh'
@@ -48,7 +47,7 @@ import { installStudioPlatform, type StudioPlatform } from '../platform/platform
 import { createNodeStudioPaths } from '../platform/studio-paths'
 import { createRemoteShellBridge } from '../shell-bridge/remote'
 import { createShellSecretCipher, meshSealedTokens } from '../shell-bridge/shell-cipher'
-import { createServerGatewayBackends } from './gateway-backends'
+import { createServerGatewayBackends, launchSettingsGatewayDeps } from './gateway-backends'
 import { registerServerDomainIpc } from './server-ipc'
 import {
   SERVER_EVENTS,
@@ -301,9 +300,7 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
           resolveAgentPermissionPreset: core.resolveAgentPermissionPreset,
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           getScheduledAgents: () => modules.scheduledAgents(),
-          defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
-          projectUsage: () => agentLaunchSettings.get().projectUsage,
-          userCliModels: (cli) => agentLaunchSettings.get().cliRuntimes[cli]?.models,
+          ...launchSettingsGatewayDeps(agentLaunchSettings),
           getModuleRegistrySnapshot: () => moduleRegistry,
           // The marketplace and the module trust store are the shell's caches.
           listInstalledThirdPartyModules: () => rpc.call(SHELL_METHODS.thirdPartyModules),

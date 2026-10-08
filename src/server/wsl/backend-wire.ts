@@ -106,36 +106,61 @@ export function lineFrames(stream: Duplex): {
 } {
   const frameListeners: Array<(frame: unknown) => void> = []
   const closeListeners: Array<(reason: string) => void> = []
-  let buffer = ''
+  // A line still arriving is kept in its pieces and searched only where a
+  // piece is new: joined and searched whole on every chunk, a frame of
+  // megabytes in network-sized pieces is copied and scanned hundreds of times.
+  let pending: string[] = []
+  let pendingLength = 0
   let closed = false
   const end = (reason: string) => {
     if (closed) return
     closed = true
     for (const listener of closeListeners.splice(0)) listener(reason)
   }
+  const deliver = (line: string) => {
+    if (!line.trim()) return
+    let frame: unknown
+    try {
+      frame = JSON.parse(line)
+    } catch {
+      frame = undefined
+    }
+    if (frame !== undefined) for (const listener of frameListeners) listener(frame)
+  }
   // Decoded across chunk edges: a character split between two reads stays whole.
   const decoder = new StringDecoder('utf8')
   stream.on('data', (chunk: string | Buffer) => {
-    buffer += typeof chunk === 'string' ? chunk : decoder.write(chunk)
-    if (buffer.length > MAX_LINE_BYTES && buffer.indexOf('\n') === -1) {
-      stream.destroy()
-      end('A frame was larger than the wire carries.')
+    const text = typeof chunk === 'string' ? chunk : decoder.write(chunk)
+    let newline = text.indexOf('\n')
+    if (newline === -1) {
+      pending.push(text)
+      pendingLength += text.length
+      if (pendingLength > MAX_LINE_BYTES) {
+        pending = []
+        pendingLength = 0
+        stream.destroy()
+        end('A frame was larger than the wire carries.')
+      }
       return
     }
-    let newline = buffer.indexOf('\n')
+    let start = 0
+    if (pending.length) {
+      pending.push(text.slice(0, newline))
+      const line = pending.join('')
+      pending = []
+      pendingLength = 0
+      start = newline + 1
+      deliver(line)
+      newline = text.indexOf('\n', start)
+    }
     while (newline !== -1) {
-      const line = buffer.slice(0, newline)
-      buffer = buffer.slice(newline + 1)
-      if (line.trim()) {
-        let frame: unknown
-        try {
-          frame = JSON.parse(line)
-        } catch {
-          frame = undefined
-        }
-        if (frame !== undefined) for (const listener of frameListeners) listener(frame)
-      }
-      newline = buffer.indexOf('\n')
+      deliver(text.slice(start, newline))
+      start = newline + 1
+      newline = text.indexOf('\n', start)
+    }
+    if (start < text.length) {
+      pending.push(text.slice(start))
+      pendingLength = text.length - start
     }
   })
   stream.on('error', (error: Error) => end(error.message))

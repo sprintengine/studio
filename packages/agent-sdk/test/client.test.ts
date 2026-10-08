@@ -204,6 +204,47 @@ test('a token that cannot be kept fails the connect, and the same code works onc
   assert.deepEqual(kept, ['sest_kept_token_00000000'])
 })
 
+test('a connection that closes while its pairing token is being kept is not taken for open', async () => {
+  const target = await studio()
+  const grant = {
+    clientId: 'kept',
+    name: 'kept',
+    owner: false,
+    scopes: ['conversation:read' as const],
+    ceiling: 'auto' as const,
+  }
+  const code = 'sepair_0123456789abcdef'
+  const authenticate = target.auth.authenticate
+  target.auth.authenticate = (credential, client) => {
+    if ('pairingCode' in credential && credential.pairingCode === code) {
+      target.auth.grants.set('kept', grant)
+      target.auth.tokens.set('sest_kept_token_00000000', 'kept')
+      return { ok: true, grant, pairingToken: 'sest_kept_token_00000000' }
+    }
+    return authenticate(credential, client)
+  }
+  const base = socketTransport({ dataDir: target.dataDir })
+  let latest: Awaited<ReturnType<typeof base>> | null = null
+  const app = await connect({
+    transport: async () => (latest = await base()),
+    client: { name: 'kept' },
+    auth: { pairingCode: code },
+    reconnect: { initialDelayMs: 10, maxDelayMs: 30 },
+    onToken: async () => {
+      // Kept slowly, as a keychain prompt is, and the connection goes meanwhile.
+      latest!.close()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    },
+  })
+  cleanups.push(() => app.close())
+  assert.notEqual(app.state, 'open')
+  // The next connection says hello with the kept token, and is open.
+  for (let tries = 0; app.state !== 'open' && tries < 200; tries++)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(app.state, 'open')
+  assert.equal(app.grant.clientId, 'kept')
+})
+
 test('events resume across Studio restarting, with no gap and no repeat', async () => {
   const target = await studio()
   const states: StudioClientState[] = []
@@ -450,6 +491,8 @@ test('a create is retried under one command id and makes one chat', async () => 
 test('the same handles work in process over a module’s conversation service', async () => {
   const followed: Array<(frame: ConversationFollowFrame | { type: 'error'; message: string }) => void> = []
   const calls: string[] = []
+  let unfollowed = 0
+  let failAtOnce = false
   const conversations = fromModuleConversationService({
     create: async () => ({
       ok: true,
@@ -476,7 +519,8 @@ test('the same handles work in process over a module’s conversation service', 
     stop: async () => ({ ok: false, code: 'not_owned', message: 'Not this module’s chat.' }),
     follow: (_ref, _options, onFrame) => {
       followed.push(onFrame)
-      return () => undefined
+      if (failAtOnce) onFrame({ type: 'error', message: 'Not this module’s chat.' })
+      return () => void unfollowed++
     },
     list: () => [],
   })
@@ -502,6 +546,13 @@ test('the same handles work in process over a module’s conversation service', 
   assert.deepEqual(stream.cursor, { afterSeq: 8, generation: 'g' })
   followed[0]({ type: 'error', message: 'No longer readable by this module.' })
   await assert.rejects(stream.next(), (error: StudioError) => error.code === 'unavailable')
+  // The stream ended, and the follow behind it was stopped with it.
+  assert.equal(unfollowed, 1)
+  // Refused before the follow had even returned its stop.
+  failAtOnce = true
+  const refused = chat.events()
+  await assert.rejects(refused.next(), (error: StudioError) => error.code === 'unavailable')
+  assert.equal(unfollowed, 2)
 })
 
 test('a hello refused as late may be tried again; any other hello refusal ends the client', () => {

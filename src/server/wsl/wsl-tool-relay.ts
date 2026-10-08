@@ -11,6 +11,7 @@ import {
 } from '../../../packages/studio-protocol/src/public'
 import { connectionContextOf, gatewayToolTimeoutMs } from '../../main/automation/offer-gateway-tools'
 import { isStudioGatewayMutation } from '../../main/automation/studio-gateway-tools'
+import { backoffDelayMs } from '../../shared/exponentialBackoff'
 import { wslToWindowsPath } from '../../shared/host-paths'
 import { toolError, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import type { ClientToolRegistry } from '../tools/client-tool-registry'
@@ -100,8 +101,9 @@ export function wslRelayTarget(connection: WslServerConnection): RelayTarget {
   }
 }
 
-/** How long a tools stream that closed on its own waits before it is opened again. */
+/** How long a tools stream that closed on its own, or failed to open, waits before it is opened again; doubling to the cap while it keeps failing. */
 const RELAY_REOPEN_MS = 1_000
+const RELAY_REOPEN_MAX_MS = 30_000
 
 function asTarget(connection: WslServerConnection | RelayTarget): RelayTarget {
   return 'distro' in connection ? wslRelayTarget(connection) : connection
@@ -263,8 +265,18 @@ export function relayShellToolsets(input: {
   const log = input.log ?? (() => undefined)
   const open = new Map<
     string,
-    { client: StudioClient; offered: Map<string, OfferedToolset>; syncing: Promise<void>; stop(): void }
+    {
+      client: StudioClient
+      backend: RelayTarget['backend']
+      offered: Map<string, OfferedToolset>
+      syncing: Promise<void>
+      stop(): void
+    }
   >()
+  // The newest target under each key: a reopen for one a new server start replaced is not made.
+  const current = new Map<string, RelayTarget>()
+  // Backends whose close is already listened for: each reopen would add another.
+  const watched = new WeakSet<RelayTarget['backend']>()
   let closed = false
 
   /**
@@ -405,11 +417,33 @@ export function relayShellToolsets(input: {
     }
   }
 
-  input.onConnected((offered) => relay(asTarget(offered)))
+  input.onConnected((offered) => {
+    const target = asTarget(offered)
+    current.set(target.key, target)
+    relay(target)
+  })
 
-  function relay(connection: RelayTarget): void {
+  /** Open the stream again later, while its target's server is up and nobody opened one meanwhile. */
+  function reopen(connection: RelayTarget, attempt: number): void {
+    const delay =
+      backoffDelayMs(attempt, { baseMs: RELAY_REOPEN_MS, maxMs: RELAY_REOPEN_MAX_MS }) ?? RELAY_REOPEN_MAX_MS
+    setTimeout(() => {
+      if (closed || current.get(connection.key) !== connection) return
+      if (connection.backend.isOpen() === false || open.has(connection.key)) return
+      relay(connection, attempt + 1)
+    }, delay).unref?.()
+  }
+
+  function relay(connection: RelayTarget, attempt = 0): void {
     if (closed) return
     open.get(connection.key)?.stop()
+    if (!watched.has(connection.backend)) {
+      watched.add(connection.backend)
+      connection.backend.onClose(() => {
+        const entry = open.get(connection.key)
+        if (entry?.backend === connection.backend) entry.stop()
+      })
+    }
     const doConnect = input.connectClient ?? connect
     void doConnect({
       transport: async () => {
@@ -429,6 +463,7 @@ export function relayShellToolsets(input: {
         const unsubscribe = input.registry.subscribe(() => void sync(connection))
         open.set(connection.key, {
           client,
+          backend: connection.backend,
           offered: new Map(),
           syncing: Promise.resolve(),
           stop: () => {
@@ -437,9 +472,6 @@ export function relayShellToolsets(input: {
             open.delete(connection.key)
           },
         })
-        connection.backend.onClose(
-          () => open.get(connection.key)?.client === client && open.get(connection.key)?.stop(),
-        )
         // The tools' own stream can end while the server and its backend wire
         // stay up (each stream is its own relay): opened again, or the WSL
         // agents lose the desktop's toolsets until the server restarts.
@@ -453,16 +485,18 @@ export function relayShellToolsets(input: {
             open.get(connection.key)?.stop()
             if (closed || connection.backend.isOpen() === false) return
             log(`The desktop's tools stream to ${connection.name} closed; opening it again.`)
-            setTimeout(() => {
-              if (!closed && connection.backend.isOpen() !== false && !open.has(connection.key)) relay(connection)
-            }, RELAY_REOPEN_MS).unref?.()
+            reopen(connection, 0)
           })
         void sync(connection)
       },
-      (error: unknown) =>
+      (error: unknown) => {
         log(
           `The desktop's tools could not be offered to ${connection.name}: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+        )
+        // Tried again while the server is up, or its agents go without the
+        // desktop's toolsets until it restarts.
+        if (!closed && connection.backend.isOpen() !== false) reopen(connection, attempt)
+      },
     )
   }
 

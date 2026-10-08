@@ -128,6 +128,7 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
       },
     }),
     servedFamilies: () => new Set(resolveGatewayTools().map((tool) => tool.name.split('.')[0])),
+    servedTools: () => resolveGatewayTools().map((tool) => tool.name),
     reservedNames: () =>
       new Set((options.resolveModuleTools?.() ?? []).map((contribution) => contribution.moduleId.toLowerCase())),
     reachOf: (clientId) => clientToolLinks.reachOf?.(clientId) ?? 'own',

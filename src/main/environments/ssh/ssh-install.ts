@@ -1,16 +1,19 @@
 import { createReadStream, readdirSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
-import { createGunzip, gzipSync } from 'node:zlib'
+import { promisify } from 'node:util'
+import { createGunzip, gzip } from 'node:zlib'
 
 import { NODE_RUNTIME_REL, serverTreeName } from '../../hosts/remote-install'
-import { buildAppPayload, buildTar } from '../../hosts/wsl-install'
+import { appPayloadDigest, buildTar } from '../../hosts/wsl-install'
 import {
   ensureWslNodeArchive,
   remoteNodePackage,
   type NodeDownloadDeps,
   type RemoteNodeTarget,
 } from '../../hosts/wsl-node-runtime'
+
+const gzipAsync = promisify(gzip)
 
 // What an SSH machine is sent to install (phase 8 spec, 5.3): one archive,
 // streamed over the session after `@@SPRINTENGINE_SEND`, holding the pinned
@@ -104,7 +107,7 @@ export async function ensureNodeBinary(
 
 /** The server tree's digest, computed as WSL computes it, so both kinds of host mark one tree alike. */
 export function serverTreeDigest(dir: string): string {
-  return buildAppPayload([{ dir, into: '' }]).digest
+  return appPayloadDigest([{ dir, into: '' }])
 }
 
 export type InstallArchive = { tarGz: Buffer; bytes: number; unpackedBytes: number }
@@ -113,10 +116,10 @@ export type InstallArchive = { tarGz: Buffer; bytes: number; unpackedBytes: numb
  * The one archive a session streams: `runtime/node-<v>/bin/node` (0700) when
  * `node` is given, and `server-<version>/…` when `server` is.
  */
-export function buildInstallArchive(input: {
+export async function buildInstallArchive(input: {
   node: Buffer | null
   server: { dir: string; version: string } | null
-}): InstallArchive {
+}): Promise<InstallArchive> {
   const files: Array<{ path: string; data: Buffer; mode?: number }> = []
   if (input.node) files.push({ path: `${NODE_RUNTIME_REL}/bin/node`, data: input.node, mode: 0o700 })
   if (input.server) {
@@ -127,7 +130,8 @@ export function buildInstallArchive(input: {
   }
   const tar = buildTar(files)
   const unpackedBytes = files.reduce((sum, file) => sum + file.data.length, 0)
-  const tarGz = gzipSync(tar, { level: 6 })
+  // Compressed on zlib's threads: a server tree and a Node binary take long enough to hold the app.
+  const tarGz = await gzipAsync(tar, { level: 6 })
   return { tarGz, bytes: tarGz.length, unpackedBytes }
 }
 

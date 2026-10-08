@@ -67,6 +67,11 @@ export type StudioServerOptions = {
    * server nobody opened a browser to answers no HTTP.
    */
   web?: WebFrontDoorOptions | null
+  /**
+   * Where this Studio runs, as its owner socket's welcome says: a server in a
+   * WSL distribution, or one an SSH machine runs detached. `local` when not said.
+   */
+  hostKind?: 'local' | 'wsl' | 'ssh'
 }
 
 export type StudioServerReady = {
@@ -236,7 +241,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
   const started = createStudioGateway(core)
   gateway = started
-  const rpc = createStudioRpc(core, started)
+  const rpc = createStudioRpc(core, started, options.hostKind ? { hostKind: options.hostKind } : {})
   let status: Awaited<ReturnType<StudioGateway['initialize']>>
   try {
     if (options.listen === false) {

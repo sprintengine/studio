@@ -163,6 +163,48 @@ test('built-in and reserved names are the shell’s, and a name Studio serves is
   assert.equal(store.binding('browser'), null)
 })
 
+test('an app may not offer a toolset whose tools flatten to one Studio serves itself', () => {
+  const ownTools = ['pull_request.link', 'workspace.mobile_command']
+  const scoped = createClientToolRegistry({
+    store: createClientToolsetStore({}),
+    servedFamilies: () => new Set(ownTools.map((name) => name.split('.')[0])),
+    servedTools: () => ownTools,
+  })
+  const connection: ClientToolConnection = {
+    connectionId: 'conn-flattened',
+    clientId: 'git-app',
+    clientName: 'App git-app',
+    kind: 'app',
+    instanceId: 'instance-git-app-0123456789',
+    owner: false,
+    shell: null,
+    audited: false,
+    send: () => {},
+  }
+  scoped.attach(connection)
+  // `pull` is `pull_request`'s head: every tool under it could read as Studio's.
+  const head = scoped.offer(connection.connectionId, toolset('pull', [tool('request_link')]))
+  assert.equal(head.ok ? null : head.code, 'reserved_name')
+  const other = scoped.offer(connection.connectionId, toolset('pulls', [tool('request_link')]))
+  assert.equal(other.ok, true)
+  scoped.close()
+
+  // The flattened spelling is checked on its own, whatever the families say.
+  const bare = createClientToolRegistry({
+    store: createClientToolsetStore({}),
+    servedFamilies: () => [],
+    servedTools: () => ownTools,
+  })
+  bare.attach(connection)
+  const clash = bare.offer(connection.connectionId, toolset('pull', [tool('screenshot'), tool('request_link')]))
+  assert.deepEqual(clash.ok ? null : [clash.code, clash.message], [
+    'reserved_name',
+    'Studio serves a tool agents may see as "pull_request_link" itself.',
+  ])
+  assert.equal(bare.offer(connection.connectionId, toolset('pull', [tool('screenshot')])).ok, true)
+  bare.close()
+})
+
 test('an app’s tools reach the conversations it started or was opened to, unless its reach is all', () => {
   const game = connect('game-app')
   registry.offer(game.connectionId, toolset('game'))
@@ -386,6 +428,32 @@ test('a call cancelled while its client is away is cancelled there when it comes
   assert.deepEqual(second.frames, [{ t: 'cancel', id, reason: 'interrupted' }])
 })
 
+test('a process back after its grace ran out is told to stop what it was running, and may still answer it', async () => {
+  reach.set('game-app', 'all')
+  const instanceId = 'game-process-0123456789'
+  const first = connect('game-app', { instanceId })
+  registry.offer(first.connectionId, toolset('game'))
+  const mutation = registry.call({ caller: agent(), toolset: 'game', tool: 'spawn_enemy', args: {} })
+  const id = lastCall(first).id
+  registry.detach(first.connectionId)
+  await vi.advanceTimersByTimeAsync(20_000)
+  assert.equal(code((await mutation).result), 'client_disconnected')
+  // The same process, only slow to come back: it hears its call was settled,
+  // and its late reply is one it may send, dropped rather than out of place.
+  const second = connect('game-app', { instanceId })
+  assert.deepEqual(second.frames, [{ t: 'cancel', id, reason: 'client_replaced' }])
+  assert.equal(registry.mayAnswer(second.connectionId), true)
+  registry.reply(second.connectionId, { t: 'reply', id, ok: true, result: text('late') })
+  assert.equal(registry.pendingCalls(), 0)
+  // A process that was never sent a call is still not one that may answer.
+  const idle = connect('idle-app', { instanceId: 'idle-process-0123456789' })
+  registry.offer(idle.connectionId, toolset('idle'))
+  registry.detach(idle.connectionId)
+  await vi.advanceTimersByTimeAsync(20_000)
+  const idleAgain = connect('idle-app', { instanceId: 'idle-process-0123456789' })
+  assert.deepEqual([idleAgain.frames, registry.mayAnswer(idleAgain.connectionId)], [[], false])
+})
+
 test('the offer rate limit is a connection’s: a process that reconnects may offer again', () => {
   const instanceId = 'game-process-0123456789'
   let connection = connect('game-app', { instanceId })
@@ -425,6 +493,32 @@ test('when the grace runs out, a read is routed once more and a mutation is answ
   assert.match(
     answered.result.content[0].type === 'text' ? answered.result.content[0].text : '',
     /is now in App game-app/,
+  )
+})
+
+test('a toolset withdrawn to another client says it moved, on the first call that is not answered busy', async () => {
+  const first = connect('owner', { shell: 'all', instanceId: 'desktop-one-0123456789' })
+  registry.offer(first.connectionId, toolset('browser', [tool('status')]))
+  const mover = agent('mover')
+  void registry.call({ caller: mover, toolset: 'browser', tool: 'status', args: {} })
+  registry.reply(first.connectionId, { t: 'reply', id: lastCall(first).id, ok: true, result: text('one') })
+  const second = connect('owner', { shell: 'all', instanceId: 'desktop-two-0123456789' })
+  registry.offer(second.connectionId, toolset('browser', [tool('status')]))
+  registry.withdraw(first.connectionId, 'browser')
+  // The client it moved to is at its bound of calls in flight.
+  const running = Array.from({ length: 16 }, (_, index) =>
+    registry.call({ caller: agent(`busy-${index}`), toolset: 'browser', tool: 'status', args: {} }),
+  )
+  const refused = await settled(registry.call({ caller: mover, toolset: 'browser', tool: 'status', args: {} }))
+  assert.equal(code(refused.result), 'busy')
+  const calls = second.frames.filter((frame): frame is StudioCallFrame => frame.t === 'call')
+  registry.reply(second.connectionId, { t: 'reply', id: calls[0].id, ok: true, result: text('done') })
+  await running[0]
+  const moved = registry.call({ caller: mover, toolset: 'browser', tool: 'status', args: {} })
+  registry.reply(second.connectionId, { t: 'reply', id: lastCall(second).id, ok: true, result: text('two') })
+  assert.deepEqual(
+    (await moved).result,
+    text('The browser is now in Studio desktop. Tab ids from before no longer apply.\n\ntwo'),
   )
 })
 

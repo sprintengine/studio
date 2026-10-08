@@ -124,7 +124,7 @@ test('a fresh machine: probed, installed in one session, started, reached throug
   })
   assert.ok(assessed.supported)
   assert.deepEqual(assessed.needs, { node: true, server: true })
-  const archive = buildInstallArchive({ node: fakeNode, server: { dir: tree, version: VERSION } })
+  const archive = await buildInstallArchive({ node: fakeNode, server: { dir: tree, version: VERSION } })
   assert.equal(spaceFor(probe, archive.unpackedBytes, 'build-box'), null)
   await first.waitForSend(10_000)
   first.send('install', { body: archive.tarGz, end: true })

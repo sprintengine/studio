@@ -36,7 +36,12 @@ type Window = {
   transport: StudioTransportFactory
 }
 
-function window(options: { follow?: FakeBackend['follow'] } = {}): Window {
+function window(
+  options: {
+    follow?: FakeBackend['follow']
+    rewrite?: (frame: Record<string, unknown>) => Record<string, unknown>
+  } = {},
+): Window {
   const backend = createFakeBackend()
   if (options.follow) backend.follow = options.follow
   const commandListeners = new Set<(catalog: unknown) => void>()
@@ -70,7 +75,12 @@ function window(options: { follow?: FakeBackend['follow'] } = {}): Window {
     server.attach(framePortStream(mainEnd), { authenticator: createTicketAuthenticator(ticket), ownWindow: true })
     open = clientEnd
     const messages: Array<(frame: string) => void> = []
-    clientEnd.onFrame((frame) => messages.forEach((listener) => listener(frame)))
+    clientEnd.onFrame((frame) => {
+      const delivered = options.rewrite
+        ? JSON.stringify(options.rewrite(JSON.parse(frame) as Record<string, unknown>))
+        : frame
+      messages.forEach((listener) => listener(delivered))
+    })
     return {
       credential: { token: ticket },
       send: (frame) => {
@@ -298,4 +308,27 @@ test('a stream’s cursor is what its consumer has read, never what is still wai
   assert.equal(stream.cursor?.afterSeq, (second.value?.type === 'event' && second.value.event.seq) || -1)
   stream.close()
   watching()
+})
+
+test('a request answered busy just before a drop is sent once on the next connection, not again by its retry', async () => {
+  let refused: string | null = null
+  let target: Window | null = null
+  target = window({
+    rewrite: (frame) => {
+      if (frame.t !== 'res' || typeof frame.id !== 'string' || !frame.id.startsWith('r')) return frame
+      // Its answer on the next connection is held back, so the request is still waiting when the retry is due.
+      if (refused === frame.id) return { t: 'held' }
+      refused = frame.id
+      // Busy, and then the connection drops before the retry is due.
+      setTimeout(() => target?.drop(), 0)
+      return { t: 'res', id: frame.id, ok: false, error: { code: 'busy', message: 'Busy.', retryAfterMs: 150 } }
+    },
+  })
+  const client = await connected(target)
+  void client.conversations.list().catch(() => undefined)
+  await until(() => refused !== null && target!.tickets.length === 2 && client.state === 'open')
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  const secondHello = target.sent.findIndex((frame, index) => frame.t === 'hello' && index > 0)
+  const resent = target.sent.slice(secondHello).filter((frame) => frame.t === 'req' && frame.id === refused)
+  assert.equal(resent.length, 1)
 })

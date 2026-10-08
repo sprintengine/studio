@@ -6,7 +6,14 @@ import { afterEach, test } from 'vitest'
 
 import type { ConversationEvent, ConversationSessionSummary } from '../../shared/conversation-runtime'
 import type { ConversationBackend } from '../core/conversation-backend'
-import { connectRemoteConversationBackend, REMOTE_BACKEND_MEMBERS, serveConversationBackend } from './backend-wire'
+import { PassThrough } from 'node:stream'
+
+import {
+  connectRemoteConversationBackend,
+  lineFrames,
+  REMOTE_BACKEND_MEMBERS,
+  serveConversationBackend,
+} from './backend-wire'
 
 const cleanups: Array<() => unknown> = []
 afterEach(async () => {
@@ -211,3 +218,15 @@ async function waitFor(condition: () => boolean, ms = 3_000): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
+
+test('a large frame in many small chunks reads whole, with a character split across them and a frame behind it', () => {
+  const stream = new PassThrough()
+  const frames: unknown[] = []
+  lineFrames(stream).onFrame((frame) => frames.push(frame))
+  const large = 'é'.repeat(300_000)
+  const bytes = Buffer.from(`{"n":0}\n${JSON.stringify({ text: large })}\n{"n":1}\n{"n":`, 'utf8')
+  // An odd size splits the two-byte characters between chunks.
+  for (let start = 0; start < bytes.length; start += 16_383) stream.write(bytes.subarray(start, start + 16_383))
+  stream.write('2}\n')
+  assert.deepEqual(frames, [{ n: 0 }, { text: large }, { n: 1 }, { n: 2 }])
+})

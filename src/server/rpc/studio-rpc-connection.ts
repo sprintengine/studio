@@ -971,10 +971,14 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     const frame = parseStudioClientFrame(value)
     if (!frame) {
       // An answer to a call is never answered back: one Studio cannot read is
-      // dropped, and the call it meant runs to its deadline.
+      // dropped. A reply that still names its call settles it `invalid_result`,
+      // so the agent is not left to the call's deadline.
       const type = (value as { t?: unknown } | null)?.t
       if ((type === 'reply' || type === 'progress') && toolsAttached) {
         options.log?.(`Studio RPC dropped a ${type} it could not read from ${clientName || 'a client'}.`)
+        const callId = (value as { id?: unknown }).id
+        if (type === 'reply' && typeof callId === 'string' && callId.length > 0 && callId.length <= 200)
+          options.tools?.unreadableReply(options.connectionId, callId)
         return
       }
       const ids = studioClientFrameIds(value)

@@ -41,7 +41,8 @@
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
-import { gzipSync } from 'node:zlib'
+import { Readable } from 'node:stream'
+import { createGzip, gzipSync } from 'node:zlib'
 
 import {
   checkLines,
@@ -245,6 +246,11 @@ export function buildUnreadyScript(): string {
 
 export type PayloadSource = { dir: string; into: string; filter?: (relativePath: string) => boolean }
 export type AppPayload = { tarGz: Buffer; digest: string }
+/**
+ * A payload that is mostly only checked: its digest, and its gzipped tar as a
+ * stream for the rare install, compressed off the event loop then.
+ */
+export type StreamedPayload = { digest: string; body(): Readable }
 
 function walk(dir: string): string[] {
   const out: string[] = []
@@ -263,6 +269,29 @@ function walk(dir: string): string[] {
  * distribution already holding this build's payload is never sent it again.
  */
 export function buildAppPayload(sources: readonly PayloadSource[]): AppPayload {
+  const tar = payloadTar(sources)
+  return { tarGz: gzipSync(tar, { level: 9 }), digest: payloadDigest(tar) }
+}
+
+/**
+ * The same payload's digest alone: the digest is of the tar, not of its
+ * gzip, so it is the one `buildAppPayload` gives without compressing anything.
+ */
+export function appPayloadDigest(sources: readonly PayloadSource[]): string {
+  return payloadDigest(payloadTar(sources))
+}
+
+/** The same payload, its digest now and its bytes gzipped as they are read, on zlib's own threads. */
+export function streamedAppPayload(sources: readonly PayloadSource[]): StreamedPayload {
+  const tar = payloadTar(sources)
+  return { digest: payloadDigest(tar), body: () => Readable.from([tar]).pipe(createGzip({ level: 9 })) }
+}
+
+function payloadDigest(tar: Buffer): string {
+  return createHash('sha256').update(tar).digest('hex')
+}
+
+function payloadTar(sources: readonly PayloadSource[]): Buffer {
   const files: Array<{ path: string; data: Buffer }> = []
   for (const source of sources) {
     for (const path of walk(source.dir)) {
@@ -272,8 +301,7 @@ export function buildAppPayload(sources: readonly PayloadSource[]): AppPayload {
     }
   }
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-  const tar = buildTar(files)
-  return { tarGz: gzipSync(tar, { level: 9 }), digest: createHash('sha256').update(tar).digest('hex') }
+  return buildTar(files)
 }
 
 // A minimal ustar writer: regular files and the directories above them, owned

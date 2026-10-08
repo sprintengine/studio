@@ -85,7 +85,6 @@ import {
 } from './workspace-skills-service'
 import type { HostAgentIntegration } from './hosts/execution-host'
 import { hostRegistry } from './hosts/host-registry'
-import { effectiveAgentLaunchSettings } from '../shared/launch-settings'
 import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
 import {
   configureCliVersionService,
@@ -189,7 +188,7 @@ import { createStudioCore, studioBridgeScriptPath } from '../server/core/studio-
 import { createStudioGateway } from '../server/core/studio-gateway'
 import { createStudioRpc } from '../server/core/studio-rpc'
 import type { StudioRpcService } from './studio-rpc/studio-rpc-service'
-import { createServerGatewayBackends } from '../server/desktop/gateway-backends'
+import { createServerGatewayBackends, launchSettingsGatewayDeps } from '../server/desktop/gateway-backends'
 import { SERVER_EVENTS, SERVER_METHODS, SHELL_METHODS } from '../server/desktop/server-methods'
 import {
   createRemoteCore,
@@ -1641,9 +1640,7 @@ export function createAppServices(
               resolveAgentPermissionPreset,
               createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
               getScheduledAgents: () => resolveScheduledAgents(),
-              defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
-              projectUsage: () => agentLaunchSettings.get().projectUsage,
-              userCliModels: (cli) => agentLaunchSettings.get().cliRuntimes[cli]?.models,
+              ...launchSettingsGatewayDeps(agentLaunchSettings),
               // module.*/marketplace.*. The registry snapshot is the
               // renderer's mirror — main's own module list omits every renderer-only
               // module, so reporting from it would be wrong by construction. Trust
@@ -1797,8 +1794,9 @@ export function createAppServices(
                   message: 'Workspaces are created by the Studio server.',
                 }),
                 getScheduledAgents: () => null,
-                defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
-                projectUsage: () => agentLaunchSettings.get().projectUsage,
+                // Its ids for each CLI too, though the shell's terminal and
+                // agent tools do not read them: the three are kept as one.
+                ...launchSettingsGatewayDeps(agentLaunchSettings),
                 getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
                 listInstalledThirdPartyModules: async () => ({ modules: [], rejected: [] }),
                 listModuleContributedTools: () => [],

@@ -47,8 +47,7 @@
 // workspace alone, and is worn by every conversation in it), the rows a branch
 // lookup found are dropped, and the old files are removed.
 
-import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, stat, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { classifyPullRequestUrl } from '../../shared/git/pr-url'
@@ -59,6 +58,7 @@ import {
   type PullRequestState,
 } from '../../shared/git/pull-request'
 import { isRecord } from '../../shared/records'
+import { writeFileAtomically } from '../../main/config-file-write'
 import { readPullRequestState as readPullRequestStateDefault } from '../../main/github/branch-pull-request'
 import {
   createPullRequestWatchPoller,
@@ -107,6 +107,9 @@ export const MAX_PULL_REQUESTS = 5_000
 
 /** The most conversations whose own checkout is remembered; the least recently active go first. */
 export const MAX_CONVERSATIONS = 2_000
+
+/** How long after a write of the record fails it is tried again. */
+const WRITE_RETRY_MS = 5_000
 
 /** A `<name>.<uuid>.tmp` left by a write that died must be older than this before it is swept. */
 const TEMP_FILE_SWEEP_MIN_AGE_MS = 60 * 60 * 1000
@@ -226,6 +229,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   let load: Promise<void> | null = null
   let writes: Promise<unknown> = Promise.resolve()
   let dirty = false
+  let writeRetry: unknown = null
   let disposed = false
   // The file is there but could not be read (locked by a scanner, a
   // permission): nothing is written over it this run, or the next change
@@ -385,9 +389,19 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
         if (!dirty || disposed || unreadable) return
         dirty = false
         const snapshot = { version: STORE_VERSION, pullRequests: [...entries.values()] }
-        await writeJsonFile(options.userDataDir, pullRequestStorePath(options.userDataDir), snapshot).catch((error) => {
+        try {
+          await mkdir(join(options.userDataDir, STORE_DIR), { recursive: true })
+          await writeFileAtomically(pullRequestStorePath(options.userDataDir), `${JSON.stringify(snapshot, null, 2)}\n`)
+        } catch (error) {
           warn('could not write the pull request record', error)
-        })
+          // Still to write: tried again, or what changed is lost until something else does.
+          dirty = true
+          if (writeRetry === null && !disposed)
+            writeRetry = timers.setTimeout(() => {
+              writeRetry = null
+              if (dirty) persist()
+            }, WRITE_RETRY_MS)
+        }
       },
       () => undefined,
     )
@@ -494,8 +508,9 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     }
     const learned = !sameReading(entry, updated)
     put(updated)
-    persist()
+    // A read that learned nothing is not worth a write: only its time moved.
     if (!learned) return
+    persist()
     watch.noteChanged(url)
     if (!isWatchable(updated)) watch.disarm(url)
     emitFor(updated)
@@ -656,6 +671,8 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     },
     dispose() {
       disposed = true
+      if (writeRetry !== null) timers.clearTimeout(writeRetry)
+      writeRetry = null
       watch.dispose()
       while (waitingReads.length > 0) waitingReads.shift()?.()
       refreshHolds.clear()
@@ -812,18 +829,6 @@ function parseEntry(raw: unknown, branch: string | null): BranchPullRequest | nu
     ...(workspaceId ? { openedByWorkspaceId: workspaceId } : {}),
     ...(agentId ? { openedByAgentId: agentId } : {}),
     ...(headRefName ? { headRefName } : {}),
-  }
-}
-
-async function writeJsonFile(userDataDir: string, finalPath: string, data: unknown): Promise<void> {
-  const tempPath = `${finalPath}.${randomUUID()}.tmp`
-  await mkdir(join(userDataDir, STORE_DIR), { recursive: true })
-  try {
-    await writeFile(tempPath, `${JSON.stringify(data, null, 2)}\n`, 'utf-8')
-    await rename(tempPath, finalPath)
-  } catch (error) {
-    await unlink(tempPath).catch(() => {})
-    throw error
   }
 }
 

@@ -41,6 +41,14 @@ function makeClock() {
       nowMs += ms
     },
     pendingCount: () => pending.size,
+    /** Run what is due by now. */
+    fireDue(): void {
+      for (const [id, timer] of [...pending])
+        if (timer.dueAt <= nowMs) {
+          pending.delete(id)
+          timer.handler()
+        }
+    },
     nowMs: () => nowMs,
   }
 }
@@ -254,6 +262,34 @@ test('the record survives a restart', async () => {
   assert.equal(entry.title, 'Teach the sidebar to say where the work went')
   assert.equal(entry.openedByAgentId, 'agent-1')
   second.record.dispose()
+})
+
+test('a write that failed is tried again, and a re-read that learned nothing writes nothing', async () => {
+  const dir = await freshUserDataDir()
+  const store = join(dir, 'pull-requests')
+  await mkdir(store, { recursive: true })
+  // The folder refuses writes for a while, as a full or locked disk does.
+  await chmod(store, 0o500)
+  const { record, clock } = recordOver(dir, { [PR_12]: opened() })
+  try {
+    await record.noteOpened(CHAT, { url: PR_12 })
+    await record.flush()
+    assert.equal(await readdir(store).then((names) => names.includes('opened.json')), false)
+  } finally {
+    await chmod(store, 0o700)
+  }
+  clock.advance(5_000)
+  clock.fireDue()
+  await record.flush()
+  const stored = JSON.parse(await readFile(pullRequestStorePath(dir), 'utf-8')) as { pullRequests: unknown[] }
+  assert.equal(stored.pullRequests.length, 1)
+
+  // The same reading again: nothing new to keep, so the file is not written.
+  await writeFile(pullRequestStorePath(dir), 'left alone\n')
+  await record.refresh(PR_12)
+  await record.flush()
+  assert.equal(await readFile(pullRequestStorePath(dir), 'utf-8'), 'left alone\n')
+  record.dispose()
 })
 
 test('the branch-lookup files migrate: what a conversation opened stays, what a lookup found goes', async () => {
