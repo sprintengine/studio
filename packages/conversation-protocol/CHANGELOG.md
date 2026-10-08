@@ -4,6 +4,24 @@
 
 ### Added
 
+- **A queued message is held by the desktop the chat runs on.**
+  `CONVERSATION_QUEUED_SENDS_CAPABILITY` (`conversation-queued-sends`) names a
+  desktop that holds a message queued while a chat is mid-turn and sends it
+  when the turn ends, so the device that typed it may sleep or close
+  meanwhile. `send` takes `queue: true` (its words alone: never beside
+  `uploadIds`), answered once the message is held; the `cancelQueued` command
+  (`queuedId`) takes one back; the `watchQueued` request
+  (`ConversationWatchQueuedRequest`) has the desktop send `queued` frames
+  (`ConversationQueuedFrame`, each message a `ConversationQueuedMessage` of
+  `id`, `text`, `createdAt` and an optional `failure`, at most
+  `CONVERSATION_MAX_QUEUED_MESSAGES`) for the chat followed, now and on every
+  change. `parseConversationClientMessage` reads all three and
+  `parseConversationServerFrame` reads the frame, leaving out a message it
+  cannot read. A desktop without the capability drops `queue`, so a send made
+  mid-turn is refused `busy` as before, and answers the command and the
+  request under their ids; it never sends a `queued` frame to a client that
+  did not ask. The pinned files are unchanged.
+
 - **A listed chat says when it was last marked unread.** `visitRewoundAt` is
   an optional member of `ConversationThread`, beside `lastVisitedAt`, kept by
   `parseConversationServerFrame` when it is a time and left out otherwise. A

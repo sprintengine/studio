@@ -1285,3 +1285,115 @@ test('switching conversations mid-replay stops the old replay and names the conv
   )
   stream.close(1000, '')
 })
+
+/** A host holding messages for its chats, which a test changes. */
+function holdingHost() {
+  const gateway = host()
+  const watchers = new Set<{ chat: string; listener: (messages: unknown[]) => void }>()
+  const lists = new Map<string, unknown[]>()
+  gateway.watchQueued = (chat, listener) => {
+    const watcher = { chat: `${chat.workspaceId}/${chat.agentId}`, listener: listener as (messages: unknown[]) => void }
+    watchers.add(watcher)
+    watcher.listener(lists.get(watcher.chat) ?? [])
+    return () => watchers.delete(watcher)
+  }
+  return {
+    gateway,
+    watchers,
+    set(chat: string, messages: unknown[]) {
+      lists.set(chat, messages)
+      for (const watcher of watchers) if (watcher.chat === chat) watcher.listener(messages)
+    },
+  }
+}
+
+test('a client that asks is told what the desktop holds for the chat it follows, now and on each change', async () => {
+  const socket = new Socket()
+  const holding = holdingHost()
+  const stream = createTailnetConversationStream({
+    socket,
+    deviceId: 'device',
+    deviceName: 'laptop',
+    scopes: ['conversation:operate'],
+    host: holding.gateway,
+    onClosed: () => {},
+    audit: () => {},
+  })
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
+  await tick()
+  const held = { id: 'sm-1', text: 'Then the docs.', createdAt: 1_700_000_000_000 }
+  holding.set('w/a', [held])
+  assert.equal(
+    (socket.output() as Frame[]).some((frame) => frame.type === 'queued'),
+    false,
+    'nothing is said to a client that did not ask: an older one does not know the frame',
+  )
+  socket.receive({ type: 'watchQueued', requestId: 'queued-1' })
+  await waitFor(() => (socket.output() as Frame[]).some((frame) => frame.type === 'queued'), 'told once it asks')
+  holding.set('w/a', [])
+  await tick()
+  const output = socket.output() as Array<Frame & { key?: unknown; messages?: unknown[] }>
+  assert.deepEqual(
+    output.find((frame) => frame.type === 'result' && frame.requestId === 'queued-1'),
+    { type: 'result', requestId: 'queued-1', ok: true, data: { ok: true } },
+  )
+  assert.deepEqual(
+    output.filter((frame) => frame.type === 'queued'),
+    [
+      { type: 'queued', key: { workspaceId: 'w', agentId: 'a' }, messages: [held] },
+      { type: 'queued', key: { workspaceId: 'w', agentId: 'a' }, messages: [] },
+    ],
+  )
+  // Asked again after a fence, the watch begins afresh rather than doubling.
+  socket.receive({ type: 'watchQueued', requestId: 'queued-2' })
+  await waitFor(() => holding.watchers.size === 1, 'one watch')
+  stream.close(1000, '')
+  assert.equal(holding.watchers.size, 0, 'the watch ends with the socket')
+})
+
+test('the watch ends when the socket follows another chat, and a host that holds nothing refuses it', async () => {
+  const socket = new Socket()
+  const holding = holdingHost()
+  const resolveKey = holding.gateway.resolveKey
+  holding.gateway.resolveKey = (workspaceId, agentId) =>
+    workspaceId === 'w' && agentId === 'b' ? { ...key, agentId: 'b' } : resolveKey(workspaceId, agentId)
+  const stream = createTailnetConversationStream({
+    socket,
+    deviceId: 'device',
+    deviceName: 'laptop',
+    scopes: ['conversation:read'],
+    host: holding.gateway,
+    onClosed: () => {},
+    audit: () => {},
+  })
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
+  await tick()
+  socket.receive({ type: 'watchQueued', requestId: 'queued-1' })
+  await waitFor(() => holding.watchers.size === 1, 'a read grant may watch')
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'b' } })
+  await waitFor(() => holding.watchers.size === 0, 'moving to another chat ends the watch')
+  stream.close(1000, '')
+
+  const plain = new Socket()
+  const other = createTailnetConversationStream({
+    socket: plain,
+    deviceId: 'device',
+    deviceName: 'laptop',
+    scopes: ['conversation:read'],
+    host: host(),
+    onClosed: () => {},
+    audit: () => {},
+  })
+  plain.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
+  await tick()
+  plain.receive({ type: 'watchQueued', requestId: 'queued-1' })
+  await waitFor(
+    () => (plain.output() as Frame[]).some((frame) => frame.type === 'result' && frame.requestId === 'queued-1'),
+    'answered under its id',
+  )
+  const answer = (plain.output() as Array<Frame & { ok?: boolean }>).find(
+    (frame) => frame.type === 'result' && frame.requestId === 'queued-1',
+  )
+  assert.equal(answer?.ok, false)
+  other.close(1000, '')
+})

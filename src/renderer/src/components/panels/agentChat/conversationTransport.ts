@@ -34,6 +34,7 @@ import type {
   MeshConversationCommandResult,
   MeshConversationKey,
   MeshConversationLink,
+  MeshQueuedMessage,
 } from '../../../../../shared/tailnet-mesh'
 
 // Where a chat view's conversation lives. The view — its transcript, pending
@@ -93,6 +94,13 @@ export type ConversationTransportCapabilities = {
    * takes one. Without it, sending a queued message now stops the turn first.
    */
   steer: boolean
+  /**
+   * A message queued while the turn runs is handed at once to the machine the
+   * chat runs on (`queue`), which holds it and sends it when the turn ends,
+   * and which says what it holds. Without it the queue is this view's own,
+   * sent from here when the turn ends — so only while this machine is awake.
+   */
+  hostQueue: boolean
 }
 
 /** What an action answers: the local session API's result, or a remote command's. */
@@ -116,6 +124,14 @@ export type ConversationTransport = {
   setPermissionPreset(input: ConversationSetPermissionInput): Promise<ConversationTransportResult>
   /** Switch a running session's model; absent where the transport cannot. */
   setModel?(input: ConversationSetModelInput): Promise<ConversationTransportResult>
+  /**
+   * Hand a message to the machine the chat runs on, to hold until the turn
+   * ends and send then; answered once it holds it. Used where
+   * `capabilities.hostQueue` is.
+   */
+  queue?(input: { message: string }): Promise<ConversationTransportResult>
+  /** Take back a message that machine holds, by its id there. */
+  cancelQueued?(input: { queuedId: string }): Promise<ConversationTransportResult>
   /**
    * A sent image by the reference its `user_message` recorded. Absent for a
    * remote conversation: the images are in the other machine's store, so a
@@ -169,6 +185,8 @@ const LOCAL_CAPABILITIES: ConversationTransportCapabilities = {
   reportsPreset: true,
   permissionModes: true,
   steer: true,
+  // The chat runs here: its queue is on the machine that sends it already.
+  hostQueue: false,
 }
 
 type LocalParts = Omit<ConversationTransport, 'kind' | 'capabilities' | 'services'>
@@ -290,13 +308,15 @@ const commandResult = (result: MeshConversationCommandResult): ConversationTrans
  * A conversation on a paired machine, over the Mesh. The key it was made for
  * is the one every call names: the local key a view passes carries this
  * machine's idea of a workspace root, which means nothing over there.
- * `onLink` receives the connection state main narrates beside the frames.
+ * `onLink` receives the connection state main narrates beside the frames, and
+ * `onQueued` what the machine holds for the conversation's turn to end.
  */
 export function createRemoteConversationTransport(input: {
   key: MeshConversationKey
   machineName: string
   access: MeshConversationAccess | null
   onLink?: (link: MeshConversationLink) => void
+  onQueued?: (messages: MeshQueuedMessage[]) => void
 }): ConversationTransport {
   const { key } = input
   return {
@@ -318,10 +338,13 @@ export function createRemoteConversationTransport(input: {
       // The Fleet's send carries the message alone; a steer would need the
       // wire to say so, so a remote Send now stops the turn and sends after.
       steer: false,
+      // Turned on from the machine's list, when it advertises queued sends.
+      hostQueue: false,
     },
     subscribe: (subscription, cb) =>
       window.api.onMeshConversationSession({ key, turnLimit: subscription.turnLimit }, (frame) => {
         if (frame.type === 'link') input.onLink?.(frame)
+        else if (frame.type === 'queued') input.onQueued?.(frame.messages)
         else cb(frame)
       }),
     loadEarlier: (page) =>
@@ -329,6 +352,10 @@ export function createRemoteConversationTransport(input: {
     toolDetail: (detail) => window.api.meshConversationToolDetail({ key, toolUseId: detail.toolUseId }),
     turnDiff: (diff) => window.api.meshConversationTurnDiff({ key, turnSeq: diff.turnSeq, path: diff.path }),
     send: async (turn) => commandResult(await window.api.meshConversationSend({ key, message: turn.message })),
+    queue: async (turn) =>
+      commandResult(await window.api.meshConversationSend({ key, message: turn.message, queue: true })),
+    cancelQueued: async (held) =>
+      commandResult(await window.api.meshConversationCancelQueued({ key, queuedId: held.queuedId })),
     interrupt: async () => commandResult(await window.api.meshConversationInterrupt({ key })),
     respond: async (response) => {
       if (response.answers && response.approved)

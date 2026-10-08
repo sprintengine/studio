@@ -43,6 +43,7 @@ const READ_ONLY = {
   reportsPreset: false,
   permissionModes: false,
   steer: false,
+  hostQueue: false,
 } as const
 
 const refused = async () => ({ ok: false as const, message: 'This view is read-only.' })

@@ -1,4 +1,4 @@
-import type { ConversationWireCommand, ConversationWirePermissionPreset } from './index.js'
+import type { ConversationWireCommand, ConversationWireKey, ConversationWirePermissionPreset } from './index.js'
 
 // The commands a client sends a conversation, and the answers it gives one.
 //
@@ -36,11 +36,22 @@ export type ConversationQuestionAnswers = Record<string, string>
  * - `resolvePlan` answers a `plan` request and only a plan request. Needs
  *   `conversation-plans`; before it, a plan was answered as a `resolveApproval`
  *   (`once` carries it out, `deny` rejects it), which every desktop still takes.
+ * - `send` may say `queue`: the desktop holds the message and sends it the
+ *   moment the chat's turn ends (at once, if none is running), and answers as
+ *   soon as it holds it rather than when a turn ends. A held message is its
+ *   words alone, so `queue` never rides beside `uploadIds`. Needs
+ *   `conversation-queued-sends`; a desktop without it drops the member, and
+ *   a send made while a turn runs is refused `busy`, as every send was.
+ * - `cancelQueued` takes back a message the desktop holds (`queued` frames
+ *   name each by `id`), refused once it is on its way into the chat. Needs
+ *   `conversation-queued-sends` too.
  */
 export type ConversationCommand =
-  | Exclude<ConversationWireCommand, { kind: 'setPermissionPreset' }>
+  | Exclude<ConversationWireCommand, { kind: 'setPermissionPreset' } | { kind: 'send' }>
+  | { kind: 'send'; message: string; uploadIds?: string[]; queue?: true }
   | { kind: 'setPermissionPreset'; preset: ConversationWirePermissionPreset; permissionMode?: string }
   | { kind: 'resolvePlan'; requestId: string; decision: ConversationPlanDecision }
+  | { kind: 'cancelQueued'; queuedId: string }
 
 export type ConversationCommandKind = ConversationCommand['kind']
 
@@ -53,7 +64,50 @@ export const CONVERSATION_COMMAND_KINDS: readonly ConversationCommandKind[] = [
   'resolvePlan',
   'setPermissionPreset',
   'setModel',
+  'cancelQueued',
 ]
+
+// ── Messages the desktop holds ──────────────────────────────────────────────
+//
+// A message queued while a chat was mid-turn, held by the desktop the chat
+// runs on (`conversation-queued-sends`). The desktop is the one that sends
+// it, so it is the one that says what is waiting: a client asks with
+// `watchQueued` once it follows the chat, and is sent a `queued` frame then
+// and whenever what the desktop holds for that chat changes. A message on its
+// way into the chat is in none: its `user_message` is in the transcript.
+
+/** One message the desktop holds for a chat until its turn ends. */
+export type ConversationQueuedMessage = {
+  id: string
+  /** The message as it will be sent: several queued in one turn read as one, a line apiece. */
+  text: string
+  /** When it was first held (epoch ms). */
+  createdAt: number
+  /**
+   * The chat refused it when its turn came, in the chat's words. It stays,
+   * waiting on the person, until it is taken back.
+   */
+  failure?: string
+}
+
+/** What a desktop holds for one chat, at most this many. */
+export const CONVERSATION_MAX_QUEUED_MESSAGES = 20
+
+/**
+ * Ask the desktop to say what it holds for the chat this socket follows:
+ * answered by a `result` under `requestId`, then a `queued` frame now and on
+ * every change, until the socket follows another chat or closes. Sent again
+ * after each subscription's fence. A desktop without
+ * `conversation-queued-sends` answers it `ok: false` with `invalid_frame`.
+ */
+export type ConversationWatchQueuedRequest = { type: 'watchQueued'; requestId: string }
+
+/** What the desktop holds for `key`, whole each time: an empty list once nothing is held. */
+export type ConversationQueuedFrame = {
+  type: 'queued'
+  key: ConversationWireKey
+  messages: ConversationQueuedMessage[]
+}
 
 /**
  * What starting a conversation takes. A transport adds what it carries

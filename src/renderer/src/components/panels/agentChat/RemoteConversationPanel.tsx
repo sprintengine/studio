@@ -6,6 +6,7 @@ import type {
   MeshConversationAccess,
   MeshConversationKey,
   MeshConversationLink,
+  MeshQueuedMessage,
 } from '../../../../../shared/tailnet-mesh'
 import { RemoteMachineGlyph } from '../../AppIcons'
 import { TruncatedText } from '../../ui'
@@ -142,6 +143,11 @@ export default function RemoteConversationPanel({
   const [listedModelSwitch, setListedModelSwitch] = useState(false)
   // The machine runs chats on Manual and Auto as well as Bypass and No flag.
   const [permissionModes, setPermissionModes] = useState(false)
+  // The machine holds a message queued here mid-turn and sends it when the
+  // turn ends, so this machine may sleep or close meanwhile; and what it
+  // holds for this chat, as it last said.
+  const [queuedSends, setQueuedSends] = useState(false)
+  const [hostQueued, setHostQueued] = useState<MeshQueuedMessage[]>([])
   const modelSwitch = listedModelSwitch && Boolean(thread?.models)
   // Bumped after an accepted model switch, so the list is read again and the
   // chip names what the machine says the chat is now on.
@@ -159,8 +165,16 @@ export default function RemoteConversationPanel({
   modelSwitchRef.current = modelSwitch
   const permissionModesRef = useRef(permissionModes)
   permissionModesRef.current = permissionModes
+  const queuedSendsRef = useRef(queuedSends)
+  queuedSendsRef.current = queuedSends
   const transport = useMemo(() => {
-    const base = createRemoteConversationTransport({ key, machineName, access: null, onLink: setLink })
+    const base = createRemoteConversationTransport({
+      key,
+      machineName,
+      access: null,
+      onLink: setLink,
+      onQueued: setHostQueued,
+    })
     const capabilities = base.capabilities
     const setModel = base.setModel
     return {
@@ -171,6 +185,7 @@ export default function RemoteConversationPanel({
           operate: accessRef.current === 'operate',
           modelSwitch: modelSwitchRef.current,
           permissionModes: permissionModesRef.current,
+          hostQueue: queuedSendsRef.current,
         }
       },
       ...(setModel
@@ -205,6 +220,7 @@ export default function RemoteConversationPanel({
         setListedAccess(result.access)
         setListedModelSwitch(result.modelSwitch === true)
         setPermissionModes(result.permissionModes === true)
+        setQueuedSends(result.queuedSends === true)
         setThread(
           result.conversations.find(
             (entry) => entry.workspaceId === remoteWorkspaceId && entry.agentId === remoteAgentId,
@@ -245,6 +261,7 @@ export default function RemoteConversationPanel({
       readiness,
       session,
       ...(engine ? { engine } : {}),
+      hostQueue: { machineName, messages: hostQueued },
       header: (
         <div className="flex min-w-0 items-center gap-1.5 px-4 pt-2 text-meta text-[color:var(--text-muted)]">
           <RemoteMachineGlyph className="icon-xs shrink-0" />
@@ -253,7 +270,7 @@ export default function RemoteConversationPanel({
         </div>
       ),
     }),
-    [fields, displayTitle, thread, update, connectionId, readiness, session, engine, machineName],
+    [fields, displayTitle, thread, update, connectionId, readiness, session, engine, machineName, hostQueued],
   )
 
   return (

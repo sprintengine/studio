@@ -1,6 +1,7 @@
 import {
   CONVERSATION_DEFAULT_MODEL_ID,
   type ConversationCommand,
+  type ConversationQueuedMessage,
   type ConversationThread,
   type ConversationWireErrorCode,
   type ConversationWireHost,
@@ -129,6 +130,15 @@ export type ConversationGatewayHost = {
    * same answer its listed thread gives as `permissionPreset`.
    */
   permissionOf?(key: Pick<ConversationKey, 'workspaceId' | 'agentId'>): ConversationPermissionPreset
+  /**
+   * Follow what this desktop holds for a chat until its turn ends: told now,
+   * and again whenever it changes. Absent on a host that holds nothing (one
+   * built without `heldMessages`); returns what stops the following.
+   */
+  watchQueued?(
+    key: Pick<ConversationKey, 'workspaceId' | 'agentId'>,
+    listener: (messages: ConversationQueuedMessage[]) => void,
+  ): () => void
   /**
    * Carry out one command under its client's id. `fingerprint`, where the
    * client's door computes one, is kept with the command's receipt: the same
@@ -305,6 +315,31 @@ export type ConversationRegistryLink = {
    * as the session it was applied to, and the next start put the old one back.
    */
   writeAgentChoice?: (key: { workspaceId: string; agentId: string }, patch: AgentChoicePatch) => void
+  /**
+   * Where a `send` that says `queue` is held until the chat's turn ends, and
+   * sent from (`conversation-queued-sends`). Absent, such a send is an
+   * ordinary one, refused `busy` while a turn runs, as before the member.
+   */
+  heldMessages?: ConversationHeldMessages
+}
+
+type ChatOf = { workspaceId: string; agentId: string }
+
+/**
+ * The messages this desktop holds for its chats until their turns end: queued
+ * on a paired machine while a turn ran, and sent from here when it ends, so
+ * the machine that typed one may sleep or close in the meantime. The
+ * scheduled messages keep them (scheduled-messages.ts, `hold`).
+ */
+export type ConversationHeldMessages = {
+  /** Hold `text` for the chat. `source` names the command it came in on: the same one twice is held once. */
+  hold(chat: ChatOf, text: string, source: string): { ok: true } | { ok: false; message: string }
+  /** Take a held message back; refused once it is on its way into the chat. */
+  cancel(chat: ChatOf, id: string): { ok: true } | { ok: false; message: string }
+  /** What the chat has held now, oldest first, leaving out one already on its way. */
+  list(chat: ChatOf): ConversationQueuedMessage[]
+  /** Something held changed, for some chat. */
+  onChanged(listener: () => void): () => void
 }
 
 /**
@@ -322,6 +357,30 @@ export type AgentChoicePatch = {
   /** Written with the preset, or cleared with it: a mode left from an earlier preset is not this one's. */
   cliPermissionMode?: string | undefined
   conversation?: { providerId: string; modelId: string }
+}
+
+/**
+ * One chat's held messages, told now and again on each change that touches
+ * them: every chat's changes arrive on the one channel, and a follower is told
+ * only when its own chat's list reads differently.
+ */
+function watchHeld(
+  held: ConversationHeldMessages,
+  chat: ChatOf,
+  listener: (messages: ConversationQueuedMessage[]) => void,
+): () => void {
+  const key = { workspaceId: chat.workspaceId, agentId: chat.agentId }
+  let last: string | null = null
+  const tell = () => {
+    const messages = held.list(key)
+    const seen = JSON.stringify(messages)
+    if (seen === last) return
+    last = seen
+    listener(messages)
+  }
+  const stop = held.onChanged(tell)
+  tell()
+  return stop
 }
 
 export function createConversationGatewayHost(
@@ -706,8 +765,23 @@ export function createConversationGatewayHost(
       uploads.set(id, { ...input, at: Date.now() })
       return id
     },
+    ...(registry.heldMessages
+      ? { watchQueued: (key, listener) => watchHeld(registry.heldMessages!, key, listener) }
+      : {}),
     command(key, deviceId, commandId, command, fingerprint) {
       if (command.kind === 'setModel') return setModel(key, commandId, command.modelId, fingerprint)
+      const held = registry.heldMessages
+      const chat = { workspaceId: key.workspaceId, agentId: key.agentId }
+      if (command.kind === 'cancelQueued')
+        return Promise.resolve(
+          held ? held.cancel(chat, command.queuedId) : { ok: false, message: 'This desktop holds no queued messages.' },
+        )
+      // A queued message is held here and sent from here when the turn ends,
+      // answered as soon as it is held: no session is resumed for it now, and
+      // nothing waits on the turn. Held under the device's own command, so a
+      // repeat after a dropped connection holds it once.
+      if (command.kind === 'send' && command.queue && held)
+        return Promise.resolve(held.hold(chat, command.message, JSON.stringify([deviceId, commandId])))
       const stamp = fingerprint ? { commandFingerprint: fingerprint } : {}
       const execute = async (): Promise<ConversationGatewayCommandResult> => relay(await run())
       const run = async (): Promise<ConversationGatewayCommandResult | ConversationSessionActionResult> => {

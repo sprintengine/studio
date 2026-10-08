@@ -152,8 +152,13 @@ export const meshApi = {
     turnLimit?: number
   }): Promise<ConversationPageResult> =>
     ipcRenderer.invoke(MESH_CONVERSATION_EARLIER_CHANNEL, input) as Promise<ConversationPageResult>,
-  meshConversationSend: (input: { key: MeshConversationKey; message: string }) =>
-    command(input.key, { kind: 'send', message: input.message }),
+  meshConversationSend: (input: { key: MeshConversationKey; message: string; queue?: boolean }) =>
+    command(
+      input.key,
+      input.queue ? { kind: 'send', message: input.message, queue: true } : { kind: 'send', message: input.message },
+    ),
+  meshConversationCancelQueued: (input: { key: MeshConversationKey; queuedId: string }) =>
+    command(input.key, { kind: 'cancelQueued', queuedId: input.queuedId }),
   meshConversationInterrupt: (input: { key: MeshConversationKey }) => command(input.key, { kind: 'interrupt' }),
   meshConversationResolveApproval: (input: {
     key: MeshConversationKey
@@ -204,6 +209,7 @@ export const meshApi = {
   | 'onMeshConversationSession'
   | 'meshConversationLoadEarlier'
   | 'meshConversationSend'
+  | 'meshConversationCancelQueued'
   | 'meshConversationInterrupt'
   | 'meshConversationResolveApproval'
   | 'meshConversationAnswerQuestion'

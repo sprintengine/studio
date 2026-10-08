@@ -89,23 +89,24 @@ The `welcome`'s `grant` is what the connection may do:
 
 ## Methods
 
-| Method                             | Scope   | Takes                                           | Answers                                          |
-| ---------------------------------- | ------- | ----------------------------------------------- | ------------------------------------------------ |
-| `server.info`                      | any     | —                                               | the welcome, without its pairing                 |
-| `server.ping`                      | any     | —                                               | `{ at }`, at once: the line is alive             |
-| `conversation.list`                | read    | —                                               | `{ conversations: ConversationThread[] }`        |
-| `conversation.create`              | create  | `ConversationCreateRequest` + `commandId`       | `{ conversation }`                               |
-| `conversation.send`                | operate | `key`, `commandId`, `message`                   | `{ notice? }`, when the turn ends                |
-| `conversation.interrupt`           | operate | `key`, `commandId`                              | `{}`                                             |
-| `conversation.resolveApproval`     | operate | `key`, `commandId`, `requestId`, `decision`     | `{}`                                             |
-| `conversation.answerQuestion`      | operate | `key`, `commandId`, `requestId`, `answers`      | `{}`                                             |
-| `conversation.resolvePlan`         | operate | `key`, `commandId`, `requestId`, `decision`     | `{}`                                             |
-| `conversation.setPermissionPreset` | operate | `key`, `commandId`, `preset`, `permissionMode?` | `{ permissionPreset, permissionMode?, notice? }` |
-| `conversation.setModel`            | operate | `key`, `commandId`, `modelId`                   | `{ modelId, notice? }`                           |
-| `conversation.stop`                | operate | `key`, `commandId`                              | `{}`                                             |
-| `conversation.loadEarlier`         | read    | `key`, `beforeCursor`, `turnLimit?`             | `{ page }`                                       |
-| `conversation.toolDetail`          | read    | `key`, `toolUseId`                              | `{ detail }`                                     |
-| `conversation.turnDiff`            | read    | `key`, `turnSeq`, `path?`                       | `{ diff, patch?, … }`                            |
+| Method                             | Scope          | Takes                                           | Answers                                          |
+| ---------------------------------- | -------------- | ----------------------------------------------- | ------------------------------------------------ |
+| `server.info`                      | any            | —                                               | the welcome, without its pairing                 |
+| `server.ping`                      | any            | —                                               | `{ at }`, at once: the line is alive             |
+| `conversation.list`                | read           | —                                               | `{ conversations: ConversationThread[] }`        |
+| `conversation.create`              | create         | `ConversationCreateRequest` + `commandId`       | `{ conversation }`                               |
+| `conversation.send`                | operate        | `key`, `commandId`, `message`                   | `{ notice? }`, when the turn ends                |
+| `conversation.interrupt`           | operate        | `key`, `commandId`                              | `{}`                                             |
+| `conversation.resolveApproval`     | operate        | `key`, `commandId`, `requestId`, `decision`     | `{}`                                             |
+| `conversation.answerQuestion`      | operate        | `key`, `commandId`, `requestId`, `answers`      | `{}`                                             |
+| `conversation.resolvePlan`         | operate        | `key`, `commandId`, `requestId`, `decision`     | `{}`                                             |
+| `conversation.setPermissionPreset` | operate        | `key`, `commandId`, `preset`, `permissionMode?` | `{ permissionPreset, permissionMode?, notice? }` |
+| `conversation.setModel`            | operate        | `key`, `commandId`, `modelId`                   | `{ modelId, notice? }`                           |
+| `conversation.cancelQueued`        | operate, owner | `key`, `commandId`, `queuedId`                  | `{}`                                             |
+| `conversation.stop`                | operate        | `key`, `commandId`                              | `{}`                                             |
+| `conversation.loadEarlier`         | read           | `key`, `beforeCursor`, `turnLimit?`             | `{ page }`                                       |
+| `conversation.toolDetail`          | read           | `key`, `toolUseId`                              | `{ detail }`                                     |
+| `conversation.turnDiff`            | read           | `key`, `turnSeq`, `path?`                       | `{ diff, patch?, … }`                            |
 
 A key is `{ workspaceId, agentId }`. An owner may add `workspaceRoot`, the
 folder the conversation is kept in when that is not its workspace's (a chat

@@ -138,6 +138,15 @@ export const TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION = 1
  * looked at. A client offers no Settle for a machine without it, and reads
  * "finished, unseen" there by its own lights. The string is the protocol
  * package's `CONVERSATION_LIFECYCLE_CAPABILITY`.
+ *
+ * `conversation-queued-sends` (owner report 2026-10-08): a message queued in
+ * a chat while its turn runs is held by this desktop, which sends it when the
+ * turn ends, rather than by the machine that typed it, which may be asleep by
+ * then. `send` takes `queue`, `cancelQueued` takes one back, and `watchQueued`
+ * has the socket say what is held for the chat it follows, in `queued`
+ * frames. A client keeps the message itself, as before, for a machine without
+ * it. The string is the protocol package's
+ * `CONVERSATION_QUEUED_SENDS_CAPABILITY`.
  */
 export const TAILNET_CAPABILITIES = [
   'events',
@@ -150,6 +159,7 @@ export const TAILNET_CAPABILITIES = [
   'conversation-plans',
   'conversation-cli-permission-modes',
   'conversation-lifecycle',
+  'conversation-queued-sends',
   // A phone's New chat as this machine's own (2026-10-05). They name gateway
   // tools' arguments and answers, not the conversation lane, so they carry no
   // `conversation-` prefix and are not the protocol package's to list:

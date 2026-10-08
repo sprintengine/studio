@@ -41,6 +41,15 @@ export const CONVERSATION_CLI_PERMISSION_MODES_CAPABILITY = 'conversation-cli-pe
  * serves `conversation.settle` and `conversation.visit`.
  */
 export const CONVERSATION_LIFECYCLE_CAPABILITY = 'conversation-lifecycle' as const
+/**
+ * The desktop holds a message queued while a chat is mid-turn and sends it
+ * when the turn ends, as its own composer's queue does: `send` takes `queue`,
+ * `cancelQueued` takes a held message back, and `watchQueued` has the
+ * desktop say what it holds for the chat followed, in `queued` frames. A
+ * message queued on the device that typed it is lost when that device sleeps
+ * or closes before the turn ends; one the desktop holds is not.
+ */
+export const CONVERSATION_QUEUED_SENDS_CAPABILITY = 'conversation-queued-sends' as const
 
 /**
  * Every conversation capability this version of the package knows, in the
@@ -56,6 +65,7 @@ export const CONVERSATION_CAPABILITIES = [
   CONVERSATION_PLANS_CAPABILITY,
   CONVERSATION_CLI_PERMISSION_MODES_CAPABILITY,
   CONVERSATION_LIFECYCLE_CAPABILITY,
+  CONVERSATION_QUEUED_SENDS_CAPABILITY,
 ] as const
 
 export type ConversationCapability = (typeof CONVERSATION_CAPABILITIES)[number]

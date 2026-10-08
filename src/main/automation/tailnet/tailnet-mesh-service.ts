@@ -423,6 +423,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     },
     onAway: (connectionId) => noteMachineAway(connectionId),
     isOnBattery: () => activity.isOnBattery(),
+    capabilitiesOf: (connectionId) => peerCapabilities.get(connectionId),
     log: options.log,
   })
 
@@ -1662,6 +1663,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
           modelSwitch: tailnetPeerSupports(identity.value.capabilities, 'conversation-models'),
           permissionModes: tailnetPeerSupports(identity.value.capabilities, 'conversation-permission-modes'),
           lifecycle: tailnetPeerSupports(identity.value.capabilities, 'conversation-lifecycle'),
+          queuedSends: tailnetPeerSupports(identity.value.capabilities, 'conversation-queued-sends'),
         }
       : listed
   }

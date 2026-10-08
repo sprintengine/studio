@@ -265,3 +265,77 @@ test('a window’s update is read strictly', () => {
   assert.equal(parseScheduledMessageUpdate({ kind: 'reschedule', id: 'sm-1', sendAt: -1 }), null)
   assert.equal(parseScheduledMessageUpdate({ kind: 'explode', id: 'sm-1' }), null)
 })
+
+test('a message a paired machine queued is held until the turn ends, then goes from here', async () => {
+  const h = harness()
+  await started(h)
+  h.working()
+  const held = h.scheduled.hold(CHAT, '  And add a test for it.  ', 'device-1:cmd-1')
+  assert.deepEqual(held, { ok: true, id: 'sm-1' })
+  const [message] = h.scheduled.state().messages
+  assert.equal(message?.queued, true)
+  assert.equal(message?.text, 'And add a test for it.')
+  assert.equal(message?.waitingSince, h.now(), 'the tray says it waits on the turn from the start')
+  await h.advance(10 * MINUTE)
+  assert.equal(h.sent.length, 0, 'never into the running turn')
+  h.idle()
+  h.emit({ type: 'turn_completed' })
+  await h.advance(2_000)
+  assert.deepEqual(
+    h.sent.map((entry) => [entry.chat, entry.text]),
+    [[CHAT, 'And add a test for it.']],
+  )
+  assert.deepEqual(h.scheduled.state().messages, [])
+})
+
+test('several queued in one turn go as one message, and the same command twice is held once', async () => {
+  const h = harness()
+  await started(h)
+  h.working()
+  h.scheduled.hold(CHAT, 'First this.', 'device-1:cmd-1')
+  h.scheduled.hold(CHAT, 'First this.', 'device-1:cmd-1')
+  h.scheduled.hold(CHAT, 'Then that.', 'device-1:cmd-2')
+  assert.deepEqual(
+    h.scheduled.state().messages.map((message) => [message.agentId, message.text]),
+    [[CHAT.agentId, 'First this.\nThen that.']],
+  )
+  // Held for another chat, it is a message of its own; that chat is not
+  // working, so it goes at once.
+  h.scheduled.hold(OTHER, 'Elsewhere.', 'device-1:cmd-3')
+  await h.advance(0)
+  assert.deepEqual(
+    h.sent.map((entry) => entry.text),
+    ['Elsewhere.'],
+  )
+  h.idle()
+  h.emit({ type: 'turn_completed' })
+  await h.advance(5_000)
+  assert.deepEqual(
+    h.sent.map((entry) => entry.text),
+    ['Elsewhere.', 'First this.\nThen that.'],
+  )
+})
+
+test('a held message for a chat that is gone, or with no words, is refused rather than kept', async () => {
+  const h = harness()
+  await started(h)
+  h.chats.clear()
+  assert.equal(h.scheduled.hold(CHAT, 'Hello?', 'device-1:cmd-1').ok, false)
+  h.chats.add(`${CHAT.workspaceId}/${CHAT.agentId}`)
+  assert.equal(h.scheduled.hold(CHAT, '   ', 'device-1:cmd-2').ok, false)
+  assert.deepEqual(h.scheduled.state().messages, [])
+})
+
+test('a held message outlives a restart, still held for the turn', async () => {
+  const storage = memoryStorage()
+  const first = harness({ storage })
+  await started(first)
+  first.working()
+  first.scheduled.hold(CHAT, 'Keep this.', 'device-1:cmd-1')
+  await first.scheduled.dispose()
+  const second = harness({ storage, now: first.now() })
+  await second.scheduled.start()
+  const [message] = second.scheduled.state().messages
+  assert.equal(message?.queued, true)
+  assert.equal(message?.text, 'Keep this.')
+})

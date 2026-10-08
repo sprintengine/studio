@@ -977,7 +977,18 @@ export type ElectronApi = {
     beforeCursor: number
     turnLimit?: number
   }) => Promise<ConversationPageResult>
-  meshConversationSend: (input: { key: MeshConversationKey; message: string }) => Promise<MeshConversationCommandResult>
+  // `queue`: hand the message to the machine to hold until the chat's turn
+  // ends, and answer once it holds it. Needs `conversation-queued-sends` there.
+  meshConversationSend: (input: {
+    key: MeshConversationKey
+    message: string
+    queue?: boolean
+  }) => Promise<MeshConversationCommandResult>
+  // Take back a message the machine holds for the turn's end, by its id there.
+  meshConversationCancelQueued: (input: {
+    key: MeshConversationKey
+    queuedId: string
+  }) => Promise<MeshConversationCommandResult>
   meshConversationInterrupt: (input: { key: MeshConversationKey }) => Promise<MeshConversationCommandResult>
   meshConversationResolveApproval: (input: {
     key: MeshConversationKey

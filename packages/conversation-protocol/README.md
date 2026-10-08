@@ -123,6 +123,16 @@ and adds, each behind its capability:
   thread names its `permissionMode` and the modes its provider runs
   (`capabilities.permissionModes`). A desktop without it drops the member and
   runs the preset's own mode, which is the fallback the field is shaped for.
+- `conversation-queued-sends`: a `send` with `queue: true` (its words alone,
+  never beside `uploadIds`) is held by the desktop and sent when the chat's
+  turn ends, answered once it is held; `cancelQueued` with a `queuedId` takes
+  one back; and `{ type: 'watchQueued', requestId }` has the desktop send a
+  `queued` frame (`ConversationQueuedFrame`: the chat's `key` and its held
+  `messages`, whole each time) now and whenever what it holds changes. A
+  desktop without it drops `queue`, so a send made while a turn runs is
+  refused `busy` as before; it refuses `cancelQueued` as `unsupported_command`
+  and `watchQueued` as `invalid_frame`, each under its id. A desktop sends
+  `queued` frames only to a client that asked.
 
 `ConversationCreateRequest` is what starting a conversation takes, with
 `allowedTools` — tools the chat may use without asking — beside the preset.
