@@ -253,6 +253,7 @@ import { preloadableLazy } from '../../utils/preloadableLazy'
 import { hasTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { clearPaneAttachedHidden, paneAttachedHidden } from '../../utils/terminalPaneVisibility'
 import { shouldSendTerminalPaintVisibility } from './manager/terminalPaintVisibility'
+import { drawnSidebarChatIds, numberedChatIds } from './manager/numberedChats'
 import {
   closeActiveLayoutTab,
   cycleActiveLayoutTab,
@@ -4049,8 +4050,16 @@ export default function WorkspaceManager() {
         return true
       }
       if (commandId === 'workspace.switch.next' || commandId === 'workspace.switch.previous') {
-        const nextWorkspaceId = getNextWorkspaceId(
+        // The same drawn order the number keys count (`numberedChats.ts`).
+        const byId = new Map(railWorkspaces.map((workspace) => [workspace.id, workspace]))
+        const drawnOrder = numberedChatIds(
+          drawnSidebarChatIds(document),
           railWorkspaces,
+          Date.now(),
+          windowActiveWorkspaceId,
+        ).flatMap((id) => byId.get(id) ?? [])
+        const nextWorkspaceId = getNextWorkspaceId(
+          drawnOrder,
           windowActiveWorkspaceId,
           commandId === 'workspace.switch.previous' ? -1 : 1,
         )
@@ -4059,10 +4068,12 @@ export default function WorkspaceManager() {
         return true
       }
       if (commandId.startsWith('workspace.switch.')) {
+        // The number keys count the rows the sidebar draws, in the order it
+        // draws them (`numberedChats.ts`), not the store's order.
         const workspaceIndex = Number(commandId.slice('workspace.switch.'.length)) - 1
-        const workspace = railWorkspaces[workspaceIndex]
-        if (!workspace) return false
-        setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
+        const workspaceId = numberedChatIds(drawnSidebarChatIds(document), railWorkspaces, Date.now())[workspaceIndex]
+        if (!workspaceId) return false
+        setActiveWorkspaceForWindow(workspaceWindowId, workspaceId)
         return true
       }
       if (commandId === 'layout.tab.next' || commandId === 'layout.tab.previous') {

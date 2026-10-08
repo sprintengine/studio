@@ -243,7 +243,8 @@ export const COMMAND_REGISTRY = [
     handlerPath: {
       kind: 'context-bound',
       owner: 'WorkspaceManager',
-      action: 'getNextWorkspaceId(..., 1) -> setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)',
+      action:
+        'getNextWorkspaceId(numberedChatIds(drawn, ...), 1) -> setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)',
     },
   }),
   command({
@@ -256,7 +257,8 @@ export const COMMAND_REGISTRY = [
     handlerPath: {
       kind: 'context-bound',
       owner: 'WorkspaceManager',
-      action: 'getNextWorkspaceId(..., -1) -> setActiveWorkspaceForWindow(workspaceWindowId, previousWorkspaceId)',
+      action:
+        'getNextWorkspaceId(numberedChatIds(drawn, ...), -1) -> setActiveWorkspaceForWindow(workspaceWindowId, previousWorkspaceId)',
     },
   }),
   command({
@@ -297,7 +299,7 @@ export const COMMAND_REGISTRY = [
       handlerPath: {
         kind: 'context-bound',
         owner: 'WorkspaceManager',
-        action: `setActiveWorkspaceForWindow(workspaceWindowId, visibleWorkspaces[${index}].id)`,
+        action: `setActiveWorkspaceForWindow(workspaceWindowId, numberedChatIds(drawnSidebarChatIds(document), ...)[${index}])`,
       },
     })
   }),

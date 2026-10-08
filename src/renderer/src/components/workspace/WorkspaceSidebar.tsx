@@ -3054,6 +3054,9 @@ function WorkspaceSidebar({
           className={`flex-1 overflow-y-auto pb-2 ${homeHidden ? 'hidden' : ''}`}
           role="tree"
           data-control-tab-scope
+          // Read by Primary+1…9, which count these rows as drawn
+          // (`manager/numberedChats.ts`).
+          data-workspace-tree
           onScroll={(event) => {
             treeScrollTopRef.current = event.currentTarget.scrollTop
           }}
