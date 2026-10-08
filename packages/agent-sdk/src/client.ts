@@ -198,9 +198,19 @@ type Pending = {
   method: StudioMethod
   params: unknown
   busyRetries: number
+  /** The resend a `busy` answer scheduled; cleared when the request is sent again by a reconnect, or ends. */
+  busyRetry: ReturnType<typeof setTimeout> | null
   resolve: (result: unknown) => void
   reject: (error: StudioError) => void
   timeout: ReturnType<typeof setTimeout> | null
+}
+
+/** A request's timers, stopped: it has ended, or is about to be sent again. */
+function stopTimers(pending: Pending): void {
+  if (pending.timeout) clearTimeout(pending.timeout)
+  if (pending.busyRetry) clearTimeout(pending.busyRetry)
+  pending.timeout = null
+  pending.busyRetry = null
 }
 
 /** A timer that does not keep a Node process alive by itself. */
@@ -437,6 +447,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
         method,
         params,
         busyRetries: 0,
+        busyRetry: null,
         resolve: resolve as (result: unknown) => void,
         reject,
         timeout: null,
@@ -447,6 +458,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
           setTimeout(() => {
             if (requests.get(id) !== pending) return
             requests.delete(id)
+            stopTimers(pending)
             reject(new StudioError('timeout', 'Studio did not answer in time.'))
           }, readTimeoutMs),
         )
@@ -457,7 +469,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
   }
 
   function settle(pending: Pending): void {
-    if (pending.timeout) clearTimeout(pending.timeout)
+    stopTimers(pending)
     requests.delete(pending.id)
   }
 
@@ -466,10 +478,14 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     if (!pending) return
     if (!frame.ok && frame.error.code === 'busy' && pending.busyRetries < BUSY_RETRIES) {
       pending.busyRetries++
-      setTimeout(() => {
-        if (requests.get(pending.id) === pending && state === 'open')
-          send({ t: 'req', id: pending.id, method: pending.method, params: pending.params })
-      }, frame.error.retryAfterMs ?? 250)
+      if (pending.busyRetry) clearTimeout(pending.busyRetry)
+      pending.busyRetry = quietly(
+        setTimeout(() => {
+          pending.busyRetry = null
+          if (requests.get(pending.id) === pending && state === 'open')
+            send({ t: 'req', id: pending.id, method: pending.method, params: pending.params })
+        }, frame.error.retryAfterMs ?? 250),
+      )
       return
     }
     settle(pending)
@@ -537,7 +553,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     parkedBy = error
     if (error.code !== 'offline') {
       for (const pending of requests.values()) {
-        if (pending.timeout) clearTimeout(pending.timeout)
+        stopTimers(pending)
         pending.reject(error)
       }
       requests.clear()
@@ -619,7 +635,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     stopHeartbeat()
     if (reconnectTimer) clearTimeout(reconnectTimer)
     for (const pending of requests.values()) {
-      if (pending.timeout) clearTimeout(pending.timeout)
+      stopTimers(pending)
       pending.reject(error)
     }
     requests.clear()
@@ -810,6 +826,8 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
         )
       }
       auth = { token: frame.pairing.token }
+      // The connection may have closed, or the client, while the token was kept.
+      if (transport !== opened) return
     }
     attempts = 0
     parkedBy = null
@@ -834,8 +852,13 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       subscribePush(push)
     }
     for (const pending of unanswered)
-      if (requests.get(pending.id) === pending)
+      if (requests.get(pending.id) === pending) {
+        // Sent again here: a resend a `busy` answer scheduled before the drop
+        // would send the same id twice on this connection.
+        if (pending.busyRetry) clearTimeout(pending.busyRetry)
+        pending.busyRetry = null
         send({ t: 'req', id: pending.id, method: pending.method, params: pending.params })
+      }
     // A consumer still behind from before the drop holds the new connection too.
     adjustReading()
   }
@@ -1021,7 +1044,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       if (reconnectTimer) clearTimeout(reconnectTimer)
       const error = new StudioError('closed', 'The client is closed.')
       for (const pending of requests.values()) {
-        if (pending.timeout) clearTimeout(pending.timeout)
+        stopTimers(pending)
         pending.reject(error)
       }
       requests.clear()
