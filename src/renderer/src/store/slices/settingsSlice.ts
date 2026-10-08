@@ -721,6 +721,7 @@ export const defaultAppSettings = (): AppSettings => ({
   terminalIdleSuspendMinutes: DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES,
   terminalKeepRecentAlive: DEFAULT_TERMINAL_KEEP_RECENT_ALIVE,
   settleOnPullRequestMerge: true,
+  browserAutoFloatAgentPreview: true,
   // Off is the rule from before background mode exactly; keeping a process alive is a choice
   // the user has to make, never one an upgrade makes for them.
   keepRunningInBackground: false,
@@ -811,6 +812,9 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     terminalKeepRecentAlive: normalizeTerminalKeepRecentAlive(settings?.terminalKeepRecentAlive),
     settleOnPullRequestMerge:
       typeof settings?.settleOnPullRequestMerge === 'boolean' ? settings.settleOnPullRequestMerge : true,
+    // Only an explicit stored `false` turns the player off: it is the
+    // feature's default, and an unreadable value should not hide an agent.
+    browserAutoFloatAgentPreview: settings?.browserAutoFloatAgentPreview !== false,
     // Only an explicit stored `true` keeps the app alive past its last window;
     // anything else (fresh profile, corrupt value) reads as off.
     keepRunningInBackground: settings?.keepRunningInBackground === true,
@@ -1098,6 +1102,7 @@ export interface SettingsSliceActions {
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void
   setSettleOnPullRequestMerge: (enabled: boolean) => void
+  setBrowserAutoFloatAgentPreview: (enabled: boolean) => void
   /** Keep the app (and its running agents) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
   setTelemetryEnabled: (enabled: boolean) => void
@@ -1731,6 +1736,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setSettleOnPullRequestMerge: (enabled) =>
       set((state) => {
         state.appSettings.settleOnPullRequestMerge = enabled
+      }),
+
+    setBrowserAutoFloatAgentPreview: (enabled) =>
+      set((state) => {
+        state.appSettings.browserAutoFloatAgentPreview = enabled === true
       }),
 
     setTerminalKeepRecentAlive: (count) =>

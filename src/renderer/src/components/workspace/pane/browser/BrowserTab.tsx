@@ -510,12 +510,14 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
         }}
         trailing={
           <>
-            {state?.controller === 'agent' ? (
+            {/* Floating, the player's own bar says both of these; saying them
+                twice in a 360px player would crowd out the address. */}
+            {state?.controller === 'agent' && !tab.floating ? (
               <Badge tone="accent" ariaLabel="An agent is driving this page">
                 Agent
               </Badge>
             ) : null}
-            {state?.recording ? (
+            {state?.recording && !tab.floating ? (
               <BrowserRecordingIndicator
                 recording={state.recording}
                 onStop={() => void window.api.browserStopRecording(tab.id)}

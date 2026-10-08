@@ -3417,6 +3417,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               </div>
             ) : null}
             <div
+              // The floating browser player parks clear of this box
+              // (FloatingPlayer.clearOfComposer).
+              data-chat-composer=""
               className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_EDITOR_CLASS} ${
                 dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
               } ${questionCoversComposer ? 'hidden' : ''}`}
