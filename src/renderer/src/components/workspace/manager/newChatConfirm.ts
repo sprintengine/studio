@@ -17,7 +17,7 @@ export type NewChatConfirmRequest = {
   /** The project the door was scoped to, or the one its selector picked. */
   scopedFolder: string | null
   startupPrompt?: string
-  extension?: { id: string }
+  extension?: NewChatExtension
   /** A chat's staged images, sent as images with `startupPrompt`. */
   startupImages?: string[]
   /** A chat's files attached by path, sent as its first message's `files`. */
@@ -28,9 +28,16 @@ export type NewChatConfirmRequest = {
   hostId?: ExecutionHostId | null
 }
 
+/**
+ * The extension a chat starts by making: its id, and the folder the person
+ * picked for it — absent, it gets a new folder of its own in the extensions
+ * home.
+ */
+export type NewChatExtension = { id: string; folder?: string }
+
 export type NewChatConfirmHost = {
-  /** The extension's own folder inside the project, or null after saying why. */
-  makeExtension: (parentDir: string, id: string, startupPrompt: string) => Promise<string | null>
+  /** The extension's own folder, made or found, or null after saying why. */
+  makeExtension: (extension: NewChatExtension, startupPrompt: string) => Promise<string | null>
   makeWorktree: (scopedFolder: string | null, requestedName: string) => Promise<NewChatWorktreeResult>
   startTerminal: (folderPath: string | null, background?: boolean) => WorkspaceId | null
   startGeneral: (
@@ -104,13 +111,13 @@ export async function confirmNewChatWith(
   // leaves the door open with the diagnostic, never a chat in the checkout.
   let folderPath = scopedFolder
   let worktree: WorkspaceWorktree | undefined
-  // An extension starts in a folder of its own inside the project, made from
-  // the SDK's template before the chat (which needs the skill the scaffold
-  // puts there). One already holding an extension is carried on as it is. A
-  // project that cannot be made leaves the door open, with why.
+  // An extension starts in a folder of its own — the one picked, or a new one
+  // in the extensions home — made from the SDK's template before the chat
+  // (which needs the skill the scaffold puts there). One already holding an
+  // extension is carried on as it is. A project that cannot be made leaves
+  // the door open, with why. The door's project plays no part.
   if (extension) {
-    if (!scopedFolder) return null
-    const made = await host.makeExtension(scopedFolder, extension.id, startupPrompt ?? '')
+    const made = await host.makeExtension(extension, startupPrompt ?? '')
     if (!made) return null
     folderPath = made
   } else if ((confirm.kind === 'general' || confirm.kind === 'conversation') && confirm.worktree) {
@@ -144,9 +151,9 @@ export async function confirmNewChatWith(
   }
   // Every chat started here is a use of its project, whatever kind it is: the
   // folder the picker offered, which for a chat with Worktree on is the
-  // checkout its worktree was cut from, and for an extension the project it
-  // was made inside.
-  const usedFolder = worktree?.repoRoot ?? scopedFolder
+  // checkout its worktree was cut from, and for an extension its own folder,
+  // so the pickers offer it the next time.
+  const usedFolder = worktree?.repoRoot ?? (extension ? folderPath : scopedFolder)
   if (created && usedFolder) host.recordProjectUse(usedFolder)
   // ⌘⏎ stays on New chat; the panel empties itself for the next one.
   if (!background) host.closePanel()
