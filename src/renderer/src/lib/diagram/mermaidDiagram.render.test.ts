@@ -174,7 +174,10 @@ test('two copies of one drawing share no id, and each copy’s markers and style
     const idsOf = (copy: Element) => [...copy.querySelectorAll('[id]')].map((element) => element.id)
     const [first, second] = copies.map(idsOf)
     expect(first.length, source).toBeGreaterThan(0)
-    expect(first.filter((id) => second.includes(id)), source).toEqual([])
+    expect(
+      first.filter((id) => second.includes(id)),
+      source,
+    ).toEqual([])
     for (const copy of copies) {
       const own = new Set(idsOf(copy))
       const markup = copy.innerHTML
