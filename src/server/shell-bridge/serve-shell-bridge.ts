@@ -62,6 +62,13 @@ function revealTarget(value: unknown): ShellRevealTarget | null {
   if (!isRecord(value)) return null
   if (value.kind === 'remote') return { kind: 'remote' }
   if (value.kind === 'app') return { kind: 'app' }
+  if (value.kind === 'chat' && typeof value.chatId === 'string' && value.chatId) {
+    return {
+      kind: 'chat',
+      chatId: value.chatId,
+      ...(typeof value.agentId === 'string' && value.agentId ? { agentId: value.agentId } : {}),
+    }
+  }
   return null
 }
 
@@ -72,6 +79,7 @@ function shellNotice(value: unknown): ShellNotice | null {
     key: value.key,
     title: value.title,
     ...(typeof value.body === 'string' ? { body: value.body } : {}),
+    ...(typeof value.silent === 'boolean' ? { silent: value.silent } : {}),
     ...(activate ? { activate } : {}),
   }
 }

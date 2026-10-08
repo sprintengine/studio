@@ -96,6 +96,9 @@ import {
 } from './cli-version-advisory-service'
 import { createBackgroundModeStore } from './background-mode-store'
 import { createQuitConfirmationStore } from './quit-confirmation-store'
+import { createAgentNotificationsStore } from './agent-notifications-store'
+import { createAgentNotifier } from './agent-notifications'
+import type { ChatLink } from '../shared/deep-link'
 import { countWorkingTerminalAgents, createQuitConfirmation } from './quit-confirmation'
 import { askToQuitWhileWorking } from './quit-confirmation-electron'
 import { conversationTurnInProgress } from '../shared/conversation/phase'
@@ -240,6 +243,9 @@ export function createAppServices(
   // service tokens. In process it calls the shell's services directly; the
   // same object is what the shell serves a server in a process of its own.
   // Its late-bound members (the launch, the gate) resolve at call time.
+  // The chat-link router opens a chat a clicked banner names; it is built with
+  // the app's lifecycle, after these services (setChatLinkOpener).
+  let chatLinkOpener: ((link: ChatLink) => void) | null = null
   const shellBridge = createInProcessShellBridge({
     safeStorage,
     launchAgent: () => (request) => agentLaunchService.launch(request),
@@ -249,6 +255,7 @@ export function createAppServices(
       // drawing it can be the only window open.
       isCanvasWorker: isCanvasWorkerWindow,
       revealMainWindow,
+      openChat: () => chatLinkOpener,
     }),
     notifier: platform.notifier,
     // Only the events this app sends at all; the record drops any property
@@ -750,6 +757,36 @@ export function createAppServices(
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
     },
+  })
+
+  // A banner when a chat finishes or waits on the person while they are in
+  // another app (agent-notifications.ts). Main owns the setting: the banners
+  // are raised here, with no renderer to ask.
+  const agentNotificationsStore = createAgentNotificationsStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+  const agentNotifier = createAgentNotifier({
+    mode: () => agentNotificationsStore.mode(),
+    isAnyWindowFocused: () =>
+      BrowserWindow.getAllWindows().some(
+        (window) => !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isFocused(),
+      ),
+    chatLabel: (workspaceId, agentId) => {
+      const workspace = workspaceSyncService
+        .getSnapshot()
+        .state.workspaces.find((candidate) => candidate.id === workspaceId)
+      // Only a chat the sidebar lists: a module's background host is found
+      // through its own door, and a banner would open somewhere the rail
+      // cannot take the person back from.
+      if (!workspace || (workspace.mode && workspace.mode !== 'standard')) return null
+      const agents = Object.values(workspace.agents ?? {})
+      const agentName = agents.length > 1 ? workspace.agents?.[agentId]?.name : undefined
+      return { title: workspace.name || 'Chat', ...(agentName ? { agentName } : {}) }
+    },
+    show: (notice) => shellBridge.notify(notice),
   })
 
   // Renderer-pushed "Share anonymous usage data" setting, and the one service
@@ -2059,6 +2096,11 @@ export function createAppServices(
     backgroundModeStore,
     quitConfirmationStore,
     quitConfirmation,
+    agentNotificationsStore,
+    agentNotifier,
+    setChatLinkOpener(open: (link: ChatLink) => void): void {
+      chatLinkOpener = open
+    },
     telemetryConsentStore,
     analytics,
     readBackgroundStatus,

@@ -1,6 +1,7 @@
 import type { ClientCapability } from './client-capabilities'
 import type { AttachedFilePreview } from './attached-files'
 import type { ChatLink } from './deep-link'
+import type { AgentNotificationMode } from './agent-notifications'
 import type { PreviewOpenAnswer, PreviewPort, PreviewSummary, WebDevicesStatus } from './web-client'
 import type {
   SshEnvironmentResult,
@@ -1791,6 +1792,9 @@ export type ElectronApi = {
   // its own to ask about (a browser tab).
   getQuitConfirmation: () => Promise<boolean | null>
   setQuitConfirmation: (enabled: boolean) => Promise<boolean | null>
+  /** Banners for a chat that finished or waits on the person (Settings → General); null where main has none. */
+  getAgentNotifications: () => Promise<AgentNotificationMode | null>
+  setAgentNotifications: (mode: AgentNotificationMode) => Promise<AgentNotificationMode | null>
   resolveBacklogLocation: (workspaceRoot: string) => Promise<BacklogLocationResult>
   setBacklogRoot: (input: BacklogSetRootInput) => Promise<BacklogLocationResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>

@@ -428,6 +428,8 @@ registerAppLifecycle({
   desktopShell: serverHost ? services.desktopShell : null,
   conversationCommands: coreIpc.conversationCommands,
   onAgentAttentionReady: (attention) => services.setTourAttention((key) => attention.notify(key)),
+  agentNotifier: services.agentNotifier,
+  onChatLinksReady: (open) => services.setChatLinkOpener(open),
   pullRequestRecord: services.pullRequestRecord,
   ...(services.localServers ? { localServers: services.localServers } : {}),
   ...(services.usageLimitResumes ? { usageLimitResumes: services.usageLimitResumes } : {}),

@@ -1,4 +1,5 @@
 import { ipc as ipcRenderer } from '../ipc-router'
+import type { AgentNotificationMode } from '../../shared/agent-notifications'
 import type { ColorScheme, ElectronApi, WindowMaterial } from '../../shared/electron-api'
 
 type AppearanceIpcRenderer = {
@@ -8,6 +9,8 @@ type AppearanceIpcRenderer = {
   invoke(channel: 'app:set-telemetry-enabled', enabled: boolean): Promise<void>
   invoke(channel: 'app:get-quit-confirmation'): Promise<boolean>
   invoke(channel: 'app:set-quit-confirmation', enabled: boolean): Promise<boolean>
+  invoke(channel: 'app:get-agent-notifications'): Promise<AgentNotificationMode>
+  invoke(channel: 'app:set-agent-notifications', mode: AgentNotificationMode): Promise<AgentNotificationMode>
 }
 
 function createAppearanceApi(renderer: AppearanceIpcRenderer) {
@@ -26,6 +29,9 @@ function createAppearanceApi(renderer: AppearanceIpcRenderer) {
     // dialog's "Don't ask again" writes it, so Settings reads it back from main.
     getQuitConfirmation: (): Promise<boolean> => renderer.invoke('app:get-quit-confirmation'),
     setQuitConfirmation: (enabled: boolean): Promise<boolean> => renderer.invoke('app:set-quit-confirmation', enabled),
+    getAgentNotifications: (): Promise<AgentNotificationMode> => renderer.invoke('app:get-agent-notifications'),
+    setAgentNotifications: (mode: AgentNotificationMode): Promise<AgentNotificationMode> =>
+      renderer.invoke('app:set-agent-notifications', mode),
   } satisfies Pick<
     ElectronApi,
     | 'setColorScheme'
@@ -34,6 +40,8 @@ function createAppearanceApi(renderer: AppearanceIpcRenderer) {
     | 'setTelemetryEnabled'
     | 'getQuitConfirmation'
     | 'setQuitConfirmation'
+    | 'getAgentNotifications'
+    | 'setAgentNotifications'
   >
 }
 

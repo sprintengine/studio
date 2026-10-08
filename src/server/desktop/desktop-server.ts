@@ -112,6 +112,7 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
           key: notice.key,
           title: notice.title,
           ...(notice.body ? { body: notice.body } : {}),
+          ...(notice.silent !== undefined ? { silent: notice.silent } : {}),
           ...(notice.activate ? { activate: notice.activate } : {}),
         }),
     },

@@ -183,6 +183,22 @@ for (const [name, make] of [
       assert.deepEqual(harness.reveals, [{ kind: 'remote' }])
     })
 
+    test('a chat notice keeps its silence and the chat its click opens', async () => {
+      const harness = make()
+      harness.bridge.notify({
+        key: 'chat:ws-1',
+        title: 'Pricing page polish',
+        body: 'Finished.',
+        silent: true,
+        activate: { kind: 'chat', chatId: 'ws-1', agentId: 'agent-1' },
+      })
+      await settle()
+      assert.equal(harness.notices.length, 1)
+      assert.equal(harness.notices[0].silent, true)
+      harness.notices[0].onActivate?.()
+      assert.deepEqual(harness.reveals, [{ kind: 'chat', chatId: 'ws-1', agentId: 'agent-1' }])
+    })
+
     test('an analytics event goes to the shell, which holds consent', async () => {
       const harness = make()
       harness.bridge.analytics({ name: 'conversation.started', properties: { cli: 'claude' } })
