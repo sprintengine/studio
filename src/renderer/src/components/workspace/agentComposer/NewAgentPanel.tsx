@@ -45,7 +45,7 @@ import {
   type ComposerFieldHandle,
   type ComposerKeyEvent,
 } from '../../panels/agentChat/ComposerField'
-import { basename } from '../../../utils/paths'
+import { basename, pathJoin } from '../../../utils/paths'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
   CloseIconButton,
@@ -108,10 +108,11 @@ import { ComposerStrip } from './ComposerStrip'
 import { FrontTruncatedText } from '../../ui/FrontTruncatedText'
 import { ScheduledRuns } from './schedule/ScheduledRuns'
 import type { ScheduledRunEntry } from '../../../utils/scheduledAgentRuns'
-import { ExtensionNameChip } from './ExtensionNameChip'
+import { ExtensionFolderChip, ExtensionNameChip } from './ExtensionNameChip'
 import { EXTENSION_IDEAS, EXTENSION_IDEAS_FIRST, type ExtensionIdea } from './extensionIdeas'
 import {
   EXTENSION_BUILDER_SKILL_ID,
+  extensionIdFromName,
   extensionIdProblem,
   type ExtensionScaffoldTargetState,
 } from '../../../../../shared/extension-scaffold'
@@ -160,11 +161,12 @@ export type NewAgentLaunch = AgentComposerConfirm & {
    */
   hostId?: ExecutionHostId
   /**
-   * Extension mode: the extension's name. The host makes `<project>/<id>` from
-   * the SDK's template first, and the chat starts in that folder rather than
-   * the project.
+   * Extension mode: the extension's name, and the folder the person picked
+   * for it. The host makes the extension from the SDK's template first — in
+   * that folder, or a new `<extensions home>/<id>` without one — and the chat
+   * starts there rather than in the project.
    */
-  extension?: { id: string }
+  extension?: { id: string; folder?: string }
   /**
    * A chat on an SSH machine (phase 8): its label, and the folder on it the
    * chat runs in, as that machine spells it. A chat only: the machine's server
@@ -1262,27 +1264,55 @@ export default function NewAgentPanel({
   const suggestions = React.useMemo(() => drawSuggestions(seed), [seed])
 
   // ── Extension ─────────────────────────────────────────────────────────────
-  // The name is the folder made inside the project and the module id. What is
-  // at `<project>/<name>` is asked as it is typed, so a name already taken by
-  // something else is said before the press: an empty folder is filled, an
+  // An extension is made in a folder of its own, never inside the project the
+  // door is on (which says nothing about where an extension belongs). By
+  // default that is a new folder, named as the chip is typed, in the
+  // extensions home main keeps (Documents/SprintEngine/Extensions). A folder
+  // the person picks is the extension's instead, and its name is the id —
+  // so picking one is naming it, and making the folder first is how to choose
+  // both. What is at the folder is asked as the name changes, so a name
+  // already taken is said before the press: an empty folder is filled, an
   // extension there is carried on, anything else is never written over.
-  const [extensionName, setExtensionName] = React.useState('')
+  const [typedExtensionName, setExtensionName] = React.useState('')
+  const [extensionFolder, setExtensionFolder] = React.useState<string | null>(null)
+  const [extensionHome, setExtensionHome] = React.useState<string | null>(null)
+  React.useEffect(() => {
+    if (!extensionMode || typeof window.api.extensionScaffoldHome !== 'function') return
+    let cancelled = false
+    void window.api
+      .extensionScaffoldHome()
+      .then((home) => {
+        if (!cancelled) setExtensionHome(home)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [extensionMode])
+  const extensionName = extensionFolder ? extensionIdFromName(basename(extensionFolder)) : typedExtensionName
+  const pickExtensionFolder = async (): Promise<void> => {
+    const picked = await window.api.openDir(extensionHome ? { defaultPath: extensionHome } : undefined)
+    if (picked) setExtensionFolder(picked)
+  }
   const [allIdeas, setAllIdeas] = React.useState(false)
-  const extensionNameProblem = extensionName === '' ? null : extensionIdProblem(extensionName)
+  const extensionNameProblem =
+    extensionFolder && extensionName === ''
+      ? 'Name the folder with letters or digits: the extension takes its name from it.'
+      : extensionName === ''
+        ? null
+        : extensionIdProblem(extensionName)
   const [extensionTarget, setExtensionTarget] = React.useState<{
     key: string
     state: ExtensionScaffoldTargetState
   } | null>(null)
   const extensionTargetKey =
-    extensionMode && workspaceRoot && extensionName && !extensionNameProblem
-      ? `${workspaceRoot}\u0000${extensionName}`
-      : null
+    extensionMode && extensionName && !extensionNameProblem ? `${extensionFolder ?? ''}\u0000${extensionName}` : null
   React.useEffect(() => {
-    if (!extensionTargetKey || !workspaceRoot || typeof window.api.extensionScaffoldTarget !== 'function') return
+    if (!extensionTargetKey || typeof window.api.extensionScaffoldTarget !== 'function') return
     let cancelled = false
     const timer = window.setTimeout(() => {
       void window.api
-        .extensionScaffoldTarget({ parentDir: workspaceRoot, id: extensionName })
+        .extensionScaffoldTarget({ id: extensionName, ...(extensionFolder ? { folder: extensionFolder } : {}) })
         .then((target) => {
           if (!cancelled && target) setExtensionTarget({ key: extensionTargetKey, state: target.state })
         })
@@ -1292,24 +1322,39 @@ export default function NewAgentPanel({
       cancelled = true
       window.clearTimeout(timer)
     }
-    // extensionTargetKey is (workspaceRoot, extensionName); listing them too would ask twice.
+    // extensionTargetKey is (extensionFolder, extensionName); listing them too would ask twice.
   }, [extensionTargetKey])
   const extensionTargetState = extensionTarget?.key === extensionTargetKey ? extensionTarget.state : null
+  // The folder the extension will be in, as the strip shows it.
+  const extensionFolderShown =
+    extensionFolder ?? (extensionHome ? pathJoin(extensionHome, extensionName || 'extension-name') : null)
+  // The end of that path: the folder and its parent for one picked, and from
+  // SprintEngine on for a new one in the home, which says whose folder it is.
+  const extensionFolderLabel = extensionFolderShown
+    ? extensionFolderShown
+        .split(/[\\/]+/)
+        .filter(Boolean)
+        .slice(extensionFolder ? -2 : -3)
+        .join('/')
+    : null
   const extensionNote = extensionNameProblem
     ? extensionNameProblem
     : extensionTargetState === 'taken'
-      ? `${projectLabel ?? 'The project'} already has a ${extensionName} folder. Choose another name.`
+      ? extensionFolder
+        ? `${basename(extensionFolder)} already has files in it. Choose an empty folder, or make a new one in the dialog.`
+        : `The extensions folder already has a ${extensionName} folder. Choose another name.`
       : extensionTargetState === 'installed'
-        ? `An extension named ${extensionName} is already installed on this computer. Choose another name.`
+        ? `An extension named ${extensionName} is already installed on this computer. ${
+            extensionFolder ? 'Choose a folder with another name.' : 'Choose another name.'
+          }`
         : extensionTargetState === 'no_parent'
-          ? 'That project folder is not there any more. Choose another project.'
+          ? 'That folder is not there any more. Choose another.'
           : null
-  // Everything the extension needs before ⏎: a project to make it in, a name
-  // that is free (or an extension to carry on), and something to build.
+  // Everything the extension needs before ⏎: a name that is free (or an
+  // extension to carry on), and something to build.
   const extensionReady =
     !extensionMode ||
-    (Boolean(workspaceRoot?.trim()) &&
-      extensionName !== '' &&
+    (extensionName !== '' &&
       !extensionNameProblem &&
       (extensionTargetState === 'free' || extensionTargetState === 'extension') &&
       prompt.trim() !== '')
@@ -1581,7 +1626,9 @@ export default function NewAgentPanel({
       ...(asImages ? { images: imagePaths } : {}),
       ...(filesBeside && files.length > 0 ? { files } : {}),
       ...(hostChoosable ? { hostId } : {}),
-      ...(extensionMode ? { extension: { id: extensionName } } : {}),
+      ...(extensionMode
+        ? { extension: { id: extensionName, ...(extensionFolder ? { folder: extensionFolder } : {}) } }
+        : {}),
       ...(stay ? { stay: true as const } : {}),
     })
     if (stay) keepOnNewChat(started, text, images)
@@ -1889,8 +1936,24 @@ export default function NewAgentPanel({
     (remoteSelectable && remoteMachines.length > 0) || localHosts.length > 1 || sshMachines.length > 0
   // The branch the launch starts from: the remote project's as its machine
   // read it, else this checkout's. An SSH machine's folder is typed, not read.
-  const stripBranch = remoteTarget ? (remoteTarget.checkout?.branch ?? null) : pickedSsh ? null : branch
-  const projectControl = pickedSsh ? (
+  // An extension's folder is new, or the person's own: the project's branch
+  // says nothing about it.
+  const stripBranch = extensionMode
+    ? null
+    : remoteTarget
+      ? (remoteTarget.checkout?.branch ?? null)
+      : pickedSsh
+        ? null
+        : branch
+  const projectControl = extensionMode ? (
+    <ExtensionFolderChip
+      folder={extensionFolderShown}
+      label={extensionFolderLabel}
+      picked={extensionFolder !== null}
+      onPick={() => void pickExtensionFolder()}
+      onReset={() => setExtensionFolder(null)}
+    />
+  ) : pickedSsh ? (
     <Input
       aria-label={`Folder on ${pickedSsh.label}`}
       value={sshFolder}
@@ -1956,7 +2019,9 @@ export default function NewAgentPanel({
     selection.kind === 'terminal'
       ? 'Opens a shell in this folder'
       : extensionMode
-        ? `Makes ${extensionName || 'the extension'} in ${projectLabel ?? 'the project'} and starts ${engineNames.cliLabel} there`
+        ? `Makes ${extensionName || 'the extension'} in ${
+            extensionFolder ? basename(extensionFolder) : 'a new folder in Extensions'
+          } and starts ${engineNames.cliLabel} there`
         : isChatLaunch
           ? `Starts ${engineNames.cliLabel} as a chat`
           : commandLine.status === 'ready'
@@ -2151,7 +2216,12 @@ export default function NewAgentPanel({
                 name is a tag of its own, in the extension violet. It is a field
                 the launch cannot start without. */}
             {extensionMode ? (
-              <ExtensionNameChip name={extensionName} onChange={setExtensionName} invalid={extensionNote !== null} />
+              <ExtensionNameChip
+                name={extensionName}
+                onChange={setExtensionName}
+                invalid={extensionNote !== null}
+                fromFolder={extensionFolder !== null}
+              />
             ) : null}
             {/* Every skill and MCP server picked is a tag; the "+" opens the
                 picker for more. A terminal launches nothing that reads one. */}
@@ -2369,7 +2439,7 @@ export default function NewAgentPanel({
           </p>
         ) : extensionMode && extensionTargetState === 'extension' ? (
           <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--text-muted)]">
-            {extensionName} is already an extension in {projectLabel ?? 'this project'}: the chat opens it to carry on.
+            {extensionName} is already an extension there: the chat opens it to carry on.
           </p>
         ) : null}
 
