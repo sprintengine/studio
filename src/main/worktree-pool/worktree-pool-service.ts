@@ -298,7 +298,7 @@ type PoolRuntime = {
   chain: Promise<unknown>
   busy: Set<string>
   instance: 'unknown' | 'held' | 'foreign'
-  fetch: Promise<LeaseBase | null> | null
+  fetch: Promise<LeaseBase> | null
   /** When the base's last fetch failed, while no fetch has succeeded since. Not persisted. */
   fetchFailedAt: number | null
   /** Recovery, run once this instance holds the pool's container. */
@@ -628,13 +628,16 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
    * is not tried again for {@link FETCH_FAILURE_BACKOFF_MS}: offline, every
    * new chat would otherwise wait out the fetch's whole deadline. The base
    * then carries a note saying it may be behind the remote.
+   *
+   * `local` is where the ref stands before the fetch ({@link localBase}): a
+   * lease prepares its slot there while the fetch runs. Never rejects: a fetch
+   * that throws is a base at `local`, with the reason as its note.
    */
-  function ensureBase(pool: PoolRuntime): Promise<LeaseBase | null> {
+  function ensureBase(pool: PoolRuntime, local: { ref: string; sha: string }): Promise<LeaseBase> {
     if (pool.fetch) return pool.fetch
-    const run = (async (): Promise<LeaseBase | null> => {
+    const run = (async (): Promise<LeaseBase> => {
       const record = pool.record
-      const ref = (await resolvePoolBaseRef(git, record.repoRoot)) ?? record.defaultRef
-      if (!ref) return null
+      const ref = local.ref
       let note: string | null = null
       const stale = !record.lastFetchAt || now() - record.lastFetchAt >= fetchFreshMs
       const backingOff = pool.fetchFailedAt !== null && now() - pool.fetchFailedAt < fetchBackoffMs
@@ -659,16 +662,24 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         })
       }
       const sha = await revParseCommit(git, record.repoRoot, ref)
-      return sha ? { ref, sha, note } : null
-    })()
+      return sha ? { ref, sha, note } : { ...local, note: note ?? `${ref} could not be read after the fetch` }
+    })().catch((error: unknown): LeaseBase => ({
+      ...local,
+      note: `${local.ref} could not be fetched (${messageOf(error)}); forked from where it last stood`,
+    }))
     pool.fetch = run
-    // Cleared however it ends; a failure is the caller's to see, not a second,
-    // unhandled rejection of its own.
-    const clear = (): void => {
+    void run.then(() => {
       if (pool.fetch === run) pool.fetch = null
-    }
-    void run.then(clear, clear)
+    })
     return run
+  }
+
+  /** `origin/<default>` (else the local default branch) and the commit it names now, before any fetch. */
+  async function localBase(pool: PoolRuntime): Promise<{ ref: string; sha: string } | null> {
+    const ref = (await resolvePoolBaseRef(git, pool.record.repoRoot)) ?? pool.record.defaultRef
+    if (!ref) return null
+    const sha = await revParseCommit(git, pool.record.repoRoot, ref)
+    return sha ? { ref, sha } : null
   }
 
   // ── Resetting ────────────────────────────────────────────────────────────
@@ -805,6 +816,21 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     return true
   }
 
+  /**
+   * {@link resetSlot} for a lease in progress: the slot is recorded at
+   * `target` once it is there, so a second move (the fetch moved the ref on)
+   * checks it against where it now is, and its op is the lease's again.
+   */
+  async function moveSlot(pool: PoolRuntime, slot: SlotRecord, target: string): Promise<boolean> {
+    if (!(await resetSlot(pool, slot, target))) return false
+    await withPool(pool, async () => {
+      slot.baseSha = target
+      slot.op = { kind: 'lease', startedAt: now(), pid: process.pid }
+      await persist(pool)
+    })
+    return true
+  }
+
   // ── Leasing ──────────────────────────────────────────────────────────────
 
   async function nextSlotPath(pool: PoolRuntime): Promise<{ id: string; path: string } | null> {
@@ -823,7 +849,10 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   }
 
   /** A new slot, made for a lease that found no idle one: detached at the base, marked, busy. */
-  async function createSlot(pool: PoolRuntime, base: LeaseBase): Promise<SlotRecord | 'full' | 'error'> {
+  async function createSlot(
+    pool: PoolRuntime,
+    base: { ref: string; sha: string },
+  ): Promise<SlotRecord | 'full' | 'error'> {
     // The name is picked under the pool's mutex, in the same step that records
     // it: two leases creating at once must never both pick `pool-01`.
     const { maxSlots } = await getSettings()
@@ -917,8 +946,13 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       }
     }
     await forgetSlotsGoneFromDisk(pool)
-    const base = await ensureBase(pool)
-    if (!base) return { ok: false, reason: 'no-base', message: 'This repository has no default branch to fork from.' }
+    const local = await localBase(pool)
+    if (!local) return { ok: false, reason: 'no-base', message: 'This repository has no default branch to fork from.' }
+    // The fetch and the slot's preparation overlap: the slot is made (or
+    // reset) at where `origin/<default>` stands now while the fetch runs, and
+    // moved on to the fetched commit only if the fetch moved the ref. A new
+    // chat waits for the slower of the two, not for both.
+    const fetching = ensureBase(pool, local)
     const owner = input.owner?.trim() || branch
 
     // Idle slots, the least recently used first: the slot a settled chat gave
@@ -942,15 +976,23 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         return picked
       })
       if (!slot) {
-        const made = await createSlot(pool, base)
+        const made = await createSlot(pool, local)
         if (made === 'full') {
           const { maxSlots } = await getSettings()
-          return { ok: false, reason: 'full', message: `The pool already has ${maxSlots} worktrees.`, base }
+          return {
+            ok: false,
+            reason: 'full',
+            message: `The pool already has ${maxSlots} worktrees.`,
+            base: await fetching,
+          }
         }
-        if (made === 'error') return { ok: false, reason: 'error', message: 'Could not create a pool worktree.', base }
+        if (made === 'error') {
+          return { ok: false, reason: 'error', message: 'Could not create a pool worktree.', base: await fetching }
+        }
         slot = made
         created = true
       }
+
       try {
         if (!created) {
           if (await somethingRunsIn(slot.path)) {
@@ -962,11 +1004,15 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
             })
             continue
           }
-          if (!(await resetSlot(pool, slot, base.sha))) continue
-          await withPool(pool, async () => {
-            slot!.op = { kind: 'lease', startedAt: now(), pid: process.pid }
-            await persist(pool)
-          })
+          if (!(await moveSlot(pool, slot, local.sha))) continue
+        }
+        const base = await fetching
+        // The fetch moved the ref past where the slot was prepared: brought
+        // along, with the same checks, so the fork is the freshly fetched
+        // default branch.
+        if (base.sha !== slot.baseSha && !(await moveSlot(pool, slot, base.sha))) {
+          if (created) return { ok: false, reason: 'error', message: 'Could not move a new pool worktree.', base }
+          continue
         }
         // Both talk to a remote, and the new chat waits on them: each has the
         // network deadline, and one that runs out is a note on the slot (the
@@ -1053,12 +1099,12 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         }
       } catch (error) {
         await holdAfterFailure(pool, slot, messageOf(error))
-        if (created) return { ok: false, reason: 'error', message: messageOf(error), base }
+        if (created) return { ok: false, reason: 'error', message: messageOf(error), base: await fetching }
       } finally {
         pool.busy.delete(slot.id)
       }
     }
-    return { ok: false, reason: 'error', message: 'No pool worktree passed its checks.', base }
+    return { ok: false, reason: 'error', message: 'No pool worktree passed its checks.', base: await fetching }
   }
 
   /**

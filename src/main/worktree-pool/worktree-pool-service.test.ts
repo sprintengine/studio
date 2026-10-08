@@ -209,6 +209,52 @@ test('a first lease makes a slot on the freshly fetched default branch, whatever
   assert.equal((await slotAt(harness, 'pool-01')).state, 'leased')
 })
 
+/** A runner whose fetch and `worktree add` each take `delayMs` longer, logging when each starts and ends. */
+function slowRunner(delayMs: number, events: string[]): SlotGitRunner {
+  const slow = (name: string) => (cwd: string, args: string[], options?: Parameters<SlotGitRunner>[2]) =>
+    (async () => {
+      events.push(`${name} start`)
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs))
+      const result = await defaultSlotGitRunner(cwd, args, options)
+      events.push(`${name} end`)
+      return result
+    })()
+  return (cwd, args, options) => {
+    if (args[0] === 'fetch') return slow('fetch')(cwd, args, options)
+    if (args[0] === 'worktree' && args[1] === 'add') return slow('add')(cwd, args, options)
+    return defaultSlotGitRunner(cwd, args, options)
+  }
+}
+
+test('a lease makes its slot while the base is fetched, not after', async () => {
+  const pushed = await pushToOrigin('upstream.txt', 'new\n')
+  const events: string[] = []
+  const harness = makeService({ git: slowRunner(400, events) })
+  const leased = await lease(harness, 'overlapped')
+  // The add began before the fetch ended: the two ran side by side.
+  assert.ok(events.indexOf('add start') < events.indexOf('fetch end'), events.join(', '))
+  // And the fork is still the freshly fetched default branch: the slot made at
+  // the stale local ref was moved on to it.
+  assert.equal(leased.baseSha, pushed)
+  assert.equal(await git(leased.path, 'rev-parse', 'HEAD'), pushed)
+  assert.equal(await git(leased.path, 'status', '--porcelain'), '')
+  if (process.env.POOL_TEST_LOG) console.log(`overlapped lease: ${leased.elapsedMs} ms (each step +400 ms)`)
+})
+
+test('a reused slot is reset while the base is fetched, then moved on when the fetch moved the ref', async () => {
+  const harness = makeService()
+  const first = await lease(harness, 'first')
+  await returnAll(harness)
+  const pushed = await pushToOrigin('later.txt', 'later\n')
+  const second = await lease(harness, 'second')
+  assert.equal(second.created, false)
+  assert.equal(second.path, first.path)
+  assert.equal(second.baseSha, pushed)
+  assert.equal(await git(second.path, 'rev-parse', 'HEAD'), pushed)
+  assert.equal(await readFile(join(second.path, 'later.txt'), 'utf8'), 'later\n')
+  assert.equal(await git(second.path, 'status', '--porcelain'), '')
+})
+
 test('two leases at once get two different slots', async () => {
   const harness = makeService()
   const [a, b] = await Promise.all([lease(harness, 'one'), lease(harness, 'two')])
