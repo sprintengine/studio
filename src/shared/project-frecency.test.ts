@@ -138,6 +138,26 @@ test('only the most-used projects are remembered', () => {
   assert.equal(usage['/w/p0'], undefined, 'the oldest single use is the one dropped')
 })
 
+test('at the cap, the project just used is kept even when it ties every other one', () => {
+  let usage: ProjectUsageMap = {}
+  // A hundred projects, each used once at the same moment: all score 1.
+  for (let i = 0; i < PROJECT_USAGE_LIMIT; i += 1) usage = withProjectUse(usage, `/w/p${i}`, T0)
+  usage = withProjectUse(usage, '/w/newest', T0)
+  assert.equal(Object.keys(usage).length, PROJECT_USAGE_LIMIT)
+  assert.ok(usage['/w/newest'], 'the use just recorded is kept')
+})
+
+test('at the cap, the project just used is kept beside scores stamped ahead of this clock', () => {
+  // Another process's uses, scored a day ahead: they do not decay here, and
+  // each outranks a single use made now.
+  const ahead: ProjectUsageMap = {}
+  for (let i = 0; i < PROJECT_USAGE_LIMIT; i += 1)
+    ahead[`/w/p${i}`] = { score: 2, scoredAt: T0 + DAY, lastUsedAt: T0 + DAY, useCount: 2 }
+  const usage = withProjectUse(ahead, '/w/newest', T0)
+  assert.equal(Object.keys(usage).length, PROJECT_USAGE_LIMIT)
+  assert.ok(usage['/w/newest'], 'the use just recorded is kept')
+})
+
 test('stored usage is read fail-soft', () => {
   assert.deepEqual(
     normalizeProjectUsageMap({
