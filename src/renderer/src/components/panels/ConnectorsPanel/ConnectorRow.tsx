@@ -73,6 +73,7 @@ export function ConnectorRow({
   name,
   meta,
   summary,
+  summaryLines = 1,
   chips = [],
   status,
   actions,
@@ -93,6 +94,13 @@ export function ConnectorRow({
    */
   meta?: string
   summary?: string
+  /**
+   * How many lines the summary may take before it clips. One keeps a
+   * catalogue of hundreds in rhythm; a short list of rows in a narrow column
+   * (the Modules tab) takes two, so the summary says something rather than
+   * the first few words of it.
+   */
+  summaryLines?: 1 | 2
   chips?: string[]
   // Optional status line (Installed rows): a StatusDot + plain-language label,
   // rendered under the summary.
@@ -154,7 +162,8 @@ export function ConnectorRow({
           <TruncatedText
             as="span"
             text={summary}
-            className="mt-0.5 block text-body leading-4 text-[color:var(--text-subtle)]"
+            multiline={summaryLines === 2}
+            className={`mt-0.5 block text-body leading-4 text-[color:var(--text-subtle)]${summaryLines === 2 ? ' line-clamp-2' : ''}`}
           />
         ) : null}
         {status ? (

@@ -52,6 +52,7 @@ function ModuleCard({
       icon={<ModuleTileIcon name={manifest.displayName} />}
       name={manifest.displayName}
       summary={manifest.summary}
+      summaryLines={2}
       chips={chips}
       actions={
         comingSoon ? undefined : (
@@ -105,8 +106,10 @@ export function ModulesSettingsTab() {
         <section key={category} className="space-y-2">
           <SettingsSectionTitle count={manifests.length}>{categoryLabel(category)}</SettingsSectionTitle>
           {/* Two columns in ONE card: a category is one group with one edge;
-              the rows are short, so one column would be twice the height. */}
-          <SettingCard as="ul" ariaLabel={categoryLabel(category)} columns={2}>
+              the rows are short, so one column would be twice the height. A
+              category of one module takes one column — two would leave an
+              empty half behind a divider. */}
+          <SettingCard as="ul" ariaLabel={categoryLabel(category)} columns={manifests.length > 1 ? 2 : 1}>
             {manifests.map((manifest) => (
               <ModuleCard
                 key={manifest.id}
