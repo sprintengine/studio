@@ -136,8 +136,8 @@ test('designSystemAxes', async () => {
     // 150 → 148, learn 2 → 1, modules 2 → 1 — is the input consolidation.
     // Every hand-rolled field in the settings tabs, the connectors
     // form, the creation wizard's knowledge step, the Learn centre's search and
-    // the voice-dictation section gave up its own `rounded-md` for `ui/Input`,
-    // which spells the control radius once.
+    // a module's settings section (voice dictation, since removed) gave up its
+    // own `rounded-md` for `ui/Input`, which spells the control radius once.
     // The 2026-08-05 menu/header drop — radius workspace 183 → 174, panels
     // 146 → 145, backlog 20 → 19, ui 12 → 9; type panels 18 → 17; icon ui
     // 22 → 21 — is the long tail outside the guards' directory scope.

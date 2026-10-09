@@ -1,0 +1,20 @@
+{
+  "id": "renderer",
+  "title": "Renderer entry",
+  "summary": "src/renderer.tsx, built to entry.renderer: the half of the module that adds UI. Added when a part needs it.",
+  "hidden": true,
+  "requires": [],
+  "permissions": [],
+  "dependsOn": [],
+  "entry": {
+    "renderer": "dist/renderer.mjs"
+  },
+  "scripts": {
+    "build:renderer": "esbuild src/renderer.tsx --bundle --format=esm --platform=browser --target=chrome130 --jsx=automatic --loader:.css=text --external:react --external:react-dom --external:react-dom/client --external:react/jsx-runtime --external:@monaco-editor/react --external:@sprintengine/module-sdk/ui --external:@sprintengine/module-sdk/surface --outfile=module/dist/renderer.mjs"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

@@ -51,6 +51,9 @@ export const CONVERSATION_EVENT_TYPES = [
   // true` marks a line the adapter wrote about the command instead, such as a
   // `/clear` having started a new conversation.
   'command_output',
+  // The turn ended (payload: `ConversationTurnCompletedPayload`): the agent's
+  // last message as `text`, what the turn spent as `usage`, and `costUsd`,
+  // each where the provider can say it.
   'turn_completed',
   'turn_failed',
   // Where a spawned subagent's run stands (running, finished, failed, stopped),
@@ -145,6 +148,40 @@ export type ConversationTurnRetryingPayload = {
   retryInMs: number
   error?: string
   status?: number
+}
+
+/**
+ * What one turn spent, in tokens, summed over every model request the turn
+ * made (tool rounds included). `inputTokens` counts only the input the model
+ * read fresh: the prompt cache's share is `cacheReadTokens`, and what the turn
+ * wrote into the cache is `cacheWriteTokens`, so the four add up to everything
+ * the turn sent and received. A member a provider cannot report is absent,
+ * never zero: an ACP agent reports only what its own protocol carries.
+ */
+export type ConversationTurnUsage = {
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+}
+
+/**
+ * Payload carried on `turn_completed`. Every member but `turnId` is optional
+ * and additive: a provider fills in what it can say, and a reader skips what is
+ * absent.
+ *
+ * - `text`: the agent's last message of the turn, as the person reads it at
+ *   the end of the turn (not the narration between its tool calls). Absent
+ *   when the turn ended without one.
+ * - `usage`: what the turn spent (`ConversationTurnUsage`).
+ * - `costUsd`: what the turn cost, where the provider prices it.
+ */
+export type ConversationTurnCompletedPayload = {
+  turnId?: string
+  text?: string
+  usage?: ConversationTurnUsage
+  costUsd?: number
+  durationMs?: number
 }
 
 /**

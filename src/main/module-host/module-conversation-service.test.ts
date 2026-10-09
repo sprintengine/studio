@@ -27,6 +27,7 @@ import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
 import {
   createConversationModuleRegistry,
   moduleConversationCeiling,
+  replyOf,
   type ModuleConversationDeps,
   type ModuleConversationRuntime,
   type ModuleConversationWorkspace,
@@ -41,6 +42,8 @@ function harness(
     callerCeiling?: () => CliPermissionPreset | null
     /** Whether the fake provider takes a new model mid-conversation. */
     liveModelSwitch?: boolean
+    /** A project that is a git repository: a chat may be born in a worktree of it. */
+    git?: boolean
   } = {},
 ) {
   const workspaces: ModuleConversationWorkspace[] = [
@@ -58,6 +61,8 @@ function harness(
     responses: [] as unknown[],
     presets: [] as unknown[],
     models: [] as unknown[],
+    worktrees: [] as Array<{ repoRoot: string; destinationPath: string; branchName: string }>,
+    created: [] as Array<{ name?: string; folderPath?: string | null; background?: boolean; worktree?: unknown }>,
   }
   let suffix = 0
   let sessionSeq = 0
@@ -146,10 +151,35 @@ function harness(
       for (const listener of workspaceListeners) listener()
       return { ok: true }
     },
-    // A module's chat always joins the workspace it names; none is a `newChat`.
+    // A module's chat joins the workspace it names, unless it asked for a
+    // worktree: then it is a new chat in a workspace of its own.
     listWorkspaces: () => workspaces,
-    createWorkspace: () => ({ ok: false, message: 'a module never starts a newChat' }),
-    removeWorkspace: () => undefined,
+    createWorkspace: (request) => {
+      calls.created.push({
+        name: request.name,
+        folderPath: request.folderPath,
+        ...(request.background ? { background: request.background } : {}),
+        ...(request.worktree ? { worktree: request.worktree } : {}),
+      })
+      const id = `ws-new-${calls.created.length}`
+      workspaces.push({ id, folderPath: request.folderPath, agents: { ...request.agents } })
+      for (const listener of workspaceListeners) listener()
+      return { ok: true, workspaceId: id }
+    },
+    removeWorkspace: (id) => {
+      const index = workspaces.findIndex((workspace) => workspace.id === id)
+      if (index >= 0) workspaces.splice(index, 1)
+    },
+    getRepoRoot: async (folderPath) => (options.git ? folderPath : null),
+    createWorktree: async (input) => {
+      calls.worktrees.push({
+        repoRoot: input.repoRoot,
+        destinationPath: input.destinationPath,
+        branchName: input.branchName,
+      })
+      return { ok: true, path: input.destinationPath, branch: input.branchName, baseRef: 'main' }
+    },
+    newWorktreeSuffix: () => 'AB12',
     startSession: (input) => runtime.startSession(input),
     send: async () => ({ ok: true }) as never,
     newAgentSuffix: () => `s${++suffix}`,
@@ -191,7 +221,21 @@ function harness(
     for (const listener of listeners) listener(event(type, ref, payload))
   }
 
-  return { registry, workspaces, sessions, calls, emit, follows, listenerCount: () => listeners.size }
+  /** Tell the service the workspaces changed, as the registry's bus does. */
+  function workspacesChanged(): void {
+    for (const listener of workspaceListeners) listener()
+  }
+
+  return {
+    registry,
+    workspaces,
+    sessions,
+    calls,
+    emit,
+    follows,
+    workspacesChanged,
+    listenerCount: () => listeners.size,
+  }
 }
 
 let eventSeq = 0
@@ -259,7 +303,7 @@ test('create refuses input it cannot use, and passes the launch’s own refusals
 })
 
 test('a module reaches only its own chats: another module’s and the person’s are not_owned', async () => {
-  const { registry, workspaces, calls } = harness({ reviews: OPERATE, calendar: OPERATE })
+  const { registry, workspaces, calls, emit, follows } = harness({ reviews: OPERATE, calendar: OPERATE })
   const created = await registry.forModule('reviews').create({ workspaceId: 'ws-1', cli: 'claude-code' })
   assert.ok(created.ok)
   const reviewsChat = { workspaceId: 'ws-1', agentId: created.conversation.agentId }
@@ -284,11 +328,17 @@ test('a module reaches only its own chats: another module’s and the person’s
     )
     assert.equal(((await calendar.setPermissionPreset(ref, 'manual')) as { code?: string }).code, 'not_owned')
     assert.equal(((await calendar.setModel(ref, 'default')) as { code?: string }).code, 'not_owned')
-    assert.throws(
-      () => calendar.subscribe(ref, () => undefined),
-      /not started by this module|was started by this module/,
-    )
+    // A subscribe or follow is attached (the chat may only not be known yet),
+    // and hears nothing of a chat that is not the module's.
+    const heard: unknown[] = []
+    const unsubscribe = calendar.subscribe(ref, (event) => heard.push(event))
+    const unfollow = calendar.follow(ref, undefined, (frame) => heard.push(frame))
+    emit('content_delta', ref, { text: 'not for calendar' })
+    assert.deepEqual(heard, [])
+    unsubscribe()
+    unfollow()
   }
+  assert.equal(follows.length, 0, 'no follow of a chat that is not the module’s ever reaches the session API')
   assert.deepEqual(calendar.list(), [], 'another module lists none of them')
   assert.deepEqual(
     registry
@@ -882,7 +932,11 @@ test('follow hands the session API the module’s cursor, redacts what comes bac
   const service = registry.forModule('reviews')
   for (const options of [{ afterSeq: -1 }, { generation: '' }, { turnLimit: 0 }, { turnLimit: 101 }])
     assert.throws(() => service.follow(ref, options, () => undefined), /afterSeq|generation|turnLimit/)
-  assert.throws(() => service.follow({ workspaceId: 'ws-1', agentId: 'nothing' }, undefined, () => undefined))
+  assert.throws(() => service.follow({ workspaceId: '', agentId: 'x' }, undefined, () => undefined), /ref/)
+  // A chat that is not the module's (or not known yet) is waited for, never
+  // followed: nothing reaches the session API for it.
+  service.follow({ workspaceId: 'ws-1', agentId: 'nothing' }, undefined, () => undefined)()
+  assert.equal(follows.length, 1)
   assert.throws(() => registry.forModule('none').follow(ref, undefined, () => undefined), /conversation:read/)
   const second = service.follow(ref, undefined, () => undefined)
   assert.deepEqual(follows[1]!.input, { key: { workspaceRoot: '/repo/a', workspaceId: 'ws-1', agentId: ref.agentId } })
@@ -892,4 +946,144 @@ test('follow hands the session API the module’s cursor, redacts what comes bac
   service.follow(ref, undefined, () => undefined)
   registry.dispose()
   assert.equal(follows[2]!.disposed, true)
+})
+
+test('subscribe and follow attach to a chat whose workspace is not loaded yet, from the moment it is', async () => {
+  const { registry, workspaces, emit, follows, workspacesChanged } = harness({ reviews: OPERATE })
+  const service = registry.forModule('reviews')
+  const created = await service.create({ workspaceId: 'ws-2', cli: 'claude-code' })
+  assert.ok(created.ok)
+  const ref = { workspaceId: 'ws-2', agentId: created.conversation.agentId }
+  // Startup: the saved chat's workspace is not loaded yet.
+  const loaded = workspaces.splice(1, 1)[0]!
+
+  const heard: ModuleConversationEvent[] = []
+  const frames: ModuleConversationStreamFrame[] = []
+  const unsubscribe = service.subscribe(ref, (event) => heard.push(event))
+  const unfollow = service.follow(ref, undefined, (frame) => frames.push(frame))
+  emit('content_delta', ref, { text: 'before it is known' })
+  assert.equal(heard.length, 0, 'nothing is delivered while the chat is unknown')
+  assert.equal(follows.length, 0, 'the follow waits for the chat')
+
+  workspaces.push(loaded)
+  workspacesChanged()
+  assert.equal(follows.length, 1, 'the follow starts once the chat is known')
+  assert.deepEqual(follows[0]!.input.key, { workspaceRoot: '/repo/b', workspaceId: 'ws-2', agentId: ref.agentId })
+  emit('content_delta', ref, { text: 'after' })
+  assert.deepEqual(
+    heard.map((event) => event.payload?.text),
+    ['after'],
+  )
+  follows[0]!.listener({ type: 'synchronized', seq: 1 })
+  assert.deepEqual(frames, [{ type: 'synchronized', seq: 1 }])
+  workspacesChanged()
+  assert.equal(follows.length, 1, 'a follow that started is not started again')
+
+  unsubscribe()
+  unfollow()
+  assert.equal(follows[0]!.disposed, true)
+})
+
+test('reply reads a finished turn’s text off the transcript, for the owner with read access', async () => {
+  const permissions: Record<string, string[]> = { reviews: OPERATE }
+  const { registry } = harness(permissions)
+  const service = registry.forModule('reviews')
+  const created = await service.create({ workspaceId: 'ws-1', cli: 'claude-code' })
+  assert.ok(created.ok)
+  const ref = { workspaceId: 'ws-1', agentId: created.conversation.agentId }
+  // The harness's transcript has streamed text and no finished turn.
+  const none = await service.reply(ref)
+  assert.equal(!none.ok && none.code, 'no_reply')
+  const bad = await service.reply(ref, '')
+  assert.equal(!bad.ok && bad.code, 'invalid_input')
+  const other = await registry.forModule('calendar').reply(ref)
+  assert.equal(!other.ok && other.code, 'permission_missing')
+  permissions.calendar = ['conversation:read']
+  const notMine = await registry.forModule('calendar').reply(ref)
+  assert.equal(!notMine.ok && notMine.code, 'not_owned')
+})
+
+test('a reply is the turn’s own text, or what it streamed when the host did not record one', () => {
+  const ref = { workspaceId: 'ws-1', agentId: 'a' }
+  const events = [
+    event('content_delta', ref, { turnId: 't1', text: 'Looking. ' }),
+    event('content_delta', ref, { turnId: 't1', text: 'Found it.' }),
+    event('turn_completed', ref, { turnId: 't1' }),
+    event('content_delta', ref, { turnId: 't2', text: 'Narration, then ' }),
+    event('turn_completed', ref, { turnId: 't2', text: 'The answer.', usage: { inputTokens: 3, outputTokens: 4 } }),
+    event('content_delta', ref, { turnId: 't3', text: 'merged' }),
+    event('turn_completed', ref, { turnId: 't3', steered: true }),
+  ]
+  assert.deepEqual(replyOf(events), { ok: true, turnId: 't2', text: 'The answer.' }, 'a steered turn is not finished')
+  assert.deepEqual(replyOf(events, 't1'), { ok: true, turnId: 't1', text: 'Looking. Found it.' })
+  assert.deepEqual(replyOf(events, 't3'), { ok: true, turnId: 't3', text: 'merged' })
+  const missing = replyOf(events, 't9')
+  assert.equal(!missing.ok && missing.code, 'no_reply')
+  assert.equal(replyOf([]).ok, false)
+})
+
+test('create with a worktree starts the chat in a fresh worktree, in a workspace of its own, owned by the module', async () => {
+  const { registry, calls, workspaces } = harness({ reviews: OPERATE }, { git: true })
+  const service = registry.forModule('reviews')
+  const created = await service.create({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    prompt: 'Fix the flaky test',
+    worktree: { name: 'Fix flaky test' },
+  })
+  assert.ok(created.ok)
+  assert.equal(calls.worktrees.length, 1)
+  assert.equal(calls.worktrees[0]!.repoRoot, '/repo/a')
+  assert.equal(calls.worktrees[0]!.branchName, 'agent/fix-flaky-test-ab12')
+  assert.equal(calls.created.length, 1)
+  assert.equal(calls.created[0]!.folderPath, calls.worktrees[0]!.destinationPath)
+  assert.equal(calls.created[0]!.background, true, 'it waits in the list rather than taking the window')
+  assert.ok(calls.created[0]!.worktree, 'the new workspace is marked as a worktree of the project')
+  // The chat lives in the new workspace, and the module reaches it there.
+  assert.equal(created.conversation.workspaceId, 'ws-new-1')
+  assert.equal(calls.starts[0]!.workspaceRoot, calls.worktrees[0]!.destinationPath)
+  const agent = workspaces.find((workspace) => workspace.id === 'ws-new-1')!.agents[created.conversation.agentId]
+  assert.equal(agent?.ownerModuleId, 'reviews')
+  assert.deepEqual(
+    service.list().map((entry) => entry.workspaceId),
+    ['ws-new-1'],
+  )
+  assert.equal(
+    workspaces[0]!.agents[created.conversation.agentId],
+    undefined,
+    'nothing joined the checkout’s workspace',
+  )
+
+  // No name: the name a window's New chat gives one.
+  const unnamed = await service.create({ workspaceId: 'ws-1', cli: 'claude-code', worktree: {} })
+  assert.ok(unnamed.ok)
+  assert.equal(calls.worktrees[1]!.branchName, 'agent/chat-ab12')
+})
+
+test('create with a worktree refuses a project that is not a git repository, and a name that is not one', async () => {
+  const { registry, calls } = harness({ reviews: OPERATE })
+  const service = registry.forModule('reviews')
+  const refused = await service.create({ workspaceId: 'ws-1', cli: 'claude-code', worktree: { name: 'x' } })
+  assert.equal(!refused.ok && refused.code, 'worktree_unavailable')
+  assert.match(!refused.ok ? refused.message : '', /not a git repository/)
+  assert.deepEqual(calls.starts, [], 'no chat was started in the checkout instead')
+  for (const worktree of [null, 'x', { name: 3 }, { name: 'x'.repeat(81) }]) {
+    const bad = await service.create({ workspaceId: 'ws-1', cli: 'claude-code', worktree: worktree as never })
+    assert.equal(!bad.ok && bad.code, 'invalid_input')
+  }
+})
+
+test('a follow let go before its chat is known never starts', async () => {
+  const { registry, workspaces, follows, workspacesChanged } = harness({ reviews: OPERATE })
+  const service = registry.forModule('reviews')
+  const created = await service.create({ workspaceId: 'ws-2', cli: 'claude-code' })
+  assert.ok(created.ok)
+  const loaded = workspaces.splice(1, 1)[0]!
+  const unfollow = service.follow({ workspaceId: 'ws-2', agentId: created.conversation.agentId }, undefined, () => {
+    throw new Error('never called')
+  })
+  unfollow()
+  workspaces.push(loaded)
+  workspacesChanged()
+  assert.equal(follows.length, 0)
 })

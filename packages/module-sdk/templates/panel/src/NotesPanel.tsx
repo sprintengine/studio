@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useInsertionEffect, useRef, useState, useSyncExternalStore } from 'react'
 
 import type { RendererHost, WorkspacePanelProps } from '@sprintengine/module-sdk'
 import { PanelHeader, Textarea } from '@sprintengine/module-sdk/ui'
@@ -18,8 +18,12 @@ export function createNotesPanel(host: RendererHost) {
   const readSaved = () => host.getModuleAppState<string>(NOTES_KEY) ?? ''
 
   return function NotesPanel(_props: WorkspacePanelProps) {
-    ensureStyles()
-    const saved = useSyncExternalStore(subscribe, readSaved)
+    // Inserted before the panel paints, and never during a server render (the
+    // smoke test's), which has no document to put a stylesheet in.
+    useInsertionEffect(ensureStyles, [])
+    // The third argument is what a server render reads: without it, rendering
+    // the panel anywhere but a window throws.
+    const saved = useSyncExternalStore(subscribe, readSaved, readSaved)
     const [draft, setDraft] = useState(saved)
     const lastSaved = useRef(saved)
 

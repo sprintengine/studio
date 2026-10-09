@@ -4,9 +4,10 @@ import type { ModuleEventEnvelope } from '../../shared/modules/events'
 import type {
   CapabilityManifest,
   ModuleEnablementOverrides,
+  ModuleFileDigests,
   ModuleResolutionErrorCode,
 } from '../../shared/modules/manifest'
-import { sanitizeNotificationText } from '../../shared/modules/notifications'
+import { sanitizeNotificationText, type ModuleNotificationDelivery } from '../../shared/modules/notifications'
 import { resolveModuleEnablement } from '../../shared/modules/resolve'
 import {
   createMainKernel,
@@ -119,6 +120,8 @@ export function loadMainModules(options: {
   launchErrors?: MainModuleLoadError[]
   /** Sends a module event to every open renderer window. */
   deliverModuleEvent?: (event: ModuleEventEnvelope) => void
+  /** Sends a module's bell row to every attached client (shared/modules/notifications.ts). */
+  deliverModuleNotification?: (notification: ModuleNotificationDelivery) => void
   /** Clock override for notification flood-bound tests. */
   now?: () => number
   /**
@@ -133,6 +136,10 @@ export function loadMainModules(options: {
   registerTimeoutMs?: number
   /** False in the Studio server out of process: see `MainKernelOptions.electronMain`. */
   electronMain?: boolean
+  /** The gateway's own tool names: see `MainKernelOptions.coreMcpToolNames`. */
+  coreMcpToolNames?: () => Iterable<string>
+  /** Verified file digests per third-party module id, for `MainHost.getAssetPath`. */
+  moduleVerifiedFiles?: Record<string, ModuleFileDigests>
 }): LoadMainModulesResult {
   const { ipcMain, modules, overrides = {}, provideServices, ineligible, launchErrors = [] } = options
   const registerTimeoutMs = options.registerTimeoutMs ?? REGISTER_MAIN_TIMEOUT_MS
@@ -146,10 +153,13 @@ export function loadMainModules(options: {
   const kernel = createMainKernel(ipcMain, {
     ...(options.electronMain === undefined ? {} : { electronMain: options.electronMain }),
     deliverModuleEvent: options.deliverModuleEvent,
+    ...(options.deliverModuleNotification ? { deliverModuleNotification: options.deliverModuleNotification } : {}),
     now: options.now,
     resolveModuleManifest: (moduleId) => byId.get(moduleId)?.manifest,
     resolveModuleRoot: (moduleId) => options.moduleRoots?.[moduleId],
     ...(options.skillRegistry ? { skillRegistry: options.skillRegistry } : {}),
+    ...(options.coreMcpToolNames ? { coreMcpToolNames: options.coreMcpToolNames } : {}),
+    resolveModuleVerifiedFiles: (moduleId) => options.moduleVerifiedFiles?.[moduleId],
   })
   const hostScope = kernel.hostFor('@host')
   provideServices?.(hostScope)

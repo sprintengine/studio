@@ -1,48 +1,55 @@
-import { useCallback, useEffect, useId, useState } from 'react'
+import React, { type JSX } from 'react'
 
+import type { MarketplaceUpdateStatesResult } from '../../../../shared/electron-api'
 import type {
   ModuleEnablementOverrides,
   ModuleManifestIssue,
   ModuleTrustStatus,
-  ThirdPartyModuleLaunchView,
   ThirdPartyModuleView,
-  ThirdPartyRendererEntryView,
 } from '../../../../shared/modules/manifest'
 import {
   describeCapabilityPermission,
   isBroadCapabilityPermission,
   isKnownCapabilityPermission,
 } from '../../../../shared/modules/permissions'
-import { getThirdPartyRendererLoadState, type ThirdPartyRendererLoadState } from '../../modules/third-party-loader'
+import { getRendererHost } from '../../modules'
 import { getModuleContributionError } from '../../modules/ModuleContributionBoundary'
-import { getRendererHost, onThirdPartyRendererModulesLoaded, refreshThirdPartyRendererModules } from '../../modules'
-import { useWorkspaceStore } from '../../store/workspaceStore'
-import { useConfirmDialog } from '../ui/ConfirmDialog'
+import { getThirdPartyRendererLoadState } from '../../modules/third-party-loader'
 import type { Tone } from '../ui/tokens'
+import { Badge, EmptyState, GhostButton, InlineNotice, OutlineButton, SettingCard, type OverflowMenuItem } from '../ui'
+import { deriveContributions, moduleDoorIcon } from './extensionContributions'
 import {
-  type ActionResult,
-  ActionResultMessage,
-  Badge,
-  EmptyState,
-  IconButton,
-  InlineNotice,
-  OutlineButton,
-  Spinner,
-  StatusDot,
-  Switch,
-  Tooltip,
-} from '../ui'
-import { FolderPlusIcon, GithubSettingsIcon } from '../AppIcons'
-import { InstallFromGitHubDialog } from '../extensions/InstallFromGitHubDialog'
-import { addThirdPartyModuleFromFolder } from './addThirdPartyModuleFromFolder'
-import { SettingCard, SettingsSectionTitle } from './SettingsAtoms'
+  CannotTrustTrailing,
+  ExtensionDetails,
+  ExtensionMark,
+  ExtensionRow,
+  ExtensionStateLabel,
+  InstalledTrailing,
+  ReviewTrailing,
+} from './ExtensionRow'
+import {
+  accessItems,
+  isSigned,
+  marketplaceUpdateFor,
+  moduleMeta,
+  moduleProblem,
+  problemText,
+  publisherName,
+  resolveModuleEnabled,
+  runState,
+  sourceLabel,
+  type ExtensionUpdate,
+} from './extensionsModel'
+import { SettingsSectionTitle } from './SettingsAtoms'
 
-// Settings → Modules: the third-party (installed-from-disk) module group. It
-// installs, validates, trust-classifies modules, and reports startup readiness;
-// trusting one persists to the trust store.
+// Settings → Extensions: the two groups of extensions a person installed.
+// "Needs review" first — the decision they owe is the first thing on the page —
+// then "Installed", the trusted ones with their one switch. The rows and the
+// details are in ExtensionRow; what talks to main is in useThirdPartyExtensions.
 
 type TrustPresentation = { tone: Tone; label: string }
 
+// The trust state in words, for the Plugins door's installed inventory.
 export const TRUST_PRESENTATION: Record<ModuleTrustStatus, TrustPresentation> = {
   trusted: { tone: 'good', label: 'Trusted' },
   // 'signed' is informational (valid signature, awaiting approval) — a neutral
@@ -52,106 +59,11 @@ export const TRUST_PRESENTATION: Record<ModuleTrustStatus, TrustPresentation> = 
   invalid: { tone: 'error', label: 'Invalid signature' },
 }
 
-// Launch readiness is the *consequence* axis (what happens at startup), distinct
-// from the trust StatusDot. It is plain text, never a second status dot/badge,
-// and never implies sandboxed or permission-brokered execution — trusted code
-// runs in-process. Main-process module code only loads at app launch, so a
-// newly trusted/enabled module's copy says "on the next app launch". The real
-// startup error string (from the main launch snapshot) is surfaced verbatim.
-// `enabled` is the live renderer enablement intent (appSettings.modules override
-// else manifest default) — the single source of truth the row's enable control
-// also writes to — so the copy never disagrees with the toggle next to it.
-export function describeModuleLaunch(
-  launch: ThirdPartyModuleLaunchView,
-  enabled: boolean,
-): {
-  label: string
-  detail: string
-} {
-  switch (launch.status) {
-    case 'trusted_executable':
-      return {
-        label: 'Main entry ready',
-        detail: enabled ? 'Loads on the next app launch.' : 'Disabled — enable it to load on the next app launch.',
-      }
-    case 'trusted_manifest_only':
-      return { label: 'Manifest only', detail: 'Contributes metadata; it has no code to run.' }
-    case 'blocked_unsigned':
-      return { label: 'Blocked until trusted', detail: 'Unsigned — won’t load until you trust it.' }
-    case 'blocked_signed':
-      return { label: 'Awaiting trust', detail: 'Signed — won’t load until you trust it.' }
-    case 'blocked_invalid':
-      return {
-        label: 'Blocked: invalid signature',
-        detail: 'Can’t be trusted or loaded until it is reinstalled with a valid signature.',
-      }
-    case 'blocked_host_api':
-      return {
-        label: 'Built for another app version',
-        detail: launch.message ?? 'It targets a host API this app does not provide, so it won’t load.',
-      }
-    case 'launch_error':
-      return { label: 'Launch error', detail: launch.message ?? 'Failed to load at the last app launch.' }
-  }
-}
-
-// The renderer-entry consequence line, shown only for trusted modules that
-// declare one (status is earned: undeclared entries render nothing, and
-// trust-blocked modules already carry one "blocked until trusted" line — a
-// second would double the same signal). Two sources, clearly split: the main
-// process reports whether the bundle is servable; the renderer loader reports
-// what happened when this session evaluated it. A trusted-after-boot module
-// has no load state yet, which honestly reads as next-launch.
-export function describeRendererEntry(
-  view: ThirdPartyRendererEntryView | undefined,
-  loadState: ThirdPartyRendererLoadState | undefined,
-  trust: ModuleTrustStatus,
-  // The last time one of its contributions failed to render this session.
-  contributionError?: string,
-): { label: string; detail: string } | null {
-  if (trust !== 'trusted' || !view || view.availability === 'none' || view.availability === 'blocked') {
-    return null
-  }
-  if (view.availability === 'error') {
-    return {
-      label: 'Renderer entry error',
-      detail: view.message ?? 'entry.renderer bundle could not be served.',
-    }
-  }
-  if (!loadState) {
-    return { label: 'Renderer entry ready', detail: 'Loads on the next app launch.' }
-  }
-  if (loadState.status === 'error') {
-    return { label: 'Renderer entry failed', detail: loadState.message }
-  }
-  if (contributionError) {
-    return { label: 'Renderer entry crashed', detail: contributionError }
-  }
-  return {
-    label: 'Renderer entry loaded',
-    detail: 'Contributions follow the enable toggle without a reload.',
-  }
-}
-
-// The live enablement intent for one module: an explicit appSettings.modules
-// override wins, otherwise the manifest default. Mirrors the main launch view's
-// `enablementOverrides[id] ?? manifest.defaultEnabled` so the renderer toggle and
-// the startup gate read the same value. A pure read — it never rewrites the map,
-// so resolving one module cannot disturb another module's override.
-export function resolveModuleEnabled(overrides: ModuleEnablementOverrides, module: ThirdPartyModuleView): boolean {
-  return overrides[module.manifest.id] ?? module.manifest.defaultEnabled
-}
-
-// `MESSAGE_CLASS` was this file's copy of the left tone-bar; the
-// install result is a kit notice when it failed and plain copy when it did not.
-type Message = ActionResult | null
-
-// Requested-access chips. Disclosure only: the chip text is what the module
-// says it does (describeCapabilityPermission keeps every string free of
-// enforcement language). The broad scope (ipc:invoke) and unrecognized scopes
-// warn-tint the chip; the wording itself carries the same signal
-// ("(broad scope)" / "Unrecognized capability"), so the flag is never
-// color-only.
+// Requested-access chips, in the full consent wording: the disclosure a trust
+// prompt for a marketplace or GitHub install reads out. Disclosure only — the
+// text is what the module says it does, never what the app prevents. The broad
+// scopes and unrecognized ones wear the warn tone, and their wording says the
+// same thing, so the flag is never colour alone.
 export function PermissionChips({ permissions }: { permissions: string[] }) {
   if (permissions.length === 0) {
     return <span className="text-meta text-[color:var(--text-subtle)]">No special access.</span>
@@ -161,9 +73,6 @@ export function PermissionChips({ permissions }: { permissions: string[] }) {
       {permissions.map((permission) => {
         const flagged = isBroadCapabilityPermission(permission) || !isKnownCapabilityPermission(permission)
         return (
-          // The raw permission id rides the accessible name; the visible word
-          // is the description. A broad or unknown permission is a degraded
-          // grant, so it wears the warn tone rather than warn ink alone.
           <Badge
             key={permission}
             tone={flagged ? 'warn' : 'neutral'}
@@ -177,357 +86,269 @@ export function PermissionChips({ permissions }: { permissions: string[] }) {
   )
 }
 
-// One installed module: trust on the StatusDot, launch readiness as plain
-// consequence text (one line per entry kind, each naming its half — "Main
-// entry …" / "Renderer entry …" — so the two execution surfaces and their
-// different toggle semantics stay distinguishable), the trust toggle (or a
-// static "cannot be trusted" note for invalid signatures), an enable toggle
-// once the module is trusted and has code to run, and the requested access.
-// Presentational so row status and copy can be rendered and asserted in
-// isolation; the renderer-side load state is injectable for the same reason.
-export function ThirdPartyModuleRow({
+/** What a row can ask of the page. */
+export type ExtensionActions = {
+  pendingId: string | null
+  onReview: (module: ThirdPartyModuleView) => void
+  onSetEnabled: (moduleId: string, enabled: boolean) => void
+  onRevokeTrust: (module: ThirdPartyModuleView) => void
+  onUninstall: ((module: ThirdPartyModuleView) => void) | null
+  onReveal: ((module: ThirdPartyModuleView) => void) | null
+  onUpdate: (module: ThirdPartyModuleView, update: ExtensionUpdate) => void
+  onCopyId: (module: ThirdPartyModuleView) => void
+}
+
+function signatureFact(module: ThirdPartyModuleView): string {
+  if (module.trust === 'invalid') return 'Invalid'
+  if (!isSigned(module)) return 'Unsigned'
+  const signer = publisherName(module.manifest)
+  if (signer) return `Signed by ${signer}`
+  return module.fingerprint ? `Signed, key ${module.fingerprint.slice(0, 12)}` : 'Signed'
+}
+
+function trustFact(module: ThirdPartyModuleView): string {
+  if (module.trust !== 'trusted') return 'Not yet'
+  return module.trustedVia === 'publisher' ? 'By its publisher’s key' : 'By you'
+}
+
+export function ExtensionListRow({
   module,
-  pending,
-  enabled,
-  rendererLoadState = getThirdPartyRendererLoadState(module.manifest.id),
-  onTrustChange,
-  onEnabledChange,
-  onUninstall,
+  overrides,
+  updateStates,
+  actions,
+  detailsOpen,
+  onDetailsOpenChange,
 }: {
   module: ThirdPartyModuleView
-  pending: boolean
-  enabled: boolean
-  rendererLoadState?: ThirdPartyRendererLoadState
-  onTrustChange: (trusted: boolean) => void
-  onEnabledChange: (enabled: boolean) => void
-  // The other end of an install — from a folder, the marketplace or GitHub.
-  // Absent on a build whose preload predates the uninstall channel, and the row
-  // simply carries no control — never a button that reports an error when pressed.
-  onUninstall?: () => void
-}) {
-  const trust = TRUST_PRESENTATION[module.trust]
-  const rendererEntry = describeRendererEntry(
-    module.launch.rendererEntry,
-    rendererLoadState,
-    module.trust,
-    getModuleContributionError(module.manifest.id),
+  overrides: ModuleEnablementOverrides
+  updateStates: MarketplaceUpdateStatesResult | null
+  actions: ExtensionActions
+  detailsOpen: boolean
+  onDetailsOpenChange: (open: boolean) => void
+}): JSX.Element {
+  const id = module.manifest.id
+  const name = module.manifest.displayName
+  const trusted = module.trust === 'trusted'
+  const invalid = module.trust === 'invalid'
+  const enabled = resolveModuleEnabled(overrides, module)
+  const pending = actions.pendingId === id
+  const rendererLoadState = getThirdPartyRendererLoadState(id)
+  const contributionError = getModuleContributionError(id)
+  const problem = moduleProblem(module, rendererLoadState, contributionError)
+  const state = runState(module, enabled, rendererLoadState, contributionError)
+  const update = marketplaceUpdateFor(module, updateStates)
+  const registry = getRendererHost()
+  const doorIcon = trusted ? moduleDoorIcon(id, registry) : null
+  const { care, standard } = accessItems(module.manifest.permissions)
+
+  const updateButton = update ? (
+    <OutlineButton size="xs" disabled={pending} onClick={() => actions.onUpdate(module, update)}>
+      Update to v{update.latestVersion}
+    </OutlineButton>
+  ) : null
+
+  const trailing = invalid ? (
+    <CannotTrustTrailing />
+  ) : !trusted ? (
+    <ReviewTrailing name={name} onReview={() => actions.onReview(module)} />
+  ) : (
+    <InstalledTrailing
+      name={name}
+      state={state}
+      enabled={enabled}
+      pending={pending}
+      onToggle={(next) => actions.onSetEnabled(id, next)}
+    />
   )
-  // A trusted renderer-entry module without a main entry would otherwise read
-  // "Manifest only — no code to run", which is false; the renderer line is the
-  // whole story for that shape.
-  const launch =
-    module.launch.status === 'trusted_manifest_only' && rendererEntry
-      ? null
-      : describeModuleLaunch(module.launch, enabled)
-  const isInvalid = module.trust === 'invalid'
-  // The enable control is only meaningful once a module is trusted and actually
-  // has code to run; without it the row would dead-end on a disabled trusted
-  // module. Renderer-entry contributions gate by the same toggle, live.
-  const hasRendererEntry = Boolean(module.launch.rendererEntry && module.launch.rendererEntry.availability !== 'none')
-  const canEnable = module.trust === 'trusted' && (module.launch.hasMainEntry || hasRendererEntry)
-  const enableLabel = module.launch.hasMainEntry
-    ? hasRendererEntry
-      ? 'Enable this module'
-      : 'Load on the next app launch'
-    : 'Enable contributions'
-  const enableLabelId = useId()
+
+  const menuItems: OverflowMenuItem[] = [
+    { id: 'details', label: 'Details', onSelect: () => onDetailsOpenChange(true) },
+    ...(trusted
+      ? [
+          {
+            id: 'toggle',
+            label: enabled ? 'Turn off' : 'Turn on',
+            disabled: pending,
+            onSelect: () => actions.onSetEnabled(id, !enabled),
+          },
+        ]
+      : invalid
+        ? []
+        : [{ id: 'review', label: 'Review and trust', onSelect: () => actions.onReview(module) }]),
+    ...(update
+      ? [
+          {
+            id: 'update',
+            label: `Update to v${update.latestVersion}`,
+            disabled: pending,
+            onSelect: () => actions.onUpdate(module, update),
+          },
+        ]
+      : []),
+    ...(actions.onReveal ? [{ id: 'files', label: 'Show files', onSelect: () => actions.onReveal?.(module) }] : []),
+    { id: 'copy', label: 'Copy id', onSelect: () => actions.onCopyId(module) },
+    ...((trusted && module.trustedVia !== 'publisher') || actions.onUninstall
+      ? [{ kind: 'separator' as const, id: 'sep' }]
+      : []),
+    ...(trusted && module.trustedVia !== 'publisher'
+      ? [{ id: 'revoke', label: 'Revoke trust', disabled: pending, onSelect: () => actions.onRevokeTrust(module) }]
+      : []),
+    ...(actions.onUninstall
+      ? [
+          {
+            id: 'uninstall',
+            label: 'Uninstall',
+            destructive: true,
+            disabled: pending,
+            onSelect: () => actions.onUninstall?.(module),
+          },
+        ]
+      : []),
+  ]
+
+  // The row says a problem only where there is something to read: a failure,
+  // a host this module was not built for, a signature that does not match.
+  // Update rides the notice when the registry has a newer version — the one
+  // case where the way out is on the row.
+  const notice = problem ? { text: problemText(problem), ...(updateButton ? { action: updateButton } : {}) } : null
+
+  const source = sourceLabel(module)
+  const facts = [
+    ...(source
+      ? [
+          {
+            term: 'Source',
+            description:
+              module.origin?.kind === 'github' ? (
+                <>
+                  {source} · <span className="font-mono text-micro">{module.origin.repo}</span>
+                </>
+              ) : (
+                source
+              ),
+          },
+        ]
+      : []),
+    { term: 'Signature', description: signatureFact(module) },
+    { term: 'Trusted', description: trustFact(module) },
+  ]
+
   return (
-    // A row inside the modules card: the card owns the hairline, so the row
-    // pads its sides too — the card is full-bleed. Same 16/12px inset as every
-    // other list-card row, so this card lines up with the bundled ones above.
-    <div className="flex flex-col gap-2 px-4 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-title font-semibold text-[color:var(--text-strong)]">
-              {module.manifest.displayName}
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-body text-[color:var(--text-muted)]">
-              {/* Decorative: the adjacent text already names the trust state, so
-                  labelling the dot would double-announce it to screen readers. */}
-              <StatusDot tone={trust.tone} />
-              {trust.label}
-            </span>
-          </div>
-          {module.manifest.summary ? (
-            <div className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">{module.manifest.summary}</div>
-          ) : null}
-        </div>
-        {isInvalid ? (
-          <span className="shrink-0 text-meta text-[color:var(--tone-error)]">Cannot be trusted</span>
-        ) : (
-          <Switch
-            checked={module.trust === 'trusted'}
-            disabled={pending}
-            ariaLabel={`Trust ${module.manifest.displayName}`}
-            onChange={onTrustChange}
-          />
-        )}
-      </div>
-      {launch ? (
-        <div className="text-body leading-5 text-[color:var(--text-muted)]">
-          <span className="text-[color:var(--text-default)]">{launch.label}</span>
-          {` — ${launch.detail}`}
-        </div>
-      ) : null}
-      {rendererEntry ? (
-        <div className="text-body leading-5 text-[color:var(--text-muted)]">
-          <span className="text-[color:var(--text-default)]">{rendererEntry.label}</span>
-          {` — ${rendererEntry.detail}`}
-        </div>
-      ) : null}
-      {canEnable ? (
-        <div className="flex items-center justify-between gap-3">
-          <span id={enableLabelId} className="text-body leading-5 text-[color:var(--text-muted)]">
-            {enableLabel}
-          </span>
-          <Switch checked={enabled} ariaLabelledBy={enableLabelId} onChange={onEnabledChange} />
-        </div>
-      ) : null}
-      <PermissionChips permissions={module.manifest.permissions ?? []} />
-      {onUninstall ? (
-        <div className="flex justify-end">
-          {/* Removing a module is a destructive, rarely-wanted action beside two
-              switches that are neither, so it is a quiet outline button at the
-              end of the row rather than a third control competing with them.
-              The confirm dialog is where the consequence is stated. */}
-          <OutlineButton
-            size="sm"
-            disabled={pending}
-            onClick={onUninstall}
-            aria-label={`Uninstall ${module.manifest.displayName}`}
-          >
-            Uninstall
-          </OutlineButton>
-        </div>
-      ) : null}
-    </div>
+    <ExtensionRow
+      module={module}
+      doorIcon={doorIcon}
+      meta={moduleMeta(module)}
+      care={care}
+      trailing={trailing}
+      menuItems={menuItems}
+      notice={notice}
+      dimmed={trusted && !enabled}
+      detailsOpen={detailsOpen}
+      onDetailsOpenChange={onDetailsOpenChange}
+      renderDetails={({ titleId }) => (
+        <ExtensionDetails
+          module={module}
+          titleId={titleId}
+          icon={<ExtensionMark module={module} doorIcon={doorIcon} size={40} />}
+          status={
+            trusted ? (
+              <ExtensionStateLabel state={state} />
+            ) : (
+              <span className="whitespace-nowrap text-meta text-[color:var(--tone-warn)]">Not trusted</span>
+            )
+          }
+          adds={
+            trusted
+              ? deriveContributions(id, registry, {
+                  rendererLoaded: rendererLoadState?.status === 'loaded',
+                  mcpTools: module.launch.mainLoaded ? module.mcpTools : undefined,
+                })
+              : null
+          }
+          care={care}
+          standard={standard}
+          facts={facts}
+          actions={
+            <>
+              {trusted && module.trustedVia !== 'publisher' ? (
+                <GhostButton size="xs" disabled={pending} onClick={() => actions.onRevokeTrust(module)}>
+                  Revoke trust
+                </GhostButton>
+              ) : !trusted && !invalid ? (
+                <OutlineButton size="xs" onClick={() => actions.onReview(module)}>
+                  Review and trust
+                </OutlineButton>
+              ) : null}
+              <span className="flex-1" />
+              {updateButton}
+              {actions.onReveal ? (
+                <GhostButton size="xs" onClick={() => actions.onReveal?.(module)}>
+                  Show files
+                </GhostButton>
+              ) : null}
+              {actions.onUninstall ? (
+                <GhostButton size="xs" tone="danger" disabled={pending} onClick={() => actions.onUninstall?.(module)}>
+                  Uninstall
+                </GhostButton>
+              ) : null}
+            </>
+          }
+        />
+      )}
+    />
   )
 }
 
-export function ThirdPartyModuleList({
-  overrides,
-  onSetEnabled,
+/** One group of rows under its heading; nothing at all when the group is empty. */
+export function ExtensionGroup({
+  title,
+  count,
+  children,
+  id,
 }: {
-  overrides: ModuleEnablementOverrides
-  onSetEnabled: (moduleId: string, enabled: boolean) => void
-}) {
-  const [modules, setModules] = useState<ThirdPartyModuleView[]>([])
-  const [rejected, setRejected] = useState<Array<{ path: string; issues: ModuleManifestIssue[] }>>([])
-  const [installing, setInstalling] = useState(false)
-  const [installFromGitHub, setInstallFromGitHub] = useState(false)
-  const [pendingId, setPendingId] = useState<string | null>(null)
-  const [message, setMessage] = useState<Message>(null)
-  // An uninstall that takes out a bundle's MCP servers or skill copies writes
-  // into the project they were installed for, so it carries the same envelope
-  // an install does: the open project and the MCP settings.
-  const activeWorkspaceRoot = useWorkspaceStore(
-    (state) => state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId)?.folderPath ?? null,
-  )
-  const mcpSettings = useWorkspaceStore((state) => state.appSettings.mcp)
-  const removeMcpServer = useWorkspaceStore((state) => state.removeMcpServer)
-  const forgetModules = useWorkspaceStore((state) => state.forgetModules)
-
-  const load = useCallback(async () => {
-    if (typeof window.api.listThirdPartyModules !== 'function') return
-    try {
-      const result = await window.api.listThirdPartyModules()
-      setModules(result.modules)
-      setRejected(result.rejected)
-    } catch {
-      // Best-effort: a discovery failure leaves the list empty.
-    }
-  }, [])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-  useEffect(
-    () =>
-      onThirdPartyRendererModulesLoaded(() => {
-        void load()
-      }),
-    [load],
-  )
-
-  const installFromFolder = useCallback(async () => {
-    setInstalling(true)
-    setMessage(null)
-    try {
-      const result = await addThirdPartyModuleFromFolder(window.api)
-      if (result.status === 'failed') {
-        setMessage({ tone: 'error', text: result.message })
-      } else if (result.status === 'installed') {
-        setMessage({
-          tone: result.trust === 'invalid' ? 'error' : 'info',
-          text: result.id
-            ? `Installed "${result.id}". Review its access and trust it when you're ready.`
-            : 'Installed the module. Review its access and trust it when you’re ready.',
-        })
-        await load()
-      }
-    } finally {
-      setInstalling(false)
-    }
-  }, [load])
-
-  const { confirm: confirmDialog } = useConfirmDialog()
-
-  // Uninstall, however the module arrived. Main resolves the MODULE's id to
-  // the receipt that owns it when a marketplace or GitHub install put it there
-  // (the bundle's skill copies and MCP servers come out with it, and the
-  // receipt goes), or removes its folder when it was added from one. Either
-  // way its trust grant, enablement choice and stored secrets go too — and
-  // the enablement and settings this window keeps are dropped here.
-  const uninstall = useCallback(
-    async (module: ThirdPartyModuleView) => {
-      if (typeof window.api.uninstallThirdPartyModule !== 'function') return
-      const name = module.manifest.displayName
-      const confirmed = await confirmDialog({
-        title: `Uninstall ${name}?`,
-        // Says what leaves and what stays. What the app kept for the module
-        // outside any project (its settings, its stored data, the secrets
-        // given to it) is deleted, so a module installed under the same id
-        // later starts empty. Project data a module wrote is its own and is
-        // never touched by an uninstall, and saying so is the difference
-        // between a reversible action and one nobody dares press.
-        body: `Its files are removed from this machine, along with anything else its plugin installed. Its settings, the data it stored outside your projects and the keys or secrets you gave it are deleted too. Work it saved inside your projects stays on disk. Loaded module code is only unloaded when the app restarts.`,
-        confirmLabel: 'Uninstall',
-        tone: 'danger',
-      })
-      if (!confirmed) return
-      setPendingId(module.manifest.id)
-      try {
-        const result = await window.api.uninstallThirdPartyModule({
-          id: module.manifest.id,
-          ...(activeWorkspaceRoot ? { workspaceRoot: activeWorkspaceRoot } : {}),
-          mcpSettings,
-        })
-        if (result.ok) {
-          forgetModules(result.removedModuleIds)
-          // Servers the bundle added and main just took out of the configs.
-          if (result.mcpSettings) {
-            for (const id of Object.keys(mcpSettings.servers)) {
-              if (!(id in result.mcpSettings.servers)) removeMcpServer(id)
-            }
-          }
-        }
-        setMessage(
-          result.ok
-            ? { tone: 'info', text: `Uninstalled "${name}". Restart SprintEngine Studio to finish removing it.` }
-            : { tone: 'error', text: result.message || 'Could not uninstall this module.' },
-        )
-        await load()
-      } catch (error) {
-        setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Uninstall failed.' })
-      } finally {
-        setPendingId(null)
-      }
-    },
-    [confirmDialog, load, activeWorkspaceRoot, mcpSettings, forgetModules, removeMcpServer],
-  )
-
-  const setTrust = useCallback(
-    async (id: string, trusted: boolean) => {
-      if (typeof window.api.setThirdPartyModuleTrust !== 'function') return
-      // Revoking trust unloads the module's workspace types on next launch —
-      // warn with the workspaces that would lose their surface (nothing on
-      // disk is touched; re-trusting brings them back).
-      if (!trusted) {
-        const state = useWorkspaceStore.getState()
-        const kernel = getRendererHost()
-        const affected = state.workspaces.filter((workspace) => kernel.getWorkspaceTypeModule(workspace.mode) === id)
-        if (affected.length > 0) {
-          const confirmed = await confirmDialog({
-            title: 'Stop trusting this module?',
-            body: `These workspaces use it and will show “module not installed” until you trust it again (their files stay on disk): ${affected
-              .map((workspace) => workspace.name)
-              .join(', ')}.`,
-            confirmLabel: 'Stop trusting',
-            tone: 'danger',
-          })
-          if (!confirmed) return
-        }
-      }
-      setPendingId(id)
-      try {
-        const result = await window.api.setThirdPartyModuleTrust(id, trusted)
-        if (!result.ok) setMessage({ tone: 'error', text: result.message ?? 'Could not update trust.' })
-        if (result.ok && trusted) await refreshThirdPartyRendererModules()
-        await load()
-      } finally {
-        setPendingId(null)
-      }
-    },
-    [confirmDialog, load],
-  )
-
-  // A build whose preload predates the uninstall channel offers no control at
-  // all, rather than one that fails when pressed.
-  const canUninstall = typeof window.api.uninstallThirdPartyModule === 'function'
-
+  title: string
+  count: number
+  children: React.ReactNode
+  id: string
+}): JSX.Element {
   return (
-    // No top rule: the modules card below draws its own edge, and a section
-    // border right above it was two rules saying one boundary.
-    <div className="flex flex-col gap-3 pt-2">
-      <SettingsSectionTitle
-        count={modules.length || undefined}
-        action={
-          <div className="flex items-center gap-1">
-            <Tooltip content={installing ? 'Installing a module from a folder' : 'Install a module from a folder'}>
-              <IconButton
-                aria-label={installing ? 'Installing a module from a folder' : 'Install a module from a folder'}
-                onClick={() => void installFromFolder()}
-                disabled={installing}
-              >
-                {installing ? <Spinner className="icon-sm" /> : <FolderPlusIcon className="icon-sm" />}
-              </IconButton>
-            </Tooltip>
-            <Tooltip content="Install an extension from GitHub">
-              <IconButton aria-label="Install an extension from GitHub" onClick={() => setInstallFromGitHub(true)}>
-                <GithubSettingsIcon className="icon-sm" />
-              </IconButton>
-            </Tooltip>
-          </div>
-        }
-      >
-        Third-party modules
+    <section aria-labelledby={id} className="space-y-2">
+      <SettingsSectionTitle id={id} count={count}>
+        {title}
       </SettingsSectionTitle>
+      {children}
+    </section>
+  )
+}
 
-      <ActionResultMessage message={message} />
+export function ExtensionRows({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+  return (
+    <SettingCard as="ul" ariaLabel={label}>
+      {children}
+    </SettingCard>
+  )
+}
 
-      {modules.length === 0 ? (
-        <EmptyState density="list" title="No third-party modules installed." />
-      ) : (
-        <SettingCard>
-          {modules.map((module) => (
-            <ThirdPartyModuleRow
-              key={module.manifest.id}
-              module={module}
-              pending={pendingId === module.manifest.id}
-              enabled={resolveModuleEnabled(overrides, module)}
-              onTrustChange={(next) => void setTrust(module.manifest.id, next)}
-              onEnabledChange={(next) => onSetEnabled(module.manifest.id, next)}
-              {...(canUninstall ? { onUninstall: () => void uninstall(module) } : {})}
-            />
-          ))}
-        </SettingCard>
-      )}
+export function NoExtensionsInstalled(): JSX.Element {
+  return (
+    <SettingCard>
+      <EmptyState density="list" title="No extensions installed" />
+    </SettingCard>
+  )
+}
 
-      <InstallFromGitHubDialog
-        open={installFromGitHub}
-        onClose={() => setInstallFromGitHub(false)}
-        workspaceRoot={activeWorkspaceRoot}
-        mcpSettings={mcpSettings}
-        onInstalled={() => void load()}
-      />
-
-      {rejected.length > 0 ? (
-        <InlineNotice tone="warn">
-          {rejected.length} module folder{rejected.length === 1 ? '' : 's'} could not be loaded:{' '}
-          {rejected.map((entry) => entry.issues[0]?.message ?? entry.path).join('; ')}
-        </InlineNotice>
-      ) : null}
-    </div>
+export function RejectedFolders({
+  rejected,
+}: {
+  rejected: ReadonlyArray<{ path: string; issues: ModuleManifestIssue[] }>
+}): JSX.Element | null {
+  if (rejected.length === 0) return null
+  return (
+    <InlineNotice tone="warn">
+      {rejected.length === 1
+        ? 'A module folder couldn’t be loaded: '
+        : `${rejected.length} module folders couldn’t be loaded: `}
+      {rejected.map((entry) => entry.issues[0]?.message ?? entry.path).join('; ')}
+    </InlineNotice>
   )
 }

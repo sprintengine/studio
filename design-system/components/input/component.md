@@ -100,6 +100,23 @@ That control carries the name and the focus ring; the input only brings the
 system's dialog. Its value is cleared after each pick, so the same file can be
 picked twice in a row.
 
+### Date and time (2026-10-09)
+
+`DateTimeInput` is the input carrying the browser's own `datetime-local`,
+`date` or `time` control. The native control is kept on purpose — its
+segmented entry is keyboard-complete, each segment has an accessible name, the
+calendar is the platform's, and the day/month order follows the locale — and
+the box around it is this field, at the same sizes and grounds (`default`,
+`well`, `quiet`; never the hosted variants, because a date field always draws
+its own box). It adds tabular figures, so a value that changes does not
+change width, and tones the calendar button to the field's muted ink on dark
+themes.
+
+Values are the control's own local-time strings (`YYYY-MM-DDTHH:mm`,
+`YYYY-MM-DD`, `HH:mm`). Which zone they mean is the caller's to decide; the
+field never converts. Label it with the `field` component like any input — a
+date alone is not a name.
+
 ## States
 
 - Hover: border moves to `border.strong`.

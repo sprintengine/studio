@@ -21,7 +21,7 @@ import { dropRetiredModeWorkspaces, mapMigrationWorkspaces } from './normalizers
 
 export const WORKSPACE_STORAGE_KEY = 'sprintengine-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'sprintengine-app-settings'
-export const WORKSPACE_STORE_VERSION = 77
+export const WORKSPACE_STORE_VERSION = 78
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -496,8 +496,10 @@ export function migratePersistedWorkspaceState(persisted: unknown, version: numb
     migrationState.primaryWorkspaceWindowId = normalized.primaryWorkspaceWindowId
   }
   if (version < 56) {
-    // v56 adds appSettings.voiceDictation; normalize so existing installs pick
-    // up the default Whisper/server configuration.
+    // v56 added the voice dictation settings and normalized so existing
+    // installs picked up their defaults. Dictation retired 2026-10-09 (see
+    // v78); the rung stays because it is a plain normalizer pass, and
+    // normalizeAppSettings no longer builds that key.
     const current = migrationState
     current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
   }
@@ -648,6 +650,17 @@ export function migratePersistedWorkspaceState(persisted: unknown, version: numb
     // is a decision — every profile is set to the window once, here. From now
     // on the value only moves when the person picks it in Settings.
     migrationState.openFilesInExternalWindow = true
+  }
+  if (version < 78) {
+    // Voice dictation retired (2026-10-09). Its settings carried the
+    // transcription host's bearer token in plain text, so an upgrading profile
+    // re-runs the normalizer — which no longer builds the key — and the bump
+    // makes the store write the cleaned settings straight back, rather than
+    // leaving the token on disk until the next unrelated save. merge() runs
+    // the same normalizer on every hydration: this rung is the clean-upgrade
+    // half (same split as the v67 rung above).
+    const current = migrationState
+    current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
   }
 
   return state as never

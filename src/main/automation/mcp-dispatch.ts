@@ -144,6 +144,8 @@ export function createMcpDispatcher(options: {
                 agentId: proven.identity.agentId,
                 ...(proven.identity.agentName ? { agentName: proven.identity.agentName } : {}),
                 ...(proven.identity.cliId ? { cliId: proven.identity.cliId } : {}),
+                // The launch token is the proof: this agent is who it says.
+                verified: true,
               }
             : declared.metadata
           if (proven.identity) bindGatewayConversation(context, proven.identity)
@@ -335,6 +337,8 @@ function applyDeclaredConnectionMetadata(
       deviceId: established.deviceId,
       deviceName: established.deviceName,
       peerNode: established.peerNode,
+      // What the transport proved stays proven; a declaration cannot add proof.
+      ...(established.verified === undefined ? {} : { verified: established.verified }),
     },
   }
 }

@@ -4,6 +4,7 @@
 // ships in the @sprintengine/module-sdk tarball.
 //
 //   init             create an extension project from one of the templates
+//   add              add a part (main, mcp, settings, door) to an extension project
 //   keygen           generate an ed25519 signing keypair (private key PEM)
 //   pack             validate a module directory and assemble an installable copy
 //   sign             write a detached ed25519 signature into manifest.json
@@ -48,7 +49,8 @@ import { generateModuleSigningKeyPair, signManifest, verifyModuleSignature } fro
 const USAGE = `sprintengine-module — pack, sign, and verify SprintEngine Studio capability modules
 
 Usage:
-  sprintengine-module init <dir> --template <id> [--id <module-id>] [--name <name>] [--sdk-tarball <file>] [--force]
+  sprintengine-module init <dir> --template <id> [--with <part,...>] [--id <module-id>] [--name <name>] [--sdk-tarball <file>] [--force]
+  sprintengine-module add <part>... [--project <dir>] [--force]
   sprintengine-module keygen [--out <file>] [--force]
   sprintengine-module pack <module-dir> [--out <dir>] [--force] [--allow-reserved-id]
   sprintengine-module sign <module-dir> --key <private-key.pem>
@@ -62,7 +64,17 @@ init creates an extension project in <dir> from a template: the module, its
 build and dev-loop scripts, and the extension-builder skill for whichever agent
 works on it. --id defaults to the folder name, --name to the id title-cased;
 --sdk-tarball depends on a local SDK tarball instead of the npm release. Run it
-with an unknown --template to list the templates.
+with an unknown --template to list the templates. --with adds parts on top of
+the template, as add does.
+
+add puts a part into an existing project (--project, default the current
+folder): main (src/main.ts, entry.main and its build), mcp (MCP tools from
+entry.main), settings (a Settings section), door (a full-page surface). It
+copies the part's files and test, merges its entry, permissions and dependsOn
+into module/manifest.json and plugin.json, adds its build script, and wires
+its registration into src/renderer.tsx or src/main.ts. A part that needs an
+entry the project lacks brings that entry too. Run it with no part to list
+them.
 
 keygen writes an ed25519 private key (PKCS#8 PEM) to --out
 (default module-signing.key); a leading ~ is your home folder, on Windows too.
@@ -684,11 +696,16 @@ async function init(args: string[]): Promise<void> {
       id: { type: 'string' },
       name: { type: 'string' },
       'sdk-tarball': { type: 'string' },
+      with: { type: 'string', multiple: true },
       force: { type: 'boolean' },
     },
     allowPositionals: true,
   })
   const { listModuleTemplates, scaffoldModuleProject, sdkPackageVersion } = await import('./scaffold.js')
+  const parts = (values.with ?? [])
+    .flatMap((value) => value.split(','))
+    .map((part) => part.trim())
+    .filter(Boolean)
   const templates = (): string =>
     listModuleTemplates()
       .map((template) => `  ${template.id.padEnd(20)} ${template.summary}`)
@@ -713,18 +730,51 @@ async function init(args: string[]): Promise<void> {
     sdkVersion: sdkPackageVersion(),
     ...(tarball ? { sdkTarballPath: tarball } : {}),
     ...(values.force ? { force: true } : {}),
+    ...(parts.length > 0 ? { parts } : {}),
   })
   if (!result.ok) {
     fail(result.code === 'unknown_template' ? `${result.message}\n\n${templates()}` : result.message)
   }
-  console.log(`Created ${id} from the ${values.template} template in ${target} (${result.files.length} files).`)
+  const withParts = parts.length > 0 ? ` with ${parts.join(', ')}` : ''
+  console.log(
+    `Created ${id} from the ${values.template} template${withParts} in ${target} (${result.files.length} files).`,
+  )
+  for (const note of result.notes ?? []) console.log(`To do: ${note}`)
   console.log('Next: npm install, then npm run check; npm run dev:install side-loads it into Studio.')
+}
+
+async function add(args: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args,
+    options: { project: { type: 'string' }, force: { type: 'boolean' } },
+    allowPositionals: true,
+  })
+  const { addModuleParts, listModuleParts } = await import('./scaffold.js')
+  const parts = (): string =>
+    listModuleParts()
+      .map((part) => `  ${part.id.padEnd(12)} ${part.summary}`)
+      .join('\n')
+  const requested = positionals
+    .flatMap((value) => value.split(','))
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (requested.length === 0) fail(`add requires a part. The parts:\n${parts()}`)
+  const dir = resolve(values.project ?? '.')
+  const result = await addModuleParts({ dir, parts: requested, ...(values.force ? { force: true } : {}) })
+  if (!result.ok) fail(result.code === 'unknown_part' ? `${result.message}\n\n${parts()}` : result.message)
+  console.log(`Added ${result.added.join(', ')} to ${dir}:`)
+  for (const file of result.files) console.log(`  ${file}`)
+  for (const note of result.notes) console.log(`To do: ${note}`)
+  console.log('Next: npm install (a part may add dependencies), then npm run check.')
 }
 
 const [command, ...rest] = process.argv.slice(2)
 switch (command) {
   case 'init':
     init(rest).catch((error: unknown) => fail(error instanceof Error ? error.message : String(error)))
+    break
+  case 'add':
+    add(rest).catch((error: unknown) => fail(error instanceof Error ? error.message : String(error)))
     break
   case 'keygen':
     keygen(rest)

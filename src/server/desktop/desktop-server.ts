@@ -643,6 +643,7 @@ function serveShellRequests(deps: {
   rpc.handle(SERVER_METHODS.applyModuleEnablement, (params) =>
     deps.modules.applyEnablement((params as { overrides?: Record<string, boolean> } | null)?.overrides ?? {}),
   )
+  rpc.handle(SERVER_METHODS.thirdPartyLaunchSession, () => deps.modules.thirdPartyLaunchSession())
   const takePort = (params: unknown, shell: boolean): TunnelPort => {
     const clientId = (params as { clientId?: unknown } | null)?.clientId
     const pending = typeof clientId === 'string' ? pendingConnections.get(clientId) : undefined

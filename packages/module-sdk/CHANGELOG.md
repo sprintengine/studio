@@ -4,6 +4,337 @@
 
 Automations became scheduled agents: a prompt and a cron schedule, each run a
 new chat. The app no longer has an automations engine for a module to extend.
+Beside that, it adds the Backlog, usage, activity and text-generation
+services, the shell's notifications and window context, main-host plumbing,
+`module:bridge`, the testing kit, and companion tools, turn replies and
+scheduled-agent runs, all additive under host API 1.
+
+### Added: Backlog, usage and activity services
+
+- **Backlog writes.** `getBacklogService(host)` in `entry.main` — `list`,
+  `getLocation`, `create`, `updateStatus`, `updateTriage`, `addLink`,
+  `updateModuleMetadata` — and the renderer twins `getBacklogLocation`,
+  `createBacklogItem`, `updateBacklogStatus`, `updateBacklogTriage`,
+  `addBacklogLink`, `updateBacklogModuleMetadata`. Every write goes through
+  the app's Backlog service in the project's mutation lane; `create` takes the
+  app's create path and answers the new item's id, number and display id.
+  Result-shaped (`ModuleBacklogResult`). `host.supports('backlog-write')`.
+- **`BacklogItemView`** gains `numericId`, `displayId` (`MC-240`), `epic` and
+  `modifiedAt`.
+- **`watchBacklogItems(workspaceId, cb, { onError })`**: a workspace with no
+  folder, one that cannot be resolved, or an unreadable Backlog now reaches the
+  module (`BacklogWatchError`) instead of only the console.
+- **Usage.** `getUsageService(host)` (`query({ from, to, groupBy })`,
+  `onChanged`) and `RendererHost.queryUsage`: token usage of Studio chats and of
+  the Claude Code and Codex sessions on the machine, each request counted once
+  and attributed to open workspaces. New permission `usage:read`;
+  `host.supports('usage')`.
+- **Activity.** `getActivityService(host)` (`listChats`, `prompts`): the
+  person's Studio chats and their messages with the tail of each reply,
+  read-only, never tool output. New permission `conversation:read-all`, flagged
+  as a broad scope in the consent prompt; `host.supports('activity')`.
+
+### Changed
+
+- **`backlog.read` and `backlog.write` are checked.** The Backlog service checks
+  both on every call, and a third-party module's `listBacklogItems` /
+  `watchBacklogItems` now throw without `backlog.read`, which the docs always
+  asked for. The `listBacklogItems` doc no longer suggests writing an item's
+  file: a module changes items through the host only.
+
+<!-- Shell surfaces, notifications and the renderer host. All additive under host API 1. -->
+
+### Added: shell surfaces, notifications and the renderer host
+
+- **`MainHost.notify` reaches the bell.** A row in the notification bell of
+  every open window, under the module's display name (stamped by the host).
+  Rows sent before a window opens are kept (the last 50) and filed when one
+  does; this works the same when Studio's server runs in a process of its own.
+  `host.supports('notifications')` is true only where a client delivery is
+  wired. The existing flood bound applies; the same words about two different
+  targets are two rows, not a repeat.
+- **`ModuleNotifyInput.target`** (`{ surfaceId, viewId? }`, type
+  `ModuleNotificationTarget`): the row's Open lands on one of the module's own
+  doors — never another module's — and the row counts on that door's drawer
+  row until the door is opened. `ModuleNotification.target` carries it.
+- **Actions on a module's own bell rows:**
+  `registerNotificationActionProvider({ source: host.moduleId, … })` adds
+  actions to every row the module's `notify` sent. `NotificationActionView`
+  gains `title`, `message` and `surfaceTarget`.
+- **Installed doors' nav entries and badges are drawn.**
+  `registerDoorBadge({ rowId: <surface id> })` counts on the door's Extensions
+  drawer row (the first row of a surface with `views`) and on the app rail's
+  Extensions square, beside the module's unread bell rows filed under the door.
+  `registerSidebarNavEntry({ id: <surface id> })` draws that row in the
+  module's own component; `SidebarNavEntryRenderProps` gains the host's
+  `badge` (`SidebarNavEntryBadge`). `host.supports('door-badges')`,
+  `host.supports('sidebar-nav-entries')`.
+- **`RendererHost.toast({ tone, message, detail?, action? })`** — transient
+  feedback in the app's toast region, under the module's name, with at most one
+  button (`ModuleToastInput`, `ModuleToastTone`). Returns a dismisser.
+  `host.supports('toast')`.
+- **`RendererHost.moduleId`** (`host.supports('module-id')`).
+- **Commands get context.** `ModuleCommandDefinition.run(context)` receives the
+  `ModuleCommandContext` of the window it ran in; a zero-argument `run` still
+  works. `RendererHost.getActiveWorkspaceId()` and `watchActiveWorkspace(cb)`
+  read the workspace the window shows. `host.supports('command-context')`,
+  `host.supports('active-workspace')`.
+- **`RendererHost.setSurfaceView(surfaceId, viewId | null)`** publishes which
+  of a surface's `views` it is showing, so that drawer row reads selected
+  (`host.supports('surface-view')`).
+- **`RendererHost.openExternal(url)`** opens an absolute http(s) URL in the
+  system browser through the app's own link path, answering
+  `ModuleOpenExternalResult` (`host.supports('open-external')`).
+
+### Added: UI kit and theme tokens
+
+All behind `host.supports('ui-kit-extras')`, and `host.supports('chart-tokens')`
+for the tokens.
+
+- `@sprintengine/module-sdk/ui` exports `ContextMenu`, `MenuItem` and
+  `MenuDivider`: a menu at a point, with arrow keys, Escape and focus return
+  built in.
+- `TaskCard` and `BoardLane`, the app's own task card and board lane, so a
+  module's board is built from them.
+- `DateTimeInput` (the native `datetime-local` / `date` / `time` control in the
+  `Input` box) and `Toggle` (the app's switch).
+- `Chip` (the static fact chip) and `ChipButton` (a pill that toggles, filters
+  or wears an identity `tint`).
+- `SafeMarkdown`: agent Markdown drawn like a chat reply, with raw HTML shown
+  as text, http(s)-only links (`links: 'open' | 'copy' | 'none'`) and no
+  fetched images.
+- `SidebarNavButton` and the `RowBadge` type, so a nav entry draws the app's
+  own row wearing its host-derived badge.
+- `Select` takes `size: 'xs' | 'sm' | 'md'` (default `sm`) to sit level with
+  the buttons in its row.
+- `LinkButton` takes `ink: 'name'`: title ink, underlined on hover, for a
+  row's name that opens its details.
+- `CliModelPickerButton` takes `host.listChatRuntimes()` as is;
+  `CliRuntimeOption[]` still works. Its doc no longer names the nonexistent
+  `listAgentRuntimes()`.
+- `SurfaceRail`'s `newAffordance` is optional, and every row field, `scope`,
+  `search`, `filter` and `groups` is documented — including when a row is
+  "rich" and that `scope` lives inside the filter menu as "Project".
+- `THEME_TOKENS` adds `--chart-1` … `--chart-8` and `--chart-other`: ordered
+  categorical series colours, never status, at 3:1 or better against
+  `--bg-surface` in every theme and separable under common colour-vision
+  deficiencies.
+
+### Changed: shell surfaces
+
+- `registerSidebarNavEntry` rows are drawn in the Extensions drawer as their
+  door's row; an entry whose id names none of the module's global surfaces is
+  not drawn. The sidebar's top-nav cluster they were documented for no longer
+  exists.
+- An installed module may register a notification action provider only for
+  its own module id.
+- The `global-surface` template no longer registers a nav entry: the door's
+  drawer row is the way in.
+
+<!-- End of shell surfaces, notifications and the renderer host. -->
+
+<!-- Main-host plumbing: settings, workspaces, storage, GitHub, skills, MCP. -->
+
+### Added
+
+- **Settings in `entry.main`.** `MainHost.getModuleAppState(key)` and
+  `watchModuleAppState(cb)` read the module's app-level state — what its
+  Settings section writes — from a persisted copy main keeps, so a scheduler or
+  poller sees the person's choices with no window open. Read-only.
+  `supports('main-app-state')`.
+- **Workspaces.** `WorkspaceContextService.list({ includeClosed: true })` adds
+  the workspaces closed on this machine (`ModuleWorkspaceListEntry`, with
+  `open` and `closedAt`); `supports('workspace-history')`.
+  `getWorkspaceGitInfo(workspaceId)` on `MainHost` and `RendererHost` answers
+  the branch and remotes, each with `owner/repo` for GitHub, SSH host aliases
+  resolved; checked against `ipc:workspace-read`. `supports('workspace-git-info')`.
+- **Storage.** `list({ prefix })`, `getMany({ keys })`
+  (`supports('storage-query')`) and `watch({ workspaceRoot? }, cb)` with
+  `ModuleStorageChange` (`supports('storage-watch')`).
+  `MainHost.getModuleDataDir()`: a per-module directory under user data for
+  data past the 1 MB value limit, removed at uninstall
+  (`supports('module-data-dir')`). `MainHost.getAssetPath(relative)`: the
+  main-side twin of `getAssetUrl`, verified files only — worker threads loaded
+  from module files are supported (`supports('main-asset-path')`).
+- **GitHub broker.** Allow-listed response `headers`, `ifNoneMatch` (a 304 is
+  an answer) and `accept` (`ModuleGitHubMediaType`) — `supports('github-headers')`;
+  read-only `graphql(query, variables)` — `supports('github-graphql')`;
+  `download(request)` following GitHub's storage redirect with the token
+  stripped — `supports('github-download')`. New error codes `invalid_query`
+  and `redirect_not_allowed` (`ModuleGitHubErrorCode`).
+- **Skills.** `MainHost.getSkillStatus(workspaceRoot, skillId)` checks without
+  writing; `ModuleSkillStatus` is the exhaustive status vocabulary, including
+  `delivered-at-launch`, `missing` and `update-available`.
+  `supports('skill-status')`.
+- **MCP.** `McpConnectionMetadata.verified`: true when a launch token or the
+  tailnet transport proved the caller; always set on a module tool's context
+  by a host that `supports('mcp-verified-identity')`.
+
+### Changed
+
+- A module MCP tool whose name collides with a core gateway tool (compared as
+  clients file it: `a.b` and `a_b` are one name) or falls in a shell tool
+  family is now a registration error naming the conflict; it used to be
+  skipped with a log warning. Module-vs-module collisions use the same
+  comparison.
+- `EnsureSkillInstalledResult.status` is typed `ModuleSkillStatus` instead of
+  `string`.
+- `ModuleGitHubResponse`'s ok branch carries `headers`, and an `http_error`
+  may.
+- `WorkspaceContextService.list()` answers `ModuleWorkspaceListEntry[]`
+  (each view plus `open`).
+
+### Added
+
+- **`module:bridge`**, the permission for the renderer → own `entry.main`
+  bridge alone (`RendererHost.invoke` to the module's own `registerIpc`
+  channels). Its consent line reads "Let its window code talk to its own
+  background code", where `ipc:invoke`, which a module needed for the same
+  thing, reads "Call any of the app's internal APIs … (broad scope)". The
+  bridge accepts either, so an existing manifest keeps working; the
+  `chat-companion` template, the docs and the smoke test use `module:bridge`.
+- **`@sprintengine/module-sdk/testing`**, for testing a module in Node
+  without the app:
+  - `createFakeMainHost({ moduleId, permissions } | { manifest }, …)`: a
+    `MainHost` with stateful fakes of every published service, held to the
+    host's rules — storage's key pattern, absolute-root rule and 1 MB cap;
+    chats with ownership, the preset ceiling, `commandId` receipts and
+    `services.conversations.emitEvent`; scheduled agents (`fire`); companions
+    (`respond`); secrets (https, origins, redaction); GitHub with scripted
+    answers; workspaces (`setHydrated(false)` for the after-launch null). The
+    permissions the host checks are refused as it refuses them
+    (`permission_missing`, or a throw); disclosure-only ones used undeclared
+    are listed in `undeclared`. `ipc.invoke` calls the module's channels as its
+    renderer would (own channels, `module:bridge`, structured cloning) and
+    `tools.call` its MCP tools as an agent would.
+  - `createFakeRendererHost({ …, main? })`: records every registration,
+    renders a registered door, modal, panel, settings section, top-bar item or
+    nav entry to HTML, runs commands, and bridges `invoke` and `subscribe` to
+    a fake main host.
+  - `installTestingKit()`, `renderToHtml(node)`, and two more subpaths:
+    `/testing/kit` (a stand-in for `/ui`, `/surface` and
+    `@monaco-editor/react` whose components draw their props and children, so
+    a door renders in Node) and `/testing/register` (for
+    `node --import`, installing the kit before any test file loads).
+  - The fakes cover every API above: the Backlog, usage and activity services
+    (`services.backlog` / `usage` / `activity`, with their permissions
+    checked); storage `list({ prefix })`, `getMany` and `watch`; GitHub
+    headers, `ifNoneMatch`, read-only `graphql` and `download`; closed
+    workspaces and git info; `getModuleAppState` / `watchModuleAppState`,
+    `getModuleDataDir`, `getAssetPath` and `getSkillStatus` in main; and
+    `toast`, `openExternal`, `moduleId`, the active workspace,
+    `setSurfaceView`, the command context and notify `target` in the
+    renderer, with stand-ins for the new kit components.
+  - And the agent and conversation APIs: a text-generation fake
+    (`services.textGeneration`, `agents:generate` checked, `busy` and
+    `unsupported` as the host answers them); companion `tools` with
+    `requestApproval` and `respondToApproval`; conversation `reply`,
+    `create({ worktree })`, turn ids on turn events and `restore` for a
+    chat a subscribe or follow was waiting for; scheduled-agent `name`,
+    `tag`, `onRun` and run chats the module owns; `MainHost.listChatRuntimes`;
+    and `openChat`'s `name`, `dedupeKey` and `chat:draft` rule.
+- **`MODULE_SERVICE_REQUIREMENTS`** (with `moduleServiceRequirement`,
+  `dependsOnReaches`, `MODULE_DEPENDENCY_CHAINS`): for each service a module
+  may resolve, the permission it needs, the module that provides it, and
+  whether the host checks it. The smoke test and the fakes read it.
+- **Composable templates.** `sprintengine-module init … --with main,mcp,settings,door`,
+  and `sprintengine-module add <part>...` in an existing project (`addModuleParts`
+  and `listModuleParts` from `./scaffold`). A part copies its files and test,
+  merges its entry, permissions and `dependsOn` into the manifest and
+  `plugin.json`, adds its build script and dependencies, and wires its
+  registration into `registerRenderer` / `registerMain`.
+- **A TypeScript test pattern in every template.** `test/*.test.ts`, bundled by
+  `npm run build:test` (esbuild, into the ignored `test/.build/`) and run by
+  `npm test` with `node --test` and `--import @sprintengine/module-sdk/testing/register`,
+  on any Node the SDK supports. Each template ships tests of its own.
+
+### Changed
+
+- **The scaffold's smoke test runs the module against the SDK's fake hosts**
+  instead of a recorder that answered every call with a no-op. It checks
+  permissions and `dependsOn` from `MODULE_SERVICE_REQUIREMENTS` (the old copy
+  still named the removed automations service and never checked the workspace
+  context or scheduled agents' `dependsOn: ["scheduled-agents"]`), and it
+  renders everything the renderer registers, so a door that throws while
+  rendering fails `npm run check`. `test/host-kit-fake.mjs` is gone; the
+  templates add `react-dom` for the render.
+- **`npm run build` writes `module/manifest.json` only when the file digests
+  changed**, and signs again only when the signature no longer covers the
+  manifest, so a rebuild of unchanged code leaves git clean. The build still
+  records the digests (not only `dev:install`), because a GitHub install reads
+  the committed manifest and refuses one that does not describe the committed
+  `module/dist/`. `npm run build` runs `build:renderer` and `build:main` when
+  they exist.
+- **The extension-builder skill is kept once in a project**, in
+  `.agents/skills/sprintengine-extension-builder/`; `.claude/skills/…/SKILL.md`
+  is a pointer with the same name and description
+  (`extensionBuilderSkillPointer`, `EXTENSION_BUILDER_SKILL_DIR`,
+  `EXTENSION_BUILDER_SKILL_POINTER_DIR`). `npm run validate` fails when the
+  pointer's front matter no longer matches, or, in a project with two full
+  copies, when they differ.
+- The `panel` and `top-bar-item` templates render outside a window: the panel
+  inserts its stylesheet in `useInsertionEffect`, and both give
+  `useSyncExternalStore` its server snapshot.
+
+### Agents, conversations and scheduled agents
+
+Additive: host API 1 still. Each item has a `host.supports(...)` answer, named
+beside it.
+
+#### Changed
+
+- **A companion's structured run no longer approves its agent's tool calls.**
+  `runStructured` takes `tools: 'none' | 'ask' | 'auto'`, default `'none'`:
+  every approval the agent raises is denied, and the agent is told before the
+  prompt that it has no tools. `'ask'` leaves approvals open for the person,
+  relayed with the new `handle.respondToApproval({ requestId, decision })`
+  (allowing needs `conversation:operate`); `'auto'` approves them all and
+  needs `conversation:bypass` (refused without it). Companion sessions start
+  on `manual`, so every tool asks. A module that relied on the old
+  auto-approve passes `tools: 'auto'` and declares `conversation:bypass`.
+  `engine.cli` also takes a chat runtime id (`claude-code`) beside a provider
+  id (`claude-agent`). `companion-tools`.
+- **`subscribe` and `follow` no longer throw `not_owned`** for a chat the host
+  has not loaded yet (a saved chat at startup): they attach and deliver once
+  it is known. A ref to anything not the module's delivers nothing. They throw
+  only without `conversation:read` or for a malformed ref or cursor.
+- **`openChat` drafts need only `chat:draft`.** `send: true` still needs
+  `conversation:operate`.
+
+#### Added
+
+- **`turn_completed` carries `text` and `usage`.** `text` is the agent's last
+  message of the turn; `usage` is `{ inputTokens, outputTokens,
+  cacheReadTokens, cacheWriteTokens }` summed over the turn, fresh input
+  apart from the prompt cache's share, a count the runtime cannot report left
+  out (`ModuleConversationTurnCompletedPayload`,
+  `ModuleConversationTurnUsage`). Claude Code, Codex and ACP agents report
+  them. `reply(ref, turnId?)` reads a finished turn's text off the transcript;
+  `no_reply` joins the error codes. `conversation-replies`.
+- **`getTextGenerationService(host).generate({ prompt, system?, model?,
+  maxOutputTokens?, json?, cli? })`**: one prompt answered by the person's own
+  agent CLI (`claude-code` or `codex`; absent, the runtime and model they chose
+  for Studio's text generation, else Claude Code) with no workspace or chat,
+  as `{ ok, text, usage, model }` or a typed failure. `maxOutputTokens` is
+  honoured by Claude Code and ignored by Codex, which has no output cap. New
+  permission `agents:generate`. Each module gets two calls at once and eight waiting, and
+  thirty a minute. `text-generation`.
+- **`create({ worktree: { name? } })`** starts a chat in a fresh worktree of
+  the project, in a workspace of its own; `worktree_unavailable` joins the
+  error codes. `conversation-worktrees`.
+- **`openChat({ name, dedupeKey })`**: the chat's title, and a key that
+  focuses the chat this module already opened under it (`existing: true`)
+  instead of opening another; `invalid_input` joins its failures. New
+  permission `chat:draft`. `chat.open-options` (renderer).
+- **`MainHost.listChatRuntimes()`**, the renderer's list from `entry.main`,
+  with missing runtimes `available: false`. The runtime id is documented as
+  the one id every `cli` takes. `chat-runtimes`.
+- **Scheduled agents can be traced.** `name` (the sidebar's title) and `tag`
+  (your own label) on `ScheduledAgent` and its draft (an update without them
+  keeps them); `lastRun.agentId`; `onRun((agent, run) => …)`, which also hears
+  a one-time schedule's run before it closes; and `scheduledAgentId` /
+  `scheduledAgentTag` on a run's `ModuleConversationSummary`. The type docs
+  say what happens to a missed time. `scheduled-agent-runs`.
 
 ### Breaking: removed
 
@@ -83,6 +414,11 @@ new chat. The app no longer has an automations engine for a module to extend.
   without declaring it gets `auto`, on `create` and on `setPermissionPreset`:
   lowered, not refused, and the answer names the preset in force. Before,
   `conversation:operate` alone started a conversation on `bypass`.
+- **`voice-dictation` is retired.** The bundled voice dictation module is
+  removed from the app, along with its top-bar control, its
+  `voice-dictation.toggle` command and its settings section. The id stays in
+  `BUNDLED_MODULE_IDS`, reserved, so no third-party module can install under
+  it.
 
 ### Fixed
 

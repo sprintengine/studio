@@ -97,6 +97,9 @@ export function createScheduledAgentsModule(
           return store.recordRun(id, { at: run.at, ok: false, message: refused })
         },
         onRan: (agent, run) => {
+          // Told first, so a one-time schedule's run is heard before the
+          // schedule closes and leaves the list.
+          service?.notifyRan(agent, run)
           // A one-time schedule whose chat started has done its one job: it is
           // closed, and its chat carries on as any other. One whose run failed
           // stays, saying so, until the person has seen it.
@@ -130,8 +133,8 @@ export function createScheduledAgentsModule(
             title: 'Scheduled run skipped',
             message:
               reason === 'still_working'
-                ? `"${scheduledAgentTitle(agent.prompt)}" did not start a run: its last run is still working.`
-                : `"${scheduledAgentTitle(agent.prompt)}" did not start a run: its last one is still starting.`,
+                ? `"${scheduledAgentTitle(agent.prompt, agent.name)}" did not start a run: its last run is still working.`
+                : `"${scheduledAgentTitle(agent.prompt, agent.name)}" did not start a run: its last one is still starting.`,
             ...(workspaceId ? { workspaceId } : {}),
           }).catch(() => undefined)
         },

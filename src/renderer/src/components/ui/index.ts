@@ -187,6 +187,11 @@ export type { SettingRowProps } from './SettingRow'
 // the identifier itself.
 export { ScopePill, ScopePillSet } from './ScopePill'
 export type { ScopePillProps } from './ScopePill'
+// What an extension asks to reach, at three depths
+// (design-system/components/access-summary): the row's warning glyphs, the
+// details' care list, and the standard scopes as quiet pills.
+export { AccessCareList, AccessChips, AccessGlyphs } from './AccessSummary'
+export type { AccessItem } from './AccessSummary'
 // The one implementation of "which device glyph does this machine get?"
 // (design-system/components/glyphs → Device identity). A function, not a switch
 // per call site: the `book` exclusion in the macOS-desktop rule is a trap that

@@ -3,13 +3,14 @@ import { join } from 'node:path'
 
 import { readModuleOverridesSync, writeModuleOverrides } from '../module-host/enablement-store'
 import { deleteModuleSecrets } from '../module-host/module-secrets'
+import { MODULE_DATA_DIRECTORY } from '../module-host/module-storage'
 
 // Everything the app kept for a module outside its folder, dropped once the
 // module is uninstalled — by whichever door: Settings → Modules, or the
-// marketplace's own Uninstall. Its enablement choice, its stored secrets and
-// its per-user storage would otherwise wait under its id for the next module
-// to take that id, which would start with the keys and data the person gave
-// this one. Trust is revoked by whoever removed the folder.
+// marketplace's own Uninstall. Its enablement choice, its stored secrets, its
+// per-user storage and its data directory would otherwise wait under its id
+// for the next module to take that id, which would start with the keys and
+// data the person gave this one. Trust is revoked by whoever removed the folder.
 //
 // Storage a module kept inside a workspace (`.sprintengine/modules/<id>`) is
 // the project's, and stays with it.
@@ -25,6 +26,8 @@ export async function forgetModules(userData: string, moduleIds: readonly string
   for (const id of ids) {
     await deleteModuleSecrets(userData, id).catch(() => undefined)
     await rm(join(userData, 'module-storage', id), { recursive: true, force: true }).catch(() => undefined)
+    // The module's private directory (`MainHost.getModuleDataDir`).
+    await rm(join(userData, MODULE_DATA_DIRECTORY, id), { recursive: true, force: true }).catch(() => undefined)
   }
 }
 

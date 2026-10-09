@@ -93,7 +93,7 @@ export function ScheduledAgentRow({
   onOpen: () => void
   onClose: () => void
 }) {
-  const title = scheduledAgentTitle(agent.prompt)
+  const title = scheduledAgentTitle(agent.prompt, agent.name)
   const words = scheduledAgentScheduleWords(agent.schedule) ?? agent.schedule.cron
   const status = scheduledAgentStatusLine(agent, runInProgress)
   const next = nextRunLabel(agent.nextRunAt, now)

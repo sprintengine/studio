@@ -45,6 +45,20 @@ export { StatusDot } from '../components/ui/StatusDot'
 export { TruncatedText } from '../components/ui/TruncatedText'
 export { FOCUS_RING_CLASS } from '../components/ui/tokens'
 export { CliModelPickerButton } from '../components/ui/CliModelPicker'
+export { DateTimeInput } from '../components/ui/DateTimeInput'
+// The app's switch, published under the name module authors reach for. The
+// app keeps `Switch` (design-system/components/switch); the bridge renames it.
+export { Switch as Toggle } from '../components/ui/Switch'
+export { ContextMenu, MenuDivider, MenuItem } from '../components/ui/ContextMenu'
+// Two chips, because the system has two: the static fact chip (`MicroChip`,
+// design-system/components/micro-chip) is `Chip`, and the interactive pill
+// that toggles, filters or wears an identity tint is `ChipButton`.
+export { MicroChip as Chip } from '../components/ui/DefaultChip'
+export { ChipButton } from '../components/ui/ChipButton'
+export { TaskCard } from '../components/ui/TaskCard'
+export { BoardLane } from '../components/ui/BoardLane'
+export { SafeMarkdown } from '../components/ui/SafeMarkdown'
+export { SidebarNavButton } from '../components/workspace/SidebarNavButton'
 
 // ── Shared vocabulary ────────────────────────────────────────────────────────
 
@@ -52,7 +66,9 @@ export type { Tone } from '../components/ui/tokens'
 export type { LifecycleState } from '../components/ui/LifecycleGlyph'
 export type { FilterMenuGroup } from '../components/ui/FilterMenu'
 export type { SegmentedControlItem } from '../components/ui/SegmentedControl'
-export type { SelectItem } from '../components/ui/Select'
+export type { SelectItem, SelectSize } from '../components/ui/Select'
+export type { RowBadge } from '../components/workspace/SidebarNavButton'
+export type { CliRuntimePickerOption } from '../components/ui/CliModelPicker'
 
 // ── Prop types ───────────────────────────────────────────────────────────────
 
@@ -74,8 +90,17 @@ import type { Spinner } from '../components/ui/Spinner'
 import type { StatusDot } from '../components/ui/StatusDot'
 import type { TruncatedText } from '../components/ui/TruncatedText'
 import type { CliModelPickerButton } from '../components/ui/CliModelPicker'
+import type { Switch } from '../components/ui/Switch'
+import type { ContextMenu, MenuItem } from '../components/ui/ContextMenu'
+import type { MicroChip } from '../components/ui/DefaultChip'
+import type { BoardLane } from '../components/ui/BoardLane'
+import type { SidebarNavButton } from '../components/workspace/SidebarNavButton'
 
 export type { DrawerProps } from '../components/ui/Drawer'
+export type { DateTimeInputProps } from '../components/ui/DateTimeInput'
+export type { ChipButtonProps } from '../components/ui/ChipButton'
+export type { TaskCardProps } from '../components/ui/TaskCard'
+export type { SafeMarkdownProps } from '../components/ui/SafeMarkdown'
 
 export type GhostButtonProps = React.ComponentProps<typeof GhostButton>
 export type OutlineButtonProps = React.ComponentProps<typeof OutlineButton>
@@ -98,3 +123,9 @@ export type SpinnerProps = React.ComponentProps<typeof Spinner>
 export type StatusDotProps = React.ComponentProps<typeof StatusDot>
 export type TruncatedTextProps = React.ComponentProps<typeof TruncatedText>
 export type CliModelPickerButtonProps = React.ComponentProps<typeof CliModelPickerButton>
+export type ToggleProps = React.ComponentProps<typeof Switch>
+export type ContextMenuProps = React.ComponentProps<typeof ContextMenu>
+export type MenuItemProps = React.ComponentProps<typeof MenuItem>
+export type ChipProps = React.ComponentProps<typeof MicroChip>
+export type BoardLaneProps = React.ComponentProps<typeof BoardLane>
+export type SidebarNavButtonProps = React.ComponentProps<typeof SidebarNavButton>

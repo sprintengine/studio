@@ -27,6 +27,8 @@ export const SERVER_METHODS = {
   conversationsWorking: 'conversations.working',
   /** `{ overrides }` → the module enablement result: the shell wrote the file, the server applies it live. */
   applyModuleEnablement: 'modules.apply-enablement',
+  /** → `ThirdPartyLaunchSessionWire`: which third-party main halves loaded here, and what they registered. */
+  thirdPartyLaunchSession: 'modules.third-party-launch-session',
   /** `{ clientId }` → `{ connectionId, ticket }`: a chat view's protocol connection, its port already attached. */
   studioConnect: 'studio.connect',
   /**
