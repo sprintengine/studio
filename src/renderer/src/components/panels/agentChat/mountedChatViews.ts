@@ -6,6 +6,7 @@ import { QUOTE_SELECTION_COMMAND } from './quoteSelection'
 // the effect inside AgentChatView). Mount order; the focused view wins.
 export type MountedChatView = {
   workspaceId: string
+  agentId?: string
   isFocused: () => boolean
   toggleModelPicker: () => void
   cycleEffort?: () => void
@@ -15,6 +16,8 @@ export type MountedChatView = {
   startReplay?: () => void
   /** Quote the document's selection when it is in this view's transcript; whether it was. */
   quoteSelection?: () => boolean
+  /** Set a quote into the composer where its caret is, and put the keyboard there. */
+  insertQuote?: (text: string) => void
   /** End the agent's process, keeping the conversation (`chat.restartSession`). */
   restartSession?: () => void
   /** Show the find bar and put the caret in it (`chat.find`). */
@@ -113,4 +116,9 @@ export function registerMountedChatView(entry: MountedChatView): () => void {
     if (index >= 0) mountedChatViews.splice(index, 1)
     if (mountedChatViews.length === 0) window.removeEventListener(PANEL_COMMAND_EVENT, onModelPickerPanelCommand)
   }
+}
+
+/** The mounted view of one chat, if this window draws it. */
+export function mountedChatViewFor(workspaceId: string, agentId: string): MountedChatView | null {
+  return mountedChatViews.find((view) => view.workspaceId === workspaceId && view.agentId === agentId) ?? null
 }

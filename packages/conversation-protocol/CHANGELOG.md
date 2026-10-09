@@ -4,6 +4,15 @@
 
 ### Added
 
+- **A step names the pictures it returned.** `images` is an optional member
+  of `ConversationToolOutputPayload`: the files a step's pictures (a browser
+  screenshot, say) were written to on the desktop that ran it, in the order
+  the tool returned them, at most eight. The bytes are not in `output` and
+  never cross the wire. Absent for a step that returned none, and on every
+  step a desktop from before this member reports. The paths name files on
+  that desktop, so a client on another device can say a step has pictures
+  but cannot open them. The pinned files are unchanged.
+
 - **A listed chat names its branch.** `branch` is an optional member of
   `ConversationThread`: the branch the chat's folder is checked out on, as its
   HEAD names it, which the desktop's own sidebar shows on the chat's line.
