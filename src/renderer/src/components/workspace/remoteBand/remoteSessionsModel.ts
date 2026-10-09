@@ -14,6 +14,7 @@ import type { ConversationWirePullRequest } from '../../../../../../packages/con
 import { classifyPullRequestUrl } from '../../../../../shared/git/pr-url'
 import { pullRequestRepository, type BranchPullRequest } from '../../../../../shared/git/pull-request'
 import type { Workspace } from '../../../types/workspace'
+import { workspaceLastUserMessageAt } from '../../../utils/workspaceRecency'
 import type { Tone } from '../../ui'
 import { meshMachinePhase, type MeshMachinePhase } from '../../remote/machineRowModel'
 
@@ -117,6 +118,8 @@ export type RemoteSessionRow = {
    * rule as a local row's, so a remote row stays put until someone speaks.
    */
   recencyAt: number
+  /** When a person last wrote to the chat, from any device, as its machine records it; null if never. */
+  lastUserMessageAt: number | null
   /** When the chat's agent last finished a turn, and a person last had it on screen, on any device. */
   lastTurnEndedAt: number | null
   lastVisitedAt: number | null
@@ -345,6 +348,7 @@ function remoteChatRowOf(
     since: conversation.updatedAt,
     attachedWorkspaceId: attached?.id ?? null,
     recencyAt: conversation.lastUserMessageAt ?? conversation.updatedAt,
+    lastUserMessageAt: conversation.lastUserMessageAt ?? null,
     lastTurnEndedAt: conversation.lastTurnEndedAt ?? null,
     lastVisitedAt: conversation.lastVisitedAt ?? null,
     lifecycle,
@@ -534,6 +538,56 @@ export function unattachedConversations(
       ),
     ),
   )
+}
+
+/** One row of a list that holds both this desktop's chats and a paired machine's. */
+export type ChatListEntry =
+  | { kind: 'local'; workspace: Workspace; recencyAt: number }
+  | { kind: 'remote'; conversation: RemoteConversation; recencyAt: number }
+
+/**
+ * When a row here was last written to, on whichever machine (owner,
+ * 2026-10-09: "the most recent applies across all machines"). A chat opened
+ * here from a paired machine is a `Workspace` of this desktop, and its own
+ * clock only hears of the messages sent from here; one written to on the
+ * machine it runs on reads that machine's clock too. Its message clock, never
+ * `updatedAt`: an agent working does not move a row.
+ */
+export function chatRecencyOf(attached: ReadonlyMap<string, RemoteConversation>): (workspace: Workspace) => number {
+  return (workspace) =>
+    Math.max(workspaceLastUserMessageAt(workspace), attached.get(workspace.id)?.agents[0]?.lastUserMessageAt ?? 0)
+}
+
+/** Rows here, most recently written to first by `recencyOf`; ties keep the order they came in. */
+export function sortChatsByRecency(
+  workspaces: readonly Workspace[],
+  recencyOf: (workspace: Workspace) => number = workspaceLastUserMessageAt,
+): Workspace[] {
+  return [...workspaces].sort((a, b) => recencyOf(b) - recencyOf(a))
+}
+
+/**
+ * This desktop's rows and the paired machines' as one list, most recently
+ * written to first, whichever machine each runs on (owner, 2026-10-09: a chat
+ * I just wrote to on the Mini sat under a local one two days quiet). Each
+ * machine's rows keep the order it gave them, and a tie goes to the local row.
+ * They used to follow every local row, for fear a machine's clock a few
+ * minutes off would shuffle them; it sank the chats the person was working in
+ * instead.
+ */
+export function interleaveChats(
+  local: readonly Workspace[],
+  remote: readonly RemoteConversation[],
+  recencyOf: (workspace: Workspace) => number = workspaceLastUserMessageAt,
+): ChatListEntry[] {
+  return mergeByRecency<ChatListEntry>([
+    sortChatsByRecency(local, recencyOf).map((workspace) => ({
+      kind: 'local',
+      workspace,
+      recencyAt: recencyOf(workspace),
+    })),
+    remote.map((conversation) => ({ kind: 'remote', conversation, recencyAt: conversation.recencyAt })),
+  ])
 }
 
 /** What opening a conversation attaches to: its loudest agent — the one you came for. */

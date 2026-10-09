@@ -94,6 +94,9 @@ import {
   remoteLifecycleWritable,
   remoteRestToFollow,
   unattachedConversations,
+  chatRecencyOf,
+  interleaveChats,
+  sortChatsByRecency,
   type RemoteConversation,
   type RemoteSessionOpenSpec,
 } from './remoteBand/remoteSessionsModel'
@@ -1257,6 +1260,8 @@ function WorkspaceSidebar({
         : attachedConversations(remoteGroups, railWorkspaces),
     [remoteGroups, remoteLink, railWorkspaces],
   )
+  // When each row here was last written to, on whichever machine it runs on.
+  const chatRecency = useMemo(() => chatRecencyOf(remoteConversationByWorkspace), [remoteConversationByWorkspace])
   // Settle a chat on a paired machine: its machine owns the chat's rest, so
   // the row goes now and the machine is asked; a refusal brings it back with
   // the machine's own words.
@@ -1755,15 +1760,16 @@ function WorkspaceSidebar({
   // rail with every other settled chat.
   const starredWorkspaces = useMemo(
     () =>
-      sortWorkspacesByUserMessage(
+      sortChatsByRecency(
         // `localRailWorkspaces`, so a STARRED remote chat goes with the tailnet
         // too: a row withheld from its project and left standing up here would
         // be the same chat saying two different things about whether it exists.
         localRailWorkspaces.filter(
           (workspace) => isStarred(workspace.highlight) && !isSettledWorkspace(workspace) && !isAsleep(workspace),
         ),
+        chatRecency,
       ),
-    [localRailWorkspaces, isAsleep],
+    [localRailWorkspaces, isAsleep, chatRecency],
   )
   const starredWorkspaceIds = useMemo(
     () => new Set(starredWorkspaces.map((workspace) => workspace.id)),
@@ -2524,19 +2530,16 @@ function WorkspaceSidebar({
     const snoozedRows = sortByWake(visibleWorkspaces.filter((w) => !isShelved(w) && isAsleep(w)))
     const activeRows = visibleWorkspaces.filter((workspace) => !isShelved(workspace) && !isAsleep(workspace))
 
-    // The project's conversations on paired machines, after its local ones,
-    // each group in its own last-message order. After, not interleaved: the
-    // two clocks are read on two machines, and one running a few minutes off
-    // would shuffle rows between the groups for no reason a person could see.
-    const remoteRows = group.remoteRows.map((conversation) => renderRemoteConversationRow(conversation))
+    // The project's conversations on paired machines among its local ones,
+    // by when each was last written to (`interleaveChats`).
+    const rows = interleaveChats(activeRows, group.remoteRows, chatRecency).map((entry) =>
+      entry.kind === 'local'
+        ? renderWorkspaceRow(entry.workspace, group.key)
+        : renderRemoteConversationRow(entry.conversation),
+    )
 
     if (snoozedRows.length === 0) {
-      return (
-        <div id={folderBodyId}>
-          {activeRows.map((workspace) => renderWorkspaceRow(workspace, group.key))}
-          {remoteRows}
-        </div>
-      )
+      return <div id={folderBodyId}>{rows}</div>
     }
 
     const slug = group.key.replace(/[^a-z0-9]+/giu, '-')
@@ -2546,8 +2549,7 @@ function WorkspaceSidebar({
 
     return (
       <div id={folderBodyId}>
-        {activeRows.map((workspace) => renderWorkspaceRow(workspace, group.key))}
-        {remoteRows}
+        {rows}
         <ShelfFoldRow
           label="Snoozed"
           count={snoozedRows.length}
@@ -2583,9 +2585,9 @@ function WorkspaceSidebar({
   //
   // A chat running on a paired machine is a row of this list like any other
   // (owner, 2026-09-11) — same project line, same title, same shape — with the
-  // green machine glyph beside the folder icon saying where it runs. They come
-  // after the local rows for the reason the tree puts them after: their clock
-  // is read on another machine, and interleaving on it would shuffle rows.
+  // green machine glyph beside the folder icon saying where it runs, and it
+  // sits among them by when it was last written to, as the tree's rows do
+  // (`interleaveChats`).
   // The Scheduled section, after every chat in either shape of the list: one
   // fold row over a row per scheduled agent, hidden when there are none. The
   // fold is the Snoozed shelves' own, and its state lives beside theirs, but
@@ -2636,16 +2638,15 @@ function WorkspaceSidebar({
     const snoozeExpanded = expandedShelves[ALL_CHATS_SNOOZE_SHELF_KEY] === true
     return (
       <section role="group" className="relative pt-1" aria-label="All chats">
-        {streamRows.map((workspace) =>
-          renderWorkspaceRow(workspace, keyOf(workspace), {
-            keyPrefix: 'all-',
-            flatProject: flatProjectOf(workspace),
-          }),
-        )}
-        {unattachedRemote.map((conversation) =>
-          renderRemoteConversationRow(conversation, {
-            flatProject: flatProjectOfRemote(conversation),
-          }),
+        {interleaveChats(streamRows, unattachedRemote, chatRecency).map((entry) =>
+          entry.kind === 'local'
+            ? renderWorkspaceRow(entry.workspace, keyOf(entry.workspace), {
+                keyPrefix: 'all-',
+                flatProject: flatProjectOf(entry.workspace),
+              })
+            : renderRemoteConversationRow(entry.conversation, {
+                flatProject: flatProjectOfRemote(entry.conversation),
+              }),
         )}
         {snoozedRows.length > 0 ? (
           <>
