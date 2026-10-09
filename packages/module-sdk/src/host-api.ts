@@ -53,6 +53,10 @@ export type HostCapability =
   | 'chat.open-options'
   // `MainHost.listChatRuntimes()`.
   | 'chat-runtimes'
+  // Scheduled agents take `name` and `tag`, `lastRun` names its chat's
+  // `agentId`, the service has `onRun`, and a run's chat summary carries
+  // `scheduledAgentId` and `scheduledAgentTag`.
+  | 'scheduled-agent-runs'
   | 'scheduled-agents'
   | 'secrets'
   | 'github'

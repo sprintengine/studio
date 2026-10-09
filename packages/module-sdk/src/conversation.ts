@@ -143,6 +143,14 @@ export type ModuleConversationSummary = ModuleConversationRef & {
   permissionPreset?: ModuleConversationPermissionPreset
   /** The agent CLI's own mode at that preset, when one other than the preset's own. */
   permissionMode?: string
+  /**
+   * The id of the scheduled agent whose run started this chat (one of your
+   * module's: a run's chat is owned by the module that made the schedule),
+   * and the `tag` you gave that scheduled agent. Absent on every other chat.
+   * Check `host.supports('scheduled-agent-runs')`.
+   */
+  scheduledAgentId?: string
+  scheduledAgentTag?: string
 }
 
 /**

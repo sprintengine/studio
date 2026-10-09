@@ -164,6 +164,13 @@ export type ConversationLaunchRequest = {
    */
   scheduledAgentId?: string
   /**
+   * The label the scheduled agent's creator gave it (`ScheduledAgent.tag`),
+   * kept on the run's chat agent (`AgentState.scheduledAgentTag`) beside the
+   * workspace's `scheduledAgentId`, so the extension that made the schedule
+   * can tell its runs apart. Read only beside `scheduledAgentId`.
+   */
+  scheduledAgentTag?: string
+  /**
    * Open the new chat without bringing it to the front of the window: it
    * joins the list and waits there. For a chat nobody is watching start, like
    * a scheduled run; ignored when joining an existing workspace.
@@ -518,6 +525,9 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       ...(skills.length > 0 ? { conversationSkills: skills } : {}),
       ...(request.ownerModuleId?.trim() ? { ownerModuleId: request.ownerModuleId.trim() } : {}),
       ...(request.launchCommandId ? { launchCommandId: request.launchCommandId } : {}),
+      ...(newChat && request.scheduledAgentId?.trim() && request.scheduledAgentTag?.trim()
+        ? { scheduledAgentTag: request.scheduledAgentTag.trim() }
+        : {}),
     }
     let chatWorkspaceId = workspace.id
     if (newChat) {

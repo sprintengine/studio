@@ -101,6 +101,8 @@ import { clampToModuleToolCaller } from './module-tool-caller'
 export type ModuleConversationWorkspace = {
   id: string
   folderPath?: string | null
+  /** The scheduled agent whose run this chat's workspace is; see `Workspace.scheduledAgentId`. */
+  scheduledAgentId?: string | null
   agents: Record<string, AgentState>
 }
 
@@ -474,9 +476,12 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     }
   }
 
-  function summarize(workspaceId: string, agent: AgentState): ModuleConversationSummary {
+  function summarize(workspace: ModuleConversationWorkspace, agent: AgentState): ModuleConversationSummary {
+    const workspaceId = workspace.id
     const providerId = agent.conversation?.providerId ?? ''
     const live = liveSession({ workspaceId, agentId: agent.id })
+    // A scheduled run's chat says which of the module's schedules started it.
+    const scheduledAgentId = workspace.scheduledAgentId?.trim() || undefined
     return {
       workspaceId,
       agentId: agent.id,
@@ -487,6 +492,8 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
       modelId: live?.modelId ?? agent.conversation?.modelId ?? '',
       status: live?.status ?? 'absent',
       ...presetOf(live, agent),
+      ...(scheduledAgentId ? { scheduledAgentId } : {}),
+      ...(scheduledAgentId && agent.scheduledAgentTag ? { scheduledAgentTag: agent.scheduledAgentTag } : {}),
     }
   }
 
@@ -496,7 +503,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
       if (filter?.workspaceId && workspace.id !== filter.workspaceId) continue
       for (const agent of Object.values(workspace.agents)) {
         if (!agent || agent.runtimeKind !== 'conversation' || agent.ownerModuleId !== moduleId) continue
-        summaries.push(summarize(workspace.id, agent))
+        summaries.push(summarize(workspace, agent))
       }
     }
     return summaries
@@ -606,7 +613,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     for (const workspace of deps.getWorkspaceAgents()) {
       for (const agent of Object.values(workspace.agents)) {
         if (agent?.ownerModuleId === moduleId && agent.launchCommandId === launchCommandId)
-          return summarize(workspace.id, agent)
+          return summarize(workspace, agent)
       }
     }
     return null

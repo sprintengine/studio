@@ -622,17 +622,54 @@ export type ScheduledAgentSchedule = {
 /** A skill or an installed MCP server, by id, with the name its chip shows. */
 export type ScheduledAgentAttachment = { id: string; name: string }
 
+/**
+ * Whether the last run started its chat. `workspaceId` and `agentId` name that
+ * chat (a conversation ref your conversation service reaches); `agentId` is
+ * absent on a run recorded by a host from before it was kept.
+ */
 export type ScheduledAgentLastRun =
-  { at: number; ok: true; workspaceId: string } | { at: number; ok: false; message: string }
+  { at: number; ok: true; workspaceId: string; agentId?: string } | { at: number; ok: false; message: string }
+
+/** A run whose chat started: when, and the chat (a conversation ref) it started. */
+export type ScheduledAgentRun = { at: number; workspaceId: string; agentId: string }
 
 /**
  * A scheduled agent: a prompt and a schedule. Each time the schedule comes
  * round, a new chat starts in `folderPath` with `prompt` as its first message,
  * on the machine, CLI, model, permissions, skills, MCP servers and worktree
  * setting recorded here. Nothing carries from one run to the next.
+ *
+ * When a time is missed:
+ * - **The app was closed.** A repeating schedule's missed times are not
+ *   replayed; the next run is counted from when the app starts. A one-time
+ *   schedule whose time passed while the app was closed runs once, as soon as
+ *   the app is open again.
+ * - **The computer slept, with the app open.** The schedule runs once on
+ *   waking, however many of its times passed in the sleep.
+ * - **The previous run is still working** (a turn open, or waiting on an
+ *   approval), or still starting. The time is skipped, not queued: the next
+ *   one counts on from it.
+ *
+ * Each run's chat is owned by the module that created the scheduled agent, so
+ * its conversation service reaches it (`onRun` names the chat), and its
+ * summary carries `scheduledAgentId` and `scheduledAgentTag`.
  */
 export type ScheduledAgent = {
   id: string
+  /**
+   * Its title in the person's sidebar and editor (up to 120 characters).
+   * Absent, the prompt's first line is. Check
+   * `host.supports('scheduled-agent-runs')`.
+   */
+  name?: string
+  /**
+   * Your own label for it (up to 200 characters; the item, task or record it
+   * belongs to), never shown to the person. Each run's chat carries it as
+   * `ModuleConversationSummary.scheduledAgentTag`, so you can tell which of
+   * your schedules a chat came from without putting markers in the prompt.
+   * Check `host.supports('scheduled-agent-runs')`.
+   */
+  tag?: string
   prompt: string
   schedule: ScheduledAgentSchedule
   folderPath: string
@@ -659,9 +696,15 @@ export type ScheduledAgent = {
   lastFailureSeenAt: number | null
 }
 
-/** What a module writes: everything but the bookkeeping. */
+/**
+ * What a module writes: everything but the bookkeeping. On `update`, a draft
+ * without `name` or `tag` keeps the ones the scheduled agent has, and an empty
+ * string clears it.
+ */
 export type ScheduledAgentDraft = Pick<
   ScheduledAgent,
+  | 'name'
+  | 'tag'
   | 'prompt'
   | 'schedule'
   | 'folderPath'
@@ -697,6 +740,17 @@ export type ModuleScheduledAgentsService = {
   runNow(id: string): Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
   /** Called with this module's scheduled agents whenever one of them changes. Returns the unsubscriber; call it in `onShutdown`. */
   onChanged(listener: (agents: ScheduledAgentView[]) => void): () => void
+  /**
+   * Called each time one of this module's scheduled agents starts a chat, on
+   * its schedule or by `runNow`, with the scheduled agent as it ran and the
+   * chat (`run.workspaceId`, `run.agentId`: follow it with the conversation
+   * service). A one-time schedule is told before it closes itself, so its run
+   * is heard although `onChanged` never lists it again. A run that failed to
+   * start is not a run; `lastRun` says why. Returns the unsubscriber; call it
+   * in `onShutdown`. Check `host.supports('scheduled-agent-runs')`: an older
+   * host never calls it.
+   */
+  onRun(listener: (agent: ScheduledAgentView, run: ScheduledAgentRun) => void): () => void
 }
 
 type ScheduledAgentsModuleRegistry = {
@@ -709,6 +763,8 @@ type ScheduledAgentsModuleRegistry = {
     id: string,
   ): Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
   onChanged(moduleId: string, listener: (agents: ScheduledAgentView[]) => void): () => void
+  // Absent on a host from before scheduled-agent-runs.
+  onRun?(moduleId: string, listener: (agent: ScheduledAgentView, run: ScheduledAgentRun) => void): () => void
 }
 
 const scheduledAgentsModuleServiceToken: ServiceToken<ScheduledAgentsModuleRegistry> =
@@ -729,6 +785,7 @@ export function getScheduledAgentsService(host: MainHost): ModuleScheduledAgents
     list: () => registry.list(moduleId),
     runNow: (id) => registry.runNow(moduleId, id),
     onChanged: (listener) => registry.onChanged(moduleId, listener),
+    onRun: (listener) => (registry.onRun ? registry.onRun(moduleId, listener) : () => {}),
   }
 }
 

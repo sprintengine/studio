@@ -40,6 +40,7 @@ const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   'text-generation',
   'conversation-worktrees',
   'chat-runtimes',
+  'scheduled-agent-runs',
 ])
 
 export function hostSupports(capability: HostCapability): boolean {

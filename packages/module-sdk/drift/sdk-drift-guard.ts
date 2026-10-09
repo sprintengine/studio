@@ -33,10 +33,12 @@ import type {
   ScheduledAgentAttachment as AppScheduledAgentAttachment,
   ScheduledAgentDraft as AppScheduledAgentDraft,
   ScheduledAgentLastRun as AppScheduledAgentLastRun,
+  ScheduledAgentRun as AppScheduledAgentRun,
   ScheduledAgentSchedule as AppScheduledAgentSchedule,
   ScheduledAgentView as AppScheduledAgentView,
   ScheduledAgentWriteResult as AppScheduledAgentWriteResult,
 } from '../../../src/shared/scheduled-agents'
+import type { ScheduledAgentsModuleRegistry as AppScheduledAgentsModuleRegistry } from '../../../src/main/scheduled-agents/service'
 import type { CapabilityPermission as AppCapabilityPermission } from '../../../src/shared/modules/permissions'
 import { KNOWN_CAPABILITY_PERMISSIONS as APP_KNOWN_CAPABILITY_PERMISSIONS } from '../../../src/shared/modules/permissions'
 import type { ModuleBridgeRefusalCode as AppModuleBridgeRefusalCode } from '../../../src/shared/modules/bridge'
@@ -175,6 +177,8 @@ import type {
   ScheduledAgentAttachment as SdkScheduledAgentAttachment,
   ScheduledAgentDraft as SdkScheduledAgentDraft,
   ScheduledAgentLastRun as SdkScheduledAgentLastRun,
+  ScheduledAgentRun as SdkScheduledAgentRun,
+  ModuleScheduledAgentsService as SdkModuleScheduledAgentsService,
   ScheduledAgentSchedule as SdkScheduledAgentSchedule,
   ScheduledAgentView as SdkScheduledAgentView,
   ScheduledAgentWriteResult as SdkScheduledAgentWriteResult,
@@ -360,6 +364,14 @@ expectType<IsExact<AppScheduledAgent, SdkScheduledAgent>>()
 expectType<IsExact<AppScheduledAgentDraft, SdkScheduledAgentDraft>>()
 expectType<IsExact<AppScheduledAgentView, SdkScheduledAgentView>>()
 expectType<IsExact<AppScheduledAgentWriteResult, SdkScheduledAgentWriteResult>>()
+expectType<IsExact<AppScheduledAgentRun, SdkScheduledAgentRun>>()
+// What the app's registry hands a module's `onRun` listener is the SDK's view.
+expectType<
+  IsExact<
+    Parameters<Parameters<AppScheduledAgentsModuleRegistry['onRun']>[1]>,
+    Parameters<Parameters<SdkModuleScheduledAgentsService['onRun']>[0]>
+  >
+>()
 
 // MCP tool contributions: the wire shapes mirror exactly — an
 // optional-property drift on a tool registration would silently change what

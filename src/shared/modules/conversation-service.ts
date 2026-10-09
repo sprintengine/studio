@@ -61,6 +61,10 @@ export type ModuleConversationSummary = ModuleConversationRef & {
   permissionPreset?: ModuleConversationPermissionPreset
   // The CLI's own mode at that preset, when one other than the preset's own.
   permissionMode?: string
+  // The scheduled agent whose run started this chat, and the tag its creator
+  // gave it; absent on every other chat.
+  scheduledAgentId?: string
+  scheduledAgentTag?: string
 }
 
 export type ModuleConversationErrorCode =
