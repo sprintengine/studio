@@ -58,5 +58,10 @@ The app draws no status dots (owner ruling 2026-09-28). A small disc has no
 shape, so "working", "waiting" and "failed" read alike. Say a state with a
 word, a lifecycle glyph, a timer, the working mark (`ui/WorkingMark.tsx`), or,
 for an agent a conversation spawned, its agent glyph (`ui/AgentGlyph.tsx`).
+The one exception is an MCP server's connection state in the composer's Skills
+& MCPs picker (owner ruling 2026-10-09): a dot beside the server's name, with the
+state's word as its accessible name and tooltip
+(`agentComposer/SkillsAndMcpsPicker.tsx`). It does not license a dot anywhere
+else.
 `StatusDot` keeps its name because modules import it, but it draws shapes; a
 `rounded-full` bullet added somewhere else is the same dot by another name.

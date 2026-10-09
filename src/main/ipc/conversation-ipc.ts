@@ -35,6 +35,8 @@ import type {
   ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationSetModelInput,
+  ConversationMcpServerActionInput,
+  ConversationMcpServerActionResult,
   ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
@@ -72,6 +74,7 @@ import {
   parseSendTurnInput,
   parseSessionIdInput,
   parseSetModelInput,
+  parseMcpServerActionInput,
   parseSetPermissionInput,
   parseStartSessionInput,
   parseTranscriptInput,
@@ -112,6 +115,7 @@ export type ConversationIpcHandlers = {
   respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult>
   setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult>
   setModel?(input: ConversationSetModelInput): Promise<ConversationSessionActionResult>
+  mcpServerAction?(input: ConversationMcpServerActionInput): Promise<ConversationMcpServerActionResult>
   stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
   suspendSession?(input: ConversationSuspendSessionInput): Promise<ConversationSessionActionResult>
   terminalHandoff?(input: ConversationTerminalHandoffInput): Promise<ConversationTerminalHandoffResult>
@@ -358,6 +362,9 @@ export function createConversationIpcHandlers(
     },
     setModel(input: ConversationSetModelInput): Promise<ConversationSessionActionResult> {
       return runtime.setModel(input)
+    },
+    mcpServerAction(input: ConversationMcpServerActionInput): Promise<ConversationMcpServerActionResult> {
+      return runtime.mcpServerAction(input)
     },
     stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult> {
       return runtime.stopSession(input)
@@ -775,6 +782,20 @@ export function registerConversationIpc(
       if (!parsed.ok) return parsed
       try {
         return handlers.setPermission(parsed.input)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'conversation:sessions:mcp-action',
+    async (_, input: unknown): Promise<ConversationMcpServerActionResult> => {
+      const parsed = parseMcpServerActionInput(input)
+      if (!parsed.ok) return parsed
+      if (!handlers.mcpServerAction) return { ok: false, message: 'MCP server actions are unavailable.' }
+      try {
+        return await handlers.mcpServerAction(parsed.input)
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }

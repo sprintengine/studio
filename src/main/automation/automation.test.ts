@@ -309,6 +309,7 @@ test('automation', async () => {
       'terminal.list',
       'workspace.checkout',
       'workspace.create',
+      'workspace.extensions',
       'workspace.list',
       'workspace.mobile_command',
       'workspace.snapshot',

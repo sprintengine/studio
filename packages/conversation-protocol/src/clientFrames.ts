@@ -5,6 +5,7 @@ import {
   type ConversationFrameRejection,
 } from './index.js'
 import {
+  CONVERSATION_MAX_SEND_SKILLS,
   isConversationPermissionModeId,
   type ConversationCommand,
   type ConversationWatchQueuedRequest,
@@ -27,6 +28,8 @@ export type ConversationClientMessage =
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
+// A skill's directory name, as the desktop's chat runtime accepts one.
+const SKILL_ID = /^[\w.-]{1,200}(?::[\w.-]{1,200})?$/
 function id(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 200
 }
@@ -53,6 +56,20 @@ export function parseConversationClientMessage(value: unknown): ConversationClie
       return id(value.commandId) && id(command.queuedId)
         ? { type: 'command', commandId: value.commandId, command: { kind: 'cancelQueued', queuedId: command.queuedId } }
         : null
+    }
+    // Skills ride a message the chat runs now, not one held for later.
+    if (command.kind === 'send' && command.skills !== undefined) {
+      const skills = command.skills
+      if (
+        command.queue !== undefined ||
+        !Array.isArray(skills) ||
+        skills.length > CONVERSATION_MAX_SEND_SKILLS ||
+        !skills.every((skill) => typeof skill === 'string' && SKILL_ID.test(skill))
+      )
+        return null
+      const frame = parseConversationClientFrame({ ...value, command: { ...command, skills: undefined } })
+      if (!frame || frame.type !== 'command' || frame.command.kind !== 'send') return null
+      return { ...frame, command: { ...frame.command, skills: [...(skills as string[])] } }
     }
     // A held message is its words alone: the pictures a send carries are
     // staged for that send, and would be gone by the turn it waits for.

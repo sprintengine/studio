@@ -16,10 +16,18 @@ import { ChipButton, Input, Tooltip, WorktreeGlyph } from '../../ui'
 export function WorktreeChip({
   name,
   onChange,
+  nameable = true,
 }: {
   /** Null is off; '' is on with a name made up at start. */
   name: string | null
   onChange: (next: string | null) => void
+  /**
+   * Whether the worktree can be given a name of the person's own. A paired
+   * machine on a build that cuts a worktree but takes no name for it
+   * (`new-chat-worktree` without `new-chat-worktree-name`) makes one up
+   * there, so the field is not offered rather than typed into and ignored.
+   */
+  nameable?: boolean
 }) {
   const on = name !== null
   const inputRef = React.useRef<HTMLInputElement>(null)
@@ -39,7 +47,7 @@ export function WorktreeChip({
               return
             }
             onChange('')
-            window.requestAnimationFrame(() => inputRef.current?.focus())
+            if (nameable) window.requestAnimationFrame(() => inputRef.current?.focus())
           }}
         >
           {/* On, the chip wears the kit's thrown fill and strong ink; off, its
@@ -49,7 +57,7 @@ export function WorktreeChip({
           {on ? 'Worktree' : 'No worktree'}
         </ChipButton>
       </Tooltip>
-      {on ? (
+      {on && nameable ? (
         // Sized to what is typed, not a fixed field: a field that reserves room
         // for a long branch pushes the strip onto a second line.
         <Input

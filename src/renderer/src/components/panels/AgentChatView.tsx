@@ -27,6 +27,7 @@ import type {
   ConversationCliRuntimeOverrides,
   ConversationImageAttachment,
   ConversationSessionSummary,
+  ConversationMcpServerAction,
 } from '../../../../shared/conversation-runtime'
 import type { ConversationApprovalDecision } from '../../../../shared/conversation/approvalRules'
 import type { MeshQueuedMessage } from '../../../../shared/tailnet-mesh'
@@ -447,8 +448,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const capabilities = session?.capabilities ?? providerEntry?.capabilities
   const permissionPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
   const permissionMode = resolvePermissionMode(session, agent)
+  const mcpServerActions = capabilities?.mcpServerActions
   const supportsSkills =
-    transport.capabilities.composerContext && capabilities?.skills !== undefined && capabilities.skills !== 'none'
+    transport.capabilities.skills && capabilities?.skills !== undefined && capabilities.skills !== 'none'
   // The chat has no plan toggle: a turn goes out in the mode the agent is on,
   // which is the default unless a read-only ask was set for it.
   const conversationMode: 'default' | 'ask' = agent?.conversationMode === 'ask' ? 'ask' : 'default'
@@ -2566,7 +2568,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     workspaceRunsHere(binding.workspace) &&
     clientSupports('drag-paths')
 
-  const skillInventory = useWorkspaceSkills(workspaceRoot, null, supportsSkills)
+  const skillInventory = useWorkspaceSkills(
+    workspaceRoot,
+    null,
+    supportsSkills && transport.capabilities.composerContext,
+  )
   // Held from render to render, as the "+" menu that takes them is memoized:
   // a list rebuilt each render redrew the menu on every keystroke and token.
   const attachedSkills = useMemo(
@@ -2599,16 +2605,41 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         ? {
             workspaceRoot,
             // A chat stages skills itself, so the workspace-wide inventory is
-            // its list; it reads no MCP servers.
+            // its list. Its servers were set when it started: they are listed
+            // with how each is connecting, and none is picked from here.
             pluginId: null,
             skills: attachedSkills,
             onSkillsChange: setAttachedSkills,
             mcpServers: NO_MCP_SERVERS,
             onMcpServersChange: ignoreMcpServers,
-            includeMcps: false,
+            mcpCli: chatCli,
+            mcpPickable: false,
+            // A chat on a paired machine lists that machine's.
+            ...(transport.remoteExtensions ? { remote: transport.remoteExtensions } : {}),
+            // A live chat here can reconnect its servers, switch them, and
+            // sign in to one, as far as its CLI lets it.
+            ...(transport.kind === 'local' && sessionId && mcpServerActions?.length
+              ? {
+                  mcpActions: {
+                    available: mcpServerActions,
+                    run: (serverId: string, action: ConversationMcpServerAction) =>
+                      window.api.conversationSessionMcpAction({ sessionId, serverId, action }),
+                  },
+                }
+              : {}),
           }
         : undefined,
-    [supportsSkills, workspaceRoot, attachedSkills, setAttachedSkills],
+    [
+      supportsSkills,
+      workspaceRoot,
+      attachedSkills,
+      setAttachedSkills,
+      chatCli,
+      transport.remoteExtensions,
+      transport.kind,
+      sessionId,
+      mcpServerActions,
+    ],
   )
   const removeDraftFile = useCallback(
     (path: string) =>
@@ -2651,7 +2682,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     workspaceRoot,
     draft,
     caret: composerCaret,
-    skillsEnabled: supportsSkills,
+    // The type-ahead reads this machine's inventory; a remote chat's skills come from its "+".
+    skillsEnabled: supportsSkills && transport.capabilities.composerContext,
     // A file mention names a file on this machine's disk.
     mentionsEnabled: transport.capabilities.composerContext,
     commandMenu: commandMenuAvailable

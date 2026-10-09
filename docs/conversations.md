@@ -10,8 +10,15 @@ input, skills, plans, questions, interruption, and permission presets.
 Start a chat in a workspace, choose an installed provider and model, and send a
 prompt. Tool activity stays in the transcript with expandable input/output and
 file links. Older turns page in as needed; search can open a historical turn.
-Selecting a skill adds persistent context, while file mentions attach to one
-send. A file dropped, picked or pasted from the computer into a chat that runs
+Selecting a skill attaches it to the chat, while file mentions attach to one
+send. Claude chats load attached skills natively. Codex, Cursor, Grok and
+OpenCode chats are told to run the skill by name, the way each CLI's own picker
+would (`$name` for Codex, `/name` for Cursor and Grok, its skill tool by name
+for OpenCode), once, on the turn it is attached; the skill is copied into the
+folder that CLI reads first if it is not there. Only a provider with no CLI
+behind it is sent the SKILL.md as instructions. The composer's Skills & MCPs
+picker also lists the MCP servers the chat's CLI is configured with, with the
+connection each last reported. A file dropped, picked or pasted from the computer into a chat that runs
 on it is a card: the send carries it beside the words (`files` on the send and
 on its `user_message`), the agent is told where it is, and the bubble draws the
 card from that list, never from the text. Failed sends keep the draft. Pending approvals and questions appear above

@@ -12,6 +12,7 @@ import { buildHarnessMap, type HarnessBinding } from '../shared/harness-map'
 import type { CapabilityWatcher } from './capability-watcher'
 import type { PluginManifest, PluginRegistryListEntry } from '../shared/plugin-manifest'
 import type { McpServerResolver, ResolvedMcpServers } from './mcp-config-readers/resolve-servers'
+import { mcpServerStatusFor, type McpServerReport } from './mcp-server-status/registry'
 import { plainSkillInvocation, resolveSkillInvocation } from '../shared/skill-invocation'
 import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../shared/skill-harnesses'
 import {
@@ -19,6 +20,7 @@ import {
   SKILL_ENTRY_FILE,
   type AgentCapabilitiesInput,
   type AgentCapabilitiesResult,
+  type AgentMcpServer,
   type AgentSkill,
   type AgentSkillSource,
   type CapabilityDiagnostic,
@@ -61,6 +63,7 @@ type RawSkill = {
   name: string
   description: string
   source: AgentSkillSource
+  sourceId?: string
 }
 
 export type ReadSkillsResult =
@@ -109,11 +112,13 @@ export function createFsSkillDirectoryReader(): SkillDirectoryReader {
           continue
         }
         const frontmatter = await readEntryFrontmatter(skillDir)
+        const sourceId = sourceIdOf(skillDir)
         skills.push({
           id: entry,
           name: frontmatter.name || entry,
           description: frontmatter.description,
           source: await readSkillProvenance(skillDir),
+          ...(sourceId ? { sourceId } : {}),
         })
       }
       return { ok: true, skills }
@@ -156,7 +161,7 @@ export function createAgentCapabilityService(options: {
         support: binding?.support ?? 'unsupported',
         harnessId: binding?.harnessId ?? '',
         skills: skills.skills,
-        servers: mcp.servers,
+        servers: withReportedStatus(mcp.servers, mcpServerStatusFor(pluginId, root)),
         diagnostics: [
           ...skills.diagnostics,
           ...mcp.diagnostics,
@@ -165,6 +170,41 @@ export function createAgentCapabilityService(options: {
       }
     },
   }
+}
+
+/**
+ * The configured servers with what the CLI last reported about each, then any
+ * server it reported that no config file of its names: those are real (its
+ * own user settings, a plugin, its account) and the person is choosing among
+ * them too.
+ */
+export function withReportedStatus(
+  servers: readonly AgentMcpServer[],
+  reported: ReadonlyMap<string, McpServerReport>,
+): AgentMcpServer[] {
+  const listed = servers.map((server) => {
+    const report = reported.get(server.id)
+    if (!report) return server
+    return {
+      ...server,
+      status: report.status,
+      ...(report.error ? { error: report.error } : {}),
+      ...(server.toolCount === undefined && report.toolCount !== undefined ? { toolCount: report.toolCount } : {}),
+    }
+  })
+  const known = new Set(servers.map((server) => server.id))
+  for (const report of reported.values()) {
+    if (known.has(report.id)) continue
+    listed.push({
+      id: report.id,
+      transport: '',
+      scope: 'session',
+      status: report.status,
+      ...(report.error ? { error: report.error } : {}),
+      ...(report.toolCount !== undefined ? { toolCount: report.toolCount } : {}),
+    })
+  }
+  return listed
 }
 
 async function resolveSkills(
@@ -203,6 +243,7 @@ async function resolveSkills(
         description: skill.description,
         invocation: resolveSkillInvocation(integration, skill.id) ?? plainSkillInvocation(skill.id),
         source: skill.source,
+        ...(skill.sourceId ? { sourceId: skill.sourceId } : {}),
         pluginIds: binding.pluginIds,
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
@@ -340,6 +381,7 @@ function buildInstalledSkill(input: {
       version: builtin.version,
     }
   }
+  const sourceId = sourceIdOf(skillDir)
   return {
     id: dirName,
     name,
@@ -347,6 +389,18 @@ function buildInstalledSkill(input: {
     source: 'custom',
     harnesses: [harness],
     installState: 'installed',
+    ...(sourceId ? { sourceId } : {}),
+  }
+}
+
+// The source a skill was installed from, read off the marker the installer
+// leaves beside it (skills/install.ts). A hand-made skill has none.
+function sourceIdOf(skillDir: string): string | undefined {
+  try {
+    const marker = JSON.parse(readFileSync(join(skillDir, BUILTIN_MANIFEST_FILE), 'utf8')) as { sourceId?: unknown }
+    return typeof marker.sourceId === 'string' && marker.sourceId ? marker.sourceId : undefined
+  } catch {
+    return undefined
   }
 }
 

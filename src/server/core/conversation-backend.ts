@@ -31,6 +31,7 @@ export type ConversationBackendMember =
   | 'respondToRequest'
   | 'setPermission'
   | 'setModel'
+  | 'mcpServerAction'
   | 'interrupt'
   | 'stopSession'
   | 'suspendSession'

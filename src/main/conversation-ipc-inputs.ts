@@ -6,6 +6,8 @@ import type {
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSetModelInput,
+  ConversationMcpServerAction,
+  ConversationMcpServerActionInput,
   ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationTranscriptInput,
@@ -260,6 +262,24 @@ export function parseSetModelInput(
   const modelId = isRecord(input) && typeof input.modelId === 'string' ? input.modelId.trim() : ''
   if (!modelId || modelId.length > 200) return { ok: false, message: 'modelId is required.' }
   return { ok: true, input: { ...session.input, modelId } }
+}
+
+const MCP_SERVER_ACTIONS: readonly ConversationMcpServerAction[] = ['reconnect', 'enable', 'disable', 'sign-in']
+
+export function parseMcpServerActionInput(
+  input: unknown,
+): { ok: true; input: ConversationMcpServerActionInput } | { ok: false; message: string } {
+  const session = parseSessionIdInput(input)
+  if (!session.ok) return session
+  const serverId = isRecord(input) && typeof input.serverId === 'string' ? input.serverId.trim() : ''
+  if (!serverId || serverId.length > 200) return { ok: false, message: 'serverId is required.' }
+  const action = isRecord(input) ? input.action : undefined
+  if (!MCP_SERVER_ACTIONS.includes(action as ConversationMcpServerAction))
+    return { ok: false, message: 'action must be reconnect, enable, disable or sign-in.' }
+  return {
+    ok: true,
+    input: { sessionId: session.input.sessionId, serverId, action: action as ConversationMcpServerAction },
+  }
 }
 
 export function parseRespondToRequestInput(

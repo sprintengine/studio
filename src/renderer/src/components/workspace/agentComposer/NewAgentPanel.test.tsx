@@ -1106,18 +1106,19 @@ test('NewAgentPanel', async () => {
         dom.window.document.querySelector('[role="dialog"][aria-label="Skills and MCPs"]') as HTMLElement | null
       assert.ok(surface(), 'the picker opened')
       const text = surface()!.textContent ?? ''
-      // No "Add": the picker's Add rows were the bundled catalogue's servers,
-      // and the catalogue is gone. What is left under MCP servers is
-      // the studio gateway (Included) and the servers this workspace installed.
-      for (const label of [
-        'Skills in this workspace',
-        'Available to install',
-        'MCP servers',
-        'Install',
-        'Included',
-        'sprintengine-studio',
-      ]) {
+      // It opens on Skills; the servers are the other tab.
+      for (const label of ['Skills in this workspace', 'Available to install', 'Install']) {
         assert.ok(text.includes(label), `the open picker shows "${label}"`)
+      }
+      assert.ok(!text.includes('sprintengine-studio'), 'the servers wait behind their tab')
+      const showServers = async () => {
+        const tab = Array.from(surface()!.querySelectorAll('[role="radio"]')).find(
+          (el) => el.textContent === 'MCP servers',
+        ) as HTMLElement | undefined
+        assert.ok(tab, 'the MCP servers tab is offered')
+        await act(async () => {
+          tab!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
       }
       const listbox = surface()!.querySelector('[role="listbox"]')
       assert.equal(listbox?.getAttribute('aria-multiselectable'), 'true', 'the list is a multi-select listbox')
@@ -1169,6 +1170,11 @@ test('NewAgentPanel', async () => {
 
       // An installed MCP server whose clients do not yet reach the launch CLI:
       // the pick adds the CLI and syncs the workspace config before it counts.
+      // No "Add": the picker's Add rows were the bundled catalogue's servers,
+      // and the catalogue is gone. What is left is the studio gateway and the
+      // servers this workspace installed.
+      await showServers()
+      assert.ok((surface()!.textContent ?? '').includes('sprintengine-studio'), 'the studio gateway is listed')
       const linearRow = surface()!.querySelector('[data-picker-row="mcp:linear"]') as HTMLElement | null
       assert.ok(linearRow, 'the installed server is listed')
       await act(async () => {
@@ -1224,6 +1230,12 @@ test('NewAgentPanel', async () => {
         })
       }
       const surface = dom.window.document.querySelector('[role="dialog"][aria-label="Skills and MCPs"]') as HTMLElement
+      const serversTab = Array.from(surface.querySelectorAll('[role="radio"]')).find(
+        (el) => el.textContent === 'MCP servers',
+      ) as HTMLElement
+      await act(async () => {
+        serversTab.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
       const linearRow = surface.querySelector('[data-picker-row="mcp:linear"]') as HTMLElement
       await act(async () => {
         linearRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -1285,13 +1297,31 @@ test('NewAgentPanel', async () => {
       assert.equal(row!.state, 'installed', 'and it is installed — there is no Add row left to confuse it with')
       assert.equal(rows.filter((entry) => entry.id === 'io-snyk-mcp').length, 1, 'exactly once')
 
-      // A disabled server is not offered: the picker adds servers to a launch,
-      // and a launch cannot use one the person turned off.
-      const off = buildMcpRows({ 'io-snyk-mcp': { ...fromPlugin, enabled: false } })
-      assert.equal(
-        off.some((entry) => entry.id === 'io-snyk-mcp'),
-        false,
-        'a disabled server is not a row',
+      // A disabled server is listed as disabled, whatever a CLI last said
+      // about it: picking it switches it back on for the launch.
+      const off = buildMcpRows({ 'io-snyk-mcp': { ...fromPlugin, enabled: false } }, [
+        {
+          id: 'io-snyk-mcp',
+          transport: 'stdio',
+          scope: 'workspace',
+          configPath: '/proj/.mcp.json',
+          status: 'connected',
+        },
+      ])
+      assert.equal(off.find((entry) => entry.id === 'io-snyk-mcp')?.status, 'disabled', 'a disabled server says so')
+
+      // A server only the CLI knows (its own settings, a plugin, its account)
+      // is listed with what it reported, and is not the picker's to add.
+      const reported = buildMcpRows({}, [
+        { id: 'notion', transport: '', scope: 'session', status: 'needs-auth' },
+        { id: 'figma', transport: '', scope: 'session', status: 'failed', error: 'ECONNREFUSED 127.0.0.1:3845' },
+      ])
+      assert.deepEqual(
+        reported.filter((entry) => entry.state === 'configured').map((entry) => [entry.id, entry.status, entry.error]),
+        [
+          ['notion', 'needs-auth', undefined],
+          ['figma', 'failed', 'ECONNREFUSED 127.0.0.1:3845'],
+        ],
       )
     })
 
@@ -2177,6 +2207,189 @@ test('NewAgentPanel', async () => {
       },
     )
 
+    // A paired machine that cuts worktrees for a chat started from here: the
+    // strip offers the Worktree chip as it does for this device, and a picker
+    // of the worktrees the project already has there.
+    const worktreeMachineBrowse = (capabilities: string[]) => (id: string) => ({
+      connectionId: id,
+      reachable: true,
+      unreachableReason: null,
+      unauthorized: false,
+      scopes: ['workspace:read', 'conversation:operate'],
+      workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
+      gaps: [],
+      capabilities,
+    })
+    const checkoutWithWorktrees = (_c: string, workspaceId: string) => ({
+      ok: true,
+      checkout: {
+        workspaceId,
+        git: true,
+        branch: 'main',
+        defaultBranch: 'main',
+        branches: [
+          { name: 'main', current: true },
+          { name: 'feat/search', current: false },
+        ],
+        worktrees: [
+          { path: '/srv/alpha', branch: 'main', isMain: true },
+          { path: '/srv/.sprintengine-worktrees/alpha/search', branch: 'feat/search', isMain: false },
+        ],
+      },
+    })
+    const ALL_WORKTREE_CAPABILITIES = [
+      'conversations',
+      'new-chat-worktree',
+      'new-chat-worktree-name',
+      'new-chat-in-worktree',
+    ]
+    const sendWithEnter = async (view: Harness, text: string) => {
+      const field = composerField(view.container)
+      await act(async () => {
+        typeIntoComposer(field, text)
+      })
+      await act(async () => {
+        field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      })
+      await settle()
+    }
+
+    await check(
+      'a paired machine that cuts worktrees offers the Worktree chip, and a named one rides the launch',
+      async () => {
+        const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+        seedStore()
+        resetRememberedMachineForTests()
+        resetNewChatDraftsForTests()
+        writeNewChatDraft('win-remote-wt', { prompt: '' })
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = worktreeMachineBrowse(ALL_WORKTREE_CAPABILITIES)
+        meshCheckoutAnswer = checkoutWithWorktrees
+        const remoteLaunches: Array<Record<string, unknown>> = []
+        const view = await remoteRender({
+          draftKey: 'win-remote-wt',
+          onLaunchRemote: async (launch: Record<string, unknown>) => {
+            remoteLaunches.push(launch)
+          },
+        })
+        await settle()
+        await pickMachine(view, 'Air')
+        await settle()
+        const chip = view.container.querySelector('[data-worktree-chip]')
+        assert.equal(chip?.getAttribute('data-worktree-chip'), 'on', 'the door starts the remote chat in a worktree')
+        const nameField = chip?.querySelector<HTMLInputElement>('input')
+        assert.ok(nameField, 'and the machine takes a name for it')
+        await act(async () => {
+          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!
+          setter.call(nameField, 'login-fix')
+          nameField!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+        const trigger = view.container.querySelector('[data-remote-worktree-trigger="true"]')
+        assert.match(trigger?.textContent ?? '', /from\s*main/, 'cut from the checkout’s branch')
+        await sendWithEnter(view, 'fix the build')
+        assert.equal(remoteLaunches.length, 1, 'the chat travels')
+        assert.deepEqual(remoteLaunches[0]?.worktree, { kind: 'new', name: 'login-fix' })
+        view.unmount()
+        resetNewChatDraftsForTests()
+      },
+    )
+
+    await check(
+      'picking a worktree the remote project already has turns the chip off, and the chat starts in it',
+      async () => {
+        const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+        seedStore()
+        resetRememberedMachineForTests()
+        resetNewChatDraftsForTests()
+        writeNewChatDraft('win-remote-pick', { prompt: '' })
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = worktreeMachineBrowse(ALL_WORKTREE_CAPABILITIES)
+        meshCheckoutAnswer = checkoutWithWorktrees
+        const remoteLaunches: Array<Record<string, unknown>> = []
+        const view = await remoteRender({
+          draftKey: 'win-remote-pick',
+          onLaunchRemote: async (launch: Record<string, unknown>) => {
+            remoteLaunches.push(launch)
+          },
+        })
+        await settle()
+        await pickMachine(view, 'Air')
+        await settle()
+        await click(view.container.querySelector('[data-remote-worktree-trigger="true"]'))
+        const menu = dom.window.document.querySelector('[role="menu"][aria-label="Worktree on Air"]')
+        assert.ok(menu, 'the worktree picker opens')
+        const rows = [...menu!.querySelectorAll('[data-remote-worktree-option]')]
+        assert.deepEqual(
+          rows.map((row) => row.getAttribute('data-remote-worktree-option')),
+          ['checkout', '/srv/.sprintengine-worktrees/alpha/search'],
+          'the checkout, then each worktree the project has there',
+        )
+        await click(rows[1])
+        await settle()
+        assert.equal(
+          view.container.querySelector('[data-worktree-chip]')?.getAttribute('data-worktree-chip'),
+          'off',
+          'a chat runs in one place, so the chip turns off',
+        )
+        assert.match(
+          view.container.querySelector('[data-remote-worktree-trigger="true"]')?.textContent ?? '',
+          /feat\/search/,
+        )
+        await sendWithEnter(view, 'carry on with search')
+        assert.equal(remoteLaunches.length, 1)
+        assert.deepEqual(remoteLaunches[0]?.worktree, {
+          kind: 'existing',
+          path: '/srv/.sprintengine-worktrees/alpha/search',
+        })
+        assert.equal(remoteLaunches[0]?.branch, 'feat/search', 'on the branch that worktree is on')
+
+        // Turning the chip back on puts the picked worktree back.
+        await click(view.container.querySelector('[data-worktree-chip] button'))
+        assert.match(
+          view.container.querySelector('[data-remote-worktree-trigger="true"]')?.textContent ?? '',
+          /from\s*main/,
+        )
+        view.unmount()
+        resetNewChatDraftsForTests()
+      },
+    )
+
+    await check(
+      'a paired machine that cuts worktrees but takes no name offers the chip without a name field, and sends none',
+      async () => {
+        const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+        seedStore()
+        resetRememberedMachineForTests()
+        resetNewChatDraftsForTests()
+        writeNewChatDraft('win-remote-unnamed', { prompt: '', worktreeName: 'typed-earlier' })
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = worktreeMachineBrowse(['conversations', 'new-chat-worktree'])
+        meshCheckoutAnswer = checkoutWithWorktrees
+        const remoteLaunches: Array<Record<string, unknown>> = []
+        const view = await remoteRender({
+          draftKey: 'win-remote-unnamed',
+          onLaunchRemote: async (launch: Record<string, unknown>) => {
+            remoteLaunches.push(launch)
+          },
+        })
+        await settle()
+        await pickMachine(view, 'Air')
+        await settle()
+        const chip = view.container.querySelector('[data-worktree-chip]')
+        assert.equal(chip?.getAttribute('data-worktree-chip'), 'on')
+        assert.equal(chip?.querySelector('input'), null, 'no name field')
+        assert.equal(
+          view.container.querySelector('[data-remote-worktree-trigger="true"]'),
+          null,
+          'and no picker of existing worktrees, which that machine cannot start a chat in',
+        )
+        await sendWithEnter(view, 'fix the build')
+        assert.deepEqual(remoteLaunches[0]?.worktree, { kind: 'new', name: '' })
+        view.unmount()
+        resetNewChatDraftsForTests()
+      },
+    )
+
     await check(
       'a remote chat carries no checkout control: no worktree chip, and the branch the panel read rides the launch',
       async () => {
@@ -2227,7 +2440,7 @@ test('NewAgentPanel', async () => {
         assert.equal(
           view.container.querySelector('[data-worktree-chip]'),
           null,
-          'a chat on another machine has no checkout here to fork, so no worktree chip',
+          'a machine that has not said it cuts worktrees for a chat from here offers no worktree chip',
         )
 
         const textarea = composerField(view.container)
@@ -2243,6 +2456,7 @@ test('NewAgentPanel', async () => {
         assert.equal(remoteLaunches.length, 1, 'the chat travels')
         assert.equal(remoteLaunches[0]?.branch, 'main', 'with the branch the panel read, for the row')
         assert.equal('checkout' in (remoteLaunches[0] ?? {}), false, 'and no checkout request')
+        assert.equal('worktree' in (remoteLaunches[0] ?? {}), false, 'and no worktree')
         view.unmount()
       },
     )
@@ -3594,22 +3808,16 @@ test('NewAgentPanel', async () => {
       }
     })
 
-    await check('a terminal agent: a / mid-draft inserts the CLI’s mention in place of just its token', async () => {
+    await check('a terminal agent: / opens no picker here, its CLI has its own once it starts', async () => {
       seedStore()
       const view = await render({ initialSelection: { kind: 'general' } })
       const field = composerField(view.container)
-      const { EditorView } = await import('@codemirror/view')
       await act(async () => {
-        typeIntoComposer(field, 'first line\nthen /back the rest')
-        EditorView.findFromDOM(field.closest<HTMLElement>('.cm-editor')!)!.dispatch({ selection: { anchor: 21 } })
+        typeIntoComposer(field, 'first line\n/back')
       })
       await settlePicker()
-      assert.ok(skillRow('backlog'), 'the caret in the token opens the picker')
-      await act(async () => {
-        skillRow('backlog')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      await settlePicker()
-      assert.equal(composerText(field), 'first line\nthen /backlog the rest', 'the rest of the draft is left as it was')
+      assert.equal(skillRow('backlog'), undefined, 'no skill picker opens for a terminal launch')
+      assert.equal(composerText(field), 'first line\n/back', 'the draft is left as typed')
       view.unmount()
     })
 
