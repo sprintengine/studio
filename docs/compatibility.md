@@ -118,7 +118,14 @@ capability starts the chat in the checkout and says nothing. The answer to a
 worktree's project installs its dependencies first, the chat and its session
 already exist, and the first message goes once the install ends. It is an
 optional member with no capability: a client that does not read it sees the
-chat start a little later, and an older desktop never sends it. These names carry
+chat start a little later, and an older desktop never sends it. A paired
+desktop's New chat added two more (2026-10-09): `new-chat-worktree-name`
+(`conversation.create` takes `worktreeName`, the name a `worktree` is cut
+under) and `new-chat-in-worktree` (it takes `inWorktree`, a worktree the
+project already has, by the path `workspace.checkout` lists). Its answer then
+names the `worktree` the chat runs in, an optional member like
+`dependencyInstall`. The desktop asking refuses a worktree a machine does not
+advertise rather than sending it, for the reason above. These names carry
 no `conversation-` prefix, which is kept for the conversation lane's own
 vocabulary: every `conversation-` capability this machine advertises must be
 one `@sprintengine/conversation-protocol` names

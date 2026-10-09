@@ -52,6 +52,7 @@ function harness(
     worktree?: Awaited<ReturnType<NonNullable<ConversationLaunchServiceDeps['createWorktree']>>>
     reasoningEfforts?: string[] | null
     withoutGit?: boolean
+    worktrees?: Array<{ path: string; branch: string | null }> | null
   } = {},
 ) {
   let ids = 0
@@ -76,6 +77,7 @@ function harness(
   const sync = createWorkspaceSyncService({ registry, now: () => 1000 })
   const repoRootAsks: Array<{ folderPath: string; hostId: string | null }> = []
   const worktreeAsks: WorktreeAsk[] = []
+  const listAsks: Array<{ repoRoot: string; hostId: string | null }> = []
   const starts: ConversationStartSessionInput[] = []
   const sends: SendInput[] = []
   const uses: string[] = []
@@ -130,11 +132,20 @@ function harness(
               }
             )
           },
+          listWorktrees: async (repoRoot: string, hostId: string | null) => {
+            listAsks.push({ repoRoot, hostId })
+            return options.worktrees === undefined
+              ? [
+                  { path: '/Users/dev/app', branch: 'main' },
+                  { path: '/Users/dev/.sprintengine-worktrees/app/login-fix', branch: 'agent/login-fix' },
+                ]
+              : options.worktrees
+          },
         }),
     newWorktreeSuffix: () => 'K7QZ',
     newCommandId: () => 'cmd-1',
   })
-  return { service, registry, repoRootAsks, worktreeAsks, starts, sends, uses }
+  return { service, registry, repoRootAsks, worktreeAsks, listAsks, starts, sends, uses }
 }
 
 test('a new chat with a worktree is born in one cut from the project, on an agent branch under its container', async () => {
@@ -393,4 +404,129 @@ test('a chat whose install the quit stopped sends nothing on the way out', async
   assert.ok(result.ok)
   await settleAll()
   assert.deepEqual(h.sends, [])
+})
+
+// A paired desktop's New chat picks its worktree as this machine's door does:
+// a name for the one cut for it, or a worktree the project already has.
+
+test('a new worktree takes the name it was asked for, under the same container and an agent branch', async () => {
+  const h = harness()
+  const result = await h.service.launch({
+    workspaceId: 'ws-app',
+    newChat: true,
+    newWorktree: true,
+    newWorktreeName: 'Login Fix',
+    cli: 'codex',
+  })
+  assert.ok(result.ok)
+  assert.equal(h.worktreeAsks[0]?.destinationPath, '/Users/dev/.sprintengine-worktrees/app/login-fix')
+  assert.equal(h.worktreeAsks[0]?.branchName, 'agent/login-fix')
+  assert.deepEqual(result.worktree, {
+    path: '/Users/dev/.sprintengine-worktrees/app/login-fix',
+    branch: 'agent/login-fix',
+  })
+})
+
+test('a blank worktree name is a made-up one', async () => {
+  const h = harness()
+  const result = await h.service.launch({
+    workspaceId: 'ws-app',
+    newChat: true,
+    newWorktree: true,
+    newWorktreeName: '  ',
+    cli: 'codex',
+  })
+  assert.ok(result.ok)
+  assert.equal(h.worktreeAsks[0]?.branchName, 'agent/chat-k7qz')
+})
+
+test('a new chat in an existing worktree is born in it, marked with its project, and cuts nothing', async () => {
+  const h = harness()
+  const result = await h.service.launch({
+    workspaceId: 'ws-app',
+    newChat: true,
+    existingWorktreePath: '/Users/dev/.sprintengine-worktrees/app/login-fix/',
+    cli: 'claude-code',
+  })
+  assert.ok(result.ok, result.ok ? '' : result.message)
+  assert.equal(h.worktreeAsks.length, 0)
+  assert.deepEqual(h.listAsks, [{ repoRoot: '/Users/dev/app', hostId: 'wsl:Ubuntu' }])
+  const created = h.registry.getRecord(result.workspaceId)!
+  assert.equal(created.folderPath, '/Users/dev/.sprintengine-worktrees/app/login-fix')
+  assert.deepEqual(created.worktree, { branch: 'agent/login-fix', repoRoot: '/Users/dev/app' })
+  assert.equal(h.starts[0]?.workspaceRoot, '/Users/dev/.sprintengine-worktrees/app/login-fix')
+  assert.deepEqual(result.worktree, {
+    path: '/Users/dev/.sprintengine-worktrees/app/login-fix',
+    branch: 'agent/login-fix',
+  })
+})
+
+test('the main worktree is the project folder, and the chat starts there with no worktree', async () => {
+  const h = harness()
+  const result = await h.service.launch({
+    workspaceId: 'ws-app',
+    newChat: true,
+    existingWorktreePath: '/Users/dev/app',
+    cli: 'codex',
+  })
+  assert.ok(result.ok)
+  const created = h.registry.getRecord(result.workspaceId)!
+  assert.equal(created.folderPath, '/Users/dev/app')
+  assert.equal(created.worktree ?? null, null)
+  assert.equal(result.worktree, undefined)
+})
+
+test('a path the repository does not list as a worktree is refused, and nothing is created', async () => {
+  const h = harness()
+  const before = h.registry.getRecords().length
+  const result = await h.service.launch({
+    workspaceId: 'ws-app',
+    newChat: true,
+    existingWorktreePath: '/Users/dev/elsewhere',
+    cli: 'codex',
+  })
+  assert.equal(result.ok, false)
+  if (result.ok) return
+  assert.equal(result.code, 'worktree_unavailable')
+  assert.match(result.message, /not a worktree of/)
+  assert.equal(h.starts.length, 0)
+  assert.equal(h.registry.getRecords().length, before)
+})
+
+test('an existing worktree is refused where the worktrees cannot be read, or the folder is no repository', async () => {
+  for (const options of [{ worktrees: null }, { repoRoot: null }, { withoutGit: true }]) {
+    const h = harness(options)
+    const result = await h.service.launch({
+      workspaceId: 'ws-app',
+      newChat: true,
+      existingWorktreePath: '/Users/dev/.sprintengine-worktrees/app/login-fix',
+      cli: 'codex',
+    })
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.code, 'worktree_unavailable')
+    assert.equal(h.starts.length, 0)
+  }
+})
+
+test('an existing worktree is only for a new chat, and never beside a new one', async () => {
+  const h = harness()
+  const joining = await h.service.launch({
+    workspaceId: 'ws-app',
+    existingWorktreePath: '/Users/dev/.sprintengine-worktrees/app/login-fix',
+    cli: 'codex',
+  })
+  assert.equal(joining.ok, false)
+  if (!joining.ok) assert.equal(joining.code, 'invalid_arguments')
+  const both = await h.service.launch({
+    workspaceId: 'ws-app',
+    newChat: true,
+    newWorktree: true,
+    existingWorktreePath: '/Users/dev/.sprintengine-worktrees/app/login-fix',
+    cli: 'codex',
+  })
+  assert.equal(both.ok, false)
+  if (!both.ok) assert.equal(both.code, 'invalid_arguments')
+  assert.equal(h.worktreeAsks.length, 0)
+  assert.equal(h.starts.length, 0)
 })

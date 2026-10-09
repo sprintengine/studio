@@ -25,12 +25,12 @@ const LAUNCHED: ConversationLaunchResult = {
   sessionId: 'conv_1',
 }
 
-function create() {
+function create(launched: ConversationLaunchResult = LAUNCHED) {
   const requests: ConversationLaunchRequest[] = []
   const [registration] = createConversationTools({
     launch: async (request) => {
       requests.push(request)
-      return LAUNCHED
+      return launched
     },
     resolveAgentPermissionPreset: () => 'bypass',
     lifecycle: noLifecycle,
@@ -162,4 +162,58 @@ test('a chat with nothing installing answers as it always did', async () => {
   const { registration } = create()
   const result = await registration.handler({ workspaceId: 'ws-1', newChat: true, worktree: true, prompt: 'hi' })
   assert.equal('dependencyInstall' in (result.structuredContent as object), false)
+})
+
+// A paired desktop's New chat: the name a new worktree is cut under, and a
+// worktree the project already has, by the path workspace.checkout listed.
+
+test('worktreeName with worktree reaches the launch as the new worktree’s name', async () => {
+  const { registration, requests } = create()
+  const result = await registration.handler({
+    workspaceId: 'ws-1',
+    newChat: true,
+    worktree: true,
+    worktreeName: ' login-fix ',
+  })
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(requests, [{ workspaceId: 'ws-1', newChat: true, newWorktree: true, newWorktreeName: 'login-fix' }])
+})
+
+test('inWorktree with newChat reaches the launch as the existing worktree to start in', async () => {
+  const { registration, requests } = create()
+  const result = await registration.handler({
+    workspaceId: 'ws-1',
+    newChat: true,
+    inWorktree: '/Users/dev/.sprintengine-worktrees/app/login-fix',
+  })
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(requests, [
+    { workspaceId: 'ws-1', newChat: true, existingWorktreePath: '/Users/dev/.sprintengine-worktrees/app/login-fix' },
+  ])
+})
+
+test('a worktree name without a worktree, an existing one without newChat, or both kinds at once are refused', async () => {
+  const { registration, requests } = create()
+  for (const args of [
+    { workspaceId: 'ws-1', newChat: true, worktreeName: 'login-fix' },
+    { workspaceId: 'ws-1', inWorktree: '/Users/dev/wt' },
+    { workspaceId: 'ws-1', newChat: true, worktree: true, inWorktree: '/Users/dev/wt' },
+    { workspaceId: 'ws-1', newChat: true, worktree: true, worktreeName: 7 },
+    { workspaceId: 'ws-1', newChat: true, inWorktree: true },
+  ]) {
+    const result = await registration.handler(args)
+    assert.equal(errorCode(result), 'invalid_arguments', JSON.stringify(args))
+  }
+  assert.equal(requests.length, 0)
+})
+
+test('the answer names the worktree the chat runs in, and only when it runs in one', async () => {
+  const inWorktree = create({ ...LAUNCHED, worktree: { path: '/Users/dev/wt', branch: 'agent/login-fix' } })
+  const answered = await inWorktree.registration.handler({ workspaceId: 'ws-1', newChat: true, worktree: true })
+  assert.deepEqual((answered.structuredContent as { worktree?: unknown }).worktree, {
+    path: '/Users/dev/wt',
+    branch: 'agent/login-fix',
+  })
+  const plain = await create().registration.handler({ workspaceId: 'ws-1', newChat: true })
+  assert.equal('worktree' in (plain.structuredContent as object), false)
 })

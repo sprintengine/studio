@@ -112,6 +112,23 @@ export type ConversationLaunchRequest = {
    * checkout it was asked to keep clean.
    */
   newWorktree?: boolean
+  /**
+   * The name `newWorktree` cuts the worktree under, as typed into a window's
+   * Worktree field; a made-up `chat-<id>` when absent or blank. Read only
+   * beside `newWorktree`.
+   */
+  newWorktreeName?: string
+  /**
+   * Start the new chat in a worktree the project's repository already has,
+   * by its path as `workspace.checkout` lists it, rather than in the
+   * workspace folder or a worktree cut for it. A path the repository does not
+   * list as one of its worktrees refuses the launch (`worktree_unavailable`):
+   * the caller may be a paired device, and a path is not a way to start a
+   * chat in any folder of this disk. The repository's main worktree is its
+   * own checkout, and starts the chat there as if no path were named. Read
+   * only beside `newChat`, and never with `newWorktree`.
+   */
+  existingWorktreePath?: string
   /** The agent CLI the chat drives; the last-selected CLI when absent. */
   cli?: string
   /** The CLI's model id; the CLI's own default when absent. */
@@ -207,6 +224,12 @@ export type ConversationLaunchResult =
        * ends, however it ends. Absent when nothing was installing.
        */
       dependencyInstall?: WorktreeDependencyInstallView
+      /**
+       * The worktree a new chat was started in, cut for it or picked: its
+       * folder and branch, for a caller that shows where the chat runs.
+       * Absent for a chat in the workspace's own folder.
+       */
+      worktree?: { path: string; branch: string | null }
     }
   | { ok: false; code: string; message: string }
 
@@ -267,6 +290,15 @@ export type ConversationLaunchServiceDeps = {
     | { ok: false; message: string }
   >
   /**
+   * The worktrees a repository holds, main worktree first, as `git worktree
+   * list` names them on the machine that runs the chat. Absent, a launch
+   * into an existing worktree is refused as unavailable.
+   */
+  listWorktrees?: (
+    repoRoot: string,
+    hostId: ExecutionHostId | null,
+  ) => Promise<Array<{ path: string; branch: string | null }> | null>
+  /**
    * Count a new chat in the project at this folder, for the project pickers'
    * order (`shared/project-frecency.ts`). Told after a `newChat` launch has
    * started, which is a phone's or a paired machine's New chat: the same use a
@@ -302,6 +334,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
   async function cutNewChatWorktree(
     workspace: ConversationLaunchWorkspace,
     folderPath: string,
+    requestedName?: string,
   ): Promise<
     | { ok: true; folderPath: string; worktree: WorkspaceWorktree; dependencyInstall?: StartedDependencyInstall }
     | { ok: false; message: string }
@@ -325,7 +358,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         message: `${projectFolder} is not a git repository, so a worktree cannot be created. Start the chat without one.`,
       }
     }
-    const name = newChatWorktreeName(newWorktreeSuffix())
+    const name = requestedName?.trim() || newChatWorktreeName(newWorktreeSuffix())
     const paths = agentWorktreePaths(repoRoot, name)
     if (!paths) return { ok: false, message: `"${name}" does not reduce to a usable worktree name.` }
     const made = await deps
@@ -346,6 +379,49 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       folderPath: made.path,
       worktree: { branch: made.branch, baseRef: made.baseRef, repoRoot: projectFolder },
       ...(made.dependencyInstall ? { dependencyInstall: made.dependencyInstall } : {}),
+    }
+  }
+
+  // A worktree the project already has, named by a caller that read it off
+  // `workspace.checkout`: the chat is born in it, marked as a worktree of the
+  // project as the Worktree panel's Open marks one, so it files under that
+  // project. Only a path git lists for the repository is taken. The main
+  // worktree is the project's own checkout and answers null: no worktree.
+  async function findExistingWorktree(
+    workspace: ConversationLaunchWorkspace,
+    folderPath: string,
+    requestedPath: string,
+  ): Promise<
+    { ok: true; worktree: { folderPath: string; marker: WorkspaceWorktree } | null } | { ok: false; message: string }
+  > {
+    if (isMachinePath(folderPath)) {
+      return { ok: false, message: 'A chat on an SSH machine starts in its folder there; it cannot pick a worktree.' }
+    }
+    if (!deps.getRepoRoot || !deps.listWorktrees) {
+      return { ok: false, message: 'This Studio cannot start a chat in an existing worktree.' }
+    }
+    const projectFolder = workspaceProjectRootOf(workspace) ?? folderPath
+    const hostId = workspace.hostId ?? null
+    const repoRoot = await deps.getRepoRoot(projectFolder, hostId).catch(() => null)
+    if (!repoRoot) return { ok: false, message: `${projectFolder} is not a git repository, so it has no worktrees.` }
+    const worktrees = await deps.listWorktrees(repoRoot, hostId).catch(() => null)
+    if (!worktrees) return { ok: false, message: `The worktrees of ${projectFolder} could not be read.` }
+    const wanted = trimTrailingSeparators(requestedPath)
+    const index = worktrees.findIndex((entry) => trimTrailingSeparators(entry.path) === wanted)
+    if (index < 0) {
+      return {
+        ok: false,
+        message: `${requestedPath} is not a worktree of ${projectFolder}. Pick one of the worktrees it lists.`,
+      }
+    }
+    if (index === 0) return { ok: true, worktree: null }
+    const entry = worktrees[index]!
+    return {
+      ok: true,
+      worktree: {
+        folderPath: entry.path,
+        marker: { ...(entry.branch ? { branch: entry.branch } : {}), repoRoot: projectFolder },
+      },
     }
   }
 
@@ -424,6 +500,21 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         message: 'A worktree is cut only for a new chat: ask for "newChat" with it.',
       }
     }
+    const existingWorktreePath = request.existingWorktreePath?.trim() || undefined
+    if (existingWorktreePath && request.newChat !== true) {
+      return {
+        ok: false,
+        code: 'invalid_arguments',
+        message: 'A chat starts in an existing worktree only as a new chat: ask for "newChat" with it.',
+      }
+    }
+    if (existingWorktreePath && request.newWorktree === true) {
+      return {
+        ok: false,
+        code: 'invalid_arguments',
+        message: 'Ask for a new worktree or name an existing one, not both.',
+      }
+    }
     const modelId = request.cliModel?.trim() || CONVERSATION_DEFAULT_MODEL_ID
     const permission = resolveAgentSpawnPermission(settings, cli, request.permissionPreset)
     const permissionPreset = permission.preset
@@ -441,12 +532,24 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
     let chatFolder = workspaceRoot
     let chatWorktree = workspace.worktree ?? null
     let installing: StartedDependencyInstall | null = null
+    // The worktree the new chat runs in, for the answer: one cut for it here,
+    // or one the project already had.
+    let launchedWorktree: { path: string; branch: string | null } | null = null
     if (request.newWorktree === true) {
-      const cut = await cutNewChatWorktree(workspace, workspaceRoot)
+      const cut = await cutNewChatWorktree(workspace, workspaceRoot, request.newWorktreeName)
       if (!cut.ok) return { ok: false, code: 'worktree_unavailable', message: cut.message }
       chatFolder = cut.folderPath
       chatWorktree = cut.worktree
       installing = cut.dependencyInstall ?? null
+      launchedWorktree = { path: cut.folderPath, branch: cut.worktree.branch ?? null }
+    } else if (existingWorktreePath) {
+      const found = await findExistingWorktree(workspace, workspaceRoot, existingWorktreePath)
+      if (!found.ok) return { ok: false, code: 'worktree_unavailable', message: found.message }
+      if (found.worktree) {
+        chatFolder = found.worktree.folderPath
+        chatWorktree = found.worktree.marker
+        launchedWorktree = { path: found.worktree.folderPath, branch: found.worktree.marker.branch ?? null }
+      }
     }
     // The run worktree when there is one: the session starts there, so the
     // agent's edits, its transcript and the skills below all stay inside it.
@@ -650,10 +753,16 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       modelId,
       sessionId: started.session.sessionId,
       ...(installing ? { dependencyInstall: installing.current() } : {}),
+      ...(launchedWorktree ? { worktree: launchedWorktree } : {}),
     }
   }
 
   return { launch }
+}
+
+/** A path as two spellings of the same folder compare: without the separators that end it. */
+function trimTrailingSeparators(path: string): string {
+  return path.trim().replace(/(.)[\\/]+$/u, '$1')
 }
 
 // An installed server as a session takes it: what the CLI needs to start or

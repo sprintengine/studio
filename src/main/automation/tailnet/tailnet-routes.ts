@@ -181,6 +181,16 @@ export const TAILNET_CAPABILITIES = [
   // The list names each chat's `visitRewoundAt` beside `lastVisitedAt`, when
   // it was last marked unread, so a client closed at the time can tell.
   'chat-mark-unread',
+  // A paired desktop's New chat picks its worktree as this machine's own door
+  // does (2026-10-09): `conversation.create` takes `worktreeName` (the name a
+  // `worktree` is cut under, typed into the Worktree field) and `inWorktree`
+  // (a worktree the project already has, by the path `workspace.checkout`
+  // lists). Its answer names the worktree the chat runs in, an optional
+  // member a client that does not read it can ignore. A client that does not
+  // see one leaves the matching control off, for the reason `worktree` has
+  // one: an older handler skips both arguments and starts the chat elsewhere.
+  'new-chat-worktree-name',
+  'new-chat-in-worktree',
 ] as const
 
 export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]

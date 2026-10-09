@@ -238,6 +238,13 @@ export type TailnetMeshService = {
     permissionPreset?: unknown
     /** The CLI's effort level the chat keeps. Sent only to a machine that advertises `new-chat-effort`. */
     effort?: unknown
+    /**
+     * The worktree the chat starts in there (`MeshNewChatWorktree`). Refused
+     * here, before anything is asked, for a machine that does not advertise
+     * taking it: an older handler skips the argument and starts the chat in
+     * the project's own checkout, which is the one place it was asked not to.
+     */
+    worktree?: unknown
   }): Promise<MeshCreateConversationResult>
   /**
    * Settle a chat on a paired machine, or bring it back with `settled: false`
@@ -1487,6 +1494,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     cliModel?: unknown
     permissionPreset?: unknown
     effort?: unknown
+    worktree?: unknown
   }): Promise<MeshCreateConversationResult> {
     const connection = connectionFor(input.connectionId)
     if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
@@ -1495,6 +1503,8 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     }
     const presetRefusal = permissionModeRefusal(connection, input.permissionPreset)
     if (presetRefusal) return presetRefusal
+    const worktree = newChatWorktreeArgs(connection, input.worktree)
+    if ('refused' in worktree) return worktree.refused
     // Forwarded verbatim: the remote validates every field, and its refusal
     // reaches the caller word for word. The workspace names the project the
     // picker chose, not a chat to join, so the chat is asked for as a new one.
@@ -1514,6 +1524,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       tailnetPeerSupports(peerCapabilities.get(connection.id), 'new-chat-effort')
         ? { effort: input.effort }
         : {}),
+      ...worktree.args,
     }
     const create = (newChat: boolean) =>
       callRemoteTool({
@@ -1527,8 +1538,15 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     let answer = await create(true)
     // A machine that refuses the argument by name is asked the way it was
     // before there was one, and adds the chat to that workspace. One from
-    // before the argument that ignores it does the same without asking.
-    if (!answer.ok && answer.code === 'invalid_arguments' && /newChat/u.test(answer.message))
+    // before the argument that ignores it does the same without asking. Not
+    // with a worktree, which only a new chat is born in: a machine that knows
+    // no `newChat` advertises no worktree either, so it is not asked one.
+    if (
+      !answer.ok &&
+      answer.code === 'invalid_arguments' &&
+      /newChat/u.test(answer.message) &&
+      Object.keys(worktree.args).length === 0
+    )
       answer = await create(false)
     if (!answer.ok) {
       // A machine on a build from before `conversation.create` does not have
@@ -1552,6 +1570,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
         message: 'That machine started the chat but did not say which one it is, so it cannot be opened.',
       }
     }
+    const ranIn = asRecord(answer.value.worktree)
     return {
       ok: true,
       workspaceId,
@@ -1559,7 +1578,49 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       title: typeof conversation?.name === 'string' && conversation.name ? conversation.name : 'Chat',
       providerId: typeof conversation?.providerId === 'string' ? conversation.providerId : '',
       modelId: typeof conversation?.modelId === 'string' ? conversation.modelId : '',
+      worktree:
+        ranIn && typeof ranIn.path === 'string' && ranIn.path
+          ? { path: ranIn.path, branch: typeof ranIn.branch === 'string' && ranIn.branch ? ranIn.branch : null }
+          : null,
     }
+  }
+
+  // The `conversation.create` arguments a New chat's worktree is asked with,
+  // or the refusal for a machine that has not said it takes them. Each part
+  // has its own capability, as each arrived on its own: a worktree cut there
+  // (`new-chat-worktree`), the name it is cut under (`new-chat-worktree-name`),
+  // and a worktree the project already has (`new-chat-in-worktree`).
+  function newChatWorktreeArgs(
+    connection: StoredMeshConnection,
+    requested: unknown,
+  ): { args: Record<string, unknown> } | { refused: { ok: false; code: string; message: string } } {
+    const record = asRecord(requested)
+    if (!record) return { args: {} }
+    const capabilities = peerCapabilities.get(connection.id)
+    const refuse = (what: string) => ({
+      refused: {
+        ok: false as const,
+        code: 'worktree_unsupported',
+        message: `${connection.machineName} cannot ${what} for a chat started from here. Update SprintEngine Studio there, or start the chat in the project's folder.`,
+      },
+    })
+    if (record.kind === 'new') {
+      if (!tailnetPeerSupports(capabilities, 'new-chat-worktree')) return refuse('make a worktree')
+      const name = typeof record.name === 'string' ? record.name.trim() : ''
+      if (name && !tailnetPeerSupports(capabilities, 'new-chat-worktree-name')) return refuse('name a worktree')
+      return { args: { worktree: true, ...(name ? { worktreeName: name } : {}) } }
+    }
+    if (record.kind === 'existing') {
+      const path = typeof record.path === 'string' ? record.path.trim() : ''
+      if (!path) {
+        return {
+          refused: { ok: false, code: 'invalid_arguments', message: 'Name the worktree to start the chat in.' },
+        }
+      }
+      if (!tailnetPeerSupports(capabilities, 'new-chat-in-worktree')) return refuse('start a chat in a worktree')
+      return { args: { inWorktree: path } }
+    }
+    return { refused: { ok: false, code: 'invalid_arguments', message: 'That is not a worktree to start a chat in.' } }
   }
 
   // ── A remote chat's rest and visit clock ────────────────────────────────

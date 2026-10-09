@@ -18,6 +18,7 @@ import {
   type MeshBrowse,
   type MeshConnection,
   type MeshCreateConversationResult,
+  type MeshNewChatWorktree,
   type MeshSettleConversationResult,
   type MeshVisitConversationResult,
   type MeshWorkspaceCheckoutResult,
@@ -91,6 +92,8 @@ export const meshApi = {
     permissionPreset?: string
     /** The CLI's effort level; dropped for a machine that does not advertise `new-chat-effort`. */
     effort?: string
+    /** A worktree to start in; refused, never dropped, by a machine without the capability for it. */
+    worktree?: MeshNewChatWorktree
   }): Promise<MeshCreateConversationResult> =>
     ipcRenderer.invoke(MESH_CREATE_CONVERSATION_CHANNEL, input) as Promise<MeshCreateConversationResult>,
   meshSettleConversation: (input: {

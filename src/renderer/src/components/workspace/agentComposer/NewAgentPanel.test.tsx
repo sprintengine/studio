@@ -2170,6 +2170,189 @@ test('NewAgentPanel', async () => {
       },
     )
 
+    // A paired machine that cuts worktrees for a chat started from here: the
+    // strip offers the Worktree chip as it does for this device, and a picker
+    // of the worktrees the project already has there.
+    const worktreeMachineBrowse = (capabilities: string[]) => (id: string) => ({
+      connectionId: id,
+      reachable: true,
+      unreachableReason: null,
+      unauthorized: false,
+      scopes: ['workspace:read', 'conversation:operate'],
+      workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
+      gaps: [],
+      capabilities,
+    })
+    const checkoutWithWorktrees = (_c: string, workspaceId: string) => ({
+      ok: true,
+      checkout: {
+        workspaceId,
+        git: true,
+        branch: 'main',
+        defaultBranch: 'main',
+        branches: [
+          { name: 'main', current: true },
+          { name: 'feat/search', current: false },
+        ],
+        worktrees: [
+          { path: '/srv/alpha', branch: 'main', isMain: true },
+          { path: '/srv/.sprintengine-worktrees/alpha/search', branch: 'feat/search', isMain: false },
+        ],
+      },
+    })
+    const ALL_WORKTREE_CAPABILITIES = [
+      'conversations',
+      'new-chat-worktree',
+      'new-chat-worktree-name',
+      'new-chat-in-worktree',
+    ]
+    const sendWithEnter = async (view: Harness, text: string) => {
+      const field = composerField(view.container)
+      await act(async () => {
+        typeIntoComposer(field, text)
+      })
+      await act(async () => {
+        field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      })
+      await settle()
+    }
+
+    await check(
+      'a paired machine that cuts worktrees offers the Worktree chip, and a named one rides the launch',
+      async () => {
+        const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+        seedStore()
+        resetRememberedMachineForTests()
+        resetNewChatDraftsForTests()
+        writeNewChatDraft('win-remote-wt', { prompt: '' })
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = worktreeMachineBrowse(ALL_WORKTREE_CAPABILITIES)
+        meshCheckoutAnswer = checkoutWithWorktrees
+        const remoteLaunches: Array<Record<string, unknown>> = []
+        const view = await remoteRender({
+          draftKey: 'win-remote-wt',
+          onLaunchRemote: async (launch: Record<string, unknown>) => {
+            remoteLaunches.push(launch)
+          },
+        })
+        await settle()
+        await pickMachine(view, 'Air')
+        await settle()
+        const chip = view.container.querySelector('[data-worktree-chip]')
+        assert.equal(chip?.getAttribute('data-worktree-chip'), 'on', 'the door starts the remote chat in a worktree')
+        const nameField = chip?.querySelector<HTMLInputElement>('input')
+        assert.ok(nameField, 'and the machine takes a name for it')
+        await act(async () => {
+          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!
+          setter.call(nameField, 'login-fix')
+          nameField!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+        const trigger = view.container.querySelector('[data-remote-worktree-trigger="true"]')
+        assert.match(trigger?.textContent ?? '', /from\s*main/, 'cut from the checkout’s branch')
+        await sendWithEnter(view, 'fix the build')
+        assert.equal(remoteLaunches.length, 1, 'the chat travels')
+        assert.deepEqual(remoteLaunches[0]?.worktree, { kind: 'new', name: 'login-fix' })
+        view.unmount()
+        resetNewChatDraftsForTests()
+      },
+    )
+
+    await check(
+      'picking a worktree the remote project already has turns the chip off, and the chat starts in it',
+      async () => {
+        const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+        seedStore()
+        resetRememberedMachineForTests()
+        resetNewChatDraftsForTests()
+        writeNewChatDraft('win-remote-pick', { prompt: '' })
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = worktreeMachineBrowse(ALL_WORKTREE_CAPABILITIES)
+        meshCheckoutAnswer = checkoutWithWorktrees
+        const remoteLaunches: Array<Record<string, unknown>> = []
+        const view = await remoteRender({
+          draftKey: 'win-remote-pick',
+          onLaunchRemote: async (launch: Record<string, unknown>) => {
+            remoteLaunches.push(launch)
+          },
+        })
+        await settle()
+        await pickMachine(view, 'Air')
+        await settle()
+        await click(view.container.querySelector('[data-remote-worktree-trigger="true"]'))
+        const menu = dom.window.document.querySelector('[role="menu"][aria-label="Worktree on Air"]')
+        assert.ok(menu, 'the worktree picker opens')
+        const rows = [...menu!.querySelectorAll('[data-remote-worktree-option]')]
+        assert.deepEqual(
+          rows.map((row) => row.getAttribute('data-remote-worktree-option')),
+          ['checkout', '/srv/.sprintengine-worktrees/alpha/search'],
+          'the checkout, then each worktree the project has there',
+        )
+        await click(rows[1])
+        await settle()
+        assert.equal(
+          view.container.querySelector('[data-worktree-chip]')?.getAttribute('data-worktree-chip'),
+          'off',
+          'a chat runs in one place, so the chip turns off',
+        )
+        assert.match(
+          view.container.querySelector('[data-remote-worktree-trigger="true"]')?.textContent ?? '',
+          /feat\/search/,
+        )
+        await sendWithEnter(view, 'carry on with search')
+        assert.equal(remoteLaunches.length, 1)
+        assert.deepEqual(remoteLaunches[0]?.worktree, {
+          kind: 'existing',
+          path: '/srv/.sprintengine-worktrees/alpha/search',
+        })
+        assert.equal(remoteLaunches[0]?.branch, 'feat/search', 'on the branch that worktree is on')
+
+        // Turning the chip back on puts the picked worktree back.
+        await click(view.container.querySelector('[data-worktree-chip] button'))
+        assert.match(
+          view.container.querySelector('[data-remote-worktree-trigger="true"]')?.textContent ?? '',
+          /from\s*main/,
+        )
+        view.unmount()
+        resetNewChatDraftsForTests()
+      },
+    )
+
+    await check(
+      'a paired machine that cuts worktrees but takes no name offers the chip without a name field, and sends none',
+      async () => {
+        const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+        seedStore()
+        resetRememberedMachineForTests()
+        resetNewChatDraftsForTests()
+        writeNewChatDraft('win-remote-unnamed', { prompt: '', worktreeName: 'typed-earlier' })
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = worktreeMachineBrowse(['conversations', 'new-chat-worktree'])
+        meshCheckoutAnswer = checkoutWithWorktrees
+        const remoteLaunches: Array<Record<string, unknown>> = []
+        const view = await remoteRender({
+          draftKey: 'win-remote-unnamed',
+          onLaunchRemote: async (launch: Record<string, unknown>) => {
+            remoteLaunches.push(launch)
+          },
+        })
+        await settle()
+        await pickMachine(view, 'Air')
+        await settle()
+        const chip = view.container.querySelector('[data-worktree-chip]')
+        assert.equal(chip?.getAttribute('data-worktree-chip'), 'on')
+        assert.equal(chip?.querySelector('input'), null, 'no name field')
+        assert.equal(
+          view.container.querySelector('[data-remote-worktree-trigger="true"]'),
+          null,
+          'and no picker of existing worktrees, which that machine cannot start a chat in',
+        )
+        await sendWithEnter(view, 'fix the build')
+        assert.deepEqual(remoteLaunches[0]?.worktree, { kind: 'new', name: '' })
+        view.unmount()
+        resetNewChatDraftsForTests()
+      },
+    )
+
     await check(
       'a remote chat carries no checkout control: no worktree chip, and the branch the panel read rides the launch',
       async () => {
@@ -2220,7 +2403,7 @@ test('NewAgentPanel', async () => {
         assert.equal(
           view.container.querySelector('[data-worktree-chip]'),
           null,
-          'a chat on another machine has no checkout here to fork, so no worktree chip',
+          'a machine that has not said it cuts worktrees for a chat from here offers no worktree chip',
         )
 
         const textarea = composerField(view.container)
@@ -2236,6 +2419,7 @@ test('NewAgentPanel', async () => {
         assert.equal(remoteLaunches.length, 1, 'the chat travels')
         assert.equal(remoteLaunches[0]?.branch, 'main', 'with the branch the panel read, for the row')
         assert.equal('checkout' in (remoteLaunches[0] ?? {}), false, 'and no checkout request')
+        assert.equal('worktree' in (remoteLaunches[0] ?? {}), false, 'and no worktree')
         view.unmount()
       },
     )

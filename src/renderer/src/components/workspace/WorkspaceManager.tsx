@@ -3809,6 +3809,9 @@ export default function WorkspaceManager() {
           permissionPreset: launch.permissionPreset,
           // Present only for a machine that keeps one (`new-chat-effort`).
           effort: launch.effort,
+          // A worktree cut for it there, or one the project has; refused in
+          // words by a machine that does not take it, never dropped.
+          ...(launch.worktree ? { worktree: launch.worktree } : {}),
         })
         .catch((error: unknown): { ok: false; code: string; message: string } => ({
           ok: false,
@@ -3824,6 +3827,18 @@ export default function WorkspaceManager() {
         return
       }
       const remoteSessionId = meshConversationSessionId(created.workspaceId, created.agentId)
+      // Where the chat runs there, as that machine answered: a worktree it cut
+      // or the one picked, and its branch. A machine that cuts worktrees but
+      // does not say where (a build from before the answer named it) leaves
+      // a new one's branch unnamed rather than the checkout's, which it is not.
+      const ranIn =
+        created.worktree ??
+        (launch.worktree?.kind === 'existing'
+          ? { path: launch.worktree.path, branch: launch.branch }
+          : launch.worktree?.kind === 'new'
+            ? { path: null, branch: null }
+            : null)
+      const branch = ranIn ? ranIn.branch : launch.branch
       if (!SOLO_CHAT_TEMPLATE) {
         showToast({
           tone: 'error',
@@ -3845,7 +3860,9 @@ export default function WorkspaceManager() {
           // The id the Remote band lists this chat by, so its row is this one.
           sessionId: remoteSessionId,
           repository: launch.remoteRepository,
-          checkout: { mode: 'current', branch: launch.branch, worktreePath: null },
+          checkout: ranIn
+            ? { mode: 'worktree', branch: ranIn.branch, worktreePath: ranIn.path }
+            : { mode: 'current', branch: launch.branch, worktreePath: null },
         },
         windowId: workspaceWindowId,
         seedAgent: {
@@ -3863,7 +3880,7 @@ export default function WorkspaceManager() {
       showToast({
         tone: 'good',
         title: `Chat started on ${launch.machineName}`,
-        description: `${created.title} in ${launch.remoteWorkspaceName}${launch.branch ? ` · ${launch.branch}` : ''}`,
+        description: `${created.title} in ${launch.remoteWorkspaceName}${branch ? ` · ${branch}` : ''}`,
       })
     },
     [addWorkspace, closeNewChatPanel, workspaceWindowId],

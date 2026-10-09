@@ -145,6 +145,7 @@ import type {
   MeshBrowse,
   MeshConnection,
   MeshCreateConversationResult,
+  MeshNewChatWorktree,
   MeshSettleConversationResult,
   MeshVisitConversationResult,
   MeshWorkspaceCheckoutResult,
@@ -938,6 +939,8 @@ export type ElectronApi = {
     permissionPreset?: string
     /** The CLI's effort level; dropped for a machine that does not advertise `new-chat-effort`. */
     effort?: string
+    /** A worktree to start in; refused, never dropped, by a machine without the capability for it. */
+    worktree?: MeshNewChatWorktree
   }) => Promise<MeshCreateConversationResult>
   /**
    * Settle a chat on a paired machine, or bring it back with `settled: false`
