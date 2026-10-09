@@ -766,3 +766,39 @@ test('a refold keeps unchanged entries without serialising them, and hands tool 
   assert.equal(state.projection.entries[0], user)
   assert.equal(state.projection.agentTypes, agentTypes)
 })
+
+test("a step's returned pictures are projected the same by the fold and the incremental projection", () => {
+  const events = [
+    event('user_message', 1, { turnId: 'a', text: 'Screenshot the page' }),
+    event('turn_started', 2, { turnId: 'a' }),
+    event('tool_started', 3, { turnId: 'a', toolUseId: 'shot', name: 'browser_screenshot', input: {} }),
+    event('tool_output', 4, {
+      turnId: 'a',
+      toolUseId: 'shot',
+      output: 'Captured 1280×800.',
+      status: 'ok',
+      // A path that is not text is not a picture; at most eight are kept.
+      images: ['/Users/dev/Library/Studio/conversation-images/s/shot-1.png', 7, ...Array(9).fill('/x.png')],
+    }),
+    event('turn_completed', 5, { turnId: 'a' }),
+  ]
+  let state = createConversationProjectionState()
+  const prefix: ConversationEvent[] = []
+  for (const item of events) {
+    state = applyEvent(state, item)
+    prefix.push(item)
+    assert.deepEqual(state.projection, projectConversation(prefix), item.type)
+  }
+  const tool = state.projection.entries.find((entry) => entry.kind === 'tool')
+  assert.equal(tool?.kind === 'tool' && tool.images?.length, 8)
+  assert.equal(tool?.kind === 'tool' && tool.images?.[0], '/Users/dev/Library/Studio/conversation-images/s/shot-1.png')
+})
+
+test('a step that returned no pictures carries no images member at all', () => {
+  const events = [
+    event('tool_started', 1, { turnId: 'a', toolUseId: 'ls', name: 'Bash', input: { command: 'ls' } }),
+    event('tool_output', 2, { turnId: 'a', toolUseId: 'ls', output: 'a.ts', status: 'ok', images: [] }),
+  ]
+  const tool = projectConversation(events).entries.find((entry) => entry.kind === 'tool')
+  assert.equal(tool && 'images' in tool, false)
+})

@@ -296,15 +296,46 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
           <div className="mb-1.5 text-[color:var(--text-strong)]">{conversationText(query)}</div>
         ) : null}
         <div className="text-[color:var(--text-muted)]">{output ? <LinkedOutput output={output} /> : 'No results'}</div>
+        <ToolImages images={tool.images} toolUseId={tool.id} />
       </ToolPanel>
     )
   }
-  const request = pretty(detail?.input ?? tool.input)
+  // A step called with nothing (a screenshot) prints no `{}` over its
+  // pictures, and one whose only answer is pictures draws them alone.
+  const pictures = Boolean(tool.images?.length)
+  const called = pretty(detail?.input ?? tool.input)
+  const request = pictures && called.trim() === '{}' ? '' : called
+  if (pictures && !request && !output.trim()) return <ToolImages images={tool.images} toolUseId={tool.id} />
   return (
     <ToolPanel copyText={output || request || undefined}>
       {request ? <div className="text-[color:var(--text-subtle)]">{request}</div> : null}
       {output ? <div className={`text-[color:var(--text-default)] ${request ? 'mt-2' : ''}`}>{output}</div> : null}
+      <ToolImages images={tool.images} toolUseId={tool.id} />
     </ToolPanel>
+  )
+}
+
+// The pictures a step returned (a browser screenshot), kept on this desktop
+// when the step ran (`images` on its output): shown, since a screenshot's
+// size says nothing about what was on it. A chat followed from another
+// device names files over there, which nothing serves by name, so it says
+// how many there are instead.
+function ToolImages({ images, toolUseId }: { images: readonly string[] | undefined; toolUseId: string }) {
+  const transport = useConversationTransport()
+  if (!images?.length) return null
+  if (!transport.capabilities.localFiles)
+    return (
+      <p className="mt-2 text-[color:var(--text-muted)]">
+        {images.length === 1 ? 'This step returned a picture' : `This step returned ${images.length} pictures`}, on the
+        machine that ran it.
+      </p>
+    )
+  return (
+    <div data-tool-images="" className="mt-2 flex flex-col items-start gap-2">
+      {images.map((path) => (
+        <ImagePreview key={path} path={path} toolUseId={toolUseId} />
+      ))}
+    </div>
   )
 }
 
@@ -610,6 +641,8 @@ export function toolHasBody(tool: TranscriptToolEntry, kind: ToolPresentation['i
   if (tool.outputStatus === 'declined' || tool.outputStatus === 'stopped') return true
   if (kind === 'file_read' || kind === 'file_edit' || kind === 'file_write') return true
   if (tool.name === 'GenerateImage') return true
+  // A step whose answer was only pictures (a screenshot) shows them.
+  if (tool.images?.length) return true
   // A command with no input still prints the provider's one-line summary.
   if (kind === 'command' && tool.summary?.trim()) return true
   return !isEmptyValue(tool.input) || !isEmptyValue(tool.output)

@@ -2,7 +2,10 @@ import { join } from 'node:path'
 
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 
-import { CONVERSATION_ATTACHMENTS_DIRECTORY } from '../../main/conversation-attachment-store'
+import {
+  CONVERSATION_ATTACHMENTS_DIRECTORY,
+  CONVERSATION_TOOL_IMAGES_DIRECTORY,
+} from '../../main/conversation-attachment-store'
 import { CONVERSATION_PLANS_DIRECTORY } from '../../main/conversation-plan-store'
 import type { createConversationTerminalHandoff } from '../../main/conversation-terminal-handoff'
 import type { createFilesystemReadHandlers } from '../../main/filesystem-read'
@@ -132,6 +135,8 @@ export function registerServerDomainIpc(registry: IpcRegistryLike, deps: ServerD
         ...core.workspaceRegistry.getRecords().flatMap((record) => (record.folderPath ? [record.folderPath] : [])),
         join(dataDir(), CONVERSATION_ATTACHMENTS_DIRECTORY),
         join(dataDir(), CONVERSATION_PLANS_DIRECTORY),
+        // The pictures a chat's steps returned (a screenshot) and Codex generated.
+        join(dataDir(), CONVERSATION_TOOL_IMAGES_DIRECTORY),
       ],
       commands: (input) => conversationCommands.list(input),
       workspaces: () =>

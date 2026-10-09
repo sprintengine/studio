@@ -10,6 +10,7 @@ import {
   openReasoningRun,
   projectConversation,
   readBoolean,
+  readImagePaths,
   readNumber,
   readString,
   reopenAgentLane,
@@ -332,6 +333,7 @@ function updateTool(
 
 function withOutput(tool: TranscriptToolEntry, event: ConversationEvent): TranscriptToolEntry {
   const status = event.payload?.status
+  const images = readImagePaths(event.payload) ?? tool.images
   return {
     ...tool,
     status: event.payload?.partial === true ? tool.status : 'done',
@@ -345,6 +347,7 @@ function withOutput(tool: TranscriptToolEntry, event: ConversationEvent): Transc
         : tool.outputStatus,
     exitCode: readNumber(event.payload, 'exitCode') ?? tool.exitCode,
     mime: readString(event.payload, 'mime') ?? tool.mime,
+    ...(images ? { images } : {}),
   }
 }
 
