@@ -243,11 +243,15 @@ test('moduleConversationSeam', async () => {
     if (!others.ok) return
     const otherChat = { workspaceId: others.conversation.workspaceId, agentId: others.conversation.agentId }
 
-    // Neither is reachable: not listed, not subscribable, not sendable, not
-    // readable, and answered exactly as a chat that does not exist.
+    // Neither is reachable: not listed, not sendable, not readable, and
+    // answered exactly as a chat that does not exist. A subscription to one
+    // is accepted, as one to a saved chat not loaded yet is, and hears
+    // nothing, ever.
+    const leaked: unknown[] = []
+    const foreignSubscriptions: Array<() => void> = []
     for (const foreign of [userChat, otherChat]) {
       assert.ok(!acme.list().some((summary) => summary.agentId === foreign.agentId))
-      assert.throws(() => acme.subscribe(foreign, () => undefined), /was started by this module/)
+      foreignSubscriptions.push(acme.subscribe(foreign, (event) => leaked.push(event)))
       const refused = await acme.send(foreign, { message: 'let me in' })
       assert.equal(refused.ok, false)
       if (!refused.ok) assert.equal(refused.code, 'not_owned')
@@ -270,7 +274,9 @@ test('moduleConversationSeam', async () => {
     await other.send(otherChat, { message: 'private' })
     assert.equal(heard.length, before)
     assert.ok(!heard.some((received) => received.payload?.text === 're: private'))
+    assert.deepEqual(leaked, [], 'a subscription to a chat the module does not own hears none of it')
     unsubscribe()
+    for (const stop of foreignSubscriptions) stop()
 
     // A module without conversation:bypass asking for it gets auto, on the live
     // session and on the record the bus carries, and cannot switch a chat it
