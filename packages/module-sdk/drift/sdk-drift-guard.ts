@@ -281,6 +281,8 @@ import type * as appConversation from '../../../src/shared/modules/conversation-
 // are what keep the restatement the contract.
 import type * as protocol from '../../conversation-protocol/src/public'
 import type * as appBrokers from '../../../src/shared/modules/brokers'
+// The published service table and the testing kit (see the end of this file).
+import { MODULE_SERVICE_REQUIREMENTS as SDK_MODULE_SERVICE_REQUIREMENTS } from '../src/services'
 
 type Extends<A, B> = [A] extends [B] ? true : false
 // Type identity via the generic-function-identity trick: detects added/removed
@@ -949,6 +951,37 @@ for (const subpath of ['ui', 'surface'] as const) {
     ) && runtime.includes('throw new Error(HOST_PROVIDED_MESSAGE)'),
     `@sprintengine/module-sdk/${subpath} must throw its host-provided message when it is bundled instead of externalised`,
   )
+}
+
+// ── The service table and the testing kit ────────────────────────────────────
+//
+// MODULE_SERVICE_REQUIREMENTS is what a scaffolded project's smoke test and
+// the `/testing` fakes check a module against: one row per service a
+// third-party module may resolve. It must cover the host's allow-list exactly,
+// and name only permissions the host knows.
+assert.deepEqual(
+  SDK_MODULE_SERVICE_REQUIREMENTS.map((requirement) => requirement.key).sort(),
+  [...APP_THIRD_PARTY_SERVICE_KEYS].sort(),
+  'MODULE_SERVICE_REQUIREMENTS must have one row per service on the host’s third-party allow-list',
+)
+for (const requirement of SDK_MODULE_SERVICE_REQUIREMENTS) {
+  for (const permission of requirement.permissions) {
+    assert.ok(
+      APP_KNOWN_CAPABILITY_PERMISSIONS.includes(permission),
+      `MODULE_SERVICE_REQUIREMENTS names "${permission}" for ${requirement.key}, which the host does not know`,
+    )
+  }
+}
+// `@sprintengine/module-sdk/testing/kit` stands in for `/ui` and `/surface` in
+// a module's tests, so it must export every component the host bridges: a
+// component published without a stand-in would fail to resolve in every
+// module test that renders it.
+const kitExports = new Set(declaredExports('testing-kit.d.ts'))
+for (const name of [...SDK_UI_EXPORT_NAMES, ...SDK_SURFACE_EXPORT_NAMES]) {
+  assert.ok(kitExports.has(name), `@sprintengine/module-sdk/testing/kit has no stand-in for "${name}"`)
+}
+for (const subpath of ['./testing', './testing/kit']) {
+  assert.ok(sdkPackageJson.exports[subpath], `@sprintengine/module-sdk is missing the "${subpath}" export`)
 }
 
 console.log('module-sdk drift guard passed')

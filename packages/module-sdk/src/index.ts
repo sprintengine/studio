@@ -2231,3 +2231,15 @@ export {
   type MarketplacePluginManifest,
   type MarketplacePluginManifestResult,
 } from './plugin-manifest.js'
+
+// ── Published host services and what each needs ─────────────────────────────
+// The table a scaffolded project's smoke test and the `/testing` fakes read,
+// so neither keeps a copy of the host's rules that can go stale.
+
+export {
+  dependsOnReaches,
+  MODULE_DEPENDENCY_CHAINS,
+  MODULE_SERVICE_REQUIREMENTS,
+  moduleServiceRequirement,
+  type ModuleServiceRequirement,
+} from './services.js'
