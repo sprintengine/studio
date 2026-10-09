@@ -155,6 +155,10 @@ export const THIRD_PARTY_SERVICE_KEYS: ReadonlySet<string> = new Set([
   'activity.module-service',
 ])
 
+// The declarations that open the renderer→module-main bridge for a module's
+// channels: its own scope, and the broad legacy one it was split out of.
+const BRIDGE_PERMISSIONS: ReadonlySet<string> = new Set(['module:bridge', 'ipc:invoke'])
+
 const defaultSkillRegistry: ModuleSkillHostRegistry = {
   register: registerModuleSkills,
   unregister: unregisterModuleSkills,
@@ -479,7 +483,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
 
   // The renderer→module-main bridge dispatcher. Routes an invoke to a channel
   // a module registered via registerIpc, applying the bridgeability rules
-  // (owner prefix + `ipc:invoke` permission); every refusal is structured
+  // (owner prefix + `module:bridge` or `ipc:invoke`); every refusal is structured
   // data (see bridge.ts). This is defense in depth for a contract, not a
   // security boundary — the renderer-side host already validates the
   // module-id prefix before IPC.
@@ -514,11 +518,13 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         message: `Channel "${channel}" is not bridgeable: the owning module's manifest could not be resolved.`,
       }
     }
-    if (!manifest.permissions?.includes('ipc:invoke')) {
+    // `module:bridge` is the bridge's own scope; `ipc:invoke`, the broad scope
+    // it was split out of, keeps opening it for manifests from before the split.
+    if (!manifest.permissions?.some((permission) => BRIDGE_PERMISSIONS.has(permission))) {
       return {
         ok: false,
         code: 'permission_missing',
-        message: `Module "${entry.owner}" does not declare the "ipc:invoke" permission, so its channels cannot be bridged.`,
+        message: `Module "${entry.owner}" does not declare the "module:bridge" permission, so its channels cannot be bridged.`,
       }
     }
     return { ok: true, result: await entry.handler(event, payload) }

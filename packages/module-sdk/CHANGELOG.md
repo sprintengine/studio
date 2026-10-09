@@ -175,6 +175,81 @@ for the tokens.
 - `WorkspaceContextService.list()` answers `ModuleWorkspaceListEntry[]`
   (each view plus `open`).
 
+### Added
+
+- **`module:bridge`**, the permission for the renderer → own `entry.main`
+  bridge alone (`RendererHost.invoke` to the module's own `registerIpc`
+  channels). Its consent line reads "Let its window code talk to its own
+  background code", where `ipc:invoke`, which a module needed for the same
+  thing, reads "Call any of the app's internal APIs … (broad scope)". The
+  bridge accepts either, so an existing manifest keeps working; the
+  `chat-companion` template, the docs and the smoke test use `module:bridge`.
+- **`@sprintengine/module-sdk/testing`**, for testing a module in Node
+  without the app:
+  - `createFakeMainHost({ moduleId, permissions } | { manifest }, …)`: a
+    `MainHost` with stateful fakes of every published service, held to the
+    host's rules — storage's key pattern, absolute-root rule and 1 MB cap;
+    chats with ownership, the preset ceiling, `commandId` receipts and
+    `services.conversations.emitEvent`; scheduled agents (`fire`); companions
+    (`respond`); secrets (https, origins, redaction); GitHub with scripted
+    answers; workspaces (`setHydrated(false)` for the after-launch null). The
+    permissions the host checks are refused as it refuses them
+    (`permission_missing`, or a throw); disclosure-only ones used undeclared
+    are listed in `undeclared`. `ipc.invoke` calls the module's channels as its
+    renderer would (own channels, `module:bridge`, structured cloning) and
+    `tools.call` its MCP tools as an agent would.
+  - `createFakeRendererHost({ …, main? })`: records every registration,
+    renders a registered door, modal, panel, settings section, top-bar item or
+    nav entry to HTML, runs commands, and bridges `invoke` and `subscribe` to
+    a fake main host.
+  - `installTestingKit()`, `renderToHtml(node)`, and two more subpaths:
+    `/testing/kit` (a stand-in for `/ui`, `/surface` and
+    `@monaco-editor/react` whose components draw their props and children, so
+    a door renders in Node) and `/testing/register` (for
+    `node --import`, installing the kit before any test file loads).
+- **`MODULE_SERVICE_REQUIREMENTS`** (with `moduleServiceRequirement`,
+  `dependsOnReaches`, `MODULE_DEPENDENCY_CHAINS`): for each service a module
+  may resolve, the permission it needs, the module that provides it, and
+  whether the host checks it. The smoke test and the fakes read it.
+- **Composable templates.** `sprintengine-module init … --with main,mcp,settings,door`,
+  and `sprintengine-module add <part>...` in an existing project (`addModuleParts`
+  and `listModuleParts` from `./scaffold`). A part copies its files and test,
+  merges its entry, permissions and `dependsOn` into the manifest and
+  `plugin.json`, adds its build script and dependencies, and wires its
+  registration into `registerRenderer` / `registerMain`.
+- **A TypeScript test pattern in every template.** `test/*.test.ts`, bundled by
+  `npm run build:test` (esbuild, into the ignored `test/.build/`) and run by
+  `npm test` with `node --test` and `--import @sprintengine/module-sdk/testing/register`,
+  on any Node the SDK supports. Each template ships tests of its own.
+
+### Changed
+
+- **The scaffold's smoke test runs the module against the SDK's fake hosts**
+  instead of a recorder that answered every call with a no-op. It checks
+  permissions and `dependsOn` from `MODULE_SERVICE_REQUIREMENTS` (the old copy
+  still named the removed automations service and never checked the workspace
+  context or scheduled agents' `dependsOn: ["scheduled-agents"]`), and it
+  renders everything the renderer registers, so a door that throws while
+  rendering fails `npm run check`. `test/host-kit-fake.mjs` is gone; the
+  templates add `react-dom` for the render.
+- **`npm run build` writes `module/manifest.json` only when the file digests
+  changed**, and signs again only when the signature no longer covers the
+  manifest, so a rebuild of unchanged code leaves git clean. The build still
+  records the digests (not only `dev:install`), because a GitHub install reads
+  the committed manifest and refuses one that does not describe the committed
+  `module/dist/`. `npm run build` runs `build:renderer` and `build:main` when
+  they exist.
+- **The extension-builder skill is kept once in a project**, in
+  `.agents/skills/sprintengine-extension-builder/`; `.claude/skills/…/SKILL.md`
+  is a pointer with the same name and description
+  (`extensionBuilderSkillPointer`, `EXTENSION_BUILDER_SKILL_DIR`,
+  `EXTENSION_BUILDER_SKILL_POINTER_DIR`). `npm run validate` fails when the
+  pointer's front matter no longer matches, or, in a project with two full
+  copies, when they differ.
+- The `panel` and `top-bar-item` templates render outside a window: the panel
+  inserts its stylesheet in `useInsertionEffect`, and both give
+  `useSyncExternalStore` its server snapshot.
+
 ## 1.0.0-beta.1
 
 Automations became scheduled agents: a prompt and a cron schedule, each run a

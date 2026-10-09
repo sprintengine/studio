@@ -21,7 +21,7 @@ restart.
 | Member | Notes |
 | --- | --- |
 | `moduleId`, `hostApiVersion`, `supports(capability)` | Identity; ask `supports` before using a newer capability. |
-| `registerIpc(channel, handler)` | A channel the renderer calls with `host.invoke`. Must start with `<moduleId>:`; the module must declare `ipc:invoke`. Handler: `(event, payload) => result`; `event` is opaque. Validate `payload` — it is input. |
+| `registerIpc(channel, handler)` | A channel the renderer calls with `host.invoke`. Must start with `<moduleId>:`; the module must declare `module:bridge`. Handler: `(event, payload) => result`; `event` is opaque. Validate `payload` — it is input. |
 | `emit(topic, payload?)` | Push a signal to your renderer's `host.subscribe(topic, cb)` in every window. No replay. |
 | `registerMcpTools(tools)` | Tools on the Studio MCP gateway every agent is connected to. Needs `mcp:tools`. |
 | `registerSkills(skills)` / `ensureSkillInstalled(root, id)` / `getSkillStatus(root, id)` | Ship skills (folders with SKILL.md) inside the module, put them in a workspace, or check without writing (below). |

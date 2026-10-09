@@ -144,6 +144,10 @@ export type CapabilityPermission =
   | 'ipc:workspace-write'
   | 'ipc:settings'
   | 'ipc:invoke'
+  // The renderer→own-main bridge alone (`RendererHost.invoke` to the module's
+  // own `MainHost.registerIpc` channels), split out of `ipc:invoke`, which
+  // still opens it for manifests written before the split.
+  | 'module:bridge'
   | 'backlog.read'
   | 'backlog.write'
   | 'backlog.link.open'
@@ -195,6 +199,8 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'ipc:workspace-write',
   'ipc:settings',
   'ipc:invoke',
+  // The renderer→own-main bridge, split out of `ipc:invoke`.
+  'module:bridge',
   'backlog.read',
   'backlog.write',
   'backlog.link.open',
@@ -2404,8 +2410,9 @@ export type RendererHost = {
    *
    * The channel MUST start with `<moduleId>:` (your own module id); other
    * channel names throw before IPC happens. The host additionally routes only
-   * to channels owned by a module whose manifest declares the `ipc:invoke`
-   * permission. A refused invoke rejects with an Error whose
+   * to channels owned by a module whose manifest declares the `module:bridge`
+   * permission (or the broad `ipc:invoke` it was split out of, which still
+   * opens the bridge for older manifests). A refused invoke rejects with an Error whose
    * `code` property carries the `ModuleBridgeRefusalCode`, so callers can
    * branch on the refusal kind without parsing the message.
    *
@@ -2420,8 +2427,8 @@ export type RendererHost = {
  * Why the host refused a `RendererHost.invoke`, attached as `code` on the
  * rejection Error: the channel was never registered (`unknown_channel`), it is
  * not `<ownerModuleId>:`-prefixed (`not_bridgeable`), the owner manifest
- * could not be resolved (`not_bridgeable`), or the owner does not declare
- * `ipc:invoke` (`permission_missing`).
+ * could not be resolved (`not_bridgeable`), or the owner declares neither
+ * `module:bridge` nor `ipc:invoke` (`permission_missing`).
  */
 export type ModuleBridgeRefusalCode = 'unknown_channel' | 'not_bridgeable' | 'permission_missing'
 
@@ -2717,3 +2724,15 @@ export {
   type MarketplacePluginManifest,
   type MarketplacePluginManifestResult,
 } from './plugin-manifest.js'
+
+// ── Published host services and what each needs ─────────────────────────────
+// The table a scaffolded project's smoke test and the `/testing` fakes read,
+// so neither keeps a copy of the host's rules that can go stale.
+
+export {
+  dependsOnReaches,
+  MODULE_DEPENDENCY_CHAINS,
+  MODULE_SERVICE_REQUIREMENTS,
+  moduleServiceRequirement,
+  type ModuleServiceRequirement,
+} from './services.js'

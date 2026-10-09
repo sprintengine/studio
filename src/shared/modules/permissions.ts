@@ -40,12 +40,18 @@
 // session, external-URL opening) are disclosed today only by the legacy broad
 // scope. `ipc:invoke` remains valid for existing manifests and means "any
 // internal API, including everything above"; the consent UI flags it as broad.
-// It is also the declared gate for the renderer→module-main bridge
+//
+// ## The own-module bridge
+//
+// `module:bridge` is the narrow gate for the renderer→module-main bridge
 // (`RendererHost.invoke` → the module's own `registerIpc` channels; see
-// shared/modules/bridge.ts) — the one place the main-side dispatcher actually
-// checks the declaration, because the bridge is the highest-capability surface
-// and the check is one map lookup. A module that only uses the bridge still
-// declares `ipc:invoke`.
+// shared/modules/bridge.ts): a module's window code talking to its own
+// background code, and nothing of the app's. It is the one place the main-side
+// dispatcher actually checks a declaration, because the bridge is the
+// highest-capability surface and the check is one map lookup. `ipc:invoke`
+// still opens the bridge, so a manifest written before the split keeps
+// working, but a module that only bridges to itself declares `module:bridge`
+// and its consent prompt stops saying "any of the app's internal APIs".
 // Unknown scopes stay forward-compatible: they validate structurally and are
 // surfaced verbatim as unrecognized.
 
@@ -59,6 +65,10 @@ export type CapabilityPermission =
   | 'ipc:workspace-write'
   | 'ipc:settings'
   | 'ipc:invoke'
+  // The renderer→own-main bridge alone (`RendererHost.invoke` to the module's
+  // own `registerIpc` channels), split out of `ipc:invoke`. Checked by the
+  // bridge dispatcher, which also still accepts `ipc:invoke`.
+  | 'module:bridge'
   // Backlog-focused disclosure scopes. Finer-grained than the broad
   // `ipc:workspace-read`/`ipc:workspace-write` areas Backlog reads and writes
   // already fall under; additive disclosure for modules built around Backlog.
@@ -121,6 +131,8 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'ipc:workspace-write',
   'ipc:settings',
   'ipc:invoke',
+  // The renderer→own-main bridge, split out of `ipc:invoke`.
+  'module:bridge',
   'backlog.read',
   'backlog.write',
   'backlog.link.open',
@@ -151,6 +163,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'ipc:workspace-write': "Create and change workspaces, files, and tasks through the app's APIs",
   'ipc:settings': 'Read and change app settings and integrations',
   'ipc:invoke': "Call any of the app's internal APIs, including its own background code (broad scope)",
+  'module:bridge': 'Let its window code talk to its own background code',
   'backlog.read': 'Read Backlog item details and source content',
   'backlog.write': 'Change Backlog item status, triage, links, and metadata, and create new items',
   'backlog.link.open': 'Open links and targets attached to Backlog items',
@@ -171,11 +184,10 @@ export function isKnownCapabilityPermission(value: string): boolean {
   return KNOWN_CAPABILITY_PERMISSIONS.includes(value)
 }
 
-// The legacy everything-scope, and the declared gate for the renderer→module-
-// main bridge (RendererHost.invoke). Kept valid so existing manifests do not
-// break, and the consent UI flags it as broad; authors whose module does not
-// use the bridge should declare the `ipc:*` tiers that match what they
-// actually touch instead.
+// The legacy everything-scope. Kept valid so existing manifests do not break
+// (it still opens the renderer→module-main bridge), and the consent UI flags
+// it as broad; authors declare `module:bridge` for the bridge and the `ipc:*`
+// tiers that match what they actually touch instead.
 //
 // `conversation:read-all` is broad for the other reason: it reads what the
 // person wrote in every chat, so the prompt marks it the same way.

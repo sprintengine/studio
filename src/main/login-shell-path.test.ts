@@ -14,6 +14,8 @@ import {
   searchDirectories,
   USER_SHELL_PATH_TIMEOUT_MS,
   userShellProbeSupported,
+  withUserShellPath,
+  lastKnownLoginShellPath,
   type LoginShellPathDescriptor,
   type LoginShellPathOutcome,
 } from './login-shell-path'
@@ -184,4 +186,53 @@ test('the shell is handed the caller environment', async () => {
   })
   await resolver.resolve({ PATH: '/managed/shims:/usr/bin' })
   assert.equal(seen[0]?.PATH, '/managed/shims:/usr/bin', 'the managed shims reach the shell it extends')
+})
+
+// What a Mac app opened from Finder or the Dock inherits from launchd, with the
+// managed runtime's bin in front, as an agent's shell reported it.
+const FINDER_PATH = '/Users/dev/.sprintengine/node/bin:/usr/bin:/bin:/usr/sbin:/sbin'
+
+test('a Finder launch gets the login shell PATH in front of its own, keeping what only the app had', () => {
+  const env = withUserShellPath(
+    { PATH: FINDER_PATH, HOME: '/Users/dev' },
+    { platform: 'darwin', loginPath: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', exists: () => false },
+  )
+  assert.equal(
+    env.PATH,
+    '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Users/dev/.sprintengine/node/bin:/usr/sbin:/sbin',
+  )
+  assert.equal(env.HOME, '/Users/dev', 'the rest of the environment is untouched')
+})
+
+test('before any login shell has answered, Homebrew and /usr/local/bin are added when they exist', () => {
+  const present = new Set(['/opt/homebrew/bin', '/usr/local/bin'])
+  const env = withUserShellPath(
+    { PATH: FINDER_PATH },
+    { platform: 'darwin', loginPath: null, exists: (directory) => present.has(directory) },
+  )
+  assert.equal(env.PATH, `${FINDER_PATH}:/opt/homebrew/bin:/usr/local/bin`)
+  const linux = withUserShellPath(
+    { PATH: '/usr/bin:/bin' },
+    { platform: 'linux', loginPath: null, exists: (directory) => directory === '/home/linuxbrew/.linuxbrew/bin' },
+  )
+  assert.equal(linux.PATH, '/usr/bin:/bin:/home/linuxbrew/.linuxbrew/bin')
+})
+
+test('a PATH that already has everything is returned as it was, and Windows is left alone', () => {
+  const full = { PATH: '/opt/homebrew/bin:/usr/bin:/bin' }
+  assert.equal(withUserShellPath(full, { platform: 'darwin', loginPath: null, exists: () => false }), full)
+  const windows = { PATH: 'C:\\Windows\\system32' }
+  assert.equal(
+    withUserShellPath(windows, { platform: 'win32', loginPath: '/opt/homebrew/bin', exists: () => true }),
+    windows,
+  )
+})
+
+test('a resolved login PATH is what the next synchronous spawn reads', async () => {
+  const resolver = createLoginShellPathResolver({
+    run: async () => answered('/opt/homebrew/bin:/Users/dev/.local/bin:/usr/bin'),
+    shell: () => '/bin/zsh',
+  })
+  await resolver.resolve({})
+  assert.equal(lastKnownLoginShellPath(), '/opt/homebrew/bin:/Users/dev/.local/bin:/usr/bin')
 })

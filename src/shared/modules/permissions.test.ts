@@ -87,6 +87,16 @@ test('permissions', async () => {
     assert.equal(legacyManifest.ok, true, 'existing manifests using ipc:invoke keep validating')
   }
 
+  function testModuleBridgeScopeIsNarrowAndDescribed(): void {
+    assert.equal(isKnownCapabilityPermission('module:bridge'), true, 'module:bridge is a known scope')
+    assert.equal(isBroadCapabilityPermission('module:bridge'), false, 'module:bridge is not flagged broad')
+    const description = describeCapabilityPermission('module:bridge')
+    assert.equal(description, 'Let its window code talk to its own background code')
+    assert.doesNotMatch(description, /internal APIs|broad/i, 'the bridge scope does not read as the broad one')
+    const result = validateCapabilityPermissions(['module:bridge', 'storage'])
+    assert.equal(result.ok, true, 'module:bridge validates')
+  }
+
   function testDescriptionsNeverImplyEnforcement(): void {
     for (const permission of KNOWN_CAPABILITY_PERMISSIONS) {
       assert.doesNotMatch(
@@ -136,6 +146,7 @@ test('permissions', async () => {
   testTieredIpcScopesAreKnownAndDescribed()
   testBacklogScopesAreKnownAndDisclosureOnly()
   testLegacyBroadScopeRetainedAndFlagged()
+  testModuleBridgeScopeIsNarrowAndDescribed()
   testDescriptionsNeverImplyEnforcement()
   testExtensionPlatformScopesAreKnownAndDescribed()
   console.log('permissions tests passed')

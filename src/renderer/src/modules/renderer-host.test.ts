@@ -1060,13 +1060,13 @@ test('renderer-host', async () => {
       bridgeOutcome = {
         ok: false,
         code: 'permission_missing',
-        message: 'Module "weather-deck" does not declare "ipc:invoke".',
+        message: 'Module "weather-deck" does not declare "module:bridge".',
       }
       await assert.rejects(
         () => invokeHost.invoke('weather-deck:forecast'),
         (error: unknown) =>
           error instanceof Error &&
-          /does not declare "ipc:invoke"/.test(error.message) &&
+          /does not declare "module:bridge"/.test(error.message) &&
           (error as Error & { code?: string }).code === 'permission_missing',
         'a refusal surfaces as a thrown Error carrying the message and the structured code',
       )
