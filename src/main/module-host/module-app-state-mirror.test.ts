@@ -90,6 +90,14 @@ test('a push written by another process is heard through the file', async () => 
   }
 })
 
+test('a read with no watch running still sees a push another process wrote', () => {
+  const reader = createModuleAppStateMirror({ filePath })
+  const writer = createModuleAppStateMirror({ filePath, watchFile: false })
+  assert.deepEqual(reader.get('pr-radar'), {})
+  writer.set({ 'module:pr-radar': { pollMinutes: 10 } })
+  assert.deepEqual(reader.get('pr-radar'), { pollMinutes: 10 })
+})
+
 test('MainHost reads and watches its own namespace through the mirror', () => {
   const kernel = createMainKernel(createFakeIpcMain().ipcMain)
   assert.equal(kernel.hostFor('insights').getModuleAppState('time'), undefined, 'no mirror yet reads as unset')

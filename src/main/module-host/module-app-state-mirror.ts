@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, unwatchFile, watchFile, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, unwatchFile, watchFile, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 // Main's copy of every module's app-level state — the `module:<id>`
@@ -57,8 +57,20 @@ export function createModuleAppStateMirror(options: {
   let namespaces: Namespaces | null = null
   const listeners = new Map<string, Set<(values: Readonly<Record<string, unknown>>) => void>>()
   let watching = false
+  // What the file looked like when last read or written, so a read with no
+  // watch running still notices a push another process wrote since.
+  let seen: string | null = null
+  const fileSignature = (): string => {
+    try {
+      const info = statSync(options.filePath)
+      return `${info.mtimeMs}:${info.size}`
+    } catch {
+      return 'absent'
+    }
+  }
 
   const read = (): Namespaces => {
+    seen = fileSignature()
     try {
       return normalizeModuleAppStateBag(JSON.parse(readFileSync(options.filePath, 'utf8')))
     } catch {
@@ -108,6 +120,7 @@ export function createModuleAppStateMirror(options: {
 
   return {
     get(moduleId) {
+      if (namespaces !== null && !watching && options.watchFile !== false && fileSignature() !== seen) adopt(read())
       const namespace = current()[`${NAMESPACE_PREFIX}${moduleId.trim()}`]
       return namespace ? Object.freeze({ ...namespace }) : EMPTY
     },
@@ -120,6 +133,7 @@ export function createModuleAppStateMirror(options: {
         mkdirSync(dirname(options.filePath), { recursive: true })
         writeFileSync(tmp, `${JSON.stringify(next)}\n`, { encoding: 'utf8', mode: 0o600 })
         renameSync(tmp, options.filePath)
+        seen = fileSignature()
       } catch {
         // The in-memory copy is current; the file catches up on the next change.
         rmSync(tmp, { force: true })
