@@ -8,16 +8,7 @@ import type { DiagnosticLevel } from './git'
 // into the bell, never through logDiagnostic; it is listed here so the two
 // declarations of this union stay one vocabulary.
 export type DiagnosticSource =
-  | 'agents'
-  | 'auth'
-  | 'cli'
-  | 'filesystem'
-  | 'marketplace'
-  | 'models'
-  | 'module'
-  | 'terminal'
-  | 'update'
-  | 'workspace'
+  'agents' | 'auth' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'module' | 'terminal' | 'update' | 'workspace'
 
 // Serializable deep-focus target for a notification's Open action. Mirrors the
 // renderer `NotificationNavigationTarget` (src/renderer/src/types/workspace.ts);

@@ -495,16 +495,7 @@ export type DiagnosticLevel = 'info' | 'warning' | 'error'
 // `module` is a capability module's own `notify` row (the bell rows
 // shared/modules/notifications.ts delivers); which module is `sourceModule`.
 export type DiagnosticSource =
-  | 'agents'
-  | 'auth'
-  | 'cli'
-  | 'filesystem'
-  | 'marketplace'
-  | 'models'
-  | 'module'
-  | 'terminal'
-  | 'update'
-  | 'workspace'
+  'agents' | 'auth' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'module' | 'terminal' | 'update' | 'workspace'
 
 // A typed, serializable deep-focus target for a notification's Open action. The
 // shell treats it as opaque (it only knows how to reveal the workspace); the
