@@ -2247,6 +2247,10 @@ export {
 export {
   getGitHubService,
   getSecretsService,
+  type ModuleGitHubDownloadRequest,
+  type ModuleGitHubDownloadResponse,
+  type ModuleGitHubErrorCode,
+  type ModuleGitHubMediaType,
   type ModuleGitHubRequest,
   type ModuleGitHubResponse,
   type ModuleGitHubService,

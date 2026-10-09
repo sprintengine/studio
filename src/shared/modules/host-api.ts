@@ -37,6 +37,9 @@ const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   // Main-host plumbing: settings, workspaces, storage, GitHub, skills, MCP.
   'skill-status',
   'mcp-verified-identity',
+  'github-headers',
+  'github-graphql',
+  'github-download',
 ])
 
 export function hostSupports(capability: HostCapability): boolean {

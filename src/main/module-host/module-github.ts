@@ -17,14 +17,26 @@
 //
 // Permissions are read per call from the module's declared list. `request`
 // answers `permission_missing`; `status` has no failure shape and rejects.
+//
+// Three additions keep a module from working around the broker:
+// - Answers carry an allow-list of response headers (rate limit, pagination,
+//   the etag) and a request may send `If-None-Match` and one of GitHub's own
+//   media types, so polling is cheap and a diff is one call.
+// - `graphql` is a read: a document with a `mutation` or `subscription`
+//   operation is refused before anything is sent.
+// - `download` follows the one redirect GitHub answers a log or archive with,
+//   only to GitHub's storage hosts and only after taking the token off.
 
 import type {
+  ModuleGitHubDownloadRequest,
+  ModuleGitHubDownloadResponse,
+  ModuleGitHubMediaType,
   ModuleGitHubRegistry,
   ModuleGitHubRequest,
   ModuleGitHubResponse,
   ModuleGitHubService,
 } from '../../shared/modules/brokers'
-import { brokerRequest, redactSecret, type BrokerFetch } from './broker-http'
+import { brokerRequest, redactSecret, type BrokerFetch, type BrokerHttpResponse } from './broker-http'
 
 export type ModuleGitHubDeps = {
   /** The app's GitHub token store; an empty string means nobody is signed in. */
@@ -49,15 +61,135 @@ export const GITHUB_API_ORIGIN = 'https://api.github.com'
 // A page of 100 pull requests runs past 1 MiB; this still bounds what one
 // module call can make the host hold.
 export const MODULE_GITHUB_RESPONSE_LIMIT_BYTES = 8 * 1024 * 1024
+// A job's log or a small archive, read whole; base64 adds a third on top.
+export const MODULE_GITHUB_DOWNLOAD_LIMIT_BYTES = 16 * 1024 * 1024
 const GITHUB_TIMEOUT_MS = 30_000
+const GITHUB_DOWNLOAD_TIMEOUT_MS = 60_000
+const DEFAULT_ACCEPT = 'application/vnd.github+json'
+// GitHub's own media types, and nothing else: a module asks for a format the
+// host has looked at, never a header of its choosing.
+const MEDIA_TYPES: ReadonlySet<ModuleGitHubMediaType> = new Set<ModuleGitHubMediaType>([
+  'application/vnd.github+json',
+  'application/vnd.github.raw+json',
+  'application/vnd.github.text+json',
+  'application/vnd.github.html+json',
+  'application/vnd.github.full+json',
+  'application/vnd.github.base64+json',
+  'application/vnd.github.object+json',
+  'application/vnd.github.raw',
+  'application/vnd.github.diff',
+  'application/vnd.github.patch',
+  'application/vnd.github.sha',
+])
+// The response headers a module may read: enough to page, poll and back off.
+const RESPONSE_HEADERS = new Set(['link', 'etag', 'retry-after'])
+const RESPONSE_HEADER_PREFIX = 'x-ratelimit-'
+// Where GitHub sends a log, archive or artifact download. Exact host or a
+// `.suffix` that matches a subdomain.
+const STORAGE_HOSTS = ['codeload.github.com', '.githubusercontent.com', '.blob.core.windows.net']
+// An etag is a short quoted token; anything with a control character could
+// split a header.
+const ETAG_PATTERN = /^(?:W\/)?"[\x21\x23-\x7e]{0,200}"$/
 const LOGIN_CACHE_MS = 5 * 60_000
 const METHODS = new Set(['GET', 'POST', 'PATCH', 'PUT', 'DELETE'])
 // Literal characters a GitHub REST path uses, plus `{` `}` for placeholders.
 const TEMPLATE_PATTERN = /^\/[A-Za-z0-9\-._~/{}]*$/
 const PLACEHOLDER_PATTERN = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g
 
-function failure(code: Failure['code'], message: string, status?: number): Failure {
-  return { ok: false, code, message, ...(status !== undefined ? { status } : {}) }
+function failure(
+  code: Failure['code'],
+  message: string,
+  status?: number,
+  headers?: Record<string, string>,
+): Failure {
+  return {
+    ok: false,
+    code,
+    message,
+    ...(status !== undefined ? { status } : {}),
+    ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
+  }
+}
+
+/** The allow-listed response headers a module may read, names lowercased. */
+export function pickGitHubResponseHeaders(headers: Record<string, string>): Record<string, string> {
+  const picked: Record<string, string> = {}
+  for (const [name, value] of Object.entries(headers)) {
+    const lower = name.toLowerCase()
+    if (RESPONSE_HEADERS.has(lower) || lower.startsWith(RESPONSE_HEADER_PREFIX)) picked[lower] = value
+  }
+  return picked
+}
+
+/**
+ * The operation kinds a GraphQL document defines, read with a small lexer
+ * that skips strings, block strings and comments and looks only at top-level
+ * tokens — so a field named `mutation` inside a selection, or the word in a
+ * string argument, is not mistaken for one. Null for a document with no
+ * selection at all. A top-level `mutation` or `subscription` anywhere is
+ * reported, even as an operation's NAME: refusing the odd legal query is the
+ * safe side of this check.
+ */
+export function graphqlTopLevelKeywords(query: string): string[] | null {
+  const keywords: string[] = []
+  let depth = 0
+  let sawSelection = false
+  let index = 0
+  while (index < query.length) {
+    const char = query[index]!
+    if (char === '#') {
+      while (index < query.length && query[index] !== '\n' && query[index] !== '\r') index += 1
+      continue
+    }
+    if (query.startsWith('"""', index)) {
+      index += 3
+      while (index < query.length && !query.startsWith('"""', index)) {
+        index += query.startsWith('\\"""', index) ? 4 : 1
+      }
+      index += 3
+      continue
+    }
+    if (char === '"') {
+      index += 1
+      while (index < query.length && query[index] !== '"' && query[index] !== '\n') {
+        index += query[index] === '\\' ? 2 : 1
+      }
+      index += 1
+      continue
+    }
+    if (char === '{' || char === '(' || char === '[') {
+      if (char === '{') sawSelection = true
+      depth += 1
+      index += 1
+      continue
+    }
+    if (char === '}' || char === ')' || char === ']') {
+      depth = Math.max(0, depth - 1)
+      index += 1
+      continue
+    }
+    if (/[_A-Za-z]/.test(char)) {
+      const start = index
+      while (index < query.length && /[_0-9A-Za-z]/.test(query[index]!)) index += 1
+      if (depth === 0) keywords.push(query.slice(start, index))
+      continue
+    }
+    index += 1
+  }
+  return sawSelection ? keywords : null
+}
+
+/** Whether a URL GitHub redirected to is one of its own storage hosts, over https on the default port. */
+export function isGitHubStorageUrl(location: string): boolean {
+  let url: URL
+  try {
+    url = new URL(location)
+  } catch {
+    return false
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || url.port) return false
+  const host = url.hostname.toLowerCase()
+  return STORAGE_HOSTS.some((entry) => (entry.startsWith('.') ? host.endsWith(entry) : host === entry))
 }
 
 /**
@@ -139,20 +271,86 @@ export function createModuleGitHubRegistry(deps: ModuleGitHubDeps): ModuleGitHub
     }
   }
 
-  function send(token: string, method: string, url: string, body: string | undefined) {
+  function send(
+    token: string,
+    method: string,
+    url: string,
+    body: string | undefined,
+    extra: {
+      accept?: string
+      ifNoneMatch?: string
+      redirect?: 'error' | 'manual'
+      bodyEncoding?: 'utf8' | 'base64'
+    } = {},
+  ) {
     const headers: Record<string, string> = {
-      Accept: 'application/vnd.github+json',
+      Accept: extra.accept ?? DEFAULT_ACCEPT,
       Authorization: `Bearer ${token}`,
       'User-Agent': 'SprintEngine-Studio',
       'X-GitHub-Api-Version': '2022-11-28',
     }
+    if (extra.ifNoneMatch) headers['If-None-Match'] = extra.ifNoneMatch
     if (body !== undefined) headers['Content-Type'] = 'application/json'
     return brokerRequest(
       fetchImpl,
       url,
       { method, headers, ...(body !== undefined ? { body } : {}) },
-      { timeoutMs: GITHUB_TIMEOUT_MS, maxBytes: MODULE_GITHUB_RESPONSE_LIMIT_BYTES, label: GITHUB_API_ORIGIN },
+      {
+        timeoutMs: GITHUB_TIMEOUT_MS,
+        maxBytes: extra.bodyEncoding ? MODULE_GITHUB_DOWNLOAD_LIMIT_BYTES : MODULE_GITHUB_RESPONSE_LIMIT_BYTES,
+        label: GITHUB_API_ORIGIN,
+        ...(extra.redirect ? { redirect: extra.redirect } : {}),
+        ...(extra.bodyEncoding ? { bodyEncoding: extra.bodyEncoding } : {}),
+      },
     )
+  }
+
+  // The URL a route names on api.github.com, or why it is refused.
+  function routeUrl(
+    route: unknown,
+    params: Record<string, string | number | boolean> | undefined,
+  ): { ok: true; url: string } | Failure {
+    const built = buildGitHubPath(route, params)
+    if (!built.ok) return failure('invalid_route', built.message)
+    const url = new URL(built.path, GITHUB_API_ORIGIN)
+    for (const [name, value] of built.query) url.searchParams.append(name, value)
+    // Belt and braces: whatever the template checks missed, the request
+    // still goes to api.github.com and to exactly the path that was built.
+    if (url.origin !== GITHUB_API_ORIGIN || url.pathname !== built.path) {
+      return failure('invalid_route', 'The route does not name a GitHub REST path.')
+    }
+    return { ok: true, url: url.toString() }
+  }
+
+  function mediaType(accept: unknown): { ok: true; accept?: string } | Failure {
+    if (accept === undefined) return { ok: true }
+    if (typeof accept !== 'string' || !MEDIA_TYPES.has(accept as ModuleGitHubMediaType)) {
+      return failure('invalid_route', `"${String(accept)}" is not one of the GitHub media types a request may ask for.`)
+    }
+    return { ok: true, accept }
+  }
+
+  // A GitHub answer as the module sees it: parsed, redacted, its headers
+  // narrowed to the allow-list; a 304 is an answer, not an error.
+  function answer(response: BrokerHttpResponse, token: string): ModuleGitHubResponse {
+    const { status } = response
+    const headers = pickGitHubResponseHeaders(response.headers)
+    if (status === 304) return { ok: true, status, data: null, headers }
+    const text = redactSecret(response.body, token)
+    const data = parseBody(text, response.headers['content-type'])
+    if (status < 200 || status >= 300) {
+      const detail =
+        typeof data === 'object' && data !== null && typeof (data as { message?: unknown }).message === 'string'
+          ? (data as { message: string }).message.slice(0, 500)
+          : null
+      return failure(
+        'http_error',
+        detail ? `GitHub answered ${status}: ${detail}` : `GitHub answered ${status}.`,
+        status,
+        headers,
+      )
+    }
+    return { ok: true, status, data, headers }
   }
 
   function forModule(moduleId: string): ModuleGitHubService {
@@ -165,15 +363,14 @@ export function createModuleGitHubRegistry(deps: ModuleGitHubDeps): ModuleGitHub
         const method = (request.method ?? 'GET').toUpperCase()
         if (!METHODS.has(method))
           return failure('invalid_route', `Method "${request.method}" is not one GitHub's REST API takes.`)
-        const built = buildGitHubPath(request.route, request.params)
-        if (!built.ok) return failure('invalid_route', built.message)
-
-        const url = new URL(built.path, GITHUB_API_ORIGIN)
-        for (const [name, value] of built.query) url.searchParams.append(name, value)
-        // Belt and braces: whatever the template checks missed, the request
-        // still goes to api.github.com and to exactly the path that was built.
-        if (url.origin !== GITHUB_API_ORIGIN || url.pathname !== built.path) {
-          return failure('invalid_route', 'The route does not name a GitHub REST path.')
+        const target = routeUrl(request.route, request.params)
+        if (!target.ok) return target
+        const media = mediaType(request.accept)
+        if (!media.ok) return media
+        if (request.ifNoneMatch !== undefined) {
+          if (typeof request.ifNoneMatch !== 'string' || !ETAG_PATTERN.test(request.ifNoneMatch)) {
+            return failure('invalid_route', 'ifNoneMatch takes an etag exactly as an earlier answer\'s headers.etag carried it.')
+          }
         }
 
         let body: string | undefined
@@ -189,24 +386,122 @@ export function createModuleGitHubRegistry(deps: ModuleGitHubDeps): ModuleGitHub
         const token = await readToken()
         if (!token) return failure('not_signed_in', 'Sign in to GitHub in Settings to let extensions use it.')
 
-        const outcome = await send(token, method, url.toString(), body)
+        const outcome = await send(token, method, target.url, body, {
+          ...(media.accept ? { accept: media.accept } : {}),
+          ...(request.ifNoneMatch ? { ifNoneMatch: request.ifNoneMatch } : {}),
+        })
         if (!outcome.ok) return failure('network_error', outcome.message)
-        const { status } = outcome.response
-        const text = redactSecret(outcome.response.body, token)
-        const data = parseBody(text, outcome.response.headers['content-type'])
+        return answer(outcome.response, token)
+      },
 
-        if (status < 200 || status >= 300) {
-          const detail =
-            typeof data === 'object' && data !== null && typeof (data as { message?: unknown }).message === 'string'
-              ? (data as { message: string }).message.slice(0, 500)
-              : null
+      async graphql(query: string, variables?: Record<string, unknown>): Promise<ModuleGitHubResponse> {
+        if (!hasPermission(moduleId)) return failure('permission_missing', missingMessage(moduleId))
+        if (typeof query !== 'string' || query.trim() === '') {
+          return failure('invalid_query', 'graphql needs a query document.')
+        }
+        const keywords = graphqlTopLevelKeywords(query)
+        if (keywords === null) return failure('invalid_query', 'The document selects nothing.')
+        const writes = keywords.filter((keyword) => keyword === 'mutation' || keyword === 'subscription')
+        if (writes.length > 0) {
           return failure(
-            'http_error',
-            detail ? `GitHub answered ${status}: ${detail}` : `GitHub answered ${status}.`,
+            'invalid_query',
+            `graphql is read-only; a ${writes[0]} is refused. Use request() for a write, on an explicit action of the person's.`,
+          )
+        }
+        if (variables !== undefined && (typeof variables !== 'object' || variables === null || Array.isArray(variables))) {
+          return failure('invalid_query', 'variables must be an object.')
+        }
+        let body: string
+        try {
+          body = JSON.stringify(variables === undefined ? { query } : { query, variables })
+        } catch {
+          return failure('invalid_query', 'The variables could not be sent as JSON.')
+        }
+        const token = await readToken()
+        if (!token) return failure('not_signed_in', 'Sign in to GitHub in Settings to let extensions use it.')
+        const outcome = await send(token, 'POST', `${GITHUB_API_ORIGIN}/graphql`, body)
+        if (!outcome.ok) return failure('network_error', outcome.message)
+        return answer(outcome.response, token)
+      },
+
+      async download(request: ModuleGitHubDownloadRequest): Promise<ModuleGitHubDownloadResponse> {
+        if (!hasPermission(moduleId)) return failure('permission_missing', missingMessage(moduleId))
+        if (typeof request !== 'object' || request === null) {
+          return failure('invalid_route', 'download needs a route.')
+        }
+        const target = routeUrl(request.route, request.params)
+        if (!target.ok) return target
+        const media = mediaType(request.accept)
+        if (!media.ok) return media
+        const encoding = request.encoding === 'base64' ? 'base64' : 'utf8'
+        if (request.encoding !== undefined && request.encoding !== 'utf8' && request.encoding !== 'base64') {
+          return failure('invalid_route', 'encoding is "utf8" or "base64".')
+        }
+
+        const token = await readToken()
+        if (!token) return failure('not_signed_in', 'Sign in to GitHub in Settings to let extensions use it.')
+
+        const first = await send(token, 'GET', target.url, undefined, {
+          ...(media.accept ? { accept: media.accept } : {}),
+          redirect: 'manual',
+          bodyEncoding: encoding,
+        })
+        if (!first.ok) return failure('network_error', first.message)
+        const { status } = first.response
+        const headers = pickGitHubResponseHeaders(first.response.headers)
+        if (status >= 200 && status < 300) {
+          return {
+            ok: true,
+            status,
+            data: encoding === 'utf8' ? redactSecret(first.response.body, token) : first.response.body,
+            encoding,
+            contentType: first.response.headers['content-type'] ?? null,
+            headers,
+          }
+        }
+        if (status < 300 || status >= 400) {
+          const settled = answer({ ...first.response, body: encoding === 'utf8' ? first.response.body : '' }, token)
+          return settled.ok ? failure('http_error', `GitHub answered ${status}.`, status, headers) : settled
+        }
+
+        const location = first.response.headers['location'] ?? ''
+        if (!isGitHubStorageUrl(location)) {
+          return failure(
+            'redirect_not_allowed',
+            "GitHub redirected the download somewhere other than its own storage, so the host did not follow it.",
             status,
           )
         }
-        return { ok: true, status, data }
+        // The storage URL is pre-signed: it needs no credential, and must not
+        // be handed one. Only the module's own media type travels with it.
+        const second = await brokerRequest(
+          fetchImpl,
+          location,
+          { method: 'GET', headers: { 'User-Agent': 'SprintEngine-Studio' } },
+          {
+            timeoutMs: GITHUB_DOWNLOAD_TIMEOUT_MS,
+            maxBytes: MODULE_GITHUB_DOWNLOAD_LIMIT_BYTES,
+            label: new URL(location).origin,
+            bodyEncoding: encoding,
+          },
+        )
+        if (!second.ok) return failure('network_error', second.message)
+        if (second.response.status < 200 || second.response.status >= 300) {
+          return failure(
+            'http_error',
+            `GitHub's storage answered ${second.response.status}.`,
+            second.response.status,
+            headers,
+          )
+        }
+        return {
+          ok: true,
+          status: second.response.status,
+          data: second.response.body,
+          encoding,
+          contentType: second.response.headers['content-type'] ?? null,
+          headers,
+        }
       },
 
       async status() {
@@ -245,6 +540,8 @@ export function createModuleGitHubRegistry(deps: ModuleGitHubDeps): ModuleGitHub
 
   const registry: ModuleGitHubRegistry = {
     request: (moduleId, request) => serviceFor(moduleId).request(request),
+    graphql: (moduleId, query, variables) => serviceFor(moduleId).graphql(query, variables),
+    download: (moduleId, request) => serviceFor(moduleId).download(request),
     status: (moduleId) => serviceFor(moduleId).status(),
   }
 

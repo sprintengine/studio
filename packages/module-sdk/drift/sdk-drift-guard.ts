@@ -583,6 +583,11 @@ expectType<IsExact<appBrokers.ModuleSecretsService, sdk.ModuleSecretsService>>()
 expectType<IsExact<appBrokers.ModuleGitHubRequest, sdk.ModuleGitHubRequest>>()
 expectType<IsExact<appBrokers.ModuleGitHubResponse, sdk.ModuleGitHubResponse>>()
 expectType<IsExact<appBrokers.ModuleGitHubService, sdk.ModuleGitHubService>>()
+// GitHub broker additions (headers, conditional requests, read-only GraphQL, download).
+expectType<IsExact<appBrokers.ModuleGitHubMediaType, sdk.ModuleGitHubMediaType>>()
+expectType<IsExact<appBrokers.ModuleGitHubErrorCode, sdk.ModuleGitHubErrorCode>>()
+expectType<IsExact<appBrokers.ModuleGitHubDownloadRequest, sdk.ModuleGitHubDownloadRequest>>()
+expectType<IsExact<appBrokers.ModuleGitHubDownloadResponse, sdk.ModuleGitHubDownloadResponse>>()
 
 // The moduleId-first registries the app provides must accept exactly what the
 // SDK helpers forward (the same derivation the storage registry is pinned by).

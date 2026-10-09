@@ -57,6 +57,12 @@ export type HostCapability =
   // `McpConnectionMetadata.verified` on every module tool call, and core tool
   // name collisions refused at `registerMcpTools`.
   | 'mcp-verified-identity'
+  // GitHub broker: allow-listed response `headers`, `ifNoneMatch` and `accept`.
+  | 'github-headers'
+  // GitHub broker: read-only `graphql(query, variables)`.
+  | 'github-graphql'
+  // GitHub broker: `download(route)` following GitHub's own storage redirect.
+  | 'github-download'
   | (string & {})
 
 export type HostApiCompatibility =
