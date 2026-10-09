@@ -2232,6 +2232,9 @@ export {
   type ModuleOpenChatResult,
 } from './conversation.js'
 
+// Agents, conversations and scheduled agents: turn replies and usage.
+export { type ModuleConversationTurnCompletedPayload, type ModuleConversationTurnUsage } from './conversation.js'
+
 export {
   getGitHubService,
   getSecretsService,

@@ -1356,6 +1356,37 @@ test('a usage update says the model’s window and the latest request’s size, 
   expect(usage[1]).not.toHaveProperty('contextWindow')
 })
 
+test('turn_completed says the last message as the reply, and what every request of the turn spent', async () => {
+  const f = fixture()
+  const last = (inputTokens: number, cachedInputTokens: number, cacheWriteInputTokens: number, outputTokens: number) => ({
+    totalTokens: inputTokens + outputTokens,
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens,
+    outputTokens,
+    reasoningOutputTokens: 0,
+  })
+  const usageUpdate = (breakdown: ReturnType<typeof last>) => ({
+    method: 'thread/tokenUsage/updated',
+    params: { threadId: 'native-thread', tokenUsage: { total: breakdown, last: breakdown, modelContextWindow: null } },
+  })
+  const events = await runTurn(f, [
+    { method: 'item/agentMessage/delta', params: { itemId: 'narration', delta: 'Checking the branch.' } },
+    usageUpdate(last(1000, 800, 0, 50)),
+    { method: 'item/started', params: { item: { id: 'cmd', type: 'commandExecution', command: 'git status' } } },
+    { method: 'item/completed', params: { item: { id: 'cmd', type: 'commandExecution', status: 'completed' } } },
+    { method: 'item/agentMessage/delta', params: { itemId: 'answer', delta: 'The branch ' } },
+    { method: 'item/agentMessage/delta', params: { itemId: 'answer', delta: 'is clean.' } },
+    usageUpdate(last(1200, 1000, 100, 20)),
+  ])
+  const completed = payloads(events, 'turn_completed')[0]
+  expect(completed).toMatchObject({
+    text: 'The branch is clean.',
+    // Fresh input is what the cache's reads and writes leave of Codex's input.
+    usage: { inputTokens: 300, cacheReadTokens: 1800, cacheWriteTokens: 100, outputTokens: 70 },
+  })
+})
+
 test('a thread that is neither this one nor a subagent of it is still refused', async () => {
   const f = fixture()
   await runTurn(f, [

@@ -27,6 +27,7 @@ import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
 import {
   createConversationModuleRegistry,
   moduleConversationCeiling,
+  replyOf,
   type ModuleConversationDeps,
   type ModuleConversationRuntime,
   type ModuleConversationWorkspace,
@@ -932,7 +933,7 @@ test('subscribe and follow attach to a chat whose workspace is not loaded yet, f
   const unsubscribe = service.subscribe(ref, (event) => heard.push(event))
   const unfollow = service.follow(ref, undefined, (frame) => frames.push(frame))
   emit('content_delta', ref, { text: 'before it is known' })
-  assert.deepEqual(heard, [], 'nothing is delivered while the chat is unknown')
+  assert.equal(heard.length, 0, 'nothing is delivered while the chat is unknown')
   assert.equal(follows.length, 0, 'the follow waits for the chat')
 
   workspaces.push(loaded)
@@ -952,6 +953,44 @@ test('subscribe and follow attach to a chat whose workspace is not loaded yet, f
   unsubscribe()
   unfollow()
   assert.equal(follows[0]!.disposed, true)
+})
+
+test('reply reads a finished turn’s text off the transcript, for the owner with read access', async () => {
+  const permissions: Record<string, string[]> = { reviews: OPERATE }
+  const { registry } = harness(permissions)
+  const service = registry.forModule('reviews')
+  const created = await service.create({ workspaceId: 'ws-1', cli: 'claude-code' })
+  assert.ok(created.ok)
+  const ref = { workspaceId: 'ws-1', agentId: created.conversation.agentId }
+  // The harness's transcript has streamed text and no finished turn.
+  const none = await service.reply(ref)
+  assert.equal(!none.ok && none.code, 'no_reply')
+  const bad = await service.reply(ref, '')
+  assert.equal(!bad.ok && bad.code, 'invalid_input')
+  const other = await registry.forModule('calendar').reply(ref)
+  assert.equal(!other.ok && other.code, 'permission_missing')
+  permissions.calendar = ['conversation:read']
+  const notMine = await registry.forModule('calendar').reply(ref)
+  assert.equal(!notMine.ok && notMine.code, 'not_owned')
+})
+
+test('a reply is the turn’s own text, or what it streamed when the host did not record one', () => {
+  const ref = { workspaceId: 'ws-1', agentId: 'a' }
+  const events = [
+    event('content_delta', ref, { turnId: 't1', text: 'Looking. ' }),
+    event('content_delta', ref, { turnId: 't1', text: 'Found it.' }),
+    event('turn_completed', ref, { turnId: 't1' }),
+    event('content_delta', ref, { turnId: 't2', text: 'Narration, then ' }),
+    event('turn_completed', ref, { turnId: 't2', text: 'The answer.', usage: { inputTokens: 3, outputTokens: 4 } }),
+    event('content_delta', ref, { turnId: 't3', text: 'merged' }),
+    event('turn_completed', ref, { turnId: 't3', steered: true }),
+  ]
+  assert.deepEqual(replyOf(events), { ok: true, turnId: 't2', text: 'The answer.' }, 'a steered turn is not finished')
+  assert.deepEqual(replyOf(events, 't1'), { ok: true, turnId: 't1', text: 'Looking. Found it.' })
+  assert.deepEqual(replyOf(events, 't3'), { ok: true, turnId: 't3', text: 'merged' })
+  const missing = replyOf(events, 't9')
+  assert.equal(!missing.ok && missing.code, 'no_reply')
+  assert.equal(replyOf([]).ok, false)
 })
 
 test('a follow let go before its chat is known never starts', async () => {

@@ -41,6 +41,9 @@ export type HostCapability =
   // A companion's structured run takes `tools` ('none' by default, 'ask',
   // 'auto'), its handle `respondToApproval`, and its engine a chat runtime id.
   | 'companion-tools'
+  // `turn_completed` carries `text` and `usage`, and the conversation service
+  // has `reply(ref, turnId?)`.
+  | 'conversation-replies'
   | 'scheduled-agents'
   | 'secrets'
   | 'github'

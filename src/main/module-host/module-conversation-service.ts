@@ -296,6 +296,40 @@ function redactFrame(frame: ConversationSessionFrame): ModuleConversationStreamF
   return frame
 }
 
+/**
+ * A finished turn's reply, read off a transcript: the last finished turn's, or
+ * `turnId`'s. The reply is what `turn_completed` says (`text`: the agent's last
+ * message); a turn recorded before the host said it, or on a provider that does
+ * not, answers with the text the turn streamed. A turn a steered message merged
+ * into the next is not finished: its reply is the next one's.
+ */
+export function replyOf(
+  events: readonly ModuleConversationEvent[],
+  turnId?: string,
+): ModuleConversationResult<{ turnId: string; text: string }> {
+  const completed = events.findLast(
+    (event) =>
+      event.type === 'turn_completed' &&
+      typeof event.payload?.turnId === 'string' &&
+      (turnId === undefined ? event.payload.steered !== true : event.payload.turnId === turnId),
+  )
+  const id = completed?.payload?.turnId
+  if (!completed || typeof id !== 'string') {
+    return failure(
+      'no_reply',
+      turnId === undefined
+        ? 'This conversation has no finished turn yet.'
+        : `Turn "${turnId}" has not finished in this conversation.`,
+    )
+  }
+  if (typeof completed.payload?.text === 'string') return { ok: true, turnId: id, text: completed.payload.text }
+  const streamed = events
+    .filter((event) => event.type === 'content_delta' && event.payload?.turnId === id)
+    .map((event) => (typeof event.payload?.text === 'string' ? event.payload.text : ''))
+    .join('')
+  return { ok: true, turnId: id, text: streamed }
+}
+
 function actionResult(result: ConversationSessionActionResult): ModuleConversationResult {
   return result.ok ? { ok: true } : failure('runtime_refused', result.message)
 }
@@ -657,6 +691,28 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     }
   }
 
+  // A chat's log, redacted as every event a module reads is.
+  async function transcriptFor(
+    moduleId: string,
+    ref: ModuleConversationRef,
+  ): Promise<ModuleConversationResult<{ events: ModuleConversationEvent[] }>> {
+    if (!canRead(moduleId)) return missing(moduleId, 'conversation:read')
+    if (!isRef(ref)) return notOwned(ref)
+    const owned = findOwned(moduleId, ref)
+    if (!owned) return notOwned(ref)
+    if (!owned.workingRoot) {
+      return failure('workspace_folder_missing', `Workspace "${ref.workspaceId}" has no project folder.`)
+    }
+    const read = await deps.runtime
+      .readTranscript({ workspaceRoot: owned.workingRoot, workspaceId: ref.workspaceId, agentId: ref.agentId })
+      .catch((error: unknown): ConversationTranscriptResult => ({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      }))
+    if (!read.ok) return failure('runtime_refused', read.message)
+    return { ok: true, events: read.events.map(redactEvent) }
+  }
+
   // ── The service a module sees ───────────────────────────────────────────
 
   function forModule(moduleId: string): ModuleConversationService {
@@ -990,22 +1046,16 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         return close
       },
 
-      async transcript(ref) {
+      transcript: (ref) => transcriptFor(moduleId, ref),
+
+      async reply(ref, turnId) {
         if (!canRead(moduleId)) return missing(moduleId, 'conversation:read')
-        if (!isRef(ref)) return notOwned(ref)
-        const owned = findOwned(moduleId, ref)
-        if (!owned) return notOwned(ref)
-        if (!owned.workingRoot) {
-          return failure('workspace_folder_missing', `Workspace "${ref.workspaceId}" has no project folder.`)
+        if (turnId !== undefined && (typeof turnId !== 'string' || !turnId.trim())) {
+          return failure('invalid_input', '"turnId" must be a turn id when provided.')
         }
-        const read = await deps.runtime
-          .readTranscript({ workspaceRoot: owned.workingRoot, workspaceId: ref.workspaceId, agentId: ref.agentId })
-          .catch((error: unknown): ConversationTranscriptResult => ({
-            ok: false,
-            message: error instanceof Error ? error.message : String(error),
-          }))
-        if (!read.ok) return failure('runtime_refused', read.message)
-        return { ok: true, events: read.events.map(redactEvent) }
+        const read = await transcriptFor(moduleId, ref)
+        if (!read.ok) return read
+        return replyOf(read.events, turnId)
       },
 
       list(filter) {
@@ -1052,6 +1102,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     subscribe: (moduleId, ref, cb) => serviceFor(moduleId).subscribe(ref, cb),
     follow: (moduleId, ref, options, onFrame) => serviceFor(moduleId).follow(ref, options, onFrame),
     transcript: (moduleId, ref) => serviceFor(moduleId).transcript(ref),
+    reply: (moduleId, ref, turnId) => serviceFor(moduleId).reply(ref, turnId),
     list: (moduleId, filter) => serviceFor(moduleId).list(filter),
     watch: (moduleId, filter, cb) => serviceFor(moduleId).watch(filter, cb),
   }

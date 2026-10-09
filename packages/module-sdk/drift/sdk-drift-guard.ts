@@ -546,6 +546,14 @@ expectType<IsExact<appConversation.ModuleConversationPage, sdk.ModuleConversatio
 expectType<IsExact<appConversation.ModuleConversationStreamFrame, sdk.ModuleConversationStreamFrame>>()
 expectType<IsExact<appConversation.ModuleConversationFollowOptions, sdk.ModuleConversationFollowOptions>>()
 expectType<IsExact<appConversation.ModuleConversationCommandOptions, sdk.ModuleConversationCommandOptions>>()
+// Agents, conversations and scheduled agents: what `turn_completed` documents
+// (the reply text and the usage other services count from) is the protocol's.
+expectType<IsExact<appConversation.ModuleConversationTurnUsage, sdk.ModuleConversationTurnUsage>>()
+expectType<
+  IsExact<appConversation.ModuleConversationTurnCompletedPayload, sdk.ModuleConversationTurnCompletedPayload>
+>()
+expectType<IsExact<protocol.ConversationTurnUsage, sdk.ModuleConversationTurnUsage>>()
+expectType<IsExact<protocol.ConversationTurnCompletedPayload, sdk.ModuleConversationTurnCompletedPayload>>()
 
 // Against the protocol package directly, so a change there fails here even
 // where the app's module contract would let it through.

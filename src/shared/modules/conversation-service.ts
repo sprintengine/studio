@@ -13,6 +13,8 @@ import type {
   ConversationImageAttachment,
   ConversationPermissionPreset,
   ConversationSessionStatus,
+  ConversationTurnCompletedPayload,
+  ConversationTurnUsage,
 } from '../conversation-runtime'
 import type {
   ConversationPage,
@@ -34,6 +36,9 @@ export type ModuleConversationApprovalDecision = ConversationRequestDecision
 export type ModuleConversationPlanDecision = ConversationPlanDecision
 export type ModuleConversationPage = ConversationPage
 export type ModuleConversationStreamFrame = ConversationStreamFrame
+// What `turn_completed` documents about a turn: its reply text and its usage.
+export type ModuleConversationTurnUsage = ConversationTurnUsage
+export type ModuleConversationTurnCompletedPayload = ConversationTurnCompletedPayload
 
 // Where a `follow` starts: after the sequence a module already holds, in the
 // log generation it read it from. Absent, from a snapshot.
@@ -70,6 +75,8 @@ export type ModuleConversationErrorCode =
   | 'agent_write_failed'
   | 'conversation_start_failed'
   | 'runtime_refused'
+  // `reply`: the conversation has no finished turn (with that id).
+  | 'no_reply'
 
 export type ModuleConversationCreateInput = {
   workspaceId: string
@@ -157,6 +164,8 @@ export type ModuleConversationService = {
     onFrame: (frame: ModuleConversationStreamFrame) => void,
   ): () => void
   transcript(ref: ModuleConversationRef): Promise<ModuleConversationResult<{ events: ModuleConversationEvent[] }>>
+  // The reply of a finished turn (the last one, or `turnId`'s), read off the transcript.
+  reply(ref: ModuleConversationRef, turnId?: string): Promise<ModuleConversationResult<{ turnId: string; text: string }>>
   list(filter?: { workspaceId?: string }): ModuleConversationSummary[]
   watch(
     filter: { workspaceId?: string } | undefined,

@@ -2,13 +2,14 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, test } from 'vitest'
+import { afterEach, expect, test } from 'vitest'
 
 import { ConversationRuntime } from './conversation-runtime'
 import {
   companionProviderIdFor,
   createCompanionAgentService,
   createCompanionAgentsModuleRegistry,
+  redactEvent,
   type CompanionAgentService,
 } from './companion-agent-service'
 import { createMockConversationProvider } from './providers/mock-conversation-provider'
@@ -185,6 +186,31 @@ test('a module needs conversation:bypass for tools: auto, and conversation:opera
   await assert.rejects(bypass.runStructured({ prompt: 'Go.', tools: 'auto', retries: 0, validate: notJson }))
   assert.ok(events.includes('turn_completed'), 'with conversation:bypass the run approved its way to the end')
   assert.equal(registry.attach('bypass', spec), bypass, 'the same companion is the same handle')
+})
+
+test('redaction keeps a turn’s token counts and still hides secret-shaped keys', () => {
+  const redacted = redactEvent({
+    id: 'e',
+    sessionId: 's',
+    workspaceId: 'w',
+    agentId: 'a',
+    providerId: 'p',
+    modelId: 'm',
+    type: 'turn_completed',
+    createdAt: 0,
+    payload: {
+      text: 'Done.',
+      usage: { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4 },
+      accessToken: 'secret',
+      refreshTokens: 'not a count',
+    },
+  })
+  expect(redacted.payload).toEqual({
+    text: 'Done.',
+    usage: { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4 },
+    accessToken: '[redacted]',
+    refreshTokens: '[redacted]',
+  })
 })
 
 test('a companion engine takes a chat runtime id or a provider id', () => {

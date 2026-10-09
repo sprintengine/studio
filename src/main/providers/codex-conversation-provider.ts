@@ -10,7 +10,9 @@ import type {
   ConversationMcpServer,
   ConversationPermissionPreset,
   ConversationSubagentState,
+  ConversationTurnUsage,
 } from '../../shared/conversation-runtime'
+import { addTurnUsage, turnUsageOf } from '../../shared/conversation/turn-usage'
 import type {
   ConversationProviderAdapter,
   MockAdapterSessionInput,
@@ -119,6 +121,13 @@ type ActiveTurn = {
   deferredApprovals: Map<string, (item: RecordValue) => void>
   message: string
   text: string
+  // The agent message said last, and its item: what `turn_completed` reports
+  // as the turn's reply. Codex says its narration and its answer as separate
+  // messages, and the answer is the last one.
+  reply: string
+  replyItem: string | null
+  // What the turn's model requests spent, summed from each `last` report.
+  usage: ConversationTurnUsage | null
   // A `/compact` turn: Codex runs it from `thread/compact/start`, not a prompt.
   compact: boolean
   // Notes already written this turn, so a failure Codex retries reads once.
@@ -280,10 +289,15 @@ export function createCodexConversationProvider(
     // its end branches the thread through (`thread/fork`'s `lastTurnId`).
     const providerCursor =
       state.threadId && state.turn.nativeId ? { sessionId: state.threadId, at: state.turn.nativeId } : null
+    const reply = state.turn.reply.trim() ? state.turn.reply : ''
     emit(state, failure ? 'turn_failed' : 'turn_completed', {
       ...(failure
         ? { message: failure, reason: 'provider_error', ...(refused ? { refused: true } : {}) }
-        : { interrupted }),
+        : {
+            interrupted,
+            ...(reply && !interrupted ? { text: reply } : {}),
+            ...(state.turn.usage ? { usage: state.turn.usage } : {}),
+          }),
       ...(providerCursor ? { providerCursor } : {}),
     })
     if (state.turn.watchdog) clearTimeout(state.turn.watchdog)
@@ -315,6 +329,11 @@ export function createCodexConversationProvider(
     if (!value) return
     const seam = turn.textItem !== null && turn.textItem !== itemId
     turn.textItem = itemId
+    if (turn.replyItem === itemId) turn.reply += value
+    else {
+      turn.replyItem = itemId
+      turn.reply = value
+    }
     emit(state, 'content_delta', { text: seam ? `\n\n${value}` : value })
   }
   // Closes the app-server so the next turn resumes the thread without the
@@ -512,6 +531,21 @@ export function createCodexConversationProvider(
       // session's running sum, which outgrows any window within a few turns.
       const contextUsed = positiveNumber(usage.totalTokens)
       const contextWindow = positiveNumber(tokenUsage.modelContextWindow)
+      // `last` is one request's spend; the turn's is their sum. Codex counts
+      // the cache's reads and writes inside its input (its total is input
+      // plus output), so the fresh input is what is left of it.
+      const input = typeof usage.inputTokens === 'number' ? usage.inputTokens : undefined
+      const cacheRead = typeof usage.cachedInputTokens === 'number' ? usage.cachedInputTokens : undefined
+      const cacheWrite = typeof usage.cacheWriteInputTokens === 'number' ? usage.cacheWriteInputTokens : undefined
+      turn.usage = addTurnUsage(
+        turn.usage,
+        turnUsageOf({
+          inputTokens: input !== undefined ? Math.max(0, input - (cacheRead ?? 0) - (cacheWrite ?? 0)) : undefined,
+          outputTokens: usage.outputTokens,
+          cacheReadTokens: cacheRead,
+          cacheWriteTokens: cacheWrite,
+        }),
+      )
       emit(state, 'usage_updated', {
         inputTokens: usage.inputTokens,
         // The share of the input OpenAI's prompt cache served. Codex reports no
@@ -1082,6 +1116,9 @@ export function createCodexConversationProvider(
         deferredApprovals: new Map(),
         message: input.message,
         text: '',
+        reply: '',
+        replyItem: null,
+        usage: null,
         compact: compact !== null,
         notes: new Set(),
         plans: 0,

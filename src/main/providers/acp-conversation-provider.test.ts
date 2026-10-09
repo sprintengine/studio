@@ -226,6 +226,10 @@ test('ACP streams text, reasoning, typed edits, permissions, usage and workspace
       newText: 'approved write',
     })
     expect(await readFile(join(f.root, 'result.txt'), 'utf8')).toBe('approved write')
+    // The turn's end says the agent's last message and what the turn spent.
+    const completed = events.find((event) => event.type === 'turn_completed')?.payload
+    expect(completed).toMatchObject({ stopReason: 'end_turn', text: 'Done', usage: { inputTokens: 10, outputTokens: 2 } })
+    expect(completed?.usage).not.toHaveProperty('cacheReadTokens')
     expect(f.provider.listLiveSessions?.()[0]).toMatchObject({
       hasChildProcess: true,
       turnActive: false,

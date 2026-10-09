@@ -25,6 +25,9 @@ export type ModuleConversationEventType =
   | 'usage_updated'
   | 'context_compacted'
   | 'command_output'
+  // The turn ended. Its payload carries `ModuleConversationTurnCompletedPayload`:
+  // `text` (the agent's last message) and `usage` (what the turn spent) where
+  // the provider can say them, beside `costUsd`.
   | 'turn_completed'
   | 'turn_failed'
   | 'subagent_status'
@@ -44,6 +47,45 @@ export type ModuleConversationEvent = {
   type: ModuleConversationEventType
   createdAt: number
   payload?: Record<string, unknown>
+}
+
+/**
+ * What one turn spent, in tokens, summed over every model request it made
+ * (tool rounds included). `inputTokens` is only the input the model read
+ * fresh; the prompt cache's share is `cacheReadTokens`, and what the turn
+ * wrote to the cache is `cacheWriteTokens`, so the four add up to everything
+ * the turn sent and received. A member the provider cannot report is absent,
+ * never zero: Claude Code and Codex report all four, an ACP agent (Cursor,
+ * OpenCode, Grok) what its own protocol carries.
+ */
+export type ModuleConversationTurnUsage = {
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+}
+
+/**
+ * The documented members of a `turn_completed` event's payload. Event payloads
+ * stay `Record<string, unknown>` (read them defensively; a member is additive
+ * and a host or provider may leave it out), and these are the ones worth
+ * reading:
+ *
+ * - `text`: the agent's last message of the turn, which is what the person
+ *   reads as its answer (not its narration between tool calls). Absent when
+ *   the turn ended without one. `reply(ref)` reads it for you.
+ * - `usage`: what the turn spent (`ModuleConversationTurnUsage`).
+ * - `costUsd`: what the turn cost, where the provider prices it.
+ *
+ * `host.supports('conversation-replies')` says the host records `text` and
+ * `usage`.
+ */
+export type ModuleConversationTurnCompletedPayload = {
+  turnId?: string
+  text?: string
+  usage?: ModuleConversationTurnUsage
+  costUsd?: number
+  durationMs?: number
 }
 
 export type ModuleConversationStatus = 'starting' | 'ready' | 'active' | 'awaiting_approval' | 'stopped' | 'failed'
@@ -155,6 +197,8 @@ export type ModuleConversationErrorCode =
   | 'agent_write_failed'
   | 'conversation_start_failed'
   | 'runtime_refused'
+  // `reply`: the conversation has no finished turn (with that id).
+  | 'no_reply'
 
 export type ModuleConversationCreateInput = {
   workspaceId: string
@@ -314,6 +358,15 @@ export type ModuleConversationService = {
     onFrame: (frame: ModuleConversationStreamFrame) => void,
   ): () => void
   transcript(ref: ModuleConversationRef): Promise<ModuleConversationResult<{ events: ModuleConversationEvent[] }>>
+  /**
+   * The reply of a finished turn: the last one's, or `turnId`'s (a
+   * `turn_started` / `turn_completed` payload's `turnId`). It is the agent's
+   * last message of that turn (`turn_completed`'s `text`); for a turn recorded
+   * before the host said it, the text the turn streamed. Answers `no_reply`
+   * while no turn (or not that one) has finished. Covered by
+   * `conversation:read`. Check `host.supports('conversation-replies')`.
+   */
+  reply(ref: ModuleConversationRef, turnId?: string): Promise<ModuleConversationResult<{ turnId: string; text: string }>>
   list(filter?: { workspaceId?: string }): ModuleConversationSummary[]
   /** `cb` fires once with the current list, then on every change. Returns the unsubscriber. */
   watch(
@@ -351,7 +404,7 @@ function notOnThisHost(
 }
 
 // The methods a host may be older than.
-type LaterMethods = 'setPermissionPreset' | 'setModel' | 'answerQuestion' | 'resolvePlan' | 'follow'
+type LaterMethods = 'setPermissionPreset' | 'setModel' | 'answerQuestion' | 'resolvePlan' | 'follow' | 'reply'
 
 /**
  * The scoped conversation service for `host`'s module. The raw host registry
@@ -408,6 +461,8 @@ export function getConversationService(host: MainHost): ModuleConversationServic
       return () => {}
     },
     transcript: (ref) => registry.transcript(moduleId, ref),
+    reply: (ref, turnId) =>
+      registry.reply ? registry.reply(moduleId, ref, turnId) : notOnThisHost('reply', 'conversation-replies'),
     list: (filter) => registry.list(moduleId, filter),
     watch: (filter, cb) => registry.watch(moduleId, filter, cb),
   }
