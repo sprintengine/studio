@@ -4,6 +4,14 @@
 
 ### Added
 
+- **A message may bring skills.** `CONVERSATION_SEND_SKILLS_CAPABILITY`
+  (`conversation-send-skills`) names a desktop that takes `skills` on `send`:
+  ids of its skills the chat runs with that message, at most
+  `CONVERSATION_MAX_SEND_SKILLS`, as its own composer's skill chips do. Never
+  beside `queue`. `parseConversationClientMessage` keeps the list when every
+  member is a skill id and refuses the frame otherwise. A desktop without the
+  capability drops the member.
+
 - **A listed chat names its branch.** `branch` is an optional member of
   `ConversationThread`: the branch the chat's folder is checked out on, as its
   HEAD names it, which the desktop's own sidebar shows on the chat's line.

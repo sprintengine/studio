@@ -42,13 +42,17 @@ export type ConversationQuestionAnswers = Record<string, string>
  *   words alone, so `queue` never rides beside `uploadIds`. Needs
  *   `conversation-queued-sends`; a desktop without it drops the member, and
  *   a send made while a turn runs is refused `busy`, as every send was.
+ * - `send` may name `skills`: ids of the desktop's skills the chat runs with
+ *   this message, at most `CONVERSATION_MAX_SEND_SKILLS`. Never beside
+ *   `queue`. Needs `conversation-send-skills`; a desktop without it drops the
+ *   member and the message goes without them.
  * - `cancelQueued` takes back a message the desktop holds (`queued` frames
  *   name each by `id`), refused once it is on its way into the chat. Needs
  *   `conversation-queued-sends` too.
  */
 export type ConversationCommand =
   | Exclude<ConversationWireCommand, { kind: 'setPermissionPreset' } | { kind: 'send' }>
-  | { kind: 'send'; message: string; uploadIds?: string[]; queue?: true }
+  | { kind: 'send'; message: string; uploadIds?: string[]; queue?: true; skills?: string[] }
   | { kind: 'setPermissionPreset'; preset: ConversationWirePermissionPreset; permissionMode?: string }
   | { kind: 'resolvePlan'; requestId: string; decision: ConversationPlanDecision }
   | { kind: 'cancelQueued'; queuedId: string }
@@ -140,6 +144,8 @@ export type ConversationCreateRequest = {
 
 /** The most tools `allowedTools` names. */
 export const CONVERSATION_MAX_ALLOWED_TOOLS = 64
+/** The most skills a send names. */
+export const CONVERSATION_MAX_SEND_SKILLS = 32
 /** The most skills a create names. */
 export const CONVERSATION_MAX_CREATE_SKILLS = 32
 

@@ -3825,6 +3825,8 @@ export default function WorkspaceManager() {
           // The staged images, as bytes: main puts them in that machine's
           // upload store and the first message names them there.
           ...(launch.images?.length ? { attachments: launch.images } : {}),
+          // That machine's skills, installed and run over there.
+          ...(launch.skills?.length ? { skills: launch.skills } : {}),
         })
         .catch((error: unknown): { ok: false; code: string; message: string } => ({
           ok: false,

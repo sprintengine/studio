@@ -212,12 +212,15 @@ test('tailnet-pairing-roundtrip', async () => {
         'conversation-cli-permission-modes',
         'conversation-lifecycle',
         'conversation-queued-sends',
+        'conversation-send-skills',
         'new-chat-worktree',
         'new-chat-effort',
         'cli-runtime-catalog',
         'chat-mark-unread',
         'new-chat-worktree-name',
         'new-chat-in-worktree',
+        'workspace-extensions',
+        'new-chat-skills',
       ])
 
       // The pairing is real only if the token it produced actually drives tools.
@@ -369,12 +372,15 @@ test('tailnet-pairing-roundtrip', async () => {
         'conversation-cli-permission-modes',
         'conversation-lifecycle',
         'conversation-queued-sends',
+        'conversation-send-skills',
         'new-chat-worktree',
         'new-chat-effort',
         'cli-runtime-catalog',
         'chat-mark-unread',
         'new-chat-worktree-name',
         'new-chat-in-worktree',
+        'workspace-extensions',
+        'new-chat-skills',
       ])
 
       const scanned = parsePairingUrl(harness.service.offerPairing().pairingUrl ?? '')

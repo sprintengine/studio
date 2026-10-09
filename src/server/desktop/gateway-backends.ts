@@ -60,6 +60,7 @@ export type GatewayBackendDeps = Pick<
   | 'listInstalledThirdPartyModules'
   | 'listModuleContributedTools'
   | 'readMarketplaceRegistry'
+  | 'readWorkspaceExtensions'
 > & {
   /**
    * The ids the person added for a CLI in Settings, from the launch settings

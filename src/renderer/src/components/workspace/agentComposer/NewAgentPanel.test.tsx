@@ -1106,18 +1106,19 @@ test('NewAgentPanel', async () => {
         dom.window.document.querySelector('[role="dialog"][aria-label="Skills and MCPs"]') as HTMLElement | null
       assert.ok(surface(), 'the picker opened')
       const text = surface()!.textContent ?? ''
-      // No "Add": the picker's Add rows were the bundled catalogue's servers,
-      // and the catalogue is gone. What is left under MCP servers is
-      // the studio gateway (Included) and the servers this workspace installed.
-      for (const label of [
-        'Skills in this workspace',
-        'Available to install',
-        'MCP servers',
-        'Install',
-        'Included',
-        'sprintengine-studio',
-      ]) {
+      // It opens on Skills; the servers are the other tab.
+      for (const label of ['Skills in this workspace', 'Available to install', 'Install']) {
         assert.ok(text.includes(label), `the open picker shows "${label}"`)
+      }
+      assert.ok(!text.includes('sprintengine-studio'), 'the servers wait behind their tab')
+      const showServers = async () => {
+        const tab = Array.from(surface()!.querySelectorAll('[role="radio"]')).find(
+          (el) => el.textContent === 'MCP servers',
+        ) as HTMLElement | undefined
+        assert.ok(tab, 'the MCP servers tab is offered')
+        await act(async () => {
+          tab!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
       }
       const listbox = surface()!.querySelector('[role="listbox"]')
       assert.equal(listbox?.getAttribute('aria-multiselectable'), 'true', 'the list is a multi-select listbox')
@@ -1169,6 +1170,11 @@ test('NewAgentPanel', async () => {
 
       // An installed MCP server whose clients do not yet reach the launch CLI:
       // the pick adds the CLI and syncs the workspace config before it counts.
+      // No "Add": the picker's Add rows were the bundled catalogue's servers,
+      // and the catalogue is gone. What is left is the studio gateway and the
+      // servers this workspace installed.
+      await showServers()
+      assert.ok((surface()!.textContent ?? '').includes('sprintengine-studio'), 'the studio gateway is listed')
       const linearRow = surface()!.querySelector('[data-picker-row="mcp:linear"]') as HTMLElement | null
       assert.ok(linearRow, 'the installed server is listed')
       await act(async () => {
@@ -1224,6 +1230,12 @@ test('NewAgentPanel', async () => {
         })
       }
       const surface = dom.window.document.querySelector('[role="dialog"][aria-label="Skills and MCPs"]') as HTMLElement
+      const serversTab = Array.from(surface.querySelectorAll('[role="radio"]')).find(
+        (el) => el.textContent === 'MCP servers',
+      ) as HTMLElement
+      await act(async () => {
+        serversTab.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
       const linearRow = surface.querySelector('[data-picker-row="mcp:linear"]') as HTMLElement
       await act(async () => {
         linearRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -1285,13 +1297,31 @@ test('NewAgentPanel', async () => {
       assert.equal(row!.state, 'installed', 'and it is installed — there is no Add row left to confuse it with')
       assert.equal(rows.filter((entry) => entry.id === 'io-snyk-mcp').length, 1, 'exactly once')
 
-      // A disabled server is not offered: the picker adds servers to a launch,
-      // and a launch cannot use one the person turned off.
-      const off = buildMcpRows({ 'io-snyk-mcp': { ...fromPlugin, enabled: false } })
-      assert.equal(
-        off.some((entry) => entry.id === 'io-snyk-mcp'),
-        false,
-        'a disabled server is not a row',
+      // A disabled server is listed as disabled, whatever a CLI last said
+      // about it: picking it switches it back on for the launch.
+      const off = buildMcpRows({ 'io-snyk-mcp': { ...fromPlugin, enabled: false } }, [
+        {
+          id: 'io-snyk-mcp',
+          transport: 'stdio',
+          scope: 'workspace',
+          configPath: '/proj/.mcp.json',
+          status: 'connected',
+        },
+      ])
+      assert.equal(off.find((entry) => entry.id === 'io-snyk-mcp')?.status, 'disabled', 'a disabled server says so')
+
+      // A server only the CLI knows (its own settings, a plugin, its account)
+      // is listed with what it reported, and is not the picker's to add.
+      const reported = buildMcpRows({}, [
+        { id: 'notion', transport: '', scope: 'session', status: 'needs-auth' },
+        { id: 'figma', transport: '', scope: 'session', status: 'failed', error: 'ECONNREFUSED 127.0.0.1:3845' },
+      ])
+      assert.deepEqual(
+        reported.filter((entry) => entry.state === 'configured').map((entry) => [entry.id, entry.status, entry.error]),
+        [
+          ['notion', 'needs-auth', undefined],
+          ['figma', 'failed', 'ECONNREFUSED 127.0.0.1:3845'],
+        ],
       )
     })
 
@@ -3778,22 +3808,16 @@ test('NewAgentPanel', async () => {
       }
     })
 
-    await check('a terminal agent: a / mid-draft inserts the CLI’s mention in place of just its token', async () => {
+    await check('a terminal agent: / opens no picker here, its CLI has its own once it starts', async () => {
       seedStore()
       const view = await render({ initialSelection: { kind: 'general' } })
       const field = composerField(view.container)
-      const { EditorView } = await import('@codemirror/view')
       await act(async () => {
-        typeIntoComposer(field, 'first line\nthen /back the rest')
-        EditorView.findFromDOM(field.closest<HTMLElement>('.cm-editor')!)!.dispatch({ selection: { anchor: 21 } })
+        typeIntoComposer(field, 'first line\n/back')
       })
       await settlePicker()
-      assert.ok(skillRow('backlog'), 'the caret in the token opens the picker')
-      await act(async () => {
-        skillRow('backlog')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      await settlePicker()
-      assert.equal(composerText(field), 'first line\nthen /backlog the rest', 'the rest of the draft is left as it was')
+      assert.equal(skillRow('backlog'), undefined, 'no skill picker opens for a terminal launch')
+      assert.equal(composerText(field), 'first line\n/back', 'the draft is left as typed')
       view.unmount()
     })
 

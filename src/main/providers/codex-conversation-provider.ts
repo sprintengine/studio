@@ -30,6 +30,8 @@ import {
 } from './codex-json-rpc'
 import { explainCodexInitializeTimeout, isCodexInitializeTimeout } from './codex-start-failure'
 import { conversationCommandsFor, publishConversationCommands } from '../conversation-commands/registry'
+import { mcpServerStatusFor, publishMcpServerStatus } from '../mcp-server-status/registry'
+import type { AgentMcpServerStatus } from '../../shared/skills'
 import { CODEX_COMPACT_COMMAND, codexCompactRequest, codexConversationCommands } from '../conversation-commands/codex'
 import type { ConversationCommand } from '../../shared/conversation/commands'
 import { codexPlanInput, codexTool, codexToolResult } from './codex-items'
@@ -716,15 +718,25 @@ export function createCodexConversationProvider(
         return
       // A server that failed to start fails every thread that uses it: said
       // once for the conversation, not on every turn.
+      case 'mcpServer/oauthLogin/completed':
+        void refreshMcpServers(state)
+        return
       case 'mcpServer/startupStatus/updated': {
         const name = text(params.name)
-        if (params.status !== 'failed' || !name || state.failedServers.has(name)) return
-        state.failedServers.add(name)
         // Codex's error opens by naming the server again.
         const error = text(params.error).replace(
           /^MCP client for `[^`]*` failed to start:\s*(MCP startup failed:\s*)?/,
           '',
         )
+        const status = CODEX_MCP_STATUS[text(params.status)]
+        if (name && status && state.input.workspaceRoot)
+          publishMcpServerStatus({
+            cli: 'codex',
+            cwd: state.input.workspaceRoot,
+            servers: [{ id: name, status, ...(status === 'failed' && error ? { error } : {}) }],
+          })
+        if (params.status !== 'failed' || !name || state.failedServers.has(name)) return
+        state.failedServers.add(name)
         note(state, `Codex's MCP server “${name}” did not start${error ? `: ${error}` : '.'}`)
         return
       }
@@ -869,6 +881,58 @@ export function createCodexConversationProvider(
       })
     }
   }
+  // Codex's own account of each MCP server: whether it connected, whether it
+  // waits for a sign-in, and the tools it brought. Published for the composer
+  // beside the startup states its notifications carry.
+  async function refreshMcpServers(state: Session): Promise<void> {
+    const transport = state.transport
+    const cwd = state.input.workspaceRoot
+    if (!transport || !cwd) return
+    const answer = await transport
+      .request('mcpServerStatus/list', { ...(state.threadId ? { threadId: state.threadId } : {}) })
+      .catch(() => null)
+    const listed = Array.isArray(record(answer).data) ? (record(answer).data as unknown[]) : null
+    if (!listed || state.transport !== transport) return
+    publishMcpServerStatus({
+      cli: 'codex',
+      cwd,
+      replace: true,
+      servers: listed.flatMap((entry) => {
+        const server = record(entry)
+        const id = text(server.name)
+        const status = codexServerStatus(text(server.runtimeStatus), text(server.authStatus))
+        if (!id || !status) return []
+        const error = text(server.toolsError)
+        const tools = record(server.tools)
+        return [
+          {
+            id,
+            status,
+            ...(error ? { error } : {}),
+            ...(status === 'connected' ? { toolCount: Object.keys(tools).length } : {}),
+          },
+        ]
+      }),
+    })
+  }
+
+  // A sign-in finishes in the browser; Codex says so with
+  // `mcpServer/oauthLogin/completed`, and until then the list is read again
+  // now and then for as long as a person takes to sign in.
+  function watchSignIn(state: Session, serverId: string): void {
+    const startedAt = Date.now()
+    const check = async () => {
+      if (!state.transport || Date.now() - startedAt > MCP_SIGN_IN_WATCH_MS) return
+      await refreshMcpServers(state)
+      const known = state.input.workspaceRoot
+        ? mcpServerStatusFor('codex', state.input.workspaceRoot).get(serverId)
+        : null
+      if (known && known.status !== 'needs-auth' && known.status !== 'pending') return
+      setTimeout(() => void check(), MCP_SIGN_IN_POLL_MS).unref?.()
+    }
+    setTimeout(() => void check(), MCP_SIGN_IN_POLL_MS).unref?.()
+  }
+
   async function ensureConnected(state: Session) {
     if (state.transport) return
     if (state.starting) return state.starting
@@ -983,6 +1047,7 @@ export function createCodexConversationProvider(
         state.threadId = id
         state.forkFrom = null
         void publishSkills(state)
+        void refreshMcpServers(state)
         if (resumeLost || forkLost) state.replayHistory = true
         emit(state, 'session_updated', {
           providerSessionId: id,
@@ -1041,6 +1106,7 @@ export function createCodexConversationProvider(
       cost: false,
       contextMeter: false,
       liveModelSwitch: true,
+      mcpServerActions: ['reconnect', 'sign-in'],
       fork: true,
     },
     // A fork branches the parent's thread through the turn it was made at,
@@ -1285,6 +1351,33 @@ export function createCodexConversationProvider(
     // turn the session's current model, so a switch needs no reconnect: it is
     // recorded here for a thread resume and simply rides the next turn. The
     // turn already running keeps the model it started with.
+    // Codex reloads every server from its config on a reconnect; switching
+    // one on or off is its `config.toml`'s, not a running thread's.
+    async mcpServerAction(input) {
+      const state = sessions.get(input.sessionId)
+      if (!state) return { ok: false, message: 'Codex conversation is not active.' }
+      try {
+        await ensureConnected(state)
+        const transport = state.transport
+        if (!transport) return { ok: false, message: 'Codex is not running for this chat.' }
+        if (input.action === 'reconnect') await transport.request('config/mcpServer/reload', undefined)
+        else if (input.action === 'sign-in') {
+          const answer = record(
+            await transport.request('mcpServer/oauth/login', {
+              name: input.serverId,
+              ...(state.threadId ? { threadId: state.threadId } : {}),
+            }),
+          )
+          watchSignIn(state, input.serverId)
+          const authUrl = text(answer.authorizationUrl)
+          return { ok: true, ...(/^https?:\/\//u.test(authUrl) ? { authUrl } : {}) }
+        } else return { ok: false, message: 'Codex switches its MCP servers on and off in its config.toml.' }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Codex refused that.' }
+      }
+      await refreshMcpServers(state)
+      return { ok: true }
+    },
     async setModel(input) {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Codex conversation is not active.' }
@@ -1518,6 +1611,26 @@ function imageExtension(bytes: Buffer): string {
  * Codex reads an override's key as a dotted path, so an id with a dot in it
  * cannot be named and refuses the start.
  */
+// How long, and how often, a server's state is read again after a sign-in.
+const MCP_SIGN_IN_WATCH_MS = 5 * 60_000
+const MCP_SIGN_IN_POLL_MS = 3_000
+
+/** A server in Codex's status list, as the picker says its connection; null for one not started. */
+function codexServerStatus(runtime: string, auth: string): AgentMcpServerStatus | null {
+  if (runtime === 'connected') return 'connected'
+  if (runtime === 'authenticationRequired' || auth === 'notLoggedIn') return 'needs-auth'
+  if (runtime === 'failed') return 'failed'
+  if (runtime === 'starting') return 'pending'
+  return null
+}
+
+/** Codex's startup states, as the picker says a server's connection. */
+const CODEX_MCP_STATUS: Readonly<Record<string, AgentMcpServerStatus>> = {
+  starting: 'pending',
+  ready: 'connected',
+  failed: 'failed',
+}
+
 export function codexMcpServerArgs(servers: readonly ConversationMcpServer[]): string[] {
   const str = (value: string): string => JSON.stringify(value)
   const table = (entries: Array<[string, string]>): string =>

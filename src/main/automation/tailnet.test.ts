@@ -781,12 +781,15 @@ test('tailnet', async () => {
         'conversation-cli-permission-modes',
         'conversation-lifecycle',
         'conversation-queued-sends',
+        'conversation-send-skills',
         'new-chat-worktree',
         'new-chat-effort',
         'cli-runtime-catalog',
         'chat-mark-unread',
         'new-chat-worktree-name',
         'new-chat-in-worktree',
+        'workspace-extensions',
+        'new-chat-skills',
       ])
 
       // The pairing code is one-time: replaying it does not mint a second device.
@@ -878,12 +881,15 @@ test('tailnet', async () => {
         'conversation-cli-permission-modes',
         'conversation-lifecycle',
         'conversation-queued-sends',
+        'conversation-send-skills',
         'new-chat-worktree',
         'new-chat-effort',
         'cli-runtime-catalog',
         'chat-mark-unread',
         'new-chat-worktree-name',
         'new-chat-in-worktree',
+        'workspace-extensions',
+        'new-chat-skills',
       ])
       assert.deepEqual([...TAILNET_CAPABILITIES], body.capabilities)
       // Nothing about this machine, its user, its workspaces, or its devices.

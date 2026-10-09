@@ -50,6 +50,13 @@ export const CONVERSATION_LIFECYCLE_CAPABILITY = 'conversation-lifecycle' as con
  * or closes before the turn ends; one the desktop holds is not.
  */
 export const CONVERSATION_QUEUED_SENDS_CAPABILITY = 'conversation-queued-sends' as const
+/**
+ * A message may bring skills with it: `send` takes `skills`, the ids of skills
+ * on the desktop that the chat should run with that message, as its own
+ * composer's skill chips do. The desktop installs each into the chat's folder
+ * if it is not there and keeps them on the chat.
+ */
+export const CONVERSATION_SEND_SKILLS_CAPABILITY = 'conversation-send-skills' as const
 
 /**
  * Every conversation capability this version of the package knows, in the
@@ -66,6 +73,7 @@ export const CONVERSATION_CAPABILITIES = [
   CONVERSATION_CLI_PERMISSION_MODES_CAPABILITY,
   CONVERSATION_LIFECYCLE_CAPABILITY,
   CONVERSATION_QUEUED_SENDS_CAPABILITY,
+  CONVERSATION_SEND_SKILLS_CAPABILITY,
 ] as const
 
 export type ConversationCapability = (typeof CONVERSATION_CAPABILITIES)[number]

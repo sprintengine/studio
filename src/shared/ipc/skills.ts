@@ -29,6 +29,10 @@ export type WorkspaceSkill = {
   harnesses: SkillHarness[]
   installState: WorkspaceSkillInstallState
   version?: string
+  /** The skill source a copy was installed from, by its provenance marker; it is how the skill wears its owner's face. */
+  sourceId?: string
+  /** That source's GitHub repository (`owner/name`), for a skill listed by another machine, whose sources are not here. */
+  sourceRepo?: string
 }
 
 export type WorkspaceSkillsListInput = {

@@ -26,6 +26,8 @@ import type {
   ConversationSkillRef,
   ConversationSubagentStatusPayload,
   ConversationSetModelInput,
+  ConversationMcpServerActionInput,
+  ConversationMcpServerActionResult,
   ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
@@ -181,6 +183,10 @@ type RuntimeSession = ConversationSessionSummary & {
   // runs that message as the command, so they wait here and go with the next
   // message that is not one, exactly once.
   pendingSkills?: ConversationSkillRef[]
+  // Skills the CLI has been told to run in this chat. They live in its own
+  // history from then on, so a skill that stays attached is run once, not on
+  // every message.
+  invokedSkills?: Set<string>
   approvalRequests: Map<string, PermissionModeRequest>
   automaticApprovals: Map<string, string>
   // Requests an answer has been sent for, by the person, a remembered rule or
@@ -908,6 +914,8 @@ export class ConversationRuntime {
         workspaceRoot: session.workspaceRoot,
         skills: turnSkills,
         mode: adapter.capabilities?.skills ?? 'none',
+        cli: cliForConversationProvider(session.providerId),
+        ...(session.invokedSkills ? { invoked: session.invokedSkills } : {}),
       })
       mentions = await resolveConversationMentions({
         workspaceRoot: session.workspaceRoot,
@@ -944,7 +952,12 @@ export class ConversationRuntime {
     // The files attached by path go after the words, where they are, for the
     // agent to read off the disk; the transcript keeps them as a list.
     const filesContext = attachedFilesContext(files)
+    if (skills.invocation && session.stateful && !opensWithCommand)
+      session.invokedSkills = new Set([...(session.invokedSkills ?? []), ...skills.ids])
+    // A skill run by name opens the message: the CLI reads a leading `/name`
+    // as the command, and the person's words after it as what it is for.
     const providerMessage = [
+      session.stateful && !opensWithCommand ? skills.invocation : undefined,
       session.stateful && !opensWithCommand ? skills.context : undefined,
       opensWithCommand ? undefined : session.revertedNote,
       message,
@@ -1579,6 +1592,16 @@ export class ConversationRuntime {
   // carrying the new model is written so the transcript, the thread index, a
   // resume and a remote list all name the model the conversation is now on.
   // Gated on the adapter declaring `liveModelSwitch`, never on its id.
+  /** Reconnect, switch or sign in to one of a live chat's MCP servers, through its provider. */
+  async mcpServerAction(input: ConversationMcpServerActionInput): Promise<ConversationMcpServerActionResult> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session || session.status === 'stopped') return { ok: false, message: 'Conversation session is not running.' }
+    const adapter = this.getAdapterForProviderId(session.providerId)
+    if (!adapter?.mcpServerAction || !session.capabilities?.mcpServerActions?.includes(input.action))
+      return { ok: false, message: 'This chat cannot do that to its MCP servers.' }
+    return adapter.mcpServerAction({ ...session, serverId: input.serverId, action: input.action })
+  }
+
   async setModel(input: ConversationSetModelInput): Promise<ConversationSessionActionResult> {
     if (input.commandId)
       return this.runCommand(
@@ -1705,6 +1728,7 @@ export class ConversationRuntime {
     session.runningSubagents.clear()
     session.backgroundAgents = 0
     session.pendingSkills = undefined
+    session.invokedSkills = undefined
     session.updatedAt = this.now()
     this.releaseTranscript(session)
     return { ok: true, session: this.toSummary(session) }

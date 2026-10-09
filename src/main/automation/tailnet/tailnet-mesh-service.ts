@@ -28,6 +28,7 @@ import {
   type MeshRequestPairingResult,
   type MeshForgetMachineResult,
   type MeshWorkspaceCheckoutResult,
+  type MeshWorkspaceExtensionsResult,
   type MeshConversationCommandResult,
   type MeshConversationFrame,
   type MeshConversationImageResult,
@@ -40,6 +41,8 @@ import type {
   ConversationTurnDiffResult,
 } from '../../../shared/conversation-runtime'
 import { parseImageAttachments } from '../../conversation-ipc-inputs'
+import type { WorkspaceExtensions } from '../../../shared/workspace-extensions'
+import type { WorkspaceSkill } from '../../../shared/ipc/skills'
 import { createRemoteConversationCache } from './tailnet-remote-conversation-cache'
 import {
   createRemoteConversations,
@@ -260,6 +263,11 @@ export type TailnetMeshService = {
      * has taken that message; a chat that could not is settled and refused.
      */
     attachments?: unknown
+    /**
+     * That machine's skill ids, installed into the chat's folder there and run
+     * with its first message. Refused for a machine without `new-chat-skills`.
+     */
+    skills?: unknown
   }): Promise<MeshCreateConversationResult>
   /**
    * Settle a chat on a paired machine, or bring it back with `settled: false`
@@ -328,7 +336,19 @@ export type TailnetMeshService = {
     message: unknown
     attachments?: unknown
     queue?: unknown
+    /** Ids of that machine's skills the chat runs with this message (`conversation-send-skills`). */
+    skills?: unknown
   }): Promise<MeshConversationCommandResult>
+  /**
+   * What a chat in one of that machine's projects can use: its skills and,
+   * for a CLI, the MCP servers that CLI is configured with there
+   * (`workspace-extensions`).
+   */
+  workspaceExtensions(input: {
+    connectionId: unknown
+    workspaceId: unknown
+    cli?: unknown
+  }): Promise<MeshWorkspaceExtensionsResult>
   conversationToolDetail(input: { key: unknown; toolUseId: unknown }): Promise<ConversationToolDetailResult>
   conversationTurnDiff(input: { key: unknown; turnSeq: unknown; path?: unknown }): Promise<ConversationTurnDiffResult>
   /**
@@ -1462,6 +1482,30 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     })
   }
 
+  async function workspaceExtensions(input: {
+    connectionId: unknown
+    workspaceId: unknown
+    cli?: unknown
+  }): Promise<MeshWorkspaceExtensionsResult> {
+    const connection = connectionFor(input.connectionId)
+    if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
+    if (typeof input.workspaceId !== 'string' || !input.workspaceId)
+      return { ok: false, code: 'invalid_arguments', message: 'Name the workspace whose skills to list.' }
+    if (!tailnetPeerSupports(peerCapabilities.get(connection.id), 'workspace-extensions'))
+      return { ok: false, code: 'skills_unsupported', message: skillsUnsupported(connection) }
+    const answer = await callRemoteTool({
+      endpoint: endpointOf(connection),
+      token: connection.deviceToken,
+      tool: 'workspace.extensions',
+      args: {
+        workspaceId: input.workspaceId,
+        ...(typeof input.cli === 'string' && input.cli ? { cli: input.cli } : {}),
+      },
+    })
+    if (!answer.ok) return { ok: false, code: answer.code, message: answer.message }
+    return { ok: true, extensions: readWorkspaceExtensions(answer.value) }
+  }
+
   async function workspaceCheckout(connectionId: unknown, workspaceId: unknown): Promise<MeshWorkspaceCheckoutResult> {
     const connection = connectionFor(connectionId)
     if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
@@ -1514,6 +1558,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     effort?: unknown
     worktree?: unknown
     attachments?: unknown
+    skills?: unknown
   }): Promise<MeshCreateConversationResult> {
     const connection = connectionFor(input.connectionId)
     if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
@@ -1524,6 +1569,12 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     if (presetRefusal) return presetRefusal
     const worktree = newChatWorktreeArgs(connection, input.worktree)
     if ('refused' in worktree) return worktree.refused
+    const skills = parseSkillIds(input.skills)
+    if (!skills.ok) return { ok: false, code: 'invalid_arguments', message: skills.message }
+    // Refused, never dropped: a handler from before `skills` skips it, and the
+    // chat would start without the skills its chips showed.
+    if (skills.ids.length > 0 && !tailnetPeerSupports(peerCapabilities.get(connection.id), 'new-chat-skills'))
+      return { ok: false, code: 'skills_unsupported', message: skillsUnsupported(connection) }
     // The images are checked before anything is made over there: what the
     // local boundary refuses, and a machine that has said it takes no
     // uploads, are refused with no chat left behind.
@@ -1561,6 +1612,9 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
         ? { effort: input.effort }
         : {}),
       ...worktree.args,
+      // Installed into the chat's folder there and kept on the chat; run with
+      // the first message, whichever way it goes.
+      ...(skills.ids.length > 0 ? { skills: skills.ids } : {}),
     }
     const create = (newChat: boolean) =>
       callRemoteTool({
@@ -1608,7 +1662,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     }
     if (images.length > 0) {
       const prompt = typeof input.prompt === 'string' ? input.prompt : ''
-      const first = await sendFirstMessage(connection, { workspaceId, agentId }, prompt, images)
+      const first = await sendFirstMessage(connection, { workspaceId, agentId }, prompt, images, skills.ids)
       if (!first.ok) {
         // An empty chat nobody asked for is put to rest, where the machine
         // keeps rest, so it does not sit in its list. The draft stays here.
@@ -1685,6 +1739,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     chat: { workspaceId: string; agentId: string },
     message: string,
     images: ConversationImageAttachment[],
+    skills: string[] = [],
   ): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
     // The list that names the chat's session is read fresh: one read before
     // the chat existed would not list it.
@@ -1709,7 +1764,14 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     }
     const sent = conversationCommand({
       key,
-      command: { kind: 'send', message, uploadIds: uploaded.uploadIds },
+      command: {
+        kind: 'send',
+        message,
+        uploadIds: uploaded.uploadIds,
+        ...(skills.length > 0 && tailnetPeerSupports(peerCapabilities.get(connection.id), 'conversation-send-skills')
+          ? { skills }
+          : {}),
+      },
     })
     let timer: ReturnType<typeof setTimeout> | null = null
     const late = new Promise<{ ok: false; code: string; message: string }>((resolve) => {
@@ -1853,6 +1915,9 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
           permissionModes: tailnetPeerSupports(identity.value.capabilities, 'conversation-permission-modes'),
           lifecycle: tailnetPeerSupports(identity.value.capabilities, 'conversation-lifecycle'),
           queuedSends: tailnetPeerSupports(identity.value.capabilities, 'conversation-queued-sends'),
+          sendSkills:
+            tailnetPeerSupports(identity.value.capabilities, 'conversation-send-skills') &&
+            tailnetPeerSupports(identity.value.capabilities, 'workspace-extensions'),
         }
       : listed
   }
@@ -2066,6 +2131,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     settleConversation,
     visitConversation,
     workspaceCheckout,
+    workspaceExtensions,
 
     async listConversations(connectionId): Promise<MeshConversationListResult> {
       const connection = connectionFor(connectionId)
@@ -2102,10 +2168,30 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     conversationCommand,
 
     async conversationSend(input): Promise<MeshConversationCommandResult> {
+      const skills = parseSkillIds(input.skills)
+      if (!skills.ok) return { ok: false, code: 'invalid_arguments', message: skills.message }
+      if (skills.ids.length > 0) {
+        const key = meshConversationKeyOf(input.key)
+        const connection = key ? connectionFor(key.connectionId) : null
+        if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
+        if (!tailnetPeerSupports(peerCapabilities.get(connection.id), 'conversation-send-skills'))
+          return { ok: false, code: 'skills_unsupported', message: skillsUnsupported(connection) }
+        if (input.queue === true)
+          return {
+            ok: false,
+            code: 'invalid_arguments',
+            message: 'A queued message carries no skills; send it once the turn ends instead.',
+          }
+      }
       const send = (uploadIds: string[]) =>
         conversationCommand({
           key: input.key,
-          command: { kind: 'send', message: input.message, ...(uploadIds.length > 0 ? { uploadIds } : {}) },
+          command: {
+            kind: 'send',
+            message: input.message,
+            ...(uploadIds.length > 0 ? { uploadIds } : {}),
+            ...(skills.ids.length > 0 ? { skills: skills.ids } : {}),
+          },
         })
       if (input.queue !== undefined && input.queue !== true)
         return { ok: false, code: 'invalid_arguments', message: '"queue" is true or left out.' }
@@ -2264,4 +2350,81 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+const MAX_SKILLS = 32
+const SKILL_ID = /^[\w.-]{1,200}(?::[\w.-]{1,200})?$/
+
+/** Skill ids as a send or a create names them: a list of ids, or none. */
+function parseSkillIds(value: unknown): { ok: true; ids: string[] } | { ok: false; message: string } {
+  if (value === undefined) return { ok: true, ids: [] }
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_SKILLS ||
+    !value.every((id) => typeof id === 'string' && SKILL_ID.test(id))
+  )
+    return { ok: false, message: `Skills are a list of at most ${MAX_SKILLS} skill ids.` }
+  return { ok: true, ids: [...new Set(value as string[])] }
+}
+
+function skillsUnsupported(connection: { machineName: string }): string {
+  return `${connection.machineName} cannot take skills from here yet. Update SprintEngine Studio there, or remove the skills.`
+}
+
+const SKILL_SOURCES = new Set(['builtin', 'custom', 'plugin'])
+const SKILL_STATES = new Set(['installed', 'available', 'update-available'])
+const SERVER_STATUSES = new Set(['connected', 'pending', 'needs-auth', 'failed', 'disabled'])
+const SERVER_SCOPES = new Set(['workspace', 'user', 'session'])
+const shortText = (value: unknown, max = 500) =>
+  typeof value === 'string' && value.length > 0 ? value.slice(0, max) : undefined
+
+/**
+ * `workspace.extensions`' answer, read member by member: another machine's
+ * words are not trusted to be the shape they claim.
+ */
+function readWorkspaceExtensions(value: Record<string, unknown>): WorkspaceExtensions {
+  const skills = (Array.isArray(value.skills) ? value.skills : []).flatMap((entry): WorkspaceSkill[] => {
+    const record = asRecord(entry)
+    const id = typeof record?.id === 'string' && SKILL_ID.test(record.id) ? record.id : null
+    if (!record || !id) return []
+    const description = shortText(record.description)
+    const sourceRepo = shortText(record.sourceRepo, 200)
+    return [
+      {
+        id,
+        name: shortText(record.name, 200) ?? id,
+        ...(description ? { description } : {}),
+        source: (SKILL_SOURCES.has(record.source as string) ? record.source : 'custom') as WorkspaceSkill['source'],
+        harnesses: [],
+        installState: (SKILL_STATES.has(record.installState as string)
+          ? record.installState
+          : 'installed') as WorkspaceSkill['installState'],
+        ...(sourceRepo && /^[\w.-]+\/[\w.-]+$/.test(sourceRepo) ? { sourceRepo } : {}),
+      },
+    ]
+  })
+  const servers = (Array.isArray(value.servers) ? value.servers : []).flatMap(
+    (entry): WorkspaceExtensions['servers'] => {
+      const record = asRecord(entry)
+      const id = shortText(record?.id, 200)
+      if (!record || !id) return []
+      const error = shortText(record.error)
+      return [
+        {
+          id,
+          transport: shortText(record.transport, 40) ?? '',
+          scope: (SERVER_SCOPES.has(record.scope as string) ? record.scope : 'session') as
+            'workspace' | 'user' | 'session',
+          ...(SERVER_STATUSES.has(record.status as string)
+            ? { status: record.status as NonNullable<WorkspaceExtensions['servers'][number]['status']> }
+            : {}),
+          ...(error ? { error } : {}),
+          ...(typeof record.toolCount === 'number' && Number.isSafeInteger(record.toolCount) && record.toolCount >= 0
+            ? { toolCount: record.toolCount }
+            : {}),
+        },
+      ]
+    },
+  )
+  return { skills, servers }
 }

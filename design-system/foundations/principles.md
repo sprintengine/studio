@@ -724,6 +724,12 @@ title, none above the buttons. See *Hairlines carry the structure*.
   ink (`status-dot`); something running right now is the working mark
   (`liveness`), the one "working" mark every surface shares, or a spawned
   agent's character (`agent-glyph`).
+  One exception: an MCP server's connection in the composer's Skills & MCPs
+  picker is a dot beside the server's name (owner ruling 2026-10-09) — filled
+  green connected, amber needs sign-in, red failed, grey connecting, and a
+  hollow ring disabled — with the state's word as its accessible name and
+  tooltip. A list of servers is scanned down its names for the one that is not
+  connected, and the dot is the mark that sits in that column.
 - A status is never text-only with no glyph, nor glyph-only with no accessible
   name.
 - The accent green (forest) and the success green (bright emerald) are held

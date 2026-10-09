@@ -4,6 +4,8 @@ import type {
   ConversationEvent,
   ConversationImageAttachment,
   ConversationMcpServer,
+  ConversationMcpServerAction,
+  ConversationMcpServerActionResult,
   ConversationPermissionPreset,
 } from '../../shared/conversation-runtime'
 
@@ -71,6 +73,10 @@ export type ConversationProviderAdapter = {
   // to. An adapter that implements this declares `capabilities.liveModelSwitch`
   // so the renderer offers the switch; absent, the runtime refuses it.
   setModel?(input: MockAdapterModelInput): Promise<ConversationProviderPermissionResult>
+  /** Reconnect, switch or sign in to one of the live session's MCP servers (`capabilities.mcpServerActions`). */
+  mcpServerAction?(
+    input: MockAdapterSessionInput & { serverId: string; action: ConversationMcpServerAction },
+  ): Promise<ConversationMcpServerActionResult>
   // Take an idle session back to a point the adapter itself recorded: the
   // `providerCursor` it put on an earlier turn's end, or null for before the
   // first turn. The adapter drops its live child and continues from there on
