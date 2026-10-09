@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { RendererCommandDispatcher, type CommandDispatcherKeyEvent } from './commandDispatcher'
 import { COMMAND_REGISTRY } from './commandRegistry'
+import { LEGACY_COMMAND_ID_ALIASES } from './keybindings'
 import type { KeybindingSettings } from '../types/workspace'
 import type { CommandContribution } from './types'
 import { test } from 'vitest'
@@ -168,13 +169,13 @@ test('commandDispatcher', async () => {
   })
   assert.equal(result.kind, 'unmatched')
 
-  // The voice toggle is a module contribution now: it matches only
-  // when the enabled-module contribution list carries it, and its
-  // allowInEditableTarget flag keeps it firing in suppressed (editable) targets.
-  const voiceModuleContribution = {
-    id: 'voice-dictation.toggle',
-    title: 'Toggle Voice Transcription',
-    category: 'voice',
+  // A module contribution matches only when the enabled-module contribution
+  // list carries it, and its allowInEditableTarget flag keeps it firing in
+  // suppressed (editable) targets.
+  const fixtureModuleContribution = {
+    id: 'fixture-module.toggle',
+    title: 'Toggle Fixture',
+    category: 'Fixture',
     scopes: ['global'] as const,
     defaultKeybindings: ['Primary+Shift+1'],
     allowInEditableTarget: true,
@@ -182,12 +183,12 @@ test('commandDispatcher', async () => {
   result = dispatcher.resolve(key({ key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true }), {
     activeScopes: ['global'],
     platform: 'linux',
-    commands: [...COMMAND_REGISTRY, voiceModuleContribution],
+    commands: [...COMMAND_REGISTRY, fixtureModuleContribution],
     isSuppressedTarget: suppressed,
     now: 80,
   })
   assert.equal(result.kind, 'matched')
-  assert.equal(result.kind === 'matched' ? result.commandId : null, 'voice-dictation.toggle')
+  assert.equal(result.kind === 'matched' ? result.commandId : null, 'fixture-module.toggle')
 
   // The binding stays unmatched when the module is disabled (its contribution
   // is filtered out of the command universe), so the keystroke falls through
@@ -488,22 +489,28 @@ test('commandDispatcher', async () => {
   assert.equal(result.kind, 'unmatched', 'no module context wired fails closed')
 
   // Persisted overrides keyed by a migrated command's LEGACY id keep firing the
-  // re-namespaced id (the module-path migration).
+  // re-namespaced id (the module-path migration). No command is migrating
+  // today, so a fixture alias stands in for one.
   const migratedCommand: CommandContribution = {
-    id: 'voice-dictation.toggle',
-    title: 'Toggle Voice Transcription',
-    category: 'voice',
+    id: 'fixture-module.toggle',
+    title: 'Toggle Fixture',
+    category: 'Fixture',
     scopes: ['global'],
   }
-  result = predicateDispatcher.resolve(key({ key: 'r', code: 'KeyR', ctrlKey: true, shiftKey: true }), {
-    activeScopes: ['global', 'workspace'],
-    platform: 'linux',
-    commands: [migratedCommand],
-    keybindingOverrides: { 'voice.toggle': ['Primary+Shift+R'] },
-    now: 6300,
-  })
+  LEGACY_COMMAND_ID_ALIASES['fixture-module.toggle'] = 'fixture.toggle'
+  try {
+    result = predicateDispatcher.resolve(key({ key: 'r', code: 'KeyR', ctrlKey: true, shiftKey: true }), {
+      activeScopes: ['global', 'workspace'],
+      platform: 'linux',
+      commands: [migratedCommand],
+      keybindingOverrides: { 'fixture.toggle': ['Primary+Shift+R'] },
+      now: 6300,
+    })
+  } finally {
+    delete LEGACY_COMMAND_ID_ALIASES['fixture-module.toggle']
+  }
   assert.equal(result.kind, 'matched', 'legacy-id override still binds')
-  assert.equal(result.kind === 'matched' ? result.commandId : null, 'voice-dictation.toggle')
+  assert.equal(result.kind === 'matched' ? result.commandId : null, 'fixture-module.toggle')
 
   // --- Double Shift: the Search Everywhere gesture ----------------------------
   // A lone Shift TAP is press-then-release with nothing in between, so the

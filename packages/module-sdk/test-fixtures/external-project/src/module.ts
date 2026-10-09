@@ -228,6 +228,8 @@ export const registerMain: RegisterMain = (host) => {
     const summary = await guide.runStructured<{ outlook: string }>({
       prompt: 'Summarize today as {"outlook": string}.',
       retries: 1,
+      // The default, said out loud: the guide answers from the prompt alone.
+      tools: 'none',
       validate: (raw) => {
         const record = raw as { outlook?: unknown }
         return typeof record.outlook === 'string'

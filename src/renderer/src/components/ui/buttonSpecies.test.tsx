@@ -652,6 +652,13 @@ test('buttonSpecies', async () => {
       assert.ok(!/bg-\[color:var\(--accent/.test(classes))
     })
 
+    run('name reads as a title at rest and underlines on hover, never in the accent', () => {
+      const classes = classesOf(<LinkButton ink="name">Weather Deck</LinkButton>)
+      assert.match(classes, /text-\[color:var\(--text-strong\)\]/)
+      assert.match(classes, /hover:underline/)
+      assert.ok(!/accent/.test(classes), 'a list of titles in the accent is a list of accents')
+    })
+
     run('size="inherit" states no size of its own', () => {
       const classes = classesOf(<LinkButton size="inherit">src/main.ts</LinkButton>)
       assert.ok(!/text-meta/.test(classes), 'one word of a sentence must not be a different size from the rest')

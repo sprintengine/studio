@@ -1,0 +1,16 @@
+{
+  "id": "settings",
+  "title": "Settings section",
+  "summary": "A section in Settings whose values the rest of the window half reads with getModuleAppState.",
+  "requires": ["renderer"],
+  "permissions": ["storage"],
+  "dependsOn": [],
+  "entry": {},
+  "scripts": {},
+  "devDependencies": {},
+  "register": {
+    "in": "renderer",
+    "import": "import { registerSettings } from './settings'",
+    "call": "registerSettings(host)"
+  }
+}

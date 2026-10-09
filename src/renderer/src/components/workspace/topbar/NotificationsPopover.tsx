@@ -282,10 +282,21 @@ export function NotificationsPopover({
                         <div className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">
                           {notification.message}
                         </div>
-                        {notification.workspaceName || notification.agentId || notification.sessionId ? (
+                        {/* Who it is from: a module's row names the extension
+                          that sent it (stamped by the host, never by the
+                          module), ahead of any workspace it concerns. */}
+                        {notification.sourceModule?.name ||
+                        notification.workspaceName ||
+                        notification.agentId ||
+                        notification.sessionId ? (
                           <TruncatedText
                             as="div"
-                            text={[notification.workspaceName, notification.agentId, notification.sessionId]
+                            text={[
+                              notification.sourceModule?.name,
+                              notification.workspaceName,
+                              notification.agentId,
+                              notification.sessionId,
+                            ]
                               .filter(Boolean)
                               .join(' / ')}
                             className="mt-1 font-mono text-micro text-[color:var(--text-disabled)]"

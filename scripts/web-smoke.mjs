@@ -87,6 +87,11 @@ const KNOWN_BOOT_REFUSALS = new Set([
   // Importing this machine's CLI conversations is the desktop's: a browser has
   // none of its own to offer at first run.
   'conversation-import:scan',
+  // Third-party modules run in the desktop app only (the module bridge is
+  // refused to a web tab too): the bell's backlog of module notifications and
+  // the push of module settings to main have nothing to serve in a browser.
+  'modules:notifications:recent',
+  'modules:set-app-state',
 ])
 
 // A server run with no inherited Studio settings: nothing of this machine's own Studio is read.

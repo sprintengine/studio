@@ -164,7 +164,10 @@ HOST_API_VERSION`. `checkHostApiCompatibility` is the one check; it is
   `conversations`, `conversation-controls`, `conversation-streams`,
   `conversation-requests`, `conversation-permissions`, `chat.open`, `companion-agents`,
   `scheduled-agents`, `secrets`, `github`, `storage`, `mcp-tools`, `skills`,
-  `module-assets`, `notifications`, and `electron-main`, which the main host
+  `module-assets`, `notifications`, `companion-tools`, `conversation-replies`,
+  `text-generation`, `conversation-worktrees`, `chat-runtimes`,
+  `scheduled-agent-runs`, `chat.open-options` (a renderer's, answered live
+  like `chat.open`), and `electron-main`, which the main host
   answers itself: true in the desktop's own main process, false where a
   module's main half runs in the Studio server out of process.
 - **`requires.hostCapabilities`.** An optional manifest field (added with

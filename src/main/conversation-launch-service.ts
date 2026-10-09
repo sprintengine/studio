@@ -112,6 +112,12 @@ export type ConversationLaunchRequest = {
    * checkout it was asked to keep clean.
    */
   newWorktree?: boolean
+  /**
+   * What the new chat's worktree is named from, with `newWorktree`: its branch
+   * is `agent/<name>-<suffix>`, the short suffix keeping each chat's branch its
+   * own. Absent, the name a window's New chat gives one (`chat-<suffix>`).
+   */
+  worktreeName?: string
   /** The agent CLI the chat drives; the last-selected CLI when absent. */
   cli?: string
   /** The CLI's model id; the CLI's own default when absent. */
@@ -157,6 +163,13 @@ export type ConversationLaunchRequest = {
    * and the field is ignored there.
    */
   scheduledAgentId?: string
+  /**
+   * The label the scheduled agent's creator gave it (`ScheduledAgent.tag`),
+   * kept on the run's chat agent (`AgentState.scheduledAgentTag`) beside the
+   * workspace's `scheduledAgentId`, so the extension that made the schedule
+   * can tell its runs apart. Read only beside `scheduledAgentId`.
+   */
+  scheduledAgentTag?: string
   /**
    * Open the new chat without bringing it to the front of the window: it
    * joins the list and waits there. For a chat nobody is watching start, like
@@ -302,6 +315,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
   async function cutNewChatWorktree(
     workspace: ConversationLaunchWorkspace,
     folderPath: string,
+    worktreeName: string | undefined,
   ): Promise<
     | { ok: true; folderPath: string; worktree: WorkspaceWorktree; dependencyInstall?: StartedDependencyInstall }
     | { ok: false; message: string }
@@ -325,7 +339,8 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         message: `${projectFolder} is not a git repository, so a worktree cannot be created. Start the chat without one.`,
       }
     }
-    const name = newChatWorktreeName(newWorktreeSuffix())
+    const suffix = newWorktreeSuffix()
+    const name = worktreeName ? `${worktreeName}-${suffix.toLowerCase()}` : newChatWorktreeName(suffix)
     const paths = agentWorktreePaths(repoRoot, name)
     if (!paths) return { ok: false, message: `"${name}" does not reduce to a usable worktree name.` }
     const made = await deps
@@ -442,7 +457,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
     let chatWorktree = workspace.worktree ?? null
     let installing: StartedDependencyInstall | null = null
     if (request.newWorktree === true) {
-      const cut = await cutNewChatWorktree(workspace, workspaceRoot)
+      const cut = await cutNewChatWorktree(workspace, workspaceRoot, request.worktreeName?.trim() || undefined)
       if (!cut.ok) return { ok: false, code: 'worktree_unavailable', message: cut.message }
       chatFolder = cut.folderPath
       chatWorktree = cut.worktree
@@ -510,6 +525,9 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       ...(skills.length > 0 ? { conversationSkills: skills } : {}),
       ...(request.ownerModuleId?.trim() ? { ownerModuleId: request.ownerModuleId.trim() } : {}),
       ...(request.launchCommandId ? { launchCommandId: request.launchCommandId } : {}),
+      ...(newChat && request.scheduledAgentId?.trim() && request.scheduledAgentTag?.trim()
+        ? { scheduledAgentTag: request.scheduledAgentTag.trim() }
+        : {}),
     }
     let chatWorkspaceId = workspace.id
     if (newChat) {

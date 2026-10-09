@@ -91,6 +91,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
 import { initTextGenerationSettingsSync } from '../../utils/textGenerationSettingsSync'
+import { initModuleAppStateSync } from '../../utils/moduleAppStateSync'
 import {
   addNewAgentTab,
   addTerminalTab,
@@ -244,6 +245,7 @@ import { subscribePaletteOpenRequest, type PaletteAgentTarget } from '../palette
 import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
 import { controlTabContextItemOf, controlTabContextOf, cycleFocusedControlTabScope } from '../../utils/controlTab'
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
+import { useModuleNotificationIngest } from './useModuleNotificationIngest'
 import { createAppUpdateToastDriver, showAppUpdateOutcomeToast } from './manager/appUpdateToast'
 import { showCliUpdateToast } from './manager/cliUpdateToast'
 import { showWorktreeInstallToast } from './manager/worktreeInstallToast'
@@ -460,6 +462,10 @@ export default function WorkspaceManager() {
   // to ask when one starts (a phone's New chat), so the titles setting is
   // mirrored the same way.
   useEffect(() => initTextGenerationSettingsSync(), [])
+  // A module's entry.main reads its Settings section's values with no window
+  // open (a scheduler's time, a poller's interval), so module app state is
+  // mirrored the same way.
+  useEffect(() => initModuleAppStateSync(), [])
   const workspaces = useWorkspaceStore(useShallow((s) => selectWorkspaceManagerWorkspaces(s.workspaces)))
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)
@@ -544,6 +550,8 @@ export default function WorkspaceManager() {
   const lastSelectedAgentModel = useWorkspaceStore((s) => s.appSettings.lastSelectedAgentModel ?? null)
   const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
   const notifications = useNotificationStore((s) => s.notifications)
+  // Capability modules' `MainHost.notify` rows land in this window's bell.
+  useModuleNotificationIngest()
   const markNotificationRead = useNotificationStore((s) => s.markRead)
   const markAllNotificationsRead = useNotificationStore((s) => s.markAllRead)
   const clearNotifications = useNotificationStore((s) => s.clearAll)
@@ -567,6 +575,8 @@ export default function WorkspaceManager() {
         ),
         revealWorkspace: (id) => setActiveWorkspaceForWindow(workspaceWindowId, id),
         workspaceExists: (id) => workspaces.some((workspace) => workspace.id === id),
+        // A module row opens its own door and nothing else (renderer-host).
+        openModuleSurface: (moduleId, target) => getRendererHost().moduleSurfaceTargetOpener(moduleId, target),
       }),
     [moduleEnablement, setActiveWorkspaceForWindow, workspaceWindowId, workspaces],
   )
@@ -3809,6 +3819,9 @@ export default function WorkspaceManager() {
           permissionPreset: launch.permissionPreset,
           // Present only for a machine that keeps one (`new-chat-effort`).
           effort: launch.effort,
+          // The staged images, as bytes: main puts them in that machine's
+          // upload store and the first message names them there.
+          ...(launch.images?.length ? { attachments: launch.images } : {}),
         })
         .catch((error: unknown): { ok: false; code: string; message: string } => ({
           ok: false,
@@ -4206,7 +4219,9 @@ export default function WorkspaceManager() {
       const moduleCommand = getRendererHost().getModuleCommand(commandId)
       if (moduleCommand) {
         if (!selectModuleEnabled(moduleEnablement, moduleCommand.moduleId)) return false
-        void moduleCommand.run()
+        // The handler hears the context its availability was judged on: which
+        // workspace "this" is, in this window.
+        void moduleCommand.run(moduleCommandContext)
         return true
       }
       // Registry-backed panel-event commands: the registry names the event, so
@@ -4235,6 +4250,7 @@ export default function WorkspaceManager() {
       workspaceWindowId,
       terminalSessions,
       moduleEnablement,
+      moduleCommandContext,
       dispatchPanelCommand,
       extensionsDrawerRows,
       activityByWorkspaceId,

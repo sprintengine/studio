@@ -10,6 +10,7 @@
 
 import type { AgentCli } from '../../types/workspace'
 import type { PluginModelCatalog, PluginReasoningCatalog } from '../../../../shared/plugin-manifest'
+import type { ModuleChatRuntimeOption } from '../../../../shared/modules/conversation-service'
 
 export {
   buildModelFamilies,
@@ -27,6 +28,49 @@ export type CliRuntimeOption = {
   modelSelection?: PluginModelCatalog
   reasoningSelection?: PluginReasoningCatalog
   hostedVia?: 'claude-code'
+}
+
+/**
+ * What a picker accepts: the app's own catalog rows, or the runtimes a module
+ * reads from `RendererHost.listChatRuntimes()`, handed over as they come. The
+ * two are told apart by shape — a catalog row has a `value`, a chat runtime an
+ * `id` — so a module never writes the mapper itself.
+ */
+export type CliRuntimePickerOption = CliRuntimeOption | ModuleChatRuntimeOption
+
+function isChatRuntimeOption(option: CliRuntimePickerOption): option is ModuleChatRuntimeOption {
+  return !('value' in option)
+}
+
+/**
+ * Normalize a picker's options to catalog rows. A chat runtime's `models`
+ * become its model catalog, closed to custom ids because `openChat` only takes
+ * the ids it was offered; a runtime with no models offers no model choice. A
+ * runtime this machine does not have is left out — unless it is the one
+ * already chosen, which the picker must still be able to name.
+ */
+export function normalizeCliRuntimeOptions(
+  options: ReadonlyArray<CliRuntimePickerOption>,
+  current?: AgentCli,
+): CliRuntimeOption[] {
+  return options.flatMap((option): CliRuntimeOption[] => {
+    if (!isChatRuntimeOption(option)) return [option]
+    if (!option.available && option.id !== current) return []
+    return [
+      {
+        value: option.id,
+        label: option.label,
+        ...(option.models.length > 0
+          ? {
+              modelSelection: {
+                options: option.models.map((model) => ({ id: model.id, label: model.label })),
+                allowCustomId: false,
+              },
+            }
+          : {}),
+      },
+    ]
+  })
 }
 
 // A model's raw id, shown beside its friendly label only when it adds

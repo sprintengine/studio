@@ -40,7 +40,7 @@ test('a request goes to api.github.com with the token attached and never returns
     route: '/repos/{owner}/{repo}/pulls',
     params: { owner: 'acme', repo: 'studio', state: 'open', per_page: 50 },
   })
-  assert.deepEqual(result, { ok: true, status: 200, data: [{ number: 7 }] })
+  assert.deepEqual(result, { ok: true, status: 200, data: [{ number: 7 }], headers: {} })
   assert.equal(calls.length, 1)
   assert.equal(calls[0].url, 'https://api.github.com/repos/acme/studio/pulls?state=open&per_page=50')
   assert.equal(calls[0].init.method, 'GET')
@@ -66,7 +66,7 @@ test('a body is sent as JSON for writes', async () => {
     params: { owner: 'acme', repo: 'studio', issue: 12 },
     body: { body: 'Looks good' },
   })
-  assert.deepEqual(result, { ok: true, status: 204, data: null })
+  assert.deepEqual(result, { ok: true, status: 204, data: null, headers: {} })
   assert.equal(calls[0].init.body, '{"body":"Looks good"}')
   assert.equal((calls[0].init.headers as Record<string, string>)['Content-Type'], 'application/json')
 })

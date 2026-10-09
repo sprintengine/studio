@@ -13,6 +13,8 @@ import type {
   ConversationImageAttachment,
   ConversationPermissionPreset,
   ConversationSessionStatus,
+  ConversationTurnCompletedPayload,
+  ConversationTurnUsage,
 } from '../conversation-runtime'
 import type {
   ConversationPage,
@@ -34,6 +36,9 @@ export type ModuleConversationApprovalDecision = ConversationRequestDecision
 export type ModuleConversationPlanDecision = ConversationPlanDecision
 export type ModuleConversationPage = ConversationPage
 export type ModuleConversationStreamFrame = ConversationStreamFrame
+// What `turn_completed` documents about a turn: its reply text and its usage.
+export type ModuleConversationTurnUsage = ConversationTurnUsage
+export type ModuleConversationTurnCompletedPayload = ConversationTurnCompletedPayload
 
 // Where a `follow` starts: after the sequence a module already holds, in the
 // log generation it read it from. Absent, from a snapshot.
@@ -56,6 +61,10 @@ export type ModuleConversationSummary = ModuleConversationRef & {
   permissionPreset?: ModuleConversationPermissionPreset
   // The CLI's own mode at that preset, when one other than the preset's own.
   permissionMode?: string
+  // The scheduled agent whose run started this chat, and the tag its creator
+  // gave it; absent on every other chat.
+  scheduledAgentId?: string
+  scheduledAgentTag?: string
 }
 
 export type ModuleConversationErrorCode =
@@ -70,6 +79,11 @@ export type ModuleConversationErrorCode =
   | 'agent_write_failed'
   | 'conversation_start_failed'
   | 'runtime_refused'
+  // `reply`: the conversation has no finished turn (with that id).
+  | 'no_reply'
+  // `create` with `worktree`: the project is not a git repository, or the
+  // worktree could not be made.
+  | 'worktree_unavailable'
 
 export type ModuleConversationCreateInput = {
   workspaceId: string
@@ -85,6 +99,9 @@ export type ModuleConversationCreateInput = {
   // Tools the chat may use without asking. Needs `conversation:bypass`.
   allowedTools?: string[]
   commandId?: string
+  // Start the chat in a fresh worktree of `workspaceId`'s project, in a new
+  // workspace of its own, as a scheduled agent's run starts.
+  worktree?: { name?: string }
 }
 
 export type ModuleConversationResult<T = object> =
@@ -157,6 +174,11 @@ export type ModuleConversationService = {
     onFrame: (frame: ModuleConversationStreamFrame) => void,
   ): () => void
   transcript(ref: ModuleConversationRef): Promise<ModuleConversationResult<{ events: ModuleConversationEvent[] }>>
+  // The reply of a finished turn (the last one, or `turnId`'s), read off the transcript.
+  reply(
+    ref: ModuleConversationRef,
+    turnId?: string,
+  ): Promise<ModuleConversationResult<{ turnId: string; text: string }>>
   list(filter?: { workspaceId?: string }): ModuleConversationSummary[]
   watch(
     filter: { workspaceId?: string } | undefined,
@@ -183,10 +205,16 @@ export type ModuleOpenChatInput = {
   model?: string
   // Default false: the prompt lands in the composer as a draft.
   send?: boolean
+  // The chat's title; absent picks one from the shared pool.
+  name?: string
+  // Focus the chat this module opened in the workspace with this key, if it is
+  // still there, instead of opening another.
+  dedupeKey?: string
 }
 
 export type ModuleOpenChatResult =
-  | { ok: true; agentId: string }
+  // `existing`: the chat `dedupeKey` named, focused rather than opened.
+  | { ok: true; agentId: string; existing?: true }
   | {
       ok: false
       code:
@@ -195,6 +223,7 @@ export type ModuleOpenChatResult =
         | 'workspace_folder_missing'
         | 'cli_not_conversational'
         | 'unavailable'
+        | 'invalid_input'
       message: string
     }
 
@@ -204,4 +233,40 @@ export type ModuleChatRuntimeOption = {
   available: boolean
   models: { id: string; label: string }[]
   lastSelected: boolean
+}
+
+// ── Headless text generation (main) ──────────────────────────────────────────
+// One prompt answered by the person's own agent CLI with no workspace, no
+// tools and no tab (main/text-generation/module-text-generation.ts).
+
+export type ModuleTextGenerationInput = {
+  prompt: string
+  system?: string
+  model?: string
+  maxOutputTokens?: number
+  json?: boolean
+  cli?: string
+}
+
+export type ModuleTextGenerationErrorCode =
+  | 'permission_missing'
+  | 'invalid_input'
+  | 'unsupported'
+  | 'unavailable'
+  | 'busy'
+  | 'timeout'
+  | 'failed'
+  | 'invalid_output'
+
+export type ModuleTextGenerationResult =
+  | { ok: true; text: string; usage: ModuleConversationTurnUsage; model: string }
+  | { ok: false; code: ModuleTextGenerationErrorCode; message: string }
+
+export type ModuleTextGenerationService = {
+  generate(input: ModuleTextGenerationInput): Promise<ModuleTextGenerationResult>
+}
+
+// What the host provides under 'text-generation.module-service'.
+export type ModuleTextGenerationRegistry = {
+  generate(moduleId: string, input: ModuleTextGenerationInput): Promise<ModuleTextGenerationResult>
 }

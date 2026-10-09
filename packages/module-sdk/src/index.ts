@@ -13,6 +13,16 @@
 
 import type { ComponentType, LazyExoticComponent } from 'react'
 
+import type { UsageQuery, UsageQueryResult } from './activity.js'
+import type {
+  BacklogWatchOptions,
+  ModuleBacklogCreated,
+  ModuleBacklogCreateInput,
+  ModuleBacklogLinkInput,
+  ModuleBacklogLocation,
+  ModuleBacklogResult,
+  ModuleBacklogTriageInput,
+} from './backlog.js'
 import type { ModuleChatRuntimeOption, ModuleOpenChatInput, ModuleOpenChatResult } from './conversation.js'
 import type { HostCapability } from './host-api.js'
 
@@ -118,6 +128,7 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'scheduled-agents',
   // Retired but still reserved (the hosted mobile relay, removed 2026-09-27).
   'mobile-relay',
+  // Retired but still reserved (voice dictation, removed 2026-10-09).
   'voice-dictation',
 ]
 
@@ -133,6 +144,10 @@ export type CapabilityPermission =
   | 'ipc:workspace-write'
   | 'ipc:settings'
   | 'ipc:invoke'
+  // The renderer→own-main bridge alone (`RendererHost.invoke` to the module's
+  // own `MainHost.registerIpc` channels), split out of `ipc:invoke`, which
+  // still opens it for manifests written before the split.
+  | 'module:bridge'
   | 'backlog.read'
   | 'backlog.write'
   | 'backlog.link.open'
@@ -144,6 +159,10 @@ export type CapabilityPermission =
   // Companion Agents service. Unlike the disclosure-only scopes above, the
   // companion service checks this one explicitly at attach time.
   | 'agents:companion'
+  // Send prompts to the person's own agent CLI in the background and read the
+  // answers, with no chat, workspace or tools (`getTextGenerationService`).
+  // Checked on every call.
+  | 'agents:generate'
   // Persist the module's own data through the SDK's scoped storage service
   // (host-placed: the workspace's app-owned `.sprintengine/modules/<id>/`, or
   // per-user app data).
@@ -158,6 +177,10 @@ export type CapabilityPermission =
   // without asking (`allowedTools`). Without it a module's chats go no looser
   // than `auto`, whatever it asks for.
   | 'conversation:bypass'
+  // Open a chat with a prompt drafted in its composer for the person to read
+  // and send (`RendererHost.openChat` without `send`). Nothing more: sending,
+  // reading or driving a chat is `conversation:*`'s.
+  | 'chat:draft'
   // Store secrets the host sends only to origins the module named, never
   // handing the value back (the SDK's scoped secrets service).
   | 'secrets'
@@ -166,6 +189,12 @@ export type CapabilityPermission =
   | 'github'
   // Contribute tools to the Studio MCP gateway (`MainHost.registerMcpTools`).
   | 'mcp:tools'
+  // ── Backlog, usage and activity services ──
+  // See token usage of every agent session on this machine (`getUsageService`).
+  | 'usage:read'
+  // Read every Studio chat on this machine, read-only (`getActivityService`).
+  // A broad scope: the consent prompt flags it.
+  | 'conversation:read-all'
   | (string & {})
 
 export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
@@ -178,29 +207,55 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'ipc:workspace-write',
   'ipc:settings',
   'ipc:invoke',
+  // The renderer→own-main bridge, split out of `ipc:invoke`.
+  'module:bridge',
   'backlog.read',
   'backlog.write',
   'backlog.link.open',
   'scheduled-agents.manage',
   'agents:companion',
+  'agents:generate',
   'storage',
   'conversation:read',
   'conversation:operate',
   'conversation:bypass',
+  'chat:draft',
   'secrets',
   'github',
   'mcp:tools',
+  // Backlog, usage and activity services.
+  'usage:read',
+  'conversation:read-all',
 ]
 
 // ── Notifications ────────────────────────────────────────────────────────────
 
 export type ModuleNotificationSeverity = 'info' | 'warning' | 'error'
 
+/**
+ * The door a bell row opens: one of YOUR global surfaces (the id you passed
+ * `registerGlobalSurface`), and optionally one of its `views` to land on. The
+ * host refuses a surface another module registered, so a row can only ever
+ * open its own module's door.
+ */
+export type ModuleNotificationTarget = {
+  surfaceId: string
+  viewId?: string
+}
+
 /** What a module passes to `host.notify(...)`; identity and time are stamped by the host. */
 export type ModuleNotifyInput = {
   severity: ModuleNotificationSeverity
+  /** One line. Non-empty; clipped at 200 characters. */
   title: string
+  /** Clipped at 2000 characters. */
   body?: string
+  /**
+   * Make the row open your door: clicking its Open lands the person on
+   * `surfaceId` (and `viewId`, given). The row is also counted on that door's
+   * Extensions drawer row and read when the door is opened.
+   */
+  target?: ModuleNotificationTarget
 }
 
 export type ModuleNotification = {
@@ -209,6 +264,8 @@ export type ModuleNotification = {
   severity: ModuleNotificationSeverity
   title: string
   body?: string
+  /** The door the row opens, when the module named one. */
+  target?: ModuleNotificationTarget
   /** Epoch ms at emission, assigned by the kernel. */
   emittedAt: number
 }
@@ -308,13 +365,23 @@ export type McpToolResult = {
 }
 
 /**
- * Who is calling over the gateway, as far as the connection declared.
+ * Who is calling over the gateway.
  *
- * `studio-agent`/`external-local` arrive on the owner-only local socket and
- * their identity is advisory. `remote-tailnet` arrives on the opt-in tailnet
- * listener, where the transport proved which paired device is calling before
- * dispatch — `deviceId`, `deviceName`, and `peerNode` are set by the app, not
- * by the caller.
+ * `studio-agent`/`external-local` arrive on the owner-only local socket.
+ * There the identity is a claim — whatever has filesystem access can declare
+ * an agent of its choosing — unless the connection presented the launch token
+ * Studio issued that agent's launch, which proves it (`verified: true`). `remote-tailnet`
+ * arrives on the opt-in tailnet listener, where the transport proved which
+ * paired device is calling before dispatch — `deviceId`, `deviceName`, and
+ * `peerNode` are set by the app, not by the caller.
+ *
+ * A chat Studio launched always connects with its launch token, so its calls
+ * arrive as `kind: 'studio-agent'`, `verified: true`, with `workspaceId` and
+ * `agentId` always set. `agentName` (the chat's display name) and `cliId` (the
+ * runtime id, the same ids `listChatRuntimes()` lists) are set whenever the
+ * launch recorded them, which a chat started from the app always does; an
+ * agent from a plain terminal declares whatever it likes and stays
+ * `verified: false`.
  */
 export type McpConnectionMetadata = {
   kind: 'studio-agent' | 'external-local' | 'remote-tailnet'
@@ -325,6 +392,14 @@ export type McpConnectionMetadata = {
   deviceId?: string
   deviceName?: string
   peerNode?: string
+  /**
+   * True when a launch token or the tailnet transport PROVED the identity
+   * above; false when it is only declared. The host sets it on every call to
+   * your tool (`host.supports('mcp-verified-identity')`); a host older than
+   * this field leaves it out, so read a missing value as false. Label
+   * authorship as verified only on `true`.
+   */
+  verified?: boolean
 }
 
 export type McpConnectionContext = {
@@ -334,7 +409,18 @@ export type McpConnectionContext = {
 /**
  * One MCP tool contributed to the always-on Studio gateway. `inputSchema` is a
  * JSON Schema object; array-typed fields must stay arrays end to end. Tool
- * names are a public contract for agents — pick stable, module-prefixed names.
+ * names are a public contract for agents — pick stable names of your own, in a
+ * family named for your module (`decisions.record`, `decisions_list`).
+ *
+ * The gateway serves the name verbatim. MCP clients that take no dot write
+ * `a_b` for `a.b`, so names are compared in that form: a name that matches a
+ * core gateway tool (`backlog_list` vs the core's `backlog.list`), falls in one
+ * of the shell's families (`browser`, `canvas`, `editor`, `tour`, `terminal`),
+ * or matches another module's tool is a registration error that names the
+ * conflict. The core families (`agent`, `backlog`, `conversation`, `schedule`,
+ * `workspace`, `worktree`, `module`, `marketplace`, `tailnet`, `studio`,
+ * `sprintengine`, `app`, …) are reserved: new core tools land in them, so keep
+ * out of them even where no tool collides today.
  */
 export type McpToolRegistration = {
   name: string
@@ -388,18 +474,54 @@ export type ModuleSkillRegistration = {
 }
 
 /**
+ * Every status the host's skill installer answers with, so you can switch on
+ * it exhaustively:
+ *
+ * - `installed` — present and current (written by the app, or nothing to write).
+ * - `updated` — `ensureSkillInstalled` replaced an older copy it had written.
+ * - `missing` — not in the workspace yet (`getSkillStatus` only; `ensure…` installs it).
+ * - `update-available` — present, but older than the copy your module ships
+ *   (`getSkillStatus` only; `ensure…` updates it).
+ * - `local` — a copy the app did not write is in the way; it is left alone.
+ * - `modified` — the app's copy was edited by hand; it is left alone.
+ * - `delivered-at-launch` — nothing is written to the workspace: a launch that
+ *   asks for this skill is handed it as a plugin of its own (a built-in skill
+ *   on a CLI whose launch carries the app's plugin directories).
+ * - `missing-source` — the skill's own files are gone from the module or app.
+ * - `missing-workspace` — no workspace root was given.
+ * - `unknown-skill` — no built-in or registered module skill has that id.
+ * - `install-failed` — the write itself failed; `message` says why.
+ */
+export type ModuleSkillStatus =
+  | 'installed'
+  | 'updated'
+  | 'missing'
+  | 'update-available'
+  | 'local'
+  | 'modified'
+  | 'delivered-at-launch'
+  | 'missing-source'
+  | 'missing-workspace'
+  | 'unknown-skill'
+  | 'install-failed'
+
+/**
  * The answer to "is this skill present in that workspace now?".
  *
- * `status` carries the installer's own vocabulary — `installed`, `updated`,
- * `local`, `modified`, `missing-source`, `missing-workspace`, `unknown-skill`,
- * `install-failed` — so you can tell "we wrote it" from "a hand-made copy is
- * in the way" from "nobody has ever heard of this skill".
+ * `ok` is "an agent launched in that workspace now would find the skill":
+ * true for `installed`, `updated`, `update-available`, `local`, `modified` and
+ * `delivered-at-launch`; false for `missing` and every failure. `status` tells
+ * "we wrote it" from "a hand-made copy is in the way" from "nobody has ever
+ * heard of this skill".
  */
 export type EnsureSkillInstalledResult = {
   ok: boolean
-  status: string
+  status: ModuleSkillStatus
   message?: string
 }
+
+/** What `getSkillStatus` answers: the same shape, read without writing anything. */
+export type ModuleSkillStatusResult = EnsureSkillInstalledResult
 
 export type MainHost = {
   /** The module currently registering; stamped by the host. */
@@ -411,11 +533,23 @@ export type MainHost = {
    * does not know, so a module may probe for capabilities newer than its SDK.
    */
   supports(capability: HostCapability): boolean
+  /**
+   * The agent runtimes a chat can run on, as `RendererHost.listChatRuntimes`
+   * lists them for your window half: each runtime's id (what a conversation's
+   * and a scheduled agent's `cli`, and a companion's `engine.cli`, take), its
+   * label, its models and whether it is the person's last choice. A runtime
+   * this machine does not have is listed with `available: false`. Reading it
+   * may probe which CLIs are installed (cached for a minute), so read it when
+   * you need it rather than in a loop. Needs no permission. Check
+   * `host.supports('chat-runtimes')`: an older host has no such method.
+   */
+  listChatRuntimes(): Promise<ModuleChatRuntimeOption[]>
   registerIpc(channel: string, handler: IpcInvokeHandler): void
   /**
    * Contribute MCP tools to the Studio gateway, owned by this module's id. A
-   * tool name another module already registered is a registration error (the
-   * whole batch is rejected). Availability follows the module's enablement
+   * tool name another module already registered, or one that collides with a
+   * core gateway tool (see `McpToolRegistration` for the rule), is a
+   * registration error naming the conflict (the whole batch is rejected). Availability follows the module's enablement
    * live: a disabled module's tools stay listed on the gateway and answer
    * calls with an actionable enable error instead of running. An MCP tool is
    * agent-reachable capability: declare the `mcp:tools` permission, without
@@ -442,6 +576,64 @@ export type MainHost = {
    * answers `{ ok: false, status: 'unknown-skill' }`.
    */
   ensureSkillInstalled(workspaceRoot: string, skillId: string): Promise<EnsureSkillInstalledResult>
+  /**
+   * Whether a skill is present in a workspace, WITHOUT writing anything — the
+   * read half of `ensureSkillInstalled`, for a door that shows "installed in
+   * this project" before the person asks for the install. Same vocabulary:
+   * `missing` and `update-available` are the two states `ensure…` would act on.
+   * Never throws. Check `host.supports('skill-status')` first.
+   */
+  getSkillStatus(workspaceRoot: string, skillId: string): Promise<ModuleSkillStatusResult>
+  /**
+   * Your module's private directory under the app's per-user data
+   * (`<userData>/module-data/<moduleId>`), created on demand and removed when
+   * the module is uninstalled. For data past module storage's 1 MB value
+   * limit — caches, indexes, downloaded blobs — laid out however you like.
+   * It is per user and per machine, never synced, and outside every project.
+   * Disclosed under the `storage` permission. Throws when the host has no
+   * storage service (check `host.supports('module-data-dir')`).
+   */
+  getModuleDataDir(): string
+  /**
+   * The absolute path of a file packaged inside your module — the main-side
+   * twin of `RendererHost.getAssetUrl`, for what Node wants a path for:
+   * `new Worker(host.getAssetPath('dist/worker.cjs'))`, a WASM file, a data
+   * table. Only a file the module was verified with resolves, and only while
+   * its bytes still match: anything else (an unlisted file, traversal, a
+   * leading slash, a file changed since install) throws. Worker threads
+   * loaded this way are supported; list every file they load in the build so
+   * it is signed with the rest. Check `host.supports('main-asset-path')`.
+   */
+  getAssetPath(relativePath: string): string
+  /**
+   * A workspace's checked-out branch and remotes, each remote with
+   * `owner/repo` when it is on GitHub — so a VCS-aware module stops parsing
+   * `.git` → gitdir → commondir → config itself, and needs no
+   * `filesystem:read-workspace` to do it. Declare `ipc:workspace-read`
+   * (checked: `permission_missing` without it). Never throws. The renderer
+   * twin is `RendererHost.getWorkspaceGitInfo`. Check
+   * `host.supports('workspace-git-info')` first.
+   */
+  getWorkspaceGitInfo(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
+  /**
+   * Read one key of your module's APP-level state from `entry.main` — the
+   * same namespace your Settings section's `setValue` and
+   * `RendererHost.setModuleAppState` write, as the windows last pushed it.
+   * Persisted, so it reads with no window open: a scheduler in `entry.main`
+   * sees the run time the person chose without a second store and an IPC
+   * sync. Read-only (main never writes it back); a value set while no window
+   * was open arrives with the next window. `undefined` when the key has never
+   * been set. Never put a secret here — use the secrets service.
+   * Check `host.supports('main-app-state')` first.
+   */
+  getModuleAppState<T = unknown>(key: string): T | undefined
+  /**
+   * Hear your module's whole app-state namespace whenever it changes — a
+   * Settings change in whichever window — not on subscribe (read the current value
+   * with `getModuleAppState`). Returns the unsubscriber; unloading your module
+   * drops it too. The `entry.main` twin of `RendererHost.watchModuleAppState`.
+   */
+  watchModuleAppState(cb: (values: Readonly<Record<string, unknown>>) => void): () => void
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T
@@ -461,8 +653,14 @@ export type MainHost = {
    */
   registerSidecar(spec: SidecarSpec): SidecarHandle
   /**
-   * Surface a user-visible status notification. Identity is stamped from this
-   * host's scope; emission is flood-bounded per module.
+   * Put a row in the notification bell of every open window, under your
+   * module's display name (stamped by the host — never taken from you). Give
+   * it a `target` and its Open lands on your door; add more actions with a
+   * renderer `registerNotificationActionProvider({ source: <your module id> })`.
+   * Invalid input throws. Flood-bounded per module: an identical repeat within
+   * 10 s, or more than 20 rows in 10 s, is dropped — fold a burst into one row.
+   * A row sent while no window is open is kept (the last 50) and filed when
+   * one opens. `supports('notifications')` is false where nothing would show it.
    */
   notify(input: ModuleNotifyInput): void
   /**
@@ -552,6 +750,57 @@ export type ModuleWorkspaceView = {
 }
 
 /**
+ * One workspace as `WorkspaceContextService.list` reports it: the view, plus
+ * whether it is open now. With `includeClosed`, workspaces closed on this
+ * machine are listed after the open ones, newest first, as they were when
+ * they closed; their folders may since have moved or gone.
+ */
+export type ModuleWorkspaceListEntry = ModuleWorkspaceView & {
+  open: boolean
+  /** When a closed workspace was closed (epoch ms); absent while it is open. */
+  closedAt?: number
+}
+
+export type ModuleWorkspaceListOptions = {
+  /**
+   * Also list the workspaces closed on this machine (the most recent 500),
+   * so a module can tie what it kept — a transcript under the project's
+   * `.sprintengine/`, its own storage — back to a project no longer open.
+   * Check `host.supports('workspace-history')` first.
+   */
+  includeClosed?: boolean
+}
+
+/** A git remote of a workspace's repository, as `git remote -v` names it (fetch URL). */
+export type ModuleWorkspaceGitRemote = {
+  name: string
+  /** The fetch URL, with credentials (a token in the userinfo) removed. */
+  url: string
+  /** `owner/repo` when the remote is a GitHub repository, SSH host aliases resolved. */
+  github?: string
+}
+
+export type ModuleWorkspaceGitInfoErrorCode =
+  | 'permission_missing'
+  | 'unknown_workspace'
+  | 'no_folder'
+  | 'not_a_repository'
+  // The folder is on another machine, or the host has no git reader wired yet.
+  | 'unavailable'
+  | 'git_failed'
+
+/**
+ * A workspace's checked-out branch (null on a detached HEAD) and its remotes,
+ * read by git from the workspace's own folder — so a worktree reports its own
+ * branch and a submodule its own repository, and a remote whose SSH host is an
+ * alias for github.com in ~/.ssh/config still carries `github`. (`Match`
+ * blocks and `Include`d files are not followed when resolving an alias.)
+ */
+export type ModuleWorkspaceGitInfoResult =
+  | { ok: true; branch: string | null; remotes: ModuleWorkspaceGitRemote[] }
+  | { ok: false; code: ModuleWorkspaceGitInfoErrorCode; message: string }
+
+/**
  * Resolve a workspace id to its read-only view from `entry.main`. A null
  * resolution means "not currently resolvable" — an unknown id, or workspace
  * state that has not re-hydrated yet (e.g. right after app launch). Never a
@@ -565,9 +814,11 @@ export type WorkspaceContextService = {
    * Every workspace currently open, in registry order. The main-side twin of
    * `RendererHost.listWorkspaces`, and the only way `entry.main` can answer
    * "which project roots are open" — an MCP tool your module contributes runs
-   * with no window and no renderer to ask.
+   * with no window and no renderer to ask. Each entry says `open: true`;
+   * with `includeClosed`, the workspaces closed on this machine follow, newest
+   * first, with `open: false` and `closedAt`.
    */
-  list(): Promise<ModuleWorkspaceView[]>
+  list(options?: ModuleWorkspaceListOptions): Promise<ModuleWorkspaceListEntry[]>
 }
 
 /**
@@ -601,17 +852,54 @@ export type ScheduledAgentSchedule = {
 /** A skill or an installed MCP server, by id, with the name its chip shows. */
 export type ScheduledAgentAttachment = { id: string; name: string }
 
+/**
+ * Whether the last run started its chat. `workspaceId` and `agentId` name that
+ * chat (a conversation ref your conversation service reaches); `agentId` is
+ * absent on a run recorded by a host from before it was kept.
+ */
 export type ScheduledAgentLastRun =
-  { at: number; ok: true; workspaceId: string } | { at: number; ok: false; message: string }
+  { at: number; ok: true; workspaceId: string; agentId?: string } | { at: number; ok: false; message: string }
+
+/** A run whose chat started: when, and the chat (a conversation ref) it started. */
+export type ScheduledAgentRun = { at: number; workspaceId: string; agentId: string }
 
 /**
  * A scheduled agent: a prompt and a schedule. Each time the schedule comes
  * round, a new chat starts in `folderPath` with `prompt` as its first message,
  * on the machine, CLI, model, permissions, skills, MCP servers and worktree
  * setting recorded here. Nothing carries from one run to the next.
+ *
+ * When a time is missed:
+ * - **The app was closed.** A repeating schedule's missed times are not
+ *   replayed; the next run is counted from when the app starts. A one-time
+ *   schedule whose time passed while the app was closed runs once, as soon as
+ *   the app is open again.
+ * - **The computer slept, with the app open.** The schedule runs once on
+ *   waking, however many of its times passed in the sleep.
+ * - **The previous run is still working** (a turn open, or waiting on an
+ *   approval), or still starting. The time is skipped, not queued: the next
+ *   one counts on from it.
+ *
+ * Each run's chat is owned by the module that created the scheduled agent, so
+ * its conversation service reaches it (`onRun` names the chat), and its
+ * summary carries `scheduledAgentId` and `scheduledAgentTag`.
  */
 export type ScheduledAgent = {
   id: string
+  /**
+   * Its title in the person's sidebar and editor (up to 120 characters).
+   * Absent, the prompt's first line is. Check
+   * `host.supports('scheduled-agent-runs')`.
+   */
+  name?: string
+  /**
+   * Your own label for it (up to 200 characters; the item, task or record it
+   * belongs to), never shown to the person. Each run's chat carries it as
+   * `ModuleConversationSummary.scheduledAgentTag`, so you can tell which of
+   * your schedules a chat came from without putting markers in the prompt.
+   * Check `host.supports('scheduled-agent-runs')`.
+   */
+  tag?: string
   prompt: string
   schedule: ScheduledAgentSchedule
   folderPath: string
@@ -638,9 +926,15 @@ export type ScheduledAgent = {
   lastFailureSeenAt: number | null
 }
 
-/** What a module writes: everything but the bookkeeping. */
+/**
+ * What a module writes: everything but the bookkeeping. On `update`, a draft
+ * without `name` or `tag` keeps the ones the scheduled agent has, and an empty
+ * string clears it.
+ */
 export type ScheduledAgentDraft = Pick<
   ScheduledAgent,
+  | 'name'
+  | 'tag'
   | 'prompt'
   | 'schedule'
   | 'folderPath'
@@ -676,6 +970,17 @@ export type ModuleScheduledAgentsService = {
   runNow(id: string): Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
   /** Called with this module's scheduled agents whenever one of them changes. Returns the unsubscriber; call it in `onShutdown`. */
   onChanged(listener: (agents: ScheduledAgentView[]) => void): () => void
+  /**
+   * Called each time one of this module's scheduled agents starts a chat, on
+   * its schedule or by `runNow`, with the scheduled agent as it ran and the
+   * chat (`run.workspaceId`, `run.agentId`: follow it with the conversation
+   * service). A one-time schedule is told before it closes itself, so its run
+   * is heard although `onChanged` never lists it again. A run that failed to
+   * start is not a run; `lastRun` says why. Returns the unsubscriber; call it
+   * in `onShutdown`. Check `host.supports('scheduled-agent-runs')`: an older
+   * host never calls it.
+   */
+  onRun(listener: (agent: ScheduledAgentView, run: ScheduledAgentRun) => void): () => void
 }
 
 type ScheduledAgentsModuleRegistry = {
@@ -688,6 +993,8 @@ type ScheduledAgentsModuleRegistry = {
     id: string,
   ): Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
   onChanged(moduleId: string, listener: (agents: ScheduledAgentView[]) => void): () => void
+  // Absent on a host from before scheduled-agent-runs.
+  onRun?(moduleId: string, listener: (agent: ScheduledAgentView, run: ScheduledAgentRun) => void): () => void
 }
 
 const scheduledAgentsModuleServiceToken: ServiceToken<ScheduledAgentsModuleRegistry> =
@@ -708,6 +1015,7 @@ export function getScheduledAgentsService(host: MainHost): ModuleScheduledAgents
     list: () => registry.list(moduleId),
     runNow: (id) => registry.runNow(moduleId, id),
     onChanged: (listener) => registry.onChanged(moduleId, listener),
+    onRun: (listener) => (registry.onRun ? registry.onRun(moduleId, listener) : () => {}),
   }
 }
 
@@ -747,7 +1055,15 @@ export type CompanionAgentSpec = {
   name: string
   /** Absolute workspace folder (the main process has no id → folder registry). */
   workspaceRoot: string
-  /** Engine selection; defaults resolve to the workspace's harness CLI/model. */
+  /**
+   * Engine selection. `cli` takes the chat runtime id a conversation's `cli`
+   * takes and `listChatRuntimes()` lists (`claude-code`, `codex`, `cursor`,
+   * `opencode`, `grok`), or the conversation provider id behind it
+   * (`claude-agent`, `codex-agent`, …): both name the same engine, so one id
+   * space covers chats and companions. Absent, Claude Code on `sonnet`; another
+   * engine without a `model` runs its own default model. A runtime id needs
+   * `host.supports('companion-tools')`; an older host takes provider ids only.
+   */
   engine?: { cli?: string; model?: string }
   /** Advisory context roots; the provider resolves knowledge from workspaceRoot. */
   contextRoots?: { knowledge?: boolean }
@@ -763,7 +1079,35 @@ export type CompanionRunStructuredOptions<T> = {
   /** Validator errors are fed back to the agent and the turn retried. Default 1. */
   retries?: number
   onPhase?: (phase: string) => void
+  /**
+   * What the run does when its agent asks to use a tool (an edit, a command,
+   * a web request, an MCP tool; a companion session asks before every one):
+   *
+   * - `none` (the default): the host denies every request, and tells the
+   *   agent before your prompt that it has no tools for this task. Use it for
+   *   anything fed text you did not write (logs, PR comments, transcripts):
+   *   whatever that text says, the agent can only answer.
+   * - `ask`: requests stay open for the person. They arrive in `onEvent` as
+   *   `approval_requested`; show them, and relay the person's answer with
+   *   `respondToApproval`. The run waits until each is answered (or you
+   *   `interrupt`).
+   * - `auto`: the host approves every request, which is as loose as a chat on
+   *   `bypass`. Needs the `conversation:bypass` permission: without it the run
+   *   is refused (the promise rejects, naming the permission), and it is
+   *   refused too while your module serves an MCP tool call from an agent that
+   *   asks before acting.
+   *
+   * Check `host.supports('companion-tools')`: an older host ignores `tools`
+   * and approves every request.
+   */
+  tools?: 'none' | 'ask' | 'auto'
 }
+
+/**
+ * An answer to one approval request the companion's agent raised: allow it
+ * once, or deny it. A rule that outlives the request is the person's to make.
+ */
+export type CompanionApprovalAnswer = { requestId: string; decision: 'once' | 'deny' }
 
 export type CompanionAgentHandle = {
   readonly workspaceId: string
@@ -773,8 +1117,21 @@ export type CompanionAgentHandle = {
   onStatus(cb: (status: CompanionAgentStatus) => void): () => void
   /** Run a structured JSON task: extract final JSON, validate, retry-once, return typed. */
   runStructured<T>(opts: CompanionRunStructuredOptions<T>): Promise<T>
-  /** A chat turn on the session's own transport. */
+  /**
+   * A chat turn on the session's own transport. Its approvals are left open,
+   * as a structured run's with `tools: 'ask'` are.
+   */
   send(message: string): Promise<void>
+  /**
+   * Relay the person's answer to an approval request that is still open (an
+   * `approval_requested` event's `requestId`): one from a `tools: 'ask'` run
+   * or from a `send` turn. Never answer on the person's behalf. Allowing
+   * (`once`) needs the `conversation:operate` permission, as answering an
+   * approval in a chat does; without it a request can only be denied.
+   * Answers `{ ok: false }` for a request that is not open. Check
+   * `host.supports('companion-tools')`.
+   */
+  respondToApproval(input: CompanionApprovalAnswer): Promise<{ ok: true } | { ok: false; message: string }>
   onEvent(cb: (event: CompanionAgentEvent) => void): () => void
   interrupt(): void
   /** Ends the session; the handle becomes inert. Re-attach spawns a fresh one. */
@@ -812,7 +1169,20 @@ export function getCompanionAgentsService(host: MainHost): CompanionAgentsServic
   const registry = host.requireService(companionAgentsModuleServiceToken)
   const moduleId = host.moduleId
   return {
-    attach: (spec) => registry.attach(moduleId, spec),
+    attach: (spec) => {
+      const handle: Omit<CompanionAgentHandle, 'respondToApproval'> &
+        Partial<Pick<CompanionAgentHandle, 'respondToApproval'>> = registry.attach(moduleId, spec)
+      if (handle.respondToApproval) return handle as CompanionAgentHandle
+      // A host older than `companion-tools` has no answer to give; say so
+      // rather than leave the module a TypeError.
+      return Object.assign(handle, {
+        respondToApproval: () =>
+          Promise.resolve({
+            ok: false as const,
+            message: `This version of the app has no "respondToApproval"; check host.supports('companion-tools').`,
+          }),
+      })
+    },
   }
 }
 
@@ -835,15 +1205,48 @@ export type ModuleStorageResult<T> = ({ ok: true } & T) | { ok: false; code: Mod
  * the module's global store. Declare the `storage` permission (install-time
  * disclosure). Renderer panels reach storage through the module's own
  * `host.invoke` channels.
+ *
+ * Workspace-scoped keys are plain files in the project, so they travel with it
+ * (commit `.sprintengine/modules/<moduleId>/` if your data belongs to the
+ * project, ignore it if it does not — that is the project's call, not the
+ * host's). Data past the 1 MB value limit — caches, blobs, indexes — belongs
+ * in `MainHost.getModuleDataDir()` instead.
  */
 export type ModuleStorageService = {
   /** `found: false` (with `value: undefined`) when the key has never been set. */
   get(input: { key: string; workspaceRoot?: string }): Promise<ModuleStorageResult<{ value: unknown; found: boolean }>>
   set(input: { key: string; value: unknown; workspaceRoot?: string }): Promise<ModuleStorageResult<object>>
   delete(input: { key: string; workspaceRoot?: string }): Promise<ModuleStorageResult<{ deleted: boolean }>>
-  /** Keys in the scope, sorted; an empty store lists `[]`, never an error. */
-  list(input?: { workspaceRoot?: string }): Promise<ModuleStorageResult<{ keys: string[] }>>
+  /**
+   * Keys in the scope, sorted; an empty store lists `[]`, never an error.
+   * With `prefix`, only the keys that start with it (`decision.` lists one
+   * record family). `prefix` needs `host.supports('storage-query')`.
+   */
+  list(input?: { workspaceRoot?: string; prefix?: string }): Promise<ModuleStorageResult<{ keys: string[] }>>
+  /**
+   * Read up to 1000 keys in one call. `values` holds the keys that are set; a
+   * key never set is simply absent. A corrupt record fails the whole call
+   * (`io_error` naming the key), exactly as `get` would.
+   * Check `host.supports('storage-query')` first.
+   */
+  getMany(input: {
+    keys: string[]
+    workspaceRoot?: string
+  }): Promise<ModuleStorageResult<{ values: Record<string, unknown> }>>
+  /**
+   * Hear which keys of a scope changed — set or deleted — as
+   * `{ keys: string[] }`. Your own writes are reported at once; a change made
+   * by other means (a `git pull` into the workspace, a teammate's commit, a
+   * file edited by hand) within a couple of seconds. Like a module event it
+   * is a signal, not state: read the keys again. Returns the unsubscriber —
+   * call it in `onShutdown`. Throws for an invalid `workspaceRoot`.
+   * Check `host.supports('storage-watch')` first.
+   */
+  watch(input: { workspaceRoot?: string }, listener: (change: ModuleStorageChange) => void): () => void
 }
+
+/** Which keys of a watched scope changed (were set or deleted), sorted. */
+export type ModuleStorageChange = { keys: string[] }
 
 // The moduleId-first registry the app provides; derived from the published
 // service so the two shapes cannot drift.
@@ -874,6 +1277,8 @@ export function getModuleStorage(host: MainHost): ModuleStorageService {
     set: (input) => registry.set(moduleId, input),
     delete: (input) => registry.delete(moduleId, input),
     list: (input) => registry.list(moduleId, input),
+    getMany: (input) => registry.getMany(moduleId, input),
+    watch: (input, listener) => registry.watch(moduleId, input, listener),
   }
 }
 
@@ -1228,6 +1633,14 @@ export type BacklogItemView = {
   links: BacklogItemLink[]
   excerpt: string
   sourceContent: string
+  /** The item's number (frontmatter `id:`), once the app has allocated one. */
+  numericId?: number
+  /** The id people read, `<workspace key>-<numericId>` (e.g. `MC-240`), when the item has a number. */
+  displayId?: string
+  /** The slug of the epic the item belongs to (frontmatter `epic:`). */
+  epic?: string
+  /** When the item last changed (epoch ms): its frontmatter `updated:` instant, else the file's mtime. */
+  modifiedAt: number
 }
 
 export type BacklogItemActionCategory = 'execute' | 'analyze' | 'transform' | 'publish' | 'review' | 'organize'
@@ -1379,7 +1792,13 @@ export type ModuleCommandDefinition = {
    */
   availability?: readonly CommandAvailability[] | ((context: ModuleCommandContext) => boolean)
   allowInEditableTarget?: boolean
-  run: () => void | Promise<void>
+  /**
+   * The handler. It receives the `ModuleCommandContext` the availability
+   * predicate was judged on, from the window the command ran in — so "this
+   * workspace" is `context.activeWorkspaceId`. A zero-argument handler is
+   * still valid (`supports('command-context')` says whether the host passes it).
+   */
+  run: (context: ModuleCommandContext) => void | Promise<void>
 }
 
 // ── Settings sections ────────────────────────────────────────────────────────
@@ -1407,43 +1826,72 @@ export type SettingsSectionDefinition = {
 
 // ── Sidebar nav entries ──────────────────────────────────────────────────────
 
+/**
+ * A drawer row's count, as the host derived it: your door badge's waiting
+ * count plus your unread bell rows filed under the door. Draw it with the
+ * kit's `SidebarNavButton` `badge` prop so it reads like every other row's.
+ */
+export type SidebarNavEntryBadge = {
+  count: number
+  tone: 'neutral' | 'accent' | 'good' | 'warn' | 'error'
+  /** The count's full accessible name ("Task Board: 2 waiting on you"). */
+  label: string
+  /** The same without the place ("2 waiting on you"), for a row that already names itself. */
+  detail?: string
+}
+
 export type SidebarNavEntryRenderProps = {
   /** The sidebar is collapsed to the icon rail; render icon-only with a tooltip. */
   collapsed: boolean
+  /**
+   * The count the host derived for your row, or null/absent for none. The host
+   * counts so the row and the app rail's Extensions square above it agree;
+   * wear this rather than drawing a count of your own.
+   */
+  badge?: SidebarNavEntryBadge | null
 }
 
 export type SidebarNavEntryComponent =
   ComponentType<SidebarNavEntryRenderProps> | LazyExoticComponent<ComponentType<SidebarNavEntryRenderProps>>
 
 /**
- * A top-nav door your module contributes to the workspace sidebar's
- * instance-level nav cluster (the band holding New chat and
- * Connectors). The entry is a self-contained row component that owns its full
- * behavior — a status dot, an open action against the local window's store,
- * active state. The sidebar shows it only while your module is enabled and
- * places it by `order`, so the toggle adds/removes the door without a reload.
+ * Your own drawing of a door's row. Installed doors live in the Extensions
+ * drawer; a nav entry whose `id` is the id of a global surface YOUR module
+ * registered is drawn there AS that door's row, in place of the generic
+ * label-and-glyph one (and in place of its view rows, if it has views). An
+ * entry whose id names no surface of yours is not drawn. The component owns
+ * its open action and its reading of selected, and is handed `collapsed` and
+ * the host's `badge`. Shown only while your module is enabled, so the toggle
+ * adds/removes the row without a reload. Most doors need no nav entry: a
+ * `label` and `Icon` on the surface already give it a row.
  */
 export type SidebarNavEntryDefinition = {
+  /** The id of the global surface this row is the door of. */
   id: string
-  /** Sort key in the top-nav cluster; lower renders first. Built-in doors reserve 0–30. */
+  /** Sort key among nav entries; lower first, ties on id. */
   order: number
   Component: SidebarNavEntryComponent
 }
 
 /**
- * A waiting-count your module contributes for a drawer / nav-entry row. The
- * shell merges this with that row's unread bell news; the contribution is
- * gone with the module, so a count with no row never appears.
+ * A waiting count your module contributes for one of its doors' Extensions
+ * drawer rows. The shell merges it with that row's unread bell news; the
+ * contribution is gone with the module, so a count with no row never appears.
  */
 export type DoorBadgeContribution = {
-  /** Matches your sidebar nav entry id / the shell's drawer row id. */
+  /**
+   * The id of one of YOUR global surfaces: its Extensions drawer row wears the
+   * count (the first row, for a surface with `views`). A row id another
+   * module's surface holds counts nothing.
+   */
   rowId: string
   /** Live items on this door waiting on the operator. Not a React hook. */
   getWaitingCount(): number
   subscribe(onChange: () => void): () => void
   /**
-   * Notification source whose unnamed rows fall to this door. An emitter that
-   * knows the row still sets `extensionsRow` on the notification itself.
+   * Set it to your module id to file your untargeted `notify` rows under this
+   * door (a module with one door gets that by default; one with several says
+   * which here). A row with a `target` is filed under its target's door.
    */
   notificationSource?: string
 }
@@ -1498,8 +1946,10 @@ export type SurfaceRailPlacement = 'sidebar' | 'inline'
  */
 export type SurfaceViewDefinition = {
   /**
-   * Unique within your surface. Publish this id while the surface is showing
-   * this view, so exactly one of your rows reads selected.
+   * Unique within your surface. Publish it with
+   * `host.setSurfaceView(surfaceId, id)` while the surface is showing this
+   * view (and `null` as it unmounts), so exactly one of your rows reads
+   * selected.
    */
   id: string
   /** The row's label and accessible name. Non-empty; sentence case. */
@@ -1518,10 +1968,11 @@ export type SurfaceViewDefinition = {
 /**
  * The full-page surface behind a top-level door. A global surface is a
  * first-class extension point: it is instance-global, needs no workspace
- * type, panel, or project scope, and owns its own data and layout. Pair it
- * with a sidebar nav entry whose open action routes to the same `id` — the
- * shell mounts the surface over the workspace card region when that door
- * opens, gated on your module's live enablement. The component is zero-prop,
+ * type, panel, or project scope, and owns its own data and layout. With a
+ * `label` and `Icon` it gets a row in the Extensions drawer (and a tile on the
+ * Extensions home); the shell mounts the surface over the workspace card
+ * region when that row — or your own `openGlobalSurface(id)` — opens it,
+ * gated on your module's live enablement. The component is zero-prop,
  * eager or `React.lazy()`. While your module is uninstalled or disabled, the
  * shell renders an explicit "not installed" door in its place and keeps the
  * user's spot; re-enabling restores the surface without a reload.
@@ -1682,6 +2133,12 @@ export type ModuleFocusTabInput = {
 export type NotificationActionView = {
   workspaceId?: string
   navigationTarget?: { kind: string; ref: string }
+  /** The row's title (your `notify` title, for one of your rows). */
+  title?: string
+  /** The row's body text (your `notify` body; empty when you sent none). */
+  message?: string
+  /** The `target` your `notify` named, on one of your rows. */
+  surfaceTarget?: ModuleNotificationTarget
 }
 
 export type NotificationActionContext = {
@@ -1698,16 +2155,55 @@ export type NotificationAction = {
 }
 
 export type NotificationActionProvider = {
-  /** The notification source this provider owns — the emitter tag its module writes. */
+  /**
+   * Your module id (`host.moduleId`): your `MainHost.notify` rows are filed
+   * under it, and an installed module may register no other source.
+   */
   source: string
   resolveActions(context: NotificationActionContext): NotificationAction[]
 }
+
+// ── Toasts, links and window context (renderer) ──────────────────────────────
+
+/** A toast's tone. `good` for done, `warn`/`error` for trouble, `neutral`/`accent` for plain news. */
+export type ModuleToastTone = 'neutral' | 'accent' | 'good' | 'warn' | 'error'
+
+/**
+ * Transient feedback — the answer to "did it work?" after a command or a click
+ * in your door. Shown in the app's toast region with your module's name under
+ * your message; leaves on its own (5 s, or 10 s for warn and error, held while
+ * hovered). Anything the person must be able to find again belongs in the bell
+ * (`MainHost.notify`), not here.
+ */
+export type ModuleToastInput = {
+  tone: ModuleToastTone
+  /** One line, sentence case. Non-empty; clipped at 200 characters. */
+  message: string
+  /** An optional second line; clipped at 500 characters. */
+  detail?: string
+  /** At most one button. Pressing it dismisses the toast and runs `run`. */
+  action?: { label: string; run: () => void | Promise<void> }
+}
+
+/**
+ * `RendererHost.openExternal`'s answer: `invalid_url` for anything but an
+ * absolute http(s) URL, `unavailable` while your module is off or before the
+ * window can open links, `failed` when the system refused.
+ */
+export type ModuleOpenExternalResult =
+  { ok: true } | { ok: false; code: 'invalid_url' | 'unavailable' | 'failed'; message: string }
 
 // ── Renderer host registration contract ──────────────────────────────────────
 
 export type RendererHost = {
   /** The host API this app provides (`HOST_API_VERSION` of the SDK it was built with). */
   readonly hostApiVersion: number
+  /**
+   * Your module id, as your manifest declares it — the prefix your `invoke`
+   * channels carry and the `source` your bell rows are filed under. Absent on a
+   * host older than `supports('module-id')`.
+   */
+  readonly moduleId: string
   /**
    * Whether the running host provides `capability` now. False for names it
    * does not know, so a module may probe for capabilities newer than its SDK.
@@ -1740,23 +2236,29 @@ export type RendererHost = {
    */
   registerFileAction(action: FileAction): void
   /**
-   * Contribute Open actions for bell rows of `provider.source`. One provider
-   * per source; a duplicate is a registration error. A provider that returns
-   * no actions leaves the shell's generic workspace-reveal fallback in place.
+   * Contribute actions for your own bell rows: register with
+   * `source: host.moduleId` and the actions you return appear on every
+   * `MainHost.notify` row your module sent, beside the Open its `target`
+   * gives it. One provider per source; a duplicate, or (for an installed
+   * module) a source other than your own id, is a registration error.
    */
   registerNotificationActionProvider(provider: NotificationActionProvider): void
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
   /**
-   * Contribute a top-nav door to the workspace sidebar. Registered once at
-   * boot; the sidebar filters by your module's enablement and orders by
-   * `order`, so toggling your module shows/hides the door without a reload.
+   * Draw your own row for one of your doors: the entry whose `id` is one of
+   * your global surfaces' ids replaces that door's generic row in the
+   * Extensions drawer, and is handed `collapsed` and the host's `badge`
+   * (`supports('sidebar-nav-entries')`). Registered once at boot; shown only
+   * while your module is enabled.
    */
   registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
   /**
-   * Contribute the waiting-count a drawer / nav-entry row wears. The shell
-   * merges this with that row's unread bell news; the contribution is gone
-   * with the module. Duplicate `rowId` is a registration error.
+   * Contribute the waiting count your door's drawer row wears: `rowId` is the
+   * id of one of your global surfaces. The shell adds your unread bell rows
+   * filed under the door, and the app rail's Extensions square sums the rows
+   * (`supports('door-badges')`). Gone with the module. Duplicate `rowId` is a
+   * registration error.
    */
   registerDoorBadge(contribution: DoorBadgeContribution): void
   /**
@@ -1768,8 +2270,9 @@ export type RendererHost = {
    */
   registerTopBarItem(definition: TopBarItemDefinition): void
   /**
-   * Contribute the door-routed full-page surface behind a sidebar nav entry
-   * with the same id. Registered once at boot; the shell gates the mount on
+   * Contribute a door: the full-page surface behind an Extensions drawer row
+   * (from its `label` and `Icon`, or your own nav entry with the same id).
+   * Registered once at boot; the shell gates the mount on
    * your module's enablement, so the toggle swaps the page for the explicit
    * "not installed" door (and back) without a reload. An id already claimed
    * by another module is a registration error, reported as a module load
@@ -1805,18 +2308,53 @@ export type RendererHost = {
   openModalSurface(id: string): boolean
   /**
    * The workspace's Backlog items as read-only views. Declare the
-   * `backlog.read` permission (install-time disclosure). Mutations go through
-   * `BacklogItemActionContext` (Backlog actions) or the item's file — never
-   * through this read surface. Rejects when the backlog module is disabled.
+   * `backlog.read` permission; the host checks it. Change items with the
+   * Backlog write methods below (or `getBacklogService` in `entry.main`) —
+   * never by writing an item's file. Rejects when the backlog module is
+   * disabled.
    */
   listBacklogItems(workspaceId: string): Promise<BacklogItemView[]>
   /**
    * Observe the workspace's Backlog: `cb` fires once with the current
    * snapshot, then on every change (scans are debounced ~300ms behind file
    * edits). Returns the unsubscriber — call it when your panel unmounts.
-   * Throws when the backlog module is disabled. Declare `backlog.read`.
+   * `options.onError` hears why a snapshot could not be delivered (no project
+   * folder, an unreadable Backlog); the watch stays open and a later readable
+   * scan calls `cb` again. Throws when the backlog module is disabled or
+   * `backlog.read` is not declared.
    */
-  watchBacklogItems(workspaceId: string, cb: (items: BacklogItemView[]) => void): () => void
+  watchBacklogItems(
+    workspaceId: string,
+    cb: (items: BacklogItemView[]) => void,
+    options?: BacklogWatchOptions,
+  ): () => void
+  // ── Backlog writes (renderer twin of `getBacklogService`) ──
+  // Each goes through the app's own Backlog service in main and answers a
+  // result, never a throw. `itemId` is a `BacklogItemView.id`. Reads need
+  // `backlog.read`, writes `backlog.write`; `supports('backlog-write')` says
+  // whether the host has them.
+  /** Where the workspace's Backlog lives. */
+  getBacklogLocation(workspaceId: string): Promise<ModuleBacklogResult<{ location: ModuleBacklogLocation }>>
+  /** Create an item the way the app does: its id, file name and frontmatter follow the app's rules. */
+  createBacklogItem(
+    workspaceId: string,
+    input: ModuleBacklogCreateInput,
+  ): Promise<ModuleBacklogResult<ModuleBacklogCreated>>
+  updateBacklogStatus(workspaceId: string, itemId: string, status: BacklogItemStatus): Promise<ModuleBacklogResult>
+  updateBacklogTriage(
+    workspaceId: string,
+    itemId: string,
+    triage: ModuleBacklogTriageInput,
+  ): Promise<ModuleBacklogResult>
+  addBacklogLink(workspaceId: string, itemId: string, link: ModuleBacklogLinkInput): Promise<ModuleBacklogResult>
+  updateBacklogModuleMetadata(workspaceId: string, itemId: string, value: unknown): Promise<ModuleBacklogResult>
+  /**
+   * Token usage of every agent session on this machine — the renderer twin of
+   * `getUsageService(host).query`. Declare `usage:read`;
+   * `supports('usage')` says whether the host has it. For live updates, call
+   * it again when your `entry.main` hears `onChanged`.
+   */
+  queryUsage(query: UsageQuery): Promise<UsageQueryResult>
   /**
    * Resolve a workspace id (e.g. from `WorkspacePanelProps.workspaceId`) to
    * its read-only view — the supported way to get a workspace's folder root,
@@ -1837,6 +2375,16 @@ export type RendererHost = {
    * disclosure).
    */
   listWorkspaces(): Promise<ModuleWorkspaceView[]>
+  /**
+   * A workspace's checked-out branch (null when detached) and its remotes,
+   * each with `owner/repo` when it is on GitHub — SSH host aliases from
+   * ~/.ssh/config resolved. Read by git from the workspace's working root, so
+   * a worktree reports its own branch. The `entry.main` twin is
+   * `MainHost.getWorkspaceGitInfo`. Declare `ipc:workspace-read` (checked:
+   * `permission_missing` without it). Never throws. Check
+   * `host.supports('workspace-git-info')` first.
+   */
+  getWorkspaceGitInfo(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
   /**
    * Observe the open workspaces: `cb` fires once with the current list, then
    * on every change (deduped by value, so an unrelated store write does not
@@ -1951,9 +2499,12 @@ export type RendererHost = {
   /**
    * Open a chat in a workspace and focus it. By default the prompt lands in the
    * composer as a draft the user sends themselves; `send: true` sends it as the
-   * first turn. Expected failures come back as a result, never a throw
-   * (`unavailable` when this window cannot open chats). Declare
-   * `conversation:operate`.
+   * first turn. `name` titles the chat, and `dedupeKey` focuses the chat this
+   * module already opened under that key instead of opening another (check
+   * `supports('chat.open-options')`). Expected failures come back as a
+   * result, never a throw (`unavailable` when this window cannot open chats).
+   * Declare `chat:draft` to open drafts, or `conversation:operate`, which
+   * `send: true` needs.
    */
   openChat(input: ModuleOpenChatInput): Promise<ModuleOpenChatResult>
   /**
@@ -1962,13 +2513,49 @@ export type RendererHost = {
    */
   listChatRuntimes(): ModuleChatRuntimeOption[]
   /**
+   * Show a toast: transient feedback in the app's toast region, under your
+   * module's name. Returns its dismisser. An empty message, an unknown tone or
+   * a malformed action throws; while your module is disabled, or in a window
+   * with no toast region (`supports('toast')` is false), nothing shows and the
+   * dismisser does nothing.
+   */
+  toast(input: ModuleToastInput): () => void
+  /**
+   * The workspace this window is showing, or null — none is open. The same id
+   * a command's `ModuleCommandContext.activeWorkspaceId` carries
+   * (`supports('active-workspace')`).
+   */
+  getActiveWorkspaceId(): string | null
+  /**
+   * Observe the workspace this window is showing: `cb` fires once with the
+   * current id (null for none), then whenever it changes. Returns the
+   * unsubscriber; call it on unmount.
+   */
+  watchActiveWorkspace(cb: (workspaceId: string | null) => void): () => void
+  /**
+   * Say which of your surface's `views` it is showing, so exactly that drawer
+   * row reads selected — including after the person moved with your own rail.
+   * Pass `null` as the surface unmounts. False for a surface that is not
+   * yours, a view id it does not declare, or while your module is disabled
+   * (`supports('surface-view')`).
+   */
+  setSurfaceView(surfaceId: string, viewId: string | null): boolean
+  /**
+   * Open an http(s) URL in the system browser through the app's own link
+   * path — never in the app's window. Anything but an absolute http(s) URL
+   * (no credentials) is refused as `invalid_url` before it leaves your code.
+   * Expected failures come back as a result, never a throw.
+   */
+  openExternal(url: string): Promise<ModuleOpenExternalResult>
+  /**
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`, e.g. `host.invoke('my-module:save', data)`.
    *
    * The channel MUST start with `<moduleId>:` (your own module id); other
    * channel names throw before IPC happens. The host additionally routes only
-   * to channels owned by a module whose manifest declares the `ipc:invoke`
-   * permission. A refused invoke rejects with an Error whose
+   * to channels owned by a module whose manifest declares the `module:bridge`
+   * permission (or the broad `ipc:invoke` it was split out of, which still
+   * opens the bridge for older manifests). A refused invoke rejects with an Error whose
    * `code` property carries the `ModuleBridgeRefusalCode`, so callers can
    * branch on the refusal kind without parsing the message.
    *
@@ -1983,8 +2570,8 @@ export type RendererHost = {
  * Why the host refused a `RendererHost.invoke`, attached as `code` on the
  * rejection Error: the channel was never registered (`unknown_channel`), it is
  * not `<ownerModuleId>:`-prefixed (`not_bridgeable`), the owner manifest
- * could not be resolved (`not_bridgeable`), or the owner does not declare
- * `ipc:invoke` (`permission_missing`).
+ * could not be resolved (`not_bridgeable`), or the owner declares neither
+ * `module:bridge` nor `ipc:invoke` (`permission_missing`).
  */
 export type ModuleBridgeRefusalCode = 'unknown_channel' | 'not_bridgeable' | 'permission_missing'
 
@@ -2120,6 +2707,21 @@ export const THEME_TOKENS = [
   '--tone-good',
   '--tone-error',
   '--tone-merged',
+  // Categorical chart series, in ORDER: series N takes `--chart-N`, never
+  // cycled and never re-assigned by rank — the order is what keeps neighbours
+  // apart under colour-vision deficiency. A ninth series folds into the
+  // neutral `--chart-other`. They are never status: a series that means good
+  // or bad wears `--tone-good` / `--tone-warn` / `--tone-error` instead. Each
+  // clears 3:1 against `--bg-surface` on every theme.
+  '--chart-1',
+  '--chart-2',
+  '--chart-3',
+  '--chart-4',
+  '--chart-5',
+  '--chart-6',
+  '--chart-7',
+  '--chart-8',
+  '--chart-other',
   // Motion. `--motion-normal` is a duration, `--motion-ease` a timing
   // function: use them together on a transition or animation so module UI
   // moves at the app's pace instead of inventing its own.
@@ -2170,9 +2772,62 @@ export {
   type ModuleOpenChatResult,
 } from './conversation.js'
 
+// ── Backlog, usage and activity services ─────────────────────────────────────
+
+export {
+  getBacklogService,
+  type BacklogWatchError,
+  type BacklogWatchOptions,
+  type ModuleBacklogCreated,
+  type ModuleBacklogCreateInput,
+  type ModuleBacklogErrorCode,
+  type ModuleBacklogLinkInput,
+  type ModuleBacklogLocation,
+  type ModuleBacklogResult,
+  type ModuleBacklogService,
+  type ModuleBacklogTriageInput,
+} from './backlog.js'
+
+export {
+  getActivityService,
+  getUsageService,
+  type ActivityChatSummary,
+  type ActivityListChatsInput,
+  type ActivityPrompt,
+  type ActivityPromptsInput,
+  type ModuleActivityErrorCode,
+  type ModuleActivityResult,
+  type ModuleActivityService,
+  type ModuleUsageErrorCode,
+  type ModuleUsageResult,
+  type ModuleUsageService,
+  type UsageGroupBy,
+  type UsageQuery,
+  type UsageQueryResult,
+  type UsageRow,
+  type UsageSource,
+  type UsageTokens,
+} from './activity.js'
+
+// Agents, conversations and scheduled agents: turn replies and usage, and
+// headless text generation.
+export {
+  getTextGenerationService,
+  type ModuleConversationTurnCompletedPayload,
+  type ModuleConversationTurnUsage,
+  type ModuleTextGenerationErrorCode,
+  type ModuleTextGenerationInput,
+  type ModuleTextGenerationResult,
+  type ModuleTextGenerationService,
+} from './conversation.js'
+
 export {
   getGitHubService,
   getSecretsService,
+  type ModuleGitHubDownloadRequest,
+  type ModuleGitHubDownloadResponse,
+  type ModuleGitHubErrorCode,
+  type ModuleGitHubMediaType,
   type ModuleGitHubRequest,
   type ModuleGitHubResponse,
   type ModuleGitHubService,
@@ -2224,3 +2879,15 @@ export {
   type MarketplacePluginManifest,
   type MarketplacePluginManifestResult,
 } from './plugin-manifest.js'
+
+// ── Published host services and what each needs ─────────────────────────────
+// The table a scaffolded project's smoke test and the `/testing` fakes read,
+// so neither keeps a copy of the host's rules that can go stale.
+
+export {
+  dependsOnReaches,
+  MODULE_DEPENDENCY_CHAINS,
+  MODULE_SERVICE_REQUIREMENTS,
+  moduleServiceRequirement,
+  type ModuleServiceRequirement,
+} from './services.js'

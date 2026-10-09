@@ -271,14 +271,11 @@ export function keybindingToKbdKeys(
 }
 
 // Persisted keybinding overrides / disabled flags are keyed by command id.
-// When a command's id migrates (e.g. the voice toggle moving onto its own
+// When a command's id migrates (e.g. a shell command moving onto its own
 // module), the user's persisted settings keep working through this map. Keys
 // are the CURRENT ids, values the legacy ids they replaced; every read of
 // persisted keybinding state consults it. Aliases for commands that no longer
-// exist are dropped: an override keyed by a retired id is simply ignored.
-export const LEGACY_COMMAND_ID_ALIASES: Record<string, string> = {
-  // Voice toggle moved from the shell registry onto the voice-dictation
-  // module, so a user-reassigned or user-disabled `voice.toggle`
-  // binding keeps winning over the module's default.
-  'voice-dictation.toggle': 'voice.toggle',
-}
+// exist are dropped: an override keyed by a retired id is simply ignored, and
+// the Keyboard Shortcuts tab prunes it (RETIRED_COMMAND_IDS). Empty today: the
+// last alias went with voice dictation (2026-10-09).
+export const LEGACY_COMMAND_ID_ALIASES: Record<string, string> = {}

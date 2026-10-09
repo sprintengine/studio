@@ -33,8 +33,12 @@ import { FOCUS_RING_CLASS } from './tokens'
  *   underline in `border.strong`. The disclosure case: "More", "Show details".
  *   The underline is standing rather than on hover because a quiet link with no
  *   underline and no box is indistinguishable from the sentence around it.
+ * - `name` — `text.primary`, underlined on hover. The name of the thing a row
+ *   is about, when the name is what opens that thing's details (Settings ›
+ *   Extensions): it must read as the row's title at rest, and the accent
+ *   would make every title in the list a second accent.
  */
-export type LinkInk = 'accent' | 'quiet'
+export type LinkInk = 'accent' | 'quiet' | 'name'
 
 const INK: Record<LinkInk, string> = {
   accent:
@@ -43,6 +47,7 @@ const INK: Record<LinkInk, string> = {
   quiet:
     'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] ' +
     'disabled:hover:text-[color:var(--text-muted)]',
+  name: 'text-[color:var(--text-strong)]',
 }
 
 /**

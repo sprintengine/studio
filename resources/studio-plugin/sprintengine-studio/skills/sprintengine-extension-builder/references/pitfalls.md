@@ -21,7 +21,10 @@ of your own chunks do not work: there is one file.
 
 **The main bundle is CommonJS with only `electron` external.** The installed
 module folder has no `node_modules`; anything left external is missing at
-load. `react` has no business in `entry.main`.
+load. `react` has no business in `entry.main`. Worker threads are fine: bundle
+each worker as its own CommonJS file in `module/dist/` and start it with
+`new Worker(host.getAssetPath('dist/worker.cjs'))` (not a path you build from
+`__dirname`, which skips the check that the file is the one you signed).
 
 **The renderer bundle runs from a blob URL.** `new URL('./x.png', import.meta.url)`,
 relative `fetch`, a relative `<img src>` all resolve to nothing. Package the
@@ -87,9 +90,20 @@ its working mark. A little coloured circle is not one of them.
 place it with a workspace type's `createTemplate`.
 
 **A surface needs a way in.** Give `registerGlobalSurface` a `label` and an
-`Icon` and the Extensions drawer lists it; a sidebar nav entry or a command
-opens it with `host.openGlobalSurface(id)` (a modal: `openModalSurface(id)`).
-Both open only surfaces your module registered.
+`Icon` and the Extensions drawer lists it; a command, a toast action or a bell
+row's `target` opens it too (`host.openGlobalSurface(id)`; a modal:
+`openModalSurface(id)`). Both open only surfaces your module registered. A
+sidebar nav entry is not a second way in: it is your own drawing of that same
+drawer row, and its `id` must be the surface's id or it is not drawn.
+
+**Counts and news go on your door's row.** `registerDoorBadge({ rowId })`
+takes your surface id, not a made-up row name. Don't build your own "N waiting"
+strip or top-bar counter for something the row can wear.
+
+**Toast or bell?** A toast answers "did it work?" and leaves on its own; the
+bell (`notify` from `entry.main`) is for what the person must find again later.
+Don't toast what they need to act on next week, and don't notify for every
+click.
 
 ## Agents and untrusted input
 

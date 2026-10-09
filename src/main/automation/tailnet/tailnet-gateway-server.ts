@@ -959,6 +959,8 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         deviceId: device.id,
         deviceName: device.name,
         ...(peerNode ? { peerNode } : {}),
+        // The listener proved which paired device this is before dispatch.
+        verified: true,
       },
     }
   }

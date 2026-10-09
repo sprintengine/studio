@@ -55,7 +55,16 @@ export type ExtensionScaffoldCreateResult =
   | {
       ok: false
       code:
-        'invalid_input' | 'invalid_id' | 'no_parent' | 'dir_not_empty' | 'installed' | 'unknown_template' | 'io_error'
+        | 'invalid_input'
+        | 'invalid_id'
+        | 'no_parent'
+        | 'dir_not_empty'
+        | 'installed'
+        | 'unknown_template'
+        | 'io_error'
+        // The scaffolder's refusals of a part (`init --with`); the app adds none today.
+        | 'unknown_part'
+        | 'already_present'
       message: string
     }
 

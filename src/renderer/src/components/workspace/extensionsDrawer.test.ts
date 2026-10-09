@@ -101,3 +101,11 @@ test('extensionsDrawer', async () => {
 
   console.log('extensionsDrawer.test.ts: ok')
 })
+
+test('an installed door is one open row, whichever of its views is up', () => {
+  const doors = new Map([['acme.insights', 'acme.insights']])
+  assert.equal(openExtensionsDrawerRow('acme.insights', 'standup', doors), 'acme.insights')
+  assert.equal(openExtensionsDrawerRow('acme.insights', null, doors), 'acme.insights')
+  assert.equal(openExtensionsDrawerRow('acme.insights', null), null, 'a door the drawer does not hold opens no row')
+  assert.equal(openExtensionsDrawerRow('design', null, doors), 'design', 'the fixed rows are untouched')
+})

@@ -12,7 +12,6 @@ import { devToolsRendererModule } from './dev-tools-module'
 import { gitRendererModule } from './git-module'
 import { memoryRendererModule } from './memory-module'
 import { scheduledAgentsRendererModule } from './scheduled-agents-module'
-import { voiceDictationRendererModule } from './voice-dictation-module'
 import { createRendererHost, type RendererModule } from './renderer-host'
 
 // Bundled renderer capability modules. Features migrate onto the host one at a
@@ -27,7 +26,6 @@ const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   memoryRendererModule,
   gitRendererModule,
   scheduledAgentsRendererModule,
-  voiceDictationRendererModule,
 ]
 
 // Full bundled manifest list. Kept complete in every build channel: it backs
@@ -47,7 +45,7 @@ export const BUNDLED_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest
 // "simplify" this back to `import.meta.env.DEV`.
 const IS_PRODUCTION_BUILD: boolean = import.meta.env.PROD === true
 
-// Active renderer modules for this build channel. Dev-only modules (Voice)
+// Active renderer modules for this build channel. Dev-only modules (none today)
 // are dropped from a packaged (production) renderer bundle so they are absent everywhere downstream: host registration, the
 // enablement universe, profiles, and the Settings → Modules manager. In a dev
 // build the full set is active and the modules remain user-toggleable. See
@@ -333,6 +331,19 @@ if (typeof window !== 'undefined') {
           return workspace ? workspaceWorktree.workspaceWorkingRoot(workspace) : null
         }
         rendererHost.setWorkingRootResolver(resolveWorkingRoot)
+        // A workspace's branch and remotes: git asked, over the shell's git
+        // IPC, from the same working root every live-runtime surface uses.
+        rendererHost.setWorkspaceGitInfoSource(async (workspaceId) => {
+          const workspace = useWorkspaceStore.getState().workspaces.find((entry) => entry.id === workspaceId)
+          if (!workspace)
+            return { ok: false, code: 'unknown_workspace', message: `No open workspace "${workspaceId}".` }
+          const root = workspaceWorktree.workspaceWorkingRoot(workspace)
+          if (!root) return { ok: false, code: 'no_folder', message: 'The workspace has no folder.' }
+          if (typeof window.api?.getModuleWorkspaceGitInfo !== 'function') {
+            return { ok: false, code: 'unavailable', message: 'Workspace git information is not available here.' }
+          }
+          return window.api.getModuleWorkspaceGitInfo(root)
+        })
         // File-watch backend over the shell's fs watch plumbing (the same
         // window.api surface runStateSynchronizer rides).
         rendererHost.setWorkspaceFileWatcher(
@@ -398,6 +409,28 @@ if (typeof window !== 'undefined') {
             ),
             state.appSettings.lastSelectedCli ?? null,
           )
+        })
+        // The app's own external-link path: main opens http(s) in the system
+        // browser (window:open-external), never in this window.
+        if (typeof window.api?.openExternal === 'function') {
+          rendererHost.setExternalLinkOpener((url) => window.api.openExternal(url))
+        }
+        // The workspace this window is showing: its own window record's
+        // active workspace, the record WorkspaceManager reads, and null when
+        // that id names no open workspace.
+        rendererHost.setActiveWorkspaceSource({
+          get: () => {
+            const state = useWorkspaceStore.getState()
+            const windowState =
+              state.workspaceWindows.find((entry) => entry.id === currentWindowId) ??
+              state.workspaceWindows.find((entry) => entry.id === (state.primaryWorkspaceWindowId || 'primary'))
+            const id = windowState?.activeWorkspaceId ?? null
+            return id && state.workspaces.some((workspace) => workspace.id === id) ? id : null
+          },
+          subscribe: (onChange) =>
+            useWorkspaceStore.subscribe((state, prev) => {
+              if (state.workspaceWindows !== prev.workspaceWindows || state.workspaces !== prev.workspaces) onChange()
+            }),
         })
         // Boot measurement: the deferred batch above is the one part of
         // boot that was moved OUT of the eager chunk to reach the first paint

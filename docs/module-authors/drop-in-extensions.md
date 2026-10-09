@@ -24,8 +24,10 @@ it); providers always resolve under `~/.sprintengine/plugins`.
 A capability module extends the app itself — main-process services and IPC,
 renderer panels, workspace types, commands, Backlog and Files actions,
 settings sections, sidebar doors, top-bar controls, modal surfaces, MCP tools
-agents can call, and chats of its own with the app's agents — through the
-`MainHost` / `RendererHost` contracts. Modules are trust-gated: only modules
+agents can call, chats of its own with the app's agents, Backlog reads and
+writes through the app's Backlog service, and read-only views of the person's
+own activity (token usage, their chats) — through the `MainHost` /
+`RendererHost` contracts. Modules are trust-gated: only modules
 the user has trusted execute code.
 
 - Author against [`@sprintengine/module-sdk`](../../packages/module-sdk/README.md).
@@ -35,6 +37,14 @@ the user has trusted execute code.
   opens New chat in extension mode: name the extension, pick the project it goes
   in, describe it, and the project is scaffolded in `<project>/<name>` with a
   chat on it, the `sprintengine-extension-builder` skill attached.
+  Templates combine: `init … --with main,mcp,settings,door`, or
+  `sprintengine-module add <part>` in an existing project.
+- Test without the app. `@sprintengine/module-sdk/testing` has fake main and
+  renderer hosts that keep this app's rules (the permissions it checks,
+  storage's limits, chat ownership, the bridge's `module:bridge`) and a UI kit
+  stand-in that renders in Node; a scaffolded project runs its TypeScript
+  tests and a smoke test that renders every registered surface on
+  `npm run check`. See the SDK README's "Testing".
 - Declare the host API the module was built for: `"engines": { "hostApi": 1 }`.
   A module without it, or built for a host API this app does not load, is
   refused with a message saying which side to update — never shown as merely
@@ -43,8 +53,9 @@ the user has trusted execute code.
   records the sha256 of every file the module ships in the manifest's `files`
   field, so the signature covers the code, not only the manifest.
 - **`files` is required.** A module whose manifest lists no `files` does not
-  load, signed or not. A template's `npm run dev:install` writes it for an
-  unsigned local build (and signs when your key is at
+  load, signed or not. A template's `npm run build` (when the files changed)
+  and `npm run dev:install` write it for an unsigned local build (and sign
+  when your key is at
   `~/.sprintengine/keys/<id>.key`) before copying `module/` here.
 - Install the packed folder by dropping it into `~/.sprintengine/modules/<id>/`,
   or from **Settings → Modules → "Install a module from a folder"**, then grant
@@ -57,6 +68,17 @@ the user has trusted execute code.
   extra file is refused as tampered, when the app lists modules and again
   immediately before it runs `entry.main`.
 - Permissions are install-time disclosure — see [permissions.md](./permissions.md).
+- **What a person sees of a module.** A door (`registerGlobalSurface` with a
+  `label` and `Icon`) is a row in the Extensions drawer; the module's
+  `registerDoorBadge({ rowId: <surface id> })` count and its unread bell rows
+  are worn on that row and summed on the app rail's Extensions square, and a
+  `registerSidebarNavEntry` under the same id draws the row in the module's
+  own component. `MainHost.notify` is a row in the bell of every window, under
+  the module's display name, whose `target` opens the module's own door; a
+  window that opens later files the rows it missed. `RendererHost.toast` is a
+  transient report in the window's toast region. Notifications reach the
+  windows through the same client bus as module events, so they work
+  unchanged when the server runs in a process of its own.
 - **`entry.main` may run without Electron.** When Studio runs its server in a
   process of its own, a module's main half runs there: a Node process with no
   Electron APIs, where `host.supports('electron-main')` is false. A module
@@ -168,8 +190,11 @@ host.registerSkills([
 ])
 ```
 
-`sourceDir` must stay inside the module root — the host resolves it and
-rejects anything that escapes. An `id` a built-in skill or another module
+`sourceDir` must stay inside the module root (the `module/` folder of a
+project: ship the skill as `module/skills/<id>/SKILL.md` and register
+`sourceDir: 'skills/<id>'`) — the host resolves it and rejects anything that
+escapes. The skill's files are module files: they are in `files`, covered by
+the signature, and editing one means rebuilding and re-trusting. An `id` a built-in skill or another module
 already owns is a registration error, and unloading the module unregisters its
 skills.
 
@@ -184,7 +209,17 @@ To put one in a workspace ahead of time — a skill an agent will be told to
 invoke, or one the user should see listed — call
 `host.ensureSkillInstalled(workspaceRoot, skillId)`. It never throws and
 answers `{ ok, status, message? }`; `status: 'unknown-skill'` means nothing
-answers to that id.
+answers to that id. `host.getSkillStatus(workspaceRoot, skillId)` asks the same
+question without writing anything. `status` is a `ModuleSkillStatus`:
+`installed`, `updated`, `missing`, `update-available`, `local`, `modified`,
+`delivered-at-launch` (a built-in skill the launch hands its CLI as a plugin,
+so nothing is written), `missing-source`, `missing-workspace`, `unknown-skill`
+or `install-failed`.
+
+Registering a skill writes nothing to any workspace. An `all-native` skill
+reaches a chat when that chat's launch names it, or when
+`ensureSkillInstalled` has already put it in the workspace — after which every
+new chat there finds it in its CLI's own skill directory, the person's included.
 
 ### Publishing a module to the marketplace
 

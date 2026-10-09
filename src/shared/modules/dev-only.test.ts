@@ -5,12 +5,10 @@ import { DEV_ONLY_MODULE_IDS, isDevOnlyModule, activeForChannel } from './dev-on
 import { test } from 'vitest'
 
 test('dev-only', async () => {
-  // The dev-only ids are the surfaces gated out of production builds.
-  assert.deepEqual(
-    [...DEV_ONLY_MODULE_IDS].sort(),
-    ['voice-dictation'],
-    'dev-only ids must be exactly the gated surfaces',
-  )
+  // The dev-only ids are the surfaces gated out of production builds. None
+  // today: voice dictation, the last one, was retired and its id is only
+  // reserved now.
+  assert.deepEqual([...DEV_ONLY_MODULE_IDS].sort(), [], 'dev-only ids must be exactly the gated surfaces')
 
   // Every dev-only id must be a real bundled module id — a typo here would
   // silently gate nothing.
@@ -18,12 +16,14 @@ test('dev-only', async () => {
     assert.ok(BUNDLED_MODULE_IDS.includes(id), `dev-only id "${id}" must be a real bundled module id`)
   }
 
-  assert.equal(isDevOnlyModule('voice-dictation'), true)
+  // A retired id is reserved, not dev-only: no build carries it at all.
+  assert.equal(isDevOnlyModule('voice-dictation'), false)
   assert.equal(isDevOnlyModule('git'), false)
   assert.equal(isDevOnlyModule('agent-runtime'), false)
 
-  // activeForChannel over manifests-like records.
-  const manifests = [{ id: 'agent-runtime' }, { id: 'git' }, { id: 'voice-dictation' }]
+  // activeForChannel over manifests-like records, with every dev-only id mixed
+  // in after the always-on ones.
+  const manifests = [{ id: 'agent-runtime' }, { id: 'git' }, ...DEV_ONLY_MODULE_IDS.map((id) => ({ id }))]
   const getId = (m: { id: string }) => m.id
 
   // Dev channel keeps everything.
@@ -42,6 +42,7 @@ test('dev-only', async () => {
 
   // activeForChannel returns a fresh array (never the input reference).
   assert.notEqual(activeForChannel(manifests, getId, true), manifests)
+  assert.notEqual(activeForChannel(manifests, getId, false), manifests)
 
   console.log('dev-only module gate guard passed')
 })

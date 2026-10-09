@@ -33,10 +33,12 @@ import type {
   ScheduledAgentAttachment as AppScheduledAgentAttachment,
   ScheduledAgentDraft as AppScheduledAgentDraft,
   ScheduledAgentLastRun as AppScheduledAgentLastRun,
+  ScheduledAgentRun as AppScheduledAgentRun,
   ScheduledAgentSchedule as AppScheduledAgentSchedule,
   ScheduledAgentView as AppScheduledAgentView,
   ScheduledAgentWriteResult as AppScheduledAgentWriteResult,
 } from '../../../src/shared/scheduled-agents'
+import type { ScheduledAgentsModuleRegistry as AppScheduledAgentsModuleRegistry } from '../../../src/main/scheduled-agents/service'
 import type { CapabilityPermission as AppCapabilityPermission } from '../../../src/shared/modules/permissions'
 import { KNOWN_CAPABILITY_PERMISSIONS as APP_KNOWN_CAPABILITY_PERMISSIONS } from '../../../src/shared/modules/permissions'
 import type { ModuleBridgeRefusalCode as AppModuleBridgeRefusalCode } from '../../../src/shared/modules/bridge'
@@ -65,10 +67,13 @@ import type {
 import type {
   EnsureSkillInstalledResult as AppEnsureSkillInstalledResult,
   ModuleSkillRegistration as AppModuleSkillRegistration,
+  ModuleSkillStatus as AppModuleSkillStatus,
+  ModuleSkillStatusResult as AppModuleSkillStatusResult,
   ModuleSkillTargetPolicy as AppModuleSkillTargetPolicy,
 } from '../../../src/shared/modules/skills'
 import type { ModuleWorkspaceContextService as AppModuleWorkspaceContextService } from '../../../src/main/modules/module-workspace-service'
 import type {
+  ModuleStorageChange as AppModuleStorageChange,
   ModuleStorageErrorCode as AppModuleStorageErrorCode,
   ModuleStorageRegistry as AppModuleStorageRegistry,
   ModuleStorageResult as AppModuleStorageResult,
@@ -80,6 +85,12 @@ import {
   ConversationModuleServiceToken as AppConversationModuleServiceToken,
   GitHubModuleServiceToken as AppGitHubModuleServiceToken,
   ModuleSecretsServiceToken as AppModuleSecretsServiceToken,
+} from '../../../src/main/module-host/service-tokens'
+// Backlog, usage and activity service tokens.
+import {
+  ActivityModuleServiceToken as AppActivityModuleServiceToken,
+  BacklogModuleServiceToken as AppBacklogModuleServiceToken,
+  UsageModuleServiceToken as AppUsageModuleServiceToken,
 } from '../../../src/main/module-host/service-tokens'
 // The host-internal chat tokens, provided by agent-runtime-module.
 import {
@@ -131,7 +142,13 @@ import type {
   CommandScope as AppCommandScope,
   ModuleCommandContext as AppModuleCommandContext,
 } from '../../../src/renderer/src/commands/types'
-import type { ModuleWorkspaceView as AppModuleWorkspaceView } from '../../../src/shared/modules/workspace-view'
+import type {
+  ModuleWorkspaceGitInfoResult as AppModuleWorkspaceGitInfoResult,
+  ModuleWorkspaceGitRemote as AppModuleWorkspaceGitRemote,
+  ModuleWorkspaceListEntry as AppModuleWorkspaceListEntry,
+  ModuleWorkspaceListOptions as AppModuleWorkspaceListOptions,
+  ModuleWorkspaceView as AppModuleWorkspaceView,
+} from '../../../src/shared/modules/workspace-view'
 import type { WorkspaceFileWatchEvent as AppWorkspaceFileWatchEvent } from '../../../src/renderer/src/modules/workspace-file-watch'
 import type { ModuleColorScheme as AppModuleColorScheme } from '../../../src/renderer/src/modules/color-scheme-watch'
 import type {
@@ -175,6 +192,8 @@ import type {
   ScheduledAgentAttachment as SdkScheduledAgentAttachment,
   ScheduledAgentDraft as SdkScheduledAgentDraft,
   ScheduledAgentLastRun as SdkScheduledAgentLastRun,
+  ScheduledAgentRun as SdkScheduledAgentRun,
+  ModuleScheduledAgentsService as SdkModuleScheduledAgentsService,
   ScheduledAgentSchedule as SdkScheduledAgentSchedule,
   ScheduledAgentView as SdkScheduledAgentView,
   ScheduledAgentWriteResult as SdkScheduledAgentWriteResult,
@@ -189,6 +208,8 @@ import type {
   McpToolRegistration as SdkMcpToolRegistration,
   EnsureSkillInstalledResult as SdkEnsureSkillInstalledResult,
   ModuleSkillRegistration as SdkModuleSkillRegistration,
+  ModuleSkillStatus as SdkModuleSkillStatus,
+  ModuleSkillStatusResult as SdkModuleSkillStatusResult,
   ModuleSkillTargetPolicy as SdkModuleSkillTargetPolicy,
   McpToolResult as SdkMcpToolResult,
   ModuleBridgeRefusalCode as SdkModuleBridgeRefusalCode,
@@ -204,10 +225,15 @@ import type {
   ModuleSource as SdkModuleSource,
   ModuleColorScheme as SdkModuleColorScheme,
   ModuleFocusTabInput as SdkModuleFocusTabInput,
+  ModuleStorageChange as SdkModuleStorageChange,
   ModuleStorageErrorCode as SdkModuleStorageErrorCode,
   ModuleStorageResult as SdkModuleStorageResult,
   ModuleStorageService as SdkModuleStorageService,
   ModuleTrustStatus as SdkModuleTrustStatus,
+  ModuleWorkspaceGitInfoResult as SdkModuleWorkspaceGitInfoResult,
+  ModuleWorkspaceGitRemote as SdkModuleWorkspaceGitRemote,
+  ModuleWorkspaceListEntry as SdkModuleWorkspaceListEntry,
+  ModuleWorkspaceListOptions as SdkModuleWorkspaceListOptions,
   ModuleWorkspaceView as SdkModuleWorkspaceView,
   WorkspaceContextService as SdkWorkspaceContextService,
   PreviewSlot as SdkPreviewSlot,
@@ -281,6 +307,17 @@ import type * as appConversation from '../../../src/shared/modules/conversation-
 // are what keep the restatement the contract.
 import type * as protocol from '../../conversation-protocol/src/public'
 import type * as appBrokers from '../../../src/shared/modules/brokers'
+// Backlog, usage and activity services.
+import type * as appBacklogService from '../../../src/shared/modules/backlog-service'
+import type * as appActivity from '../../../src/shared/modules/activity-service'
+import type { BacklogItem as AppBacklogItem } from '../../../src/shared/backlog/scan'
+// Shell surfaces and the renderer host's feedback, link and context members:
+// read as namespaces so this block's imports stay in one place.
+import type * as appRendererHost from '../../../src/renderer/src/modules/renderer-host'
+import type * as appNotifications from '../../../src/shared/modules/notifications'
+import type { RowBadge as AppRowBadge } from '../../../src/renderer/src/components/workspace/SidebarNavButton'
+// The published service table and the testing kit (see the end of this file).
+import { MODULE_SERVICE_REQUIREMENTS as SDK_MODULE_SERVICE_REQUIREMENTS } from '../src/services'
 
 type Extends<A, B> = [A] extends [B] ? true : false
 // Type identity via the generic-function-identity trick: detects added/removed
@@ -360,6 +397,14 @@ expectType<IsExact<AppScheduledAgent, SdkScheduledAgent>>()
 expectType<IsExact<AppScheduledAgentDraft, SdkScheduledAgentDraft>>()
 expectType<IsExact<AppScheduledAgentView, SdkScheduledAgentView>>()
 expectType<IsExact<AppScheduledAgentWriteResult, SdkScheduledAgentWriteResult>>()
+expectType<IsExact<AppScheduledAgentRun, SdkScheduledAgentRun>>()
+// What the app's registry hands a module's `onRun` listener is the SDK's view.
+expectType<
+  IsExact<
+    Parameters<Parameters<AppScheduledAgentsModuleRegistry['onRun']>[1]>,
+    Parameters<Parameters<SdkModuleScheduledAgentsService['onRun']>[0]>
+  >
+>()
 
 // MCP tool contributions: the wire shapes mirror exactly — an
 // optional-property drift on a tool registration would silently change what
@@ -381,6 +426,30 @@ expectType<IsExact<AppModuleSkillRegistration, SdkModuleSkillRegistration>>()
 expectType<IsExact<AppEnsureSkillInstalledResult, SdkEnsureSkillInstalledResult>>()
 expectType<IsExact<AppMainHost['registerSkills'], SdkMainHost['registerSkills']>>()
 expectType<IsExact<AppMainHost['ensureSkillInstalled'], SdkMainHost['ensureSkillInstalled']>>()
+
+// ── Main-host plumbing (settings, workspaces, storage, GitHub, skills, MCP) ──
+// Each addition pinned exactly, for the reason the whole file gives.
+// Skills: the exhaustive status vocabulary and the read-only check.
+expectType<IsExact<AppModuleSkillStatus, SdkModuleSkillStatus>>()
+expectType<IsExact<AppModuleSkillStatusResult, SdkModuleSkillStatusResult>>()
+expectType<IsExact<AppMainHost['getSkillStatus'], SdkMainHost['getSkillStatus']>>()
+// Storage: the change signal a watch delivers, and the module's own directory
+// and asset paths on the host.
+expectType<IsExact<AppModuleStorageChange, SdkModuleStorageChange>>()
+expectType<IsExact<AppMainHost['getModuleDataDir'], SdkMainHost['getModuleDataDir']>>()
+expectType<IsExact<AppMainHost['getAssetPath'], SdkMainHost['getAssetPath']>>()
+// Workspaces: closed history on the main-side list, and the git read on both hosts.
+expectType<IsExact<AppModuleWorkspaceListEntry, SdkModuleWorkspaceListEntry>>()
+expectType<IsExact<AppModuleWorkspaceListOptions, SdkModuleWorkspaceListOptions>>()
+expectType<IsExact<AppModuleWorkspaceGitRemote, SdkModuleWorkspaceGitRemote>>()
+expectType<IsExact<AppModuleWorkspaceGitInfoResult, SdkModuleWorkspaceGitInfoResult>>()
+expectType<IsExact<AppMainHost['getWorkspaceGitInfo'], SdkMainHost['getWorkspaceGitInfo']>>()
+expectType<IsExact<AppRendererHost['getWorkspaceGitInfo'], SdkRendererHost['getWorkspaceGitInfo']>>()
+// Settings in main: the app-state pair on MainHost reads exactly like the renderer's.
+expectType<IsExact<AppMainHost['getModuleAppState'], SdkMainHost['getModuleAppState']>>()
+expectType<IsExact<AppMainHost['watchModuleAppState'], SdkMainHost['watchModuleAppState']>>()
+expectType<IsExact<AppMainHost['getModuleAppState'], AppRendererHost['getModuleAppState']>>()
+expectType<IsExact<AppMainHost['watchModuleAppState'], AppRendererHost['watchModuleAppState']>>()
 
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()
@@ -508,6 +577,38 @@ expectType<IsExact<Parameters<SdkRegisterMain>, [host: SdkMainHost]>>()
 expectType<IsExact<Parameters<SdkRegisterRenderer>, [host: SdkRendererHost]>>()
 expectType<IsExact<ReturnType<SdkRegisterRenderer>, void | Promise<void>>>()
 
+// ── Shell surfaces, notifications and renderer-host context ─────────────────
+// Each pinned exactly: the one-directional host assertion compares method
+// parameters bivariantly, so a widened parameter or a dropped optional on any
+// of these would ride through unnoticed.
+
+// A module's notify reaches the bell: the target it may name, on the input
+// and on the published notification.
+expectType<IsExact<appNotifications.ModuleNotificationTarget, sdk.ModuleNotificationTarget>>()
+expectType<IsExact<AppMainHost['notify'], SdkMainHost['notify']>>()
+// Commands hear their context; the handler's parameter is the published view.
+expectType<IsExact<Parameters<AppModuleCommandDefinition['run']>, Parameters<SdkModuleCommandDefinition['run']>>>()
+// The host-derived count a module's own row wears is the badge the shell
+// draws everywhere else.
+expectType<IsExact<AppRowBadge, sdk.SidebarNavEntryBadge>>()
+expectType<
+  IsExact<
+    NonNullable<appRendererHost.SidebarNavEntryRenderProps['badge']>,
+    NonNullable<sdk.SidebarNavEntryRenderProps['badge']>
+  >
+>()
+expectType<IsExact<appRendererHost.SidebarNavEntryRenderProps, sdk.SidebarNavEntryRenderProps>>()
+// Toasts, links, identity, the active workspace and the published surface view.
+expectType<IsExact<appRendererHost.ModuleToastTone, sdk.ModuleToastTone>>()
+expectType<IsExact<appRendererHost.ModuleToastInput, sdk.ModuleToastInput>>()
+expectType<IsExact<appRendererHost.ModuleOpenExternalResult, sdk.ModuleOpenExternalResult>>()
+expectType<IsExact<AppRendererHost['moduleId'], SdkRendererHost['moduleId']>>()
+expectType<IsExact<AppRendererHost['toast'], SdkRendererHost['toast']>>()
+expectType<IsExact<AppRendererHost['getActiveWorkspaceId'], SdkRendererHost['getActiveWorkspaceId']>>()
+expectType<IsExact<AppRendererHost['watchActiveWorkspace'], SdkRendererHost['watchActiveWorkspace']>>()
+expectType<IsExact<AppRendererHost['setSurfaceView'], SdkRendererHost['setSurfaceView']>>()
+expectType<IsExact<AppRendererHost['openExternal'], SdkRendererHost['openExternal']>>()
+
 // ── Host API version, conversations, brokered credentials ──────────────────
 // Every shape exact. The event, status and attachment types are the app's own
 // conversation-runtime types on the app side, so these pin the SDK's hand
@@ -520,6 +621,7 @@ expectType<IsExact<AppRendererHost['hostApiVersion'], SdkRendererHost['hostApiVe
 expectType<IsExact<AppRendererHost['supports'], SdkRendererHost['supports']>>()
 expectType<IsExact<AppRendererHost['openChat'], SdkRendererHost['openChat']>>()
 expectType<IsExact<AppRendererHost['listChatRuntimes'], SdkRendererHost['listChatRuntimes']>>()
+expectType<IsExact<AppMainHost['listChatRuntimes'], SdkMainHost['listChatRuntimes']>>()
 
 expectType<IsExact<appConversation.ModuleConversationEventType, sdk.ModuleConversationEventType>>()
 expectType<IsExact<appConversation.ModuleConversationEvent, sdk.ModuleConversationEvent>>()
@@ -546,6 +648,20 @@ expectType<IsExact<appConversation.ModuleConversationPage, sdk.ModuleConversatio
 expectType<IsExact<appConversation.ModuleConversationStreamFrame, sdk.ModuleConversationStreamFrame>>()
 expectType<IsExact<appConversation.ModuleConversationFollowOptions, sdk.ModuleConversationFollowOptions>>()
 expectType<IsExact<appConversation.ModuleConversationCommandOptions, sdk.ModuleConversationCommandOptions>>()
+// Agents, conversations and scheduled agents: what `turn_completed` documents
+// (the reply text and the usage other services count from) is the protocol's.
+expectType<IsExact<appConversation.ModuleConversationTurnUsage, sdk.ModuleConversationTurnUsage>>()
+expectType<
+  IsExact<appConversation.ModuleConversationTurnCompletedPayload, sdk.ModuleConversationTurnCompletedPayload>
+>()
+expectType<IsExact<protocol.ConversationTurnUsage, sdk.ModuleConversationTurnUsage>>()
+expectType<IsExact<protocol.ConversationTurnCompletedPayload, sdk.ModuleConversationTurnCompletedPayload>>()
+// Headless text generation: the service a module calls, and the registry the
+// host provides under 'text-generation.module-service'.
+expectType<IsExact<appConversation.ModuleTextGenerationInput, sdk.ModuleTextGenerationInput>>()
+expectType<IsExact<appConversation.ModuleTextGenerationErrorCode, sdk.ModuleTextGenerationErrorCode>>()
+expectType<IsExact<appConversation.ModuleTextGenerationResult, sdk.ModuleTextGenerationResult>>()
+expectType<IsExact<appConversation.ModuleTextGenerationService, sdk.ModuleTextGenerationService>>()
 
 // Against the protocol package directly, so a change there fails here even
 // where the app's module contract would let it through.
@@ -572,6 +688,11 @@ expectType<IsExact<appBrokers.ModuleSecretsService, sdk.ModuleSecretsService>>()
 expectType<IsExact<appBrokers.ModuleGitHubRequest, sdk.ModuleGitHubRequest>>()
 expectType<IsExact<appBrokers.ModuleGitHubResponse, sdk.ModuleGitHubResponse>>()
 expectType<IsExact<appBrokers.ModuleGitHubService, sdk.ModuleGitHubService>>()
+// GitHub broker additions (headers, conditional requests, read-only GraphQL, download).
+expectType<IsExact<appBrokers.ModuleGitHubMediaType, sdk.ModuleGitHubMediaType>>()
+expectType<IsExact<appBrokers.ModuleGitHubErrorCode, sdk.ModuleGitHubErrorCode>>()
+expectType<IsExact<appBrokers.ModuleGitHubDownloadRequest, sdk.ModuleGitHubDownloadRequest>>()
+expectType<IsExact<appBrokers.ModuleGitHubDownloadResponse, sdk.ModuleGitHubDownloadResponse>>()
 
 // The moduleId-first registries the app provides must accept exactly what the
 // SDK helpers forward (the same derivation the storage registry is pinned by).
@@ -581,6 +702,64 @@ type SdkExpectedRegistry<S> = {
 expectType<IsExact<appConversation.ModuleConversationRegistry, SdkExpectedRegistry<sdk.ModuleConversationService>>>()
 expectType<IsExact<appBrokers.ModuleSecretsRegistry, SdkExpectedRegistry<sdk.ModuleSecretsService>>>()
 expectType<IsExact<appBrokers.ModuleGitHubRegistry, SdkExpectedRegistry<sdk.ModuleGitHubService>>>()
+expectType<
+  IsExact<appConversation.ModuleTextGenerationRegistry, SdkExpectedRegistry<sdk.ModuleTextGenerationService>>
+>()
+
+// ── Backlog, usage and activity services ────────────────────────────────────
+// Every shape exact, except where the app hands out its own Backlog item: the
+// scan's item carries more than the published view, so it must satisfy it and
+// agree exactly on the fields the view names.
+expectType<IsExact<appBacklogService.ModuleBacklogErrorCode, sdk.ModuleBacklogErrorCode>>()
+expectType<IsExact<appBacklogService.ModuleBacklogResult, sdk.ModuleBacklogResult>>()
+expectType<IsExact<appBacklogService.ModuleBacklogLocation, sdk.ModuleBacklogLocation>>()
+expectType<IsExact<appBacklogService.ModuleBacklogTriageInput, sdk.ModuleBacklogTriageInput>>()
+expectType<IsExact<appBacklogService.ModuleBacklogCreateInput, sdk.ModuleBacklogCreateInput>>()
+expectType<IsExact<appBacklogService.ModuleBacklogCreated, sdk.ModuleBacklogCreated>>()
+expectType<IsExact<appBacklogService.ModuleBacklogLinkInput, sdk.ModuleBacklogLinkInput>>()
+expectType<IsExact<appBacklogService.BacklogWatchError, sdk.BacklogWatchError>>()
+expectType<IsExact<appBacklogService.BacklogWatchOptions, sdk.BacklogWatchOptions>>()
+type SdkBacklogItemView = sdk.BacklogItemView
+expectType<Extends<AppBacklogItem, SdkBacklogItemView>>()
+expectType<
+  IsExact<
+    Pick<AppBacklogItem, 'numericId' | 'displayId' | 'epic' | 'modifiedAt'>,
+    Pick<SdkBacklogItemView, 'numericId' | 'displayId' | 'epic' | 'modifiedAt'>
+  >
+>()
+expectType<Extends<appBacklogService.ModuleBacklogService, sdk.ModuleBacklogService>>()
+expectType<IsExact<keyof appBacklogService.ModuleBacklogService, keyof sdk.ModuleBacklogService>>()
+expectType<IsExact<Omit<appBacklogService.ModuleBacklogService, 'list'>, Omit<sdk.ModuleBacklogService, 'list'>>>()
+expectType<Extends<appBacklogService.ModuleBacklogRegistry, SdkExpectedRegistry<sdk.ModuleBacklogService>>>()
+expectType<IsExact<AppRendererHost['getBacklogLocation'], SdkRendererHost['getBacklogLocation']>>()
+expectType<IsExact<AppRendererHost['createBacklogItem'], SdkRendererHost['createBacklogItem']>>()
+expectType<IsExact<AppRendererHost['updateBacklogStatus'], SdkRendererHost['updateBacklogStatus']>>()
+expectType<IsExact<AppRendererHost['updateBacklogTriage'], SdkRendererHost['updateBacklogTriage']>>()
+expectType<IsExact<AppRendererHost['addBacklogLink'], SdkRendererHost['addBacklogLink']>>()
+expectType<IsExact<AppRendererHost['updateBacklogModuleMetadata'], SdkRendererHost['updateBacklogModuleMetadata']>>()
+expectType<
+  IsExact<Parameters<AppRendererHost['watchBacklogItems']>[2], Parameters<SdkRendererHost['watchBacklogItems']>[2]>
+>()
+expectType<IsExact<AppRendererHost['queryUsage'], SdkRendererHost['queryUsage']>>()
+
+expectType<IsExact<appActivity.UsageGroupBy, sdk.UsageGroupBy>>()
+expectType<IsExact<appActivity.UsageQuery, sdk.UsageQuery>>()
+expectType<IsExact<appActivity.UsageTokens, sdk.UsageTokens>>()
+expectType<IsExact<appActivity.UsageRow, sdk.UsageRow>>()
+expectType<IsExact<appActivity.UsageSource, sdk.UsageSource>>()
+expectType<IsExact<appActivity.ModuleUsageErrorCode, sdk.ModuleUsageErrorCode>>()
+expectType<IsExact<appActivity.ModuleUsageResult, sdk.ModuleUsageResult>>()
+expectType<IsExact<appActivity.UsageQueryResult, sdk.UsageQueryResult>>()
+expectType<IsExact<appActivity.ModuleUsageService, sdk.ModuleUsageService>>()
+expectType<IsExact<appActivity.ModuleUsageRegistry, SdkExpectedRegistry<sdk.ModuleUsageService>>>()
+expectType<IsExact<appActivity.ActivityChatSummary, sdk.ActivityChatSummary>>()
+expectType<IsExact<appActivity.ActivityListChatsInput, sdk.ActivityListChatsInput>>()
+expectType<IsExact<appActivity.ActivityPrompt, sdk.ActivityPrompt>>()
+expectType<IsExact<appActivity.ActivityPromptsInput, sdk.ActivityPromptsInput>>()
+expectType<IsExact<appActivity.ModuleActivityErrorCode, sdk.ModuleActivityErrorCode>>()
+expectType<IsExact<appActivity.ModuleActivityResult, sdk.ModuleActivityResult>>()
+expectType<IsExact<appActivity.ModuleActivityService, sdk.ModuleActivityService>>()
+expectType<IsExact<appActivity.ModuleActivityRegistry, SdkExpectedRegistry<sdk.ModuleActivityService>>>()
 
 // Companion agents. The app declares these shapes inline on the registry it
 // serves under 'companion-agents.module-service', so they are read off it: the
@@ -642,8 +821,13 @@ const SDK_SERVICE_TOKEN_KEYS = [
   'conversation.module-service',
   'module-secrets.module-service',
   'github.module-service',
+  // Backlog, usage and activity services.
+  'backlog.module-service',
+  'usage.module-service',
+  'activity.module-service',
+  'text-generation.module-service',
 ] as const
-const sdkRuntime = ['index.js', 'conversation.js', 'brokers.js']
+const sdkRuntime = ['index.js', 'conversation.js', 'brokers.js', 'backlog.js', 'activity.js']
   .map((file) => readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', file), 'utf8'))
   .join('\n')
 const sdkKeysInRuntime = new Set(
@@ -676,6 +860,9 @@ assert.equal(
 )
 assert.equal(AppModuleSecretsServiceToken.key, 'module-secrets.module-service', 'ModuleSecretsServiceToken key drifted')
 assert.equal(AppGitHubModuleServiceToken.key, 'github.module-service', 'GitHubModuleServiceToken key drifted')
+assert.equal(AppBacklogModuleServiceToken.key, 'backlog.module-service', 'BacklogModuleServiceToken key drifted')
+assert.equal(AppUsageModuleServiceToken.key, 'usage.module-service', 'UsageModuleServiceToken key drifted')
+assert.equal(AppActivityModuleServiceToken.key, 'activity.module-service', 'ActivityModuleServiceToken key drifted')
 // A third-party module may resolve exactly the keys the SDK resolves — every
 // one of them, and nothing app-internal. The chat launch and the conversation
 // runtime are first-party only: a module reaches chats through its own
@@ -717,7 +904,7 @@ assert.equal(
 )
 // The conversation and broker helpers keep their moduleId-first registries and
 // tokens private the same way; their declarations ship as separate files.
-for (const file of ['conversation.d.ts', 'brokers.d.ts', 'host-api.d.ts']) {
+for (const file of ['conversation.d.ts', 'brokers.d.ts', 'host-api.d.ts', 'backlog.d.ts', 'activity.d.ts']) {
   const declarations = readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', file), 'utf8')
   assert.equal((declarations.match(/\bany\b/g) ?? []).length, 0, `SDK ${file} must not contain \`any\``)
   assert.equal(
@@ -734,8 +921,9 @@ for (const file of ['conversation.d.ts', 'brokers.d.ts', 'host-api.d.ts']) {
 //     against the published types is accepted by the component the host will
 //     actually render. This is the assertion that must never be weakened.
 //   - `IsExact` where the SDK restates the app's props verbatim, which is all
-//     of them today. It catches the drift `Extends` cannot: a prop ADDED on
-//     the app side, which a module would never be able to reach.
+//     of them but the two published narrowings (PanelHeader, SidebarNavButton).
+//     It catches the drift `Extends` cannot: a prop ADDED on the app side,
+//     which a module would never be able to reach.
 //
 // The two runtime `Object.keys` checks below are the other half: a component
 // added to (or dropped from) either side without the other fails here rather
@@ -821,8 +1009,47 @@ expectType<
   >
 >()
 
+expectType<
+  Extends<React.ComponentProps<typeof sdkUi.DateTimeInput>, React.ComponentProps<typeof appSdkUi.DateTimeInput>>
+>()
+expectType<
+  IsExact<React.ComponentProps<typeof sdkUi.DateTimeInput>, React.ComponentProps<typeof appSdkUi.DateTimeInput>>
+>()
+// `Toggle` is the app's `Switch` under its published name.
+expectType<Extends<React.ComponentProps<typeof sdkUi.Toggle>, React.ComponentProps<typeof appSdkUi.Toggle>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.Toggle>, React.ComponentProps<typeof appSdkUi.Toggle>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.ContextMenu>, React.ComponentProps<typeof appSdkUi.ContextMenu>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.ContextMenu>, React.ComponentProps<typeof appSdkUi.ContextMenu>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.MenuItem>, React.ComponentProps<typeof appSdkUi.MenuItem>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.MenuItem>, React.ComponentProps<typeof appSdkUi.MenuItem>>>()
+// MenuDivider takes no props; the host's must still be callable as the SDK says.
+expectType<Extends<typeof appSdkUi.MenuDivider, typeof sdkUi.MenuDivider>>()
+// `Chip` is the app's static `MicroChip` under its published name.
+expectType<Extends<React.ComponentProps<typeof sdkUi.Chip>, React.ComponentProps<typeof appSdkUi.Chip>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.Chip>, React.ComponentProps<typeof appSdkUi.Chip>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.ChipButton>, React.ComponentProps<typeof appSdkUi.ChipButton>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.ChipButton>, React.ComponentProps<typeof appSdkUi.ChipButton>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.TaskCard>, React.ComponentProps<typeof appSdkUi.TaskCard>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.TaskCard>, React.ComponentProps<typeof appSdkUi.TaskCard>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.BoardLane>, React.ComponentProps<typeof appSdkUi.BoardLane>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.BoardLane>, React.ComponentProps<typeof appSdkUi.BoardLane>>>()
+expectType<
+  Extends<React.ComponentProps<typeof sdkUi.SafeMarkdown>, React.ComponentProps<typeof appSdkUi.SafeMarkdown>>
+>()
+expectType<
+  IsExact<React.ComponentProps<typeof sdkUi.SafeMarkdown>, React.ComponentProps<typeof appSdkUi.SafeMarkdown>>
+>()
+// SidebarNavButton is a published NARROWING: the drop-target highlight and the
+// drag handlers serve the shell's tab-extract gesture and are not offered.
+expectType<
+  Extends<React.ComponentProps<typeof sdkUi.SidebarNavButton>, React.ComponentProps<typeof appSdkUi.SidebarNavButton>>
+>()
+
 // Shared vocabulary the kit's props are written in.
 expectType<IsExact<typeof sdkUi.FOCUS_RING_CLASS, string>>()
+expectType<IsExact<sdkUi.SelectSize, appSdkUi.SelectSize>>()
+expectType<IsExact<sdkUi.RowBadge, appSdkUi.RowBadge>>()
+expectType<IsExact<sdkUi.CliRuntimePickerOption, appSdkUi.CliRuntimePickerOption>>()
 expectType<IsExact<sdkUi.Tone, appSdkUi.Tone>>()
 expectType<IsExact<sdkUi.LifecycleState, appSdkUi.LifecycleState>>()
 expectType<IsExact<sdkUi.FilterMenuGroup, appSdkUi.FilterMenuGroup>>()
@@ -895,6 +1122,17 @@ const SDK_UI_EXPORT_NAMES = [
   'TruncatedText',
   'FOCUS_RING_CLASS',
   'CliModelPickerButton',
+  'DateTimeInput',
+  'Toggle',
+  'ContextMenu',
+  'MenuItem',
+  'MenuDivider',
+  'Chip',
+  'ChipButton',
+  'TaskCard',
+  'BoardLane',
+  'SafeMarkdown',
+  'SidebarNavButton',
 ] as const
 const SDK_SURFACE_EXPORT_NAMES = [
   'GlobalSurfaceShell',
@@ -949,6 +1187,37 @@ for (const subpath of ['ui', 'surface'] as const) {
     ) && runtime.includes('throw new Error(HOST_PROVIDED_MESSAGE)'),
     `@sprintengine/module-sdk/${subpath} must throw its host-provided message when it is bundled instead of externalised`,
   )
+}
+
+// ── The service table and the testing kit ────────────────────────────────────
+//
+// MODULE_SERVICE_REQUIREMENTS is what a scaffolded project's smoke test and
+// the `/testing` fakes check a module against: one row per service a
+// third-party module may resolve. It must cover the host's allow-list exactly,
+// and name only permissions the host knows.
+assert.deepEqual(
+  SDK_MODULE_SERVICE_REQUIREMENTS.map((requirement) => requirement.key).sort(),
+  [...APP_THIRD_PARTY_SERVICE_KEYS].sort(),
+  'MODULE_SERVICE_REQUIREMENTS must have one row per service on the host’s third-party allow-list',
+)
+for (const requirement of SDK_MODULE_SERVICE_REQUIREMENTS) {
+  for (const permission of requirement.permissions) {
+    assert.ok(
+      APP_KNOWN_CAPABILITY_PERMISSIONS.includes(permission),
+      `MODULE_SERVICE_REQUIREMENTS names "${permission}" for ${requirement.key}, which the host does not know`,
+    )
+  }
+}
+// `@sprintengine/module-sdk/testing/kit` stands in for `/ui` and `/surface` in
+// a module's tests, so it must export every component the host bridges: a
+// component published without a stand-in would fail to resolve in every
+// module test that renders it.
+const kitExports = new Set(declaredExports('testing-kit.d.ts'))
+for (const name of [...SDK_UI_EXPORT_NAMES, ...SDK_SURFACE_EXPORT_NAMES]) {
+  assert.ok(kitExports.has(name), `@sprintengine/module-sdk/testing/kit has no stand-in for "${name}"`)
+}
+for (const subpath of ['./testing', './testing/kit']) {
+  assert.ok(sdkPackageJson.exports[subpath], `@sprintengine/module-sdk is missing the "${subpath}" export`)
 }
 
 console.log('module-sdk drift guard passed')

@@ -1,6 +1,7 @@
 import { app, ipcMain, protocol, session, shell } from 'electron'
 import { buildStamp as mainBuildStamp } from 'virtual:sprintengine-build-stamp'
 import { MODULE_EVENTS_CHANNEL } from '../shared/modules/events'
+import { MODULE_NOTIFICATIONS_CHANNEL } from '../shared/modules/notifications'
 import { parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createAppServices } from './app-services'
@@ -16,7 +17,14 @@ import { LIVE_ENABLED_MODULE_IDS, type CapabilityManifest } from '../shared/modu
 import { createBundledMainModules } from './modules'
 import { isLoadEligible, type ModuleTrustContext } from './modules/module-signature'
 import { readModuleTrustContextSync } from './modules/trust-context'
-import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './modules/third-party-main-loader'
+import {
+  decodeThirdPartyLaunchSession,
+  encodeThirdPartyLaunchSession,
+  planThirdPartyMainModules,
+  readThirdPartyMainLaunchSnapshot,
+  recordThirdPartyMainLaunchReport,
+} from './modules/third-party-main-loader'
+import { registerAppRestartIpc } from './ipc/app-restart-ipc'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
 import { MODULE_ASSET_SCHEME } from '../shared/modules/assets'
@@ -109,15 +117,23 @@ if (serverHost) {
 const services = createAppServices(DIAGNOSTICS_ENABLED, serverHost?.link ?? null)
 let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 
-// Dev-only capability surfaces (Voice) ship only in
+// Dev-only capability surfaces (none today) ship only in
 // from-source dev builds. A packaged/installed build is the production channel,
 // so they are excluded from registration entirely. See
 // src/shared/modules/dev-only.ts.
 const includeDevModules = !app.isPackaged
 
 const coreIpc = registerCoreIpc(ipcMain, services, DIAGNOSTICS_ENABLED, {
-  includeDevModules,
   applyModuleEnablementLive: (overrides) => applyModuleEnablementLive?.(overrides),
+  // Which third-party main halves this session loaded: the server's, out of
+  // process, where they run; otherwise this process's own. Read only when
+  // Settings lists the modules, long after `moduleLoad` below exists.
+  readThirdPartyLaunchSession: async () =>
+    decodeThirdPartyLaunchSession(
+      serverHost
+        ? await serverHost.supervisor.call(SERVER_METHODS.thirdPartyLaunchSession)
+        : encodeThirdPartyLaunchSession(readThirdPartyMainLaunchSnapshot(), moduleLoad.kernel.mcpToolRegistrations()),
+    ),
   ...(serverHost
     ? {
         server: {
@@ -174,7 +190,12 @@ const getModulePermissions = (moduleId: string): readonly string[] | undefined =
 // Extracted as a const (rather than inlined) so `mainModuleManifests` below can
 // reference its manifest for the enablement gate; constructed after
 // `getModulePermissions` so the companion-attach permission check is wired in.
-const agentRuntimeModule = createAgentRuntimeModule(services, { getModulePermissions, platform: studioPlatform() })
+const agentRuntimeModule = createAgentRuntimeModule(services, {
+  getModulePermissions,
+  platform: studioPlatform(),
+  // A module's prompt that names no runtime answers on the person's choice.
+  getTextGenerationSettings: () => services.studioCore.textGenerationSettings.get(),
+})
 // Out of process every module's server half loads in the server
 // (src/server/desktop/server-modules.ts); the shell loads none and keeps an
 // empty kernel for the renderer-entry channel, which is the shell's.
@@ -185,12 +206,21 @@ const moduleLoad = loadMainModules({
   // Skill directories a third-party module registers are resolved against —
   // and must stay inside — its install folder.
   moduleRoots: thirdPartyMainLoad.moduleRoots,
+  // What `getAssetPath` resolves: the files each module was verified with.
+  moduleVerifiedFiles: thirdPartyMainLoad.verifiedFiles,
   ineligible: thirdPartyMainLoad.ineligible,
   launchErrors: thirdPartyMainLoad.launchErrors,
   // Module events fan out to every open window on the one host-owned channel;
   // the renderer kernel routes each envelope to its own module's subscribers.
   // Nothing is buffered for windows opened later — see shared/modules/events.ts.
   deliverModuleEvent: (event) => studioPlatform().clients.publish(MODULE_EVENTS_CHANNEL, event),
+  // A module's notify is a bell row in every window, over the same client bus;
+  // the kernel keeps the recent ones for a window that opens later.
+  deliverModuleNotification: (notification) =>
+    studioPlatform().clients.publish(MODULE_NOTIFICATIONS_CHANNEL, notification),
+  // A module tool that would shadow one of the gateway's own is refused at
+  // registration, naming the tool it collides with.
+  coreMcpToolNames: () => services.automationService?.coreToolNames() ?? [],
 })
 // The manifest universe the enablement gate resolves against — every main module
 // present on this channel, so a module and its dependencies (scheduled agents,
@@ -352,6 +382,12 @@ const relaunchApp = (args: string[] = []): void => {
   services.quitConfirmation.quitWithoutAsking()
   app.quit()
 }
+// Settings → Extensions' "Restart now": a restart the person asked for, so it
+// is asked about the way their own quit is when agents are working.
+registerAppRestartIpc(ipcMain, {
+  confirm: () => services.quitConfirmation.confirm(),
+  relaunch: () => relaunchApp(),
+})
 // The SSH machines switch: answered whether or not this session has them.
 const sshPreviewStatus = (): SshPreviewStatus => ({
   enabled: sshPreview.enabled,

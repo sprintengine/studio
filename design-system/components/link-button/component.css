@@ -57,6 +57,17 @@
   color: var(--sem-color-text-primary);
 }
 
+/* name — the name of the thing a list row is about, when the name opens its
+ * details. Title ink at rest so it reads as the row's title; the hover
+ * underline is what says it can be pressed. */
+.ds-link-button--name {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-link-button--name:hover:not(:disabled) {
+  color: var(--sem-color-text-primary);
+}
+
 /* inherit — the link set inside prose the caller has already sized: a repo path
  * in rendered markdown, a name inside a heading. A size of our own there would
  * make one word of a sentence a different size from the rest of it. */
