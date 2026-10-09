@@ -58,6 +58,7 @@ import {
   readToolDetail,
   writeToolDetail,
   redactConversationValue,
+  ToolDetailWriteQueue,
   ToolOutputStream,
   toolOutputStreamPath,
   TOOL_PREVIEW_CHARS,
@@ -247,6 +248,9 @@ export type ConversationRuntimeOptions = {
   randomId?: () => string
   // Least time between two running previews of one tool's output; tests shorten it.
   toolPreviewIntervalMs?: number
+  // How long a running tool's replaced output waits before its detail file is
+  // rewritten (TOOL_DETAIL_WRITE_WINDOW_MS); tests shorten it.
+  toolDetailWriteWindowMs?: number
   // The app's own MCP gateway for a CLI chat (Claude Code, Codex, an ACP
   // agent), on the machine its CLI runs on (a WSL host's, or this one's). Null
   // leaves it out; the chat runs without Studio's tools rather than not at all.
@@ -441,12 +445,12 @@ export class ConversationRuntime {
   // The highest such number is also recorded beside the transcript, so the
   // next run numbers above it rather than reusing numbers a client has seen.
   private readonly nonDurableLogs = new Map<string, NonDurableLog>()
-  // Per tool detail path: the detail being built, its streamed output, the
-  // newest write, and the write still waiting its turn that later details join.
+  // Per tool detail path: the detail being built, its streamed output, and
+  // its file's writes, in order, with the one still waiting that later
+  // details join.
   private readonly toolDetails = new Map<string, ConversationToolDetail>()
   private readonly toolStreams = new Map<string, ToolOutputStream>()
-  private readonly toolDetailWrites = new Map<string, Promise<void>>()
-  private readonly queuedToolDetailWrites = new Map<string, QueuedToolDetailWrite>()
+  private readonly toolDetailWrites: ToolDetailWriteQueue
   private readonly toolPreviews = new Map<string, ToolPreviewThrottle>()
   private readonly toolPreviewIntervalMs: number
   private eventSequence = 0
@@ -497,6 +501,11 @@ export class ConversationRuntime {
     })
     this.now = options.now ?? Date.now
     this.toolPreviewIntervalMs = options.toolPreviewIntervalMs ?? DEFAULT_TOOL_PREVIEW_INTERVAL_MS
+    this.toolDetailWrites = new ToolDetailWriteQueue({
+      read: readToolDetail,
+      write: writeToolDetail,
+      ...(options.toolDetailWriteWindowMs !== undefined ? { windowMs: options.toolDetailWriteWindowMs } : {}),
+    })
     this.randomId = options.randomId ?? (() => Math.random().toString(36).slice(2, 10))
     this.resolveSkills = options.resolveSkills ?? createConversationSkillsResolver()
     this.approvalRules = options.approvalRules ?? new ConversationApprovalRuleStore()
@@ -2018,6 +2027,8 @@ export class ConversationRuntime {
     )
     await Promise.allSettled(Array.from(this.adapters.values(), async (adapter) => adapter.disposeAll?.()))
     this.dropToolPreviews()
+    // A running tool's newest output still waiting out its write's window.
+    await this.toolDetailWrites.flushAll()
     // Housekeeping can queue more of itself as it settles (a lost sequence
     // number recorded again after a newer one), so drain until none is left.
     while (this.background.size) await Promise.allSettled(this.background)
@@ -2764,9 +2775,10 @@ export class ConversationRuntime {
       return { ok: false, code: 'invalid_input', message: 'Conversation and tool identity are required.' }
     }
     const path = this.toolDetailPath(input)
-    // A detail asked for mid-stream includes every chunk published so far.
+    // A detail asked for mid-stream includes every chunk published so far,
+    // and the newest output, which may still be waiting out its write's window.
     await this.toolStreams.get(path)?.settled()
-    await this.toolDetailWrites.get(path)?.catch(() => undefined)
+    await this.toolDetailWrites.flush(path)
     return readToolDetail(input.workspaceRoot, path)
   }
 
@@ -2977,6 +2989,8 @@ export class ConversationRuntime {
     payload.toolUseId = toolUseId
     const path = this.toolDetailPath({ ...session, toolUseId })
     if (event.type === 'tool_started') {
+      // A step announced again mid-stream reads the output it has so far.
+      await this.toolDetailWrites.flush(path)
       const previous = await readToolDetail(session.workspaceRoot, path)
       const detail: ConversationToolDetail = previous.ok
         ? previous.detail
@@ -2992,7 +3006,7 @@ export class ConversationRuntime {
       }
       this.toolDetails.set(path, detail)
       session.toolDetailPaths.add(path)
-      await this.queueToolDetailWrite(session, path, detail)
+      await this.toolDetailWrites.queue(session.workspaceRoot, path, detail)
       return { ...event, payload }
     }
 
@@ -3052,7 +3066,8 @@ export class ConversationRuntime {
       this.toolDetails.set(path, detail)
       // The cached detail itself: a later write serializes the latest output,
       // and an input merged from disk by the first write stays for the rest.
-      void this.queueToolDetailWrite(session, path, detail, !known)
+      // Updates close together share one write (`coalesce`).
+      void this.toolDetailWrites.queue(session.workspaceRoot, path, detail, { mergeInput: !known, coalesce: true })
       return { ...event, payload }
     }
     this.toolDetails.delete(path)
@@ -3063,54 +3078,9 @@ export class ConversationRuntime {
       // A final output that carries everything supersedes what streamed.
       if (!append) await removeConversationStorage(session.workspaceRoot, stream.path).catch(() => undefined)
     }
-    await this.queueToolDetailWrite(session, path, detail, !known)
+    await this.toolDetailWrites.queue(session.workspaceRoot, path, detail, { mergeInput: !known })
     session.toolDetailPaths.delete(path)
     return { ...event, payload }
-  }
-
-  /**
-   * Write a detail file behind any earlier write for the same tool. A detail
-   * whose input was never seen this run (the tool started before a restart)
-   * keeps the input already on disk.
-   *
-   * A write that has not started yet takes the newer detail instead of a
-   * second write queueing behind it: a provider that re-sends a running
-   * tool's whole output on every update would otherwise rewrite the file once
-   * per update, each copy larger than the last, and only the newest is read.
-   */
-  private queueToolDetailWrite(
-    session: RuntimeSession,
-    path: string,
-    detail: ConversationToolDetail,
-    mergeInput = false,
-  ): Promise<void> {
-    const waiting = this.queuedToolDetailWrites.get(path)
-    if (waiting) {
-      waiting.detail = detail
-      waiting.mergeInput ||= mergeInput
-      return waiting.write
-    }
-    const queued: QueuedToolDetailWrite = { detail, mergeInput, write: Promise.resolve() }
-    const write = (this.toolDetailWrites.get(path) ?? Promise.resolve())
-      .catch(() => undefined)
-      .then(async () => {
-        // Started: a newer detail now queues behind this write.
-        if (this.queuedToolDetailWrites.get(path) === queued) this.queuedToolDetailWrites.delete(path)
-        if (queued.mergeInput) {
-          const previous = await readToolDetail(session.workspaceRoot, path)
-          if (previous.ok) queued.detail.input = previous.detail.input
-        }
-        await writeToolDetail(session.workspaceRoot, path, queued.detail)
-      })
-    queued.write = write
-    this.queuedToolDetailWrites.set(path, queued)
-    this.toolDetailWrites.set(path, write)
-    void write
-      .finally(() => {
-        if (this.toolDetailWrites.get(path) === write) this.toolDetailWrites.delete(path)
-      })
-      .catch(() => undefined)
-    return write
   }
 
   /** Close the output files of tools a turn left unfinished. */
@@ -3204,7 +3174,7 @@ export class ConversationRuntime {
       this.toolDetails.delete(path)
       session.toolDetailPaths.delete(path)
       await stream?.finish().catch(() => undefined)
-      await this.toolDetailWrites.get(path)?.catch(() => undefined)
+      await this.toolDetailWrites.flush(path)
     }
   }
 
@@ -3900,6 +3870,7 @@ export class ConversationRuntime {
     for (const toolUseId of ids) {
       const from = this.toolDetailPath({ ...key, toolUseId })
       const to = this.toolDetailPath({ ...key, agentId: newAgentId, toolUseId })
+      await this.toolDetailWrites.flush(from)
       for (const [source, target] of [
         [from, to],
         [toolOutputStreamPath(from), toolOutputStreamPath(to)],
@@ -4407,8 +4378,6 @@ function importedToolPayload(
   if (mime !== undefined) detail.mime = mime
   return payload
 }
-
-type QueuedToolDetailWrite = { detail: ConversationToolDetail; mergeInput: boolean; write: Promise<void> }
 
 /**
  * A tool event's payload, redacted. Redaction goes by key, so output that is

@@ -181,3 +181,115 @@ export class ToolOutputStream {
     )
   }
 }
+
+/**
+ * How long a running tool's replaced output may wait before its detail file is
+ * rewritten. Updates inside the window fold into the one write at its end.
+ */
+export const TOOL_DETAIL_WRITE_WINDOW_MS = 250
+
+type WaitingToolDetailWrite = {
+  workspaceRoot: string
+  detail: ConversationToolDetail
+  mergeInput: boolean
+  write: Promise<void>
+  /** Start it now (once the write ahead of it has landed) rather than at the window's end. */
+  release: () => void
+}
+
+/**
+ * Detail files, each written behind any earlier write for the same tool. A
+ * detail whose input was never seen this run (the tool started before a
+ * restart) keeps the input already on disk.
+ *
+ * A write that has not started yet takes the newer detail instead of a second
+ * write queueing behind it: a provider that re-sends a running tool's whole
+ * output on every update would otherwise rewrite the file once per update,
+ * each copy larger than the last, and only the newest is read. On a fast disk
+ * each write lands before the next update arrives, so that alone still wrote
+ * once per update; a coalesced update (`coalesce`, a running tool's replaced
+ * output) also waits out a short window, from the first update it holds, and
+ * every update inside it joins the one write. It is the window's end, not its
+ * start, that writes: the tool's start has already put a detail on disk, and
+ * nothing reads the file without `flush`ing it first, so a reader never sees
+ * an update older than the newest. Anything else (a start, a final output)
+ * releases a waiting write at once.
+ */
+export class ToolDetailWriteQueue {
+  private readonly writes = new Map<string, Promise<void>>()
+  private readonly waiting = new Map<string, WaitingToolDetailWrite>()
+
+  constructor(
+    private readonly deps: {
+      read: typeof readToolDetail
+      write: typeof writeToolDetail
+      windowMs?: number
+    },
+  ) {}
+
+  queue(
+    workspaceRoot: string,
+    path: string,
+    detail: ConversationToolDetail,
+    options: { mergeInput?: boolean; coalesce?: boolean } = {},
+  ): Promise<void> {
+    const waiting = this.waiting.get(path)
+    if (waiting) {
+      waiting.detail = detail
+      waiting.mergeInput ||= options.mergeInput === true
+      if (!options.coalesce) waiting.release()
+      return waiting.write
+    }
+    let open!: () => void
+    const windowEnd = new Promise<void>((resolve) => (open = resolve))
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const entry: WaitingToolDetailWrite = {
+      workspaceRoot,
+      detail,
+      mergeInput: options.mergeInput === true,
+      write: Promise.resolve(),
+      release: () => {
+        if (timer) clearTimeout(timer)
+        timer = null
+        open()
+      },
+    }
+    const windowMs = this.deps.windowMs ?? TOOL_DETAIL_WRITE_WINDOW_MS
+    if (options.coalesce && windowMs > 0) {
+      timer = setTimeout(entry.release, windowMs)
+      timer.unref?.()
+    } else open()
+    const write = (this.writes.get(path) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => windowEnd)
+      .then(async () => {
+        // Started: a newer detail now queues behind this write.
+        if (this.waiting.get(path) === entry) this.waiting.delete(path)
+        if (entry.mergeInput) {
+          const previous = await this.deps.read(entry.workspaceRoot, path)
+          if (previous.ok) entry.detail.input = previous.detail.input
+        }
+        await this.deps.write(entry.workspaceRoot, path, entry.detail)
+      })
+    entry.write = write
+    this.waiting.set(path, entry)
+    this.writes.set(path, write)
+    void write
+      .finally(() => {
+        if (this.writes.get(path) === write) this.writes.delete(path)
+      })
+      .catch(() => undefined)
+    return write
+  }
+
+  /** Start a write still waiting out its window, and wait until every write of the file has landed. */
+  async flush(path: string): Promise<void> {
+    this.waiting.get(path)?.release()
+    await this.writes.get(path)?.catch(() => undefined)
+  }
+
+  /** Every file's, for a shutdown: nothing is left waiting on a timer. */
+  async flushAll(): Promise<void> {
+    await Promise.all(Array.from(new Set([...this.waiting.keys(), ...this.writes.keys()]), (path) => this.flush(path)))
+  }
+}

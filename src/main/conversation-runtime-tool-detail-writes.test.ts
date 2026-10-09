@@ -87,3 +87,102 @@ test('a running tool re-sent whole on every update is written a couple of times,
     await rm(workspaceRoot, { recursive: true, force: true })
   }
 })
+
+/**
+ * A runtime whose one turn starts a tool, sends two versions of its output,
+ * and then holds until `release` is called. Its window is long, so a detail
+ * on disk with the newest output got there through a flush, not the clock.
+ */
+async function heldToolTurn() {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-tool-detail-window-'))
+  const mock = createMockConversationProvider()
+  let release!: () => void
+  const held = new Promise<void>((resolve) => (release = resolve))
+  let sawSecond!: () => void
+  const second = new Promise<void>((resolve) => (sawSecond = resolve))
+  const runtime = new ConversationRuntime({
+    adapters: [
+      {
+        ...mock,
+        async *sendTurn(input) {
+          const base = { sessionId: input.sessionId, workspaceId: input.workspaceId, agentId: input.agentId }
+          const event = (type: 'turn_started' | 'tool_started' | 'tool_output', payload: Record<string, unknown>) => ({
+            ...base,
+            id: '',
+            providerId: input.providerId,
+            modelId: input.modelId,
+            type,
+            createdAt: 0,
+            payload: { turnId: input.turnId, ...payload },
+          })
+          yield event('turn_started', {})
+          yield event('tool_started', {
+            toolUseId: 'run',
+            name: 'Bash',
+            kind: 'command',
+            input: { command: 'npm test' },
+          })
+          yield event('tool_output', { toolUseId: 'run', output: 'first version', partial: true })
+          yield event('tool_output', { toolUseId: 'run', output: 'second version', partial: true })
+          await held
+          yield event('tool_output', { toolUseId: 'run', output: 'final version', status: 'success' })
+        },
+      },
+    ],
+    getProviderById: () => undefined,
+    toolPreviewIntervalMs: 0,
+    toolDetailWriteWindowMs: 60_000,
+  })
+  runtime.onEvent((event) => {
+    if (event.type === 'tool_output' && event.payload?.output === 'second version') sawSecond()
+  })
+  const started = await runtime.startSession({
+    workspaceRoot,
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: 'mock-provider',
+    modelId: 'mock-model',
+  })
+  assert.ok(started.ok)
+  // Not awaited: the send may answer only once the held turn has run.
+  const sent = runtime.sendTurn({ sessionId: started.session.sessionId, message: 'test' })
+  await second
+  return { workspaceRoot, runtime, release, sent }
+}
+
+test('a detail read while a tool streams has its newest output, though its write is still in its window', async () => {
+  detailWrites.length = 0
+  const f = await heldToolTurn()
+  try {
+    const detail = await f.runtime.getToolDetail({
+      workspaceRoot: f.workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      toolUseId: 'run',
+    })
+    assert.ok(detail.ok)
+    assert.equal(detail.detail.output, 'second version')
+    assert.equal(detailWrites.filter((write) => write.output === 'first version').length, 0, 'the two collapsed')
+  } finally {
+    f.release()
+    await f.runtime.shutdown()
+    await rm(f.workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('a shutdown mid-stream writes the output still waiting out its window', async () => {
+  detailWrites.length = 0
+  const f = await heldToolTurn()
+  try {
+    assert.equal(
+      detailWrites.some((write) => write.output === 'second version'),
+      false,
+      'held by the window until now',
+    )
+    await f.runtime.shutdown()
+    assert.equal(detailWrites.at(-1)?.output, 'second version')
+  } finally {
+    f.release()
+    await rm(f.workspaceRoot, { recursive: true, force: true })
+  }
+})
