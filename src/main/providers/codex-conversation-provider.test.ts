@@ -1358,7 +1358,12 @@ test('a usage update says the model’s window and the latest request’s size, 
 
 test('turn_completed says the last message as the reply, and what every request of the turn spent', async () => {
   const f = fixture()
-  const last = (inputTokens: number, cachedInputTokens: number, cacheWriteInputTokens: number, outputTokens: number) => ({
+  const last = (
+    inputTokens: number,
+    cachedInputTokens: number,
+    cacheWriteInputTokens: number,
+    outputTokens: number,
+  ) => ({
     totalTokens: inputTokens + outputTokens,
     inputTokens,
     cachedInputTokens,

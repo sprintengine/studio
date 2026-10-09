@@ -391,7 +391,10 @@ export type ModuleConversationService = {
    * while no turn (or not that one) has finished. Covered by
    * `conversation:read`. Check `host.supports('conversation-replies')`.
    */
-  reply(ref: ModuleConversationRef, turnId?: string): Promise<ModuleConversationResult<{ turnId: string; text: string }>>
+  reply(
+    ref: ModuleConversationRef,
+    turnId?: string,
+  ): Promise<ModuleConversationResult<{ turnId: string; text: string }>>
   list(filter?: { workspaceId?: string }): ModuleConversationSummary[]
   /** `cb` fires once with the current list, then on every change. Returns the unsubscriber. */
   watch(

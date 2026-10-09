@@ -73,7 +73,11 @@ function invalidInput(input: ModuleTextGenerationInput): string | null {
     return '"model" must be a model id, such as "claude-haiku-4-5" or "haiku".'
   if (
     input.maxOutputTokens !== undefined &&
-    !(Number.isSafeInteger(input.maxOutputTokens) && input.maxOutputTokens >= 1 && input.maxOutputTokens <= MAX_OUTPUT_TOKENS)
+    !(
+      Number.isSafeInteger(input.maxOutputTokens) &&
+      input.maxOutputTokens >= 1 &&
+      input.maxOutputTokens <= MAX_OUTPUT_TOKENS
+    )
   )
     return `"maxOutputTokens" must be a whole number from 1 to ${MAX_OUTPUT_TOKENS}.`
   if (input.json !== undefined && typeof input.json !== 'boolean') return '"json" must be true or false.'

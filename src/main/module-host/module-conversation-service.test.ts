@@ -162,7 +162,7 @@ function harness(
         ...(request.worktree ? { worktree: request.worktree } : {}),
       })
       const id = `ws-new-${calls.created.length}`
-      workspaces.push({ id, folderPath: request.folderPath, agents: { ...(request.agents ?? {}) } })
+      workspaces.push({ id, folderPath: request.folderPath, agents: { ...request.agents } })
       for (const listener of workspaceListeners) listener()
       return { ok: true, workspaceId: id }
     },
@@ -1048,7 +1048,11 @@ test('create with a worktree starts the chat in a fresh worktree, in a workspace
     service.list().map((entry) => entry.workspaceId),
     ['ws-new-1'],
   )
-  assert.equal(workspaces[0]!.agents[created.conversation.agentId], undefined, 'nothing joined the checkout’s workspace')
+  assert.equal(
+    workspaces[0]!.agents[created.conversation.agentId],
+    undefined,
+    'nothing joined the checkout’s workspace',
+  )
 
   // No name: the name a window's New chat gives one.
   const unnamed = await service.create({ workspaceId: 'ws-1', cli: 'claude-code', worktree: {} })

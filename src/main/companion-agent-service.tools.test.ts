@@ -78,7 +78,10 @@ test('a structured run denies every approval by default, and tells the agent it 
   await assert.rejects(handle.runStructured({ prompt: 'Summarise.', validate: notJson }), /approval_denied/)
   const resolved = events.find((event) => event.type === 'approval_resolved')
   assert.equal(resolved?.payload?.approved, false, 'the approval was denied, not allowed')
-  assert.equal(events.some((event) => event.type === 'turn_completed'), false)
+  assert.equal(
+    events.some((event) => event.type === 'turn_completed'),
+    false,
+  )
   const said = events
     .filter((event) => event.type === 'content_delta')
     .map((event) => String(event.payload?.text))
@@ -121,7 +124,11 @@ test('tools: ask leaves the approval open until it is answered', async () => {
   // Long enough for an answer the host made itself to have landed.
   await new Promise((resolve) => setTimeout(resolve, 20))
   assert.equal(requested.length, 1)
-  assert.equal(events.some((event) => event.type === 'approval_resolved'), false, 'nothing answered it')
+  assert.equal(
+    events.some((event) => event.type === 'approval_resolved'),
+    false,
+    'nothing answered it',
+  )
 
   const unknown = await handle.respondToApproval({ requestId: 'nope', decision: 'once' })
   assert.equal(unknown.ok, false)

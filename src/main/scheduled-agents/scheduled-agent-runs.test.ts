@@ -53,7 +53,10 @@ function tempFile(): { path: string; cleanup: () => void } {
 }
 
 test('a name is the sidebar’s title, and the prompt’s first line is when there is none', () => {
-  assert.equal(scheduledAgentTitle('Triage\nthe rest', '#240 Fix login — weekdays 09:30'), '#240 Fix login — weekdays 09:30')
+  assert.equal(
+    scheduledAgentTitle('Triage\nthe rest', '#240 Fix login — weekdays 09:30'),
+    '#240 Fix login — weekdays 09:30',
+  )
   assert.equal(scheduledAgentTitle('Triage\nthe rest', '  '), 'Triage')
   assert.equal(scheduledAgentTitle('Triage\nthe rest'), 'Triage')
 })
@@ -260,7 +263,7 @@ test('a scheduled run’s chat is the schedule owner’s: listed with its schedu
         id,
         folderPath: request.folderPath,
         ...(request.scheduledAgentId ? { scheduledAgentId: request.scheduledAgentId } : {}),
-        agents: { ...(request.agents ?? {}) },
+        agents: { ...request.agents },
       })
       for (const listener of workspaceListeners) listener()
       return { ok: true, workspaceId: id }

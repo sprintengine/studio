@@ -53,9 +53,13 @@ test('turn_completed carries the last message and the turn’s usage', () => {
 
 test('a turn a steered message extended reports every exchange’s usage once, at its end', () => {
   const state = mapperState()
-  const first = mapSdkMessage(state, result({ result: 'Working on it.', usage: { input_tokens: 10, output_tokens: 5 } }), {
-    exchangeContinues: true,
-  })
+  const first = mapSdkMessage(
+    state,
+    result({ result: 'Working on it.', usage: { input_tokens: 10, output_tokens: 5 } }),
+    {
+      exchangeContinues: true,
+    },
+  )
   expect(first.some((event) => event.type === 'turn_completed')).toBe(false)
   const last = mapSdkMessage(
     state,

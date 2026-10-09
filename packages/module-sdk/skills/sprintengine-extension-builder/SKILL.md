@@ -104,8 +104,8 @@ opens one for the person with `host.openChat` in the renderer (a draft by
 default: the person reads and sends it). It never sees the person's own chats
 or another module's. A question with one answer (a summary, a digest, a
 classification) needs no chat at all: `getTextGenerationService(host)`. Read
-what an agent answered with `chats.reply(ref)`, never by joining
-`content_delta`s. There is no API to spawn a terminal agent, run a CLI in a
+what an agent answered with `chats.reply(ref)`, never by joining streamed
+text deltas. There is no API to spawn a terminal agent, run a CLI in a
 pane, or inject into another session — do not look for one, and do not shell
 out to an agent CLI from `entry.main` to get around it. See
 [conversation-api.md](references/conversation-api.md).

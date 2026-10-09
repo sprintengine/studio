@@ -175,7 +175,10 @@ export type ModuleConversationService = {
   ): () => void
   transcript(ref: ModuleConversationRef): Promise<ModuleConversationResult<{ events: ModuleConversationEvent[] }>>
   // The reply of a finished turn (the last one, or `turnId`'s), read off the transcript.
-  reply(ref: ModuleConversationRef, turnId?: string): Promise<ModuleConversationResult<{ turnId: string; text: string }>>
+  reply(
+    ref: ModuleConversationRef,
+    turnId?: string,
+  ): Promise<ModuleConversationResult<{ turnId: string; text: string }>>
   list(filter?: { workspaceId?: string }): ModuleConversationSummary[]
   watch(
     filter: { workspaceId?: string } | undefined,

@@ -64,9 +64,11 @@ test('MainHost.listChatRuntimes answers from the agent runtime module, and with 
   const kernel = createMainKernel(ipcMain)
   const host = kernel.hostFor('acme')
   expect(await host.listChatRuntimes()).toEqual([])
-  kernel.hostFor('agent-runtime').provideService(ChatRuntimesToken, () => async () => [
-    { id: 'codex', label: 'Codex', available: true, models: [], lastSelected: true },
-  ])
+  kernel
+    .hostFor('agent-runtime')
+    .provideService(ChatRuntimesToken, () => async () => [
+      { id: 'codex', label: 'Codex', available: true, models: [], lastSelected: true },
+    ])
   expect(await host.listChatRuntimes()).toEqual([
     { id: 'codex', label: 'Codex', available: true, models: [], lastSelected: true },
   ])

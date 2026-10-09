@@ -63,10 +63,13 @@ test('chat:draft opens a draft, and only conversation:operate sends the prompt',
   })
   const kernel = createRendererHost()
   const drafter = kernel.hostFor('acme', manifest(['chat:draft']))
-  assert.deepEqual(await drafter.openChat({ workspaceId: 'ws-1', prompt: 'Fix CI', name: 'Fix CI', dedupeKey: 'pr-12' }), {
-    ok: true,
-    agentId: 'chat-1',
-  })
+  assert.deepEqual(
+    await drafter.openChat({ workspaceId: 'ws-1', prompt: 'Fix CI', name: 'Fix CI', dedupeKey: 'pr-12' }),
+    {
+      ok: true,
+      agentId: 'chat-1',
+    },
+  )
   const sent = await drafter.openChat({ workspaceId: 'ws-1', prompt: 'Fix CI', send: true })
   assert.equal(!sent.ok && sent.code, 'permission_missing')
   assert.match(!sent.ok ? sent.message : '', /conversation:operate/)

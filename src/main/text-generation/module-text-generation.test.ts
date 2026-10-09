@@ -43,7 +43,11 @@ const answered = (text: string): HeadlessTextResult => ({
 })
 
 test('the free-text call shuts every door a title does, with the system prompt as one argv entry', () => {
-  const invocation = claudeTextInvocation({ binaryPath: '/bin/claude', model: 'haiku', system: 'Be brief; --tools Bash' })
+  const invocation = claudeTextInvocation({
+    binaryPath: '/bin/claude',
+    model: 'haiku',
+    system: 'Be brief; --tools Bash',
+  })
   expect(invocation.file).toBe('/bin/claude')
   expect(invocation.args).toEqual([
     '-p',
@@ -199,7 +203,11 @@ test('a failed call says why in the module’s vocabulary', async () => {
   const thrown = registry(async () => {
     throw new Error('boom')
   })
-  expect(await thrown.generate('insights', { prompt: 'x' })).toMatchObject({ ok: false, code: 'failed', message: 'boom' })
+  expect(await thrown.generate('insights', { prompt: 'x' })).toMatchObject({
+    ok: false,
+    code: 'failed',
+    message: 'boom',
+  })
 })
 
 test('two calls run at once, eight wait, and a ninth waiting call is busy; other modules are unaffected', async () => {

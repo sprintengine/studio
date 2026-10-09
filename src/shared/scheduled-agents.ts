@@ -298,9 +298,11 @@ export function validateScheduledAgentDraft(
   // Left out when the draft does not name it, so an edit keeps the one there;
   // empty (or null) clears it.
   const name = optionalLabel(input, 'name', MAX_NAME_LENGTH)
-  if (name === false) return { ok: false, message: `A scheduled agent's name is text of at most ${MAX_NAME_LENGTH} characters.` }
+  if (name === false)
+    return { ok: false, message: `A scheduled agent's name is text of at most ${MAX_NAME_LENGTH} characters.` }
   const tag = optionalLabel(input, 'tag', MAX_TAG_LENGTH)
-  if (tag === false) return { ok: false, message: `A scheduled agent's tag is text of at most ${MAX_TAG_LENGTH} characters.` }
+  if (tag === false)
+    return { ok: false, message: `A scheduled agent's tag is text of at most ${MAX_TAG_LENGTH} characters.` }
 
   return {
     ok: true,

@@ -89,8 +89,7 @@ export const TextGenerationModuleServiceToken = createServiceToken<ModuleTextGen
 // The chat runtimes this machine can run, as the renderer's listChatRuntimes
 // lists them: what MainHost.listChatRuntimes answers. App-internal; the host
 // method is a module's way to it.
-export const ChatRuntimesToken =
-  createServiceToken<() => Promise<ModuleChatRuntimeOption[]>>(CHAT_RUNTIMES_SERVICE_KEY)
+export const ChatRuntimesToken = createServiceToken<() => Promise<ModuleChatRuntimeOption[]>>(CHAT_RUNTIMES_SERVICE_KEY)
 // Per-module brokered secrets (`secrets` permission). Key mirrors the private
 // token behind the SDK's getSecretsService helper.
 export const ModuleSecretsServiceToken = createServiceToken<ModuleSecretsRegistry>('module-secrets.module-service')

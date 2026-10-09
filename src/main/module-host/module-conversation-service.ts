@@ -552,7 +552,10 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         (worktree.name !== undefined &&
           (typeof worktree.name !== 'string' || worktree.name.length > MAX_WORKTREE_NAME_CHARS)))
     ) {
-      return failure('invalid_input', `"worktree" takes an optional "name" of at most ${MAX_WORKTREE_NAME_CHARS} characters.`)
+      return failure(
+        'invalid_input',
+        `"worktree" takes an optional "name" of at most ${MAX_WORKTREE_NAME_CHARS} characters.`,
+      )
     }
     const permissionPreset = capped(moduleId, input.permissionPreset)
     // A mode belongs to the preset asked for; one lowered to the ceiling
