@@ -24,8 +24,10 @@ it); providers always resolve under `~/.sprintengine/plugins`.
 A capability module extends the app itself — main-process services and IPC,
 renderer panels, workspace types, commands, Backlog and Files actions,
 settings sections, sidebar doors, top-bar controls, modal surfaces, MCP tools
-agents can call, and chats of its own with the app's agents — through the
-`MainHost` / `RendererHost` contracts. Modules are trust-gated: only modules
+agents can call, chats of its own with the app's agents, Backlog reads and
+writes through the app's Backlog service, and read-only views of the person's
+own activity (token usage, their chats) — through the `MainHost` /
+`RendererHost` contracts. Modules are trust-gated: only modules
 the user has trusted execute code.
 
 - Author against [`@sprintengine/module-sdk`](../../packages/module-sdk/README.md).

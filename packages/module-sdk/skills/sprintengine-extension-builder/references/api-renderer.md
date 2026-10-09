@@ -59,7 +59,10 @@ conversation service: [conversation-api.md](conversation-api.md).
 | `listWorkspaces()` / `watchWorkspaces(cb)` | `ipc:workspace-read` | `watch` fires at once with the current list, then on change. |
 | `getWorkingRoot(id)` | `ipc:workspace-read` | Where live work happens (a worktree, for worktree-backed workspaces). |
 | `watchWorkspaceFile(id, relativePath, cb)` | `filesystem:read-workspace` | Content now, then debounced on change; resolves to the unsubscriber. |
-| `listBacklogItems(id)` / `watchBacklogItems(id, cb)` | `backlog.read` | Read-only item views. |
+| `listBacklogItems(id)` / `watchBacklogItems(id, cb, { onError })` | `backlog.read` | Item views (with `numericId`, `displayId`, `epic`, `modifiedAt`). `onError` hears a folderless workspace or an unreadable Backlog; the watch stays open. |
+| `getBacklogLocation(id)` | `backlog.read` | `{ root, isDefault, exists }` of the workspace's Backlog. |
+| `createBacklogItem(id, input)`, `updateBacklogStatus`, `updateBacklogTriage`, `addBacklogLink`, `updateBacklogModuleMetadata` | `backlog.write` | Writes through the app's Backlog service; result-shaped. Never write item files. |
+| `queryUsage(query)` | `usage:read` | Token usage of every agent session on the machine (twin of `getUsageService`). |
 
 ## State
 

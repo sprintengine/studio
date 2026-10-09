@@ -43,6 +43,9 @@ handler that needs it.
 | `getCompanionAgentsService(host)` | `agents:companion` | `agent-runtime` | A workspace-bound background agent with a structured `runStructured` task API |
 | `host.requireService(WorkspaceContextToken)` | `ipc:workspace-read` | — (resolve in handlers) | `get(id)` / `list()` of open workspaces: `{ id, name, folderPath, mode }` |
 | `host.requireService(WorkspaceServiceToken)` | `ipc:workspace-write` | — (resolve in handlers) | `create({ name, folderPath })` a workspace |
+| `getBacklogService(host)` | `backlog.read` / `backlog.write` | `agent-runtime` | List, locate, create and change Backlog items through the app — below |
+| `getUsageService(host)` | `usage:read` | `agent-runtime` | Token usage of every agent session on the machine — below |
+| `getActivityService(host)` | `conversation:read-all` | `agent-runtime` | The person's Studio chats and prompts, read-only — below |
 
 ## MCP tools
 
@@ -76,6 +79,28 @@ the draft (a cron that does not parse, or never comes round, is refused with
 the reason) and answers `{ ok: true, agent }` with `agent.nextRunAt`. The
 module sees and changes only the ones it created; the person sees them in the
 sidebar with their own, and can close them.
+
+## Backlog, usage and activity
+
+**Backlog.** `getBacklogService(host)`: `list`, `getLocation`, `create`,
+`updateStatus`, `updateTriage`, `addLink`, `updateModuleMetadata`. `itemId` is
+a `BacklogItemView.id`. Writes go through the app's Backlog service in the
+project's mutation lane; `create` uses the app's create path and answers
+`{ id, relativePath, path, numericId, displayId }`. Never write an item's file
+yourself, and never derive the Backlog root: `getLocation` answers it.
+
+**Usage.** `getUsageService(host).query({ from, to, groupBy })` sums tokens
+(`input`, `output`, `cacheRead`, `cacheWrite`) and requests over Studio chats
+and terminal Claude Code / Codex sessions, each request once. `groupBy`:
+`day`, `model`, `provider`, `workspace`, `session`. Tokens only — price them
+yourself. The first query waits for the first read of the logs; `onChanged`
+says when to query again. Do not read `~/.claude` or `~/.codex` yourself.
+
+**Activity.** `getActivityService(host)`: `listChats({ from?, to?,
+workspaceId? })` and `prompts({ from, to, workspaceId?, limit? })` — the
+person's messages with the tail of each reply, never tool output. Open
+workspaces only. `conversation:read-all` is flagged broad in the consent
+prompt; ask for it only when reading the person's chats is the module's point.
 
 ## Storage
 

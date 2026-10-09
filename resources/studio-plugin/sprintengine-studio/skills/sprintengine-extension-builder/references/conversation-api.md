@@ -10,8 +10,10 @@ ways, and only these two:
 | `getConversationService(host)` | main | `conversation:operate` (everything) or `conversation:read` (watch/read only) | The module |
 
 Both create ordinary chats: a tab in the workspace the person can read, answer
-and stop. A module sees only chats it created — never the person's own, never
-another module's (`not_owned`). There is no terminal-agent API; do not spawn
+and stop. A module drives only chats it created — never the person's own, never
+another module's (`not_owned`). Reading the person's chats, read-only, is
+`getActivityService(host)` behind the broad `conversation:read-all`
+([api-main.md](api-main.md)). There is no terminal-agent API; do not spawn
 agent CLIs from `entry.main` to work around that.
 
 Check `host.supports('conversations')` (main) or `host.supports('chat.open')`
