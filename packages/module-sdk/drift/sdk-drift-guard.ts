@@ -281,6 +281,11 @@ import type * as appConversation from '../../../src/shared/modules/conversation-
 // are what keep the restatement the contract.
 import type * as protocol from '../../conversation-protocol/src/public'
 import type * as appBrokers from '../../../src/shared/modules/brokers'
+// Shell surfaces and the renderer host's feedback, link and context members:
+// read as namespaces so this block's imports stay in one place.
+import type * as appRendererHost from '../../../src/renderer/src/modules/renderer-host'
+import type * as appNotifications from '../../../src/shared/modules/notifications'
+import type { RowBadge as AppRowBadge } from '../../../src/renderer/src/components/workspace/SidebarNavButton'
 
 type Extends<A, B> = [A] extends [B] ? true : false
 // Type identity via the generic-function-identity trick: detects added/removed
@@ -507,6 +512,38 @@ expectType<IsExact<ReturnType<NonNullable<AppCapabilityModule['registerMain']>>,
 expectType<IsExact<Parameters<SdkRegisterMain>, [host: SdkMainHost]>>()
 expectType<IsExact<Parameters<SdkRegisterRenderer>, [host: SdkRendererHost]>>()
 expectType<IsExact<ReturnType<SdkRegisterRenderer>, void | Promise<void>>>()
+
+// ── Shell surfaces, notifications and renderer-host context ─────────────────
+// Each pinned exactly: the one-directional host assertion compares method
+// parameters bivariantly, so a widened parameter or a dropped optional on any
+// of these would ride through unnoticed.
+
+// A module's notify reaches the bell: the target it may name, on the input
+// and on the published notification.
+expectType<IsExact<appNotifications.ModuleNotificationTarget, sdk.ModuleNotificationTarget>>()
+expectType<IsExact<AppMainHost['notify'], SdkMainHost['notify']>>()
+// Commands hear their context; the handler's parameter is the published view.
+expectType<IsExact<Parameters<AppModuleCommandDefinition['run']>, Parameters<SdkModuleCommandDefinition['run']>>>()
+// The host-derived count a module's own row wears is the badge the shell
+// draws everywhere else.
+expectType<IsExact<AppRowBadge, sdk.SidebarNavEntryBadge>>()
+expectType<
+  IsExact<
+    NonNullable<appRendererHost.SidebarNavEntryRenderProps['badge']>,
+    NonNullable<sdk.SidebarNavEntryRenderProps['badge']>
+  >
+>()
+expectType<IsExact<appRendererHost.SidebarNavEntryRenderProps, sdk.SidebarNavEntryRenderProps>>()
+// Toasts, links, identity, the active workspace and the published surface view.
+expectType<IsExact<appRendererHost.ModuleToastTone, sdk.ModuleToastTone>>()
+expectType<IsExact<appRendererHost.ModuleToastInput, sdk.ModuleToastInput>>()
+expectType<IsExact<appRendererHost.ModuleOpenExternalResult, sdk.ModuleOpenExternalResult>>()
+expectType<IsExact<AppRendererHost['moduleId'], SdkRendererHost['moduleId']>>()
+expectType<IsExact<AppRendererHost['toast'], SdkRendererHost['toast']>>()
+expectType<IsExact<AppRendererHost['getActiveWorkspaceId'], SdkRendererHost['getActiveWorkspaceId']>>()
+expectType<IsExact<AppRendererHost['watchActiveWorkspace'], SdkRendererHost['watchActiveWorkspace']>>()
+expectType<IsExact<AppRendererHost['setSurfaceView'], SdkRendererHost['setSurfaceView']>>()
+expectType<IsExact<AppRendererHost['openExternal'], SdkRendererHost['openExternal']>>()
 
 // ── Host API version, conversations, brokered credentials ──────────────────
 // Every shape exact. The event, status and attachment types are the app's own

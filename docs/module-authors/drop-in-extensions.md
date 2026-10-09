@@ -57,6 +57,17 @@ the user has trusted execute code.
   extra file is refused as tampered, when the app lists modules and again
   immediately before it runs `entry.main`.
 - Permissions are install-time disclosure — see [permissions.md](./permissions.md).
+- **What a person sees of a module.** A door (`registerGlobalSurface` with a
+  `label` and `Icon`) is a row in the Extensions drawer; the module's
+  `registerDoorBadge({ rowId: <surface id> })` count and its unread bell rows
+  are worn on that row and summed on the app rail's Extensions square, and a
+  `registerSidebarNavEntry` under the same id draws the row in the module's
+  own component. `MainHost.notify` is a row in the bell of every window, under
+  the module's display name, whose `target` opens the module's own door; a
+  window that opens later files the rows it missed. `RendererHost.toast` is a
+  transient report in the window's toast region. Notifications reach the
+  windows through the same client bus as module events, so they work
+  unchanged when the server runs in a process of its own.
 - **`entry.main` may run without Electron.** When Studio runs its server in a
   process of its own, a module's main half runs there: a Node process with no
   Electron APIs, where `host.supports('electron-main')` is false. A module

@@ -65,7 +65,11 @@ the `window.api` areas they call:
 A few surfaces (window controls, native dialogs, clipboard, auth/session,
 external-URL opening, and launching or driving agents and terminals) sit
 outside every tier today; only the legacy
-`ipc:invoke` scope discloses those. A module that wants an agent should not
+`ipc:invoke` scope discloses those. The host's own narrow versions need no
+permission: `MainHost.notify` (a bell row under the module's name),
+`RendererHost.toast` (a transient report under the module's name), and
+`RendererHost.openExternal` (an absolute http(s) URL, in the system browser,
+through the app's own link path — nothing else). A module that wants an agent should not
 reach for them: the conversation service and `openChat` are the supported way,
 behind `conversation:read` / `conversation:operate`.
 

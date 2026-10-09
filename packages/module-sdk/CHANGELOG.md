@@ -1,5 +1,96 @@
 # Changelog
 
+## Unreleased
+
+<!-- Shell surfaces, notifications and the renderer host. All additive under host API 1. -->
+
+### Added: shell surfaces, notifications and the renderer host
+
+- **`MainHost.notify` reaches the bell.** A row in the notification bell of
+  every open window, under the module's display name (stamped by the host).
+  Rows sent before a window opens are kept (the last 50) and filed when one
+  does; this works the same when Studio's server runs in a process of its own.
+  `host.supports('notifications')` is true only where a client delivery is
+  wired. The existing flood bound applies; the same words about two different
+  targets are two rows, not a repeat.
+- **`ModuleNotifyInput.target`** (`{ surfaceId, viewId? }`, type
+  `ModuleNotificationTarget`): the row's Open lands on one of the module's own
+  doors — never another module's — and the row counts on that door's drawer
+  row until the door is opened. `ModuleNotification.target` carries it.
+- **Actions on a module's own bell rows:**
+  `registerNotificationActionProvider({ source: host.moduleId, … })` adds
+  actions to every row the module's `notify` sent. `NotificationActionView`
+  gains `title`, `message` and `surfaceTarget`.
+- **Installed doors' nav entries and badges are drawn.**
+  `registerDoorBadge({ rowId: <surface id> })` counts on the door's Extensions
+  drawer row (the first row of a surface with `views`) and on the app rail's
+  Extensions square, beside the module's unread bell rows filed under the door.
+  `registerSidebarNavEntry({ id: <surface id> })` draws that row in the
+  module's own component; `SidebarNavEntryRenderProps` gains the host's
+  `badge` (`SidebarNavEntryBadge`). `host.supports('door-badges')`,
+  `host.supports('sidebar-nav-entries')`.
+- **`RendererHost.toast({ tone, message, detail?, action? })`** — transient
+  feedback in the app's toast region, under the module's name, with at most one
+  button (`ModuleToastInput`, `ModuleToastTone`). Returns a dismisser.
+  `host.supports('toast')`.
+- **`RendererHost.moduleId`** (`host.supports('module-id')`).
+- **Commands get context.** `ModuleCommandDefinition.run(context)` receives the
+  `ModuleCommandContext` of the window it ran in; a zero-argument `run` still
+  works. `RendererHost.getActiveWorkspaceId()` and `watchActiveWorkspace(cb)`
+  read the workspace the window shows. `host.supports('command-context')`,
+  `host.supports('active-workspace')`.
+- **`RendererHost.setSurfaceView(surfaceId, viewId | null)`** publishes which
+  of a surface's `views` it is showing, so that drawer row reads selected
+  (`host.supports('surface-view')`).
+- **`RendererHost.openExternal(url)`** opens an absolute http(s) URL in the
+  system browser through the app's own link path, answering
+  `ModuleOpenExternalResult` (`host.supports('open-external')`).
+
+### Added: UI kit and theme tokens
+
+All behind `host.supports('ui-kit-extras')`, and `host.supports('chart-tokens')`
+for the tokens.
+
+- `@sprintengine/module-sdk/ui` exports `ContextMenu`, `MenuItem` and
+  `MenuDivider`: a menu at a point, with arrow keys, Escape and focus return
+  built in.
+- `TaskCard` and `BoardLane`, the app's own task card and board lane, so a
+  module's board is built from them.
+- `DateTimeInput` (the native `datetime-local` / `date` / `time` control in the
+  `Input` box) and `Toggle` (the app's switch).
+- `Chip` (the static fact chip) and `ChipButton` (a pill that toggles, filters
+  or wears an identity `tint`).
+- `SafeMarkdown`: agent Markdown drawn like a chat reply, with raw HTML shown
+  as text, http(s)-only links (`links: 'open' | 'copy' | 'none'`) and no
+  fetched images.
+- `SidebarNavButton` and the `RowBadge` type, so a nav entry draws the app's
+  own row wearing its host-derived badge.
+- `Select` takes `size: 'xs' | 'sm' | 'md'` (default `sm`) to sit level with
+  the buttons in its row.
+- `CliModelPickerButton` takes `host.listChatRuntimes()` as is;
+  `CliRuntimeOption[]` still works. Its doc no longer names the nonexistent
+  `listAgentRuntimes()`.
+- `SurfaceRail`'s `newAffordance` is optional, and every row field, `scope`,
+  `search`, `filter` and `groups` is documented — including when a row is
+  "rich" and that `scope` lives inside the filter menu as "Project".
+- `THEME_TOKENS` adds `--chart-1` … `--chart-8` and `--chart-other`: ordered
+  categorical series colours, never status, at 3:1 or better against
+  `--bg-surface` in every theme and separable under common colour-vision
+  deficiencies.
+
+### Changed: shell surfaces
+
+- `registerSidebarNavEntry` rows are drawn in the Extensions drawer as their
+  door's row; an entry whose id names none of the module's global surfaces is
+  not drawn. The sidebar's top-nav cluster they were documented for no longer
+  exists.
+- An installed module may register a notification action provider only for
+  its own module id.
+- The `global-surface` template no longer registers a nav entry: the door's
+  drawer row is the way in.
+
+<!-- End of shell surfaces, notifications and the renderer host. -->
+
 ## 1.0.0-beta.1
 
 Automations became scheduled agents: a prompt and a cron schedule, each run a
