@@ -71,6 +71,7 @@ import type {
 } from '../../../src/shared/modules/skills'
 import type { ModuleWorkspaceContextService as AppModuleWorkspaceContextService } from '../../../src/main/modules/module-workspace-service'
 import type {
+  ModuleStorageChange as AppModuleStorageChange,
   ModuleStorageErrorCode as AppModuleStorageErrorCode,
   ModuleStorageRegistry as AppModuleStorageRegistry,
   ModuleStorageResult as AppModuleStorageResult,
@@ -208,6 +209,7 @@ import type {
   ModuleSource as SdkModuleSource,
   ModuleColorScheme as SdkModuleColorScheme,
   ModuleFocusTabInput as SdkModuleFocusTabInput,
+  ModuleStorageChange as SdkModuleStorageChange,
   ModuleStorageErrorCode as SdkModuleStorageErrorCode,
   ModuleStorageResult as SdkModuleStorageResult,
   ModuleStorageService as SdkModuleStorageService,
@@ -392,6 +394,11 @@ expectType<IsExact<AppMainHost['ensureSkillInstalled'], SdkMainHost['ensureSkill
 expectType<IsExact<AppModuleSkillStatus, SdkModuleSkillStatus>>()
 expectType<IsExact<AppModuleSkillStatusResult, SdkModuleSkillStatusResult>>()
 expectType<IsExact<AppMainHost['getSkillStatus'], SdkMainHost['getSkillStatus']>>()
+// Storage: the change signal a watch delivers, and the module's own directory
+// and asset paths on the host.
+expectType<IsExact<AppModuleStorageChange, SdkModuleStorageChange>>()
+expectType<IsExact<AppMainHost['getModuleDataDir'], SdkMainHost['getModuleDataDir']>>()
+expectType<IsExact<AppMainHost['getAssetPath'], SdkMainHost['getAssetPath']>>()
 
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()

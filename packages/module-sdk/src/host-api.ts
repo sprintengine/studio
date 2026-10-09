@@ -63,6 +63,14 @@ export type HostCapability =
   | 'github-graphql'
   // GitHub broker: `download(route)` following GitHub's own storage redirect.
   | 'github-download'
+  // Module storage: `list({ prefix })` and `getMany(keys)`.
+  | 'storage-query'
+  // Module storage: `watch({ workspaceRoot? }, cb)`.
+  | 'storage-watch'
+  // `MainHost.getModuleDataDir()`: a private directory for data past the value limit.
+  | 'module-data-dir'
+  // `MainHost.getAssetPath(relative)`: a verified file's path, for workers and the like.
+  | 'main-asset-path'
   | (string & {})
 
 export type HostApiCompatibility =

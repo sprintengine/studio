@@ -114,6 +114,7 @@ export function createServerModules(deps: {
         modules: [agentRuntime, ...bundled, ...thirdParty.modules],
         overrides,
         moduleRoots: thirdParty.moduleRoots,
+        moduleVerifiedFiles: thirdParty.verifiedFiles,
         ineligible: thirdParty.ineligible,
         launchErrors: thirdParty.launchErrors,
         deliverModuleEvent: (event) => platform.clients.publish(MODULE_EVENTS_CHANNEL, event),

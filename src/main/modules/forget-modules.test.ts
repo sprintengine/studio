@@ -17,12 +17,17 @@ test('an uninstalled module leaves no secrets, storage or enablement choice unde
     mkdirSync(join(userData, 'module-storage', 'weather-deck'), { recursive: true })
     writeFileSync(join(userData, 'module-storage', 'weather-deck', 'forecast.json'), '{}')
     mkdirSync(join(userData, 'module-storage', 'other-deck'), { recursive: true })
+    mkdirSync(join(userData, 'module-data', 'weather-deck', 'cache'), { recursive: true })
+    writeFileSync(join(userData, 'module-data', 'weather-deck', 'cache', 'tiles.bin'), 'bytes')
+    mkdirSync(join(userData, 'module-data', 'other-deck'), { recursive: true })
 
     await forgetModules(userData, ['weather-deck', '..', ''])
 
     assert.deepEqual(readModuleOverridesSync(userData), { 'other-deck': true })
     assert.equal(existsSync(join(userData, 'module-secrets', 'weather-deck.bin')), false)
     assert.equal(existsSync(join(userData, 'module-storage', 'weather-deck')), false)
+    assert.equal(existsSync(join(userData, 'module-data', 'weather-deck')), false, 'its data directory goes too')
+    assert.equal(existsSync(join(userData, 'module-data', 'other-deck')), true)
     assert.equal(existsSync(join(userData, 'module-secrets', 'other-deck.bin')), true, 'another module keeps its own')
     assert.equal(existsSync(join(userData, 'module-storage', 'other-deck')), true)
     assert.equal(existsSync(join(userData, 'module-storage')), true, 'an unsafe id reaches nothing above')

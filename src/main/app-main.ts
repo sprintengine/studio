@@ -185,6 +185,8 @@ const moduleLoad = loadMainModules({
   // Skill directories a third-party module registers are resolved against —
   // and must stay inside — its install folder.
   moduleRoots: thirdPartyMainLoad.moduleRoots,
+  // What `getAssetPath` resolves: the files each module was verified with.
+  moduleVerifiedFiles: thirdPartyMainLoad.verifiedFiles,
   ineligible: thirdPartyMainLoad.ineligible,
   launchErrors: thirdPartyMainLoad.launchErrors,
   // Module events fan out to every open window on the one host-owned channel;

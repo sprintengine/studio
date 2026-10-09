@@ -1,8 +1,12 @@
+import { createHash } from 'node:crypto'
+import { readFileSync, realpathSync } from 'node:fs'
+import { isAbsolute, relative } from 'node:path'
+
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 
 import { MODULE_BRIDGE_INVOKE_CHANNEL, type ModuleBridgeInvokeResult } from '../../shared/modules/bridge'
 import { MODULE_EVENTS_CHANNEL, validateModuleEventTopic, type ModuleEventEnvelope } from '../../shared/modules/events'
-import type { CapabilityManifest } from '../../shared/modules/manifest'
+import type { CapabilityManifest, ModuleFileDigests } from '../../shared/modules/manifest'
 import { coreMcpToolConflict, mcpToolWireName, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import {
   validateModuleNotifyInput,
@@ -21,7 +25,7 @@ import {
   registerModuleSkills,
   unregisterModuleSkills,
 } from '../builtin-skills'
-import { resolveModuleSkillDirectory } from '../modules/entry-containment'
+import { resolveContainedPath, resolveModuleSkillDirectory } from '../modules/entry-containment'
 
 // Main-process host kernel. Replaces the static, central wiring in
 // app-services.ts / register-*-ipc.ts with registries that capability modules
@@ -199,6 +203,18 @@ export type MainHost = {
    * Never throws.
    */
   getSkillStatus(workspaceRoot: string, skillId: string): Promise<ModuleSkillStatusResult>
+  /**
+   * The module's private directory under the app's per-user data, created on
+   * demand (by the storage service) and removed at uninstall
+   * (forget-modules.ts). Throws when no storage service is provided.
+   */
+  getModuleDataDir(): string
+  /**
+   * The absolute path of a file the module was verified with, while its bytes
+   * still match — the main-side twin of `RendererHost.getAssetUrl`. Throws for
+   * anything else.
+   */
+  getAssetPath(relativePath: string): string
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   /**
    * A third-party module resolves only the services the SDK publishes a token
@@ -325,6 +341,12 @@ export type MainKernelOptions = {
    * Absent (tests, a host with no gateway) only module-vs-module is checked.
    */
   coreMcpToolNames?: () => Iterable<string>
+  /**
+   * The file digests a third-party module was verified with at discovery, for
+   * `getAssetPath`: only a listed file resolves, and only while its bytes
+   * still match. Bundled modules have none and resolve nothing.
+   */
+  resolveModuleVerifiedFiles?: (moduleId: string) => ModuleFileDigests | undefined
 }
 
 // Flood bounds: a module may emit at most this many notifications per window;
@@ -362,6 +384,11 @@ type ServiceEntry = {
   moduleId: string
   value: unknown
 }
+
+// The key the storage service is provided under (service-tokens.ts'
+// ModuleStorageToken, and the SDK's private token behind getModuleStorage).
+// Spelled out here because service-tokens.ts imports this file.
+const MODULE_STORAGE_SERVICE_KEY = 'core.module-storage'
 
 // One record per registered channel: ownership for collision reports and
 // teardown, plus the handler itself — ipcMain cannot be invoked in-process,
@@ -613,6 +640,40 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     throw new Error(`Service "${key}" is not available to third-party modules.`)
   }
 
+  // A module asset by path: the same refusals `moduleAssetUrl` makes, then
+  // only a verified file, held to the bytes it was verified with.
+  function resolveAssetPath(moduleId: string, relativePath: string): string {
+    if (
+      typeof relativePath !== 'string' ||
+      !relativePath ||
+      relativePath.startsWith('/') ||
+      /[\\\0?#]/.test(relativePath) ||
+      relativePath.split('/').some((part) => !part || part === '.' || part === '..')
+    ) {
+      throw new Error(`Module "${moduleId}" asset path must be a module-relative file path, got "${relativePath}".`)
+    }
+    const root = options.resolveModuleRoot?.(moduleId)
+    const verified = options.resolveModuleVerifiedFiles?.(moduleId)
+    if (!root || !verified) {
+      throw new Error(`Module "${moduleId}" has no verified files on disk, so "${relativePath}" has no path.`)
+    }
+    const expected = verified[relativePath]
+    if (expected === undefined) {
+      throw new Error(`"${relativePath}" is not among module "${moduleId}"'s verified files.`)
+    }
+    const candidate = resolveContainedPath(root, relativePath, 'asset path')
+    const realRoot = realpathSync(root)
+    const real = realpathSync(candidate)
+    const within = relative(realRoot, real)
+    if (!within || within.startsWith('..') || isAbsolute(within)) {
+      throw new Error(`Module "${moduleId}" asset "${relativePath}" resolves outside the module.`)
+    }
+    if (createHash('sha256').update(readFileSync(real)).digest('hex') !== expected) {
+      throw new Error(`Module "${moduleId}" asset "${relativePath}" changed after it was verified.`)
+    }
+    return real
+  }
+
   function hostFor(moduleId: string): MainHost {
     return {
       moduleId,
@@ -694,6 +755,17 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       },
       getSkillStatus(workspaceRoot, skillId) {
         return skillRegistry.getStatus(workspaceRoot, skillId)
+      },
+      getModuleDataDir() {
+        const storage = services.get(MODULE_STORAGE_SERVICE_KEY)?.value as
+          { dataDir?: (moduleId: string) => string } | undefined
+        if (typeof storage?.dataDir !== 'function') {
+          throw new Error(`Module "${moduleId}" asked for its data directory, and no storage service is provided.`)
+        }
+        return storage.dataDir(moduleId)
+      },
+      getAssetPath(relativePath) {
+        return resolveAssetPath(moduleId, relativePath)
       },
       provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T {
         if (services.has(token.key)) {

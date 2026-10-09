@@ -516,6 +516,27 @@ export type MainHost = {
    * Never throws. Check `host.supports('skill-status')` first.
    */
   getSkillStatus(workspaceRoot: string, skillId: string): Promise<ModuleSkillStatusResult>
+  /**
+   * Your module's private directory under the app's per-user data
+   * (`<userData>/module-data/<moduleId>`), created on demand and removed when
+   * the module is uninstalled. For data past module storage's 1 MB value
+   * limit — caches, indexes, downloaded blobs — laid out however you like.
+   * It is per user and per machine, never synced, and outside every project.
+   * Disclosed under the `storage` permission. Throws when the host has no
+   * storage service (check `host.supports('module-data-dir')`).
+   */
+  getModuleDataDir(): string
+  /**
+   * The absolute path of a file packaged inside your module — the main-side
+   * twin of `RendererHost.getAssetUrl`, for what Node wants a path for:
+   * `new Worker(host.getAssetPath('dist/worker.cjs'))`, a WASM file, a data
+   * table. Only a file the module was verified with resolves, and only while
+   * its bytes still match: anything else (an unlisted file, traversal, a
+   * leading slash, a file changed since install) throws. Worker threads
+   * loaded this way are supported; list every file they load in the build so
+   * it is signed with the rest. Check `host.supports('main-asset-path')`.
+   */
+  getAssetPath(relativePath: string): string
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T
@@ -909,15 +930,48 @@ export type ModuleStorageResult<T> = ({ ok: true } & T) | { ok: false; code: Mod
  * the module's global store. Declare the `storage` permission (install-time
  * disclosure). Renderer panels reach storage through the module's own
  * `host.invoke` channels.
+ *
+ * Workspace-scoped keys are plain files in the project, so they travel with it
+ * (commit `.sprintengine/modules/<moduleId>/` if your data belongs to the
+ * project, ignore it if it does not — that is the project's call, not the
+ * host's). Data past the 1 MB value limit — caches, blobs, indexes — belongs
+ * in `MainHost.getModuleDataDir()` instead.
  */
 export type ModuleStorageService = {
   /** `found: false` (with `value: undefined`) when the key has never been set. */
   get(input: { key: string; workspaceRoot?: string }): Promise<ModuleStorageResult<{ value: unknown; found: boolean }>>
   set(input: { key: string; value: unknown; workspaceRoot?: string }): Promise<ModuleStorageResult<object>>
   delete(input: { key: string; workspaceRoot?: string }): Promise<ModuleStorageResult<{ deleted: boolean }>>
-  /** Keys in the scope, sorted; an empty store lists `[]`, never an error. */
-  list(input?: { workspaceRoot?: string }): Promise<ModuleStorageResult<{ keys: string[] }>>
+  /**
+   * Keys in the scope, sorted; an empty store lists `[]`, never an error.
+   * With `prefix`, only the keys that start with it (`decision.` lists one
+   * record family). `prefix` needs `host.supports('storage-query')`.
+   */
+  list(input?: { workspaceRoot?: string; prefix?: string }): Promise<ModuleStorageResult<{ keys: string[] }>>
+  /**
+   * Read up to 1000 keys in one call. `values` holds the keys that are set; a
+   * key never set is simply absent. A corrupt record fails the whole call
+   * (`io_error` naming the key), exactly as `get` would.
+   * Check `host.supports('storage-query')` first.
+   */
+  getMany(input: {
+    keys: string[]
+    workspaceRoot?: string
+  }): Promise<ModuleStorageResult<{ values: Record<string, unknown> }>>
+  /**
+   * Hear which keys of a scope changed — set or deleted — as
+   * `{ keys: string[] }`. Your own writes are reported at once; a change made
+   * by other means (a `git pull` into the workspace, a teammate's commit, a
+   * file edited by hand) within a couple of seconds. Like a module event it
+   * is a signal, not state: read the keys again. Returns the unsubscriber —
+   * call it in `onShutdown`. Throws for an invalid `workspaceRoot`.
+   * Check `host.supports('storage-watch')` first.
+   */
+  watch(input: { workspaceRoot?: string }, listener: (change: ModuleStorageChange) => void): () => void
 }
+
+/** Which keys of a watched scope changed (were set or deleted), sorted. */
+export type ModuleStorageChange = { keys: string[] }
 
 // The moduleId-first registry the app provides; derived from the published
 // service so the two shapes cannot drift.
@@ -948,6 +1002,8 @@ export function getModuleStorage(host: MainHost): ModuleStorageService {
     set: (input) => registry.set(moduleId, input),
     delete: (input) => registry.delete(moduleId, input),
     list: (input) => registry.list(moduleId, input),
+    getMany: (input) => registry.getMany(moduleId, input),
+    watch: (input, listener) => registry.watch(moduleId, input, listener),
   }
 }
 

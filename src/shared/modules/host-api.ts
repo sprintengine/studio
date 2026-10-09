@@ -40,6 +40,10 @@ const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   'github-headers',
   'github-graphql',
   'github-download',
+  'storage-query',
+  'storage-watch',
+  'module-data-dir',
+  'main-asset-path',
 ])
 
 export function hostSupports(capability: HostCapability): boolean {

@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'vitest'
 
 import { createFakeIpcMain } from './ipc-main-fake.test-helper'
@@ -33,5 +37,44 @@ test('getSkillStatus reads through the skill registry and writes nothing', async
     status: 'missing',
   })
   assert.deepEqual(calls, ['status:/Users/dev/acme:decision-log'])
+})
+
+test('getModuleDataDir is the storage service directory for this module', () => {
+  const kernel = kernelWith()
+  assert.throws(() => kernel.hostFor('insights').getModuleDataDir(), /no storage service/)
+  const asked: string[] = []
+  kernel.hostFor('agent-runtime').provideService({ key: 'core.module-storage' }, () => ({
+    dataDir: (moduleId: string) => {
+      asked.push(moduleId)
+      return `/Users/dev/app-data/module-data/${moduleId}`
+    },
+  }))
+  assert.equal(kernel.hostFor('insights').getModuleDataDir(), '/Users/dev/app-data/module-data/insights')
+  assert.deepEqual(asked, ['insights'])
+})
+
+test('getAssetPath resolves only verified files whose bytes still match', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'module-asset-path-'))
+  try {
+    await mkdir(join(root, 'dist'), { recursive: true })
+    await writeFile(join(root, 'dist', 'worker.cjs'), 'module.exports = 1\n')
+    await writeFile(join(root, 'dist', 'unlisted.cjs'), 'module.exports = 2\n')
+    const digest = createHash('sha256').update('module.exports = 1\n').digest('hex')
+    const kernel = kernelWith({
+      resolveModuleRoot: (id) => (id === 'insights' ? root : undefined),
+      resolveModuleVerifiedFiles: (id) => (id === 'insights' ? { 'dist/worker.cjs': digest } : undefined),
+    })
+    const host = kernel.hostFor('insights')
+    assert.equal(host.getAssetPath('dist/worker.cjs'), await realpath(join(root, 'dist', 'worker.cjs')))
+    assert.throws(() => host.getAssetPath('dist/unlisted.cjs'), /not among .* verified files/)
+    for (const bad of ['/dist/worker.cjs', '../worker.cjs', 'dist/../dist/worker.cjs', 'dist\\worker.cjs', '']) {
+      assert.throws(() => host.getAssetPath(bad), /module-relative file path/, bad)
+    }
+    await writeFile(join(root, 'dist', 'worker.cjs'), 'module.exports = "swapped"\n')
+    assert.throws(() => host.getAssetPath('dist/worker.cjs'), /changed after it was verified/)
+    assert.throws(() => kernel.hostFor('bundled').getAssetPath('dist/worker.cjs'), /no verified files/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 

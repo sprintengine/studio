@@ -4,6 +4,7 @@ import type { ModuleEventEnvelope } from '../../shared/modules/events'
 import type {
   CapabilityManifest,
   ModuleEnablementOverrides,
+  ModuleFileDigests,
   ModuleResolutionErrorCode,
 } from '../../shared/modules/manifest'
 import { sanitizeNotificationText } from '../../shared/modules/notifications'
@@ -135,6 +136,8 @@ export function loadMainModules(options: {
   electronMain?: boolean
   /** The gateway's own tool names: see `MainKernelOptions.coreMcpToolNames`. */
   coreMcpToolNames?: () => Iterable<string>
+  /** Verified file digests per third-party module id, for `MainHost.getAssetPath`. */
+  moduleVerifiedFiles?: Record<string, ModuleFileDigests>
 }): LoadMainModulesResult {
   const { ipcMain, modules, overrides = {}, provideServices, ineligible, launchErrors = [] } = options
   const registerTimeoutMs = options.registerTimeoutMs ?? REGISTER_MAIN_TIMEOUT_MS
@@ -153,6 +156,7 @@ export function loadMainModules(options: {
     resolveModuleRoot: (moduleId) => options.moduleRoots?.[moduleId],
     ...(options.skillRegistry ? { skillRegistry: options.skillRegistry } : {}),
     ...(options.coreMcpToolNames ? { coreMcpToolNames: options.coreMcpToolNames } : {}),
+    resolveModuleVerifiedFiles: (moduleId) => options.moduleVerifiedFiles?.[moduleId],
   })
   const hostScope = kernel.hostFor('@host')
   provideServices?.(hostScope)
