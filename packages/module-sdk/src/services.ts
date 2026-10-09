@@ -114,6 +114,13 @@ export const MODULE_SERVICE_REQUIREMENTS: readonly ModuleServiceRequirement[] = 
     providedBy: 'agent-runtime',
     checked: true,
   },
+  {
+    key: 'text-generation.module-service',
+    via: 'getTextGenerationService',
+    permissions: ['agents:generate'],
+    providedBy: 'agent-runtime',
+    checked: true,
+  },
 ]
 
 /**

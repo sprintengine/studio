@@ -12,7 +12,7 @@ import { describe, test } from 'vitest'
 
 import { getActivityService, getUsageService } from '../src/activity.js'
 import { getBacklogService } from '../src/backlog.js'
-import { getConversationService } from '../src/conversation.js'
+import { getConversationService, getTextGenerationService } from '../src/conversation.js'
 import { getGitHubService, getSecretsService } from '../src/brokers.js'
 import {
   getCompanionAgentsService,
@@ -195,9 +195,20 @@ describe('createFakeMainHost', () => {
     assert.deepEqual(frames, ['event', 'event', 'synchronized'], 'a known cursor gets only what came after it')
 
     fake.services.conversations.addForeign({ workspaceId: 'ws-app', agentId: 'person-chat' })
+    const overheard: string[] = []
+    chats.subscribe({ workspaceId: 'ws-app', agentId: 'person-chat' }, (event) => overheard.push(event.type))
     assert.throws(
-      () => chats.subscribe({ workspaceId: 'ws-app', agentId: 'person-chat' }, () => {}),
-      /was started by this module/,
+      () =>
+        fake.services.conversations.emitEvent(
+          { workspaceId: 'ws-app', agentId: 'person-chat' },
+          { type: 'turn_started' },
+        ),
+      /not the module's own/,
+    )
+    assert.deepEqual(overheard, [], 'a chat the module does not own delivers nothing')
+    assert.throws(
+      () => chats.subscribe({ workspaceId: '', agentId: 'x' }, () => {}),
+      /needs a workspaceId and an agentId/,
     )
     const foreignSend = await chats.send({ workspaceId: 'ws-app', agentId: 'person-chat' }, { message: 'hi' })
     assert.equal(!foreignSend.ok && foreignSend.code, 'not_owned')
@@ -908,5 +919,220 @@ describe('the pass-through kit: board, menu, input and Markdown components', () 
     }
     assert.match(html, /data-kit="Toggle" data-checked="true"/)
     assert.match(html, /Pinned/)
+  })
+})
+
+describe('createFakeMainHost: agents, conversations and scheduled agents', () => {
+  test('text generation needs agents:generate, answers what was scripted, and refuses as the host does', async () => {
+    const fake = createFakeMainHost({ moduleId: 'digest', permissions: [] })
+    const text = getTextGenerationService(fake.host)
+    const refused = await text.generate({ prompt: 'Summarise' })
+    assert.equal(!refused.ok && refused.code, 'permission_missing')
+    fake.permissions.add('agents:generate')
+
+    const unscripted = await text.generate({ prompt: 'Summarise' })
+    assert.equal(!unscripted.ok && unscripted.code, 'invalid_output')
+    fake.services.textGeneration.respond(({ input, cli }) =>
+      input.json ? 'Here you go:\n```json\n{"score": 3}\n```' : { text: `on ${cli}`, usage: { outputTokens: 4 } },
+    )
+    assert.deepEqual(await text.generate({ prompt: 'Summarise' }), {
+      ok: true,
+      text: 'on claude-code',
+      usage: { outputTokens: 4 },
+      model: 'claude-haiku-4-5',
+    })
+    const codex = await text.generate({ prompt: 'Summarise', cli: 'codex' })
+    assert.ok(codex.ok && codex.model === 'gpt-5.6-luna' && codex.text === 'on codex')
+    const json = await text.generate({ prompt: 'Rate it', json: true })
+    assert.ok(json.ok && json.text === '{"score":3}')
+    const cursor = await text.generate({ prompt: 'x', cli: 'cursor' })
+    assert.equal(!cursor.ok && cursor.code, 'unsupported')
+    const tooLong = await text.generate({ prompt: 'x', maxOutputTokens: 64_001 })
+    assert.equal(!tooLong.ok && tooLong.code, 'invalid_input')
+
+    // Two run, eight wait, and the eleventh is told the lane is full.
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => (release = resolve))
+    fake.services.textGeneration.respond(async () => {
+      await held
+      return 'done'
+    })
+    const pending = Array.from({ length: 10 }, () => text.generate({ prompt: 'wait' }))
+    const busy = await text.generate({ prompt: 'one more' })
+    assert.equal(!busy.ok && busy.code, 'busy')
+    release()
+    assert.ok((await Promise.all(pending)).every((answer) => answer.ok))
+    assert.equal(fake.services.textGeneration.calls.at(-1)?.input.prompt, 'wait')
+  })
+
+  test('companion runs deny tools by default, refuse auto without conversation:bypass, and leave ask to the person', async () => {
+    const fake = createFakeMainHost({ moduleId: 'review', permissions: ['agents:companion'] })
+    const handle = getCompanionAgentsService(fake.host).attach({
+      workspaceId: 'ws-app',
+      agentId: 'guide',
+      name: 'Guide',
+      workspaceRoot: ROOT,
+      systemPrompt: 'Help.',
+    })
+    const companions = fake.services.companions
+    const validate = (raw: unknown) => ({ ok: true as const, value: raw })
+
+    companions.respond(async ({ tools }) => ({ tools, asked: await companions.requestApproval('ws-app', 'guide') }))
+    assert.deepEqual(await handle.runStructured({ prompt: 'Read the log', validate }), { tools: 'none', asked: 'deny' })
+    assert.match(companions.prompts[0]?.prompt ?? '', /You have no tools for this task/)
+    await assert.rejects(
+      handle.runStructured({ prompt: 'Fix it', validate, tools: 'auto' }),
+      /"conversation:bypass" permission/,
+    )
+    fake.permissions.add('conversation:bypass')
+    assert.deepEqual(await handle.runStructured({ prompt: 'Fix it', validate, tools: 'auto' }), {
+      tools: 'auto',
+      asked: 'once',
+    })
+
+    // `ask`: the request reaches onEvent and waits for the person's answer.
+    handle.onEvent((event) => {
+      if (event.type !== 'approval_requested') return
+      const requestId = String(event.payload?.requestId)
+      void handle.respondToApproval({ requestId, decision: 'once' }).then(async (allowed) => {
+        assert.match(allowed.ok ? '' : allowed.message, /"conversation:operate" permission/)
+        await handle.respondToApproval({ requestId, decision: 'deny' })
+      })
+    })
+    assert.deepEqual(await handle.runStructured({ prompt: 'Ask first', validate, tools: 'ask' }), {
+      tools: 'ask',
+      asked: 'deny',
+    })
+    assert.deepEqual(await handle.respondToApproval({ requestId: 'nope', decision: 'deny' }), {
+      ok: false,
+      message: 'No approval request "nope" is waiting on this companion.',
+    })
+    assert.deepEqual(
+      companions.approvals.map((approval) => [approval.decision, approval.by]),
+      [
+        ['deny', 'host'],
+        ['once', 'host'],
+        ['deny', 'module'],
+      ],
+    )
+  })
+
+  test('conversations: reply reads a turn’s text, a worktree chat gets a workspace of its own, and a follow waits for a chat', async () => {
+    const fake = createFakeMainHost({ moduleId: 'board', permissions: ['conversation:operate'] })
+    const chats = getConversationService(fake.host)
+    const created = await chats.create({ workspaceId: 'ws-app', prompt: 'Plan it' })
+    assert.ok(created.ok)
+    const ref = { workspaceId: created.conversation.workspaceId, agentId: created.conversation.agentId }
+    assert.equal(created.conversation.cli, 'claude-code')
+    const none = await chats.reply(ref)
+    assert.equal(!none.ok && none.code, 'no_reply')
+    fake.services.conversations.emitEvent(ref, { type: 'turn_started' })
+    fake.services.conversations.emitEvent(ref, { type: 'content_delta', payload: { text: 'Thinking… ' } })
+    const done = fake.services.conversations.emitEvent(ref, {
+      type: 'turn_completed',
+      payload: { text: 'Ship Friday.', usage: { inputTokens: 10, outputTokens: 3 } },
+    })
+    const turnId = String(done.payload?.turnId)
+    assert.deepEqual(await chats.reply(ref), { ok: true, turnId, text: 'Ship Friday.' })
+    const unknownTurn = await chats.reply(ref, 'turn-99')
+    assert.equal(!unknownTurn.ok && unknownTurn.code, 'no_reply')
+
+    const notRepo = await chats.create({ workspaceId: 'ws-app', worktree: { name: 'fix-ci' } })
+    assert.equal(!notRepo.ok && notRepo.code, 'worktree_unavailable')
+    fake.services.workspaces.setGitInfo('ws-app', { branch: 'main', remotes: [] })
+    const isolated = await chats.create({ workspaceId: 'ws-app', worktree: { name: 'fix-ci' } })
+    assert.ok(isolated.ok && isolated.conversation.workspaceId !== 'ws-app')
+    fake.permissions.add('ipc:workspace-read')
+    const git = await fake.host.getWorkspaceGitInfo(isolated.conversation.workspaceId)
+    assert.ok(git.ok && git.branch?.startsWith('agent/fix-ci-'))
+
+    // At launch a saved chat's workspace may not be loaded yet.
+    const saved = { workspaceId: 'ws-app', agentId: 'saved-chat' }
+    const frames: string[] = []
+    const events: string[] = []
+    chats.follow(saved, undefined, (frame) => frames.push(frame.type))
+    chats.subscribe(saved, (event) => events.push(event.type))
+    assert.deepEqual(frames, [])
+    fake.services.conversations.restore({ ...saved, events: [{ type: 'user_message', payload: { text: 'Hi' } }] })
+    fake.services.conversations.emitEvent(saved, { type: 'turn_started' })
+    assert.deepEqual(frames, ['snapshot', 'synchronized', 'event'])
+    assert.deepEqual(events, ['turn_started'])
+  })
+
+  test('scheduled agents carry name and tag, a run starts a chat the module owns, and onRun hears it', async () => {
+    let clock = Date.parse('2026-10-09T10:00:00Z')
+    const fake = createFakeMainHost({
+      moduleId: 'board',
+      permissions: ['scheduled-agents.manage', 'conversation:read'],
+      now: () => clock,
+    })
+    const scheduled = getScheduledAgentsService(fake.host)
+    const draft: ScheduledAgentDraft = {
+      name: 'Standup',
+      tag: 'card-42',
+      prompt: 'Write the standup',
+      schedule: { cron: '0 9 * * 1-5', timezone: 'UTC', once: clock + 60_000 },
+      folderPath: ROOT,
+      hostId: 'local',
+      cli: 'claude-code',
+      cliModel: null,
+      permissionPreset: null,
+      skills: [],
+      mcpServers: [],
+      worktree: null,
+    }
+    const tooLong = await scheduled.create({ ...draft, tag: 'x'.repeat(201) })
+    assert.equal(tooLong.ok, false)
+    const created = await scheduled.create(draft)
+    assert.ok(created.ok && created.agent.name === 'Standup' && created.agent.tag === 'card-42')
+    const { name: _name, ...unnamed } = draft
+    const kept = await scheduled.update(created.agent.id, unnamed)
+    assert.ok(kept.ok && kept.agent.name === 'Standup', 'a draft without a name keeps the one there')
+
+    const runs: Array<[string | undefined, string]> = []
+    scheduled.onRun((agent, run) => runs.push([agent.tag, run.agentId]))
+    clock += 60_000
+    const lastRun = fake.services.scheduledAgents.fire(created.agent.id)
+    assert.ok(lastRun.ok && lastRun.agentId)
+    assert.deepEqual(runs, [['card-42', lastRun.agentId]], 'a one-time schedule is heard before it closes')
+    const [chat] = getConversationService(fake.host).list({ workspaceId: lastRun.workspaceId })
+    assert.equal(chat?.scheduledAgentId, created.agent.id)
+    assert.equal(chat?.scheduledAgentTag, 'card-42')
+    assert.deepEqual(await scheduled.list(), [])
+  })
+
+  test('listChatRuntimes answers runtime ids, and the test can change them', async () => {
+    const fake = createFakeMainHost({ moduleId: 'board' })
+    assert.deepEqual(
+      (await fake.host.listChatRuntimes()).map((runtime) => runtime.id),
+      ['claude-code', 'codex'],
+    )
+    fake.setChatRuntimes([{ id: 'codex', label: 'Codex', available: true, models: [], lastSelected: true }])
+    assert.equal((await fake.host.listChatRuntimes())[0]?.id, 'codex')
+    assert.equal(createFakeRendererHost({ main: fake }).host.listChatRuntimes()[0]?.id, 'codex')
+  })
+})
+
+describe('createFakeRendererHost: openChat', () => {
+  test('a draft needs chat:draft, sending needs conversation:operate, and a dedupeKey focuses the chat it opened', async () => {
+    const main = createFakeMainHost({ moduleId: 'board', permissions: ['chat:draft'] })
+    const renderer = createFakeRendererHost({ main })
+    const sent = await renderer.host.openChat({ workspaceId: 'ws-app', prompt: 'Go', send: true })
+    assert.equal(!sent.ok && sent.code, 'permission_missing')
+    assert.deepEqual(renderer.undeclared.at(-1), { what: 'openChat', needs: ['conversation:operate'], checked: true })
+
+    const first = await renderer.host.openChat({
+      workspaceId: 'ws-app',
+      prompt: 'Look at card 42',
+      name: 'Card 42',
+      dedupeKey: 'card-42',
+    })
+    assert.ok(first.ok && first.existing === undefined)
+    assert.equal(main.services.conversations.all()[0]?.summary.name, 'Card 42')
+    const again = await renderer.host.openChat({ workspaceId: 'ws-app', prompt: 'Different', dedupeKey: 'card-42' })
+    assert.deepEqual(again, { ok: true, agentId: first.agentId, existing: true })
+    assert.equal(renderer.openedChats.length, 1, 'nothing else is applied to the chat it focused')
+    const badName = await renderer.host.openChat({ workspaceId: 'ws-app', name: 'x'.repeat(121) })
+    assert.equal(!badName.ok && badName.code, 'invalid_input')
   })
 })

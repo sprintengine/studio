@@ -90,11 +90,13 @@ export type {
   FakeActivity,
   FakeBacklog,
   FakeBacklogItemInput,
+  FakeCompanionApprovalRequest,
   FakeCompanions,
   FakeCompanionTurn,
   FakeConversationEventInput,
   FakeConversationRecord,
   FakeConversations,
+  FakeRestoredConversation,
   FakeGitHub,
   FakeGitHubAnswer,
   FakeGitHubDownloadAnswer,
@@ -107,6 +109,9 @@ export type {
   FakeServiceContext,
   FakeServices,
   FakeStorage,
+  FakeTextGeneration,
+  FakeTextGenerationCall,
+  FakeTextGenerationReply,
   FakeUsage,
   FakeUsageRecord,
   FakeWorkspaceGitInfo,
@@ -132,6 +137,14 @@ const KNOWN_CAPABILITIES: readonly HostCapability[] = [
   'conversation-permissions',
   'chat.open',
   'companion-agents',
+  // Agents, conversations and scheduled agents.
+  'companion-tools',
+  'conversation-replies',
+  'text-generation',
+  'conversation-worktrees',
+  'chat.open-options',
+  'chat-runtimes',
+  'scheduled-agent-runs',
   'scheduled-agents',
   'secrets',
   'github',
@@ -247,6 +260,14 @@ function validateNotify(moduleId: string, input: unknown): ModuleNotifyInput {
   }
 }
 
+// ── Chat runtimes ────────────────────────────────────────────────────────────
+
+/** What `listChatRuntimes` answers unless a test says otherwise: Claude Code (last chosen) and Codex, both installed. */
+export const DEFAULT_FAKE_CHAT_RUNTIMES: readonly ModuleChatRuntimeOption[] = [
+  { id: 'claude-code', label: 'Claude Code', available: true, models: [], lastSelected: true },
+  { id: 'codex', label: 'Codex', available: true, models: [], lastSelected: false },
+]
+
 // ── Module app state ─────────────────────────────────────────────────────────
 
 // The module's app-level state (its Settings values): one namespace the
@@ -307,6 +328,8 @@ export type FakeMainHostOptions = FakeModuleIdentity & {
   now?: () => number
   /** Module app state (Settings values) a window already pushed, for `getModuleAppState`. */
   appState?: Record<string, unknown>
+  /** What `listChatRuntimes` answers. Default: Claude Code (last chosen) and Codex. A fake renderer given this host lists the same. */
+  chatRuntimes?: readonly ModuleChatRuntimeOption[]
   /** What `getModuleDataDir` answers. Default: a fresh temporary folder, made on first use (`dispose` removes it). */
   dataDir?: string
   /** The module's folder, which `getAssetPath` resolves under. Default: the working directory (the project root under `npm test`). */
@@ -381,12 +404,15 @@ export type FakeMainHost = {
   setAppState(key: string, value: unknown): void
   /** Remove the temporary data directory `getModuleDataDir` made (never a `dataDir` the test passed). */
   dispose(): void
+  /** Change what `listChatRuntimes` answers (a CLI installed, another chosen). */
+  setChatRuntimes(runtimes: readonly ModuleChatRuntimeOption[]): void
 }
 
 type MainInternals = {
   moduleId: string
   workspaces: ReturnType<typeof createFakeWorkspaces>
   appState: AppStateStore
+  chatRuntimes(): ModuleChatRuntimeOption[]
   registry(key: string): object | undefined
 }
 
@@ -439,8 +465,10 @@ export function createFakeMainHost(options: FakeMainHostOptions): FakeMainHost {
     now,
     workspaces,
     ...(options.dataDir ? { dataDir: options.dataDir } : {}),
+    peer: (name) => (services as Partial<FakeServices>)[name] as never,
   }
   const appState = createAppStateStore(options.appState)
+  let chatRuntimes = structuredClone([...(options.chatRuntimes ?? DEFAULT_FAKE_CHAT_RUNTIMES)])
   const skillStatuses = new Map<string, ModuleSkillStatus>()
   const skillKey = (workspaceRoot: string, skillId: string): string => `${workspaceRoot}\u0000${skillId}`
 
@@ -548,6 +576,9 @@ export function createFakeMainHost(options: FakeMainHostOptions): FakeMainHost {
       const made = fakes.storage.dataDir()
       if (made && !options.dataDir) rmSync(dirname(made), { recursive: true, force: true })
     },
+    setChatRuntimes(runtimes) {
+      chatRuntimes = structuredClone([...runtimes])
+    },
   }
 
   function use(method: string): void {
@@ -596,6 +627,9 @@ export function createFakeMainHost(options: FakeMainHostOptions): FakeMainHost {
     moduleId,
     hostApiVersion: HOST_API_VERSION,
     supports: (capability) => capabilities.has(capability),
+    async listChatRuntimes() {
+      return structuredClone(chatRuntimes)
+    },
     registerIpc(channel, handler) {
       if (channels.has(channel))
         throw new Error(`IPC channel "${channel}" is already registered by module "${moduleId}".`)
@@ -729,7 +763,13 @@ export function createFakeMainHost(options: FakeMainHostOptions): FakeMainHost {
     },
   }
   fake.host = host
-  mainInternals.set(fake, { moduleId, workspaces, appState, registry: (key) => registries.get(key) })
+  mainInternals.set(fake, {
+    moduleId,
+    workspaces,
+    appState,
+    chatRuntimes: () => structuredClone(chatRuntimes),
+    registry: (key) => registries.get(key),
+  })
   return fake
 }
 
@@ -833,7 +873,7 @@ export type FakeRendererHostOptions = FakeModuleIdentity & {
   /** Workspace module state already saved, per workspace id. */
   workspaceState?: Record<string, unknown>
   colorScheme?: ModuleColorScheme
-  /** What `listChatRuntimes` answers. Default: Claude Code with no model choice. */
+  /** What `listChatRuntimes` answers. Default: the main fake's, or Claude Code (last chosen) and Codex. */
   chatRuntimes?: ModuleChatRuntimeOption[]
   /** What `supports` answers true for. Default: every capability this SDK knows. */
   capabilities?: readonly string[]
@@ -949,7 +989,7 @@ const RENDERER_METHOD_PERMISSIONS: Readonly<Record<string, readonly string[]>> =
   updateBacklogModuleMetadata: ['backlog.write'],
   queryUsage: ['usage:read'],
   watchWorkspaceFile: ['filesystem:read-workspace'],
-  openChat: ['conversation:operate'],
+  openChat: ['chat:draft', 'conversation:operate'],
   invoke: [...BRIDGE_PERMISSIONS],
 }
 const CHECKED_RENDERER_METHODS = new Set([
@@ -966,6 +1006,10 @@ const CHECKED_RENDERER_METHODS = new Set([
   'updateBacklogModuleMetadata',
   'queryUsage',
 ])
+
+// A chat's title fits a tab and a sidebar row; a key is an id, not a document.
+const MAX_CHAT_NAME_CHARS = 120
+const MAX_CHAT_DEDUPE_KEY_CHARS = 200
 
 const TOAST_TONES: ReadonlySet<string> = new Set<ModuleToastTone>(['neutral', 'accent', 'good', 'warn', 'error'])
 const MAX_TOAST_MESSAGE_LENGTH = 200
@@ -1045,9 +1089,10 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
   let colorScheme: ModuleColorScheme = options.colorScheme ?? 'light'
   let activeWorkspaceId: string | null =
     options.activeWorkspaceId !== undefined ? options.activeWorkspaceId : (workspaces[0]?.id ?? null)
-  const chatRuntimes = options.chatRuntimes ?? [
-    { id: 'claude', label: 'Claude Code', available: true, models: [], lastSelected: true },
-  ]
+  const chatRuntimes = (): ModuleChatRuntimeOption[] =>
+    structuredClone(options.chatRuntimes ?? internals?.chatRuntimes() ?? [...DEFAULT_FAKE_CHAT_RUNTIMES])
+  // The chats this window opened under a `dedupeKey`, by workspace and key.
+  const keyedChats = new Map<string, string>()
 
   const subscribers = new Set<{ topic: string; cb: (payload: unknown) => void }>()
   const workspaceWatchers = new Set<(list: ModuleWorkspaceView[]) => void>()
@@ -1168,9 +1213,9 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
     }
     return found
   }
-  function record(method: string, args: unknown[]): void {
+  function record(method: string, args: unknown[], needsOverride?: readonly string[]): void {
     fake.calls.push({ method, args })
-    const needs = RENDERER_METHOD_PERMISSIONS[method]
+    const needs = needsOverride ?? RENDERER_METHOD_PERMISSIONS[method]
     if (needs && !needs.some((permission) => permissions.has(permission))) {
       if (!fake.undeclared.some((use) => use.what === method)) {
         fake.undeclared.push({ what: method, needs, checked: CHECKED_RENDERER_METHODS.has(method) })
@@ -1421,16 +1466,46 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
       return true
     },
     async openChat(input): Promise<ModuleOpenChatResult> {
-      record('openChat', [input])
-      if (!permissions.has('conversation:operate')) {
+      // A draft the person reads and sends needs only `chat:draft`; a prompt
+      // sent for them is driving the chat, which is `conversation:operate`'s.
+      const sends = input?.send === true
+      record('openChat', [input], sends ? ['conversation:operate'] : ['chat:draft', 'conversation:operate'])
+      const operate = permissions.has('conversation:operate')
+      if (sends ? !operate : !operate && !permissions.has('chat:draft')) {
         return {
           ok: false,
           code: 'permission_missing',
-          message: `Module "${moduleId}" does not declare the "conversation:operate" permission, so it cannot open a chat.`,
+          message: sends
+            ? `Module "${moduleId}" does not declare the "conversation:operate" permission, so it cannot open a chat and send its prompt.`
+            : `Module "${moduleId}" declares neither "chat:draft" nor "conversation:operate", so it cannot open a chat.`,
+        }
+      }
+      const optionalText = (value: unknown, max: number): string | null | undefined => {
+        if (value === undefined) return undefined
+        if (typeof value !== 'string' || value.length > max) return null
+        return value.trim() || undefined
+      }
+      const name = optionalText(input.name, MAX_CHAT_NAME_CHARS)
+      if (name === null) {
+        return {
+          ok: false,
+          code: 'invalid_input',
+          message: `"name" must be a title of at most ${MAX_CHAT_NAME_CHARS} characters.`,
+        }
+      }
+      const dedupeKey = optionalText(input.dedupeKey, MAX_CHAT_DEDUPE_KEY_CHARS)
+      if (dedupeKey === null) {
+        return {
+          ok: false,
+          code: 'invalid_input',
+          message: `"dedupeKey" must be a string of at most ${MAX_CHAT_DEDUPE_KEY_CHARS} characters.`,
         }
       }
       const workspace = resolveWorkspace(input.workspaceId)
       if (!workspace) return { ok: false, code: 'unknown_workspace', message: `No workspace "${input.workspaceId}".` }
+      // Asked again under the same key: that chat comes to the front, untouched.
+      const keyed = dedupeKey ? keyedChats.get(`${input.workspaceId}\u0000${dedupeKey}`) : undefined
+      if (keyed) return { ok: true, agentId: keyed, existing: true }
       if (!workspace.folderPath) {
         return {
           ok: false,
@@ -1440,25 +1515,26 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
       }
       fake.openedChats.push(structuredClone(input))
       // The chat belongs to the module, as one `openChat` opens does: the main
-      // half's conversation service sees it.
-      const conversations = internals?.registry('conversation.module-service') as
-        | { create(moduleId: string, input: object): Promise<{ ok: boolean; conversation?: { agentId: string } }> }
-        | undefined
-      if (conversations) {
-        const created = await conversations.create(moduleId, {
-          workspaceId: input.workspaceId,
-          ...(input.cli ? { cli: input.cli } : {}),
-          ...(input.model ? { model: input.model } : {}),
-          ...(input.send && input.prompt ? { prompt: input.prompt } : {}),
-          ...(input.skills ? { skills: input.skills } : {}),
-        })
-        if (created.ok && created.conversation) return { ok: true, agentId: created.conversation.agentId }
-      }
-      return { ok: true, agentId: `chat-${nextChat++}` }
+      // half's conversation service sees it (whichever permission opened it).
+      const agentId = `chat-${nextChat++}`
+      main?.services.conversations.restore({
+        workspaceId: input.workspaceId,
+        agentId,
+        status: input.send ? 'active' : 'ready',
+        ...(name ? { name } : {}),
+        ...(input.cli ? { cli: input.cli } : {}),
+        ...(input.model ? { modelId: input.model } : {}),
+        events: [
+          { type: 'session_started' },
+          ...(input.send && input.prompt ? [{ type: 'user_message' as const, payload: { text: input.prompt } }] : []),
+        ],
+      })
+      if (dedupeKey) keyedChats.set(`${input.workspaceId}\u0000${dedupeKey}`, agentId)
+      return { ok: true, agentId }
     },
     listChatRuntimes() {
       record('listChatRuntimes', [])
-      return structuredClone(chatRuntimes)
+      return chatRuntimes()
     },
     toast(input) {
       record('toast', [input])

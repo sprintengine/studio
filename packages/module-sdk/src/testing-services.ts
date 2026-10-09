@@ -35,6 +35,7 @@ import type {
   ModuleWorkspaceView,
   ScheduledAgentDraft,
   ScheduledAgentLastRun,
+  ScheduledAgentRun,
   ScheduledAgentView,
   ScheduledAgentWriteResult,
   WorkspaceCreateInput,
@@ -70,6 +71,10 @@ import type {
   ModuleConversationStatus,
   ModuleConversationStreamFrame,
   ModuleConversationSummary,
+  ModuleConversationTurnUsage,
+  ModuleTextGenerationErrorCode,
+  ModuleTextGenerationInput,
+  ModuleTextGenerationResult,
 } from './conversation.js'
 import type {
   ModuleGitHubDownloadRequest,
@@ -93,6 +98,12 @@ export type FakeServiceContext = {
   readonly workspaces: FakeWorkspaces
   /** What `MainHost.getModuleDataDir` answers. Absent: a fresh temporary folder, made on first use. */
   readonly dataDir?: string
+  /**
+   * Another fake's handle, for a fake whose work lands in another's state (a
+   * scheduled run starts a chat the conversations fake holds). Absent where
+   * a fake is made alone.
+   */
+  peer?<K extends keyof FakeServices>(name: K): FakeServices[K] | undefined
 }
 
 type Failure<C extends string> = { ok: false; code: C; message: string }
@@ -453,7 +464,7 @@ export type FakeConversationEventInput = {
 /** One chat the module started, as the fake holds it. */
 export type FakeConversationRecord = {
   summary: ModuleConversationSummary
-  /** What `create` was asked. */
+  /** What `create` was asked (for a restored or scheduled-run chat, what it was made with). */
   input: ModuleConversationCreateInput
   /** Every event so far: the transcript. */
   events: ModuleConversationEvent[]
@@ -465,6 +476,13 @@ export type FakeConversationRecord = {
   stopped: boolean
 }
 
+/** A chat the module started in an earlier run (or a scheduled run started for it), for `restore`. */
+export type FakeRestoredConversation = ModuleConversationRef &
+  Partial<Omit<ModuleConversationSummary, 'workspaceId' | 'agentId'>> & {
+    /** Its transcript so far, by type and payload. */
+    events?: FakeConversationEventInput[]
+  }
+
 /** The module's chats, and the levers that make an agent say something. */
 export type FakeConversations = {
   all(): FakeConversationRecord[]
@@ -474,10 +492,20 @@ export type FakeConversations = {
    * `subscribe` and `follow`, as the runtime would. Status follows the event:
    * `turn_started` → active, `approval_requested` → awaiting_approval,
    * `turn_completed`/`turn_failed` → ready, `session_closed` → stopped.
+   * `turn_started`, `content_delta` and `turn_completed` without a `turnId`
+   * get the current turn's, so `reply` finds them; give `turn_completed` a
+   * `text` (the agent's last message) and `usage` as the host records them.
    */
   emitEvent(ref: ModuleConversationRef, event: FakeConversationEventInput): ModuleConversationEvent
   /** Put a chat in a status directly, notifying watchers. */
   setStatus(ref: ModuleConversationRef, status: ModuleConversationStatus | 'absent'): void
+  /**
+   * Make a chat of the module's known, as the host finds a saved chat once its
+   * workspace loads after launch: a `subscribe` or `follow` already attached
+   * to its ref hears it from now (a follow gets its snapshot then). Scheduled
+   * runs use this to hand the module their chats.
+   */
+  restore(chat: FakeRestoredConversation): FakeConversationRecord
   /**
    * Add a chat the module does NOT own (the person's own, or another
    * module's), to check that the module cannot reach it.
@@ -488,6 +516,12 @@ export type FakeConversations = {
 }
 
 const PRESET_ORDER: ModuleConversationPermissionPreset[] = ['manual', 'none', 'auto', 'bypass']
+const MAX_WORKTREE_NAME_CHARS = 80
+
+/** The conversation provider behind a chat runtime id, as the host maps them. */
+function providerForCli(cli: string): string {
+  return cli === 'claude-code' || cli === 'claude' ? 'claude-agent' : cli === 'codex' ? 'codex-agent' : cli
+}
 
 function conversationsRegistry(context: FakeServiceContext): { registry: object; handle: FakeConversations } {
   const workspaces = context.workspaces as InternalWorkspaces
@@ -495,10 +529,18 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
   const foreign = new Set<string>()
   const subscribers = new Map<string, Set<(event: ModuleConversationEvent) => void>>()
   const followers = new Map<string, Set<(frame: ModuleConversationStreamFrame) => void>>()
+  // Follows of a chat the host does not know yet: they get their snapshot when it does.
+  const pendingFollows = new Map<
+    string,
+    Set<{ after?: number; onFrame: (frame: ModuleConversationStreamFrame) => void }>
+  >()
   const watchers = new Set<{ filter?: { workspaceId?: string }; cb: (list: ModuleConversationSummary[]) => void }>()
   const receipts = new Map<string, unknown>()
+  const currentTurn = new Map<string, string>()
   let nextAgent = 1
   let nextEvent = 1
+  let nextTurn = 1
+  let nextWorktree = 1
   let pendingFailure: Failure<string> | null = null
 
   const refKey = (ref: ModuleConversationRef): string => `${ref?.workspaceId}\u0000${ref?.agentId}`
@@ -513,6 +555,17 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
     )
   const requireRead = (): void => {
     if (!canRead()) throw new Error(missing('conversation:read').message)
+  }
+  // A ref is a mistake in the call when it does not name a workspace and an agent.
+  const requireRef = (ref: ModuleConversationRef): void => {
+    if (
+      typeof ref?.workspaceId !== 'string' ||
+      !ref.workspaceId.trim() ||
+      typeof ref.agentId !== 'string' ||
+      !ref.agentId.trim()
+    ) {
+      throw new Error('A conversation ref needs a workspaceId and an agentId.')
+    }
   }
   const owned = (ref: ModuleConversationRef): FakeConversationRecord | undefined => records.get(refKey(ref))
   const list = (filter?: { workspaceId?: string }): ModuleConversationSummary[] =>
@@ -549,7 +602,29 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
     session_closed: 'stopped',
   }
 
+  // The turn an event belongs to, as the runtime stamps it.
+  function turnPayload(key: string, input: FakeConversationEventInput): Record<string, unknown> | undefined {
+    const payload = input.payload ? structuredClone(input.payload) : undefined
+    if (input.type !== 'turn_started' && input.type !== 'content_delta' && input.type !== 'turn_completed') {
+      return payload
+    }
+    if (typeof payload?.turnId === 'string') {
+      if (input.type === 'turn_started') currentTurn.set(key, payload.turnId)
+      if (input.type === 'turn_completed') currentTurn.delete(key)
+      return payload
+    }
+    let turnId = currentTurn.get(key)
+    if (input.type === 'turn_started' || !turnId) {
+      turnId = `turn-${nextTurn++}`
+      currentTurn.set(key, turnId)
+    }
+    if (input.type === 'turn_completed') currentTurn.delete(key)
+    return { ...payload, turnId }
+  }
+
   function emit(record: FakeConversationRecord, input: FakeConversationEventInput): ModuleConversationEvent {
+    const key = refKey(record.summary)
+    const payload = turnPayload(key, input)
     const event: ModuleConversationEvent = {
       id: `event-${nextEvent++}`,
       seq: record.events.length + 1,
@@ -560,11 +635,10 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
       modelId: record.summary.modelId,
       type: input.type,
       createdAt: context.now(),
-      ...(input.payload ? { payload: structuredClone(input.payload) } : {}),
+      ...(payload ? { payload } : {}),
     }
     record.events.push(event)
     const status = STATUS_AFTER[input.type]
-    const key = refKey(record.summary)
     for (const cb of subscribers.get(key) ?? []) cb(structuredClone(event))
     for (const onFrame of followers.get(key) ?? []) onFrame({ type: 'event', event: structuredClone(event) })
     if (status && status !== record.summary.status) {
@@ -572,6 +646,40 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
       notifyWatchers()
     }
     return event
+  }
+
+  // A follow's first frames: a snapshot (or what came after its cursor), then the fence.
+  function startFollow(
+    record: FakeConversationRecord,
+    after: number | undefined,
+    onFrame: (frame: ModuleConversationStreamFrame) => void,
+  ): void {
+    const generation = `fake-${record.summary.agentId}`
+    if (after !== undefined && after <= record.events.length) {
+      for (const event of record.events.slice(after)) onFrame({ type: 'event', event: structuredClone(event) })
+    } else {
+      onFrame({
+        type: 'snapshot',
+        page: { events: structuredClone(record.events), hasMore: false, beforeCursor: record.events.length ? 1 : null },
+        reset: true,
+        generation,
+      })
+    }
+    onFrame({ type: 'synchronized', seq: record.events.length, generation })
+    const key = refKey(record.summary)
+    let set = followers.get(key)
+    if (!set) followers.set(key, (set = new Set()))
+    set.add(onFrame)
+  }
+
+  // A chat becomes the module's: list it, and hand it to whoever was waiting for it.
+  function adopt(record: FakeConversationRecord): void {
+    const key = refKey(record.summary)
+    records.set(key, record)
+    const waiting = pendingFollows.get(key)
+    pendingFollows.delete(key)
+    for (const follow of waiting ?? []) startFollow(record, follow.after, follow.onFrame)
+    notifyWatchers()
   }
 
   // Every operating call: the permission, then ownership, then the command
@@ -585,6 +693,37 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
     const record = owned(ref)
     if (!record) return notOwned(ref)
     return once(commandId, async () => run(record))
+  }
+
+  // A fresh worktree of the project, in a workspace of its own, as the host
+  // cuts one: only for a project the fake knows as a git repository.
+  function worktreeOf(
+    workspace: ModuleWorkspaceView,
+    name: string | undefined,
+  ): ModuleWorkspaceView | Failure<'worktree_unavailable'> {
+    const git = workspaces.gitInfo(workspace.id)
+    if (!git.ok) {
+      return failure(
+        'worktree_unavailable',
+        `Workspace "${workspace.id}" is not a git repository (script one with services.workspaces.setGitInfo).`,
+      )
+    }
+    const suffix = `w${nextWorktree++}`
+    const slug =
+      (name ?? 'chat')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'chat'
+    const branch = `agent/${slug}-${suffix}`
+    const created: ModuleWorkspaceView = {
+      id: `ws-worktree-${suffix}`,
+      name: name ?? `${workspace.name} (${branch})`,
+      folderPath: `${workspace.folderPath}-worktrees/${slug}-${suffix}`,
+      mode: workspace.mode,
+    }
+    workspaces.add(created)
+    workspaces.setGitInfo(created.id, { branch, remotes: git.remotes })
+    return created
   }
 
   const registry = {
@@ -601,19 +740,34 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
             `Module "${context.moduleId}" must declare "conversation:bypass" to let a chat use tools without asking.`,
           )
         }
+        const worktree = input.worktree
+        if (
+          worktree !== undefined &&
+          (typeof worktree !== 'object' ||
+            worktree === null ||
+            (worktree.name !== undefined &&
+              (typeof worktree.name !== 'string' || worktree.name.length > MAX_WORKTREE_NAME_CHARS)))
+        ) {
+          return failure(
+            'invalid_input',
+            `"worktree" takes an optional "name" of at most ${MAX_WORKTREE_NAME_CHARS} characters.`,
+          )
+        }
         if (pendingFailure) {
           const planned = pendingFailure
           pendingFailure = null
           return planned
         }
-        const workspace = workspaces.find(input.workspaceId)
-        if (!workspace) return failure('unknown_workspace', `No workspace "${input.workspaceId}".`)
-        if (!workspace.folderPath) {
+        const checkout = workspaces.find(input.workspaceId)
+        if (!checkout) return failure('unknown_workspace', `No workspace "${input.workspaceId}".`)
+        if (!checkout.folderPath) {
           return failure('workspace_folder_missing', `Workspace "${input.workspaceId}" has no project folder.`)
         }
+        const workspace = worktree ? worktreeOf(checkout, worktree.name?.trim() || undefined) : checkout
+        if ('ok' in workspace) return workspace
         const agentId = `agent-${nextAgent++}`
         const preset = capped(input.permissionPreset)
-        const cli = input.cli ?? 'claude'
+        const cli = input.cli ?? 'claude-code'
         const record: FakeConversationRecord = {
           summary: {
             workspaceId: workspace.id,
@@ -621,7 +775,7 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
             sessionId: `session-${agentId}`,
             name: input.name ?? `Chat ${agentId}`,
             cli,
-            providerId: cli,
+            providerId: providerForCli(cli),
             modelId: input.model ?? 'default',
             status: 'starting',
             ...(preset ? { permissionPreset: preset } : {}),
@@ -636,10 +790,9 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
           interrupted: 0,
           stopped: false,
         }
-        records.set(refKey(record.summary), record)
+        adopt(record)
         emit(record, { type: 'session_started' })
         if (input.prompt) emit(record, { type: 'user_message', payload: { text: input.prompt } })
-        notifyWatchers()
         return { ok: true as const, conversation: { ...record.summary } }
       })
     },
@@ -705,9 +858,11 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
         emit(record, { type: 'session_closed' })
         return { ok: true }
       }),
+    // A chat the host does not know yet is attached all the same; a ref naming
+    // no chat of the module's delivers nothing, ever.
     subscribe(_m: string, ref: ModuleConversationRef, cb: (event: ModuleConversationEvent) => void) {
       requireRead()
-      if (!owned(ref)) throw new Error(notOwned(ref).message)
+      requireRef(ref)
       const key = refKey(ref)
       let set = subscribers.get(key)
       if (!set) subscribers.set(key, (set = new Set()))
@@ -723,31 +878,30 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
       onFrame: (frame: ModuleConversationStreamFrame) => void,
     ) {
       requireRead()
-      const record = owned(ref)
-      if (!record) throw new Error(notOwned(ref).message)
+      requireRef(ref)
       const after = options?.afterSeq
-      const generation = `fake-${record.summary.agentId}`
-      if (after !== undefined && after <= record.events.length) {
-        for (const event of record.events.slice(after)) onFrame({ type: 'event', event: structuredClone(event) })
-      } else {
-        onFrame({
-          type: 'snapshot',
-          page: {
-            events: structuredClone(record.events),
-            hasMore: false,
-            beforeCursor: record.events.length ? 1 : null,
-          },
-          reset: true,
-          generation,
-        })
+      if (after !== undefined && (!Number.isSafeInteger(after) || after < 0)) {
+        throw new Error('"afterSeq" must be a whole number of events.')
       }
-      onFrame({ type: 'synchronized', seq: record.events.length, generation })
       const key = refKey(ref)
-      let set = followers.get(key)
-      if (!set) followers.set(key, (set = new Set()))
-      set.add(onFrame)
+      const record = owned(ref)
+      if (record) {
+        const workspace = workspaces.find(record.summary.workspaceId)
+        if (workspace && !workspace.folderPath) {
+          throw new Error(`Workspace "${workspace.id}" has no project folder, so its chat has no transcript.`)
+        }
+        startFollow(record, after, onFrame)
+        return () => {
+          followers.get(key)?.delete(onFrame)
+        }
+      }
+      const pending = { ...(after !== undefined ? { after } : {}), onFrame }
+      let set = pendingFollows.get(key)
+      if (!set) pendingFollows.set(key, (set = new Set()))
+      set.add(pending)
       return () => {
-        set.delete(onFrame)
+        pendingFollows.get(key)?.delete(pending)
+        followers.get(key)?.delete(onFrame)
       }
     },
     async transcript(_m: string, ref: ModuleConversationRef) {
@@ -755,6 +909,40 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
       const record = owned(ref)
       if (!record) return notOwned(ref)
       return { ok: true as const, events: structuredClone(record.events) }
+    },
+    // The last finished turn's reply (or `turnId`'s), as the host reads it off the transcript.
+    async reply(_m: string, ref: ModuleConversationRef, turnId?: string) {
+      if (!canRead()) return missing('conversation:read')
+      if (turnId !== undefined && (typeof turnId !== 'string' || !turnId.trim())) {
+        return failure('invalid_input', '"turnId" must be a turn id when provided.')
+      }
+      const record = owned(ref)
+      if (!record) return notOwned(ref)
+      // The SDK targets ES2022, which has no findLast.
+      const completed = [...record.events]
+        .reverse()
+        .find(
+          (event) =>
+            event.type === 'turn_completed' &&
+            typeof event.payload?.turnId === 'string' &&
+            (turnId === undefined ? event.payload.steered !== true : event.payload.turnId === turnId),
+        )
+      const id = completed?.payload?.turnId
+      if (!completed || typeof id !== 'string') {
+        return failure(
+          'no_reply',
+          turnId === undefined
+            ? 'This conversation has no finished turn yet.'
+            : `Turn "${turnId}" has not finished in this conversation.`,
+        )
+      }
+      if (typeof completed.payload?.text === 'string')
+        return { ok: true as const, turnId: id, text: completed.payload.text }
+      const streamed = record.events
+        .filter((event) => event.type === 'content_delta' && event.payload?.turnId === id)
+        .map((event) => (typeof event.payload?.text === 'string' ? event.payload.text : ''))
+        .join('')
+      return { ok: true as const, turnId: id, text: streamed }
     },
     list(_m: string, filter?: { workspaceId?: string }) {
       requireRead()
@@ -780,7 +968,7 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
         throw new Error(
           foreign.has(refKey(ref))
             ? `Conversation "${ref.agentId}" is not the module's own; the module never sees its events.`
-            : `No conversation "${ref.agentId}" in workspace "${ref.workspaceId}"; start one with create first.`,
+            : `No conversation "${ref.agentId}" in workspace "${ref.workspaceId}"; start one with create (or restore) first.`,
         )
       }
       return emit(record, event)
@@ -790,6 +978,39 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
       if (!record) throw new Error(`No conversation "${ref.agentId}" in workspace "${ref.workspaceId}".`)
       record.summary.status = status
       notifyWatchers()
+    },
+    restore(chat) {
+      const { events = [], ...fields } = structuredClone(chat)
+      const cli = fields.cli ?? 'claude-code'
+      const record: FakeConversationRecord = {
+        summary: {
+          sessionId: `session-${fields.agentId}`,
+          name: `Chat ${fields.agentId}`,
+          providerId: providerForCli(cli),
+          modelId: 'default',
+          status: 'ready',
+          ...fields,
+          cli,
+        },
+        input: { workspaceId: fields.workspaceId, cli, ...(fields.name ? { name: fields.name } : {}) },
+        events: [],
+        sent: [],
+        answers: [],
+        interrupted: 0,
+        stopped: false,
+      }
+      // The transcript was there before anyone listened: recorded, not delivered.
+      const key = refKey(record.summary)
+      const listening = { subscribers: subscribers.get(key), followers: followers.get(key) }
+      subscribers.delete(key)
+      followers.delete(key)
+      const status = record.summary.status
+      for (const event of events) emit(record, event)
+      record.summary.status = status
+      if (listening.subscribers) subscribers.set(key, listening.subscribers)
+      if (listening.followers) followers.set(key, listening.followers)
+      adopt(record)
+      return record
     },
     addForeign(ref) {
       foreign.add(refKey(ref))
@@ -807,25 +1028,38 @@ function conversationsRegistry(context: FakeServiceContext): { registry: object;
 export type FakeScheduledAgents = {
   all(): ScheduledAgentView[]
   /**
-   * Run one as its schedule would: records `lastRun` (a new workspace id),
-   * notifies `onChanged` listeners, and closes a one-time schedule.
+   * Run one as its schedule would: starts its chat (a new workspace, and a
+   * chat the module owns in the conversations fake, carrying
+   * `scheduledAgentId` and `scheduledAgentTag`), records `lastRun` with the
+   * chat's `agentId`, tells `onRun` listeners and then `onChanged` ones, and
+   * closes a one-time schedule.
    */
   fire(id: string): ScheduledAgentLastRun
   /** Make the next `create` or `update` fail with this message, as the host's validation would. */
   failNextWrite(message: string): void
+  /** Make the next run fail to start with this message: `lastRun` says why, and `onRun` hears nothing. */
+  failNextRun(message: string): void
 }
 
+const MAX_SCHEDULED_NAME_LENGTH = 120
+const MAX_SCHEDULED_TAG_LENGTH = 200
+
 function scheduledAgentsRegistry(context: FakeServiceContext): { registry: object; handle: FakeScheduledAgents } {
+  const workspaces = context.workspaces as InternalWorkspaces
   const agents = new Map<string, ScheduledAgentView>()
   const listeners = new Set<(list: ScheduledAgentView[]) => void>()
+  const runListeners = new Set<(agent: ScheduledAgentView, run: ScheduledAgentRun) => void>()
   let nextId = 1
   let nextRun = 1
   let pendingFailure: string | null = null
+  let pendingRunFailure: string | null = null
 
   const snapshot = (): ScheduledAgentView[] => [...agents.values()].map((agent) => structuredClone(agent))
   const changed = (): void => {
     for (const listener of listeners) listener(snapshot())
   }
+  const label = (value: unknown, max: number): boolean =>
+    value === undefined || value === null || (typeof value === 'string' && value.length <= max)
   const invalid = (draft: ScheduledAgentDraft): string | null => {
     if (pendingFailure) {
       const message = pendingFailure
@@ -844,13 +1078,60 @@ function scheduledAgentsRegistry(context: FakeServiceContext): { registry: objec
     if (draft.schedule.once !== undefined && draft.schedule.once <= context.now())
       return 'That time has already passed.'
     if (typeof draft.cli !== 'string' || !draft.cli.trim()) return 'A scheduled agent needs an agent runtime.'
+    if (!label(draft.name, MAX_SCHEDULED_NAME_LENGTH)) {
+      return `A scheduled agent's name is text of at most ${MAX_SCHEDULED_NAME_LENGTH} characters.`
+    }
+    if (!label(draft.tag, MAX_SCHEDULED_TAG_LENGTH)) {
+      return `A scheduled agent's tag is text of at most ${MAX_SCHEDULED_TAG_LENGTH} characters.`
+    }
     return null
+  }
+  // An empty name or tag clears it; one left out keeps the record's (on update).
+  const withoutEmptyLabels = (agent: ScheduledAgentView): ScheduledAgentView => {
+    const next = { ...agent }
+    if (!next.name?.trim()) delete next.name
+    else next.name = next.name.trim()
+    if (!next.tag?.trim()) delete next.tag
+    else next.tag = next.tag.trim()
+    return next
   }
   const notFound = (id: string) => ({ ok: false as const, message: `No scheduled agent "${id}".` })
 
   function run(agent: ScheduledAgentView): ScheduledAgentLastRun {
-    const lastRun: ScheduledAgentLastRun = { at: context.now(), ok: true, workspaceId: `ws-run-${nextRun++}` }
+    const at = context.now()
+    if (pendingRunFailure) {
+      const message = pendingRunFailure
+      pendingRunFailure = null
+      agent.lastRun = { at, ok: false, message }
+      changed()
+      return agent.lastRun
+    }
+    const n = nextRun++
+    const workspaceId = `ws-run-${n}`
+    const agentId = `run-agent-${n}`
+    const title =
+      agent.name ??
+      agent.prompt
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .find(Boolean) ??
+      'Scheduled agent'
+    workspaces.add({ id: workspaceId, name: title, folderPath: agent.folderPath, mode: 'standard' })
+    // The run's chat is the module's, as on the host: its conversation service reaches it.
+    context.peer?.('conversations')?.restore({
+      workspaceId,
+      agentId,
+      name: title,
+      cli: agent.cli,
+      status: 'active',
+      scheduledAgentId: agent.id,
+      ...(agent.tag ? { scheduledAgentTag: agent.tag } : {}),
+      events: [{ type: 'session_started' }, { type: 'user_message', payload: { text: agent.prompt } }],
+    })
+    const lastRun: ScheduledAgentLastRun = { at, ok: true, workspaceId, agentId }
     agent.lastRun = lastRun
+    // A one-time schedule is told before it closes itself.
+    for (const listener of [...runListeners]) listener(structuredClone(agent), { at, workspaceId, agentId })
     if (agent.schedule.once !== undefined) agents.delete(agent.id)
     changed()
     return lastRun
@@ -861,7 +1142,7 @@ function scheduledAgentsRegistry(context: FakeServiceContext): { registry: objec
       const problem = invalid(draft)
       if (problem) return { ok: false, message: problem }
       const at = context.now()
-      const agent: ScheduledAgentView = {
+      const agent: ScheduledAgentView = withoutEmptyLabels({
         ...structuredClone(draft),
         id: `scheduled-${nextId++}`,
         ownerModuleId: moduleId,
@@ -871,7 +1152,7 @@ function scheduledAgentsRegistry(context: FakeServiceContext): { registry: objec
         lastFailureSeenAt: null,
         // The fake does not evaluate cron; a one-time schedule knows its instant.
         nextRunAt: draft.schedule.once ?? null,
-      }
+      })
       agents.set(agent.id, agent)
       changed()
       return { ok: true, agent: structuredClone(agent) }
@@ -881,12 +1162,12 @@ function scheduledAgentsRegistry(context: FakeServiceContext): { registry: objec
       if (!existing) return notFound(id)
       const problem = invalid(draft)
       if (problem) return { ok: false, message: problem }
-      const agent: ScheduledAgentView = {
+      const agent: ScheduledAgentView = withoutEmptyLabels({
         ...existing,
         ...structuredClone(draft),
         updatedAt: context.now(),
         nextRunAt: draft.schedule.once ?? null,
-      }
+      })
       agents.set(id, agent)
       changed()
       return { ok: true, agent: structuredClone(agent) }
@@ -910,6 +1191,12 @@ function scheduledAgentsRegistry(context: FakeServiceContext): { registry: objec
         listeners.delete(listener)
       }
     },
+    onRun(_moduleId: string, listener: (agent: ScheduledAgentView, run: ScheduledAgentRun) => void) {
+      runListeners.add(listener)
+      return () => {
+        runListeners.delete(listener)
+      }
+    },
   }
   const handle: FakeScheduledAgents = {
     all: snapshot,
@@ -921,6 +1208,9 @@ function scheduledAgentsRegistry(context: FakeServiceContext): { registry: objec
     failNextWrite(message) {
       pendingFailure = message
     },
+    failNextRun(message) {
+      pendingRunFailure = message
+    },
   }
   return { registry, handle }
 }
@@ -928,32 +1218,85 @@ function scheduledAgentsRegistry(context: FakeServiceContext): { registry: objec
 // ── Companion agents ─────────────────────────────────────────────────────────
 
 /** What a companion's scripted reply is computed from. */
-export type FakeCompanionTurn = { spec: CompanionAgentSpec; prompt: string; attempt: number }
+export type FakeCompanionTurn = {
+  spec: CompanionAgentSpec
+  prompt: string
+  attempt: number
+  /** The run's tool policy (`none` unless the module asked otherwise). */
+  tools: 'none' | 'ask' | 'auto'
+}
+
+/** A tool call the companion's agent asks to make, for `requestApproval`. */
+export type FakeCompanionApprovalRequest = {
+  /** Default: a fresh id. */
+  requestId?: string
+  /** What the agent wants to do, as the event's payload carries it (`tool`, `command`, …). */
+  payload?: Record<string, unknown>
+}
 
 /** The module's companion agents, and the replies they give. */
 export type FakeCompanions = {
   /** Every handle `attach` returned, by `workspaceId/agentId`. */
   handles(): CompanionAgentHandle[]
-  /** What `runStructured` gets back from the agent (before validation). Default: `{}`. */
+  /**
+   * What `runStructured` gets back from the agent (before validation).
+   * Default: `{}`. May be async: a reply that awaits `requestApproval` is an
+   * agent that asks for a tool mid-turn.
+   */
   respond(reply: (turn: FakeCompanionTurn) => unknown): void
-  /** Every prompt sent through `runStructured` and `send`, in order. */
-  readonly prompts: Array<{ agentId: string; prompt: string; via: 'runStructured' | 'send' }>
+  /**
+   * Every prompt sent through `runStructured` and `send`, in order, as the
+   * agent got it: a `tools: 'none'` run's prompt carries the host's note that
+   * it has no tools.
+   */
+  readonly prompts: Array<{
+    agentId: string
+    prompt: string
+    via: 'runStructured' | 'send'
+    tools?: 'none' | 'ask' | 'auto'
+  }>
   /** Deliver an event to a companion's `onEvent` listeners. */
   emitEvent(workspaceId: string, agentId: string, event: Omit<CompanionAgentEvent, 'workspaceId' | 'agentId'>): void
+  /**
+   * The companion's agent asks to use a tool, as it would mid-turn. The
+   * running structured run's policy answers it: `none` denies, `auto`
+   * allows; under `ask`, or outside a structured run (a `send` turn), it is
+   * delivered to `onEvent` as `approval_requested` and stays open until the
+   * module relays the person's answer with `respondToApproval`. Resolves with
+   * the decision.
+   */
+  requestApproval(
+    workspaceId: string,
+    agentId: string,
+    request?: FakeCompanionApprovalRequest,
+  ): Promise<'once' | 'deny'>
+  /** Every approval and how it was answered (`by: 'host'` for a run's policy, `'module'` for `respondToApproval`). */
+  readonly approvals: Array<{ agentId: string; requestId: string; decision: 'once' | 'deny'; by: 'host' | 'module' }>
 }
 
-function companionsRegistry(context: FakeServiceContext): { registry: object; handle: FakeCompanions } {
-  const handles = new Map<string, CompanionAgentHandle>()
-  const eventListeners = new Map<string, Set<(event: CompanionAgentEvent) => void>>()
-  const prompts: FakeCompanions['prompts'] = []
-  let reply: (turn: FakeCompanionTurn) => unknown = () => ({})
+// What the host tells a `tools: 'none'` run's agent before the module's prompt.
+const NO_TOOLS_NOTE =
+  'You have no tools for this task: do not call any tool, and do not try to read or change files. Answer from what this message gives you.'
 
-  function create(spec: CompanionAgentSpec): CompanionAgentHandle {
-    const key = `${spec.workspaceId}/${spec.agentId}`
+function companionsRegistry(context: FakeServiceContext): { registry: object; handle: FakeCompanions } {
+  type Companion = {
+    handle: CompanionAgentHandle
+    // The tool policy of the structured run in flight, or null between runs (and in `send` turns).
+    tools: 'none' | 'ask' | 'auto' | null
+    open: Map<string, (decision: 'once' | 'deny') => void>
+    emit(type: string, payload?: Record<string, unknown>): void
+  }
+  const companions = new Map<string, Companion>()
+  const prompts: FakeCompanions['prompts'] = []
+  const approvals: FakeCompanions['approvals'] = []
+  let reply: (turn: FakeCompanionTurn) => unknown = () => ({})
+  let nextRequest = 1
+  let nextEvent = 1
+
+  function create(spec: CompanionAgentSpec): Companion {
     let status: CompanionAgentStatus = 'absent'
     const statusListeners = new Set<(status: CompanionAgentStatus) => void>()
     const listeners = new Set<(event: CompanionAgentEvent) => void>()
-    eventListeners.set(key, listeners)
     const setStatus = (next: CompanionAgentStatus): void => {
       if (next === status) return
       status = next
@@ -963,7 +1306,26 @@ function companionsRegistry(context: FakeServiceContext): { registry: object; ha
     const live = (): void => {
       if (disposed) throw new Error(`Companion "${spec.agentId}" was disposed; attach it again.`)
     }
-    const handle: CompanionAgentHandle = {
+    const companion: Companion = {
+      handle: undefined as unknown as CompanionAgentHandle,
+      tools: null,
+      open: new Map(),
+      emit(type, payload) {
+        const event: CompanionAgentEvent = {
+          id: `companion-event-${nextEvent++}`,
+          sessionId: `session-${spec.agentId}`,
+          workspaceId: spec.workspaceId,
+          agentId: spec.agentId,
+          providerId: spec.engine?.cli ?? 'claude-agent',
+          modelId: spec.engine?.model ?? 'sonnet',
+          type,
+          createdAt: context.now(),
+          ...(payload ? { payload: structuredClone(payload) } : {}),
+        }
+        for (const cb of [...listeners]) cb(structuredClone(event))
+      },
+    }
+    companion.handle = {
       workspaceId: spec.workspaceId,
       agentId: spec.agentId,
       status: () => status,
@@ -975,21 +1337,34 @@ function companionsRegistry(context: FakeServiceContext): { registry: object; ha
       },
       async runStructured(options) {
         live()
+        const tools = options.tools ?? 'none'
+        if (tools === 'auto' && !context.permissions.has('conversation:bypass')) {
+          throw new Error(
+            `Module "${context.moduleId}" must declare the "conversation:bypass" permission to run a companion task with tools: 'auto', which approves every tool call without asking.`,
+          )
+        }
         // A live intent spawns the session, as the host's first runStructured does.
         setStatus('active')
+        companion.tools = tools
         const retries = options.retries ?? 1
         let errors: string[] = []
         try {
           for (let attempt = 0; attempt <= retries; attempt += 1) {
-            const prompt =
+            const asked =
               attempt === 0 ? options.prompt : `${options.prompt}\n\nThe last answer was invalid: ${errors.join('; ')}`
-            prompts.push({ agentId: spec.agentId, prompt, via: 'runStructured' })
+            const prompt = tools === 'none' ? `${NO_TOOLS_NOTE}\n\n${asked}` : asked
+            prompts.push({ agentId: spec.agentId, prompt, via: 'runStructured', tools })
             options.onPhase?.(attempt === 0 ? 'running' : 'retrying')
-            const validated = options.validate(structuredClone(reply({ spec, prompt, attempt })))
+            const answer = await reply({ spec, prompt, attempt, tools })
+            const validated = options.validate(structuredClone(answer))
             if (validated.ok) return validated.value
             errors = validated.errors
           }
         } finally {
+          companion.tools = null
+          // A turn's end closes whatever it left open.
+          for (const settle of companion.open.values()) settle('deny')
+          companion.open.clear()
           setStatus('ready')
         }
         throw new Error(`Companion "${spec.agentId}" gave no valid answer: ${errors.join('; ')}`)
@@ -999,20 +1374,43 @@ function companionsRegistry(context: FakeServiceContext): { registry: object; ha
         setStatus('ready')
         prompts.push({ agentId: spec.agentId, prompt: message, via: 'send' })
       },
+      async respondToApproval(input) {
+        if (disposed) return { ok: false, message: 'Companion agent is disposed.' }
+        // Relaying the person's "allow" is operating the agent, as in a chat.
+        if (input?.decision === 'once' && !context.permissions.has('conversation:operate')) {
+          return {
+            ok: false,
+            message: `Module "${context.moduleId}" must declare the "conversation:operate" permission to allow a tool call; without it a companion's approvals can only be denied.`,
+          }
+        }
+        if (input?.decision !== 'once' && input?.decision !== 'deny') {
+          return { ok: false, message: '"decision" must be "once" or "deny".' }
+        }
+        const settle = companion.open.get(input.requestId)
+        if (!settle)
+          return { ok: false, message: `No approval request "${input.requestId}" is waiting on this companion.` }
+        companion.open.delete(input.requestId)
+        approvals.push({ agentId: spec.agentId, requestId: input.requestId, decision: input.decision, by: 'module' })
+        settle(input.decision)
+        return { ok: true }
+      },
       onEvent(cb) {
         listeners.add(cb)
         return () => {
           listeners.delete(cb)
         }
       },
-      interrupt() {},
+      interrupt() {
+        for (const settle of companion.open.values()) settle('deny')
+        companion.open.clear()
+      },
       dispose() {
         disposed = true
         setStatus('absent')
-        handles.delete(key)
+        companions.delete(`${spec.workspaceId}/${spec.agentId}`)
       },
     }
-    return handle
+    return companion
   }
 
   const registry = {
@@ -1026,22 +1424,37 @@ function companionsRegistry(context: FakeServiceContext): { registry: object; ha
         throw new Error('A companion agent needs an absolute workspaceRoot.')
       }
       const key = `${spec.workspaceId}/${spec.agentId}`
-      let handle = handles.get(key)
-      if (!handle) handles.set(key, (handle = create(spec)))
-      return handle
+      let companion = companions.get(key)
+      if (!companion) companions.set(key, (companion = create(spec)))
+      return companion.handle
     },
   }
   const handle: FakeCompanions = {
-    handles: () => [...handles.values()],
+    handles: () => [...companions.values()].map((companion) => companion.handle),
     respond(next) {
       reply = next
     },
     prompts,
     emitEvent(workspaceId, agentId, event) {
-      for (const cb of eventListeners.get(`${workspaceId}/${agentId}`) ?? []) {
-        cb({ ...structuredClone(event), workspaceId, agentId } as CompanionAgentEvent)
-      }
+      const companion = companions.get(`${workspaceId}/${agentId}`)
+      companion?.emit(event.type, event.payload)
     },
+    requestApproval(workspaceId, agentId, request = {}) {
+      const companion = companions.get(`${workspaceId}/${agentId}`)
+      if (!companion) throw new Error(`No companion "${agentId}" is attached in workspace "${workspaceId}".`)
+      const requestId = request.requestId ?? `request-${nextRequest++}`
+      // A structured run's policy answers for it; `ask` and chat turns leave it to the person.
+      if (companion.tools === 'none' || companion.tools === 'auto') {
+        const decision = companion.tools === 'auto' ? 'once' : 'deny'
+        approvals.push({ agentId, requestId, decision, by: 'host' })
+        return Promise.resolve(decision)
+      }
+      return new Promise((resolve) => {
+        companion.open.set(requestId, resolve)
+        companion.emit('approval_requested', { ...request.payload, requestId })
+      })
+    },
+    approvals,
   }
   return { registry, handle }
 }
@@ -2160,6 +2573,189 @@ function activityRegistry(context: FakeServiceContext): { registry: object; hand
   return { registry, handle }
 }
 
+// ── Text generation ──────────────────────────────────────────────────────────
+
+/** One `generate` call, as the fake resolved it: what was asked, and the runtime and model that answer. */
+export type FakeTextGenerationCall = {
+  input: ModuleTextGenerationInput
+  cli: 'claude-code' | 'codex'
+  model: string
+}
+
+/**
+ * A scripted answer: the text, or the whole answer (with `usage` and `model`),
+ * or a failure (`{ ok: false, code: 'timeout', message }`, …). May be a
+ * promise, to hold a call open while a test fills the module's lane.
+ */
+export type FakeTextGenerationReply =
+  | string
+  | { ok?: true; text: string; usage?: ModuleConversationTurnUsage; model?: string }
+  | Extract<ModuleTextGenerationResult, { ok: false }>
+
+/** The person's agent CLI answering prompts in the background, as scripted answers. */
+export type FakeTextGeneration = {
+  /**
+   * What a call answers. Unscripted: `invalid_output`, as a model that said
+   * nothing usable. With `json: true`, the reply's JSON value is read out of
+   * the text (a fence or prose around it is dropped) and `text` is that value
+   * serialised; no JSON answers `invalid_output`.
+   */
+  respond(answer: (call: FakeTextGenerationCall) => FakeTextGenerationReply | Promise<FakeTextGenerationReply>): void
+  /**
+   * The runtime (and model) a call that names no `cli` answers on, as the
+   * person's text-generation setting chooses it. Default: Claude Code on its
+   * small model.
+   */
+  setPreferred(engine: { cli: 'claude-code' | 'codex'; model?: string }): void
+  /** Every call that reached the model, in order (refused ones did not). */
+  readonly calls: FakeTextGenerationCall[]
+}
+
+// The host's bounds and lane (main/text-generation/module-text-generation.ts in the app).
+const TEXT_CLIS: ReadonlySet<string> = new Set(['claude-code', 'codex'])
+const TEXT_DEFAULT_MODELS: Readonly<Record<string, string>> = {
+  'claude-code': 'claude-haiku-4-5',
+  codex: 'gpt-5.6-luna',
+}
+const MAX_TEXT_PROMPT_CHARS = 400_000
+const MAX_TEXT_SYSTEM_CHARS = 40_000
+const MAX_TEXT_OUTPUT_TOKENS = 64_000
+const TEXT_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/[\]-]{0,199}$/
+const TEXT_MAX_RUNNING = 2
+const TEXT_MAX_WAITING = 8
+const TEXT_RATE_WINDOW_MS = 60_000
+const TEXT_MAX_CALLS_PER_WINDOW = 30
+
+// The JSON value in a reply: the whole text, a fenced block, or the first
+// object or array in it.
+function jsonIn(text: string): unknown {
+  const attempts = [text.trim()]
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/u.exec(text)
+  if (fenced?.[1]) attempts.push(fenced[1].trim())
+  const start = text.search(/[[{]/u)
+  const end = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'))
+  if (start !== -1 && end > start) attempts.push(text.slice(start, end + 1))
+  for (const attempt of attempts) {
+    try {
+      return JSON.parse(attempt) as unknown
+    } catch {
+      // the next reading
+    }
+  }
+  return undefined
+}
+
+function textGenerationRegistry(context: FakeServiceContext): { registry: object; handle: FakeTextGeneration } {
+  const calls: FakeTextGenerationCall[] = []
+  let answer: Parameters<FakeTextGeneration['respond']>[0] = () => ({
+    ok: false,
+    code: 'invalid_output',
+    message: 'No scripted answer (services.textGeneration.respond).',
+  })
+  let preferred: { cli: 'claude-code' | 'codex'; model?: string } = { cli: 'claude-code' }
+  const lane = { running: 0, waiting: [] as Array<() => void>, calls: [] as number[] }
+  const refuse = (code: ModuleTextGenerationErrorCode, message: string): ModuleTextGenerationResult => ({
+    ok: false,
+    code,
+    message,
+  })
+  const invalid = (input: ModuleTextGenerationInput): string | null => {
+    if (typeof input !== 'object' || input === null) return 'generate takes an object.'
+    if (typeof input.prompt !== 'string' || !input.prompt.trim()) return '"prompt" is required.'
+    if (input.prompt.length > MAX_TEXT_PROMPT_CHARS)
+      return `"prompt" is longer than ${MAX_TEXT_PROMPT_CHARS} characters.`
+    if (input.system !== undefined && (typeof input.system !== 'string' || input.system.length > MAX_TEXT_SYSTEM_CHARS))
+      return `"system" must be a string of at most ${MAX_TEXT_SYSTEM_CHARS} characters.`
+    if (input.model !== undefined && (typeof input.model !== 'string' || !TEXT_MODEL_ID.test(input.model.trim())))
+      return '"model" must be a model id, such as "claude-haiku-4-5" or "haiku".'
+    if (
+      input.maxOutputTokens !== undefined &&
+      !(
+        Number.isSafeInteger(input.maxOutputTokens) &&
+        input.maxOutputTokens >= 1 &&
+        input.maxOutputTokens <= MAX_TEXT_OUTPUT_TOKENS
+      )
+    )
+      return `"maxOutputTokens" must be a whole number from 1 to ${MAX_TEXT_OUTPUT_TOKENS}.`
+    if (input.json !== undefined && typeof input.json !== 'boolean') return '"json" must be true or false.'
+    if (input.cli !== undefined && typeof input.cli !== 'string') return '"cli" must be a chat runtime id.'
+    return null
+  }
+  // A place in the module's lane, or why there is none.
+  const enter = async (): Promise<string | null> => {
+    const at = context.now()
+    lane.calls = lane.calls.filter((call) => call > at - TEXT_RATE_WINDOW_MS)
+    if (lane.calls.length >= TEXT_MAX_CALLS_PER_WINDOW) {
+      return `This module asked for more than ${TEXT_MAX_CALLS_PER_WINDOW} answers in a minute; try again shortly.`
+    }
+    if (lane.running >= TEXT_MAX_RUNNING && lane.waiting.length >= TEXT_MAX_WAITING) {
+      return `This module already has ${TEXT_MAX_RUNNING + TEXT_MAX_WAITING} prompts running or waiting; try again when one has answered.`
+    }
+    lane.calls.push(at)
+    if (lane.running >= TEXT_MAX_RUNNING) await new Promise<void>((resolve) => lane.waiting.push(resolve))
+    lane.running += 1
+    return null
+  }
+  const leave = (): void => {
+    lane.running -= 1
+    lane.waiting.shift()?.()
+  }
+
+  const registry = {
+    async generate(_m: string, input: ModuleTextGenerationInput): Promise<ModuleTextGenerationResult> {
+      if (!context.permissions.has('agents:generate')) {
+        return refuse(
+          'permission_missing',
+          `Module "${context.moduleId}" must declare the "agents:generate" permission.`,
+        )
+      }
+      const problem = invalid(input)
+      if (problem) return refuse('invalid_input', problem)
+      const cli = input.cli?.trim() || preferred.cli
+      if (!TEXT_CLIS.has(cli)) {
+        return refuse(
+          'unsupported',
+          `"${cli}" cannot answer a prompt headlessly here; use "claude-code" or "codex", or leave "cli" out.`,
+        )
+      }
+      const model =
+        input.model?.trim() || (cli === preferred.cli && preferred.model ? preferred.model : TEXT_DEFAULT_MODELS[cli]!)
+      const refused = await enter()
+      if (refused) return refuse('busy', refused)
+      try {
+        const call: FakeTextGenerationCall = {
+          input: structuredClone(input),
+          cli: cli as 'claude-code' | 'codex',
+          model,
+        }
+        calls.push(call)
+        const raw = await answer(structuredClone(call))
+        const reply = typeof raw === 'string' ? { text: raw } : raw
+        if (reply.ok === false) return structuredClone(reply)
+        if (!reply.text.trim()) return refuse('invalid_output', 'The model answered with nothing.')
+        const usage = structuredClone(reply.usage ?? {})
+        const answeredBy = reply.model ?? model
+        if (!input.json) return { ok: true, text: reply.text, usage, model: answeredBy }
+        const value = jsonIn(reply.text)
+        if (value === undefined) return refuse('invalid_output', 'The model did not answer with JSON.')
+        return { ok: true, text: JSON.stringify(value), usage, model: answeredBy }
+      } finally {
+        leave()
+      }
+    },
+  }
+  const handle: FakeTextGeneration = {
+    respond(next) {
+      answer = next
+    },
+    setPreferred(engine) {
+      preferred = { ...engine }
+    },
+    calls,
+  }
+  return { registry, handle }
+}
+
 // ── The registry of fakes ────────────────────────────────────────────────────
 
 /** The handle of every built-in service fake, by name. */
@@ -2174,6 +2770,7 @@ export type FakeServices = {
   backlog: FakeBacklog
   usage: FakeUsage
   activity: FakeActivity
+  textGeneration: FakeTextGeneration
 }
 
 /** How a service's fake is made. */
@@ -2205,4 +2802,5 @@ export const SERVICE_FAKES: Readonly<Record<string, FakeServiceDefinition>> = {
   'backlog.module-service': { name: 'backlog', create: backlogRegistry },
   'usage.module-service': { name: 'usage', create: usageRegistry },
   'activity.module-service': { name: 'activity', create: activityRegistry },
+  'text-generation.module-service': { name: 'textGeneration', create: textGenerationRegistry },
 }
