@@ -4,11 +4,12 @@ import type { ModuleStorageRegistry } from './module-storage'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
 import type { ModuleGitHubRegistry, ModuleSecretsRegistry } from '../../shared/modules/brokers'
 import type {
+  ModuleChatRuntimeOption,
   ModuleConversationRegistry,
   ModuleTextGenerationRegistry,
 } from '../../shared/modules/conversation-service'
 import type { ScheduledAgentsModuleRegistry, ScheduledAgentsService } from '../scheduled-agents/service'
-import { createServiceToken } from './main-host'
+import { CHAT_RUNTIMES_SERVICE_KEY, createServiceToken } from './main-host'
 
 // Tokens for the shared services that capability modules consume across module
 // boundaries (instead of importing the concrete instances). index.ts seeds the
@@ -85,6 +86,11 @@ export const ConversationModuleServiceToken =
 export const TextGenerationModuleServiceToken = createServiceToken<ModuleTextGenerationRegistry>(
   'text-generation.module-service',
 )
+// The chat runtimes this machine can run, as the renderer's listChatRuntimes
+// lists them: what MainHost.listChatRuntimes answers. App-internal; the host
+// method is a module's way to it.
+export const ChatRuntimesToken =
+  createServiceToken<() => Promise<ModuleChatRuntimeOption[]>>(CHAT_RUNTIMES_SERVICE_KEY)
 // Per-module brokered secrets (`secrets` permission). Key mirrors the private
 // token behind the SDK's getSecretsService helper.
 export const ModuleSecretsServiceToken = createServiceToken<ModuleSecretsRegistry>('module-secrets.module-service')

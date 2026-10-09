@@ -7,6 +7,7 @@ import {
   AgentControlPlaneToken,
   AgentLaunchServiceToken,
   AgentLaunchSettingsToken,
+  ChatRuntimesToken,
   CompanionAgentServiceToken,
   CompanionAgentsModuleServiceToken,
   ConversationLaunchServiceToken,
@@ -33,6 +34,9 @@ import { createModuleStorageRegistry } from '../module-host/module-storage'
 import { moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
 import { createModuleTextGenerationRegistry } from '../text-generation/module-text-generation'
+import { createChatRuntimeLister } from '../module-host/module-chat-runtimes'
+import { detectAgentCliAvailability } from '../cli-availability'
+import { listPluginRegistryEntries } from '../plugin-registry-instance'
 import { generateHeadlessText } from '../text-generation/text-generation-service'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
 
@@ -168,6 +172,21 @@ export function createAgentRuntimeModule(
       })
       host.provideService(ConversationModuleServiceToken, () => conversations.registry)
       host.onShutdown(() => conversations.dispose())
+      // The chat runtimes behind MainHost.listChatRuntimes: the rows the
+      // window's own list gives a module's renderer half, built from the
+      // plugin registry, the availability probe (cached, as a launch reads
+      // it), the chat model catalog and the person's last choice.
+      host.provideService(ChatRuntimesToken, () =>
+        createChatRuntimeLister({
+          listClis: () => listPluginRegistryEntries(),
+          availability: () =>
+            detectAgentCliAvailability({
+              cliRuntimes: effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).cliRuntimes,
+            }),
+          modelCatalog: services.conversationModelCatalog,
+          lastSelectedCli: () => effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).lastSelectedCli,
+        }),
+      )
       // Headless text generation behind the SDK's getTextGenerationService:
       // one prompt answered by the person's own Claude Code with its tools
       // off, checked per call against `agents:generate`, in a lane per module.

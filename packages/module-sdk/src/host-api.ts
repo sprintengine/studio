@@ -51,6 +51,8 @@ export type HostCapability =
   // `RendererHost.openChat` takes `name` and `dedupeKey`, and a draft needs
   // only `chat:draft`. A renderer's, answered live like `chat.open`.
   | 'chat.open-options'
+  // `MainHost.listChatRuntimes()`.
+  | 'chat-runtimes'
   | 'scheduled-agents'
   | 'secrets'
   | 'github'

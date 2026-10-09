@@ -421,6 +421,17 @@ export type MainHost = {
    * does not know, so a module may probe for capabilities newer than its SDK.
    */
   supports(capability: HostCapability): boolean
+  /**
+   * The agent runtimes a chat can run on, as `RendererHost.listChatRuntimes`
+   * lists them for your window half: each runtime's id (what a conversation's
+   * and a scheduled agent's `cli`, and a companion's `engine.cli`, take), its
+   * label, its models and whether it is the person's last choice. A runtime
+   * this machine does not have is listed with `available: false`. Reading it
+   * may probe which CLIs are installed (cached for a minute), so read it when
+   * you need it rather than in a loop. Needs no permission. Check
+   * `host.supports('chat-runtimes')`: an older host has no such method.
+   */
+  listChatRuntimes(): Promise<ModuleChatRuntimeOption[]>
   registerIpc(channel: string, handler: IpcInvokeHandler): void
   /**
    * Contribute MCP tools to the Studio gateway, owned by this module's id. A

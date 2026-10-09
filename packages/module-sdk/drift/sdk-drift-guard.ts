@@ -520,6 +520,7 @@ expectType<IsExact<AppRendererHost['hostApiVersion'], SdkRendererHost['hostApiVe
 expectType<IsExact<AppRendererHost['supports'], SdkRendererHost['supports']>>()
 expectType<IsExact<AppRendererHost['openChat'], SdkRendererHost['openChat']>>()
 expectType<IsExact<AppRendererHost['listChatRuntimes'], SdkRendererHost['listChatRuntimes']>>()
+expectType<IsExact<AppMainHost['listChatRuntimes'], SdkMainHost['listChatRuntimes']>>()
 
 expectType<IsExact<appConversation.ModuleConversationEventType, sdk.ModuleConversationEventType>>()
 expectType<IsExact<appConversation.ModuleConversationEvent, sdk.ModuleConversationEvent>>()

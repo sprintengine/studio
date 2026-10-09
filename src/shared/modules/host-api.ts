@@ -39,6 +39,7 @@ const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   'conversation-replies',
   'text-generation',
   'conversation-worktrees',
+  'chat-runtimes',
 ])
 
 export function hostSupports(capability: HostCapability): boolean {

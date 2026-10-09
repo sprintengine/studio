@@ -3,6 +3,7 @@ import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import { MODULE_BRIDGE_INVOKE_CHANNEL, type ModuleBridgeInvokeResult } from '../../shared/modules/bridge'
 import { MODULE_EVENTS_CHANNEL, validateModuleEventTopic, type ModuleEventEnvelope } from '../../shared/modules/events'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
+import type { ModuleChatRuntimeOption } from '../../shared/modules/conversation-service'
 import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import {
   validateModuleNotifyInput,
@@ -136,6 +137,11 @@ export const THIRD_PARTY_SERVICE_KEYS: ReadonlySet<string> = new Set([
   'text-generation.module-service',
 ])
 
+// The app-internal service behind `MainHost.listChatRuntimes` (the agent
+// runtime module provides it, as ChatRuntimesToken). A host method rather than
+// a published token: every module may read it, with no permission to declare.
+export const CHAT_RUNTIMES_SERVICE_KEY = 'core.chat-runtimes'
+
 const defaultSkillRegistry: ModuleSkillHostRegistry = {
   register: registerModuleSkills,
   unregister: unregisterModuleSkills,
@@ -149,6 +155,12 @@ export type MainHost = {
   readonly hostApiVersion: number
   /** Whether this host provides `capability` now; false for names it does not know. */
   supports(capability: HostCapability): boolean
+  /**
+   * The agent runtimes a chat can run on, as the renderer's `listChatRuntimes`
+   * lists them, with the ones this machine lacks marked unavailable. Empty
+   * when the agent runtime module provides no list.
+   */
+  listChatRuntimes(): Promise<ModuleChatRuntimeOption[]>
   registerIpc(channel: string, handler: IpcInvokeHandler): void
   /**
    * Contribute MCP tools to the always-on Studio gateway. Registrations are
@@ -596,6 +608,11 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       hostApiVersion: HOST_API_VERSION,
       supports: (capability) =>
         capability === 'electron-main' ? (options.electronMain ?? true) : hostSupports(capability),
+      async listChatRuntimes() {
+        const list = services.get(CHAT_RUNTIMES_SERVICE_KEY)?.value as
+          (() => Promise<ModuleChatRuntimeOption[]>) | undefined
+        return list ? list() : []
+      },
       registerIpc(channel, handler) {
         const existing = channels.get(channel)
         if (existing) {
