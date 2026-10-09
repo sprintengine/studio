@@ -3,6 +3,7 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
+import { revealMatch } from '../../utils/revealMatch'
 import { CodeBlock, COLLAPSE_AFTER_LINES, type CodeBlockProps } from './CodeBlock'
 
 // The app's clipboard bridge, standing in for the main process.
@@ -106,6 +107,17 @@ test('a long settled block folds, keeps every line in the DOM, and opens on requ
   expect(toggle.textContent).toBe('Show less')
   expect(toggle.getAttribute('aria-expanded')).toBe('true')
   expect(host!.querySelector('[data-folded]')).toBeNull()
+})
+
+test('a find that lands on a folded line opens the block', async () => {
+  await mount({ code: lines(40), language: 'ts' })
+  // The deepest last node of the source: text on the last, folded-away line.
+  let lastLine: Node = block().querySelector('pre')!
+  while (lastLine.lastChild) lastLine = lastLine.lastChild
+  expect(lastLine.textContent).toBe('40')
+  await act(async () => revealMatch(lastLine))
+  expect(host!.querySelector('[data-folded]')).toBeNull()
+  expect(host!.querySelector('[aria-expanded]')!.textContent).toBe('Show less')
 })
 
 test('a long block that streamed in stays open when it settles', async () => {

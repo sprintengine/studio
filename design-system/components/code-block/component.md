@@ -75,7 +75,9 @@ there is nothing else to exclude.
 - **Folded**: a settled block over 20 lines shows its first 12, the last few
   fading out, and "Show all N lines" below. "Show less" folds it again. A block
   first seen while streaming stays open when it settles, so it never pulls lines
-  away from someone reading them. Every line is in the DOM either way.
+  away from someone reading them. Every line is in the DOM either way. A find
+  the app runs over its own text (Find in chat) that lands on a folded line
+  opens the block, as "Show all" would.
 - **Actions**: at rest `text.subtle`; `text.default` under the pointer and
   under keyboard focus. Wrap lines pressed takes the neutral pressed fill.
   Copy swaps to the check for 1.2 s on success

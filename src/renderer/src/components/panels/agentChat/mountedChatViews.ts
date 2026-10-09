@@ -17,9 +17,12 @@ export type MountedChatView = {
   quoteSelection?: () => boolean
   /** End the agent's process, keeping the conversation (`chat.restartSession`). */
   restartSession?: () => void
+  /** Show the find bar and put the caret in it (`chat.find`). */
+  openFind?: () => void
 }
 const mountedChatViews: MountedChatView[] = []
 export const MODEL_PICKER_TOGGLE_COMMAND = 'chat.modelPicker.toggle'
+const CHAT_FIND_COMMAND = 'chat.find'
 const RESUME_IN_TERMINAL_COMMAND = 'chat.resumeInTerminal'
 const REPLAY_COMMAND = 'chat.replay.start'
 const RESTART_SESSION_COMMAND = 'chat.restartSession'
@@ -85,6 +88,17 @@ function onModelPickerPanelCommand(event: Event): void {
         .reverse()
         .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
     responder?.restartSession?.()
+  }
+  // From the keyboard the shell only takes ⌘F inside a chat
+  // (`shellTakesChordFrom`), so the focused view answers; from the palette,
+  // which holds focus itself, the active workspace's chat does.
+  if (detail?.id === CHAT_FIND_COMMAND) {
+    const responder =
+      mountedChatViews.find((view) => view.isFocused()) ??
+      [...mountedChatViews]
+        .reverse()
+        .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
+    responder?.openFind?.()
   }
   // The view whose transcript holds the selection answers, whichever has focus.
   if (detail?.id === QUOTE_SELECTION_COMMAND) mountedChatViews.some((view) => view.quoteSelection?.() === true)
