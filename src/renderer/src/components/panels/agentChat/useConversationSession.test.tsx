@@ -1,6 +1,11 @@
 import { JSDOM } from 'jsdom'
 import { expect, test, vi } from 'vitest'
-import { frameUrgency, mergeConversationEvents } from './useConversationSession'
+import {
+  frameUrgency,
+  mergeConversationEvents,
+  TOKEN_FLUSH_BACKGROUND_INTERVAL_MS,
+  TOKEN_FLUSH_INTERVAL_MS,
+} from './useConversationSession'
 import type {
   ConversationEvent,
   ConversationPageResult,
@@ -262,9 +267,9 @@ test('a failed subscription resubscribes with backoff and catches up from its cu
       subscriptions[0].receive({ type: 'synchronized', seq: 5, generation: 'log-1' })
       subscriptions[0].receive({ type: 'event', event: event(6) })
     })
-    // A streamed token renders with the next frame, not on arrival.
+    // A streamed token renders with the next flush, not on arrival.
     expect(hook.events.map((entry) => entry.seq)).toEqual([3, 5])
-    await act(async () => vi.advanceTimersByTime(48))
+    await act(async () => vi.advanceTimersByTime(TOKEN_FLUSH_BACKGROUND_INTERVAL_MS))
     const held = hook.events
     expect(held.map((entry) => entry.seq)).toEqual([3, 5, 6])
     // Opening a chat mid-stream can fail its subscription; the panel must not stay frozen.
@@ -421,7 +426,7 @@ test('frames are sorted by how soon a reader needs them', () => {
   expect(frameUrgency({ type: 'synchronized', seq: 1 })).toBe('turn')
 })
 
-test('a reader renders tokens once a frame, and one nobody can see rests until it is seen', async () => {
+test('a reader renders tokens at a capped rate, slower in the background, and one nobody can see rests until it is seen', async () => {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
   Object.assign(globalThis, {
@@ -460,6 +465,9 @@ test('a reader renders tokens once a frame, and one nobody can see rests until i
   const { act, createElement } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const { useConversationSession } = await import('./useConversationSession')
+  const { windowActivity } = await import('../../../utils/windowActivity')
+  let focused = true
+  vi.spyOn(windowActivity(), 'get').mockImplementation(() => ({ visible: true, focused }))
   let renders = 0
   let hook!: ReturnType<typeof useConversationSession>
   function Reader({ active }: { active: boolean }) {
@@ -478,15 +486,30 @@ test('a reader renders tokens once a frame, and one nobody can see rests until i
       receive({ type: 'event', event: event('turn_started', { turnId: 't' }) })
     })
     expect(hook.events).toHaveLength(1)
-    // Ten tokens in one frame are one render.
+    // Ten tokens inside one flush interval are one render, and it waits out the
+    // interval since the last render rather than drawing every frame.
     const before = renders
     await act(async () => {
       for (let index = 0; index < 10; index++) token(`w${index} `)
     })
     expect(hook.events).toHaveLength(1)
-    await act(async () => vi.advanceTimersByTime(48))
+    await act(async () => vi.advanceTimersByTime(TOKEN_FLUSH_INTERVAL_MS - 1))
+    expect(hook.events).toHaveLength(1)
+    await act(async () => vi.advanceTimersByTime(1))
     expect(hook.events).toHaveLength(11)
     expect(renders - before).toBe(1)
+
+    // Visible but in the background, the same stream renders four times a second.
+    focused = false
+    await act(async () => {
+      for (let index = 0; index < 4; index++) token(`b${index} `)
+    })
+    await act(async () => vi.advanceTimersByTime(TOKEN_FLUSH_BACKGROUND_INTERVAL_MS - 1))
+    expect(hook.events).toHaveLength(11)
+    await act(async () => vi.advanceTimersByTime(1))
+    expect(hook.events).toHaveLength(15)
+    expect(renders - before).toBe(2)
+    focused = true
 
     // Unseen: tokens and steps wait, a turn's end does not.
     await act(async () => root.render(createElement(Reader, { active: false })))
@@ -497,9 +520,9 @@ test('a reader renders tokens once a frame, and one nobody can see rests until i
       vi.advanceTimersByTime(1000)
     })
     expect(renders).toBe(hidden)
-    expect(hook.events).toHaveLength(11)
+    expect(hook.events).toHaveLength(15)
     await act(async () => receive({ type: 'event', event: event('turn_completed', { turnId: 't' }) }))
-    // The turn's fifteen tokens are one event once it ends.
+    // The turn's nineteen tokens are one event once it ends.
     expect(hook.events.map((entry) => entry.type)).toEqual([
       'turn_started',
       'content_delta',
@@ -516,6 +539,7 @@ test('a reader renders tokens once a frame, and one nobody can see rests until i
     expect(hook.events).toHaveLength(5)
   } finally {
     await act(async () => root.unmount())
+    vi.restoreAllMocks()
     vi.useRealTimers()
     dom.window.close()
     for (const key of ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']) {
@@ -604,7 +628,7 @@ test('the session keeps a settled turn’s tokens as one event, and appends live
     const tokens = Array.from({ length: 20 }, (_, index) => event('content_delta', { turnId: 'b', text: `w${index} ` }))
     await act(async () => tokens.forEach((item) => receive({ type: 'event', event: item })))
     expect(handed).toHaveLength(7)
-    await act(async () => vi.advanceTimersByTime(48))
+    await act(async () => vi.advanceTimersByTime(TOKEN_FLUSH_BACKGROUND_INTERVAL_MS))
     expect(hook.events).toHaveLength(27)
     // A duplicate of a merged token is still recognised as seen.
     await act(async () => receive({ type: 'event', event: { ...page[3]! } }))
