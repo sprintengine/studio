@@ -235,7 +235,8 @@ test('terminalLines', async () => {
 
   // One remote AGENT's line: the agent's own name (the ROW is titled with the
   // conversation, so a chat running three of them says which is which), and no
-  // checkout reading, because the conversation list carries none.
+  // diff, because the conversation list carries none. A machine that names no
+  // branch leaves the line without one.
   {
     const row = {
       sessionId: 'r1',
@@ -246,7 +247,8 @@ test('terminalLines', async () => {
     } as RemoteSessionRow
     const line = lineOfRemoteRow(row)
     assert.equal(line.name, 'Gael Corry', 'the line names its agent, for the mark’s tooltip')
-    assert.equal(line.branch, null, 'no branch is claimed for a checkout on another disk')
+    assert.equal(line.branch, null, 'no branch the machine did not name')
+    assert.deepEqual(line.pullRequests, [])
     assert.equal(line.additions + line.deletions, 0)
     assert.equal(line.diffScope, 'folder')
     assert.equal(line.changedFiles, 0)
@@ -289,6 +291,23 @@ test('terminalLines', async () => {
       lineOfRemoteRow({ ...row, phase: 'waiting_for_input', activity: 'needs-input' }).text,
       'Asked a question',
     )
+    // The branch and pull requests its machine names, as a local line draws them.
+    const pullRequest = {
+      url: 'https://github.com/acme/app/pull/12',
+      repoKey: 'github.com/acme/app',
+      repoName: 'app',
+      number: 12,
+      title: 'Fix the upload',
+      state: 'open',
+      isDraft: false,
+      openedAt: 0,
+      stateAt: 0,
+    } as const
+    const named = lineOfRemoteRow({ ...row, branch: 'agent/fix-upload', pullRequests: [pullRequest] })
+    assert.equal(named.branch, 'agent/fix-upload')
+    assert.equal(named.worktree, false, 'no worktree claimed for a checkout this disk cannot see')
+    assert.equal(named.cwd, null)
+    assert.deepEqual(named.pullRequests, [pullRequest])
     const failed = lineOfRemoteRow({ ...row, phase: 'failed' })
     assert.equal(failed.text, 'Failed')
     assert.equal(failed.failed, true, 'a failure wears the failure mark, as a local line does')

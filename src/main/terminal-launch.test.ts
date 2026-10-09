@@ -20,6 +20,7 @@ import { buildHostContextDocument } from '../shared/host-context/document'
 import {
   OSC7_BASH_PROMPT_COMMAND,
   applyAgentIdentityEnv,
+  applyTerminalCapabilityDefaults,
   OSC133_BASH_PROMPT_COMMAND,
   SHELL_INTEGRATION_BASH_PROMPT_COMMAND,
   buildNativeWindowsInvocation,
@@ -688,4 +689,19 @@ test('the zsh shims are written once, and rewritten only when one is missing or 
   } finally {
     rmSync(join(directory, '..', '..'), { recursive: true, force: true })
   }
+})
+
+test('a terminal says it draws 24-bit colour unless the person already said otherwise', () => {
+  const missing: Record<string, string> = { PATH: '/bin' }
+  applyTerminalCapabilityDefaults(missing)
+  assert.equal(missing.COLORTERM, 'truecolor')
+  assert.equal(missing.TERM, 'xterm-256color')
+
+  const empty: Record<string, string> = { COLORTERM: '' }
+  applyTerminalCapabilityDefaults(empty)
+  assert.equal(empty.COLORTERM, 'truecolor', 'an empty value is as good as missing')
+
+  const exported: Record<string, string> = { COLORTERM: '24bit', TERM: 'screen-256color', FORCE_HYPERLINK: '0' }
+  applyTerminalCapabilityDefaults(exported)
+  assert.deepEqual(exported, { COLORTERM: '24bit', TERM: 'screen-256color', FORCE_HYPERLINK: '0' })
 })

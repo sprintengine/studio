@@ -5,12 +5,18 @@ import {
   forwardRowGroundClick,
   isPreviewableImagePath,
   previewsAsImage,
+  toolHasBody,
   ToolBody,
   ToolRow,
 } from './ToolRow'
 import { ConversationLinkProvider } from '../conversationLinks'
 import type { TranscriptToolEntry } from '../conversationProjection'
 import { JSDOM } from 'jsdom'
+import {
+  IncrementalCodeTokenizer,
+  loadCodeLanguage,
+  normalizeCodeLanguage,
+} from '../../../../lib/highlight/codeHighlight'
 
 function tool(values: Partial<TranscriptToolEntry>): TranscriptToolEntry {
   return { kind: 'tool', id: 'tool', turnId: 'turn', name: 'Bash', status: 'done', ...values }
@@ -552,9 +558,42 @@ test('each kind of step leads with its own glyph', () => {
   ] as const
   for (const [values, glyph] of cases) {
     const document = new JSDOM(renderToStaticMarkup(<ToolRow tool={tool(values)} />)).window.document
-    expect(document.querySelector('button[aria-expanded] [data-tool-glyph]')?.getAttribute('data-tool-glyph')).toBe(
-      glyph,
-    )
+    expect(document.querySelector('[data-tool-kind] [data-tool-glyph]')?.getAttribute('data-tool-glyph')).toBe(glyph)
+  }
+})
+
+test('a step with nothing to show is a plain line: no disclosure, no chevron', () => {
+  const rowOf = (values: Partial<TranscriptToolEntry>) =>
+    new JSDOM(renderToStaticMarkup(<ToolRow tool={tool(values)} />)).window.document
+  const empty = [
+    { name: 'Mystery', toolKind: 'other', input: {} },
+    { name: 'mcp__acme__ping', toolKind: 'mcp' },
+    { name: 'TodoWrite', toolKind: 'todo', input: {}, output: '  ' },
+  ] as const
+  for (const values of empty) {
+    const document = rowOf(values)
+    expect(document.querySelector('[aria-expanded]'), values.name).toBeNull()
+    expect(document.querySelector('button'), values.name).toBeNull()
+    expect(document.querySelector('[data-tool-kind] > div > svg'), values.name).toBeNull()
+    expect(document.querySelector('[data-tool-label] [data-tool-glyph]')).not.toBeNull()
+    expect(document.querySelector('[data-tool-step-body]')).toBeNull()
+  }
+
+  // Anything that can still show something keeps its disclosure.
+  const expandable: Partial<TranscriptToolEntry>[] = [
+    { name: 'Mystery', toolKind: 'other', input: { id: 1 } },
+    { name: 'Mystery', toolKind: 'other', output: 'done' },
+    { name: 'Mystery', toolKind: 'other', status: 'running' },
+    { name: 'Mystery', toolKind: 'other', truncated: true },
+    { name: 'Mystery', toolKind: 'other', outputStatus: 'declined' },
+    { name: 'Read', toolKind: 'file_read' },
+    { name: 'Edit', toolKind: 'file_edit' },
+    { name: 'Bash', toolKind: 'command', summary: 'npm test' },
+  ]
+  for (const values of expandable) {
+    const document = rowOf(values)
+    expect(document.querySelector('button[aria-expanded="false"]'), JSON.stringify(values)).not.toBeNull()
+    expect(document.querySelector('[data-tool-kind] > div > svg:last-child')).not.toBeNull()
   }
 })
 
@@ -582,6 +621,30 @@ test('a multi-line command keeps its line breaks', () => {
   const command = Array.from(document.querySelectorAll('span')).find((span) => span.textContent?.includes('npm test'))
   expect(command?.textContent).toBe('npm test \\\n  --reporter=dot')
   expect(command?.className).toContain('whitespace-pre-wrap')
+})
+
+test('a command is coloured as the shell reads it, and its plain words keep the terminal ink', async () => {
+  const command = 'git log --oneline | grep "fix" > /tmp/fixes.txt'
+  const shell = normalizeCodeLanguage('bash')!
+  // What a mounted panel does once the grammar loads; the panel's first paint
+  // reads the result back from the highlighter's cache.
+  new IncrementalCodeTokenizer(await loadCodeLanguage(shell), shell).update(command, true)
+  const html = renderToStaticMarkup(<ToolBody tool={tool({ toolKind: 'command', input: { command } })} />)
+  const document = new JSDOM(html).window.document
+  const line = Array.from(document.querySelectorAll('span.whitespace-pre-wrap')).find((span) =>
+    span.textContent?.includes('git log'),
+  )
+  expect(line?.textContent).toBe(command)
+  expect(html).toContain('color:var(--sem-syntax-string)')
+  expect(html).not.toContain('color:var(--sem-syntax-foreground)')
+  expect(document.querySelector('.rounded-sm.border')?.className).toContain('--terminal-bg')
+})
+
+test('a command shows as plain text until the shell grammar has loaded', () => {
+  const command = 'echo "not yet tokenized" && ls -la'
+  const html = renderToStaticMarkup(<ToolBody tool={tool({ toolKind: 'command', input: { command } })} />)
+  expect(html).not.toContain('--sem-syntax-')
+  expect(new JSDOM(html).window.document.body.textContent).toContain(command)
 })
 
 test('an edit preview leaves out the no-newline-at-end-of-file marker', () => {
@@ -871,4 +934,10 @@ test('a step called with nothing that answered only with a picture draws the pic
   )
   expect(html).toContain('data-tool-images')
   expect(html).not.toContain('{}')
+})
+
+test('a step that answered only with pictures still opens, to show them', () => {
+  const shot = tool({ name: 'mcp__studio__browser_screenshot', input: {}, output: '', images: ['/Users/dev/a.png'] })
+  expect(toolHasBody(shot, 'other')).toBe(true)
+  expect(toolHasBody({ ...shot, images: undefined }, 'other')).toBe(false)
 })

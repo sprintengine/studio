@@ -108,7 +108,7 @@ test('each repository is swept with the records as they are when its turn comes'
   )
 })
 
-test('a worktree chat settling asks for a sweep in a minute, and again once the idle hour is up', () => {
+test('a chat settling asks for a sweep in a minute, and again once the idle hour is up', () => {
   vi.useFakeTimers()
   ;(globalThis as { window?: unknown }).window = globalThis
   state.workspaces = [worktreeChat('a'), worktreeChat('b'), { ...worktreeChat('plain'), worktree: null }]
@@ -118,12 +118,6 @@ test('a worktree chat settling asks for a sweep in a minute, and again once the 
   })
   vi.advanceTimersByTime(2 * 60_000)
   assert.equal(sweeps, 1, 'the sweep a little after launch')
-
-  // A chat on the project's checkout settling offers nothing: no sweep.
-  state.workspaces[2] = { ...state.workspaces[2], settledAt: 1 }
-  notify()
-  vi.advanceTimersByTime(2 * 60 * 60_000)
-  assert.equal(sweeps, 1)
 
   // A worktree chat settling: one sweep a minute later, however many settle.
   state.workspaces[0] = { ...state.workspaces[0], settledAt: 2 }
@@ -146,9 +140,18 @@ test('a worktree chat settling asks for a sweep in a minute, and again once the 
   notify()
   vi.advanceTimersByTime(2 * 60 * 60_000)
   assert.equal(sweeps, 3)
+
+  // A chat on the project's own checkout settling counts as deleted too: the
+  // worktrees its agents held and any slot they leased go back.
+  state.workspaces[2] = { ...state.workspaces[2], settledAt: 4 }
+  notify()
+  vi.advanceTimersByTime(60_000)
+  assert.equal(sweeps, 4)
+  vi.advanceTimersByTime(60 * 60_000)
+  assert.equal(sweeps, 5, 'and again once the idle hour is up')
   stop()
   vi.advanceTimersByTime(6 * 60 * 60_000)
-  assert.equal(sweeps, 3, 'nothing runs once stopped')
+  assert.equal(sweeps, 5, 'nothing runs once stopped')
 })
 
 test('a sweep that removes a settled chat folder marks the chat, and an open one is never offered', async () => {

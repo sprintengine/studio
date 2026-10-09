@@ -1,4 +1,3 @@
-import type React from 'react'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -76,8 +75,6 @@ export type ChatBinding = {
   worktreeActions?: { onRetry: () => void; onStartInProject: () => void }
   /** The session as the host last listed it, for a transport that does not start one here. */
   session?: ConversationSessionSummary | null
-  /** What sits above the transcript in place of the local history title. */
-  header?: React.ReactNode
   /** Stamp the sidebar's ordering clock: a sent turn is a user message, as a CLI prompt is. */
   recordUserMessage?(at: number): void
   /** Remember a picked model as the next chat's default. */

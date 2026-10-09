@@ -118,6 +118,26 @@ export const COMMAND_REGISTRY = [
       action: 'nextWaitingChatId(...) -> sidebarSelectWorkspace(nextWorkspaceId) | toast',
     },
   }),
+  // Settle the chat on screen, or bring it back if it is settled: the row's
+  // Settle, from the keyboard. S for "settle"; ⌘⇧S is bound nowhere in the app
+  // or its modules, and a person reaches for it from a composer as they finish
+  // with a chat — but not from an editor or a terminal, where ⌘⇧S is Save As
+  // (`shellTakesChordFrom`). A chat whose agents are working is refused, as
+  // its row refuses it.
+  command({
+    id: 'chat.settle',
+    title: 'Settle chat, or bring it back',
+    category: 'workspace',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Shift+S'],
+    allowInEditableTarget: true,
+    availability: ['activeWorkspace'],
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspaceSidebar',
+      action: 'chatSettleStep(activeWorkspace) -> settleWorkspaceById | setWorkspaceSettled(id, false) | toast',
+    },
+  }),
   command({
     id: 'chat.newConversation',
     title: 'New conversation',
@@ -243,7 +263,8 @@ export const COMMAND_REGISTRY = [
     handlerPath: {
       kind: 'context-bound',
       owner: 'WorkspaceManager',
-      action: 'getNextWorkspaceId(..., 1) -> setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)',
+      action:
+        'getNextWorkspaceId(numberedChatIds(drawn, ...), 1) -> setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)',
     },
   }),
   command({
@@ -256,7 +277,8 @@ export const COMMAND_REGISTRY = [
     handlerPath: {
       kind: 'context-bound',
       owner: 'WorkspaceManager',
-      action: 'getNextWorkspaceId(..., -1) -> setActiveWorkspaceForWindow(workspaceWindowId, previousWorkspaceId)',
+      action:
+        'getNextWorkspaceId(numberedChatIds(drawn, ...), -1) -> setActiveWorkspaceForWindow(workspaceWindowId, previousWorkspaceId)',
     },
   }),
   command({
@@ -297,7 +319,7 @@ export const COMMAND_REGISTRY = [
       handlerPath: {
         kind: 'context-bound',
         owner: 'WorkspaceManager',
-        action: `setActiveWorkspaceForWindow(workspaceWindowId, visibleWorkspaces[${index}].id)`,
+        action: `setActiveWorkspaceForWindow(workspaceWindowId, numberedChatIds(drawnSidebarChatIds(document), ...)[${index}])`,
       },
     })
   }),
@@ -403,6 +425,25 @@ export const COMMAND_REGISTRY = [
     defaultKeybindings: ['Primary+Alt+B'],
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'workspace-manager', handler: 'setPaneOpen(windowActiveWorkspaceId, !paneOpen)' },
+  }),
+  // The pane's "+" from the keyboard: the menu of what can be opened there,
+  // with the pane shown first if it was closed. T for "tab", as a new tab is
+  // what it makes; ⌘T is bound nowhere else in the app. From the composer on
+  // macOS, but never from an editor or a terminal, nor from a text field off
+  // macOS, where Ctrl+T is the transpose (`shellTakesChordFrom`).
+  command({
+    id: 'pane.add',
+    title: 'Open in the pane…',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+T'],
+    allowInEditableTarget: true,
+    availability: ['activeWorkspace'],
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspacePane',
+      action: 'setPaneOpen(windowActiveWorkspaceId, true) -> setAddMenuOpen(true)',
+    },
   }),
   command({
     id: 'panel.files.toggle',

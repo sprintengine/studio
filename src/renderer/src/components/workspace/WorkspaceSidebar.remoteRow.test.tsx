@@ -80,6 +80,7 @@ test('WorkspaceSidebar.remoteRow', async () => {
       turnCount: 2,
       lastSeq: 8,
       lastAssistantText: '**Healthy.** The build is green and the backlog is short.',
+      branch: 'agent/project-review',
     },
     {
       workspaceId: 'rw2',
@@ -243,6 +244,8 @@ test('WorkspaceSidebar.remoteRow', async () => {
         `the line previews the reply: ${idle.textContent}`,
       )
       assert.ok((asking.textContent ?? '').includes('Asked a question'), 'a waiting chat says what it waits on')
+      // …and the branch its machine names for it, where a local line draws one.
+      assert.ok((idle.textContent ?? '').includes('agent/project-review'), `the branch: ${idle.textContent}`)
 
       // …and its clock: idle since the agent finished, three hours ago.
       assert.ok((idle.textContent ?? '').includes('3h'), `the idle clock: ${idle.textContent}`)

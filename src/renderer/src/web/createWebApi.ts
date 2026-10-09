@@ -137,6 +137,9 @@ const browserEmptyStates = {
   // A browser tab has no quit to ask about.
   getQuitConfirmation: async () => null,
   setQuitConfirmation: async () => null,
+  // Nor a machine of its own to keep awake: the desktop's agents are the desktop's.
+  getKeepAwake: async () => null,
+  setKeepAwake: async () => null,
   // Third-party renderer modules are off on the web unless the owner turns
   // them on for this server (R61); bundled modules load from the bundle.
   listThirdPartyRendererEntries: async () => ({ entries: [], failures: {} }),

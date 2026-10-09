@@ -8,6 +8,7 @@ import {
   deriveSessionStatus,
   getSessionItems,
   groupSessionItems,
+  newChatProjectOptionsOf,
   sessionsAttentionTone,
 } from './workspaceManagerHelpers'
 import type { SessionItem } from './WorkspaceActions'
@@ -513,4 +514,26 @@ test('workspaceManagerHelpers', async () => {
       'needs-input outranks failed for tone',
     )
   }
+})
+
+test('New chat offers each project once, never a chat worktree folder, with its last message time', () => {
+  const chat = (id: string, folderPath: string, extra: Record<string, unknown> = {}): Workspace =>
+    ({ id, name: id, folderPath, createdAt: 1, ...extra }) as unknown as Workspace
+  const options = newChatProjectOptionsOf([
+    chat('plain', '/Users/dev/app', { lastUserMessageAt: 10 }),
+    // A pool slot recorded with its project, and one recorded before the
+    // marker carried it: both are the app.
+    chat('slot', '/Users/dev/.sprintengine-worktrees/app/pool-06', {
+      worktree: { repoRoot: '/Users/dev/app', branch: 'agent/chat-ab' },
+      lastUserMessageAt: 50,
+    }),
+    chat('legacy', '/Users/dev/.sprintengine-worktrees/app/chat-k_iq', { lastUserMessageAt: 30 }),
+    chat('other', '/Users/dev/toolbox', { lastUserMessageAt: 40 }),
+    chat('pending', '', { worktree: { repoRoot: '/Users/dev/site' } }),
+  ])
+  assert.deepEqual(options, [
+    { path: '/Users/dev/app', label: 'app', lastUsedAt: 50 },
+    { path: '/Users/dev/toolbox', label: 'toolbox', lastUsedAt: 40 },
+    { path: '/Users/dev/site', label: 'site', lastUsedAt: 1 },
+  ])
 })

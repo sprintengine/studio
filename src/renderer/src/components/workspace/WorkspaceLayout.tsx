@@ -76,6 +76,8 @@ import { chatResumesInTerminal, resumeChatInTerminalOrToast } from '../panels/ag
 import { requestChatReplay } from '../panels/agentChat/chatReplayRequests'
 import { ModuleContributionBoundary } from '../../modules/ModuleContributionBoundary'
 import { GitBranchGlyph } from './WorkspaceActions'
+import { remotePaneTabLabel } from './remoteBand/remoteSessionsModel'
+import { shortMachineName } from '../remote/machineRowModel'
 import {
   ContextMenu,
   IconButton,
@@ -200,13 +202,11 @@ const TAB_CHIP_GLYPH_CLASS = 'h-3.5 w-3.5'
 // for a screen reader and on hover. This computer's tabs wear none.
 function tabMachineMark(identity: MachineIdentity | null, machineName: string): React.ReactNode {
   if (!identity) return null
+  // The machine's name, not its tailnet address: the part after the first
+  // label is the same for every machine on the tailnet.
+  const name = shortMachineName(machineName)
   return (
-    <span
-      role="img"
-      className="inline-flex shrink-0 items-center"
-      title={`On ${machineName}`}
-      aria-label={`On ${machineName}`}
-    >
+    <span role="img" className="inline-flex shrink-0 items-center" title={`On ${name}`} aria-label={`On ${name}`}>
       <MachineGlyph identity={identity} className={TAB_CHIP_GLYPH_CLASS} />
     </span>
   )
@@ -1228,6 +1228,14 @@ function WorkspaceLayoutBody({
       const isLiveTab = Boolean(
         liveTabSession?.processAlive || (tabConversation && tabConversation.status !== 'stopped'),
       )
+
+      // A remote pane's tab says its agent's name, and the machine mark after
+      // it says where it runs (`remotePaneTabLabel`).
+      if (isMeshConversationPane(tabComponentId))
+        renderValues.content = remotePaneTabLabel(
+          node.getName(),
+          (node.getConfig() as { machineName?: string } | undefined)?.machineName,
+        )
 
       const tabNameSpan = (
         <span

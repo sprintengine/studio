@@ -332,11 +332,24 @@ export function normalizeChatContrast(value: unknown): number {
   return Math.min(CHAT_CONTRAST_MAX, Math.max(CHAT_CONTRAST_MIN, stepped))
 }
 
+// How a clock time is written across the app — a message's stamp, a step's,
+// a snooze's wake, a scheduled send. `system` is the locale's own habit (the
+// reader's language decides between "3:05 PM" and "15:05"); the other two pin
+// it for a person whose locale and preference disagree.
+const CLOCK_FORMATS = ['system', '12h', '24h'] as const
+export type ClockFormat = (typeof CLOCK_FORMATS)[number]
+export const DEFAULT_CLOCK_FORMAT: ClockFormat = 'system'
+
+export function isClockFormat(value: unknown): value is ClockFormat {
+  return typeof value === 'string' && (CLOCK_FORMATS as readonly string[]).includes(value)
+}
+
 export type AppearanceSettings = {
   theme: AppTheme
   windowMaterial: WindowMaterial
   chatContrast: number
   chatWidth: ChatWidth
+  clockFormat: ClockFormat
   // Draw each spawned agent as a small character that moves while it works.
   // Off, an agent is a working mark while it runs and a lifecycle glyph after.
   agentCharacters: boolean

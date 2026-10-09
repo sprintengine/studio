@@ -153,7 +153,7 @@ import {
 import { SidebarChrome } from './SidebarChrome'
 import { useStableCallback } from '../../hooks/useStableCallback'
 import { useNarrowViewport } from '../../hooks/useNarrowViewport'
-import { remotePaneTabName, remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
+import { remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
 import type { NewAgentLaunch, NewAgentPanelMode, RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
 import { useScheduledAgents } from '../../store/scheduledAgentsStore'
@@ -203,6 +203,7 @@ import {
   buildSidebarWorkspaceOrder,
   getSessionItems,
   getWorkspaceActivity,
+  newChatProjectOptionsOf,
   showsNoWorkspaceState,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
@@ -260,6 +261,8 @@ import { preloadableLazy } from '../../utils/preloadableLazy'
 import { hasTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { clearPaneAttachedHidden, paneAttachedHidden } from '../../utils/terminalPaneVisibility'
 import { shouldSendTerminalPaintVisibility } from './manager/terminalPaintVisibility'
+import { drawnSidebarChatIds, numberedChatIds } from './manager/numberedChats'
+import { shellTakesChordFrom } from '../../commands/keyTargetGate'
 import {
   closeActiveLayoutTab,
   cycleActiveLayoutTab,
@@ -3515,21 +3518,10 @@ export default function WorkspaceManager() {
     return () => setBacklogHandoffHost(null)
   }, [handBacklogItemToAgent])
 
-  // The panel's project chip: distinct folders across this window's open
-  // workspaces, in rail order. Browse admits a folder the studio doesn't know.
-  const newChatProjectOptions = useMemo(() => {
-    const seen = new Set<string>()
-    const options: Array<{ path: string; label: string }> = []
-    for (const workspace of workspaces) {
-      const path = workspace.folderPath?.trim()
-      if (!path) continue
-      const key = path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-      if (seen.has(key)) continue
-      seen.add(key)
-      options.push({ path, label: newChatFolderLabel(path) })
-    }
-    return options
-  }, [workspaces])
+  // The panel's project chip: one row per project open here, never a chat's
+  // worktree folder (`newChatProjectOptionsOf`). Browse admits a folder the
+  // studio doesn't know.
+  const newChatProjectOptions = useMemo(() => newChatProjectOptionsOf(workspaces), [workspaces])
   const selectNewChatProject = (path: string) => {
     setNewChatPanelState((prev) => (prev ? { ...prev, folderPath: path, folderLabel: newChatFolderLabel(path) } : prev))
   }
@@ -3818,7 +3810,7 @@ export default function WorkspaceManager() {
         windowId: workspaceWindowId,
         // It opens in the chat view, following the conversation over there.
         seedAgent: {
-          tabName: remotePaneTabName(spec.machineName, spec.title),
+          tabName: spec.title,
           meshConversation: {
             connectionId: spec.connectionId,
             machineName: spec.machineName,
@@ -3894,7 +3886,7 @@ export default function WorkspaceManager() {
         },
         windowId: workspaceWindowId,
         seedAgent: {
-          tabName: remotePaneTabName(launch.machineName, created.title),
+          tabName: created.title,
           meshConversation: {
             connectionId: launch.connectionId,
             machineName: launch.machineName,
@@ -3980,6 +3972,13 @@ export default function WorkspaceManager() {
         // (utils/layoutTransition.ts).
         if (narrowViewportRef.current) setNarrowSidebarShown((shown) => !shown)
         else setSidebarCollapsed(!sidebarCollapsed)
+        return true
+      }
+      if (commandId === 'chat.settle') {
+        // The chat on screen, which the sidebar settles the way its row would:
+        // it owns the hand-off to the next chat and the remote ask.
+        if (!windowActiveWorkspaceId || newChatPanelOpen || activeGlobalSurface) return false
+        dispatchPanelCommand(commandId, windowActiveWorkspaceId)
         return true
       }
       if (commandId === 'workspace.close' && windowActiveWorkspaceId) {
@@ -4087,8 +4086,16 @@ export default function WorkspaceManager() {
         return true
       }
       if (commandId === 'workspace.switch.next' || commandId === 'workspace.switch.previous') {
-        const nextWorkspaceId = getNextWorkspaceId(
+        // The same drawn order the number keys count (`numberedChats.ts`).
+        const byId = new Map(railWorkspaces.map((workspace) => [workspace.id, workspace]))
+        const drawnOrder = numberedChatIds(
+          drawnSidebarChatIds(document),
           railWorkspaces,
+          Date.now(),
+          windowActiveWorkspaceId,
+        ).flatMap((id) => byId.get(id) ?? [])
+        const nextWorkspaceId = getNextWorkspaceId(
+          drawnOrder,
           windowActiveWorkspaceId,
           commandId === 'workspace.switch.previous' ? -1 : 1,
         )
@@ -4097,10 +4104,12 @@ export default function WorkspaceManager() {
         return true
       }
       if (commandId.startsWith('workspace.switch.')) {
+        // The number keys count the rows the sidebar draws, in the order it
+        // draws them (`numberedChats.ts`), not the store's order.
         const workspaceIndex = Number(commandId.slice('workspace.switch.'.length)) - 1
-        const workspace = railWorkspaces[workspaceIndex]
-        if (!workspace) return false
-        setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
+        const workspaceId = numberedChatIds(drawnSidebarChatIds(document), railWorkspaces, Date.now())[workspaceIndex]
+        if (!workspaceId) return false
+        setActiveWorkspaceForWindow(workspaceWindowId, workspaceId)
         return true
       }
       if (commandId === 'layout.tab.next' || commandId === 'layout.tab.previous') {
@@ -4147,6 +4156,13 @@ export default function WorkspaceManager() {
           useWorkspaceStore.getState().workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState?.open ??
           false
         setPaneOpen(windowActiveWorkspaceId, !open)
+        return true
+      }
+      if (commandId === 'pane.add') {
+        // The pane on screen; behind New chat or a door there is none.
+        if (!windowActiveWorkspaceId || newChatPanelOpen || activeGlobalSurface) return false
+        setPaneOpen(windowActiveWorkspaceId, true)
+        dispatchPanelCommand(commandId, windowActiveWorkspaceId)
         return true
       }
       if (commandId === 'panel.files.toggle' && windowActiveWorkspaceId) {
@@ -4294,13 +4310,16 @@ export default function WorkspaceManager() {
     })
 
     const onKey = (event: KeyboardEvent) => {
-      const result = commandDispatcherRef.current.resolve(event, dispatcherContext(event))
+      const context = dispatcherContext(event)
+      const result = commandDispatcherRef.current.resolve(event, context)
       if (result.kind === 'unmatched') return
       if (result.kind === 'pending') {
         event.preventDefault()
         event.stopPropagation()
         return
       }
+      // A chord an editor or a terminal owns goes on to it (keyTargetGate.ts).
+      if (!shellTakesChordFrom(result.commandId, event.target, context.platform)) return
       if (runCommand(result.commandId)) {
         event.preventDefault()
         event.stopPropagation()

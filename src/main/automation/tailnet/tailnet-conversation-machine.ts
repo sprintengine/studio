@@ -6,6 +6,11 @@
 // kind and colour for it (Settings › Machines), and the pull request record
 // holds what `gh` last answered. Nothing here asks a machine or GitHub
 // anything, so a phone refreshing its list costs no process and no request.
+//
+// The branch each chat's folder is on is read from the checkout's HEAD file
+// (`resolveCheckoutForCwd`), which remembers its answer against that file: a
+// folder's first list runs one git to find where its HEAD lives, and every
+// list after that only looks at the file.
 
 import {
   CONVERSATION_MAX_PULL_REQUESTS,
@@ -13,6 +18,7 @@ import {
   type ConversationWirePullRequest,
 } from '../../../../packages/conversation-protocol/src/serverFrames'
 import type { StudioPullRequest } from '../../../../packages/studio-protocol/src/pull-requests'
+import { mapWithLimit } from '../../../shared/concurrency'
 import { executionHostLabel, isWslHostId, LOCAL_HOST_ID, workspaceHostIdOf } from '../../../shared/execution-host'
 import {
   LOCAL_MACHINE_MARK_ID,
@@ -94,6 +100,30 @@ export function conversationHostOf(
       return marked({ kind: 'wsl', hostId }, executionHostLabel(hostId, context.platform)) ?? local()
   }
   return local()
+}
+
+/** How many folders' checkouts a list reads at once. */
+const BRANCH_READS_AT_ONCE = 4
+
+/**
+ * The branch each workspace's folder is checked out on, for the workspaces a
+ * list names: what this desktop's own sidebar draws on a chat's line. A
+ * workspace with no folder here, a folder that is not a repository, a
+ * detached HEAD, and a read that fails are each left out, and the chat is
+ * listed without a branch, as from a desktop that never named one.
+ */
+export async function conversationBranchesOf(
+  workspaceIds: readonly string[],
+  folderOf: (workspaceId: string) => string | null,
+  resolve: (cwd: string) => Promise<{ branch: string | null } | null>,
+): Promise<Map<string, string>> {
+  const read = await mapWithLimit(workspaceIds, BRANCH_READS_AT_ONCE, async (workspaceId) => {
+    const folder = folderOf(workspaceId)
+    if (!folder) return null
+    const facts = await resolve(folder).catch(() => null)
+    return facts?.branch ? ([workspaceId, facts.branch] as const) : null
+  })
+  return new Map(read.filter((entry): entry is readonly [string, string] => entry !== null))
 }
 
 /** The record's pull requests in the list's shape, at most `CONVERSATION_MAX_PULL_REQUESTS`. */

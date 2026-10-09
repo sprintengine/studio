@@ -2168,7 +2168,7 @@ export function mapSdkMessage(
       if (state.usageBilling === 'api') break
       const reading = readClaudeRateLimitInfo(message.rate_limit_info, state.contextModel)
       if (!reading) break
-      if (reading.update) usageLimitsStore().noteWindows('claude', [reading.update])
+      usageLimitsStore().noteWindows('claude', reading.updates)
       const refusals = (state.usageRefusals ??= new Map())
       if (reading.rejected) refusals.set(reading.type, reading.rejected)
       else refusals.delete(reading.type)

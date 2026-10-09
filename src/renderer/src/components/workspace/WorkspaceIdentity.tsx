@@ -59,8 +59,21 @@ import type { Workspace } from '../../types/workspace'
 // surfaces read as one family. The drawing is the ONE shared branch fork
 // (AppIcons, mirrored in design-system/glyphs/git-branch.svg) — this chip and
 // the sidebar row's branch glyph sit on adjacent chrome and must agree.
-import { GitBranchGlyph, RemoteMachineGlyph } from '../AppIcons'
-import { IntelliJMark, VsCodeMark } from '../brand/EditorMarks'
+import { GitBranchGlyph } from '../AppIcons'
+import { shortMachineName } from '../remote/machineRowModel'
+import { remoteProjectName } from './sidebar/folderGroups'
+import { MachineRowGlyph } from './sidebar/rowParts'
+import {
+  CursorMark,
+  GoLandMark,
+  IntelliJMark,
+  PyCharmMark,
+  SublimeTextMark,
+  VsCodeMark,
+  WebStormMark,
+  WindsurfMark,
+  ZedMark,
+} from '../brand/EditorMarks'
 
 // Folder glyph for the project chip. Same stroke idiom as GitBranchGlyph
 // (1.3px round strokes on a 16px box) so the two identity chips read as a set.
@@ -87,7 +100,14 @@ function FolderGlyph({ className }: { className?: string }) {
 // list fails to compile here instead of silently drawing the wrong mark.
 const TARGET_MARK: Record<FolderOpenTargetId, React.ReactNode> = {
   vscode: <VsCodeMark className="size-icon-sm" />,
+  cursor: <CursorMark className="size-icon-sm" />,
+  windsurf: <WindsurfMark className="size-icon-sm" />,
+  zed: <ZedMark className="size-icon-sm" />,
+  sublime: <SublimeTextMark className="size-icon-sm" />,
   intellij: <IntelliJMark className="size-icon-sm" />,
+  webstorm: <WebStormMark className="size-icon-sm" />,
+  pycharm: <PyCharmMark className="size-icon-sm" />,
+  goland: <GoLandMark className="size-icon-sm" />,
   finder: <FolderGlyph className="size-icon-sm" />,
 }
 
@@ -662,29 +682,43 @@ export function WorkspaceIdentity({
        * for the overflow menu below.
        */}
       {/* A chat that lives on a paired machine has no local folder to chip, so
-          the machine takes that seat (remote-sessions-in-the-sidebar, epic
-          decision 4): the same glyph the sidebar row and the tab wear, with
-          the remote project's name where a local one would show its folder. */}
+          its project over there takes that seat, in the folder chip's own
+          shape, followed by the machine's mark: the glyph the sidebar row and
+          the tab wear, in the machine's colour, named on hover (owner,
+          2026-10-08: no tailnet address in the strip, and no second saying of
+          the chat's own title, which is all the remote workspace's name is). */}
       {chipsInline && activeWorkspace?.remoteOrigin ? (
-        <Tooltip
-          content={`On ${activeWorkspace.remoteOrigin.machineName}${activeWorkspace.remoteOrigin.workspaceRoot ? ` — ${activeWorkspace.remoteOrigin.workspaceRoot}` : ''}`}
-          placement="bottom"
-          wrapperClassName="flex min-w-0 shrink-[100]"
+        <span
+          className="flex min-w-0 shrink-[100] items-center gap-1.5 text-meta text-[color:var(--text-muted)]"
+          data-remote-machine={activeWorkspace.remoteOrigin.machineName}
         >
-          <span
-            className="flex min-w-0 items-center gap-1 text-meta text-[color:var(--text-muted)]"
-            data-remote-machine={activeWorkspace.remoteOrigin.machineName}
+          <Tooltip
+            content={
+              activeWorkspace.remoteOrigin.workspaceRoot ??
+              `On ${shortMachineName(activeWorkspace.remoteOrigin.machineName)}`
+            }
+            placement="bottom"
+            wrapperClassName="flex min-w-0"
           >
-            <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
-            {showChipWords ? (
-              <span className="min-w-0 truncate">
-                {activeWorkspace.remoteOrigin.machineName}
-                {activeWorkspace.remoteOrigin.workspaceName ? ` · ${activeWorkspace.remoteOrigin.workspaceName}` : ''}
-              </span>
-            ) : null}
-            <span className="sr-only">On {activeWorkspace.remoteOrigin.machineName}</span>
-          </span>
-        </Tooltip>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
+              {showChipWords ? (
+                <span className="min-w-0 truncate">
+                  {remoteProjectName(
+                    activeWorkspace.remoteOrigin.workspaceRoot,
+                    activeWorkspace.remoteOrigin.machineName,
+                  )}
+                </span>
+              ) : null}
+            </span>
+          </Tooltip>
+          <MachineRowGlyph
+            machine={{
+              ref: { kind: 'paired', name: activeWorkspace.remoteOrigin.machineName },
+              name: activeWorkspace.remoteOrigin.machineName,
+            }}
+          />
+        </span>
       ) : null}
       {chipsInline && folderPath ? (
         filesPanelEnabled ? (

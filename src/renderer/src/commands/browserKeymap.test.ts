@@ -12,6 +12,8 @@ test('a browser tab gets the chords the browser leaves alone', () => {
   expect(defaultKeybindingsHere(['Primary+3'], true)).toEqual(['Alt+3'])
   expect(defaultKeybindingsHere(['Ctrl+Tab', 'Meta+Shift+]'], true)).toEqual(['Alt+]'])
   expect(defaultKeybindingsHere(['Primary+K', 'Primary+Shift+P'], true)).toEqual(['Primary+K'])
+  // A new browser tab: the pane's "+" has no chord there.
+  expect(defaultKeybindingsHere(['Primary+T'], true)).toEqual([])
   // A chord a focused page can take is left as it is.
   expect(defaultKeybindingsHere(['Primary+Shift+M'], true)).toEqual(['Primary+Shift+M'])
 })

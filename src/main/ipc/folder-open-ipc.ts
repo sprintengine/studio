@@ -20,7 +20,32 @@ import { errorMessage } from '../../shared/errors'
  * installed. The folder path is always appended as the final argv element, so
  * no path text is ever interpreted as a flag or shell syntax.
  */
-export type FolderOpenLauncher = { kind: 'reveal' } | { kind: 'command'; command: string; args: string[] }
+export type FolderOpenLauncher =
+  | { kind: 'reveal' }
+  | {
+      kind: 'command'
+      command: string
+      args: string[]
+      /** Run by `cmd.exe` (a Windows `.cmd`/`.bat` shim), which reads the folder path as command text. */
+      viaCommandProcessor?: true
+    }
+
+// What `cmd.exe` acts on in an argument however it is quoted: the command
+// separators and redirections, the escape, and variable expansion. A folder
+// path holding one, handed to a shim through the command processor, would be
+// run as commands (`C:\R&D\app` runs `D\app`), so such a path is refused
+// rather than escaped: which of these survive Node's quoting and the shim's own
+// `%*` re-expansion depends on both, and a wrong guess runs the rest.
+const COMMAND_PROCESSOR_METACHARACTERS = /[&|<>^%!"]/u
+
+/** Whether `folderPath` can be handed to `launcher` without being read as commands. */
+export function launcherTakesPath(launcher: FolderOpenLauncher, folderPath: string): boolean {
+  return !(
+    launcher.kind === 'command' &&
+    launcher.viaCommandProcessor &&
+    COMMAND_PROCESSOR_METACHARACTERS.test(folderPath)
+  )
+}
 
 export type LauncherProbe = {
   platform: NodeJS.Platform
@@ -46,10 +71,12 @@ export type FolderOpenIpcDependencies = {
   assertPathReachable(targetPath: string): Promise<void>
 }
 
-// The bundle names cover every spelling the vendors ship: the Community edition
-// installs as "IntelliJ IDEA CE.app", and JetBrains Toolbox writes
-// "IntelliJ IDEA Ultimate.app". The bundle ids are what Launch Services indexes
-// the same app under whatever it was renamed to on disk.
+// The bundle names cover every spelling the vendors ship: the Community
+// editions install as "IntelliJ IDEA CE.app" / "PyCharm CE.app", and JetBrains
+// Toolbox writes "IntelliJ IDEA Ultimate.app". The bundle ids are what Launch
+// Services indexes the same app under whatever it was renamed to on disk. The
+// CLI names are the shims each editor installs (or JetBrains Toolbox writes to
+// its scripts folder, `wellKnownCliDirs`).
 const EDITOR_LAUNCHERS: Record<
   Exclude<FolderOpenTargetId, 'finder'>,
   { cliNames: string[]; macAppNames: string[]; macBundleIds: string[] }
@@ -58,6 +85,26 @@ const EDITOR_LAUNCHERS: Record<
     cliNames: ['code'],
     macAppNames: ['Visual Studio Code.app'],
     macBundleIds: ['com.microsoft.VSCode'],
+  },
+  cursor: {
+    cliNames: ['cursor'],
+    macAppNames: ['Cursor.app'],
+    macBundleIds: ['com.todesktop.230313mzl4w4u92'],
+  },
+  windsurf: {
+    cliNames: ['windsurf'],
+    macAppNames: ['Windsurf.app'],
+    macBundleIds: ['com.exafunction.windsurf'],
+  },
+  zed: {
+    cliNames: ['zed'],
+    macAppNames: ['Zed.app', 'Zed Preview.app'],
+    macBundleIds: ['dev.zed.Zed', 'dev.zed.Zed-Preview'],
+  },
+  sublime: {
+    cliNames: ['subl'],
+    macAppNames: ['Sublime Text.app'],
+    macBundleIds: ['com.sublimetext.4', 'com.sublimetext.3'],
   },
   intellij: {
     cliNames: ['idea'],
@@ -69,16 +116,38 @@ const EDITOR_LAUNCHERS: Record<
     ],
     macBundleIds: ['com.jetbrains.intellij', 'com.jetbrains.intellij.ce'],
   },
+  webstorm: {
+    cliNames: ['webstorm'],
+    macAppNames: ['WebStorm.app'],
+    macBundleIds: ['com.jetbrains.WebStorm'],
+  },
+  pycharm: {
+    cliNames: ['pycharm'],
+    macAppNames: ['PyCharm.app', 'PyCharm CE.app', 'PyCharm Professional Edition.app', 'PyCharm Community Edition.app'],
+    macBundleIds: ['com.jetbrains.pycharm', 'com.jetbrains.pycharm.ce'],
+  },
+  goland: {
+    cliNames: ['goland'],
+    macAppNames: ['GoLand.app'],
+    macBundleIds: ['com.jetbrains.goland'],
+  },
 }
 
 const TARGET_NAMES: Record<FolderOpenTargetId, string> = {
   vscode: 'VS Code',
+  cursor: 'Cursor',
+  windsurf: 'Windsurf',
+  zed: 'Zed',
+  sublime: 'Sublime Text',
   intellij: 'IntelliJ IDEA',
+  webstorm: 'WebStorm',
+  pycharm: 'PyCharm',
+  goland: 'GoLand',
   finder: 'the file manager',
 }
 
-// A launcher that has not exited by this point started the editor: `code`,
-// `idea` and `open` all return immediately, so a still-running child means the
+// A launcher that has not exited by this point started the editor: the editor
+// CLIs and `open` all return immediately, so a still-running child means the
 // binary resolved and is doing its work. Only an exit failure or a spawn error
 // is reported as a failed launch.
 const LAUNCH_SETTLE_MS = 5_000
@@ -119,11 +188,46 @@ export async function resolveFolderOpenLauncherHere(target: FolderOpenTargetId):
 // for every workspace bar that mounts, and once more at launch time; `mdfind`
 // takes tens of milliseconds, and the answer does not change between one
 // workspace switch and the next. A minute is short enough that an editor
-// installed while the app is open shows up on the next probe. The entry is the
-// pending answer, so the boot pass and the first workspace bar, which ask in
-// the same moment, share one `mdfind`.
+// installed while the app is open shows up on the next probe.
+//
+// One query asks after every editor at once, with each hit's bundle id beside
+// its path, and each editor's answer is read out of it: the boot probe misses
+// most editors on most machines, and one `mdfind` per missing editor was eight
+// processes where one does. The entry is the pending answer, so the boot pass
+// and the first workspace bar, which ask in the same moment, share it.
 const SPOTLIGHT_CACHE_MS = 60_000
-const spotlightCache = new Map<string, { at: number; path: Promise<string | null> }>()
+const ALL_EDITOR_BUNDLE_IDS = Object.values(EDITOR_LAUNCHERS).flatMap((spec) => spec.macBundleIds)
+let spotlightCache: { at: number; bundles: Promise<ReadonlyMap<string, string[]>> } | null = null
+
+/**
+ * Spotlight's `-attr kMDItemCFBundleIdentifier` listing, as bundle id → the
+ * paths installed under it. A line it cannot read is skipped.
+ */
+export function parseSpotlightBundles(stdout: string): Map<string, string[]> {
+  const bundles = new Map<string, string[]>()
+  for (const line of stdout.split('\n')) {
+    const match = /^(.+?\.app)\s+kMDItemCFBundleIdentifier = "?([^"\s]+)"?\s*$/u.exec(line.trim())
+    if (!match) continue
+    const [, path, id] = match
+    bundles.set(id!, [...(bundles.get(id!) ?? []), path!])
+  }
+  return bundles
+}
+
+function spotlightBundlesHere(): Promise<ReadonlyMap<string, string[]>> {
+  if (spotlightCache && Date.now() - spotlightCache.at < SPOTLIGHT_CACHE_MS) return spotlightCache.bundles
+  const query = ALL_EDITOR_BUNDLE_IDS.map((id) => `kMDItemCFBundleIdentifier == "${id}"`).join(' || ')
+  const bundles = new Promise<ReadonlyMap<string, string[]>>((resolve) => {
+    execFile(
+      '/usr/bin/mdfind',
+      ['-attr', 'kMDItemCFBundleIdentifier', query],
+      { encoding: 'utf8', timeout: 2_000 },
+      (error, stdout) => resolve(error ? new Map() : parseSpotlightBundles(stdout)),
+    )
+  })
+  spotlightCache = { at: Date.now(), bundles }
+  return bundles
+}
 
 /**
  * Ask Spotlight where an app with one of these bundle ids lives. The directory
@@ -136,20 +240,13 @@ const spotlightCache = new Map<string, { at: number; path: Promise<string | null
  * an install at all. Any failure — Spotlight off, the volume unindexed, a slow
  * index — is "not found", never an error: the menu simply omits the editor.
  */
-function locateAppByBundleIdHere(bundleIds: readonly string[]): Promise<string | null> {
-  if (process.platform !== 'darwin' || bundleIds.length === 0) return Promise.resolve(null)
-  const key = bundleIds.join('|')
-  const cached = spotlightCache.get(key)
-  if (cached && Date.now() - cached.at < SPOTLIGHT_CACHE_MS) return cached.path
-
-  const query = bundleIds.map((id) => `kMDItemCFBundleIdentifier == "${id}"`).join(' || ')
-  const path = new Promise<string | null>((resolve) => {
-    execFile('/usr/bin/mdfind', [query], { encoding: 'utf8', timeout: 2_000 }, (error, stdout) => {
-      resolve(error ? null : pickInstalledBundle(stdout.split('\n'), process.env.HOME ?? ''))
-    })
-  })
-  spotlightCache.set(key, { at: Date.now(), path })
-  return path
+async function locateAppByBundleIdHere(bundleIds: readonly string[]): Promise<string | null> {
+  if (process.platform !== 'darwin' || bundleIds.length === 0) return null
+  const bundles = await spotlightBundlesHere()
+  return pickInstalledBundle(
+    bundleIds.flatMap((id) => bundles.get(id) ?? []),
+    process.env.HOME ?? '',
+  )
 }
 
 /** The bundle to launch out of Spotlight's list, or null when none is an install. */
@@ -201,6 +298,15 @@ export function registerFolderOpenIpc(ipcMain: IpcMain, deps: FolderOpenIpcDepen
         return { ok: true, target }
       } catch (error) {
         return { ok: false, target, reason: 'launch_failed', message: errorMessage(error) }
+      }
+    }
+
+    if (!launcherTakesPath(launcher, folderPath)) {
+      return {
+        ok: false,
+        target,
+        reason: 'launch_failed',
+        message: `${TARGET_NAMES[target]} is opened through its command-line shim here, which cannot be given a folder path containing & | < > ^ % ! or ". Open the folder from ${TARGET_NAMES[target]} instead.`,
       }
     }
 
@@ -326,7 +432,12 @@ function commandLauncher(command: string, args: string[], probe: LauncherProbe):
   if (probe.platform !== 'win32' || command.toLowerCase().endsWith('.exe')) {
     return { kind: 'command', command, args }
   }
-  return { kind: 'command', command: probe.env.ComSpec ?? 'cmd.exe', args: ['/d', '/s', '/c', command, ...args] }
+  return {
+    kind: 'command',
+    command: probe.env.ComSpec ?? 'cmd.exe',
+    args: ['/d', '/s', '/c', command, ...args],
+    viaCommandProcessor: true,
+  }
 }
 
 function runLauncher(command: string, args: string[], settleMs: number): Promise<LaunchOutcome> {

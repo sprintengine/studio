@@ -7,7 +7,11 @@ import { expect, test } from 'vitest'
 // opens both panels from there (owner ruling 2026-10-04). A terminal has no
 // strip, so with one followed the bar keeps everything it had.
 
-async function mountIdentity(runtime: 'conversation' | 'terminal', extraProps: Record<string, unknown> = {}) {
+async function mountIdentity(
+  runtime: 'conversation' | 'terminal',
+  extraProps: Record<string, unknown> = {},
+  workspaceFields: Record<string, unknown> = {},
+) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
   const globals = {
@@ -52,6 +56,7 @@ async function mountIdentity(runtime: 'conversation' | 'terminal', extraProps: R
     name: 'Project',
     folderPath: '/Users/dev/project',
     agents: { agent },
+    ...workspaceFields,
   }
   useWorkspaceStore.setState({
     workspaces: [workspace] as never,
@@ -121,5 +126,37 @@ test('the name that toggles the sidebar keeps the visible name in its accessible
     } finally {
       await bar.unmount()
     }
+  }
+})
+
+// A chat that runs on a paired machine (owner, 2026-10-08): the strip names
+// the chat once and its project over there, in the folder chip's shape, with
+// the machine's mark after it. Never the machine's tailnet address, and never
+// the remote workspace's name, which for a chat is its own title again.
+test('a chat on a paired machine names its project there, not the machine’s address or the chat a second time', async () => {
+  const bar = await mountIdentity(
+    'conversation',
+    {},
+    {
+      name: 'How is this project?',
+      folderPath: null,
+      remoteOrigin: {
+        connectionId: 'c1',
+        machineName: 'mac-mini.tail1234.ts.net',
+        workspaceId: 'rw1',
+        workspaceName: 'How is this project?',
+        workspaceRoot: '/Users/dev/home-lab',
+      },
+    },
+  )
+  try {
+    const text = bar.host.textContent ?? ''
+    expect(text).toContain('home-lab')
+    expect(text).not.toContain('tail1234')
+    expect(text).not.toContain('mac-mini')
+    expect(text.split('How is this project?').length - 1, 'the chat is named once').toBe(1)
+    expect(bar.host.querySelector('[data-remote-machine]')).not.toBeNull()
+  } finally {
+    await bar.unmount()
   }
 })
