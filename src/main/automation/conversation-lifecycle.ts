@@ -1,7 +1,8 @@
 import type { WorkspaceRegistryActor, WorkspaceRegistryRecord } from '../../shared/workspace-registry'
 import type { WorkspaceFieldsPatch, WorkspaceSyncCommandResult, WorkspaceSyncEvent } from '../../shared/workspace-sync'
 import { isSettledWorkspace, settleWorkspacePatch, wakeWorkspacePatch } from '../../shared/workspace-lifecycle'
-import type { ConversationSessionSummary } from '../../shared/conversation-runtime'
+import type { ConversationEvent, ConversationSessionSummary } from '../../shared/conversation-runtime'
+import { conversationSessionWorking, conversationTurnInProgress } from '../../shared/conversation/phase'
 
 // A chat's rest and its two person-clocks, written for a paired device.
 //
@@ -33,6 +34,23 @@ export type ConversationLifecycleDeps = {
    */
   isWorking(workspaceId: string): boolean
   /**
+   * Whether the one piece of work in the workspace is `agentId`'s own chat
+   * turn: its chat is mid-turn, nothing it launched works on in the
+   * background, and no other chat or agent terminal of the workspace is at
+   * work. What lets an agent settle its own chat once its turn is over.
+   * Absent, an agent's request is refused while it works, as anyone's is.
+   */
+  onlyTurnOf?(workspaceId: string, agentId: string): boolean
+  /**
+   * Whether a message is waiting on the end of one of the workspace's chats'
+   * turns to go in (one a paired machine queued, or a scheduled one that came
+   * due mid-turn). A chat about to be written to is not put away.
+   */
+  messageWaiting?(workspaceId: string): boolean
+  /** Run `job` after `ms`; returns the cancel. Injected so tests drive the clock. */
+  schedule?: (job: () => void, ms: number) => () => void
+  log?: (message: string) => void
+  /**
    * When a chat in the workspace last finished a turn, by its transcripts'
    * index and the chats main holds now (`latestTurnEnd`, the reading the
    * conversation list takes, so a chat the list says has finished can be
@@ -50,7 +68,9 @@ export type ConversationLifecycleFailure = {
 }
 
 export type ConversationSettleResult =
-  { ok: true; workspaceId: string; settledAt: number | null } | ConversationLifecycleFailure
+  | { ok: true; workspaceId: string; settledAt: number | null }
+  | { ok: true; workspaceId: string; settledAt: null; settlesWhenTurnEnds: true }
+  | ConversationLifecycleFailure
 export type ConversationVisitResult =
   { ok: true; workspaceId: string; lastVisitedAt: number } | ConversationLifecycleFailure
 export type ConversationMarkUnreadResult =
@@ -58,8 +78,49 @@ export type ConversationMarkUnreadResult =
 
 export type ConversationLifecycle = ReturnType<typeof createConversationLifecycle>
 
+/**
+ * After the turn of an agent that asked to settle its own chat ends, how long
+ * the settle waits. The runtime lets go of the turn just after it says the
+ * turn ended, and a message the person queued in the chat's composer goes in
+ * then: that message is heard as the chat's next `user_message` inside this
+ * wait, and the settle stands down for it.
+ */
+export const OWN_SETTLE_GRACE_MS = 2_000
+
+/**
+ * Whether, of a workspace's chats, the one piece of work is `agentId`'s own
+ * turn: its chat is mid-turn with no agent it launched still working in the
+ * background (settling would end those), and no other chat is at work. Only
+ * a chat counts as the asking agent's: a chat's turn end is what the settle
+ * waits on, and a terminal agent's is not heard where the settle is kept.
+ */
+export function onlyOwnChatTurn(sessions: ReadonlyArray<ConversationSessionSummary>, agentId: string): boolean {
+  const own = sessions.filter((session) => session.agentId === agentId && session.status !== 'stopped')
+  if (own.length !== 1 || !conversationTurnInProgress(own[0]) || (own[0].backgroundAgents ?? 0) > 0) return false
+  return !sessions.some((session) => session !== own[0] && conversationSessionWorking(session))
+}
+
+/** A settle an agent asked for on its own chat, waiting for its turn to end. */
+type PendingSettle = {
+  agentId: string
+  actor: WorkspaceRegistryActor
+  /** The cancel of the grace's timer, once the turn has ended. */
+  cancel: (() => void) | null
+}
+
 export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
   const now = deps.now ?? Date.now
+  const schedule =
+    deps.schedule ??
+    ((job: () => void, ms: number) => {
+      const timer = setTimeout(job, ms)
+      timer.unref?.()
+      return () => clearTimeout(timer)
+    })
+  // By workspace. In memory only: a restart ends the turn it waits on, and
+  // the request with it, so the chat stays as it was and the agent, told the
+  // settle waits on its turn, can ask again in its next one.
+  const pending = new Map<string, PendingSettle>()
   const unknown = (workspaceId: string): ConversationLifecycleFailure => ({
     ok: false,
     code: 'unknown_workspace',
@@ -78,12 +139,38 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
    * Settle a chat, or bring it back: the row menu's Settle and Un-settle,
    * patch for patch. Settling one already resting, or waking one that is
    * not, writes nothing and answers how it stands, so a retry is harmless.
+   * `caller` is the agent of this app the request came from, when it came
+   * from one: asking for its own chat, it may be answered "when this turn
+   * ends" where anyone else is refused as working.
    */
-  function settle(workspaceId: string, settled: boolean, actor: WorkspaceRegistryActor): ConversationSettleResult {
+  function settle(
+    workspaceId: string,
+    settled: boolean,
+    actor: WorkspaceRegistryActor,
+    caller?: { workspaceId: string; agentId: string } | null,
+  ): ConversationSettleResult {
     const record = deps.getRecord(workspaceId)
     if (!record) return unknown(workspaceId)
+    // Bringing the chat back takes back a settle waiting on a turn; the same
+    // agent asking again is told what it was told the first time.
+    const waiting = pending.get(workspaceId)
+    if (!settled) dropPending(workspaceId)
+    else if (waiting && caller?.workspaceId === workspaceId && waiting.agentId === caller.agentId)
+      return { ok: true, workspaceId, settledAt: null, settlesWhenTurnEnds: true }
     if (settled === isSettledWorkspace(record))
       return { ok: true, workspaceId, settledAt: isSettledWorkspace(record) ? record.settledAt! : null }
+    // An agent asking from inside the chat is mid-turn by definition, so
+    // "settle this chat" from it would always be refused as working. When its
+    // own turn is the only work there, the settle waits for that turn to end.
+    if (
+      settled &&
+      caller?.workspaceId === workspaceId &&
+      deps.isWorking(workspaceId) &&
+      deps.onlyTurnOf?.(workspaceId, caller.agentId)
+    ) {
+      pending.set(workspaceId, { agentId: caller.agentId, actor, cancel: null })
+      return { ok: true, workspaceId, settledAt: null, settlesWhenTurnEnds: true }
+    }
     if (settled && deps.isWorking(workspaceId))
       return {
         ok: false,
@@ -93,6 +180,7 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
     const patch = settled ? settleWorkspacePatch(record, now(), 'settled') : wakeWorkspacePatch('active')
     const failed = write(workspaceId, patch, actor)
     if (failed) return failed
+    if (settled) dropPending(workspaceId)
     return { ok: true, workspaceId, settledAt: typeof patch.settledAt === 'number' ? patch.settledAt : null }
   }
 
@@ -167,7 +255,61 @@ export function createConversationLifecycle(deps: ConversationLifecycleDeps) {
     write(workspaceId, { ...(waking ? wakeWorkspacePatch(null) : {}), lastUserMessageAt: at }, actor)
   }
 
-  return { settle, visit, markUnread, noteUserMessage }
+  function dropPending(workspaceId: string): void {
+    pending.get(workspaceId)?.cancel?.()
+    pending.delete(workspaceId)
+  }
+
+  /**
+   * Carry out a settle an agent asked for on its own chat, or let it go. It
+   * goes ahead only once that agent's turn completes, and only if nothing new
+   * happened in the chat meanwhile: a turn that failed or was stopped, a
+   * message to any of the workspace's chats (the person's, or one steered
+   * into the running turn), a turn starting, or the session closing each
+   * leave the chat as it is. The settle itself is the tool's own, so it is
+   * refused, and dropped, if any agent there is working by then.
+   */
+  function onConversationEvent(event: ConversationEvent): void {
+    const waiting = pending.get(event.workspaceId)
+    if (!waiting) return
+    const own = event.agentId === waiting.agentId
+    switch (event.type) {
+      case 'user_message':
+        dropPending(event.workspaceId)
+        return
+      case 'turn_started':
+        // The asking turn had started before it asked; a turn starting now is new work.
+        if (!own || waiting.cancel) dropPending(event.workspaceId)
+        return
+      case 'turn_failed':
+      case 'session_closed':
+        if (own) dropPending(event.workspaceId)
+        return
+      case 'turn_completed':
+        // A turn a steered message ended goes straight on, and the message
+        // that steered it has already let the settle go.
+        if (!own || event.payload?.steered === true || waiting.cancel) return
+        waiting.cancel = schedule(() => {
+          if (pending.get(event.workspaceId) !== waiting) return
+          pending.delete(event.workspaceId)
+          if (deps.messageWaiting?.(event.workspaceId)) return
+          const result = settle(event.workspaceId, true, waiting.actor)
+          if (!result.ok)
+            deps.log?.(`A chat its agent asked to settle was left as it is: ${result.message} (${result.code})`)
+        }, OWN_SETTLE_GRACE_MS)
+        return
+    }
+  }
+
+  return {
+    settle,
+    visit,
+    markUnread,
+    noteUserMessage,
+    onConversationEvent,
+    /** Whether a settle waits on an agent's turn in the workspace. Exposed for tests. */
+    settlesWhenTurnEnds: (workspaceId: string) => pending.has(workspaceId),
+  }
 }
 
 /**

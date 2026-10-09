@@ -45,7 +45,11 @@ import { knownCliAvailability } from '../../main/cli-availability'
 import { createChatTitler } from '../../main/text-generation/chat-titler'
 import { generateChatTitle } from '../../main/text-generation/text-generation-service'
 import { createTextGenerationSettingsStore } from '../../main/text-generation/text-generation-settings-store'
-import { createConversationLifecycle, latestTurnEnd } from '../../main/automation/conversation-lifecycle'
+import {
+  createConversationLifecycle,
+  latestTurnEnd,
+  onlyOwnChatTurn,
+} from '../../main/automation/conversation-lifecycle'
 import { conversationSessionWorking, terminalAgentWorking } from '../../shared/conversation/phase'
 import type { ConversationMessageOrigin, ConversationSessionSummary } from '../../shared/conversation-runtime'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
@@ -502,6 +506,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   // starting, running or waiting on the person, an agent it launched still
   // working in the background under any parent phase, or one of its agent
   // terminals mid-turn (`conversationSessionWorking`, `terminalAgentWorking`).
+  const terminalWorking = (workspaceId: string) =>
+    (options.listTerminalSessions?.() ?? []).some(
+      (session) => session.kind === 'agent' && session.workspaceId === workspaceId && terminalAgentWorking(session),
+    )
   const conversationLifecycle = createConversationLifecycle({
     getRecord: (workspaceId) => workspaceRegistry.getRecord(workspaceId),
     updateWorkspaceFields: (workspaceId, patch, actor) =>
@@ -511,9 +519,28 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     isWorking: (workspaceId) => {
       const listed = conversations.listSessions({ workspaceId })
       if (listed.ok && listed.sessions.some(conversationSessionWorking)) return true
-      return (options.listTerminalSessions?.() ?? []).some(
-        (session) => session.kind === 'agent' && session.workspaceId === workspaceId && terminalAgentWorking(session),
-      )
+      return terminalWorking(workspaceId)
+    },
+    // An agent's own chat turn, and nothing else: no other chat or agent
+    // terminal of the workspace at work (`onlyOwnChatTurn`).
+    onlyTurnOf: (workspaceId, agentId) => {
+      const listed = conversations.listSessions({ workspaceId })
+      return listed.ok && onlyOwnChatTurn(listed.sessions, agentId) && !terminalWorking(workspaceId)
+    },
+    // A message held for the end of a turn: the scheduled messages, created
+    // below, hold the ones a paired machine queued and the ones that came due
+    // mid-turn.
+    messageWaiting: (workspaceId) =>
+      scheduledMessages
+        .state()
+        .messages.some(
+          (message) =>
+            message.workspaceId === workspaceId &&
+            !message.failure &&
+            (message.queued === true || message.waitingSince !== undefined || message.sending === true),
+        ),
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Conversation settle', message })
     },
     // The transcripts' index too, as the list reads it: after a restart a
     // chat-only conversation's finishes are on record only there.
@@ -530,6 +557,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       return latestTurnEnd(listed.ok ? listed.sessions : [], { workspaceId }, indexedEnd)
     },
   })
+  // A settle an agent asked for on its own chat goes ahead, or is let go, on
+  // that chat's events: every chat's, a distribution's or an SSH machine's
+  // included. For the core's life, as the chats are.
+  conversations.onEvent((event) => conversationLifecycle.onConversationEvent(event))
   // `origin` is for Studio's own sends (a resume after a usage limit): they
   // are not the person writing, so each is recorded as Studio's and the chat
   // keeps its place in the lists ordered by when the person last did.
