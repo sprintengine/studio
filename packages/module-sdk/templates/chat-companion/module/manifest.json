@@ -11,7 +11,7 @@
   },
   "permissions": [
     "conversation:operate",
-    "ipc:invoke",
+    "module:bridge",
     "ipc:workspace-read"
   ],
   "dependsOn": [

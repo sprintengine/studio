@@ -29,12 +29,35 @@ export type SelectItem<V extends string = string> = {
 const toneOf = (item: SelectItem | null): Exclude<Tone, 'neutral'> | null =>
   item?.tone && item.tone !== 'neutral' ? item.tone : null
 
+/**
+ * The trigger's step on the control-height ramp, named as the buttons and
+ * `Input` name theirs, so a select sits level with the controls beside it.
+ * `sm` (the default, and every labelled form field) is `size.control.sm`; `xs`
+ * is the dense toolbar step that rides a row of `xs` buttons, with meta type;
+ * `md` matches an `md` button. The popup's rows echo the trigger's type size.
+ */
+export type SelectSize = 'xs' | 'sm' | 'md'
+
+const SIZE: Record<SelectSize, string> = {
+  xs: 'h-control-xs px-2 text-meta',
+  sm: 'h-control-sm px-2 text-body',
+  md: 'h-control-md px-3 text-body',
+}
+
+const OPTION_TYPE: Record<SelectSize, string> = {
+  xs: 'text-meta',
+  sm: 'text-body',
+  md: 'text-body',
+}
+
 type SelectProps<V extends string = string> = {
   /** Required accessible name. Icon-only triggers must expose a label. */
   ariaLabel: string
   items: SelectItem<V>[]
   value: V | null
   onChange: (value: V) => void
+  /** The trigger height step. Defaults to `sm`. */
+  size?: SelectSize
   disabled?: boolean
   placeholder?: string
   className?: string
@@ -62,6 +85,7 @@ export function Select<V extends string = string>({
   items,
   value,
   onChange,
+  size = 'sm',
   disabled = false,
   placeholder = 'Select…',
   className,
@@ -240,9 +264,10 @@ export function Select<V extends string = string>({
           onKeyDown={onKey}
           style={selectedTone ? { backgroundColor: TONE_SOFT_VAR[selectedTone] } : undefined}
           className={[
-            'interactive inline-flex h-control-sm w-full items-center justify-between gap-2',
+            'interactive inline-flex w-full items-center justify-between gap-2',
+            SIZE[size],
             triggerMinWidthClassName,
-            'rounded-sm border px-2 text-left text-body',
+            'rounded-sm border text-left',
             selectedTone
               ? 'border-transparent'
               : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',
@@ -297,14 +322,16 @@ export function Select<V extends string = string>({
             onClick={() => selectAt(index)}
             // The shared menu row: same padding, same gap, same highlight as
             // an action row, so a value list and an action list do not drift
-            // apart. `text-body` rather than the menu's 12px is deliberate —
-            // this popup echoes the string its own trigger is already
-            // showing at that size (design-system/components/select), and
-            // picking a value must not resize it. A menu item has no such
-            // at-rest twin, which is why 12px is right there and not here.
+            // apart. The trigger's type size rather than the menu's 12px is
+            // deliberate — this popup echoes the string its own trigger is
+            // already showing at that size (design-system/components/select),
+            // and picking a value must not resize it: `text-body` at `sm` and
+            // `md`, `text-meta` at `xs`. A menu item has no such at-rest
+            // twin, which is why 12px is right there and not here.
             className={[
               MENU_ROW_CLASS,
-              'cursor-pointer text-body',
+              'cursor-pointer',
+              OPTION_TYPE[size],
               item.disabled ? 'cursor-not-allowed opacity-45' : '',
               active
                 ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'

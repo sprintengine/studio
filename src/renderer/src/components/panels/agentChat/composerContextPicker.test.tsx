@@ -207,6 +207,7 @@ const COMMANDS: CommandMenuInput['commands'] = [
   { name: 'model', description: 'Choose the model', source: 'app' },
   { name: 'compact', description: 'Summarize the conversation', argumentHint: '[instructions]', source: 'cli' },
   { name: 'review', description: 'Review a pull request', argumentHint: '[pr-number]', source: 'custom' },
+  { name: 'deploy', description: 'Ship the current branch', source: 'skill' },
 ]
 
 async function mountCommandPicker() {
@@ -296,6 +297,7 @@ test('/ opens the command menu where the chat has one, and stays literal where i
       expect.stringContaining('/model'),
       expect.stringContaining('/compact'),
       expect.stringContaining('/review'),
+      expect.stringContaining('/deploy'),
     ])
     expect(menu.onOpen).toHaveBeenCalledOnce()
     await menu.render('/', false)
@@ -327,7 +329,7 @@ test('arrows wrap around the command list', async () => {
     await menu.render('/')
     expect(menu.highlighted()?.textContent).toContain('/model')
     expect(await menu.key('ArrowUp')).toBe(true)
-    expect(menu.highlighted()?.textContent).toContain('/review')
+    expect(menu.highlighted()?.textContent).toContain('/deploy')
     expect(await menu.key('ArrowDown')).toBe(true)
     expect(menu.highlighted()?.textContent).toContain('/model')
     expect(await menu.key('ArrowDown')).toBe(true)
@@ -382,10 +384,10 @@ test('Esc closes the menu until the caret leaves that token', async () => {
     expect(menu.picker().trigger).toBeNull()
     await menu.render('/rev')
     expect(menu.picker().trigger, 'typing on into the same token keeps it shut').toBeNull()
-    // A `/` on a later line would not run, so it opens nothing…
+    // A fresh `/` in a new token opens the menu again, on a later line too…
     await menu.render('/rev\n/')
-    expect(menu.picker().trigger).toBeNull()
-    // …and once the token is gone, a fresh `/` opens the menu again.
+    expect(menu.picker().trigger?.kind).toBe('slash')
+    // …and so does one where the dismissed token was, once it is gone.
     await menu.render('')
     await menu.render('/')
     expect(menu.picker().trigger?.kind).toBe('slash')
@@ -436,6 +438,52 @@ test('the command and skill lists stay open past the frame after they open', asy
     await menu.render('$')
     expect(menu.picker().trigger?.kind).toBe('skill')
     expect(menu.dom.window.document.querySelector('[aria-label="Use a skill"]')).not.toBeNull()
+  } finally {
+    await menu.unmount()
+  }
+})
+
+test('a / after text opens the menu, on a later line or after a space, but not inside a word or path', async () => {
+  const menu = await mountCommandPicker()
+  try {
+    for (const draft of ['A paragraph of context.\n/', 'some text /', 'some text /dep']) {
+      await menu.render(draft)
+      expect(menu.picker().trigger?.kind, draft).toBe('slash')
+      expect(menu.options().length, draft).toBeGreaterThan(0)
+    }
+    for (const draft of ['and/or', 'see src/foo', 'see https://example.com/', 'a/b']) {
+      await menu.render(draft)
+      expect(menu.picker().trigger, draft).toBeNull()
+      expect(menu.options(), draft).toHaveLength(0)
+    }
+  } finally {
+    await menu.unmount()
+  }
+})
+
+test('later in the message the menu lists what works there, and a pick replaces just the token', async () => {
+  const menu = await mountCommandPicker()
+  try {
+    // The CLI's built-ins and custom commands run only as the first word, so
+    // they are left out; Studio's own and the skills stay.
+    await menu.render('Fix the flaky test.\n/')
+    expect(menu.options().map((row) => row.textContent)).toEqual([
+      expect.stringContaining('/model'),
+      expect.stringContaining('/deploy'),
+    ])
+    await menu.render('Fix the flaky test, then /dep')
+    expect(await menu.key('Enter')).toBe(true)
+    expect(menu.onPickCommand).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'deploy' }), {
+      start: 25,
+      end: 29,
+    })
+    // At the start of the draft every row is offered again.
+    await menu.render('/')
+    expect(menu.options()).toHaveLength(COMMANDS.length)
+    // Esc closes it mid-message as it does at the start.
+    await menu.render('then /')
+    expect(await menu.key('Escape')).toBe(true)
+    expect(menu.picker().trigger).toBeNull()
   } finally {
     await menu.unmount()
   }

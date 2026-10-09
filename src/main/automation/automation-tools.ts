@@ -2,6 +2,7 @@ import { isAbsolute } from 'path'
 import { isSettledWorkspace } from '../../shared/workspace-lifecycle'
 import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
+import type { WorkspaceExtensions } from '../../shared/workspace-extensions'
 import type { CliPermissionPreset, TerminalSessionSnapshot } from '../../shared/electron-api'
 import { projectColorKey, projectHue } from '../../shared/project-hue'
 import { projectFrecency, projectUsageKey, type ProjectUsageMap } from '../../shared/project-frecency'
@@ -214,6 +215,13 @@ export type AutomationBackends = {
     branches: Array<{ name: string; current: boolean }>
     worktrees: Array<{ path: string; branch: string | null; isMain: boolean }>
   }>
+  /**
+   * The skills a chat in a project can be given and the MCP servers a CLI
+   * there is configured with, for a paired machine's composer to offer: the
+   * same inventory and capability answer the composer here reads. Absent,
+   * `workspace.extensions` is not served.
+   */
+  readWorkspaceExtensions?(workspaceRoot: string, cli: string | null): Promise<WorkspaceExtensions>
   /**
    * Loaded CLI plugin manifests (`getPluginRegistry().loaded()`). backlog.work
    * composes the target CLI's native skill invocation from the matching
@@ -1223,6 +1231,42 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (!('root' in resolved)) return resolved
       const checkout = await backends.readWorkspaceCheckout(resolved.root)
       return success({ workspaceId, ...checkout })
+    },
+  }
+
+  // What a paired machine's composer offers a chat here: the project's skills
+  // (installed, and the built-ins a pick installs) and the MCP servers the
+  // chat's CLI is configured with, each with the connection it last reported.
+  // A read, on `workspace:read` like `workspace.checkout`; attaching one is
+  // `conversation.create`'s `skills`, under its own grant.
+  const workspaceExtensions: McpToolRegistration = {
+    name: 'workspace.extensions',
+    description:
+      "List what a chat in a workspace's folder can use: `skills` (id, name, description, whether it is " +
+      'installed there or a built-in a chat installs on first use, and the GitHub repository it came from when ' +
+      'a skill source installed it) and, with `cli`, `servers`: the MCP servers that CLI is configured with, ' +
+      'each with its `status` (connected, pending, needs-auth, failed, disabled) once a chat on it here has ' +
+      "reported one. Pass the skill ids to conversation.create's `skills`.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        cli: { type: 'string', description: 'The agent CLI plugin id whose MCP servers to list.' },
+      },
+      required: ['workspaceId'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const workspaceId = requireString(args, 'workspaceId')
+      if (typeof workspaceId !== 'string') return workspaceId
+      const invalid = firstInvalidOptionalString(args, ['cli'])
+      if (invalid) return invalid
+      if (!backends.readWorkspaceExtensions)
+        return failure('unavailable', 'This machine does not list its skills and MCP servers.')
+      const resolved = resolveWorkspaceRoot(workspaceId)
+      if (!('root' in resolved)) return resolved
+      const extensions = await backends.readWorkspaceExtensions(resolved.root, optionalString(args.cli) ?? null)
+      return success({ workspaceId, ...extensions })
     },
   }
 
@@ -2414,6 +2458,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
 
   return [
     workspaceCheckout,
+    workspaceExtensions,
     workspaceCreate,
     workspaceList,
     workspaceMobileCommand,

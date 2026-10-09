@@ -10,6 +10,9 @@
 // 5. The host-bridged subpaths (`/ui`, `/surface`) stay bare imports when a
 //    module is bundled with the documented externals, for the host's import
 //    map to answer (D6).
+// 6. The testing subpaths (`/testing`, `/testing/kit`) load from the tarball
+//    in plain Node: a fake host answers, and a door importing `/ui` and
+//    `/surface` renders through the pass-through kit.
 
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -55,7 +58,7 @@ run(`npm install --no-save --no-package-lock --no-audit --no-fund ../${tarball}`
 const installedDir = join(fixtureDir, 'node_modules', '@sprintengine', 'module-sdk')
 const installedManifest = JSON.parse(readFileSync(join(installedDir, 'package.json'), 'utf8'))
 const entryPoints = Object.entries(installedManifest.exports ?? {})
-for (const subpath of ['.', './ui', './surface']) {
+for (const subpath of ['.', './ui', './surface', './testing', './testing/kit']) {
   if (!installedManifest.exports?.[subpath]) {
     throw new Error(`packed @sprintengine/module-sdk does not export "${subpath}".`)
   }
@@ -122,12 +125,15 @@ const declaredNames = (file) => {
 // declarations list but the `exports` map does not reach fails here.
 const probePath = join(fixtureDir, 'src', 'export-probe.ts')
 let probedNames = 0
-const probeImports = entryPoints.map(([subpath, entry]) => {
+const probeImports = entryPoints.map(([subpath, entry], index) => {
   const specifier = subpath === '.' ? '@sprintengine/module-sdk' : `@sprintengine/module-sdk/${subpath.slice(2)}`
   const names = declaredNames(join(installedDir, entry.types))
   if (subpath === '.' && names.length === 0) throw new Error('the root entry point declares no exports.')
   probedNames += names.length
-  return names.length > 0 ? `import type { ${names.join(', ')} } from '${specifier}'` : ''
+  // Aliased per entry point: the testing kit exports the names `/ui` and
+  // `/surface` export, and one file cannot import a name twice.
+  const aliased = names.map((name) => `${name} as entry${index}_${name}`)
+  return names.length > 0 ? `import type { ${aliased.join(', ')} } from '${specifier}'` : ''
 })
 writeFileSync(
   probePath,
@@ -175,5 +181,43 @@ if (bundle.includes('is provided by the host at runtime')) {
   throw new Error('the throwing runtime stub was inlined into the module bundle despite --external.')
 }
 console.log('a module bundled with the documented externals keeps the bridged specifiers bare')
+
+// The testing kit is a Node runtime, not just declarations: run it from the
+// installed tarball the way a module's own test does.
+const testingProbe = join(fixtureDir, 'testing-probe.mjs')
+const testingDoor = join(fixtureDir, 'testing-door.mjs')
+writeFileSync(
+  testingDoor,
+  [
+    "import { createElement } from 'react'",
+    "import { EmptyState } from '@sprintengine/module-sdk/ui'",
+    "import { GlobalSurfaceShell } from '@sprintengine/module-sdk/surface'",
+    "export const Door = () => createElement(GlobalSurfaceShell, { ariaLabel: 'Probe' }, createElement(EmptyState, { title: 'Probe door' }))",
+    '',
+  ].join('\n'),
+)
+writeFileSync(
+  testingProbe,
+  [
+    "import assert from 'node:assert/strict'",
+    "import { createElement } from 'react'",
+    "import { getModuleStorage } from '@sprintengine/module-sdk'",
+    "import { createFakeMainHost, installTestingKit, renderToHtml } from '@sprintengine/module-sdk/testing'",
+    "const fake = createFakeMainHost({ moduleId: 'probe', permissions: ['storage'] })",
+    "assert.equal((await getModuleStorage(fake.host).set({ key: 'Bad Key', value: 1 })).code, 'invalid_key')",
+    'installTestingKit()',
+    "const { Door } = await import('./testing-door.mjs')",
+    'const html = await renderToHtml(createElement(Door))',
+    'assert.match(html, /Probe door/)',
+    '',
+  ].join('\n'),
+)
+try {
+  run('node testing-probe.mjs', fixtureDir)
+} finally {
+  rmSync(testingProbe, { force: true })
+  rmSync(testingDoor, { force: true })
+}
+console.log('the testing kit runs from the tarball: a fake host answers and a door renders through the kit')
 
 console.log('module-sdk pack verification passed')

@@ -105,4 +105,56 @@ describe('the workspace chat opener behind RendererHost.openChat', () => {
 
     assert.deepEqual(recorded, { writes: [], drafts: [], ensured: [], reveals: [] })
   })
+
+  test('a name titles the chat, and a dedupeKey is kept on it', async () => {
+    const { opener, recorded } = setup()
+    const result = await opener({
+      moduleId: 'radar',
+      workspaceId: 'ws-project',
+      prompt: 'Why is CI red?',
+      name: '  Fix CI on acme/app#12 ',
+      dedupeKey: 'acme/app#12',
+    })
+    assert.deepEqual(result, { ok: true, agentId: 'conversation-claude-agent-abc123' })
+    const patch = recorded.writes[0]!.patch
+    assert.equal(patch.name, 'Fix CI on acme/app#12')
+    assert.equal(patch.moduleChatKey, 'acme/app#12')
+    assert.equal(recorded.reveals[0]!.name, 'Fix CI on acme/app#12')
+  })
+
+  test('a dedupeKey this module opened a chat under focuses that chat and changes nothing in it', async () => {
+    const agents = {
+      a1: { name: 'Ada' },
+      mine: { name: 'Fix CI', ownerModuleId: 'radar', moduleChatKey: 'acme/app#12' },
+      theirs: { name: 'Other', ownerModuleId: 'calendar', moduleChatKey: 'acme/app#12' },
+    }
+    const { opener, recorded } = setup({
+      getWorkspace: (id) => (id === 'ws-project' ? { folderPath: '/Users/dev/acme', agents } : null),
+    })
+    const again = await opener({
+      moduleId: 'radar',
+      workspaceId: 'ws-project',
+      prompt: 'Why is CI red?',
+      send: true,
+      dedupeKey: 'acme/app#12',
+    })
+    assert.deepEqual(again, { ok: true, agentId: 'mine', existing: true })
+    assert.deepEqual(recorded.reveals, [{ workspaceId: 'ws-project', agentId: 'mine', name: 'Fix CI' }])
+    assert.deepEqual(recorded.writes, [], 'nothing written, nothing sent')
+    assert.deepEqual(recorded.drafts, [], 'the person’s draft is left alone')
+
+    // Another module's key is not this one's: it opens a chat of its own.
+    const other = await opener({ moduleId: 'planner', workspaceId: 'ws-project', dedupeKey: 'acme/app#12' })
+    assert.equal(other.ok && other.existing, undefined)
+    assert.equal(recorded.writes.length, 1)
+  })
+
+  test('a name or key that is not a string, or too long, is refused before anything is written', async () => {
+    const { opener, recorded } = setup()
+    for (const input of [{ name: 3 }, { name: 'x'.repeat(121) }, { dedupeKey: {} }, { dedupeKey: 'k'.repeat(201) }]) {
+      const result = await opener({ moduleId: 'planner', workspaceId: 'ws-project', ...(input as object) })
+      assert.equal(!result.ok && result.code, 'invalid_input')
+    }
+    assert.deepEqual(recorded, { writes: [], drafts: [], ensured: [], reveals: [] })
+  })
 })

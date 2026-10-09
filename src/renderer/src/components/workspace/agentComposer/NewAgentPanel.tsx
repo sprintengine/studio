@@ -1,7 +1,8 @@
 import { parseMachinePath } from '../../../../../shared/machine-paths'
 import React from 'react'
 import type { AgentCli, CliPermissionPreset, WorkspaceSkill } from '../../../../../shared/electron-api'
-import type { MeshBrowse, MeshConnection } from '../../../../../shared/tailnet-mesh'
+import type { MeshBrowse, MeshConnection, MeshNewChatWorktree } from '../../../../../shared/tailnet-mesh'
+import type { ConversationImageAttachment } from '../../../../../shared/conversation-runtime'
 import { sameRepository, type RepositoryIdentity } from '../../../../../shared/repository-identity'
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
 import { ExtensionsGlyph, GitBranchGlyph } from '../../AppIcons'
@@ -21,7 +22,8 @@ import { useSshMachines } from '../../settings/SshMachinesSection'
 import { FolderIdentityIcon } from '../FolderIdentityIcon'
 import { useProjectColor } from '../../../hooks/useProjectColors'
 import { projectColorKey } from '../../../utils/projectColor'
-import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
+import { resolveSkillMentionPrefix } from '../../../../../shared/skill-invocation'
+import { composerTokenAt } from '../../../../../shared/conversation/composerTrigger'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import {
   dataTransferHasDroppableFiles,
@@ -104,7 +106,7 @@ import {
   sortMachines,
   type MachineBrowseEntry,
 } from './newChatMachines'
-import { RemoteProjectPicker, type RemoteTargetState } from './RemoteProjectPicker'
+import { RemoteProjectPicker, RemoteWorktreePicker, type RemoteTargetState } from './RemoteProjectPicker'
 import { ComposerStrip } from './ComposerStrip'
 import { FrontTruncatedText } from '../../ui/FrontTruncatedText'
 import { ScheduledRuns } from './schedule/ScheduledRuns'
@@ -351,10 +353,33 @@ export type RemoteNewChatLaunch = {
    * Absent for one that does not: the panel offered no level there.
    */
   effort?: string
-  /** The branch the workspace's checkout is on over there, as the panel read it before the create. */
+  /**
+   * The branch the chat starts on over there, as the panel read it before the
+   * create: the checkout's, or the picked worktree's. A new worktree's branch
+   * is the machine's to name, and its answer replaces this one.
+   */
   branch: string | null
+  /**
+   * Where in the project the chat runs, when not its own checkout: a worktree
+   * cut for it there, or one the project already has. Absent, the checkout.
+   */
+  worktree?: MeshNewChatWorktree
   /** Which repository the remote workspace is, as its machine served it (one-project-across-machines). */
   remoteRepository: RepositoryIdentity | null
+  /** That machine's skill ids, attached as the chat's chips and installed over there. */
+  skills?: string[]
+  /**
+   * The images staged with the prompt, as their bytes: the files that hold
+   * them here name nothing on that machine, so the bytes go up its upload
+   * route and the first message names them there.
+   */
+  images?: ConversationImageAttachment[]
+}
+
+// A staged image as it crosses to a paired machine: the attachment alone,
+// without the path of the file that holds it here.
+function remoteImage({ id, mediaType, dataBase64, name, byteLength }: NewChatDraftImage): ConversationImageAttachment {
+  return { id, mediaType, dataBase64, byteLength, ...(name ? { name } : {}) }
 }
 
 // A scheduled agent keeps its skills by id and name; the composer's chips
@@ -905,6 +930,23 @@ export default function NewAgentPanel({
       cancelled = true
     }
   }, [remoteConnectionId, remotePickedId])
+  // A worktree the picked remote project already has, picked to start the
+  // chat in. It belongs to the machine and project it was picked on, so
+  // another pick reads as the project's own checkout again, and it counts
+  // only while the checkout that machine served still lists it.
+  const [remoteWorktreePick, setRemoteWorktreePick] = React.useState<{
+    connectionId: string
+    workspaceId: string
+    path: string
+  } | null>(null)
+  const remoteExistingWorktree =
+    remoteWorktreePick &&
+    remoteWorktreePick.connectionId === remoteConnectionId &&
+    remoteWorktreePick.workspaceId === remotePickedId
+      ? (remoteTarget?.checkout?.worktrees.find(
+          (worktree) => !worktree.isMain && worktree.path === remoteWorktreePick.path,
+        ) ?? null)
+      : null
   const activeBranch = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? (resolveWorkspaceWorktree(ws)?.branch ?? null) : null
@@ -916,6 +958,13 @@ export default function NewAgentPanel({
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
 
   const [prompt, setPrompt] = React.useState(() => editing?.prompt ?? draft?.prompt ?? '')
+  // Where the caret is, as the field last said, with the draft it said it of.
+  // A draft set from here (a card, a pick) puts the field's caret at its end,
+  // which is where a caret for a draft the field has not spoken of is taken to
+  // be. A pick that wants it elsewhere asks through `pendingCaretRef`.
+  const [promptCaretAt, setPromptCaretAt] = React.useState<{ value: string; caret: number } | null>(null)
+  const promptCaret = promptCaretAt?.value === prompt ? promptCaretAt.caret : prompt.length
+  const pendingCaretRef = React.useRef<number | null>(null)
   const [enginePopoverOpen, setEnginePopoverOpen] = React.useState(false)
   // The hidden file input the "+" menu's Attach files row clicks. The menu
   // and the skills picker it opens over the same "+" are `ComposerPlusMenu`.
@@ -1128,13 +1177,16 @@ export default function NewAgentPanel({
   const effectiveMode = useCliPermissionMode(launchCli)
 
   // ── The skill trigger ────────────────────────────────────────────────────
-  // A chat carries skills as attachments rather than a typed invocation, so the
-  // CLI's mention syntax is a terminal launch's alone.
+  // A chat carries skills as attachments rather than a typed invocation, the
+  // same chips the "+" menu adds, so `/` opens the picker and a pick becomes a
+  // chip, whichever runtime the chat runs on. A terminal agent has its CLI's
+  // own `/` picker once it starts, so its prompt here opens none.
   const skillIntegration = React.useMemo(() => {
     if (!commandCli) return undefined
     return pluginCatalogEntries.find((entry) => entry.id === commandCli)?.skillIntegration
   }, [commandCli, pluginCatalogEntries])
   const mentionPrefix = resolveSkillMentionPrefix(skillIntegration)
+  const skillMarker = selection.kind === 'conversation' ? '/' : undefined
 
   // `/schedule every weekday at 9`: the schedule said where the cursor is.
   // Offered wherever scheduling is, from a chat launch too — picking a
@@ -1158,20 +1210,47 @@ export default function NewAgentPanel({
     promptRef.current?.focus()
   }, [])
 
-  const [mentionDismissed, setMentionDismissed] = React.useState(false)
+  // The type-ahead opens on a marker at a token boundary — the start of the
+  // draft, of any line, or after a space — with the caret in the token, and a
+  // pick replaces that token alone. Esc keeps it shut for the token it was
+  // pressed in; a token no skill matches closes it until the next keystroke.
+  const [mentionDismissedAt, setMentionDismissedAt] = React.useState<number | null>(null)
+  const [mentionEmpty, setMentionEmpty] = React.useState(false)
   const mentionRef = React.useRef<InlineSkillPickerHandle | null>(null)
-  const mentionQuery = React.useMemo(() => {
-    if (!mentionPrefix || mentionDismissed || slashQuery !== null) return null
-    const match = new RegExp(`(?:^|\\s)\\${mentionPrefix}([^\\s]*)$`).exec(prompt)
-    return match ? match[1] : null
-  }, [mentionDismissed, mentionPrefix, prompt, slashQuery])
+  const mentionToken = React.useMemo(
+    () => (skillMarker && slashQuery === null ? composerTokenAt(prompt, promptCaret, skillMarker) : null),
+    [prompt, promptCaret, skillMarker, slashQuery],
+  )
+  const mentionStart = mentionToken?.range.start ?? null
+  React.useEffect(() => {
+    if (mentionDismissedAt !== null && mentionStart !== mentionDismissedAt) setMentionDismissedAt(null)
+  }, [mentionDismissedAt, mentionStart])
+  const mentionQuery =
+    mentionToken && !mentionEmpty && mentionToken.range.start !== mentionDismissedAt ? mentionToken.query : null
+  const dismissMention = React.useCallback(() => setMentionDismissedAt(mentionStart), [mentionStart])
+
+  // Put the caret where a pick asked once the rewritten draft has rendered.
+  React.useEffect(() => {
+    const caret = pendingCaretRef.current
+    if (caret === null) return
+    pendingCaretRef.current = null
+    promptRef.current?.focus()
+    promptRef.current?.setSelectionRange(caret, caret)
+    setPromptCaretAt({ value: prompt, caret })
+  }, [prompt])
+
+  const replaceMentionToken = (text: string) => {
+    if (!mentionToken) return
+    const { start, end } = mentionToken.range
+    // A space already after the token is reused rather than doubled.
+    const tail = text.endsWith(' ') && /^\s/u.test(prompt.slice(end)) ? end + 1 : end
+    pendingCaretRef.current = start + text.length
+    setPrompt(prompt.slice(0, start) + text + prompt.slice(tail))
+  }
 
   const applySkillMention = (skill: WorkspaceSkill) => {
-    const mention = renderSkillMention(skillIntegration, skill.id)
-    if (!mention || !mentionPrefix) return
-    setPrompt((current) => current.replace(new RegExp(`\\${mentionPrefix}[^\\s]*$`), `${mention} `))
-    setMentionDismissed(true)
-    promptRef.current?.focus()
+    if (!composer.skills.some((entry) => entry.id === skill.id)) composer.setSkills([...composer.skills, skill])
+    replaceMentionToken('')
   }
 
   // Switching CLIs re-renders mentions already typed in the new one's form.
@@ -1205,23 +1284,60 @@ export default function NewAgentPanel({
     }
   }, [workspaceRoot])
 
-  // Worktree is offered only inside a git repository on this machine, for an
-  // agent: absent, not disabled. A paired machine's or an SSH machine's chat
-  // has no checkout here to fork, and an extension's folder is new.
-  const worktreeOffered =
-    !extensionMode && selection.kind !== 'terminal' && !remoteTarget && !pickedSsh && workspaceIsGitRepo
+  // A paired machine cuts a chat's worktree itself, from its own checkout of
+  // the project, where it said it takes one (`new-chat-worktree`) and the
+  // checkout it served is a git repository. An older build would skip the
+  // argument and start the chat in the checkout, so there the chip is absent.
+  const remoteCapabilities = remoteTarget?.capabilities ?? null
+  const remoteWorktreeOffered =
+    !extensionMode &&
+    remoteTarget?.checkout?.git === true &&
+    (remoteCapabilities?.includes('new-chat-worktree') ?? false)
+  // Its name, where that machine takes one; elsewhere it makes one up.
+  const remoteWorktreeNameable = remoteCapabilities?.includes('new-chat-worktree-name') ?? false
+  // A worktree the project already has, where that machine starts a chat in one.
+  const remoteWorktreePickable =
+    !extensionMode &&
+    remoteTarget?.checkout?.git === true &&
+    (remoteCapabilities?.includes('new-chat-in-worktree') ?? false) &&
+    remoteTarget.checkout.worktrees.some((worktree) => !worktree.isMain)
+  // Worktree is offered only inside a git repository, for an agent: absent,
+  // not disabled. On this machine, a repository here; on a paired machine,
+  // one there that said it cuts worktrees for a chat started from here. An
+  // SSH machine's chat has no checkout here to fork, and an extension's
+  // folder is new.
+  const worktreeOffered = remoteTarget
+    ? remoteWorktreeOffered
+    : !extensionMode && selection.kind !== 'terminal' && !pickedSsh && workspaceIsGitRepo
+  // The Worktree chip and an existing remote worktree are two answers to one
+  // question, where the chat runs: turning the chip on puts the picked
+  // worktree back, and picking one turns the chip off.
+  const setWorktreeName = composer.setWorktreeName
+  const changeWorktreeName = (next: string | null) => {
+    if (next !== null) setRemoteWorktreePick(null)
+    setWorktreeName(next)
+  }
+  const pickRemoteWorktree = (path: string | null) => {
+    if (!remoteConnectionId || !remotePickedId || path === null) {
+      setRemoteWorktreePick(null)
+      return
+    }
+    setRemoteWorktreePick({ connectionId: remoteConnectionId, workspaceId: remotePickedId, path })
+    setWorktreeName(null)
+  }
   // The worktree a chat started here will run in is made while the person
   // types, so Enter finds it ready: Worktree on with no name typed (a name is
-  // its own branch, made on Enter), for a chat that starts now.
+  // its own branch, made on Enter), for a chat that starts now. A paired
+  // machine cuts its own, so only a chat on this machine reserves one.
   useNewChatWorktreeReservation({
-    enabled: worktreeOffered && composer.worktreeName === '' && !scheduled && !editing,
+    enabled: worktreeOffered && !remoteTarget && composer.worktreeName === '' && !scheduled && !editing,
     folderPath: workspaceRoot,
     hostId: hostChoosable ? hostId : null,
   })
   // The chip starts on at the door, so a launch it is not offered for drops
   // the worktree rather than carrying one nobody could see: a folder that is
   // not a git repository would fail to make it and keep the chat from
-  // starting, and another machine's chat would ignore it.
+  // starting, and an older paired machine would ignore it.
   const buildLaunchConfirm = (target: AgentComposerSelection): AgentComposerConfirm => {
     const confirm = composer.buildConfirm(target)
     if (worktreeOffered || confirm.kind === 'terminal' || !confirm.worktree) return confirm
@@ -1564,21 +1680,19 @@ export default function NewAgentPanel({
     if (remoteTarget) {
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
       const confirm = buildLaunchConfirm(selection)
+      // The worktree the project already has, picked and still on offer.
+      const remoteRunsIn = remoteWorktreePickable ? remoteExistingWorktree : null
       if (confirm.kind !== 'conversation') return
-      // A chat's skills are this machine's and its images and files are local
-      // files: none has a way over yet, and a path on this disk typed into
+      // Attached files are files on this disk, and a path here typed into
       // that machine's prompt names nothing there, so their chips refuse
-      // rather than vanish.
-      const stranded = [
-        confirm.skills?.length ? 'the skills' : null,
-        images.length > 0 ? 'the attached images' : null,
-        files.length > 0 ? 'the attached files' : null,
-      ].filter((entry): entry is string => entry !== null)
-      if (stranded.length > 0) {
+      // rather than vanish. Images travel as bytes with the launch, and skills
+      // are that machine's own, picked from its list: it installs and runs
+      // them, and refuses them in words if it is too old to.
+      if (files.length > 0) {
         showToast({
           tone: 'warn',
           title: 'That chat cannot travel yet',
-          description: `Remove ${stranded.join(' and ')} to start on ${remoteTarget.connection.machineName}, or start it on This device.`,
+          description: `Remove the attached files to start on ${remoteTarget.connection.machineName}, or start it on This device.`,
         })
         return
       }
@@ -1594,8 +1708,17 @@ export default function NewAgentPanel({
         cliModel: confirm.model ?? null,
         permissionPreset: effectivePreset,
         ...(remoteTakesEffort && confirm.reasoning ? { effort: confirm.reasoning } : {}),
-        branch: remoteTarget.checkout?.branch ?? null,
+        branch: remoteRunsIn ? remoteRunsIn.branch : (remoteTarget.checkout?.branch ?? null),
+        // Where in the project it runs: a worktree cut for it (named only
+        // where the machine takes a name), or one the project already has.
+        ...(confirm.worktree
+          ? { worktree: { kind: 'new' as const, name: remoteWorktreeNameable ? confirm.worktree.name.trim() : '' } }
+          : remoteRunsIn
+            ? { worktree: { kind: 'existing' as const, path: remoteRunsIn.path } }
+            : {}),
         remoteRepository: remoteTarget.picked.repository,
+        ...(images.length > 0 ? { images: images.map(remoteImage) } : {}),
+        ...(confirm.skills?.length ? { skills: confirm.skills.map((skill) => skill.id) } : {}),
       })
         .finally(() => setRemoteLaunching(false))
         // The host reports its own failures as toasts; a throw past its catch
@@ -1765,7 +1888,7 @@ export default function NewAgentPanel({
         }
       } else if (event.key === 'Escape') {
         event.preventDefault()
-        setMentionDismissed(true)
+        dismissMention()
         return
       }
     }
@@ -1901,6 +2024,15 @@ export default function NewAgentPanel({
   // What the launch reads skills and MCP servers through: nothing for a plain shell.
   const skillsOffered = selection.kind !== 'terminal'
   const { skills: pickedSkills, setSkills, mcpServers: pickedMcpServers, setMcpServers } = composer
+  const remotePickedConnection = remoteTarget?.picked ? remoteTarget.connection.id : null
+  const remotePickedWorkspace = remoteTarget?.picked?.workspaceId ?? null
+  const remoteSkillsSource = React.useMemo(
+    () =>
+      remotePickedConnection && remotePickedWorkspace
+        ? { connectionId: remotePickedConnection, workspaceId: remotePickedWorkspace }
+        : null,
+    [remotePickedConnection, remotePickedWorkspace],
+  )
   const plusSkills = React.useMemo(
     () =>
       skillsOffered
@@ -1913,9 +2045,22 @@ export default function NewAgentPanel({
             onSkillsChange: setSkills,
             mcpServers: pickedMcpServers,
             onMcpServersChange: setMcpServers,
+            // A chat on a paired machine is offered that machine's skills and
+            // servers. Its servers are its own to configure, so none is
+            // added from here.
+            ...(remoteSkillsSource ? { remote: remoteSkillsSource, mcpPickable: false } : {}),
           }
         : undefined,
-    [commandCli, pickedMcpServers, pickedSkills, setMcpServers, setSkills, skillsOffered, workspaceRoot],
+    [
+      commandCli,
+      pickedMcpServers,
+      pickedSkills,
+      remoteSkillsSource,
+      setMcpServers,
+      setSkills,
+      skillsOffered,
+      workspaceRoot,
+    ],
   )
   const scheduleShown = scheduleOffered || editing !== null
   const scheduleDisabled = editing
@@ -2018,7 +2163,24 @@ export default function NewAgentPanel({
       <span className="min-w-0 truncate">{projectLabel}</span>
     </span>
   ) : null
-  const stripShown = machinePickerShown || projectControl !== null || worktreeOffered || Boolean(stripBranch)
+  // A paired machine's project with worktrees of its own: the branch is a
+  // picker of where in the project the chat runs, not a line.
+  const remoteWorktreePicker =
+    remoteTarget?.checkout && remoteWorktreePickable ? (
+      <RemoteWorktreePicker
+        machineName={remoteTarget.connection.machineName}
+        checkout={remoteTarget.checkout}
+        picked={remoteExistingWorktree?.path ?? null}
+        newWorktree={worktreeOffered && composer.worktreeName !== null}
+        onPick={pickRemoteWorktree}
+      />
+    ) : null
+  const stripShown =
+    machinePickerShown ||
+    projectControl !== null ||
+    worktreeOffered ||
+    Boolean(stripBranch) ||
+    remoteWorktreePicker !== null
 
   // The second line of the send's tooltip, where the door can stay: the chord
   // as this platform spells it, for the person who starts several in a row.
@@ -2117,13 +2279,13 @@ export default function NewAgentPanel({
             <InlineSkillPicker
               ref={mentionRef}
               workspaceRoot={workspaceRoot}
-              pluginId={launchCli}
+              pluginId={commandCli}
               query={mentionQuery}
               onPick={applySkillMention}
               onMatchCountChange={(count) => {
-                if (count === 0 && mentionQuery.length > 0) setMentionDismissed(true)
+                if (count === 0 && mentionQuery.length > 0) setMentionEmpty(true)
               }}
-              onDismiss={() => setMentionDismissed(true)}
+              onDismiss={dismissMention}
             />
           ) : null}
 
@@ -2172,10 +2334,14 @@ export default function NewAgentPanel({
                 event.preventDefault()
                 void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
               }}
-              onChange={(value) => {
+              onChange={(value, caret) => {
                 setPrompt(value)
-                setMentionDismissed(false)
+                setPromptCaretAt({ value, caret })
+                setMentionEmpty(false)
               }}
+              // The field's own text, not this render's `prompt`: a caret
+              // moved straight after an edit arrives before the re-render.
+              onSelectionChange={(caret) => setPromptCaretAt({ value: promptRef.current?.value ?? prompt, caret })}
               onKeyDown={onPromptKeyDown}
               placeholder={placeholder}
               disabled={isTerminalLaunch}
@@ -2422,8 +2588,16 @@ export default function NewAgentPanel({
             {/* Worktree, then the branch it is cut from (or the launch runs
                 on): off until turned on or named. Set apart from the project
                 by the strip's spacing alone, with no rule between. */}
-            {worktreeOffered ? <WorktreeChip name={composer.worktreeName} onChange={composer.setWorktreeName} /> : null}
-            {stripBranch ? (
+            {worktreeOffered ? (
+              <WorktreeChip
+                name={composer.worktreeName}
+                onChange={changeWorktreeName}
+                nameable={!remoteTarget || remoteWorktreeNameable}
+              />
+            ) : null}
+            {remoteWorktreePicker ? (
+              remoteWorktreePicker
+            ) : stripBranch ? (
               // The one item on the strip that may shrink: it gives its front
               // away first, so the end of the name — the part that says what
               // the branch is for — is what stays.

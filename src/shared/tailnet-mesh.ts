@@ -90,6 +90,11 @@ export type MeshWorkspaceCheckout = {
 export type MeshWorkspaceCheckoutResult =
   { ok: true; checkout: MeshWorkspaceCheckout } | { ok: false; code: string; message: string }
 
+/** A paired machine's `workspace.extensions` answer for one of its projects. */
+export type MeshWorkspaceExtensionsResult =
+  | { ok: true; extensions: import('./workspace-extensions').WorkspaceExtensions }
+  | { ok: false; code: string; message: string }
+
 /**
  * A part of a browse this machine is not allowed to read, named with the reason.
  *
@@ -141,12 +146,31 @@ export type MeshLinkState =
 export type MeshPairResult = { ok: true; connection: MeshConnection } | { ok: false; code: string; message: string }
 
 /**
+ * Where a New chat on a paired machine runs when it is not the project's own
+ * folder: a worktree cut for it there (a name, or '' for one made up there),
+ * or a worktree the project already has, by the path `workspace.checkout`
+ * listed. A machine is asked for one only where it advertises the capability
+ * (`new-chat-worktree`, `new-chat-worktree-name`, `new-chat-in-worktree`).
+ */
+export type MeshNewChatWorktree = { kind: 'new'; name: string } | { kind: 'existing'; path: string }
+
+/**
  * A chat agent started on a paired machine (`conversation.create`). The chat
  * is known there by its workspace and agent ids, which is what a pane follows
- * it by; `title` is the agent's name there.
+ * it by; `title` is the agent's name there. `worktree` is the worktree it runs
+ * in there, as that machine answered; null for the project's own folder, or a
+ * machine that does not say.
  */
 export type MeshCreateConversationResult =
-  | { ok: true; workspaceId: string; agentId: string; title: string; providerId: string; modelId: string }
+  | {
+      ok: true
+      workspaceId: string
+      agentId: string
+      title: string
+      providerId: string
+      modelId: string
+      worktree?: { path: string; branch: string | null } | null
+    }
   | { ok: false; code: string; message: string }
 
 /**
@@ -310,6 +334,7 @@ export const MESH_SETTLE_CONVERSATION_CHANNEL = 'mesh:settle-conversation'
 export const MESH_VISIT_CONVERSATION_CHANNEL = 'mesh:visit-conversation'
 /** One remote workspace's checkout facts (branch, branches, worktrees) over `workspace.checkout`. */
 export const MESH_WORKSPACE_CHECKOUT_CHANNEL = 'mesh:workspace-checkout'
+export const MESH_WORKSPACE_EXTENSIONS_CHANNEL = 'mesh:workspace-extensions'
 
 /**
  * What forgetting a machine did, from the Mesh's side.
@@ -388,6 +413,10 @@ export type MeshConversationFrame = ConversationSessionFrame | MeshConversationL
  * sends it when the turn ends. False for a machine that does not, where the
  * message waits here and goes when the turn ends only if this machine is
  * awake to send it.
+ *
+ * `sendSkills`: the machine advertises `conversation-send-skills` and
+ * `workspace-extensions` — a message to one of its chats may carry its skills,
+ * listed for the composer by `meshWorkspaceExtensions`.
  */
 export type MeshConversationListResult =
   | {
@@ -398,6 +427,7 @@ export type MeshConversationListResult =
       permissionModes?: boolean
       lifecycle?: boolean
       queuedSends?: boolean
+      sendSkills?: boolean
     }
   | { ok: false; code: string; message: string }
 

@@ -10,8 +10,15 @@ input, skills, plans, questions, interruption, and permission presets.
 Start a chat in a workspace, choose an installed provider and model, and send a
 prompt. Tool activity stays in the transcript with expandable input/output and
 file links. Older turns page in as needed; search can open a historical turn.
-Selecting a skill adds persistent context, while file mentions attach to one
-send. A file dropped, picked or pasted from the computer into a chat that runs
+Selecting a skill attaches it to the chat, while file mentions attach to one
+send. Claude chats load attached skills natively. Codex, Cursor, Grok and
+OpenCode chats are told to run the skill by name, the way each CLI's own picker
+would (`$name` for Codex, `/name` for Cursor and Grok, its skill tool by name
+for OpenCode), once, on the turn it is attached; the skill is copied into the
+folder that CLI reads first if it is not there. Only a provider with no CLI
+behind it is sent the SKILL.md as instructions. The composer's Skills & MCPs
+picker also lists the MCP servers the chat's CLI is configured with, with the
+connection each last reported. A file dropped, picked or pasted from the computer into a chat that runs
 on it is a card: the send carries it beside the words (`files` on the send and
 on its `user_message`), the agent is told where it is, and the bubble draws the
 card from that list, never from the text. Failed sends keep the draft. Pending approvals and questions appear above
@@ -602,9 +609,15 @@ solo workspace whose pane is the regular chat view, following the conversation
 over the tailnet, with the machine on the tab and above the transcript.
 New chat starts one there too: with Chat agent picked, the machine dropdown
 offers the paired machines, and launching on one asks it to start the chat in
-the chosen project and opens that same pane on it. Skills and attached images
-are this machine's and do not travel yet; the launcher says so rather than
-dropping them. A WSL distribution is still not offered for a chat, which runs
+the chosen project and opens that same pane on it. Attached images go with
+the first message: the chat is started without its words, each image goes up
+that machine's upload route under the new chat's session, and the words are
+sent naming them, as a message to a followed chat is. That chat reads them
+exactly as one started there would. A chat that cannot take them (a machine
+without uploads, a CLI whose chat reads no images) is refused with the reason,
+and an empty chat it left behind is settled. Skills and attached files are this
+machine's and do not travel yet; the launcher says so rather than dropping
+them. A WSL distribution is still not offered for a chat, which runs
 in the app's own process.
 
 - **The copy is kept.** Main follows over one socket per conversation, shared

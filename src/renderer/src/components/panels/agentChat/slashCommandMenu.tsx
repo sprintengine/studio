@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { ConversationCommand } from '../../../../../shared/conversation/commands'
 import { MenuOption, Popover, Spinner, TruncatedText } from '../../ui'
+import { renderChatSkillMention } from '../../../utils/skillInvocation'
 
 // The `/` menu: the commands the chat's CLI said it runs in this folder, with
 // Studio's own few first. Focus never leaves the composer — the field is the
@@ -62,9 +63,28 @@ export function rankConversationCommands(
     .map((entry) => entry.command)
 }
 
-/** What choosing a row puts in the composer in place of the `/query` token. */
-export function commandInsertText(command: ConversationCommand): string {
-  return command.insertText ?? `/${command.name} `
+/**
+ * Whether a row does anything when its token does not open the message. A CLI
+ * runs `/name` only as the message's first word, so later in it a built-in or
+ * a custom command would reach the model as prose; the rows kept are Studio's
+ * own (they act in the composer and leave nothing behind), a row that inserts
+ * its own text (Codex reads a `$name` skill mention anywhere), and a skill,
+ * which goes in as a phrase the agent can follow.
+ */
+export function commandWorksMidMessage(command: ConversationCommand): boolean {
+  return command.source === 'app' || command.insertText !== undefined || command.source === 'skill'
+}
+
+/**
+ * What choosing a row puts in the composer in place of the `/query` token:
+ * `/name ` where the token opens the message. Anywhere else a skill the CLI
+ * lists as a command becomes "the name skill" — a `/name` there is not
+ * expanded by any of the CLIs, and the phrase is what every agent follows.
+ */
+export function commandInsertText(command: ConversationCommand, opensMessage = true): string {
+  if (command.insertText !== undefined) return command.insertText
+  if (!opensMessage && command.source === 'skill') return `${renderChatSkillMention({ id: command.name })} `
+  return `/${command.name} `
 }
 
 export type SlashCommandMenuStatus = {

@@ -8,7 +8,7 @@
   "source": "third-party",
   "permissions": [
     "conversation:operate",
-    "ipc:invoke",
+    "module:bridge",
     "ipc:workspace-read"
   ],
   "dependsOn": [

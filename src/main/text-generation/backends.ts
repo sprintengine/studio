@@ -84,6 +84,161 @@ export function readClaudeStructuredStdout(stdout: string): unknown {
   return envelope.result ?? null
 }
 
+export type ClaudeTextInvocationInput = {
+  binaryPath: string
+  model: string
+  reasoning?: string | undefined
+  /** The system prompt the call runs under instead of Claude Code's own. */
+  system?: string
+}
+
+// `claude -p` for free text: the same doors shut as for a title (no tools, so
+// nothing executes whatever the prompt says; no hooks, skills or project MCP
+// servers), with the answer in the JSON envelope's `result` rather than a
+// schema. The prompt goes on stdin; the system prompt is one argv entry, never
+// a shell word.
+export function claudeTextInvocation(input: ClaudeTextInvocationInput): ChatTitleInvocation {
+  return {
+    file: input.binaryPath,
+    args: [
+      '-p',
+      '--output-format',
+      'json',
+      '--model',
+      input.model,
+      ...(input.reasoning ? ['--effort', input.reasoning] : []),
+      ...(input.system ? ['--system-prompt', input.system] : []),
+      '--settings',
+      JSON.stringify({ disableAllHooks: true }),
+      '--tools',
+      '',
+      '--disable-slash-commands',
+      '--strict-mcp-config',
+    ],
+  }
+}
+
+/** What `claude -p --output-format json` says about one free-text call. */
+export type ClaudeTextAnswer = {
+  text: string
+  /** The model that answered, as the CLI names it; null when it does not say. */
+  model: string | null
+  usage: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }
+}
+
+/**
+ * The answer in a free-text call's stdout: the envelope's `result`, the model
+ * its `modelUsage` names, and its `usage` by the turn-usage contract (fresh
+ * input apart from the cache's reads and writes). Null for an error envelope
+ * or stdout that is not JSON.
+ */
+export function readClaudeTextStdout(stdout: string): ClaudeTextAnswer | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout)
+  } catch {
+    return null
+  }
+  const envelope = Array.isArray(parsed)
+    ? parsed.findLast((entry): entry is Record<string, unknown> =>
+        Boolean(entry && typeof entry === 'object' && (entry as { type?: unknown }).type === 'result'),
+      )
+    : parsed && typeof parsed === 'object'
+      ? (parsed as Record<string, unknown>)
+      : undefined
+  if (!envelope || envelope.is_error === true || typeof envelope.result !== 'string') return null
+  const usage = envelope.usage && typeof envelope.usage === 'object' ? (envelope.usage as Record<string, unknown>) : {}
+  const count = (value: unknown): number | undefined =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+  const counts = {
+    inputTokens: count(usage.input_tokens),
+    outputTokens: count(usage.output_tokens),
+    cacheReadTokens: count(usage.cache_read_input_tokens),
+    cacheWriteTokens: count(usage.cache_creation_input_tokens),
+  }
+  const modelUsage =
+    envelope.modelUsage && typeof envelope.modelUsage === 'object' ? Object.keys(envelope.modelUsage) : []
+  return {
+    text: envelope.result,
+    model: modelUsage[0] ?? null,
+    usage: Object.fromEntries(Object.entries(counts).filter(([, value]) => value !== undefined)),
+  }
+}
+
+export type CodexTextInvocationInput = {
+  binaryPath: string
+  model: string
+  reasoning?: string | undefined
+  /** Where Codex is told to write its last message: the answer. */
+  outputPath: string
+}
+
+// `codex exec` for free text: the title recipe without an output schema, plus
+// `--json`, whose event stream on stdout is where Codex says what the call
+// spent. The answer is the last message, written to `outputPath`. There is no
+// output cap: Codex's configuration has no key for one, and an unknown `-c`
+// key is silently ignored, so passing one would only look like a cap.
+export function codexTextInvocation(input: CodexTextInvocationInput): ChatTitleInvocation {
+  return {
+    file: input.binaryPath,
+    args: [
+      'exec',
+      '--ephemeral',
+      '--skip-git-repo-check',
+      '-s',
+      'read-only',
+      '--model',
+      input.model,
+      ...(input.reasoning ? ['-c', `model_reasoning_effort="${input.reasoning}"`] : []),
+      '--json',
+      '--output-last-message',
+      input.outputPath,
+      '-',
+    ],
+  }
+}
+
+/**
+ * The message Codex is sent for a call with a system prompt: `codex exec`
+ * takes no system prompt of its own, so the instructions lead the message,
+ * marked off from the prompt they govern.
+ */
+export function codexTextPrompt(system: string, prompt: string): string {
+  return `Instructions for this task:\n${system}\n\n---\n\n${prompt}`
+}
+
+/**
+ * What a `codex exec --json` call spent, by the turn-usage contract, summed
+ * over its `turn.completed` events: Codex counts the cache's share inside its
+ * input, so the fresh input is the rest. Empty when the stream says nothing.
+ */
+export function readCodexTextUsage(stdout: string): ClaudeTextAnswer['usage'] {
+  let input = 0
+  let cached = 0
+  let output = 0
+  let seen = false
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.trim().startsWith('{')) continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const event = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+    if (event?.type !== 'turn.completed' || !event.usage || typeof event.usage !== 'object') continue
+    const usage = event.usage as Record<string, unknown>
+    const count = (value: unknown): number =>
+      typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
+    input += count(usage.input_tokens)
+    cached += count(usage.cached_input_tokens)
+    output += count(usage.output_tokens)
+    seen = true
+  }
+  if (!seen) return {}
+  return { inputTokens: Math.max(0, input - cached), outputTokens: output, cacheReadTokens: cached }
+}
+
 export type CodexInvocationInput = {
   binaryPath: string
   model: string

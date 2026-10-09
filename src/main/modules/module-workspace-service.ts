@@ -1,4 +1,9 @@
-import { toModuleWorkspaceView, type ModuleWorkspaceView } from '../../shared/modules/workspace-view'
+import {
+  toModuleWorkspaceView,
+  type ModuleWorkspaceListEntry,
+  type ModuleWorkspaceListOptions,
+  type ModuleWorkspaceView,
+} from '../../shared/modules/workspace-view'
 import type { WorkspaceCreateRequest } from '../workspace-registry-service'
 import type { WorkspaceSyncService } from '../workspace-sync-service'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
@@ -46,13 +51,17 @@ export type ModuleWorkspaceContextService = {
    * Every workspace currently open, in registry order. The main-side twin of
    * `RendererHost.listWorkspaces`, and the only way a module's `entry.main`
    * can answer "which project roots are open" — an MCP tool a module
-   * contributes runs with no window and no renderer to ask.
+   * contributes runs with no window and no renderer to ask. Each entry says
+   * `open: true`; with `includeClosed`, the workspaces closed on this machine
+   * follow, newest first, with `open: false` and `closedAt`.
    */
-  list(): Promise<ModuleWorkspaceView[]>
+  list(options?: ModuleWorkspaceListOptions): Promise<ModuleWorkspaceListEntry[]>
 }
 
 export type ModuleWorkspaceContextBackends = {
   getWorkspaceSyncSnapshot: () => WorkspaceSyncSnapshot
+  /** The workspaces closed on this machine, newest first; absent lists none. */
+  listClosedWorkspaces?: () => ReadonlyArray<ModuleWorkspaceView & { closedAt: number }>
 }
 
 export function createModuleWorkspaceContextService(
@@ -64,11 +73,25 @@ export function createModuleWorkspaceContextService(
       if (!workspace) return null
       return toModuleWorkspaceView(workspace)
     },
-    async list(): Promise<ModuleWorkspaceView[]> {
-      return backends
+    async list(options): Promise<ModuleWorkspaceListEntry[]> {
+      const open: ModuleWorkspaceListEntry[] = backends
         .getWorkspaceSyncSnapshot()
         .state.workspaces.map((workspace) => toModuleWorkspaceView(workspace))
         .filter((view): view is ModuleWorkspaceView => view !== null)
+        .map((view) => ({ ...view, open: true }))
+      if (options?.includeClosed !== true) return open
+      const openIds = new Set(open.map((entry) => entry.id))
+      const closed = (backends.listClosedWorkspaces?.() ?? [])
+        .filter((record) => !openIds.has(record.id))
+        .map((record) => ({
+          id: record.id,
+          name: record.name,
+          folderPath: record.folderPath,
+          mode: record.mode,
+          open: false,
+          closedAt: record.closedAt,
+        }))
+      return [...open, ...closed]
     },
   }
 }

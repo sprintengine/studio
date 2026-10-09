@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto'
 import { writeFileAtomically } from '../config-file-write'
 import {
   validateScheduledAgentDraft,
+  withoutEmptyLabels,
   type ScheduledAgent,
   type ScheduledAgentDraft,
   type ScheduledAgentLastRun,
@@ -135,7 +136,7 @@ export function createScheduledAgentsStore(options: ScheduledAgentsStoreOptions)
       await writable()
       const at = now()
       const agent: ScheduledAgent = {
-        ...draft,
+        ...withoutEmptyLabels(draft),
         id: newId(),
         ownerModuleId: ownerModuleId?.trim() || null,
         createdAt: at,
@@ -151,7 +152,8 @@ export function createScheduledAgentsStore(options: ScheduledAgentsStoreOptions)
       await writable()
       const current = agents.find((agent) => agent.id === id)
       if (!current) return null
-      const next: ScheduledAgent = { ...current, ...draft, updatedAt: now() }
+      // A draft that does not name a name or tag keeps the record's; an empty one clears it.
+      const next: ScheduledAgent = withoutEmptyLabels({ ...current, ...draft, updatedAt: now() })
       replace(id, next)
       await persist()
       return next
@@ -215,7 +217,7 @@ function parseStoreFile(
       continue
     }
     agents.push({
-      ...validated.draft,
+      ...withoutEmptyLabels(validated.draft),
       id: entry.id,
       ownerModuleId: typeof entry.ownerModuleId === 'string' && entry.ownerModuleId ? entry.ownerModuleId : null,
       createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : now,
@@ -230,7 +232,12 @@ function parseStoreFile(
 function parseLastRun(input: unknown): ScheduledAgentLastRun | null {
   if (!isRecord(input) || typeof input.at !== 'number') return null
   if (input.ok === true && typeof input.workspaceId === 'string') {
-    return { at: input.at, ok: true, workspaceId: input.workspaceId }
+    return {
+      at: input.at,
+      ok: true,
+      workspaceId: input.workspaceId,
+      ...(typeof input.agentId === 'string' && input.agentId ? { agentId: input.agentId } : {}),
+    }
   }
   if (input.ok === false && typeof input.message === 'string')
     return { at: input.at, ok: false, message: input.message }

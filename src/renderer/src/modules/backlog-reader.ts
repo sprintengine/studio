@@ -1,5 +1,6 @@
 import type { BacklogScanSnapshot } from '../hooks/useSharedBacklogScan'
 import type { BacklogItem, BacklogScanResult } from '../utils/backlog'
+import type { BacklogWatchError } from '../../../shared/modules/backlog-service'
 import type { BacklogReader } from './renderer-host'
 
 // The backlog module's implementation of the kernel's BacklogReader seam:
@@ -80,21 +81,28 @@ export function createBacklogReader(deps: BacklogReaderDeps): BacklogReader {
       })
     },
 
-    watch(workspaceId, cb) {
+    watch(workspaceId, cb, onError) {
       let disposed = false
       let unsubscribe: (() => void) | null = null
+      // Each failure is said to the module (`onError`) as well as the console:
+      // a watch that cannot deliver must not read as a Backlog still loading.
+      const fail = (error: BacklogWatchError, detail?: unknown): void => {
+        if (disposed) return
+        if (detail === undefined) console.warn(`[backlog] watchBacklogItems: ${error.message}`)
+        else console.warn(`[backlog] watchBacklogItems: ${error.message}`, detail)
+        onError?.(error)
+      }
       // Folder resolution is async (lazy store import); the subscription starts
-      // as soon as it lands unless the caller already unsubscribed. There is no
-      // error channel on a watch, so resolution failures are surfaced as
-      // console diagnostics instead of a silently dead subscription.
+      // as soon as it lands unless the caller already unsubscribed.
       deps
         .resolveFolderPath(workspaceId)
         .then((folderPath) => {
           if (disposed) return
           if (!folderPath) {
-            console.error(
-              `[backlog] watchBacklogItems: workspace "${workspaceId}" has no project folder — this watch will never fire.`,
-            )
+            fail({
+              code: 'workspace_folder_missing',
+              message: `Workspace "${workspaceId}" has no project folder, so it has no Backlog.`,
+            })
             return
           }
           unsubscribe = deps.subscribe(folderPath, (snapshot) => {
@@ -102,9 +110,11 @@ export function createBacklogReader(deps: BacklogReaderDeps): BacklogReader {
             // half-scan, and a failed scan is not deliverable as "no items".
             if (snapshot.loading || !snapshot.scan) return
             if (snapshot.scan.state === 'error') {
-              console.warn(
-                `[backlog] watchBacklogItems: the Backlog for "${workspaceId}" could not be read; skipping this update.`,
-              )
+              const cause = snapshot.scan.errors[0]
+              fail({
+                code: 'scan_failed',
+                message: `The Backlog for "${workspaceId}" could not be read${cause ? `: ${cause.relativePath}: ${cause.message}` : '.'}`,
+              })
               return
             }
             cb(copyItems(snapshot.scan))
@@ -114,9 +124,12 @@ export function createBacklogReader(deps: BacklogReaderDeps): BacklogReader {
             unsubscribe = null
           }
         })
-        .catch((error) => {
-          console.error(
-            `[backlog] watchBacklogItems: resolving workspace "${workspaceId}" failed — this watch will never fire.`,
+        .catch((error: unknown) => {
+          fail(
+            {
+              code: 'unknown_workspace',
+              message: `Workspace "${workspaceId}" could not be resolved: ${error instanceof Error ? error.message : String(error)}`,
+            },
             error,
           )
         })

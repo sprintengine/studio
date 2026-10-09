@@ -70,6 +70,18 @@ export function isExtensionsDrawerRowId(value: unknown): value is ExtensionsDraw
 }
 
 /**
+ * The installed doors' rows, by row id, with the module that owns each. An
+ * installed door's row id IS its surface id — the same id its module's
+ * `registerDoorBadge({ rowId })` names and its `notify` rows `target` — so
+ * a count, a piece of news and a selection all address one row without a
+ * second vocabulary. Empty until the live registry resolves (the drawer rows
+ * hook builds it); the fixed rows above are never in it.
+ */
+export type InstalledDoorRows = ReadonlyMap<string, string>
+
+const NO_INSTALLED_DOOR_ROWS: InstalledDoorRows = new Map()
+
+/**
  * Which row the card region is showing, from the open surface and — for the
  * rows that are views of one surface — the view it stands on. Null while
  * no drawer row is open (the home, a chat, a surface that is not a row). This is what "opening a row" means to the row's unread count: the
@@ -78,14 +90,17 @@ export function isExtensionsDrawerRowId(value: unknown): value is ExtensionsDraw
 export function openExtensionsDrawerRow(
   activeGlobalSurface: string | null,
   activeView: string | null,
-): ExtensionsDrawerRowId | null {
+  installedDoorRows: InstalledDoorRows = NO_INSTALLED_DOOR_ROWS,
+): string | null {
   if (!activeGlobalSurface) return null
   for (const row of DRAWER_ROWS) {
     if (row.kind === 'nav' && row.entryId === activeGlobalSurface) return row.rowId
     if (row.kind === 'surface' && row.surfaceId === activeGlobalSurface) return row.rowId
     if (row.kind === 'view' && row.surfaceId === activeGlobalSurface && row.viewId === activeView) return row.rowId
   }
-  return null
+  // An installed door is one row to its count, whichever of its views is up:
+  // the row id is the surface id.
+  return installedDoorRows.has(activeGlobalSurface) ? activeGlobalSurface : null
 }
 
 /**

@@ -13,7 +13,7 @@ import type { RailBadges } from './AppRail'
 import { openExtensionsDrawerRow } from './extensionsDrawer'
 import { useSurfaceView } from './surfaceView'
 import { doorBadgeSourceRows, useDoorBadgeContributions } from './useDoorBadges'
-import { useExtensionsRowBadges } from './useExtensionsRowBadges'
+import { useExtensionsRowBadges, useModuleNotificationRows } from './useExtensionsRowBadges'
 import type { WorkspaceActivity } from './workspaceManagerHelpers'
 
 // The rail's three badges, and what clears them. One hook rather than three
@@ -76,12 +76,14 @@ export function useRailBadges(input: {
   const rowBadges = useExtensionsRowBadges()
   const doorBadges = useDoorBadgeContributions()
   const sourceRows = useMemo(() => doorBadgeSourceRows(doorBadges), [doorBadges])
+  const moduleRows = useModuleNotificationRows()
 
   // The drawer row whose page is on screen — for the three rows that are views
   // of one surface, the view it stands on, so opening Plugins reads Plugins
-  // and not the Skills news beside it.
+  // and not the Skills news beside it. An installed door is one row whichever
+  // view is up.
   const activeView = useSurfaceView(activeGlobalSurface ?? '')
-  const openRow = openExtensionsDrawerRow(activeGlobalSurface, activeView)
+  const openRow = openExtensionsDrawerRow(activeGlobalSurface, activeView, moduleRows.doors)
 
   const extensionsSeenAt = sectionSeenAt.extensions
   const unseenCards = useMemo(() => unseenCardCount(cards, extensionsSeenAt), [cards, extensionsSeenAt])
@@ -89,9 +91,10 @@ export function useRailBadges(input: {
     () =>
       openRow !== null &&
       notifications.some(
-        (notification) => !notification.read && extensionsRowOfNotification(notification, sourceRows) === openRow,
+        (notification) =>
+          !notification.read && extensionsRowOfNotification(notification, sourceRows, moduleRows) === openRow,
       ),
-    [notifications, openRow, sourceRows],
+    [notifications, openRow, sourceRows, moduleRows],
   )
 
   // Reading. An open drawer row reads its
@@ -99,8 +102,8 @@ export function useRailBadges(input: {
   // is seen rather than badged behind the person.
   useEffect(() => {
     if (openRow === null || !openRowHasUnread) return
-    markReadWhere((notification) => extensionsRowOfNotification(notification, sourceRows) === openRow)
-  }, [openRow, openRowHasUnread, markReadWhere, sourceRows])
+    markReadWhere((notification) => extensionsRowOfNotification(notification, sourceRows, moduleRows) === openRow)
+  }, [openRow, openRowHasUnread, markReadWhere, sourceRows, moduleRows])
   // A fresh install: the first feed that lands is the baseline, not news. Only
   // cards published after this moment will ever count.
   useEffect(() => {

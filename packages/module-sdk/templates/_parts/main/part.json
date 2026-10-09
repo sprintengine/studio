@@ -1,0 +1,16 @@
+{
+  "id": "main",
+  "title": "Main entry",
+  "summary": "src/main.ts, built to entry.main: Node in Studio's main process, for services, MCP tools and the window half's own background code.",
+  "requires": [],
+  "permissions": [],
+  "permissionsWithRenderer": ["module:bridge"],
+  "dependsOn": ["agent-runtime"],
+  "entry": {
+    "main": "dist/main.cjs"
+  },
+  "scripts": {
+    "build:main": "esbuild src/main.ts --bundle --format=cjs --platform=node --target=node22 --external:electron --outfile=module/dist/main.cjs"
+  },
+  "devDependencies": {}
+}

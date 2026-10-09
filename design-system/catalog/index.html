@@ -113,6 +113,15 @@
   --sem-color-mark-violet: var(--ref-color-violet-500);
   --sem-color-mark-project-lightness: 0.54;
   --sem-color-mark-project-chroma: 0.09;
+  --sem-color-chart-1: #077ef0;
+  --sem-color-chart-2: #883601;
+  --sem-color-chart-3: #149483;
+  --sem-color-chart-4: #9f43c3;
+  --sem-color-chart-5: #768b09;
+  --sem-color-chart-6: #bf308f;
+  --sem-color-chart-7: #7e6cf7;
+  --sem-color-chart-8: #0581a3;
+  --sem-color-chart-other: var(--ref-color-paper-500);
   --sem-color-scaffold-ink: var(--ref-color-violet-500);
   --sem-color-scaffold-soft: rgba(137, 87, 229, 0.16);
   --sem-color-find-match: #ffe9a8;
@@ -243,6 +252,14 @@
   --sem-color-mark-cyan: var(--ref-color-cyan-400);
   --sem-color-mark-project-lightness: 0.74;
   --sem-color-mark-project-chroma: 0.125;
+  --sem-color-chart-1: #0c84fa;
+  --sem-color-chart-2: #ea630c;
+  --sem-color-chart-3: #1ba995;
+  --sem-color-chart-4: #b85dde;
+  --sem-color-chart-5: #879f07;
+  --sem-color-chart-6: #e253ae;
+  --sem-color-chart-8: #0da4cf;
+  --sem-color-chart-other: var(--ref-color-paper-400);
   --sem-color-find-match: #4a3f18;
   --sem-color-find-match-current: #8a6d10;
   --sem-color-agent-trail-ink: var(--ref-color-violet-300);
@@ -306,6 +323,14 @@
   --sem-color-mark-cyan: var(--ref-color-cyan-400);
   --sem-color-mark-project-lightness: 0.74;
   --sem-color-mark-project-chroma: 0.125;
+  --sem-color-chart-1: #0c84fa;
+  --sem-color-chart-2: #ea630c;
+  --sem-color-chart-3: #1ba995;
+  --sem-color-chart-4: #b85dde;
+  --sem-color-chart-5: #879f07;
+  --sem-color-chart-6: #e253ae;
+  --sem-color-chart-8: #0da4cf;
+  --sem-color-chart-other: var(--ref-color-paper-400);
   --sem-color-find-match: #4a3f18;
   --sem-color-find-match-current: #8a6d10;
   --sem-color-agent-trail-ink: var(--ref-color-violet-300);
@@ -366,6 +391,14 @@
   --sem-color-mark-cyan: var(--ref-color-cyan-700);
   --sem-color-mark-project-lightness: 0.54;
   --sem-color-mark-project-chroma: 0.09;
+  --sem-color-chart-1: #077ef0;
+  --sem-color-chart-2: #883601;
+  --sem-color-chart-3: #149483;
+  --sem-color-chart-4: #9f43c3;
+  --sem-color-chart-5: #768b09;
+  --sem-color-chart-6: #bf308f;
+  --sem-color-chart-8: #0581a3;
+  --sem-color-chart-other: var(--ref-color-paper-500);
   --sem-color-find-match: #ffe9a8;
   --sem-color-find-match-current: #ffc93c;
   --sem-color-agent-trail-ink: var(--ref-color-violet-600);
@@ -620,6 +653,8 @@ code {
 #ds-view-foundations-doc-principles:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-doc-principles"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-components:checked ~ .ds-catalog #components { display: block; }
 #ds-view-components:checked ~ .ds-catalog #components .catalog-view { display: block; }
+#ds-view-component-access-summary:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-access-summary:checked ~ .ds-catalog #component-access-summary { display: block; }
 #ds-view-component-agent-glyph:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-agent-glyph:checked ~ .ds-catalog #component-agent-glyph { display: block; }
 #ds-view-component-attachment-chip:checked ~ .ds-catalog #components { display: block; }
@@ -750,6 +785,8 @@ code {
 #ds-view-component-workspace-panel:checked ~ .ds-catalog #component-workspace-panel { display: block; }
 #ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-components:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-access-summary:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-access-summary"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-access-summary:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-access-summary"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-agent-glyph:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-agent-glyph"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-agent-glyph:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-agent-glyph"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-attachment-chip:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-attachment-chip"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -896,6 +933,142 @@ code {
 #ds-view-pattern-selection:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-selection"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 </style>
 <style>
+/* components/access-summary/component.css */
+/* Access summary — what an installed extension asks to reach, said at three
+ * depths: a glyph count on its list row, a short list in its details and trust
+ * review, and a set of quiet pills for the scopes that need no second look.
+ * Extracted from the shipped `AccessGlyphs`, `AccessCareList` and
+ * `AccessChips` primitives (src/renderer/src/components/ui/AccessSummary.tsx).
+ *
+ * The words are not decided here. Every scope has a short title, and the ones
+ * that need care a why of six words or fewer, in one table beside the full
+ * consent sentences (src/shared/modules/permissions.ts). This draws them. */
+
+/* ── Glyphs — the row's mark ────────────────────────────────────────────── */
+
+/* One warning triangle per scope that needs care. The count is the reading: a
+ * row with three triangles asks for a closer look than a row with one, and a
+ * row with none draws nothing. The glyphs are a tab stop of their own, because
+ * the tooltip naming them opens on focus as well as hover. */
+.ds-access-glyphs {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+  padding: var(--sem-space-2xs) var(--sem-space-xs);
+  border-radius: var(--sem-radius-chip);
+  color: var(--sem-color-status-warn);
+  cursor: help;
+}
+
+.ds-access-glyphs svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* The soft tint is where the pointer is, never at rest: at rest the triangles
+ * are the whole signal, and a tinted box around them would be a pill. */
+.ds-access-glyphs:hover {
+  background: var(--sem-color-status-warn-soft);
+}
+
+.ds-access-glyphs:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* The tooltip body: one line per glyph, the same triangle beside each title,
+ * so the list reads back to the marks it explains. */
+.ds-access-glyphs-list {
+  display: grid;
+  gap: var(--sem-space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-access-glyphs-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+}
+
+.ds-access-glyphs-list svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  color: var(--sem-color-status-warn);
+}
+
+/* ── Care list — details and trust review ──────────────────────────────── */
+
+.ds-access-care {
+  display: grid;
+  gap: var(--sem-space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-access-care-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--sem-space-sm);
+}
+
+.ds-access-care-item svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  /* Level with the first line of the title. */
+  margin-top: var(--sem-space-2xs);
+  color: var(--sem-color-status-warn);
+}
+
+.ds-access-care-title {
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-default);
+}
+
+.ds-access-care-why {
+  grid-column: 2;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+/* The raw scope, for the reader who wants to search for it. Mono, because it
+ * is the identifier itself (see scope-pill for why that matters at this size). */
+.ds-access-care-id {
+  grid-column: 2;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  letter-spacing: var(--sem-font-tracking-wide);
+  color: var(--sem-color-text-subtle);
+}
+
+/* ── Chips — the standard scopes ───────────────────────────────────────── */
+
+/* Disclosed, not flagged: a pill per scope so they can be counted, on the
+ * well ground, with no glyph, no border and no tone. */
+.ds-access-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sem-space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-access-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--sem-icon-size-lg);
+  padding: 0 var(--sem-space-sm);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-well);
+  color: var(--sem-color-text-default);
+  font-size: var(--sem-font-size-meta);
+}
+
 /* components/agent-glyph/component.css */
 /* Agent glyph — a spawned agent drawn as a small character.
  *
@@ -5169,6 +5342,17 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   color: var(--sem-color-text-primary);
 }
 
+/* name — the name of the thing a list row is about, when the name opens its
+ * details. Title ink at rest so it reads as the row's title; the hover
+ * underline is what says it can be pressed. */
+.ds-link-button--name {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-link-button--name:hover:not(:disabled) {
+  color: var(--sem-color-text-primary);
+}
+
 /* inherit — the link set inside prose the caller has already sized: a repo path
  * in rendered markdown, a name inside a heading. A size of our own there would
  * make one word of a sentence a different size from the rest of it. */
@@ -7496,6 +7680,20 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   text-align: left;
   cursor: pointer;
   transition: border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Size steps on the control ramp, matching the button and input steps of the
+ * same name so a select sits level with the controls in its row. The default
+ * above is `sm`. `xs` is the dense toolbar step and drops to meta type; the
+ * popup's options echo whichever type size the trigger shows. */
+.ds-select--xs {
+  height: var(--sem-size-control-xs);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-select--md {
+  height: var(--sem-size-control-md);
+  padding: 0 var(--sem-space-lg);
 }
 
 /* Hover lifts the border and the ink; the background does not move — a value
@@ -9905,6 +10103,64 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </style>
 <style>
 /* Demo and pattern scaffolding, scoped to each embed wrapper. */
+.ds-embed-component-access-summary {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-access-summary .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-access-summary .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-access-summary .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+.ds-embed-component-access-summary .demo-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sem-space-sm);
+  }
+.ds-embed-component-access-summary .demo-name {
+    font-size: var(--sem-font-size-body);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+.ds-embed-component-access-summary .demo-meta {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-access-summary .demo-tip {
+    display: inline-block;
+    margin-top: var(--sem-space-sm);
+    padding: var(--sem-space-sm) var(--sem-space-md);
+    border: 1px solid var(--sem-color-border-strong);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface-raised);
+    box-shadow: var(--sem-shadow-popover);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-access-summary .demo-card {
+    max-width: 400px;
+    padding: var(--sem-space-xl);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface-raised);
+  }
+.ds-embed-component-access-summary .demo-heading {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-muted);
+  }
+.ds-embed-component-access-summary .demo-heading--second {
+    margin-top: var(--sem-space-lg);
+  }
 .ds-embed-component-agent-glyph {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -13127,6 +13383,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-glyphs" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-doc-principles" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-components" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-access-summary" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-agent-glyph" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-attachment-chip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-badge" />
@@ -13212,6 +13469,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-foundations-glyphs">Glyphs</label>
 <label class="catalog-nav-item" for="ds-view-foundations-doc-principles">Principles</label>
 <label class="catalog-nav-group" for="ds-view-components">Components</label>
+<label class="catalog-nav-item" for="ds-view-component-access-summary">Access summary</label>
 <label class="catalog-nav-item" for="ds-view-component-agent-glyph">Agent glyph</label>
 <label class="catalog-nav-item" for="ds-view-component-attachment-chip">Attachment chip</label>
 <label class="catalog-nav-item" for="ds-view-component-badge">Badge</label>
@@ -13380,6 +13638,15 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-mark-teal)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-mark-teal)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.teal</code><code class="catalog-token-value">{ref.color.teal-700}</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">Identity teal. Shell-script glyphs. A hue of its own so a coloured glyph never borrows the success emerald. Ink of a file-type glyph whose kind wears teal, and of a machine's glyph when the machine wears teal (owner ruling 2026-10-04); nothing else. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-mark-cyan)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-mark-cyan)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.cyan</code><code class="catalog-token-value">{ref.color.cyan-700}</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">Identity cyan. React and Go file glyphs. Ink of a file-type glyph whose kind wears cyan, and of a machine's glyph when the machine wears cyan (owner ruling 2026-10-04); nothing else. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-color-mark-violet)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.violet</code><code class="catalog-token-value">{ref.color.violet-500}</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">Identity violet — the same value as status.merged, spent on identity rather than a merge. Stylesheet and image file glyphs. Ink of a file-type glyph whose kind wears violet, and of a machine's glyph when the machine wears violet (owner ruling 2026-10-04); nothing else. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a category code on a control, a row, or a section; never on a glyph that answers an action, lifecycle or status question.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-chart-1)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-chart-1)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.chart.1</code><code class="catalog-token-value">#077ef0</code><span class="catalog-badge">data</span></p><p class="catalog-token-meta">Categorical chart series 1 (blue). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: &gt;= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation &gt;= 12 and normal-vision separation &gt;= 18 (OKLab x100). A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-chart-2)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-chart-2)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.chart.2</code><code class="catalog-token-value">#883601</code><span class="catalog-badge">data</span></p><p class="catalog-token-meta">Categorical chart series 2 (rust orange). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: &gt;= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation &gt;= 12 and normal-vision separation &gt;= 18 (OKLab x100). A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-chart-3)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-chart-3)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.chart.3</code><code class="catalog-token-value">#149483</code><span class="catalog-badge">data</span></p><p class="catalog-token-meta">Categorical chart series 3 (teal). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: &gt;= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation &gt;= 12 and normal-vision separation &gt;= 18 (OKLab x100). A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-chart-4)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-chart-4)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.chart.4</code><code class="catalog-token-value">#9f43c3</code><span class="catalog-badge">data</span></p><p class="catalog-token-meta">Categorical chart series 4 (purple). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: &gt;= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation &gt;= 12 and normal-vision separation &gt;= 18 (OKLab x100). A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-chart-5)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-chart-5)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.chart.5</code><code class="catalog-token-value">#768b09</code><span class="catalog-badge">data</span></p><p class="catalog-token-meta">Categorical chart series 5 (olive). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: &gt;= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation &gt;= 12 and normal-vision separation &gt;= 18 (OKLab x100). A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-chart-6)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-chart-6)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.chart.6</code><code class="catalog-token-value">#bf308f</code><span class="catalog-badge">data</span></p><p class="catalog-token-meta">Categorical chart series 6 (magenta). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: &gt;= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation &gt;= 12 and normal-vision separation &gt;= 18 (OKLab x100). A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-color-chart-7)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.chart.7</code><code class="catalog-token-value">#7e6cf7</code><span class="catalog-badge">data</span></p><p class="catalog-token-meta">Categorical chart series 7 (periwinkle). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: &gt;= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation &gt;= 12 and normal-vision separation &gt;= 18 (OKLab x100). A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-chart-8)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-chart-8)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.chart.8</code><code class="catalog-token-value">#0581a3</code><span class="catalog-badge">data</span></p><p class="catalog-token-meta">Categorical chart series 8 (ocean blue). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: &gt;= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation &gt;= 12 and normal-vision separation &gt;= 18 (OKLab x100). A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled. <strong>Do not:</strong> Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-chart-other)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-chart-other)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.chart.other</code><code class="catalog-token-value">{ref.color.paper-500}</code><span class="catalog-badge">data</span></p><p class="catalog-token-meta">The neutral for a chart's &quot;Other&quot; bucket: everything past the eighth series, folded into one. Grey on purpose, so the bucket never reads as a ninth identity. The fill or stroke of the folded &quot;Other&quot; series of a categorical chart, and of a series that is deliberately de-emphasised beside the ones being compared. <strong>Do not:</strong> A real series of its own, text, borders, backgrounds, or a status.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-color-scaffold-ink)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.scaffold.ink</code><code class="catalog-token-value">{ref.color.violet-500}</code><span class="catalog-badge">scaffold</span></p><p class="catalog-token-meta">Ink of the chip that names something a chat is about to make, such as the extension-name chip on the New chat door (owner, 2026-09-30). Violet so it cannot read as the worktree chip beside it, which several themes draw in a blue accent. Glyph ink and the dashed empty edge of a name chip for something being made. <strong>Do not:</strong> A second accent on buttons or selection, status of any kind, or file-type glyphs (mark.violet).</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-color-scaffold-soft)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.scaffold.soft</code><code class="catalog-token-value">rgba(137, 87, 229, 0.16)</code><span class="catalog-badge">scaffold</span></p><p class="catalog-token-meta">Soft fill of a named scaffold chip: scaffold.ink at 16%. Fill of a name chip for something being made, once it holds a name. <strong>Do not:</strong> Row selection, banners, or any fill that is not a scaffold chip.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-find-match)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-find-match)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.find.match</code><code class="catalog-token-value">#ffe9a8</code><span class="catalog-badge">find</span></p><p class="catalog-token-meta">The wash behind every match of a find in text the app draws itself, such as Find in chat. Highlighter amber, the same pair the terminal's find decorations paint, so a match looks like a match in a chat and a pane alike; amber because no syntax ink, status mark or selection in the app is a background of that hue. Background of a find match painted over rendered text (a ::highlight pseudo-element). <strong>Do not:</strong> Warning or needs-input (that is status.warn), selection, row backgrounds, or any fill that is not a find match.</p></div></div>
@@ -13850,7 +14117,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>1. <strong>A fixed set of glyphs on <code>size.control.lg</code> squares, no captions.</strong> A house and a tile grid do not need &quot;Home&quot; and &quot;Extensions&quot; written under them, and the caption is what made the first cut 76px wide. The name is the glyph's tooltip and accessible name — the idiom the sidebar's collapsed rows already use. The column is one square plus a <code>space.sm</code> gutter each side: 56px, and no wider. (Revised 2026-09-07 from <code>control.md</code> squares in a 46px column: the rail squares are a step above the largest in-panel control, and that step is what lets the column be found from across the window rather than read. <code>size.control.lg</code> exists for this column and nothing else; the glyphs on it are <code>icon.size.lg</code>.) 2. <strong>Selection is <code>bg.selected</code> on the square.</strong> Never the accent, never a bar on the window's edge. A section glyph is current while its column shows; a tool glyph is pressed while its surface floats. The two can light together, and they say different things. 3. <strong>Three glyphs: Home, Automations, Extensions.</strong> Automations stands on the rail because it is what the product DOES, not something added to it; it is the module's own registered surface, gated on the module's enablement, so a turned-off module's glyph is simply absent. Plugins does not: it is one of the product things under Extensions, and a glyph of its own said it stood beside them. 4. <strong>Extensions opens its home, and the sidebar becomes the drawer.</strong> The drawer starts with three product rows in a fixed order — Design, Plugins, Skills — and installed module doors follow in stable registry order, all with the same <code>SidebarNavButton</code> chrome. (Agent CLIs was a fourth until 2026-09-25: the owner moved agent CLIs to Settings ▸ Agents, which already listed every CLI per machine.) Registry <code>order</code> never moves the product rows; an installed door contributes its name, glyph and behaviour, then takes the next available place. The drawer STAYS PUT while the card region swaps, which is what makes it the navigation rather than a menu: a door that is one of its rows renders its own rail beside its canvas instead of taking the column. Only Automations replaces it for the length of its visit — and it is not a drawer row at all, because the automations it lists ARE the navigation while it is open. <strong>Add extension leads the drawer.</strong> It is the dashed add-row used by the other door rails, opening the native folder chooser for an installable module directory. Selection runs through the same validation, copying, signature, and trust workflow as Settings → Modules, then opens that settings page for access review; choosing a folder never silently grants trust. A drawer row reads <code>aria-current</code> while its page is showing (it is navigation, exactly like a workspace row); the rail's square reads <code>aria-pressed</code>. Two honest readings of one state — what would be wrong is one row of the drawer disagreeing with the row above it. <strong>The home is those same rows, said again as tiles</strong> — glyph, name, a one-line summary, a live count, a chevron — resolved from the one function the drawer's rows are resolved by, so a tile cannot open something its row does not, and a module that is off takes both away together. A count on a tile is LIVE or ABSENT: a number nobody has measured yet is no line at all, and a number that really is nothing is words (&quot;No runs&quot;, &quot;None installed&quot;), because &quot;0 running&quot; reads as a counter that has not started rather than as an answer. No module list on the page: those switches live in Settings → Modules, and one choice in two shapes on two surfaces is two things to keep in agreement. 5. <strong>The account and Settings cluster pins to its foot.</strong> They belong to the window, not to whichever section the sidebar is showing. They sit on the same <code>control.lg</code> squares as the sections, and no rule separates them from the glyphs above: the rail is one column from its first square to its last, and the space does the separating (*Hairlines carry the structure*). The sidebar's chrome makes the same call — no rule under New chat. 6. <strong>Its top reserves the title strip's height</strong> on every platform, so its first glyph sits below the chrome row beside it. On macOS the native traffic lights start in that reserve and run past the rail's edge; the sidebar's chrome row insets for the remainder. 7. <strong>The divider starts below that reserve, never at the top.</strong> The rail's right-hand hairline is a positioned strip from the title row down, not a full-height <code>border-r</code>: the traffic lights are wider than the rail, so an edge that ran the whole height drew a line straight through the green light. Across the title row the rail and the chrome beside it are one unbroken band. 8. <strong>A square with news wears the badge's corner count</strong> (2026-09-07) — an unread activity count. Home counts chats wanting you (blocked on a prompt, crashed, or finished while you were away) other than the one on screen; Automations counts scheduled runs that ended while its door was closed; Extensions counts unread news from anything under it, cards published since its home was last open, and an installed door's items waiting on an answer. The tone is the loudest thing counted — danger, then warn, then good or the accent. A thing still waiting on the person stays counted. Never a toast: a glass card for every chat that finished would be over the top, and the count is what says &quot;come back here&quot; without interrupting. 9. <strong>Each product drawer row wears its own count, and the square is their sum</strong> (2026-09-08). The Extensions square used to read everything under it the moment the section opened, and the drawer that appeared said nothing about which row the news belonged to — a count that vanished on the click it asked for. Now the news goes on the row it came from: a source drift notice on Plugins, a run waiting on an answer on the door that lists it, entries arrived since the bundle was last shown on Design. Installed module rows carry no inferred count: a module owns its status inside its door until it contributes a notification contract. A counted row draws the same corner counter — trailing when the column is expanded, docked on the icon when collapsed — in place of any status mark it would otherwise wear (one status idiom per surface), with the row's name in its accessible name. Opening a ROW reads its news; opening the section reads nothing, and the square keeps counting while the drawer is on screen, the way a workspace icon does above its unread channels. The one thing the square counts that no row wears is the hosted cards: the square's own click opens the home that shows them, so the square is their row. The home reads its own cards as it mounts, and marks the ones that were new with the New mark, so what the count pointed at is still on screen when the person arrives. 10. <strong>The Settings gear counts the updates waiting inside Settings</strong> (owner ruling 2026-09-25): an agent CLI behind its release, and a newer SprintEngine Studio. The same corner counter, and the same count follows the person in — onto General or Agents in the Settings nav, onto the machine's segment on the Agents switcher, and beside the CLI row's Update button (the badge entry, &quot;In Settings&quot;). Unlike news, opening Settings reads nothing: an update is not seen by being looked at, it is answered — installed, or dismissed from its toast for that version.</p>
 <p><strong>A dialog is header, content, actions — separated by space.</strong> No rule under the title, none above the buttons. See *Hairlines carry the structure*.</p>
 <h4>Status is earned</h4>
-<ul><li>Status reads by <strong>shape first, color second</strong> — every state survives grayscale. Healthy, done, and idle render no mark at all.</li><li>One status idiom per surface. A status mark or a lifecycle glyph — never a mark and a tinted pill saying the same thing.</li><li><strong>No status dots, anywhere</strong> (owner ruling 2026-09-28). A 6px disc has no shape, so every tone was the same circle and &quot;working&quot; read like &quot;waiting&quot;. A state is a word, a timer or a shape-coded glyph in its tone's ink (<code>status-dot</code>); something running right now is the working mark (<code>liveness</code>), the one &quot;working&quot; mark every surface shares, or a spawned agent's character (<code>agent-glyph</code>).</li><li>A status is never text-only with no glyph, nor glyph-only with no accessible name.</li><li>The accent green (forest) and the success green (bright emerald) are held apart by brightness and saturation. Never retune one toward the other.</li></ul>
+<ul><li>Status reads by <strong>shape first, color second</strong> — every state survives grayscale. Healthy, done, and idle render no mark at all.</li><li>One status idiom per surface. A status mark or a lifecycle glyph — never a mark and a tinted pill saying the same thing.</li><li><strong>No status dots, anywhere</strong> (owner ruling 2026-09-28). A 6px disc has no shape, so every tone was the same circle and &quot;working&quot; read like &quot;waiting&quot;. A state is a word, a timer or a shape-coded glyph in its tone's ink (<code>status-dot</code>); something running right now is the working mark (<code>liveness</code>), the one &quot;working&quot; mark every surface shares, or a spawned agent's character (<code>agent-glyph</code>). One exception: an MCP server's connection in the composer's Skills &amp; MCPs picker is a dot beside the server's name (owner ruling 2026-10-09) — filled green connected, amber needs sign-in, red failed, grey connecting, and a hollow ring disabled — with the state's word as its accessible name and tooltip. A list of servers is scanned down its names for the one that is not connected, and the dot is the mark that sits in that column.</li><li>A status is never text-only with no glyph, nor glyph-only with no accessible name.</li><li>The accent green (forest) and the success green (bright emerald) are held apart by brightness and saturation. Never retune one toward the other.</li></ul>
+<h4>Chart colour</h4>
+<p>A chart that tells series apart by colour takes <code>color.chart.1</code> … <code>color.chart.8</code> (<code>--sem-color-chart-*</code>; modules read them as <code>--chart-1</code> … <code>--chart-8</code>), and the folded remainder takes <code>color.chart.other</code>, a neutral grey.</p>
+<ul><li><strong>Ordered, never cycled.</strong> Series N takes slot N, and the order is the colour-vision safety: each slot was placed so its neighbours stay apart under protanopia and deuteranopia (worst adjacent pair ΔE 13.1 light, 12.1 dark, OKLab ×100; 18 or more for normal vision). A ninth series is never a generated hue — fold the tail into &quot;Other&quot; (<code>chart.other</code>) or split the chart. A scatter, a map or small multiples, where any two series can sit side by side, holds three series; the first three slots are validated against each other, all pairs, in both modes.</li><li><strong>Colour follows the entity, never its rank.</strong> A filter that removes a series does not repaint the ones that remain.</li><li><strong>Never status.</strong> The eight are a data palette, not tones. A series that MEANS good or bad (pass/fail, an error rate) wears <code>status.*</code> with its word, and never sits in the same chart as a categorical series. The eight are held away from the good, warn and danger tones on purpose; do not borrow a status tone as &quot;series 4&quot;.</li><li><strong>Contrast.</strong> Every slot clears 3:1 against <code>bg.surface</code> on every theme of its mode — white, paper and the cream themes in light, every dark surface in dark — so a mark reads without a hairline around it. Values, labels and legends stay in text ink; the colour beside them carries identity.</li><li><strong>A legend for two or more series</strong>, and direct labels where there are four or fewer, so a series is never identified by colour alone.</li></ul>
 <h4>Motion</h4>
 <ul><li>One easing curve (<code>motion.ease.standard</code>) and three durations. Hover and focus at <code>fast</code>, popovers at <code>normal</code>, drawers at <code>deliberate</code>.</li><li><strong>Three eased motions, and that is the whole set:</strong> the switch thumb as it crosses its track, the hover/press response every interactive surface shares, and a popover's entrance. A surface picks one of the three; it does not declare its own transition. A fourth is a system change, argued here first — and a per-component <code>transition</code> restating a duration the tokens already name is the tell that one was added by accident. An entrance a *pattern* owns (a rail swapping its contents) is not a fourth motion: it composes the same duration and easing pair rather than introducing a curve of its own.</li><li>Motion means one of two things: *alive right now* (a working mark, a running agent's character, a spinner) or *just changed* (a reorder, a just-moved flash). It may carry a little personality while it says so (ruling 2026-09-28): a working mark picks one of four patterns, and a spawned agent is a small character that moves while it works. What never moves is something at rest — ambient decoration on an idle surface is noise.</li><li>Motion is never the sole signal of a state change — the accessible name and the visible label carry it too.</li><li>Every animation honors <code>prefers-reduced-motion: reduce</code>, including the <code>:active</code> press scale.</li><li>Never put <code>backdrop-filter</code> on a full-viewport scrim; separation comes from <code>overlay.scrim</code> plus the shell's shadow. Glass is a material of four kit shells and nothing else, pinned there by the conformance lint: the toast card (ruling 2026-09-04, a corner-sized blur), the popover family's opt-in <code>material=&quot;glass&quot;</code> (2026-09-07/08), and the command palette's shell (2026-09-10) — the last affordable only because the palette pauses terminal repaints while it is up, so the blur beneath it is computed once. The scrims behind all of them stay plain tones.</li></ul>
 <h4>Accessibility</h4>
@@ -13872,6 +14142,358 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </section>
 <section id="components" class="catalog-group">
 <h2>Components</h2>
+<div id="component-access-summary" class="catalog-view catalog-component">
+<h3>Access summary</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-access-summary">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a row's glyphs, with the tooltip body shown open beside them.</p>
+  <div class="demo-row">
+    <span class="demo-name">Insights</span>
+    <span class="demo-meta">Local build · Unsigned</span>
+    <span class="ds-access-glyphs" tabindex="0" role="img" aria-label="Insights needs care: Runs chats with your agents, Reads your home folder, Broad access to Studio"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+  </div>
+  <div class="demo-tip">
+    <ul class="ds-access-glyphs-list">
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Runs chats with your agents</li>
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Reads your home folder</li>
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Broad access to Studio</li>
+    </ul>
+  </div>
+  <p class="demo-label demo-label--second">Light — the details: care list with ids, then the standard scopes as chips.</p>
+  <div class="demo-card">
+    <p class="demo-heading">Needs care</p>
+    <ul class="ds-access-care" aria-label="Needs care">
+      <li class="ds-access-care-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="ds-access-care-title">Runs chats with your agents</span><span class="ds-access-care-why">Starts, messages and stops chats</span><span class="ds-access-care-id">conversation:operate</span></li>
+      <li class="ds-access-care-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="ds-access-care-title">Reads your home folder</span><span class="ds-access-care-why">Including other apps’ data</span><span class="ds-access-care-id">filesystem:read-home</span></li>
+    </ul>
+    <p class="demo-heading demo-heading--second">Also</p>
+    <ul class="ds-access-chips" aria-label="Also">
+      <li class="ds-access-chip">Reads your projects</li>
+      <li class="ds-access-chip">Sees workspace and git state</li>
+      <li class="ds-access-chip">Saves its own data</li>
+    </ul>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — a row's glyphs, with the tooltip body shown open beside them.</p>
+  <div class="demo-row">
+    <span class="demo-name">Insights</span>
+    <span class="demo-meta">Local build · Unsigned</span>
+    <span class="ds-access-glyphs" tabindex="0" role="img" aria-label="Insights needs care: Runs chats with your agents, Reads your home folder, Broad access to Studio"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+  </div>
+  <div class="demo-tip">
+    <ul class="ds-access-glyphs-list">
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Runs chats with your agents</li>
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Reads your home folder</li>
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Broad access to Studio</li>
+    </ul>
+  </div>
+  <p class="demo-label demo-label--second">Dark — the details: care list with ids, then the standard scopes as chips.</p>
+  <div class="demo-card">
+    <p class="demo-heading">Needs care</p>
+    <ul class="ds-access-care" aria-label="Needs care">
+      <li class="ds-access-care-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="ds-access-care-title">Runs chats with your agents</span><span class="ds-access-care-why">Starts, messages and stops chats</span><span class="ds-access-care-id">conversation:operate</span></li>
+      <li class="ds-access-care-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="ds-access-care-title">Reads your home folder</span><span class="ds-access-care-why">Including other apps’ data</span><span class="ds-access-care-id">filesystem:read-home</span></li>
+    </ul>
+    <p class="demo-heading demo-heading--second">Also</p>
+    <ul class="ds-access-chips" aria-label="Also">
+      <li class="ds-access-chip">Reads your projects</li>
+      <li class="ds-access-chip">Sees workspace and git state</li>
+      <li class="ds-access-chip">Saves its own data</li>
+    </ul>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>What an installed extension asks to reach on this machine, said at the depth the surface can afford. Three parts, one vocabulary:</p>
+<ul><li><strong>Glyphs</strong> — on a list row. One warning triangle per scope that needs care, and nothing else. The titles are a hover or a Tab away.</li><li><strong>Care list</strong> — in the extension's details and its trust review. Each scope that needs care as a short title over a why of six words or fewer, and in the details the raw scope id beneath it.</li><li><strong>Chips</strong> — the scopes that need no second look, as a wrapped set of quiet pills.</li></ul>
+<p>The words are not this component's. Every capability scope has a short title, and those that need care a why, in one table beside the full consent sentences (<code>capabilityAccess</code> in <code>src/shared/modules/permissions.ts</code>). A scope the app does not recognise always needs care, because nothing can say what it grants.</p>
+<h4>Why the row gets glyphs and not words</h4>
+<p>A list of extensions used to carry each scope's consent sentence on the row: &quot;Call any of the app's internal APIs, including its own background code (broad scope)&quot;, three or four of them under every name. Nobody reads a row of warning sentences; they read as texture after the second row, which is the opposite of what a warning is for. A count of triangles is read at a glance — three asks for a closer look than one, and none draws nothing at all (&quot;healthy renders no mark&quot;, *Status is earned*). What the triangles stand for is one hover or one Tab away, and the details and the trust review say it in full, so the glyphs are never the only route to the list.</p>
+<h4>Why it is not a badge, a scope pill or a tooltip alone</h4>
+<ul><li><strong>Not a [badge](../badge/component.md).</strong> A badge grades a state with a tone. These are not a state of the extension; they are what it asked for when it was written, and they do not change while it is installed.</li><li><strong>Not a [scope pill](../scope-pill/component.md).</strong> A scope pill's content is the identifier. Here the reader is deciding whether to trust code, and <code>conversation:operate</code> tells them less than &quot;Runs chats with your agents&quot;. The identifier is still shown — in mono, under the title, in the details — for the reader who wants to search for it.</li><li><strong>The tooltip carries a short list, on purpose.</strong> The [tooltip](../tooltip/component.md) entry rules out a list in a tooltip because a tooltip must never be the only route to a value. Here it is not: the list is the accessible name of the glyphs, the details popover and the trust review. The tooltip is the sighted reader's shortcut to the same three or four titles, one line per triangle, so the list reads back to the marks it explains.</li></ul>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Glyphs | <code>.ds-access-glyphs</code> | the row part — a focusable inline group with <code>role=&quot;img&quot;</code> and an <code>aria-label</code> naming every title | | Glyph list | <code>.ds-access-glyphs-list</code> | the glyphs' tooltip body — one line per triangle | | Care list | <code>.ds-access-care</code> | the details part — a labelled <code>&lt;ul&gt;</code> | | Care item | <code>.ds-access-care-item</code> | title, why, and optionally the id | | Title / why / id | <code>.ds-access-care-title</code>, <code>-why</code>, <code>-id</code> | title required; why on every care scope; id in the details only | | Chips | <code>.ds-access-chips</code> | a labelled <code>&lt;ul&gt;</code> of <code>.ds-access-chip</code> |</p>
+<h4>Variants</h4>
+<p>None. The three parts are depths, not variants: a row takes the glyphs, a details surface takes the care list and the chips, a trust review takes the care list and the chips without the ids.</p>
+<h4>States</h4>
+<p>| Part | State | Treatment | |---|---|---| | Glyphs | Rest | <code>status.warn</code> ink, no ground | | Glyphs | Hover | <code>status.warn-soft</code> ground; the tooltip opens after the shared delay | | Glyphs | Focus-visible | The shared ring, and the tooltip opens at once | | Glyphs | None to show | Nothing is drawn — not an empty box, not a zero | | Care list, chips | — | Display only. No hover, no focus, no pressed state |</p>
+<h4>Usage</h4>
+<ul><li><strong>One triangle per scope that needs care.</strong> Never a number beside a single triangle, and never a capped count: four scopes is four triangles.</li><li><strong>Glyphs sit on the title line,</strong> after the row's meta, so they read as a fact about the extension and not as a control beside the switch.</li><li><strong>The why is six words or fewer.</strong> &quot;Calls GitHub as you&quot;, &quot;Every chat on this machine&quot;. A why that needs a sentence is a scope that needs a better title.</li><li><strong>Never imply enforcement.</strong> The titles say what the extension says it does, never what the app prevents: no &quot;sandboxed&quot;, no &quot;restricted to&quot;.</li><li><strong>Care first, then the rest.</strong> A details surface lists the care scopes, then the chips under a quieter heading (&quot;Also&quot;), so the order is the argument.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The glyph group is one tab stop with <code>role=&quot;img&quot;</code> and an <code>aria-label</code> of the form &quot;Weather Deck needs care: Holds your API keys, Uses the network&quot;. A screen-reader user hears the list without opening anything; the tooltip is for the sighted reader and adds nothing the name does not already say.</li><li>Each triangle inside is <code>aria-hidden</code>; the group is the image.</li><li>Status is never colour alone: the triangle is the shape, the warn ink reinforces it, and the name says it in words.</li><li>The care list and the chips are labelled lists (<code>aria-label</code>, e.g. &quot;Needs care&quot;, &quot;Also&quot;), so the two groups are told apart without the headings being read first.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/AccessSummary.tsx</code>, exporting <code>AccessGlyphs</code>, <code>AccessCareList</code> and <code>AccessChips</code> through the kit barrel (<code>ui/index.ts</code>). Settings → Extensions is the first consumer: the row, the details popover and the trust review.</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/access-summary/component.css</summary><pre><code>/* Access summary — what an installed extension asks to reach, said at three
+ * depths: a glyph count on its list row, a short list in its details and trust
+ * review, and a set of quiet pills for the scopes that need no second look.
+ * Extracted from the shipped `AccessGlyphs`, `AccessCareList` and
+ * `AccessChips` primitives (src/renderer/src/components/ui/AccessSummary.tsx).
+ *
+ * The words are not decided here. Every scope has a short title, and the ones
+ * that need care a why of six words or fewer, in one table beside the full
+ * consent sentences (src/shared/modules/permissions.ts). This draws them. */
+
+/* ── Glyphs — the row's mark ────────────────────────────────────────────── */
+
+/* One warning triangle per scope that needs care. The count is the reading: a
+ * row with three triangles asks for a closer look than a row with one, and a
+ * row with none draws nothing. The glyphs are a tab stop of their own, because
+ * the tooltip naming them opens on focus as well as hover. */
+.ds-access-glyphs {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+  padding: var(--sem-space-2xs) var(--sem-space-xs);
+  border-radius: var(--sem-radius-chip);
+  color: var(--sem-color-status-warn);
+  cursor: help;
+}
+
+.ds-access-glyphs svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* The soft tint is where the pointer is, never at rest: at rest the triangles
+ * are the whole signal, and a tinted box around them would be a pill. */
+.ds-access-glyphs:hover {
+  background: var(--sem-color-status-warn-soft);
+}
+
+.ds-access-glyphs:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* The tooltip body: one line per glyph, the same triangle beside each title,
+ * so the list reads back to the marks it explains. */
+.ds-access-glyphs-list {
+  display: grid;
+  gap: var(--sem-space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-access-glyphs-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+}
+
+.ds-access-glyphs-list svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  color: var(--sem-color-status-warn);
+}
+
+/* ── Care list — details and trust review ──────────────────────────────── */
+
+.ds-access-care {
+  display: grid;
+  gap: var(--sem-space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-access-care-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--sem-space-sm);
+}
+
+.ds-access-care-item svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  /* Level with the first line of the title. */
+  margin-top: var(--sem-space-2xs);
+  color: var(--sem-color-status-warn);
+}
+
+.ds-access-care-title {
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-default);
+}
+
+.ds-access-care-why {
+  grid-column: 2;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+/* The raw scope, for the reader who wants to search for it. Mono, because it
+ * is the identifier itself (see scope-pill for why that matters at this size). */
+.ds-access-care-id {
+  grid-column: 2;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  letter-spacing: var(--sem-font-tracking-wide);
+  color: var(--sem-color-text-subtle);
+}
+
+/* ── Chips — the standard scopes ───────────────────────────────────────── */
+
+/* Disclosed, not flagged: a pill per scope so they can be counted, on the
+ * well ground, with no glyph, no border and no tone. */
+.ds-access-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sem-space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-access-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--sem-icon-size-lg);
+  padding: 0 var(--sem-space-sm);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-well);
+  color: var(--sem-color-text-default);
+  font-size: var(--sem-font-size-meta);
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/access-summary/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Access summary&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+  .demo-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sem-space-sm);
+  }
+  .demo-name {
+    font-size: var(--sem-font-size-body);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-meta {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-tip {
+    display: inline-block;
+    margin-top: var(--sem-space-sm);
+    padding: var(--sem-space-sm) var(--sem-space-md);
+    border: 1px solid var(--sem-color-border-strong);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface-raised);
+    box-shadow: var(--sem-shadow-popover);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-default);
+  }
+  .demo-card {
+    max-width: 400px;
+    padding: var(--sem-space-xl);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface-raised);
+  }
+  .demo-heading {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-heading--second {
+    margin-top: var(--sem-space-lg);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a row's glyphs, with the tooltip body shown open beside them.&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;span class=&quot;demo-name&quot;&gt;Insights&lt;/span&gt;
+    &lt;span class=&quot;demo-meta&quot;&gt;Local build · Unsigned&lt;/span&gt;
+    &lt;span class=&quot;ds-access-glyphs&quot; tabindex=&quot;0&quot; role=&quot;img&quot; aria-label=&quot;Insights needs care: Runs chats with your agents, Reads your home folder, Broad access to Studio&quot;&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;/span&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-tip&quot;&gt;
+    &lt;ul class=&quot;ds-access-glyphs-list&quot;&gt;
+      &lt;li&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;Runs chats with your agents&lt;/li&gt;
+      &lt;li&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;Reads your home folder&lt;/li&gt;
+      &lt;li&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;Broad access to Studio&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;Light — the details: care list with ids, then the standard scopes as chips.&lt;/p&gt;
+  &lt;div class=&quot;demo-card&quot;&gt;
+    &lt;p class=&quot;demo-heading&quot;&gt;Needs care&lt;/p&gt;
+    &lt;ul class=&quot;ds-access-care&quot; aria-label=&quot;Needs care&quot;&gt;
+      &lt;li class=&quot;ds-access-care-item&quot;&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;ds-access-care-title&quot;&gt;Runs chats with your agents&lt;/span&gt;&lt;span class=&quot;ds-access-care-why&quot;&gt;Starts, messages and stops chats&lt;/span&gt;&lt;span class=&quot;ds-access-care-id&quot;&gt;conversation:operate&lt;/span&gt;&lt;/li&gt;
+      &lt;li class=&quot;ds-access-care-item&quot;&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;ds-access-care-title&quot;&gt;Reads your home folder&lt;/span&gt;&lt;span class=&quot;ds-access-care-why&quot;&gt;Including other apps’ data&lt;/span&gt;&lt;span class=&quot;ds-access-care-id&quot;&gt;filesystem:read-home&lt;/span&gt;&lt;/li&gt;
+    &lt;/ul&gt;
+    &lt;p class=&quot;demo-heading demo-heading--second&quot;&gt;Also&lt;/p&gt;
+    &lt;ul class=&quot;ds-access-chips&quot; aria-label=&quot;Also&quot;&gt;
+      &lt;li class=&quot;ds-access-chip&quot;&gt;Reads your projects&lt;/li&gt;
+      &lt;li class=&quot;ds-access-chip&quot;&gt;Sees workspace and git state&lt;/li&gt;
+      &lt;li class=&quot;ds-access-chip&quot;&gt;Saves its own data&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — a row's glyphs, with the tooltip body shown open beside them.&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;span class=&quot;demo-name&quot;&gt;Insights&lt;/span&gt;
+    &lt;span class=&quot;demo-meta&quot;&gt;Local build · Unsigned&lt;/span&gt;
+    &lt;span class=&quot;ds-access-glyphs&quot; tabindex=&quot;0&quot; role=&quot;img&quot; aria-label=&quot;Insights needs care: Runs chats with your agents, Reads your home folder, Broad access to Studio&quot;&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;/span&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-tip&quot;&gt;
+    &lt;ul class=&quot;ds-access-glyphs-list&quot;&gt;
+      &lt;li&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;Runs chats with your agents&lt;/li&gt;
+      &lt;li&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;Reads your home folder&lt;/li&gt;
+      &lt;li&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;Broad access to Studio&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;Dark — the details: care list with ids, then the standard scopes as chips.&lt;/p&gt;
+  &lt;div class=&quot;demo-card&quot;&gt;
+    &lt;p class=&quot;demo-heading&quot;&gt;Needs care&lt;/p&gt;
+    &lt;ul class=&quot;ds-access-care&quot; aria-label=&quot;Needs care&quot;&gt;
+      &lt;li class=&quot;ds-access-care-item&quot;&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;ds-access-care-title&quot;&gt;Runs chats with your agents&lt;/span&gt;&lt;span class=&quot;ds-access-care-why&quot;&gt;Starts, messages and stops chats&lt;/span&gt;&lt;span class=&quot;ds-access-care-id&quot;&gt;conversation:operate&lt;/span&gt;&lt;/li&gt;
+      &lt;li class=&quot;ds-access-care-item&quot;&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;ds-access-care-title&quot;&gt;Reads your home folder&lt;/span&gt;&lt;span class=&quot;ds-access-care-why&quot;&gt;Including other apps’ data&lt;/span&gt;&lt;span class=&quot;ds-access-care-id&quot;&gt;filesystem:read-home&lt;/span&gt;&lt;/li&gt;
+    &lt;/ul&gt;
+    &lt;p class=&quot;demo-heading demo-heading--second&quot;&gt;Also&lt;/p&gt;
+    &lt;ul class=&quot;ds-access-chips&quot; aria-label=&quot;Also&quot;&gt;
+      &lt;li class=&quot;ds-access-chip&quot;&gt;Reads your projects&lt;/li&gt;
+      &lt;li class=&quot;ds-access-chip&quot;&gt;Sees workspace and git state&lt;/li&gt;
+      &lt;li class=&quot;ds-access-chip&quot;&gt;Saves its own data&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
 <div id="component-agent-glyph" class="catalog-view catalog-component">
 <h3>Agent glyph</h3>
 <div class="catalog-component-grid">
@@ -30668,6 +31290,9 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <ul><li><strong><code>--composer</code></strong> — <code>seamless</code> for the multiline case, plus content sizing: the box grows with what is typed, between the caller's bounds. A variant of its own rather than a flag on <code>seamless</code>, because a single-line field that content-sized would grow *sideways*, and the two must not be reachable by one name. The chat composer is its one surface: the wrapping composer material draws the border, the ground and the elevation, and takes the ring keyed to the textarea's own focus, while the ref, the row count and the paste, context-menu and key handlers pass straight through to the element.</li><li><strong><code>--quiet</code></strong> — the same quiet ground as the single-line variant, for a note composer inside a floating card.</li></ul>
 <h5>The file dialog (owner ruling 2026-10-04)</h5>
 <p><code>HiddenFileInput</code> is the input's one invisible shape: an <code>&lt;input type=&quot;file&quot;&gt;</code> that draws nothing, is never a tab stop, and is opened by a kit button or menu row that calls <code>.click()</code> on it — the New chat composer's &quot;Attach files&quot; row. That control carries the name and the focus ring; the input only brings the system's dialog. Its value is cleared after each pick, so the same file can be picked twice in a row.</p>
+<h5>Date and time (2026-10-09)</h5>
+<p><code>DateTimeInput</code> is the input carrying the browser's own <code>datetime-local</code>, <code>date</code> or <code>time</code> control. The native control is kept on purpose — its segmented entry is keyboard-complete, each segment has an accessible name, the calendar is the platform's, and the day/month order follows the locale — and the box around it is this field, at the same sizes and grounds (<code>default</code>, <code>well</code>, <code>quiet</code>; never the hosted variants, because a date field always draws its own box). It adds tabular figures, so a value that changes does not change width, and tones the calendar button to the field's muted ink on dark themes.</p>
+<p>Values are the control's own local-time strings (<code>YYYY-MM-DDTHH:mm</code>, <code>YYYY-MM-DD</code>, <code>HH:mm</code>). Which zone they mean is the caller's to decide; the field never converts. Label it with the <code>field</code> component like any input — a date alone is not a name.</p>
 <h4>States</h4>
 <ul><li>Hover: border moves to <code>border.strong</code>.</li><li>Focus: the shared 2px <code>border.focus</code> ring, and nothing else — the border does not change colour.</li><li>Invalid: <code>aria-invalid=&quot;true&quot;</code> moves the border to <code>status.danger</code>; the error message replaces the help text (never both).</li><li>Disabled: <code>text.disabled</code> ink, reduced opacity, <code>not-allowed</code> cursor.</li><li>Placeholder: <code>text.disabled</code>.</li></ul>
 <h4>Usage</h4>
@@ -31301,6 +31926,11 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
     </p>
   </div>
   <div class="demo-row">
+    <p style="font-size: var(--sem-font-size-body); font-weight: var(--sem-font-weight-emphasis); margin: 0">
+      <button type="button" class="ds-link-button ds-link-button--name ds-link-button--inherit" aria-haspopup="dialog" aria-expanded="false">Weather Deck</button>
+    </p>
+  </div>
+  <div class="demo-row">
     <button type="button" class="ds-link-button" disabled>Reconnect</button>
   </div>
 </div>
@@ -31323,6 +31953,11 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
     </p>
   </div>
   <div class="demo-row">
+    <p style="font-size: var(--sem-font-size-body); font-weight: var(--sem-font-weight-emphasis); margin: 0">
+      <button type="button" class="ds-link-button ds-link-button--name ds-link-button--inherit" aria-haspopup="dialog" aria-expanded="false">Weather Deck</button>
+    </p>
+  </div>
+  <div class="demo-row">
     <button type="button" class="ds-link-button" disabled>Reconnect</button>
   </div>
 </div>
@@ -31333,13 +31968,13 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p><strong>Why it is not an <code>&lt;a&gt;</code>.</strong> None of these navigates. They call something. A link that is not a link is a lie to the keyboard and to assistive technology, and the address bar it implies never appears.</p>
 <p><strong>Why it is not a ghost [button](../button/component.md).</strong> The ghost is the quietest sized member and still brings a <code>size.control.xs</code> height, an <code>space.sm</code> inset, <code>font.weight.medium</code> and a hover fill. Put that inside a 20px metadata line and the line grows, the words either side stop sitting level with it, and the &quot;link&quot; reads as a control someone forgot to finish. In the consuming product every one of these had stayed a raw <code>&lt;button&gt;</code> with <code>border: 0; background: transparent; padding: 0</code> written out by hand — four declarations cancelling the browser, rather than a shape the system had named.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Link | <code>.ds-link-button</code> | yes — a <code>&lt;button&gt;</code> | | Ink | <code>--quiet</code> | no — the default is accent ink | | Type | <code>--inherit</code> | no — the default is <code>font.size.meta</code> |</p>
+<p>| Part | Class | Required | |---|---|---| | Link | <code>.ds-link-button</code> | yes — a <code>&lt;button&gt;</code> | | Ink | <code>--quiet</code>, <code>--name</code> | no — the default is accent ink | | Type | <code>--inherit</code> | no — the default is <code>font.size.meta</code> |</p>
 <p><code>display: inline</code>, so the link wraps with the sentence rather than sitting in it as a box. The radius exists only so the focus ring has corners to draw round; nothing is painted inside it.</p>
 <h4>Variants</h4>
-<ul><li><strong>Default (accent)</strong> — accent ink, deepening to <code>accent.hover</code>, underlined on hover. Accent as <strong>ink</strong> is inside the budget; what the budget forbids is the accent as a fill, which this never takes.</li><li><strong><code>--quiet</code></strong> — <code>text.muted</code> lifting to <code>text.primary</code>, with a <strong>permanent</strong> underline in <code>border.strong</code> at a 2px offset. The disclosure case: &quot;More&quot;, &quot;Show details&quot;. The underline is standing rather than a hover reveal because a quiet link with no colour and no box is indistinguishable from the sentence around it until the pointer happens to cross it.</li><li><strong><code>--row</code></strong> — a full-width flex row with its parts baseline-aligned, for a LIST of links rather than one set inside a sentence: a column of changed files where the name, the folder and the counts have to line up down the list. It is a variant rather than a caller's own <code>display</code>, because <code>display</code> is the one property the base rule spends on being inline — a competing declaration at equal specificity is resolved by stylesheet order, and a row that quietly fell back to <code>inline</code> would lose its columns entirely. Everything else about the link is unchanged: still no box, no height and no ground.</li></ul>
+<ul><li><strong>Default (accent)</strong> — accent ink, deepening to <code>accent.hover</code>, underlined on hover. Accent as <strong>ink</strong> is inside the budget; what the budget forbids is the accent as a fill, which this never takes.</li><li><strong><code>--quiet</code></strong> — <code>text.muted</code> lifting to <code>text.primary</code>, with a <strong>permanent</strong> underline in <code>border.strong</code> at a 2px offset. The disclosure case: &quot;More&quot;, &quot;Show details&quot;. The underline is standing rather than a hover reveal because a quiet link with no colour and no box is indistinguishable from the sentence around it until the pointer happens to cross it.</li><li><strong><code>--name</code></strong> — <code>text.primary</code>, underlined on hover. The name of the thing a list row is about, when the name is what opens that thing's details: the extensions list in Settings, where a row's name opens its details popover. At rest it has to read as the row's title, not as an action — and the accent would turn every title in the list into a second accent. The hover underline is what says it can be pressed; the row around it may also open the same details on a click, but the name is the keyboard's way in.</li><li><strong><code>--row</code></strong> — a full-width flex row with its parts baseline-aligned, for a LIST of links rather than one set inside a sentence: a column of changed files where the name, the folder and the counts have to line up down the list. It is a variant rather than a caller's own <code>display</code>, because <code>display</code> is the one property the base rule spends on being inline — a competing declaration at equal specificity is resolved by stylesheet order, and a row that quietly fell back to <code>inline</code> would lose its columns entirely. Everything else about the link is unchanged: still no box, no height and no ground.</li></ul>
 <ul><li><strong><code>--inherit</code></strong> — takes the surrounding text's size and weight instead of <code>font.size.meta</code>. For the link set inside prose the caller has already sized: a path inside rendered markdown, a name inside a heading. A size of our own there would make one word of a sentence a different size from the rest of it, which is worse than any consistency it buys.</li></ul>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Per ink above | | Hover | Ink one step; accent adds an underline, quiet already has one | | Focus-visible | The shared ring, at the standard offset | | Disabled | 45% opacity, <code>not-allowed</code>, <strong>underline dropped</strong>, ink kept | | Pressed | <strong>Nothing.</strong> A control that shrank mid-sentence would move the words after it |</p>
+<p>| State | Treatment | |---|---| | Rest | Per ink above | | Hover | Ink one step; accent and name add an underline, quiet already has one | | Focus-visible | The shared ring, at the standard offset | | Disabled | 45% opacity, <code>not-allowed</code>, <strong>underline dropped</strong>, ink kept | | Pressed | <strong>Nothing.</strong> A control that shrank mid-sentence would move the words after it |</p>
 <p><strong>Disabled keeps its ink.</strong> A sentence whose one action has fallen to <code>text.disabled</code> reads as broken copy rather than as an unavailable action, and the disabled step is certified for 3:1 non-text contrast only — it may not carry words.</p>
 <h4>Usage</h4>
 <ul><li><strong>One per sentence.</strong> Two link buttons in one line of copy is a line that wanted a control row.</li><li><strong>The label is a verb or a noun the sentence needs</strong>, never &quot;click here&quot; or &quot;learn more&quot; as a stand-alone. <code>principles.md</code> rejects empty-state copy that explains an obvious interaction; a link is copy.</li><li><strong>Not for a primary action.</strong> If the action is what the view is for, it is a button with a box. A link is for an action the sentence mentions in passing.</li><li><strong>Not for navigation.</strong> A destination the shell can route to is a door and gets a real navigation affordance.</li></ul>
@@ -31405,6 +32040,17 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 }
 
 .ds-link-button--quiet:hover:not(:disabled) {
+  color: var(--sem-color-text-primary);
+}
+
+/* name — the name of the thing a list row is about, when the name opens its
+ * details. Title ink at rest so it reads as the row's title; the hover
+ * underline is what says it can be pressed. */
+.ds-link-button--name {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-link-button--name:hover:not(:disabled) {
   color: var(--sem-color-text-primary);
 }
 
@@ -31495,6 +32141,11 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
     &lt;/p&gt;
   &lt;/div&gt;
   &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;p style=&quot;font-size: var(--sem-font-size-body); font-weight: var(--sem-font-weight-emphasis); margin: 0&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-link-button ds-link-button--name ds-link-button--inherit&quot; aria-haspopup=&quot;dialog&quot; aria-expanded=&quot;false&quot;&gt;Weather Deck&lt;/button&gt;
+    &lt;/p&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-link-button&quot; disabled&gt;Reconnect&lt;/button&gt;
   &lt;/div&gt;
 &lt;/div&gt;
@@ -31514,6 +32165,11 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
   &lt;div class=&quot;demo-row&quot;&gt;
     &lt;p style=&quot;font-size: var(--sem-font-size-body); margin: 0&quot;&gt;
       Changed in &lt;button type=&quot;button&quot; class=&quot;ds-link-button ds-link-button--inherit&quot;&gt;src/renderer/src/components/ui/Buttons.tsx&lt;/button&gt; this morning.
+    &lt;/p&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;p style=&quot;font-size: var(--sem-font-size-body); font-weight: var(--sem-font-weight-emphasis); margin: 0&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-link-button ds-link-button--name ds-link-button--inherit&quot; aria-haspopup=&quot;dialog&quot; aria-expanded=&quot;false&quot;&gt;Weather Deck&lt;/button&gt;
     &lt;/p&gt;
   &lt;/div&gt;
   &lt;div class=&quot;demo-row&quot;&gt;
@@ -39327,10 +39983,10 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <p>Use it for four or more options, or for options that arrive from data. Two to four short, equal-weight labels belong to a segmented control, where every option stays visible. A choice that needs filtering-as-you-type is a combobox with an input — a different component this system does not yet define; do not grow this one into it.</p>
 <h4>Anatomy</h4>
 <p>| Part | Class | Required | |---|---|---| | Trigger | <code>.ds-select</code> | yes — a real <code>&lt;button&gt;</code> with <code>role=&quot;combobox&quot;</code> | | Value | <code>.ds-select-value</code> | yes — the selected label, or the placeholder; truncates | | Chevron | <code>.ds-select-chevron</code> | yes — <code>aria-hidden</code>, points down in every state | | Popup | <code>.ds-select-listbox</code> | yes — <code>role=&quot;listbox&quot;</code>, a standard popover surface | | Option | <code>.ds-select-option</code> | yes — <code>role=&quot;option&quot;</code>, one per choice | | Check | <code>.ds-select-check</code> | on the selected option only |</p>
-<p>The trigger sits at <code>size.control.sm</code> — the height of every labelled control, so a select and an input on the same row share a baseline. The popup opens at least as wide as its trigger, caps its height and scrolls past ~8 rows, and is an overlay surface: <code>bg.surface-raised</code>, <code>border.strong</code>, <code>radius.overlay</code>, <code>shadow.popover</code>, <code>z.popover</code>.</p>
+<p>The trigger sits at <code>size.control.sm</code> by default (see the sizes under Variants) — the height of every labelled control, so a select and an input on the same row share a baseline. The popup opens at least as wide as its trigger, caps its height and scrolls past ~8 rows, and is an overlay surface: <code>bg.surface-raised</code>, <code>border.strong</code>, <code>radius.overlay</code>, <code>shadow.popover</code>, <code>z.popover</code>.</p>
 <p>The chevron does not flip while open. It is an affordance (&quot;this opens&quot;), not a state indicator — the visible popup is the state.</p>
 <h4>Variants</h4>
-<ul><li>Default (no modifier) — neutral chrome: <code>bg.surface-raised</code>, <code>border.default</code>, value in <code>text.default</code>.</li><li><code>ds-select--warn</code> / <code>ds-select--danger</code> — the selected value carries risk (a permissions bypass, a destructive default). The trigger takes the tone's <strong>soft</strong> tint with a transparent border, and the value takes the tone ink; the option restates the same ink in the list. This is a property of the *selected value*, not of the control — a select whose every option is toned is misusing it.</li><li><strong>No accent or success emphasis, deliberately.</strong> The source component's tone type technically admits them; the system does not. Emphasis on a trigger means &quot;look again before you rely on this&quot; — risk. A good choice is the normal case and earns no color, and the accent belongs to the primary action, not to a value display.</li><li><strong>No size variants.</strong> One control height; density comes from layout, not from smaller selects.</li></ul>
+<ul><li>Default (no modifier) — neutral chrome: <code>bg.surface-raised</code>, <code>border.default</code>, value in <code>text.default</code>.</li><li><code>ds-select--warn</code> / <code>ds-select--danger</code> — the selected value carries risk (a permissions bypass, a destructive default). The trigger takes the tone's <strong>soft</strong> tint with a transparent border, and the value takes the tone ink; the option restates the same ink in the list. This is a property of the *selected value*, not of the control — a select whose every option is toned is misusing it.</li><li><strong>No accent or success emphasis, deliberately.</strong> The source component's tone type technically admits them; the system does not. Emphasis on a trigger means &quot;look again before you rely on this&quot; — risk. A good choice is the normal case and earns no color, and the accent belongs to the primary action, not to a value display.</li><li><strong>Sizes: <code>sm</code> (default), <code>xs</code>, <code>md</code></strong> (<code>ds-select--xs</code>, <code>ds-select--md</code>; the shipped <code>size</code> prop). They are the control ramp's steps under the same names the button and input use, so a select stands level with the controls in its row: <code>sm</code> is <code>size.control.sm</code> and every labelled form field; <code>xs</code> (<code>size.control.xs</code>, <code>font.size.meta</code>) is the dense toolbar step that sits in a row of <code>xs</code> buttons; <code>md</code> (<code>size.control.md</code>, <code>space.lg</code> inset) sits beside an <code>md</code> button. The options echo the trigger's type size. A size is chosen to match the row, never to make a select quieter than the controls beside it — density still comes from layout.</li></ul>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Rest | <code>border.default</code> on <code>bg.surface-raised</code> | | Hover | Border lifts to <code>border.strong</code>, value to <code>text.primary</code> — no background change | | Open | Popup visible; the trigger does not restyle — the popup is the signal | | Focus | <code>focus.ring</code> outline at <code>focus.ring-offset</code>, on <code>:focus-visible</code> only | | Disabled | 45% opacity, <code>not-allowed</code> cursor | | Placeholder | No selection yet: value in <code>text.muted</code> | | Option active | <code>bg.hover</code>, label lifts to <code>text.primary</code> — pointer and keyboard share it | | Option selected | Trailing check in <code>accent.primary</code> (accent as ink — inside the budget) | | Option disabled | 45% opacity, <code>not-allowed</code>; skipped by every keyboard path |</p>
 <p>Active follows the keyboard *and* the pointer — <code>mouseenter</code> moves it, so there is never one row highlighted by hover and a different one by arrow keys.</p>
@@ -39373,6 +40029,20 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
   text-align: left;
   cursor: pointer;
   transition: border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Size steps on the control ramp, matching the button and input steps of the
+ * same name so a select sits level with the controls in its row. The default
+ * above is `sm`. `xs` is the dense toolbar step and drops to meta type; the
+ * popup's options echo whichever type size the trigger shows. */
+.ds-select--xs {
+  height: var(--sem-size-control-xs);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-select--md {
+  height: var(--sem-size-control-md);
+  padding: 0 var(--sem-space-lg);
 }
 
 /* Hover lifts the border and the ink; the background does not move — a value
@@ -44659,12 +45329,13 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <p>Five tones, each deciding color, politeness, and persistence:</p>
 <p>| Tone        | Mark                                 | Role / live           | Auto-dismiss | | ----------- | ------------------------------------ | --------------------- | ------------ | | <code>--neutral</code> | ring with a bar, <code>status.neutral</code>    | <code>status</code> / <code>polite</code>   | 5 s          | | <code>--good</code>    | check disc, <code>status.good</code>            | <code>status</code> / <code>polite</code>   | 5 s          | | <code>--accent</code>  | held quarter arc, <code>accent.primary</code>   | <code>status</code> / <code>polite</code>   | 5 s          | | <code>--warn</code>    | ring with &quot;!&quot;, <code>status.warn</code>         | <code>alert</code> / <code>assertive</code> | 10 s         | | <code>--danger</code>  | ring with &quot;×&quot;, <code>status.danger</code>       | <code>alert</code> / <code>assertive</code> | 10 s         |</p>
 <p><strong>Every tone leaves on its own</strong> (owner ruling 2026-09-28, amending the earlier never-for-warn-and-danger). A toast is not the state: the notification bell and the surface behind each report keep what it said, so a corner of stale cards is furniture, not safety. Warn and danger stay twice as long as a success, and hovering or focusing any toast holds its clock, restarting the full duration on leave, so nobody is raced while reading. A producer that needs a toast to stay says so with <code>autoDismissMs: false</code> (the app-update steps). (The shipped kit names the danger tone <code>error</code>; the class here follows the token grammar, <code>status.danger</code>.)</p>
-<p><strong>The action row, three consumers.</strong> Owner ruling 2026-09-04: the CLI-update toast (&quot;Update available: Codex 0.153.3&quot;) carries <code>.ds-toast-actions</code> with <strong>Settings</strong> (ghost) and <strong>Update</strong> (primary), and <code>.ds-toast-glyph</code> — the agent CLI's icon — in place of the tone's mark. It stays for one minute, not five seconds and not forever (owner ruling 2026-09-18): long enough to reach for Update, short enough that an unasked-for notice does not sit in the corner until clicked. Missing it loses nothing — the bell and the Settings row carry the same news. Once Update is pressed the toast becomes that update's report, and its buttons go with the question they answered. &quot;Undo&quot; in a toast is still an action on a timer racing its own dismissal and still belongs where the change is visible; a further consumer of the action row is a design decision to record here, not a styling choice.</p>
+<p><strong>The action row, four consumers.</strong> Owner ruling 2026-09-04: the CLI-update toast (&quot;Update available: Codex 0.153.3&quot;) carries <code>.ds-toast-actions</code> with <strong>Settings</strong> (ghost) and <strong>Update</strong> (primary), and <code>.ds-toast-glyph</code> — the agent CLI's icon — in place of the tone's mark. It stays for one minute, not five seconds and not forever (owner ruling 2026-09-18): long enough to reach for Update, short enough that an unasked-for notice does not sit in the corner until clicked. Missing it loses nothing — the bell and the Settings row carry the same news. Once Update is pressed the toast becomes that update's report, and its buttons go with the question they answered. &quot;Undo&quot; in a toast is still an action on a timer racing its own dismissal and still belongs where the change is visible; a further consumer of the action row is a design decision to record here, not a styling choice.</p>
 <p><strong>The action row's second consumer (owner ruling 2026-09-23, amended 2026-09-24).</strong> The app-update toast is one toast, shown again in place at each step of the update, so the corner always says where the update is:</p>
 <p>| Step        | Title                                                                      | Actions                                            | | ----------- | -------------------------------------------------------------------------- | -------------------------------------------------- | | Found       | &quot;SprintEngine Studio 0.7.0 is available&quot; (accent mark)                     | <strong>Later</strong> (ghost), <strong>Download</strong> (primary)          | | Downloading | &quot;Downloading SprintEngine Studio 0.7.0&quot;, the percentage as its description | none                                               | | Ready       | &quot;SprintEngine Studio 0.7.0 is ready&quot; (good mark)                           | <strong>Later</strong> (ghost), <strong>Restart to update</strong> (primary) | | Installing  | &quot;Installing update&quot;                                                        | <strong>Restarting…</strong>, busy                              | | Refused     | &quot;Update not installed&quot;, and why (warn mark)                                | <strong>Later</strong> (ghost), <strong>Restart to update</strong> (primary) |</p>
 <p>Nothing downloads until the person presses Download (2026-09-24), unless they turned automatic download on in Settings; then the Found and Downloading steps are skipped and the toast first appears at Ready. The question is asked where the person is working rather than behind a trip to Settings. Unlike the CLI-update toast it stays until answered: it appears once per version, and a prompt that times out while the person looks away is how an update ends up found by accident. Later is the dismissal, and loses nothing — a downloaded update installs at the next quit (except one that needs an administrator, which says so), and the bell row and the Settings version row still say it is ready.</p>
 <p><strong>The busy action (2026-09-24).</strong> When Restart to update is pressed, the toast turns into the Installing step before the app does anything else, and its one button stays: disabled, <code>aria-busy</code>, with the [spinner](../spinner/component.md) beside its label. It is the answer to &quot;did the press go through?&quot; for the few seconds before the update's progress window takes over, and the one place in a toast a spinner may appear: the process it marks is live, named, and the one the person just started. At the start after an update the toast reports how it went — &quot;Updated to SprintEngine Studio 0.7.0&quot; (good) or &quot;Update to 0.7.0 did not install&quot; (warn, with the reason) — without buttons. These two were the only toasts with buttons until the third below.</p>
-<p><strong>The action row's third consumer (2026-10-07).</strong> ⌘⏎ in New chat starts the chat without opening it, and says so: &quot;Started in the background&quot; (good mark), the chat's name as its description, and one <strong>Open</strong> (primary). It is a polite report on the tone's own timer; a second ⌘⏎ replaces it in place, so Open always means the latest. Open is not the only way there — the chat's row is in the sidebar the moment it starts — and missing the toast loses nothing, which is what lets an action ride a timer here. Pressing it takes the toast down and goes to the chat as a click on its row does. These three are the only toasts in the system with buttons.</p>
+<p><strong>The action row's third consumer (2026-10-07).</strong> ⌘⏎ in New chat starts the chat without opening it, and says so: &quot;Started in the background&quot; (good mark), the chat's name as its description, and one <strong>Open</strong> (primary). It is a polite report on the tone's own timer; a second ⌘⏎ replaces it in place, so Open always means the latest. Open is not the only way there — the chat's row is in the sidebar the moment it starts — and missing the toast loses nothing, which is what lets an action ride a timer here. Pressing it takes the toast down and goes to the chat as a click on its row does.</p>
+<p><strong>The action row's fourth consumer (2026-10-09).</strong> An installed extension's <code>RendererHost.toast({ tone, message, detail?, action? })</code>. The extension's message is the title; its description always leads with the extension's name, stamped by the host, so an extension's toast can never pass for the app's own. It may carry one button, never primary: an extension's toast is a report with a way onward (&quot;Skill installed in acme/app&quot;, <strong>Open</strong>), not a question the app is asking. It runs on its tone's own timer like every report, pressing the button takes the toast down first, and the SDK documents that anything the person must find again belongs in the bell, so missing one loses nothing. These four are the only toasts in the system with buttons.</p>
 <p><strong>In a browser tab (2026-10-03).</strong> A web tab has no installer: the server it talks to is updated, and the tab is a reload away from the new version. So the app-update toast there has one step, shown when the tab finds the server serving a newer bundle than the one it loaded: &quot;Studio was updated&quot; (good mark), &quot;Reload this tab to use the new version. Until then it keeps working as it is.&quot; with <strong>Later</strong> (ghost) and <strong>Reload</strong> (primary). It is the same consumer in its browser form, not a third, and like the desktop's it stays until answered, once per new bundle.</p>
 <p><strong>Dismissing an update is &quot;not now&quot; (owner ruling 2026-09-25).</strong> Each outstanding update also wears a count on the Settings gear and inside Settings (the [badge](../badge/component.md) entry, &quot;In Settings&quot;). Later, and the dismiss button on either update toast, are the person saying &quot;not now&quot; to that version, so they clear its badges; the toast's producer hears the press (<code>onDismissPressed</code> in the kit's store) and records the dismissal. For the app update the dismissal names the step as well: waving off Found does not silence Ready when the download lands, which is news of its own; and closing the Downloading step only hides it, since the person asked for that download. The CLI toast's one-minute timer is <strong>not</strong> a dismissal — nobody pressed anything, and the badges stay until the update is installed or dismissed. Going to Settings from the toast is not one either: it is going to look.</p>
 <p><strong>The answer-in-place row, one consumer.</strong> Owner ruling 2026-09-05: the incoming pair-request toast carries <code>.ds-toast-answer</code> — a six-digit <code>.ds-input</code>, then Decline (ghost) and Allow (primary) — with <code>.ds-toast-help</code> under it holding the instruction, or the refusal in <code>status.danger</code> ink. It is the one toast in the system with a field, and it earns it: the answer IS six digits, read off the screen of the machine asking to pair, and every other route to typing them (a popover, a settings tab) walks the person away from the screen they are reading. The toast times out like any warn, but focus in the code field holds its clock — a surface holding a half-typed code that vanishes on a timer is worse than no surface — and the request stays answerable on its own persistent card, so a toast that left loses nothing. Everything the field cannot express stays on that card: this variant grants the request's DEFAULT authority and nothing a checkbox would have chosen. A second consumer, or a second field, is a modal.</p>

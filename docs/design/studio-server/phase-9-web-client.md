@@ -478,7 +478,7 @@ Paths are under `src/renderer/src/` unless they start with `src/`.
 | 33 | Fonts: `@fontsource` Inter and JetBrains Mono; canvas scene fonts | `index.css:6`, `canvasAssetPath.ts:32` | n/a | Unchanged; the server must serve `fonts/` beside `index.html`, else the editor falls back to a public CDN |
 | 34 | Monaco and workers (`?worker`, `loader.config({ monaco })`) | `utils/monacoRuntime.ts` | n/a | Works unchanged over HTTP. Recommendation: lazy on the web, see 7.6. |
 | 35 | xterm, terminals (`terminalSpawn`, `terminalList`, …; called at boot) | `utils/createStudioTerminal.ts`, boot calls `terminalList`, `onTerminalSessionsDelta` | none | Refused (`terminals` false); boot calls get an empty answer (ruling a) |
-| 36 | Voice dictation `getUserMedia` (main auto-grants the mic) | `modules/voice-dictation/voiceDictationController.ts:68` | n/a | Browser permission prompt; secure context only |
+| 36 | Voice dictation `getUserMedia` | Removed 2026-10-09 | n/a | Nothing to port: the app no longer asks for the microphone, and the page's Permissions-Policy denies it |
 | 37 | Secure-context APIs: `crypto.randomUUID` (4 sites), `navigator.clipboard`, Notifications, service workers | `utils/undeliveredPrompt.ts:50`, `utils/diagnostics.ts:35`, … | n/a | Loopback (`http://127.0.0.1`, `localhost`) is a secure context. Plain HTTP to a tailnet IP is not. One `randomId()` helper over `crypto.getRandomValues` replaces `randomUUID`, and 6.6 requires HTTPS off loopback. |
 | 38 | Account sign-in: `authGetState`, `authLogin` (opens a browser and returns through a deep link) | `SidebarAccountBar` (first crash in E3) | none | The login redirect returns to the server's `/auth/callback` instead of the deep link, or account features are hidden on the web in v1 (owner decision 9) |
 | 39 | Mesh and tailnet admin (`meshGetLiveState`, `tailnetGetStatus`, …; called at boot) | `WorkspaceActions.tsx` (`remoteGlyphState`) | none | Server members (`auth.*` in phase 8). The Remote glyph shows only for owner sessions. |
@@ -804,7 +804,7 @@ X-Frame-Options: DENY
 X-Content-Type-Options: nosniff
 Referrer-Policy: no-referrer
 Cross-Origin-Opener-Policy: same-origin
-Permissions-Policy: camera=(), geolocation=(), microphone=(self)
+Permissions-Policy: camera=(), geolocation=(), microphone=()
 Cross-Origin-Resource-Policy: same-origin   (on every authenticated response, 3.6)
 ```
 

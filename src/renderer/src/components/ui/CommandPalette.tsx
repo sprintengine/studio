@@ -549,7 +549,7 @@ export default function CommandPalette({
           getEffectiveKeybindingLabel(moduleCommand.id, keybindingSettings, keybindingPlatform, moduleCommand) ??
           undefined,
         run: () => {
-          void moduleCommand.run()
+          void moduleCommand.run(moduleCommandContext)
           onClose()
         },
       }))

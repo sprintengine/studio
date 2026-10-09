@@ -1,5 +1,4 @@
-import type { RegisterRenderer, RendererHost, SidebarNavEntryRenderProps } from '@sprintengine/module-sdk'
-import { RowButton } from '@sprintengine/module-sdk/ui'
+import type { RegisterRenderer } from '@sprintengine/module-sdk'
 
 import { createSurface } from './Surface'
 
@@ -12,33 +11,13 @@ function SurfaceIcon({ className }: { className?: string }) {
   )
 }
 
-// A row in the sidebar's top nav that opens the door. `openGlobalSurface` opens
-// only a surface this module registered, and answers false while the module is
-// off. Collapsed, the sidebar is an icon rail, so the row is the glyph alone and
-// its name moves to the label. `icon-sm` is one of the host's own classes; a
-// utility class would not be, because the host does not compile Tailwind for a
-// module's markup.
-function createNavEntry(host: RendererHost) {
-  return function NavEntry({ collapsed }: SidebarNavEntryRenderProps) {
-    return (
-      <RowButton
-        density="nav"
-        aria-label={collapsed ? '{{displayName}}' : undefined}
-        title={collapsed ? '{{displayName}}' : undefined}
-        onClick={() => host.openGlobalSurface('{{id}}')}
-      >
-        <SurfaceIcon className="icon-sm" />
-        {collapsed ? null : <span style={{ minWidth: 0 }}>{'{{displayName}}'}</span>}
-      </RowButton>
-    )
-  }
-}
-
 // A door: a full-page surface the shell mounts over the workspace area. With a
 // `label` and an `Icon` the shell gives it a row in the Extensions drawer and a
-// tile on the Extensions home. The id must be unique across every installed
-// module; the module id is. The sidebar nav entry is a second way in, for a
-// door people open often; drop it if the drawer row is enough.
+// tile on the Extensions home; that row is the way in. The id must be unique
+// across every installed module; the module id is. To put a count on the row,
+// `host.registerDoorBadge({ rowId: '{{id}}', … })`; to tell the person
+// something happened, `notify` from `entry.main` with `target: { surfaceId:
+// '{{id}}' }` or `host.toast(...)` from here.
 export const registerRenderer: RegisterRenderer = (host) => {
   host.registerGlobalSurface({
     id: '{{id}}',
@@ -47,5 +26,4 @@ export const registerRenderer: RegisterRenderer = (host) => {
     railPlacement: 'inline',
     Component: createSurface(host),
   })
-  host.registerSidebarNavEntry({ id: '{{id}}-nav', order: 100, Component: createNavEntry(host) })
 }

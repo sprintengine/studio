@@ -847,6 +847,9 @@ export function createConversationGatewayHost(
               effort && session.capabilities?.reasoningEfforts?.includes(effort) ? { reasoningEffort: effort } : {}
             const ids = command.uploadIds ?? []
             if (ids.length > MAX_ATTACHMENTS_PER_TURN) return { ok: false, message: 'Too many image attachments.' }
+            // Skills the paired machine's composer attached, resolved against
+            // this machine's folder as its own chips are (conversation-skills.ts).
+            const turnSkills = command.skills?.length ? { skills: command.skills.map((id) => ({ id })) } : {}
             const retry =
               ids.length > 0 &&
               ids.every((id) => spent.get(id)?.deviceId === deviceId && spent.get(id)?.commandId === commandId)
@@ -857,6 +860,7 @@ export function createConversationGatewayHost(
                 message: command.message,
                 attachments: [],
                 ...turnEffort,
+                ...turnSkills,
                 ...stamp,
                 ...(registry.sendOrigin ? { origin: registry.sendOrigin } : {}),
               })
@@ -913,6 +917,7 @@ export function createConversationGatewayHost(
                 message: command.message,
                 attachments,
                 ...turnEffort,
+                ...turnSkills,
                 ...stamp,
                 ...(registry.sendOrigin ? { origin: registry.sendOrigin } : {}),
               })

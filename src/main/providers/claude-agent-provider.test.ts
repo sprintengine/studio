@@ -713,7 +713,14 @@ test('claude-agent-provider', async () => {
     assert.equal(success[0]?.payload?.inputTokens, 15)
     assert.equal(success[0]?.payload?.cachedInputTokens, 5, 'the share the prompt cache served')
     assert.equal(success[0]?.payload?.outputTokens, 3)
-    assert.deepEqual(success[1]?.payload, { turnId: 'turn_9', costUsd: 0.025, durationMs: 1234, numTurns: 2 })
+    assert.deepEqual(success[1]?.payload, {
+      turnId: 'turn_9',
+      // The turn's spend by the turn-usage contract: fresh input apart from the cache's share.
+      usage: { inputTokens: 10, outputTokens: 3, cacheReadTokens: 5 },
+      costUsd: 0.025,
+      durationMs: 1234,
+      numTurns: 2,
+    })
 
     const failure = mapSdkMessage(state, {
       type: 'result',

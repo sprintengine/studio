@@ -146,7 +146,7 @@
     },
     {
       "name": "conversation.create",
-      "sha256": "2b048bbb35479522d578a0d0f5dc93f45466e885ba5b8ba26f1ce334adc42074"
+      "sha256": "3407c4a637532940a9ddbbd20183fadc9c340870f9ebf8e3fcd773666f740232"
     },
     {
       "name": "conversation.settle",
@@ -171,6 +171,10 @@
     {
       "name": "workspace.checkout",
       "sha256": "0afb536c6142df85c46b0e126675982fd5df43b7a286db59085bc20688572006"
+    },
+    {
+      "name": "workspace.extensions",
+      "sha256": "932913a33ac3daa85c6183e1fb593a1935a24466a6639f8a31f0dce913b4758e"
     },
     {
       "name": "workspace.create",
@@ -452,7 +456,7 @@
     },
     {
       "name": "conversation.create",
-      "sha256": "2b048bbb35479522d578a0d0f5dc93f45466e885ba5b8ba26f1ce334adc42074"
+      "sha256": "3407c4a637532940a9ddbbd20183fadc9c340870f9ebf8e3fcd773666f740232"
     },
     {
       "name": "conversation.settle",
@@ -477,6 +481,10 @@
     {
       "name": "workspace.checkout",
       "sha256": "0afb536c6142df85c46b0e126675982fd5df43b7a286db59085bc20688572006"
+    },
+    {
+      "name": "workspace.extensions",
+      "sha256": "932913a33ac3daa85c6183e1fb593a1935a24466a6639f8a31f0dce913b4758e"
     },
     {
       "name": "workspace.create",
@@ -667,6 +675,10 @@
     {
       "name": "workspace.checkout",
       "sha256": "0afb536c6142df85c46b0e126675982fd5df43b7a286db59085bc20688572006"
+    },
+    {
+      "name": "workspace.extensions",
+      "sha256": "932913a33ac3daa85c6183e1fb593a1935a24466a6639f8a31f0dce913b4758e"
     },
     {
       "name": "workspace.list",

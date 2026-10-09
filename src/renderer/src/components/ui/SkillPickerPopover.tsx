@@ -65,6 +65,7 @@ function reachableRow(skill: AgentSkillRow, harnessId: string): WorkspaceSkill {
     // legacy union does not enumerate. Attribution stays truthful either way.
     harnesses: [harnessId as SkillHarness],
     installState: 'installed',
+    ...(skill.sourceId ? { sourceId: skill.sourceId } : {}),
   }
 }
 
@@ -115,7 +116,10 @@ export function useWorkspaceSkills(
   pluginId: string | null,
   active: boolean,
 ): SkillInventoryState {
-  const [state, setState] = useState<SkillInventoryState>({ skills: [], loading: false, error: null })
+  // Loading from the first render when active: an empty list before the first
+  // answer is not "nothing matches", and a type-ahead mounted on a token
+  // already typed (`/back` pasted) would read it so and close.
+  const [state, setState] = useState<SkillInventoryState>({ skills: [], loading: active, error: null })
   useEffect(() => {
     if (!active) return
     if (!workspaceRoot) {

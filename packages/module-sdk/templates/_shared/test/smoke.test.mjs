@@ -1,81 +1,69 @@
 // Smoke test: the BUILT module loads the way SprintEngine Studio loads it,
-// registers something, and declares the permissions and dependencies the
-// calls it makes at registration need. Run `npm run build` first
-// (`npm run check` does, in order).
+// registers something, declares the permissions and dependencies the calls
+// it makes need, and everything it registers renders. Run `npm run build`
+// first (`npm run check` does, in order).
 //
 // It loads module/dist exactly as installed — the renderer bundle as ESM, the
-// main bundle as CommonJS — against recording fake hosts, so a bundle that
-// inlined a host-provided package, reached for one the host does not provide,
-// or threw while registering fails here instead of in the app.
+// main bundle as CommonJS — against the SDK's fake hosts
+// (`@sprintengine/module-sdk/testing`), which hold a module to the host's
+// rules: the permissions the host checks are refused without their
+// declaration, storage keeps the host's key pattern and size cap, and the
+// renderer → main bridge needs "module:bridge". `@sprintengine/module-sdk/ui`
+// and `/surface` resolve to a kit that draws what it is given, so a door that
+// throws while rendering fails here instead of in the app.
 //
-// Add tests of your own beside this file (node:test, `*.test.mjs`) and list
-// them in package.json's "test" script.
+// Your own tests are TypeScript, in test/*.test.ts: `npm test` builds them
+// with esbuild (`npm run build:test`) and runs them beside this file.
 
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
-import { createRequire, registerHooks } from 'node:module'
+import { createRequire } from 'node:module'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { join } from 'node:path'
 
-import { checkHostApiCompatibility, validateThirdPartyModuleManifest } from '@sprintengine/module-sdk'
+import {
+  checkHostApiCompatibility,
+  dependsOnReaches,
+  moduleServiceRequirement,
+  validateThirdPartyModuleManifest,
+} from '@sprintengine/module-sdk'
+import { createFakeMainHost, createFakeRendererHost, installTestingKit } from '@sprintengine/module-sdk/testing'
+
+installTestingKit()
 
 const projectDir = fileURLToPath(new URL('..', import.meta.url))
 const moduleDir = join(projectDir, 'module')
 const raw = JSON.parse(readFileSync(join(moduleDir, 'manifest.json'), 'utf8'))
+const BRIDGE_PERMISSIONS = ['module:bridge', 'ipc:invoke']
 
-// The host answers these at runtime; outside it they resolve to stand-ins.
-const HOST_PROVIDED = new Set([
-  '@sprintengine/module-sdk/ui',
-  '@sprintengine/module-sdk/surface',
-  '@monaco-editor/react',
-])
-const HOST_KIT_FAKE = new URL('./host-kit-fake.mjs', import.meta.url).href
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    if (HOST_PROVIDED.has(specifier)) return { url: HOST_KIT_FAKE, shortCircuit: true }
-    return nextResolve(specifier, context)
-  },
-})
+const undeclaredMessage = (uses) =>
+  uses
+    .map(
+      (use) =>
+        `${use.what} needs ${use.needs.length > 1 ? 'one of ' : ''}${use.needs.map((p) => `"${p}"`).join(', ')}` +
+        (use.checked ? ' (the host refuses it without)' : ' (declare it: the person is told what the module does)'),
+    )
+    .join('\n')
 
-// What a service key a module reaches at registration needs declared.
-const SERVICE_PERMISSIONS = {
-  'conversation.module-service': ['conversation:read', 'conversation:operate'],
-  'module-secrets.module-service': ['secrets'],
-  'github.module-service': ['github'],
-  'core.module-storage': ['storage'],
-  'automations.module-service': ['automations.manage'],
-  'companion-agents.module-service': ['agents:companion'],
+/** Read the built entry and check it is bundled the way the host loads it. */
+function builtEntry(kind) {
+  const entry = raw.entry?.[kind]
+  const path = join(moduleDir, entry)
+  assert.ok(existsSync(path), `${entry} is missing — run \`npm run build\` first.`)
+  const source = readFileSync(path, 'utf8')
+  assert.ok(
+    !source.includes('is provided by the host at runtime'),
+    `${entry} bundled a host-provided package instead of leaving it external. Check the esbuild --external flags.`,
+  )
+  // The installed module has no node_modules, and the host answers only the
+  // host-provided specifiers: the SDK's own root must be bundled in.
+  assert.ok(
+    !/(from|require\()\s*["']@sprintengine\/module-sdk["']/.test(source),
+    `${entry} imports "@sprintengine/module-sdk" at runtime; bundle it (do not mark the root specifier external).`,
+  )
+  return { entry, path, source }
 }
-const SERVICE_DEPENDENCIES = {
-  'automations.provider-registry': 'automations',
-  'automations.module-service': 'automations',
-}
-
-/**
- * A host that records every call. Methods it does not model answer with a
- * no-op function, which also serves as an unsubscriber; `requireService`
- * answers with a recording service, so `getConversationService(host)` and
- * friends work and their use is visible.
- */
-function recordingHost(calls) {
-  const known = { moduleId: raw.id, hostApiVersion: raw.engines?.hostApi ?? 1, supports: () => true }
-  const recorder = (prefix) =>
-    new Proxy(prefix ? {} : known, {
-      get(target, property) {
-        if (property in target) return target[property]
-        if (typeof property !== 'string' || property === 'then') return undefined
-        return (...args) => {
-          calls.push({ method: prefix ? `${prefix}.${property}` : property, args })
-          if (!prefix && (property === 'requireService' || property === 'getService')) return recorder(args[0]?.key)
-          return () => {}
-        }
-      },
-    })
-  return recorder('')
-}
-
-const registrations = (calls) => calls.filter((call) => /(^|\.)register/.test(call.method))
 
 test('the manifest is one the app accepts', () => {
   const result = validateThirdPartyModuleManifest(raw)
@@ -84,66 +72,87 @@ test('the manifest is one the app accepts', () => {
   assert.equal(raw.source, 'third-party')
 })
 
-for (const kind of ['renderer', 'main']) {
-  const entry = raw.entry?.[kind]
-  if (!entry) continue
+// The main half, loaded once and shared with the renderer's bridge.
+let main
 
-  test(`entry.${kind} loads and registers`, async () => {
-    const path = join(moduleDir, entry)
-    assert.ok(existsSync(path), `${entry} is missing — run \`npm run build\` first.`)
-    const source = readFileSync(path, 'utf8')
-    assert.ok(
-      !source.includes('is provided by the host at runtime'),
-      `${entry} bundled a host-provided package instead of leaving it external. Check the esbuild --external flags.`,
-    )
-    // The installed module has no node_modules, and the host answers only the
-    // specifiers above: the SDK's own root must be bundled in, not left bare.
-    assert.ok(
-      !/(from|require\()\s*["']@sprintengine\/module-sdk["']/.test(source),
-      `${entry} imports "@sprintengine/module-sdk" at runtime; bundle it (do not mark the root specifier external).`,
-    )
+if (raw.entry?.main) {
+  test('entry.main loads, registers, and declares what it uses', async () => {
+    const { entry, path, source } = builtEntry('main')
+    assert.ok(!/require\(["']react/.test(source), `${entry} requires React; entry.main runs in the main process.`)
+    const loaded = createRequire(import.meta.url)(path)
+    assert.equal(typeof loaded.registerMain, 'function', `${entry} must export registerMain(host).`)
 
-    const calls = []
-    const host = recordingHost(calls)
-    if (kind === 'renderer') {
-      const loaded = await import(pathToFileURL(path).href)
-      assert.equal(typeof loaded.registerRenderer, 'function', `${entry} must export registerRenderer(host).`)
-      await loaded.registerRenderer(host)
-    } else {
-      assert.ok(!/require\(["']react/.test(source), `${entry} requires React; entry.main runs in the main process.`)
-      const loaded = createRequire(import.meta.url)(path)
-      assert.equal(typeof loaded.registerMain, 'function', `${entry} must export registerMain(host).`)
-      await loaded.registerMain(host)
+    main = createFakeMainHost({ manifest: raw })
+    await loaded.registerMain(main.host)
+
+    const contributed =
+      main.ipc.channels().length + main.tools.list().length + main.skills.registered.length + main.sidecars.length
+    assert.ok(contributed > 0, `registering ${entry} contributed nothing.`)
+
+    for (const channel of main.ipc.channels()) {
+      assert.ok(channel.startsWith(`${raw.id}:`), `IPC channel "${channel}" must start with "${raw.id}:".`)
     }
-    assert.ok(registrations(calls).length > 0, `registering ${entry} contributed nothing.`)
-
-    const declared = new Set(raw.permissions ?? [])
-    const dependsOn = new Set(raw.dependsOn ?? [])
-    for (const call of calls) {
-      if (call.method === 'registerMcpTools') {
-        assert.ok(declared.has('mcp:tools'), 'registerMcpTools needs the "mcp:tools" permission.')
-      }
-      if (call.method === 'registerIpc') {
-        const [channel] = call.args
-        assert.ok(String(channel).startsWith(`${raw.id}:`), `IPC channel "${channel}" must start with "${raw.id}:".`)
-        if (raw.entry?.renderer) {
-          assert.ok(declared.has('ipc:invoke'), 'host.invoke from the renderer needs the "ipc:invoke" permission.')
-        }
-      }
-      if (call.method === 'requireService' || call.method === 'getService') {
-        const key = call.args[0]?.key
-        const needs = SERVICE_PERMISSIONS[key]
-        if (needs) {
-          assert.ok(
-            needs.some((permission) => declared.has(permission)),
-            `${key} needs one of these permissions: ${needs.join(', ')}.`,
-          )
-        }
-        const dependency = SERVICE_DEPENDENCIES[key]
-        if (dependency) {
-          assert.ok(dependsOn.has(dependency), `${key} needs "dependsOn": ["${dependency}"] so it loads first.`)
-        }
-      }
+    if (raw.entry?.renderer && main.ipc.channels().length > 0) {
+      assert.ok(
+        BRIDGE_PERMISSIONS.some((permission) => main.permissions.has(permission)),
+        'host.invoke from the renderer to these channels needs the "module:bridge" permission.',
+      )
     }
+
+    // A service resolved while registering must have its provider loaded
+    // first; one resolved later (in a handler) need not.
+    for (const key of main.resolved) {
+      const requirement = moduleServiceRequirement(key)
+      if (!requirement) continue
+      assert.ok(
+        dependsOnReaches(raw.dependsOn, requirement.providedBy),
+        `${key} (${requirement.via}) is resolved while registering, so "dependsOn" must include ` +
+          `"${requirement.providedBy}" — or resolve it inside the handler that uses it.`,
+      )
+    }
+    assert.equal(main.undeclared.length, 0, undeclaredMessage(main.undeclared))
+  })
+}
+
+if (raw.entry?.renderer) {
+  let renderer
+
+  test('entry.renderer loads and registers', async () => {
+    const { entry, path } = builtEntry('renderer')
+    const loaded = await import(pathToFileURL(path).href)
+    assert.equal(typeof loaded.registerRenderer, 'function', `${entry} must export registerRenderer(host).`)
+    renderer = createFakeRendererHost(main ? { manifest: raw, main } : { manifest: raw })
+    await loaded.registerRenderer(renderer.host)
+    const contributed = Object.values(renderer.registrations).some((registered) =>
+      Array.isArray(registered) ? registered.length > 0 : registered.size > 0,
+    )
+    assert.ok(contributed, `registering ${entry} contributed nothing.`)
+  })
+
+  test('everything entry.renderer registered renders', async (t) => {
+    assert.ok(renderer, 'entry.renderer did not load (see above).')
+    const { registrations, render } = renderer
+    const targets = [
+      ...registrations.globalSurfaces.map((surface) => [`door "${surface.id}"`, () => render.surface(surface.id)]),
+      ...registrations.modalSurfaces.map((surface) => [`modal "${surface.id}"`, () => render.modal(surface.id)]),
+      ...[...registrations.panels.keys()].map((id) => [`panel "${id}"`, () => render.panel(id)]),
+      ...registrations.settingsSections.map((section) => [
+        `settings section "${section.id}"`,
+        () => render.settings(section.id),
+      ]),
+      ...registrations.topBarItems.map((item) => [`top-bar item "${item.id}"`, () => render.topBar(item.id)]),
+      ...registrations.sidebarNavEntries.map((item) => [`sidebar entry "${item.id}"`, () => render.navEntry(item.id)]),
+    ]
+    for (const [label, draw] of targets) {
+      await t.test(`${label} renders`, async () => {
+        const html = await draw()
+        assert.ok(html.length > 0, `${label} rendered nothing.`)
+      })
+    }
+  })
+
+  test('entry.renderer uses only what the manifest declares', () => {
+    assert.ok(renderer, 'entry.renderer did not load (see above).')
+    assert.equal(renderer.undeclared.length, 0, undeclaredMessage(renderer.undeclared))
   })
 }

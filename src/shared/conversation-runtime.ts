@@ -36,7 +36,9 @@ export type {
   ConversationToolOutputPayload,
   ConversationToolStartedPayload,
   ConversationToolStatus,
+  ConversationTurnCompletedPayload,
   ConversationTurnRetryingPayload,
+  ConversationTurnUsage,
 } from '../../packages/conversation-protocol/src/public'
 // Who a `user_message` came from when it was not the person (`origin`).
 export { readConversationMessageOrigin } from '../../packages/conversation-protocol/src/public'
@@ -343,6 +345,21 @@ export type ConversationSetModelInput = {
   modelId: string
 }
 
+/** What can be done to one of a live chat's MCP servers from its composer. */
+export type ConversationMcpServerAction = 'reconnect' | 'enable' | 'disable' | 'sign-in'
+
+export type ConversationMcpServerActionInput = {
+  sessionId: string
+  serverId: string
+  action: ConversationMcpServerAction
+}
+
+/**
+ * `authUrl` is where a sign-in is finished, in the person's browser; the CLI
+ * waits on its own callback and reconnects the server once it arrives.
+ */
+export type ConversationMcpServerActionResult = { ok: true; authUrl?: string } | { ok: false; message: string }
+
 export type ConversationStopSessionInput = {
   // What the command was, hashed by whoever named its id: a receipt keeps it,
   // and the same id coming back for a different command is refused rather
@@ -449,6 +466,9 @@ export type ConversationCapabilities = {
   questions: boolean
   planMode: boolean
   images: boolean
+  // `native`: the provider loads attached skills itself. `context`: the
+  // runtime delivers them, as the CLI's own invocation by name when a CLI
+  // stands behind the chat (conversation-skills.ts), else as instructions.
   skills: 'native' | 'context' | 'none'
   reasoningEfforts: string[] | null
   interrupt: boolean
@@ -457,6 +477,8 @@ export type ConversationCapabilities = {
   cost: boolean
   contextMeter: boolean
   liveModelSwitch: boolean
+  // What the composer may do to the chat's MCP servers while it runs.
+  mcpServerActions?: ConversationMcpServerAction[]
   checkpoints?: boolean
   // The provider reads `@path` in a prompt as a reference to that workspace
   // file and opens it itself, so a mention can be passed as `@path`.

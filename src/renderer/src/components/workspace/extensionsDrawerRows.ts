@@ -8,7 +8,7 @@ import type {
   SurfaceIconComponent,
 } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { DRAWER_ROWS, type ExtensionsDrawerRowId } from './extensionsDrawer'
+import { DRAWER_ROWS } from './extensionsDrawer'
 import { extensionContributionRows } from './extensionContributionRows'
 import { useSurfaceView } from './surfaceView'
 
@@ -32,8 +32,12 @@ import { useSurfaceView } from './surfaceView'
 export type ExtensionsDrawerRowView = {
   /** Stable across renders and unique in the list; a React key. */
   key: string
-  /** Fixed rows carry their notification key. Installed contributions do not. */
-  rowId: ExtensionsDrawerRowId | null
+  /**
+   * The row's notification key: a fixed row's id (`design`, `plugins`,
+   * `skills`), or an installed door's surface id — on that door's only row, or
+   * the first of its view rows. Null on the rest, so a count is worn once.
+   */
+  rowId: string | null
   /** The surface the row leads to. */
   surfaceId: string
   /** The module that contributed the row, for containing its render failures. */
@@ -178,6 +182,7 @@ export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
       ...fixedRows,
       ...extensionContributionRows({
         surfaces: globalSurfaces,
+        navEntries: hostNavEntries,
         activeGlobalSurface,
         activeView,
         enterExtensions: () => setSidebarSection('extensions'),

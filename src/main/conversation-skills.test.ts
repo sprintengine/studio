@@ -89,3 +89,109 @@ test('skill budgets name the rejected skill and native skills use the workspace 
     await rm(workspaceRoot, { recursive: true, force: true })
   }
 })
+
+test('a chat CLI is told to run skills by name, once, instead of being handed the SKILL.md', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-skills-'))
+  const attached: string[] = []
+  try {
+    const resolve = createConversationSkillsResolver({
+      installer: {
+        async attach({ skillId }) {
+          attached.push(skillId)
+          for (const dir of ['.codex', '.grok', '.opencode']) {
+            const target = join(workspaceRoot, dir, 'skills', skillId)
+            await mkdir(target, { recursive: true })
+            await writeFile(join(target, 'SKILL.md'), 'Long instructions that must not be sent.')
+          }
+          return { ok: true, skillId, targets: [] }
+        },
+      },
+    })
+    const skills = [{ id: 'review' }, { id: 'ship-it' }]
+    assert.deepEqual(await resolve({ workspaceRoot, mode: 'context', cli: 'codex', skills }), {
+      ids: ['review', 'ship-it'],
+      invocation: '$review $ship-it',
+    })
+    // Installed where the CLI reads skills on the first ask, and not again.
+    assert.deepEqual(attached, ['review', 'ship-it'])
+    assert.deepEqual(await resolve({ workspaceRoot, mode: 'context', cli: 'grok', skills }), {
+      ids: ['review', 'ship-it'],
+      invocation: '/review /ship-it',
+    })
+    assert.deepEqual(await resolve({ workspaceRoot, mode: 'context', cli: 'opencode', skills }), {
+      ids: ['review', 'ship-it'],
+      invocation: 'Use the review and ship-it skills.',
+    })
+    // Cursor reads the folders other CLIs install into.
+    assert.deepEqual(await resolve({ workspaceRoot, mode: 'context', cli: 'cursor', skills: [{ id: 'review' }] }), {
+      ids: ['review'],
+      invocation: '/review',
+    })
+    assert.deepEqual(attached, ['review', 'ship-it'])
+    // A skill the chat already ran stays attached without being run again.
+    assert.deepEqual(
+      await resolve({ workspaceRoot, mode: 'context', cli: 'codex', skills, invoked: new Set(['review']) }),
+      { ids: ['review', 'ship-it'], invocation: '$ship-it' },
+    )
+    assert.deepEqual(
+      await resolve({ workspaceRoot, mode: 'context', cli: 'codex', skills, invoked: new Set(['review', 'ship-it']) }),
+      { ids: ['review', 'ship-it'] },
+    )
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('a skill the installer cannot place where the CLI reads it is refused by name', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-skills-'))
+  try {
+    const resolve = createConversationSkillsResolver({
+      installer: { attach: async ({ skillId }) => ({ ok: true, skillId, targets: [] }) },
+    })
+    await assert.rejects(
+      resolve({ workspaceRoot, mode: 'context', cli: 'grok', skills: [{ id: 'review' }] }),
+      /review.*grok/,
+    )
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('a stateful chat opens with the skill invocation once, and later turns go without it', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-skills-'))
+  const sent: string[] = []
+  const mock = createMockConversationProvider({ skills: 'context' })
+  const runtime = new ConversationRuntime({
+    adapters: [
+      {
+        ...mock,
+        sessions: 'stateful',
+        sendTurn(input) {
+          sent.push(input.message)
+          // The mock completes a `/tools` turn without asking for approval.
+          return mock.sendTurn({ ...input, message: '/tools' })
+        },
+      },
+    ],
+    getProviderById: () => undefined,
+    // The invocation the resolver hands back, for the skills not yet run.
+    resolveSkills: async ({ skills, invoked }) => {
+      const ids = skills.map((skill) => skill.id)
+      const fresh = ids.filter((id) => !invoked?.has(id))
+      return { ids, ...(fresh.length ? { invocation: fresh.map((id) => `/${id}`).join(' ') } : {}) }
+    },
+  })
+  try {
+    const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
+    const session = await runtime.startSession({ ...key, providerId: 'mock-provider', modelId: 'mock-model' })
+    assert.ok(session.ok)
+    const sessionId = session.session.sessionId
+    await runtime.sendTurn({ sessionId, message: 'Fix the flaky test', skills: [{ id: 'review' }] })
+    await runtime.sendTurn({ sessionId, message: 'Now push it', skills: [{ id: 'review' }] })
+    await runtime.sendTurn({ sessionId, message: 'And document it', skills: [{ id: 'review' }, { id: 'docs' }] })
+    assert.deepEqual(sent, ['/review\n\nFix the flaky test', 'Now push it', '/docs\n\nAnd document it'])
+  } finally {
+    await runtime.shutdown()
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+})

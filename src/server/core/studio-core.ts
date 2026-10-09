@@ -30,6 +30,7 @@ import { ConversationPlanStore } from '../../main/conversation-plan-store'
 import { ConversationRuntime, type ConversationRuntimeOptions } from '../../main/conversation-runtime'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
 import { createGitWorktree, getGitRepoRoot } from '../../main/git'
+import { listGitWorktrees } from '../../main/git-worktree-list'
 import { startedDependencyInstall } from '../../main/worktree-pool/dependency-install'
 import { installGitHostResolver, withGitHost } from '../../main/git-run'
 import { createHostRegistry, installHostRegistry } from '../../main/hosts/host-registry'
@@ -361,6 +362,18 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
         baseRef: created.data.baseRef,
         ...(installing ? { dependencyInstall: installing } : {}),
       }
+    },
+    // The worktrees a new chat may be started in, read as `workspace.checkout`
+    // reads them for the picker that named one: bare entries dropped, the main
+    // worktree first. Asked of the machine the chat runs on.
+    listWorktrees: async (repoRoot, hostId) => {
+      const listed = await withGitHost(hostId ? hosts.get(hostId) : null, () =>
+        listGitWorktrees(repoRoot, { resolvedRoot: true }),
+      )
+      if (!listed.ok) return null
+      return listed.data.worktrees
+        .filter((entry) => !entry.bare)
+        .map((entry) => ({ path: entry.path, branch: entry.branch }))
     },
     // The same installer a terminal launch's skill-at-spawn uses, into the
     // folder the chat works in (a run's worktree when it has one).

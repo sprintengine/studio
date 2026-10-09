@@ -107,6 +107,56 @@ export function searchDirectories(loginPath: string | null, basePath: string | u
   return directories
 }
 
+/**
+ * Where a person's own package managers put binaries, by host: Homebrew on
+ * Apple silicon and Intel Macs (and Linuxbrew), and the conventional local
+ * prefix. A Mac app opened from Finder or the Dock inherits launchd's PATH,
+ * `/usr/bin:/bin:/usr/sbin:/sbin`, which has none of them — so an agent's shell
+ * could not find `npx`, `gh` or `brew` itself, though the person's terminal
+ * could. These stand in for the login shell's PATH until one has answered, and
+ * for a session where none ever does.
+ */
+export const USER_BIN_DIRECTORY_FALLBACKS: Readonly<Partial<Record<NodeJS.Platform, readonly string[]>>> = {
+  darwin: ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/usr/local/sbin'],
+  linux: ['/home/linuxbrew/.linuxbrew/bin', '/home/linuxbrew/.linuxbrew/sbin', '/usr/local/bin', '/usr/local/sbin'],
+}
+
+/**
+ * `env` with the PATH a person's own terminal would have: the login shell's
+ * PATH when one has answered (`lastKnownLoginShellPath`), then whatever only
+ * the app's own PATH has, then any of `USER_BIN_DIRECTORY_FALLBACKS` that
+ * exists and is still missing. This is what every terminal and agent the app
+ * starts inherits, so an agent's shell can run what the person's can.
+ *
+ * Host macOS and Linux only; Windows and WSL keep the PATH they were given.
+ * Nothing is removed: an entry the app's PATH has and the login shell's lacks
+ * (the managed runtime's shims) keeps its place after the login entries.
+ */
+export function withUserShellPath(
+  env: Record<string, string>,
+  options: { platform: NodeJS.Platform; loginPath: string | null; exists: (directory: string) => boolean },
+): Record<string, string> {
+  const fallbacks = USER_BIN_DIRECTORY_FALLBACKS[options.platform]
+  if (!fallbacks) return env
+  const directories = searchDirectories(options.loginPath, env.PATH)
+  for (const directory of fallbacks) {
+    if (!directories.includes(directory) && options.exists(directory)) directories.push(directory)
+  }
+  const path = directories.join(delimiter)
+  return path === env.PATH ? env : { ...env, PATH: path }
+}
+
+// The last PATH any resolver in this process heard from a login shell. A
+// resolver is async and a spawn's environment is built synchronously, so the
+// spawn reads the answer the session already has (CLI detection asks at boot)
+// rather than waiting for one.
+let lastResolvedLoginPath: string | null = null
+
+/** The login shell's PATH as last resolved this session, or null before any shell has answered. */
+export function lastKnownLoginShellPath(): string | null {
+  return lastResolvedLoginPath
+}
+
 async function isExecutableFile(candidate: string): Promise<boolean> {
   try {
     const info = await stat(candidate)
@@ -175,6 +225,7 @@ export function createLoginShellPathResolver(deps: {
         // Kept only when it answered. Dropping a failure lets the next refresh
         // try again instead of living with the process PATH all session.
         if (path === null && memo === pending) memo = null
+        if (path !== null) lastResolvedLoginPath = path
       })
       return pending
     },

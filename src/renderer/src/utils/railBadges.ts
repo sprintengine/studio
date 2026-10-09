@@ -17,6 +17,7 @@ import {
   EXTENSIONS_DRAWER_ROW_IDS,
   isExtensionsDrawerRowId,
   type ExtensionsDrawerRowId,
+  type InstalledDoorRows,
 } from '../components/workspace/extensionsDrawer'
 import { newHomeCardSlugs } from '../components/extensions/homeCards'
 import type { HostedCard } from '../../../shared/hosted-card-feed'
@@ -41,35 +42,74 @@ export const CORE_NOTIFICATION_SOURCE_ROWS: Readonly<Partial<Record<DiagnosticSo
 }
 
 /**
+ * Where an installed module's own `notify` rows go: the installed door rows
+ * with their owning module (`InstalledDoorRows`), and the row each module's
+ * untargeted rows fall to — a door badge it registered with
+ * `notificationSource` set to its own id. A module's news only ever lands on
+ * one of ITS rows: a target naming another module's door badges nothing.
+ */
+export type ModuleNotificationRows = {
+  doors: InstalledDoorRows
+  fallbackByModule: Readonly<Partial<Record<string, string>>>
+}
+
+/**
  * The drawer row a piece of news belongs to — the row that wears its count and
  * the row whose opening reads it (owner, 2026-09-08: "put the notification on
  * whatever row it came from"). An emitter that knows says so on the
  * notification; otherwise the source decides via `CORE_NOTIFICATION_SOURCE_ROWS`
- * plus any door-badge `notificationSource` map the caller passes — how a module
- * files its own news under its own row.
+ * plus any door-badge `notificationSource` map the caller passes.
+ *
+ * A capability module's own row (source `module`) is filed by its stamped
+ * module id instead, against `moduleRows`: its `notify` target's door when
+ * that door is the module's own, else the door its badge claimed for its news,
+ * else its one door when it has exactly one.
  *
  * Null for everything else: a git failure or a terminal crash is a workspace
  * fact and badges no row.
  */
 export function extensionsRowOfNotification(
-  notification: Pick<AppNotification, 'source' | 'extensionsRow'>,
+  notification: Pick<AppNotification, 'source' | 'extensionsRow' | 'sourceModule'>,
   sourceRows: Readonly<Partial<Record<string, ExtensionsDrawerRowId>>> = CORE_NOTIFICATION_SOURCE_ROWS,
-): ExtensionsDrawerRowId | null {
+  moduleRows?: ModuleNotificationRows,
+): string | null {
+  if (notification.source === 'module') {
+    const moduleId = notification.sourceModule?.id
+    if (!moduleId || !moduleRows) return null
+    const named = notification.extensionsRow
+    if (named && moduleRows.doors.get(named) === moduleId) return named
+    const fallback = moduleRows.fallbackByModule[moduleId]
+    if (fallback && moduleRows.doors.get(fallback) === moduleId) return fallback
+    // A module with one door files its untargeted news there: that is the
+    // row it came from. One with several says which through its badge.
+    let only: string | null = null
+    for (const [row, owner] of moduleRows.doors) {
+      if (owner !== moduleId) continue
+      if (only !== null) return null
+      only = row
+    }
+    return only
+  }
   if (isExtensionsDrawerRowId(notification.extensionsRow)) return notification.extensionsRow
   return sourceRows[notification.source] ?? CORE_NOTIFICATION_SOURCE_ROWS[notification.source] ?? null
 }
 
-/** The unread news under each drawer row. Every row is present, empty or not. */
+/**
+ * The unread news under each drawer row. Every fixed row is present, empty or
+ * not, and so is every installed door row `moduleRows` names.
+ */
 export function unreadByExtensionsRow(
   notifications: readonly AppNotification[],
   sourceRows: Readonly<Partial<Record<string, ExtensionsDrawerRowId>>> = CORE_NOTIFICATION_SOURCE_ROWS,
-): Readonly<Record<ExtensionsDrawerRowId, AppNotification[]>> {
-  const byRow = {} as Record<ExtensionsDrawerRowId, AppNotification[]>
+  moduleRows?: ModuleNotificationRows,
+): Readonly<Record<string, AppNotification[]>> {
+  const byRow: Record<string, AppNotification[]> = {}
   for (const row of EXTENSIONS_DRAWER_ROW_IDS) byRow[row] = []
+  for (const row of moduleRows?.doors.keys() ?? []) byRow[row] = []
   for (const notification of notifications) {
     if (notification.read) continue
-    const row = extensionsRowOfNotification(notification, sourceRows)
-    if (row) byRow[row].push(notification)
+    const row = extensionsRowOfNotification(notification, sourceRows, moduleRows)
+    if (row && byRow[row]) byRow[row].push(notification)
   }
   return byRow
 }
@@ -162,7 +202,7 @@ export function extensionsRowBadge(input: {
  * its unread channels.
  */
 export function extensionsRailBadge(input: {
-  rows: Readonly<Partial<Record<ExtensionsDrawerRowId, RailBadge | null>>>
+  rows: Readonly<Partial<Record<string, RailBadge | null>>>
   unseenCards: number
 }): RailBadge | null {
   const rows = Object.values(input.rows).filter((row): row is RailBadge => Boolean(row))

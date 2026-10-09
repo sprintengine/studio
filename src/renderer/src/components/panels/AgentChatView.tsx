@@ -27,6 +27,7 @@ import type {
   ConversationCliRuntimeOverrides,
   ConversationImageAttachment,
   ConversationSessionSummary,
+  ConversationMcpServerAction,
 } from '../../../../shared/conversation-runtime'
 import type { ConversationApprovalDecision } from '../../../../shared/conversation/approvalRules'
 import type { MeshQueuedMessage } from '../../../../shared/tailnet-mesh'
@@ -139,6 +140,7 @@ import { usageLimitProviderOf } from '../../store/usageLimitsStore'
 import { studioAppCommands, useConversationCommands } from './agentChat/useConversationCommands'
 import { composerAppCommand } from './agentChat/composerAppCommands'
 import { commandInsertText } from './agentChat/slashCommandMenu'
+import { tokenOpensMessage } from '../../../../shared/conversation/composerTrigger'
 import { useConversationSearchJump } from './agentChat/conversationSearchJump'
 import { useTurnNavigation } from './agentChat/turnNavigation'
 import { TimelineMinimap } from './agentChat/TimelineMinimap'
@@ -449,8 +451,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const capabilities = session?.capabilities ?? providerEntry?.capabilities
   const permissionPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
   const permissionMode = resolvePermissionMode(session, agent)
+  const mcpServerActions = capabilities?.mcpServerActions
   const supportsSkills =
-    transport.capabilities.composerContext && capabilities?.skills !== undefined && capabilities.skills !== 'none'
+    transport.capabilities.skills && capabilities?.skills !== undefined && capabilities.skills !== 'none'
   // The chat has no plan toggle: a turn goes out in the mode the agent is on,
   // which is the default unless a read-only ask was set for it.
   const conversationMode: 'default' | 'ask' = agent?.conversationMode === 'ask' ? 'ask' : 'default'
@@ -2622,7 +2625,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     workspaceRunsHere(binding.workspace) &&
     clientSupports('drag-paths')
 
-  const skillInventory = useWorkspaceSkills(workspaceRoot, null, supportsSkills)
+  const skillInventory = useWorkspaceSkills(
+    workspaceRoot,
+    null,
+    supportsSkills && transport.capabilities.composerContext,
+  )
   // Held from render to render, as the "+" menu that takes them is memoized:
   // a list rebuilt each render redrew the menu on every keystroke and token.
   const attachedSkills = useMemo(
@@ -2655,16 +2662,41 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         ? {
             workspaceRoot,
             // A chat stages skills itself, so the workspace-wide inventory is
-            // its list; it reads no MCP servers.
+            // its list. Its servers were set when it started: they are listed
+            // with how each is connecting, and none is picked from here.
             pluginId: null,
             skills: attachedSkills,
             onSkillsChange: setAttachedSkills,
             mcpServers: NO_MCP_SERVERS,
             onMcpServersChange: ignoreMcpServers,
-            includeMcps: false,
+            mcpCli: chatCli,
+            mcpPickable: false,
+            // A chat on a paired machine lists that machine's.
+            ...(transport.remoteExtensions ? { remote: transport.remoteExtensions } : {}),
+            // A live chat here can reconnect its servers, switch them, and
+            // sign in to one, as far as its CLI lets it.
+            ...(transport.kind === 'local' && sessionId && mcpServerActions?.length
+              ? {
+                  mcpActions: {
+                    available: mcpServerActions,
+                    run: (serverId: string, action: ConversationMcpServerAction) =>
+                      window.api.conversationSessionMcpAction({ sessionId, serverId, action }),
+                  },
+                }
+              : {}),
           }
         : undefined,
-    [supportsSkills, workspaceRoot, attachedSkills, setAttachedSkills],
+    [
+      supportsSkills,
+      workspaceRoot,
+      attachedSkills,
+      setAttachedSkills,
+      chatCli,
+      transport.remoteExtensions,
+      transport.kind,
+      sessionId,
+      mcpServerActions,
+    ],
   )
   const removeDraftFile = useCallback(
     (path: string) =>
@@ -2707,7 +2739,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     workspaceRoot,
     draft,
     caret: composerCaret,
-    skillsEnabled: supportsSkills,
+    // The type-ahead reads this machine's inventory; a remote chat's skills come from its "+".
+    skillsEnabled: supportsSkills && transport.capabilities.composerContext,
     // A file mention names a file on this machine's disk.
     mentionsEnabled: transport.capabilities.composerContext,
     commandMenu: commandMenuAvailable
@@ -2741,16 +2774,24 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         if (command.name === 'terminal') resumeInTerminalRef.current()
         return
       }
-      // Everything else is text the CLI expands when the message goes out.
-      // A space already after the token is reused rather than doubled.
-      const text = commandInsertText(command)
+      // Everything else is text the CLI expands when the message goes out —
+      // as `/name` where the token opens the message, and as a form the agent
+      // reads mid-message anywhere else. A space already after the token is
+      // reused rather than doubled.
+      const opensMessage = tokenOpensMessage(draft, range.start)
+      const text = commandInsertText(command, opensMessage)
       const end = text.endsWith(' ') && /^\s/u.test(draft.slice(range.end)) ? range.end + 1 : range.end
       const next = draft.slice(0, range.start) + text + draft.slice(end)
       setDraft(next)
       pendingCaretRef.current = range.start + text.length
       setComposerCaret(range.start + text.length)
       detachRecall()
-      setCommandHint(command.argumentHint ? { command: command.name, hint: command.argumentHint, draft: next } : null)
+      // Arguments follow a command only where it runs, at the message's start.
+      setCommandHint(
+        opensMessage && command.argumentHint
+          ? { command: command.name, hint: command.argumentHint, draft: next }
+          : null,
+      )
     },
     onPickSkill: (skill, range) => {
       setAttachedSkills([...attachedSkills, skill])

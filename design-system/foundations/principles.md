@@ -724,10 +724,44 @@ title, none above the buttons. See *Hairlines carry the structure*.
   ink (`status-dot`); something running right now is the working mark
   (`liveness`), the one "working" mark every surface shares, or a spawned
   agent's character (`agent-glyph`).
+  One exception: an MCP server's connection in the composer's Skills & MCPs
+  picker is a dot beside the server's name (owner ruling 2026-10-09) — filled
+  green connected, amber needs sign-in, red failed, grey connecting, and a
+  hollow ring disabled — with the state's word as its accessible name and
+  tooltip. A list of servers is scanned down its names for the one that is not
+  connected, and the dot is the mark that sits in that column.
 - A status is never text-only with no glyph, nor glyph-only with no accessible
   name.
 - The accent green (forest) and the success green (bright emerald) are held
   apart by brightness and saturation. Never retune one toward the other.
+
+## Chart colour
+
+A chart that tells series apart by colour takes `color.chart.1` … `color.chart.8`
+(`--sem-color-chart-*`; modules read them as `--chart-1` … `--chart-8`), and
+the folded remainder takes `color.chart.other`, a neutral grey.
+
+- **Ordered, never cycled.** Series N takes slot N, and the order is the
+  colour-vision safety: each slot was placed so its neighbours stay apart under
+  protanopia and deuteranopia (worst adjacent pair ΔE 13.1 light, 12.1 dark,
+  OKLab ×100; 18 or more for normal vision). A ninth series is never a
+  generated hue — fold the tail into "Other" (`chart.other`) or split the
+  chart. A scatter, a map or small multiples, where any two series can sit
+  side by side, holds three series; the first three slots are validated
+  against each other, all pairs, in both modes.
+- **Colour follows the entity, never its rank.** A filter that removes a
+  series does not repaint the ones that remain.
+- **Never status.** The eight are a data palette, not tones. A series that
+  MEANS good or bad (pass/fail, an error rate) wears `status.*` with its word,
+  and never sits in the same chart as a categorical series. The eight are held
+  away from the good, warn and danger tones on purpose; do not borrow a status
+  tone as "series 4".
+- **Contrast.** Every slot clears 3:1 against `bg.surface` on every theme of
+  its mode — white, paper and the cream themes in light, every dark surface in
+  dark — so a mark reads without a hairline around it. Values, labels and
+  legends stay in text ink; the colour beside them carries identity.
+- **A legend for two or more series**, and direct labels where there are four
+  or fewer, so a series is never identified by colour alone.
 
 ## Motion
 

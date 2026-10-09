@@ -7,18 +7,25 @@
 //
 // 1. validates module/manifest.json with the SDK's validator and host API check;
 // 2. writes the manifest's `files` map — the sha256 of every file in module/,
-//    manifest.json aside. The app holds an installed module to exactly those
-//    bytes and will not load one without them;
+//    manifest.json aside — when it no longer matches module/. The app holds an
+//    installed module to exactly those bytes and will not load one without
+//    them. A manifest that already describes module/ is left byte for byte as
+//    it is, so rebuilding unchanged code leaves git clean;
 // 3. signs the manifest when a key is at hand (--key, $SPRINTENGINE_SIGNING_KEY,
-//    or ~/.sprintengine/keys/<id>.key), so what you try is what you would ship.
-//    With no key the module installs unsigned and Studio asks you to trust it;
+//    or ~/.sprintengine/keys/<id>.key) and the signature is missing or no
+//    longer covers it, so what you try is what you would ship. With no key the
+//    module installs unsigned and Studio asks you to trust it;
 // 4. copies module/ into $SPRINTENGINE_USER_MODULE_ROOT (default
 //    ~/.sprintengine/modules)/<id>, swapping the old copy out in one step.
 //
 // `--no-install` stops after step 3. `npm run build` ends with it, so after
 // every build module/manifest.json describes module/ exactly, and the
 // repository can be committed as it stands — a GitHub install reads module/
-// at a commit and refuses one its manifest does not describe.
+// at a commit and refuses one its manifest does not describe. That is why the
+// digests are written by the build and not only by dev:install or sign: a
+// commit made after any build is installable. Because the manifest is written
+// only when the digests changed, it shows as modified in git exactly when
+// module/dist did.
 //
 // Every rebuild changes the digests, and trust is granted to exact contents,
 // so Studio asks again after each install — see the skill's pitfalls.md.
@@ -65,7 +72,7 @@ for (const [key, path] of Object.entries(validated.manifest.entry ?? {})) {
 // ── 2. Record the file digests ───────────────────────────────────────────────
 
 const files = computeFileDigests(moduleDir, signing)
-const digestsChanged = digestDrift(raw.files ?? {}, files).length > 0 || raw.files === undefined
+const digestsChanged = raw.files === undefined || digestDrift(raw.files, files).length > 0
 
 // ── 3. Sign, when there is a key ─────────────────────────────────────────────
 
@@ -87,9 +94,15 @@ if (keyPath === undefined && raw.signature && digestsChanged) {
   const { signature: _stale, ...unsigned } = raw
   raw = unsigned
 }
-writeManifest({ ...raw, files })
+// Written only when module/ changed: an unchanged rebuild leaves the committed
+// manifest exactly as it was.
+if (digestsChanged) writeManifest({ ...raw, files })
 
-if (keyPath !== undefined) {
+// A signature that still covers the manifest (the same files, nothing edited
+// since) is kept; signing again would only churn the file.
+const signatureCurrent =
+  !digestsChanged && raw.signature !== undefined && signing.verifyModuleSignature(raw).valid === true
+if (keyPath !== undefined && !signatureCurrent) {
   if (!existsSync(keyPath)) fail(`Signing key not found: ${keyPath}`)
   const signed = spawnSync(process.execPath, [cliPath, 'sign', moduleDir, '--key', keyPath], { stdio: 'inherit' })
   if (signed.status !== 0) fail('Signing failed (see above).')
@@ -103,7 +116,11 @@ if (keyPath !== undefined) {
 
 if (argv.includes('--no-install')) {
   const state = readJson(manifestPath).signature ? 'signed' : 'unsigned'
-  console.log(`Recorded ${Object.keys(files).length} file digest(s) in module/manifest.json (${state}).`)
+  console.log(
+    digestsChanged
+      ? `Recorded ${Object.keys(files).length} file digest(s) in module/manifest.json (${state}).`
+      : `module/manifest.json already describes module/ (${Object.keys(files).length} file(s), ${state}); left as it was.`,
+  )
   process.exit(0)
 }
 

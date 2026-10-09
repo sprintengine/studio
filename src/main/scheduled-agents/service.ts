@@ -9,6 +9,7 @@ import {
   type ScheduledAgent,
   type ScheduledAgentDraft,
   type ScheduledAgentLastRun,
+  type ScheduledAgentRun,
   type ScheduledAgentView,
   type ScheduledAgentWriteResult,
 } from '../../shared/scheduled-agents'
@@ -43,6 +44,15 @@ export type ScheduledAgentsService = {
   onChanged(listener: (agents: ScheduledAgentView[]) => void): () => void
   /** Something outside a write changed what the list says: a run finished, the computer woke. */
   notifyChanged(): void
+  /**
+   * Called when a run has started its chat, with the scheduled agent as it
+   * ran (its `lastRun` that run) and the chat. A one-time schedule is told
+   * before it closes itself, so its run is heard even though the list never
+   * shows it again.
+   */
+  onRun(listener: (agent: ScheduledAgentView, run: ScheduledAgentRun) => void): () => void
+  /** A run finished starting, however it went: the scheduler's report. */
+  notifyRan(agent: ScheduledAgent, run: ScheduledAgentLastRun): void
 }
 
 export type ScheduledAgentsServiceDeps = {
@@ -54,6 +64,7 @@ export type ScheduledAgentsServiceDeps = {
 export function createScheduledAgentsService(deps: ScheduledAgentsServiceDeps): ScheduledAgentsService {
   const now = deps.now ?? Date.now
   const listeners = new Set<(agents: ScheduledAgentView[]) => void>()
+  const runListeners = new Set<(agent: ScheduledAgentView, run: ScheduledAgentRun) => void>()
 
   const view = (agent: ScheduledAgent): ScheduledAgentView => ({
     ...agent,
@@ -156,6 +167,24 @@ export function createScheduledAgentsService(deps: ScheduledAgentsServiceDeps): 
       return () => listeners.delete(listener)
     },
     notifyChanged: changed,
+    onRun(listener) {
+      runListeners.add(listener)
+      return () => runListeners.delete(listener)
+    },
+    notifyRan(agent, run) {
+      // Only a run that started a chat has one to tell of; one recorded
+      // before the chat's agent was kept has no agent to name.
+      if (!run.ok || !run.agentId) return
+      const ran: ScheduledAgentRun = { at: run.at, workspaceId: run.workspaceId, agentId: run.agentId }
+      const viewed: ScheduledAgentView = { ...agent, lastRun: run, nextRunAt: deps.scheduler.nextRunAt(agent.id) }
+      for (const listener of [...runListeners]) {
+        try {
+          listener(viewed, ran)
+        } catch {
+          // A listener throwing is its own problem; the others still hear the run.
+        }
+      }
+    },
   }
 }
 
@@ -171,6 +200,7 @@ export type ScheduledAgentsModuleRegistry = {
   list(moduleId: string): Promise<ScheduledAgentView[]>
   runNow(moduleId: string, id: string): ReturnType<ScheduledAgentsService['runNow']>
   onChanged(moduleId: string, listener: (agents: ScheduledAgentView[]) => void): () => void
+  onRun(moduleId: string, listener: (agent: ScheduledAgentView, run: ScheduledAgentRun) => void): () => void
 }
 
 export function createScheduledAgentsModuleRegistry(
@@ -204,6 +234,10 @@ export function createScheduledAgentsModuleRegistry(
     },
     onChanged: (moduleId, listener) =>
       service.onChanged((agents) => listener(agents.filter((agent) => agent.ownerModuleId === moduleId))),
+    onRun: (moduleId, listener) =>
+      service.onRun((agent, run) => {
+        if (agent.ownerModuleId === moduleId) listener(agent, run)
+      }),
   }
 }
 

@@ -25,7 +25,6 @@ import type {
   TourRevealRequest,
   TourSummary,
 } from './tours/tour-types'
-import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type { ConversationPeek } from './conversation-peek'
 import type {
   ChatTitleRequest,
@@ -46,6 +45,7 @@ import type {
   AgentLaunchSettingsSnapshot,
   AgentLaunchSettingsWriteAck,
 } from './launch-settings'
+
 export type { ConversationPeek, ConversationPeekMessage, ConversationPeekSource } from './conversation-peek'
 export type { HostedSource, HostedSourceKind, HostedSourcesFeed } from './hosted-sources-feed'
 export type {
@@ -141,13 +141,16 @@ import type {
 import type { TailnetPeerScan } from './tailnet-peers'
 import type { TailnetShareResult, TailnetShareStatus } from './tailnet-share'
 import type { RepositoryIdentityRead } from './repository-identity'
+import type { ModuleWorkspaceGitInfoResult } from './modules/workspace-view'
 import type {
   MeshBrowse,
   MeshConnection,
   MeshCreateConversationResult,
+  MeshNewChatWorktree,
   MeshSettleConversationResult,
   MeshVisitConversationResult,
   MeshWorkspaceCheckoutResult,
+  MeshWorkspaceExtensionsResult,
   MeshEvent,
   MeshLiveState,
   MeshPairResult,
@@ -187,6 +190,8 @@ import type {
   ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationSetModelInput,
+  ConversationMcpServerActionInput,
+  ConversationMcpServerActionResult,
   ConversationSetPermissionInput,
   ConversationProvidersListInput,
   ConversationProviderSignInInput,
@@ -222,6 +227,7 @@ import type {
   ConversationApprovalRuleRevokeResult,
 } from './conversation-runtime'
 import type { ModuleBridgeInvokeResult } from './modules/bridge'
+import type { ModuleHostServiceRequest } from './modules/host-service-bridge'
 import type {
   ConversationWorkspaceKey,
   ConversationThreadsResult,
@@ -231,6 +237,7 @@ import type {
 } from './conversation-index'
 import type { ConversationSearchHit } from './conversation-index'
 import type { ModuleEventEnvelope } from './modules/events'
+import type { ModuleNotificationDelivery } from './modules/notifications'
 import type {
   ThirdPartyModuleInstallResult,
   ThirdPartyModuleListResult,
@@ -537,6 +544,9 @@ export type * from './ipc/account'
 export type * from './ipc/workspace-backup'
 export type * from './ipc/app'
 export type * from './ipc/backlog'
+
+/** `restarting: false` when the person answered Cancel to the quit question. */
+export type AppRestartResult = { restarting: boolean }
 
 export type ElectronApi = {
   /**
@@ -938,6 +948,16 @@ export type ElectronApi = {
     permissionPreset?: string
     /** The CLI's effort level; dropped for a machine that does not advertise `new-chat-effort`. */
     effort?: string
+    /** A worktree to start in; refused, never dropped, by a machine without the capability for it. */
+    worktree?: MeshNewChatWorktree
+    /**
+     * Images that go with the first message. Each is put in that machine's
+     * upload store under the new chat's session, and the first message names
+     * them, as a message sent to a followed chat does.
+     */
+    attachments?: ConversationImageAttachment[]
+    /** That machine's skill ids, attached as the chat's chips; refused by a machine without `new-chat-skills`. */
+    skills?: string[]
   }) => Promise<MeshCreateConversationResult>
   /**
    * Settle a chat on a paired machine, or bring it back with `settled: false`
@@ -952,6 +972,12 @@ export type ElectronApi = {
   meshVisitConversation: (input: { connectionId: string; workspaceId: string }) => Promise<MeshVisitConversationResult>
   /** A remote workspace's checkout facts — branch, trunk, branches, worktrees — for the launch panel's checkout · branch segments. */
   meshWorkspaceCheckout: (connectionId: string, workspaceId: string) => Promise<MeshWorkspaceCheckoutResult>
+  /** A remote project's skills and, for a CLI, its MCP servers with their connection, for the composer's picker. */
+  meshWorkspaceExtensions: (input: {
+    connectionId: string
+    workspaceId: string
+    cli?: string
+  }) => Promise<MeshWorkspaceExtensionsResult>
   /**
    * The pairing requests still waiting and each machine's last reachability —
    * the initial read behind `onMeshEvent`, carrying the same revision the
@@ -994,6 +1020,8 @@ export type ElectronApi = {
     message: string
     attachments?: ConversationImageAttachment[]
     queue?: boolean
+    /** That machine's skill ids the chat runs with this message (`conversation-send-skills`). */
+    skills?: string[]
   }) => Promise<MeshConversationCommandResult>
   // Take back a message the machine holds for the turn's end, by its id there.
   meshConversationCancelQueued: (input: {
@@ -1198,6 +1226,8 @@ export type ElectronApi = {
   // Switch a running conversation to another model of its provider; applies
   // from the next turn.
   conversationSessionSetModel: (input: ConversationSetModelInput) => Promise<ConversationSessionActionResult>
+  /** Reconnect, switch or sign in to one of a live chat's MCP servers; a sign-in answers the URL to finish it at. */
+  conversationSessionMcpAction: (input: ConversationMcpServerActionInput) => Promise<ConversationMcpServerActionResult>
   conversationSessionStop: (input: ConversationStopSessionInput) => Promise<ConversationSessionActionResult>
   // Settle and Snooze: end the chat's child process, keeping the session so the
   // next message respawns it.
@@ -1248,6 +1278,11 @@ export type ElectronApi = {
   updateCheck: () => Promise<AppUpdateCheckResult>
   updateDownload: () => Promise<AppUpdateCheckResult>
   updateQuitAndInstall: () => Promise<AppUpdateCheckResult>
+  /**
+   * Relaunch the app, asked about like a quit when agents are working. Absent
+   * where there is no app to relaunch (a browser tab).
+   */
+  restartApp?: () => Promise<AppRestartResult>
   updateOpenReleaseNotes: () => Promise<{ opened: true; url: string }>
   /** The release channel the updater follows, and whether the person chose it. */
   /** The Studio server: its phase in words, the Advanced toggle, and the actions on it. */
@@ -1364,7 +1399,6 @@ export type ElectronApi = {
   showMenubarMenu: (label: string, position?: { x?: number; y?: number }) => Promise<boolean>
   clipboardReadText: () => Promise<string>
   clipboardWriteText: (text: string) => Promise<void>
-  voiceTranscribe: (wav: ArrayBuffer, settings: TranscriptionRequestSettings) => Promise<VoiceTranscribeResponse>
   // What this machine actually has: probed `git`/`gh` versions plus gh's own
   // auth login. Read-only and argument-free — see src/shared/version-control.ts.
   probeVersionControlProviders: () => Promise<VersionControlProviderProbe[]>
@@ -1448,6 +1482,8 @@ export type ElectronApi = {
    * must not be written down as one. See `RepositoryIdentityRead`.
    */
   getGitRepositoryIdentity: (folderPath: string) => Promise<RepositoryIdentityRead>
+  /** A folder's branch and remotes, for a capability module's `getWorkspaceGitInfo`. */
+  getModuleWorkspaceGitInfo: (folderPath: string) => Promise<ModuleWorkspaceGitInfoResult>
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions) => Promise<GitGraphSnapshot>
   getGitConflictFile: (repoRoot: string, filePath: string) => Promise<GitConflictFileContent | null>
   resolveGitConflict: (repoRoot: string, filePath: string, content: string) => Promise<GitCommandResult>
@@ -1672,14 +1708,22 @@ export type ElectronApi = {
   setThirdPartyModuleTrust: (id: string, trusted: boolean) => Promise<ThirdPartyModuleTrustResult>
   /** Remove a third-party module however it was installed (folder, marketplace, GitHub), with its trust, enablement and secrets. */
   uninstallThirdPartyModule: (input: ThirdPartyModuleUninstallInput) => Promise<ThirdPartyModuleUninstallResult>
+  /** Open an installed third-party module's folder. Absent where there is no file manager to open it in. */
+  revealThirdPartyModule?: (id: string) => Promise<ThirdPartyModuleTrustResult>
   /** Serve trusted third-party modules' entry.renderer bundles for the renderer loader. */
   listThirdPartyRendererEntries: () => Promise<ThirdPartyRendererEntriesResult>
   /** Install/trust changed; renderer-only modules may now be available. */
   onThirdPartyModulesChanged: (cb: () => void) => () => void
   /** Renderer→module-main bridge: invoke a channel a third-party module registered via registerIpc. Refusals are structured, not rejections. */
   moduleBridgeInvoke: (channel: string, payload?: unknown) => Promise<ModuleBridgeInvokeResult>
+  /** A module renderer's call into a host service its main half reaches through the SDK (Backlog writes, usage). Answers are result-shaped. */
+  moduleHostServiceInvoke: (request: ModuleHostServiceRequest) => Promise<unknown>
   /** Every capability module's main→renderer events on one host-owned channel; the renderer kernel fans them out by `sourceModuleId`. Returns the unsubscriber. */
   onModuleEvent: (cb: (envelope: ModuleEventEnvelope) => void) => () => void
+  /** Every module's `notify` rows, as the kernel delivers them to each window's bell. Returns the unsubscriber. */
+  onModuleNotification: (cb: (notification: ModuleNotificationDelivery) => void) => () => void
+  /** The kernel's recent module notifications, oldest first: what a window that just booted has not heard. */
+  listRecentModuleNotifications: () => Promise<ModuleNotificationDelivery[]>
   terminalSpawn: (
     sessionId: string,
     cols: number,
@@ -1771,6 +1815,9 @@ export type ElectronApi = {
   workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<WorkspaceBackupWriteResult>
   workspaceBackupRead: () => Promise<WorkspaceBackupReadResult>
   setModuleEnablement: (overrides: ModuleEnablementOverrides) => Promise<ModuleEnablementWriteResult>
+  // Renderer → main mirror of every module's app-level state (`module:<id>`
+  // namespaces), so a module's entry.main reads its settings with no window.
+  setModuleAppState: (bag: Record<string, Record<string, unknown>>) => Promise<void>
   // Renderer → main mirror of the module registry the user sees; main
   // caches the last push in memory for its own read surfaces.
   setModuleRegistrySnapshot: (snapshot: ModuleRegistrySnapshot) => Promise<ModuleRegistrySnapshotWriteResult>

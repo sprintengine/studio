@@ -37,6 +37,26 @@ export type HostCapability =
   | 'conversation-permissions'
   | 'chat.open'
   | 'companion-agents'
+  // ── Agents, conversations and scheduled agents ──
+  // A companion's structured run takes `tools` ('none' by default, 'ask',
+  // 'auto'), its handle `respondToApproval`, and its engine a chat runtime id.
+  | 'companion-tools'
+  // `turn_completed` carries `text` and `usage`, and the conversation service
+  // has `reply(ref, turnId?)`.
+  | 'conversation-replies'
+  // `getTextGenerationService(host).generate`: one prompt, no chat.
+  | 'text-generation'
+  // The conversation service's `create` takes `worktree`.
+  | 'conversation-worktrees'
+  // `RendererHost.openChat` takes `name` and `dedupeKey`, and a draft needs
+  // only `chat:draft`. A renderer's, answered live like `chat.open`.
+  | 'chat.open-options'
+  // `MainHost.listChatRuntimes()`.
+  | 'chat-runtimes'
+  // Scheduled agents take `name` and `tag`, `lastRun` names its chat's
+  // `agentId`, the service has `onRun`, and a run's chat summary carries
+  // `scheduledAgentId` and `scheduledAgentTag`.
+  | 'scheduled-agent-runs'
   | 'scheduled-agents'
   | 'secrets'
   | 'github'
@@ -44,13 +64,73 @@ export type HostCapability =
   | 'mcp-tools'
   | 'skills'
   | 'module-assets'
+  // `MainHost.notify` reaches the bell of every open window, with `target`
+  // opening your own door. False where no client delivery is wired.
   | 'notifications'
+  // The Backlog write API: `getBacklogService` in main, and the renderer's
+  // `createBacklogItem` / `updateBacklogStatus` / … beside `listBacklogItems`.
+  | 'backlog-write'
+  // `getUsageService` and the renderer's `queryUsage` (permission `usage:read`).
+  | 'usage'
+  // `getActivityService` (permission `conversation:read-all`).
+  | 'activity'
+  // ── Shell surfaces & renderer host (all additive under host API 1) ──
+  // Your `registerSidebarNavEntry` row is drawn as your door's row in the
+  // Extensions drawer (entry id == surface id), handed the host's `badge`.
+  | 'sidebar-nav-entries'
+  // `registerDoorBadge({ rowId: <your surface id> })` counts on your door's row.
+  | 'door-badges'
+  // `RendererHost.toast(...)`; true once the window's toast region is wired.
+  | 'toast'
+  // `RendererHost.moduleId`.
+  | 'module-id'
+  // `ModuleCommandDefinition.run(context)` receives the `ModuleCommandContext`.
+  | 'command-context'
+  // `RendererHost.getActiveWorkspaceId()` and `watchActiveWorkspace(cb)`.
+  | 'active-workspace'
+  // `RendererHost.setSurfaceView(surfaceId, viewId)`.
+  | 'surface-view'
+  // `RendererHost.openExternal(url)`; true once the window's link opener is wired.
+  | 'open-external'
+  // The extended UI kit: TaskCard, BoardLane, ContextMenu/MenuItem,
+  // DateTimeInput, Toggle, Chip, SafeMarkdown, SidebarNavButton, `Select`'s
+  // `size`, an optional `SurfaceRail` `newAffordance`, and a
+  // `CliModelPickerButton` that takes `listChatRuntimes()` as is.
+  | 'ui-kit-extras'
+  // `--chart-1` … `--chart-8` and `--chart-other` in THEME_TOKENS.
+  | 'chart-tokens'
   // `entry.main` runs in the desktop's own main process, where `electron` can
   // be required. False wherever the main half runs in the Studio server, a
   // Node process with no Electron APIs; a module that cannot live without them
   // declares `requires.hostCapabilities: ['electron-main']` and runs only where
   // this is true.
   | 'electron-main'
+  // ── Main-host plumbing: settings, workspaces, storage, GitHub, skills, MCP ──
+  // `MainHost.getSkillStatus`: is a skill present, without writing it.
+  | 'skill-status'
+  // `McpConnectionMetadata.verified` on every module tool call, and core tool
+  // name collisions refused at `registerMcpTools`.
+  | 'mcp-verified-identity'
+  // GitHub broker: allow-listed response `headers`, `ifNoneMatch` and `accept`.
+  | 'github-headers'
+  // GitHub broker: read-only `graphql(query, variables)`.
+  | 'github-graphql'
+  // GitHub broker: `download(route)` following GitHub's own storage redirect.
+  | 'github-download'
+  // Module storage: `list({ prefix })` and `getMany(keys)`.
+  | 'storage-query'
+  // Module storage: `watch({ workspaceRoot? }, cb)`.
+  | 'storage-watch'
+  // `MainHost.getModuleDataDir()`: a private directory for data past the value limit.
+  | 'module-data-dir'
+  // `MainHost.getAssetPath(relative)`: a verified file's path, for workers and the like.
+  | 'main-asset-path'
+  // `getWorkspaceGitInfo(workspaceId)` on both hosts.
+  | 'workspace-git-info'
+  // `WorkspaceContextService.list({ includeClosed })` and `open` on each entry.
+  | 'workspace-history'
+  // `MainHost.getModuleAppState` / `watchModuleAppState`: Settings values in entry.main.
+  | 'main-app-state'
   | (string & {})
 
 export type HostApiCompatibility =
