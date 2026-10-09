@@ -1779,7 +1779,7 @@ test('NewAgentPanel', async () => {
     })
 
     await check(
-      'a remote launch refuses what cannot travel — attached images included — and refuses a second submit while one is in flight',
+      'a remote launch carries its attached images as bytes, and refuses a second submit while one is in flight',
       async () => {
         seedStore()
         resetRememberedMachineForTests()
@@ -1810,7 +1810,7 @@ test('NewAgentPanel', async () => {
           typeIntoComposer(textarea, 'fix the build')
         })
 
-        // Drop an image: its chip stays on screen, so the refusal must name it.
+        // Drop an image: it goes with the launch, as the image it is.
         useToastStore.setState({ toasts: [] })
         const file = new dom.window.File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' })
         const box = textarea.closest('[class*="relative"]')!
@@ -1829,24 +1829,28 @@ test('NewAgentPanel', async () => {
               new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
             )
           })
-        await enter()
-        assert.equal(remoteLaunches.length, 0, 'nothing launched with an image attached')
-        const refusal = useToastStore.getState().toasts.find((toast) => toast.title === 'That chat cannot travel yet')
-        assert.ok(refusal, 'the stranded refusal is announced')
-        assert.ok(
-          refusal?.description?.includes('the attached images'),
-          `it names the images; got: ${refusal?.description}`,
-        )
 
-        // Remove the image and launch: one Enter starts, the second is refused
-        // while the first is still in flight.
-        const remove = [...view.container.querySelectorAll('button')].find((button) =>
-          /remove/i.test(button.getAttribute('aria-label') ?? ''),
-        )
-        await click(remove)
+        // One Enter starts, the second is refused while the first is still
+        // in flight.
         await enter()
         await enter()
         assert.equal(remoteLaunches.length, 1, 'a second submit during an in-flight remote create is refused')
+        assert.equal(
+          useToastStore.getState().toasts.find((toast) => toast.title === 'That chat cannot travel yet'),
+          undefined,
+          'an attached image no longer stops a chat on a paired machine',
+        )
+        assert.equal(
+          remoteLaunches[0]?.prompt,
+          'fix the build',
+          'the words are the words, with no path typed into them',
+        )
+        const images = remoteLaunches[0]?.images as Array<Record<string, unknown>> | undefined
+        assert.equal(images?.length, 1, 'the image goes with the launch')
+        assert.equal(images?.[0]?.mediaType, 'image/png')
+        assert.equal(images?.[0]?.name, 'shot.png')
+        assert.ok(typeof images?.[0]?.dataBase64 === 'string' && images[0].dataBase64.length > 0, 'as its bytes')
+        assert.equal('path' in (images?.[0] ?? {}), false, 'and not as a path on this disk, which names nothing there')
         assert.equal(
           remoteLaunches[0]?.remoteWorkspaceRoot,
           '/srv/alpha',

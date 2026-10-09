@@ -602,9 +602,15 @@ solo workspace whose pane is the regular chat view, following the conversation
 over the tailnet, with the machine on the tab and above the transcript.
 New chat starts one there too: with Chat agent picked, the machine dropdown
 offers the paired machines, and launching on one asks it to start the chat in
-the chosen project and opens that same pane on it. Skills and attached images
-are this machine's and do not travel yet; the launcher says so rather than
-dropping them. A WSL distribution is still not offered for a chat, which runs
+the chosen project and opens that same pane on it. Attached images go with
+the first message: the chat is started without its words, each image goes up
+that machine's upload route under the new chat's session, and the words are
+sent naming them, as a message to a followed chat is. That chat reads them
+exactly as one started there would. A chat that cannot take them (a machine
+without uploads, a CLI whose chat reads no images) is refused with the reason,
+and an empty chat it left behind is settled. Skills and attached files are this
+machine's and do not travel yet; the launcher says so rather than dropping
+them. A WSL distribution is still not offered for a chat, which runs
 in the app's own process.
 
 - **The copy is kept.** Main follows over one socket per conversation, shared

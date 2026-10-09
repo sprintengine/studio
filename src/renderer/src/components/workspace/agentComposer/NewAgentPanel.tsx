@@ -2,6 +2,7 @@ import { parseMachinePath } from '../../../../../shared/machine-paths'
 import React from 'react'
 import type { AgentCli, CliPermissionPreset, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type { MeshBrowse, MeshConnection } from '../../../../../shared/tailnet-mesh'
+import type { ConversationImageAttachment } from '../../../../../shared/conversation-runtime'
 import { sameRepository, type RepositoryIdentity } from '../../../../../shared/repository-identity'
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
 import { ExtensionsGlyph, GitBranchGlyph } from '../../AppIcons'
@@ -354,6 +355,18 @@ export type RemoteNewChatLaunch = {
   branch: string | null
   /** Which repository the remote workspace is, as its machine served it (one-project-across-machines). */
   remoteRepository: RepositoryIdentity | null
+  /**
+   * The images staged with the prompt, as their bytes: the files that hold
+   * them here name nothing on that machine, so the bytes go up its upload
+   * route and the first message names them there.
+   */
+  images?: ConversationImageAttachment[]
+}
+
+// A staged image as it crosses to a paired machine: the attachment alone,
+// without the path of the file that holds it here.
+function remoteImage({ id, mediaType, dataBase64, name, byteLength }: NewChatDraftImage): ConversationImageAttachment {
+  return { id, mediaType, dataBase64, byteLength, ...(name ? { name } : {}) }
 }
 
 // A scheduled agent keeps its skills by id and name; the composer's chips
@@ -1556,13 +1569,13 @@ export default function NewAgentPanel({
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
       const confirm = buildLaunchConfirm(selection)
       if (confirm.kind !== 'conversation') return
-      // A chat's skills are this machine's and its images and files are local
-      // files: none has a way over yet, and a path on this disk typed into
+      // A chat's skills are this machine's and its attached files are local
+      // files: neither has a way over yet, and a path on this disk typed into
       // that machine's prompt names nothing there, so their chips refuse
-      // rather than vanish.
+      // rather than vanish. Images do travel: their bytes go with the launch,
+      // and the first message carries them over there as images.
       const stranded = [
         confirm.skills?.length ? 'the skills' : null,
-        images.length > 0 ? 'the attached images' : null,
         files.length > 0 ? 'the attached files' : null,
       ].filter((entry): entry is string => entry !== null)
       if (stranded.length > 0) {
@@ -1587,6 +1600,7 @@ export default function NewAgentPanel({
         ...(remoteTakesEffort && confirm.reasoning ? { effort: confirm.reasoning } : {}),
         branch: remoteTarget.checkout?.branch ?? null,
         remoteRepository: remoteTarget.picked.repository,
+        ...(images.length > 0 ? { images: images.map(remoteImage) } : {}),
       })
         .finally(() => setRemoteLaunching(false))
         // The host reports its own failures as toasts; a throw past its catch
