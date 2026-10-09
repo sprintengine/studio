@@ -8,6 +8,7 @@
 // strip gets the same treatment from `conversationTabSignature`.
 
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
+import { backgroundTasksWakeAgent } from '../../../../shared/conversation/backgroundTasks'
 
 export type RowRecency = {
   hasRunning: boolean
@@ -66,7 +67,7 @@ export function conversationTabSignature(sessions: readonly ConversationSessionS
     const cache = session.promptCache
     signature += `${session.sessionId}|${session.agentId}|${session.status}|${session.phase ?? ''}|${
       session.backgroundAgents ?? 0
-    }|${session.providerId}|${session.modelId}|${session.lastTurnEndedAt ?? ''}|${
+    }|${backgroundTasksWakeAgent(session.backgroundTasks) ? 'w' : ''}|${session.providerId}|${session.modelId}|${session.lastTurnEndedAt ?? ''}|${
       cache ? `${cache.ttl}:${cache.expiresAt}:${cache.recacheTokens}` : ''
     }\n`
   }

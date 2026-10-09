@@ -76,6 +76,8 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk'
 
 import type {
+  ConversationBackgroundTask,
+  ConversationBackgroundTaskKind,
   ConversationCliRuntimeOverrides,
   ConversationEvent,
   ConversationImageAttachment,
@@ -150,6 +152,7 @@ export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
   listLiveSessions(): ConversationProviderLiveSession[]
   // Claude's child is always disposed; `force` changes nothing here.
   disposeChildProcess(sessionId: string, options?: ConversationDisposeOptions): boolean
+  stopBackgroundTasks(sessionId: string): Promise<boolean>
   disposeAll(): Promise<void>
   setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
   setModel(input: MockAdapterModelInput): Promise<ConversationProviderPermissionResult>
@@ -189,6 +192,11 @@ type TrackedSubagent = {
   endedAt?: number
   error?: string
 }
+
+// A task the child reported that is not an agent: a shell, a monitor, a
+// workflow. `background` once it runs on past the call that started it; a
+// foreground one is the turn's own work and is not listed.
+type TrackedTask = { task: ConversationBackgroundTask; background: boolean }
 
 type ActiveTurn = {
   turnId: string
@@ -295,6 +303,12 @@ type SessionState = {
   // child that ran it ended) reports under the resuming call, and its lane is
   // still the one that spawned it.
   agentLanes: Map<string, string>
+  // Shells, monitors and workflows the child runs, by task. The background
+  // ones are what `session_updated` lists as `backgroundTasks`.
+  tasks: Map<string, TrackedTask>
+  // Monitor calls whose task has not started yet, by tool call. A monitor
+  // runs as a shell, so only the call that started it tells the two apart.
+  monitorCalls: Map<string, { persistent: boolean }>
   // What the child's last init said about its commands: which names are
   // skills and which are bound to the terminal, so a later `commands_changed`
   // push is read the same way. Null until an init has said.
@@ -562,6 +576,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   function disposeChild(state: SessionState): boolean {
     const hadChild = state.query !== null
     stopTrackedSubagents(state)
+    stopTrackedTasks(state)
     resolveAllPendingPermissions(state, { approved: false })
     endTurn(state)
     state.pendingSendUuids.clear()
@@ -604,12 +619,26 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     return state.childPreset === state.permissionPreset && state.childMode === ownSdkMode(state)
   }
 
+  // Shells and monitors run inside the child too, and end with it. The list
+  // the chat shows is emptied, so it does not go on waiting on a monitor that
+  // will never report.
+  function stopTrackedTasks(state: SessionState): void {
+    const listed = backgroundTaskList(state.tasks)
+    state.tasks.clear()
+    state.monitorCalls.clear()
+    if (listed.length === 0) return
+    const event = eventFor(state, 'session_updated', { backgroundTasks: [] })
+    if (state.onSessionEvent) state.onSessionEvent(event)
+    else state.pendingSessionEvents.push(event)
+  }
+
   // Whether the child can be replaced now without ending anything. A
-  // background agent works inside the child with no turn open (its steps open
-  // none), so an idle turn alone does not say the child is free.
+  // background agent, shell or monitor works inside the child with no turn
+  // open, so an idle turn alone does not say the child is free.
   function childIsIdle(state: SessionState): boolean {
     if (state.turn) return false
     for (const agent of state.subagents.values()) if (agent.background) return false
+    for (const tracked of state.tasks.values()) if (tracked.background) return false
     return true
   }
 
@@ -1219,6 +1248,8 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         declinedToolUseIds: new Set(),
         subagents: new Map(),
         agentLanes: new Map(),
+        tasks: new Map(),
+        monitorCalls: new Map(),
         commandSkills: null,
         terminalCommands: null,
         commandOutputShown: false,
@@ -1619,6 +1650,21 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         lastActivityAt: state.lastActivityAt,
         spawnedAt: state.spawnedAt,
       }))
+    },
+
+    // Each listed task is stopped by name, and reports `stopped` the way it
+    // would have reported its end: that is what takes it off the list. Agents
+    // are not among them; their lanes are stopped with the turn. Bounded, as
+    // every request to the child is: one that never answers holds nothing.
+    async stopBackgroundTasks(sessionId: string): Promise<boolean> {
+      const state = sessions.get(sessionId)
+      const q = state?.query
+      if (!state || !q) return false
+      const listed = backgroundTaskList(state.tasks)
+      if (listed.length === 0) return false
+      state.lastActivityAt = now()
+      await Promise.all(listed.map((task) => answeredWithin(q.stopTask(task.taskId), childAnswerTimeoutMs)))
+      return true
     },
 
     disposeChildProcess(sessionId: string, _options?: ConversationDisposeOptions): boolean {
@@ -2134,6 +2180,8 @@ export function mapSdkMessage(
     declinedToolUseIds?: Set<string>
     subagents?: Map<string, TrackedSubagent>
     agentLanes?: Map<string, string>
+    tasks?: Map<string, TrackedTask>
+    monitorCalls?: Map<string, { persistent: boolean }>
     lastChainUuid?: string | null
     settledChainUuid?: string | null
     openToolUseIds?: Set<string>
@@ -2180,6 +2228,7 @@ export function mapSdkMessage(
   const turnId = state.turn?.turnId
   const events: ConversationEvent[] = []
   const init = message.type === 'system' && message.subtype === 'init'
+  noteMonitorCalls(state, message)
   // Only the child's init names the session it runs. Anything before it can
   // carry an id no session was ever written under: a fork that failed to find
   // its point reports its error under a fresh one.
@@ -2296,8 +2345,10 @@ export function mapSdkMessage(
       // on its own when the window filled. The transcript marks the seam, since
       // the model no longer sees what came before it verbatim.
       if (message.subtype !== 'compact_boundary') {
-        // Spawned agents report through `task_*` system messages.
+        // Spawned agents report through `task_*` system messages, and so do
+        // the shells and monitors the child runs in the background.
         events.push(...mapTaskMessage(state, message))
+        events.push(...mapBackgroundTaskMessage(state, message))
         break
       }
       state.compactedInExchange = true
@@ -2752,6 +2803,108 @@ function mapTaskMessage(
     default:
       return []
   }
+}
+
+// The task types listed as background work, and what each is. A shell is a
+// command unless a Monitor call started it. Agents have lanes of their own,
+// and a type this build does not know is left out rather than guessed at.
+function backgroundTaskKind(taskType: unknown, monitor: boolean): ConversationBackgroundTaskKind | null {
+  if (taskType === 'local_bash') return monitor ? 'monitor' : 'command'
+  if (taskType === 'local_workflow' || taskType === 'mcp_task') return 'task'
+  return null
+}
+
+function backgroundTaskList(tasks: Map<string, TrackedTask> | undefined): ConversationBackgroundTask[] {
+  return Array.from(tasks?.values() ?? [])
+    .filter((tracked) => tracked.background)
+    .map((tracked) => tracked.task)
+}
+
+// A Monitor call, wherever it is made: its task starts under it, and is a
+// monitor rather than a shell for that.
+function noteMonitorCalls(
+  state: { monitorCalls?: Map<string, { persistent: boolean }> },
+  message: Record<string, unknown>,
+): void {
+  if (!state.monitorCalls || message.type !== 'assistant') return
+  const blocks = asRecord(message.message)?.content
+  for (const block of Array.isArray(blocks) ? blocks.map(asRecord) : []) {
+    if (block?.type !== 'tool_use' || block.name !== 'Monitor' || typeof block.id !== 'string') continue
+    state.monitorCalls.set(block.id, { persistent: asRecord(block.input)?.persistent === true })
+  }
+}
+
+// The shells, monitors and workflows the child runs in the background, as one
+// list on `session_updated` whenever it changes. `background_tasks_changed` is
+// the whole list, and replaces what is known; the `task_*` messages on either
+// side of it keep the list right for a CLI that does not send it, and say what
+// each task is. Housekeeping (`ambient`) is not work anyone waits on.
+function mapBackgroundTaskMessage(
+  state: Parameters<typeof mapSdkMessage>[0],
+  message: Record<string, unknown>,
+): ConversationEvent[] {
+  const tasks = state.tasks
+  if (!tasks) return []
+  const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
+  const before = JSON.stringify(backgroundTaskList(tasks))
+  const taskId = text(message.task_id)
+  switch (message.subtype) {
+    case 'background_tasks_changed': {
+      if (!Array.isArray(message.tasks)) return []
+      const live = new Set<string>()
+      for (const entry of message.tasks.map(asRecord)) {
+        const id = text(entry?.task_id)
+        if (!entry || !id || entry.ambient === true) continue
+        const known = tasks.get(id)
+        const kind = known?.task.kind ?? backgroundTaskKind(entry.task_type, false)
+        if (!kind) continue
+        live.add(id)
+        tasks.set(id, {
+          task: known?.task ?? { taskId: id, kind, ...optional('description', text(entry.description)) },
+          background: true,
+        })
+      }
+      for (const [id, tracked] of tasks) if (tracked.background && !live.has(id)) tasks.delete(id)
+      break
+    }
+    case 'task_started': {
+      if (!taskId || message.ambient === true || message.skip_transcript === true) return []
+      const toolUseId = text(message.tool_use_id)
+      const monitor = toolUseId ? state.monitorCalls?.get(toolUseId) : undefined
+      if (toolUseId) state.monitorCalls?.delete(toolUseId)
+      const kind = backgroundTaskKind(message.task_type, monitor !== undefined)
+      if (!kind) return []
+      tasks.set(taskId, {
+        task: {
+          taskId,
+          kind,
+          ...optional('description', text(message.description)),
+          ...(monitor?.persistent ? { persistent: true } : {}),
+        },
+        // Set for shells; a workflow or an MCP task always runs on its own.
+        background: tasks.get(taskId)?.background === true || message.is_backgrounded !== false,
+      })
+      break
+    }
+    case 'task_updated': {
+      const tracked = taskId ? tasks.get(taskId) : undefined
+      const patch = asRecord(message.patch)
+      if (!taskId || !tracked || !patch) return []
+      if (patch.status === 'completed' || patch.status === 'failed' || patch.status === 'killed') tasks.delete(taskId)
+      // A foreground shell sent to the background runs on past its call.
+      else if (patch.is_backgrounded === true) tracked.background = true
+      break
+    }
+    case 'task_notification': {
+      if (taskId) tasks.delete(taskId)
+      break
+    }
+    default:
+      return []
+  }
+  const after = backgroundTaskList(tasks)
+  if (JSON.stringify(after) === before) return []
+  return [eventFor(state, 'session_updated', { backgroundTasks: after })]
 }
 
 function subagentStatusFields(

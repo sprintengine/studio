@@ -1,4 +1,5 @@
 import type { ConversationSessionSummary } from '../conversation-runtime'
+import { backgroundTasksWakeAgent } from './backgroundTasks'
 
 /** One display phase for a conversation, ordered by the action it needs. */
 export type ConversationPhase =
@@ -30,8 +31,13 @@ export function conversationPhaseNeedsAttention(phase: ConversationPhase): boole
 
 export function conversationSummaryPhase(summary: ConversationSessionSummary): ConversationPhase {
   const phase = summary.phase ?? statusPhase(summary)
-  // Background agents keep working after the turn that launched them ends.
-  if (summary.backgroundAgents && (phase === 'completed' || phase === 'idle')) return 'running'
+  // Background agents keep working after the turn that launched them ends, and
+  // a monitor will wake the agent again: the chat is not done with either.
+  if (
+    (summary.backgroundAgents || backgroundTasksWakeAgent(summary.backgroundTasks)) &&
+    (phase === 'completed' || phase === 'idle')
+  )
+    return 'running'
   return phase
 }
 
@@ -59,17 +65,21 @@ export function conversationTurnInProgress(summary: ConversationSessionSummary):
 
 /**
  * Whether ending a chat session's processes now would lose work: a turn
- * starting, running or stopped on a person's answer, or an agent it launched
- * still working in the background, whatever its parent's phase says (it goes
- * on while the parent waits on the person, or after the parent's turn
- * failed). A stopped session has no processes left to end. What a Settle
+ * starting, running or stopped on a person's answer, or an agent or monitor
+ * it launched still working in the background, whatever its parent's phase
+ * says (it goes on while the parent waits on the person, or after the
+ * parent's turn failed). A stopped session has no processes left to end. What a Settle
  * asked for from another device or an agent waits on (`conversation.settle`):
  * the window that carries out a settle made elsewhere ends the chat's
  * processes, and the work with them.
  */
 export function conversationSessionWorking(summary: ConversationSessionSummary): boolean {
   if (summary.status === 'stopped') return false
-  return (summary.backgroundAgents ?? 0) > 0 || conversationTurnInProgress(summary)
+  return (
+    (summary.backgroundAgents ?? 0) > 0 ||
+    backgroundTasksWakeAgent(summary.backgroundTasks) ||
+    conversationTurnInProgress(summary)
+  )
 }
 
 /**

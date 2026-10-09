@@ -267,3 +267,22 @@ test('a message Studio sent keeps its origin on the user entry, the full and the
   for (const next of events) state = applyEvent(state, next)
   expect(users(state.projection.entries)).toEqual([null, { kind: 'studio', reason: 'agent-notice' }])
 })
+
+// The provider reports the whole list each time it changes; a session that
+// starts again has a process of its own, which runs nothing yet.
+test('the projection keeps the background work the session last reported, until a new session starts', () => {
+  const monitor = { taskId: 'task_mon', kind: 'monitor', description: 'CI checks' }
+  const server = { taskId: 'task_dev', kind: 'command', description: 'npm run dev' }
+  const reported = (events: ConversationEvent[]) => projectConversation(events).backgroundTasks
+  const opened = [event('session_started', 0), event('session_updated', 10, { backgroundTasks: [monitor, server] })]
+
+  expect(reported(opened)).toEqual([monitor, server])
+  expect(reported([...opened, event('session_updated', 20, { notice: 'Model changed' })])).toEqual([monitor, server])
+  expect(reported([...opened, event('session_updated', 20, { backgroundTasks: [server] })])).toEqual([server])
+  expect(reported([...opened, event('session_started', 30)])).toEqual([])
+  expect(
+    reported([
+      event('session_updated', 10, { backgroundTasks: [{ taskId: 'x', kind: 'daemon' }, { kind: 'command' }] }),
+    ]),
+  ).toEqual([])
+})

@@ -4,6 +4,14 @@
 
 ### Added
 
+- The projection carries `backgroundTasks`: the shells, monitors and workflows
+  the session's process still runs after its turn ended, as the latest
+  `session_updated` listed them, emptied when a session starts.
+  `readBackgroundTasks` is the reader, `backgroundTasksWakeAgent` says whether
+  any will wake the agent (a monitor with a deadline or a task does; a command
+  does not), and `describeBackgroundTasks` names them in one line ("Waiting on
+  monitor CI checks", "Running: npm run dev").
+
 - The working row carries `latestThought`, the first sentence of the newest
   thinking or prose between the running turn's steps, and the `turnId` whose
   fold it sits under, so a view can say why the agent is doing what the line

@@ -300,6 +300,29 @@ export type ConversationSubagentStatusPayload = {
 }
 
 /**
+ * What a piece of background work is. A `command` is a shell left running
+ * (a dev server, a watcher): the agent is done with it and may leave it for
+ * hours. A `monitor` reports to the agent as it goes and wakes it when it has
+ * something to say. A `task` is any other kind the provider names, a workflow
+ * or a backgrounded MCP call, which wakes the agent when it ends.
+ */
+export type ConversationBackgroundTaskKind = 'command' | 'monitor' | 'task'
+
+/**
+ * One piece of background work the session's process still runs after the
+ * turn that started it ended. Agents are not here: they have lanes of their
+ * own (`subagent_status`).
+ */
+export type ConversationBackgroundTask = {
+  /** The provider's id for the task, what Stop names. */
+  taskId: string
+  kind: ConversationBackgroundTaskKind
+  description?: string
+  /** A monitor with no deadline: it watches until it is stopped or the process ends. */
+  persistent?: boolean
+}
+
+/**
  * What an `approval_requested` event asks for. Each kind has its own answer:
  * a `tool` permission is resolved with an approval decision, a `question`
  * with its answers, a `plan` with approve or reject.

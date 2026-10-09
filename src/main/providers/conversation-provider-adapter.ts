@@ -111,6 +111,11 @@ export type ConversationProviderAdapter = {
   // a subagent) is kept and false returned, as the idle sweep needs. With it
   // the child ends whatever it is doing, as Settle and Snooze ask.
   disposeChildProcess?(sessionId: string, options?: ConversationDisposeOptions): boolean
+  // Stop the shells, monitors and workflows the session's child still runs
+  // after its turn ended (what `session_updated` lists as `backgroundTasks`),
+  // as Stop between turns asks. Each reports its own end as it stops; the
+  // child and the session stay. False when nothing runs that can be stopped.
+  stopBackgroundTasks?(sessionId: string): Promise<boolean>
   disposeAll?(): void | Promise<void>
 }
 

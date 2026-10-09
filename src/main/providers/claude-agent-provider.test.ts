@@ -50,6 +50,8 @@ test('claude-agent-provider', async () => {
     await testPermissionPresetMapsToSdkPermissionMode()
     await testLivePermissionPresetReachesTheChildAndSurvivesRespawn()
     await testNoFlagWaitsForABackgroundAgentBeforeReplacingTheChild()
+    await testNoFlagWaitsForAMonitorBeforeReplacingTheChild()
+    await testStopBetweenTurnsEndsTheMonitorAndKeepsTheChild()
     await testAbortSignalEndsTheTurnStream()
     await testSpawnFailureSurfacesAsTurnFailed()
     await testStopDuringSpawnStartsNoChild()
@@ -120,10 +122,12 @@ test('claude-agent-provider', async () => {
     capturedOptions: Record<string, unknown>[]
     permissionModes: string[]
     models: Array<string | undefined>
+    stoppedTasks: string[]
   } {
     const capturedOptions: Record<string, unknown>[] = []
     const permissionModes: string[] = []
     const models: Array<string | undefined> = []
+    const stoppedTasks: string[] = []
     const queryFn = (params: { prompt: AsyncIterable<Record<string, unknown>>; options: Record<string, unknown> }) => {
       capturedOptions.push(params.options)
       const output = new FakeMessageQueue()
@@ -152,6 +156,19 @@ test('claude-agent-provider', async () => {
         setModel: async (model?: string) => {
           models.push(model)
         },
+        // As the CLI does, a stopped task reports its end as stopped.
+        stopTask: async (taskId: string) => {
+          stoppedTasks.push(taskId)
+          output.push({
+            type: 'system',
+            subtype: 'task_notification',
+            session_id: 'fake',
+            task_id: taskId,
+            status: 'stopped',
+            summary: '',
+            output_file: '',
+          })
+        },
       }
     }
     return {
@@ -159,6 +176,7 @@ test('claude-agent-provider', async () => {
       capturedOptions,
       permissionModes,
       models,
+      stoppedTasks,
     }
   }
 
@@ -170,6 +188,7 @@ test('claude-agent-provider', async () => {
     capturedOptions: Record<string, unknown>[]
     permissionModes: string[]
     models: Array<string | undefined>
+    stoppedTasks: string[]
   } {
     const sdk = createFakeSdk(handler, hooks)
     const adapter = createClaudeAgentProvider({
@@ -183,6 +202,7 @@ test('claude-agent-provider', async () => {
       capturedOptions: sdk.capturedOptions,
       permissionModes: sdk.permissionModes,
       models: sdk.models,
+      stoppedTasks: sdk.stoppedTasks,
     }
   }
 
@@ -1381,6 +1401,129 @@ test('claude-agent-provider', async () => {
     await collect(bg.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
   }
 
+  // A monitor runs in the child as a shell, and wakes the agent when it reports.
+  // Replacing the child would end it before it ever did: a preset change
+  // waits, as it does for a background agent, and a child that does end takes
+  // the chat's list of background work with it.
+  async function testNoFlagWaitsForAMonitorBeforeReplacingTheChild(): Promise<void> {
+    const mon = createAdapter(async (_userMessage, context) => {
+      context.emit({ type: 'system', subtype: 'init', session_id: 'mon-1', model: 'sonnet' })
+      context.emit({
+        type: 'assistant',
+        session_id: 'mon-1',
+        parent_tool_use_id: null,
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu_mon',
+              name: 'Monitor',
+              input: { description: 'CI checks', command: 'gh pr checks --watch', timeout_ms: 600000 },
+            },
+          ],
+        },
+      })
+      context.emit({
+        type: 'system',
+        subtype: 'task_started',
+        session_id: 'mon-1',
+        task_id: 'task_mon',
+        tool_use_id: 'toolu_mon',
+        task_type: 'local_bash',
+        description: 'CI checks',
+        is_backgrounded: true,
+      })
+      context.emit({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        session_id: 'mon-1',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      })
+    })
+    const sessionEvents: ConversationEvent[] = []
+    await collect(
+      mon.adapter.startSession({
+        ...SESSION_INPUT,
+        permissionPreset: 'bypass',
+        onSessionEvent: (event) => sessionEvents.push(event),
+      }) as ConversationEvent[],
+    )
+    const turn = await collect(mon.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+    assert.deepEqual(
+      turn.flatMap((event) =>
+        event.type === 'session_updated' && event.payload?.backgroundTasks ? [event.payload.backgroundTasks] : [],
+      ),
+      [[{ taskId: 'task_mon', kind: 'monitor', description: 'CI checks' }]],
+    )
+
+    assert.deepEqual(await mon.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'none' }), {
+      ok: true,
+    })
+    assert.equal(mon.adapter.listLiveSessions()[0]?.hasChildProcess, true, 'the monitor keeps its child')
+
+    assert.equal(mon.adapter.disposeChildProcess(SESSION_INPUT.sessionId), true)
+    assert.deepEqual(
+      sessionEvents.filter((event) => event.type === 'session_updated').map((event) => event.payload),
+      [{ backgroundTasks: [] }],
+      'a monitor that ended with its child is not waited on any more',
+    )
+    assert.equal(await mon.adapter.stopBackgroundTasks(SESSION_INPUT.sessionId), false, 'nothing is left to stop')
+    await collect(mon.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
+  }
+
+  // Stop between turns ends what the turn left running, by name, and leaves the
+  // child: each task reports that it stopped, which takes it off the list.
+  async function testStopBetweenTurnsEndsTheMonitorAndKeepsTheChild(): Promise<void> {
+    const mon = createAdapter(async (_userMessage, context) => {
+      context.emit({ type: 'system', subtype: 'init', session_id: 'mon-2', model: 'sonnet' })
+      context.emit({
+        type: 'assistant',
+        session_id: 'mon-2',
+        parent_tool_use_id: null,
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu_mon',
+              name: 'Monitor',
+              input: { description: 'CI checks', timeout_ms: 600000 },
+            },
+          ],
+        },
+      })
+      context.emit({
+        type: 'system',
+        subtype: 'task_started',
+        session_id: 'mon-2',
+        task_id: 'task_mon',
+        tool_use_id: 'toolu_mon',
+        task_type: 'local_bash',
+        description: 'CI checks',
+        is_backgrounded: true,
+      })
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'mon-2' })
+    })
+    const sessionEvents: ConversationEvent[] = []
+    await collect(
+      mon.adapter.startSession({
+        ...SESSION_INPUT,
+        onSessionEvent: (event) => sessionEvents.push(event),
+      }) as ConversationEvent[],
+    )
+    await collect(mon.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+
+    assert.equal(await mon.adapter.stopBackgroundTasks(SESSION_INPUT.sessionId), true)
+    assert.deepEqual(mon.stoppedTasks, ['task_mon'])
+    await waitForContinuationEvent(sessionEvents, 'session_updated')
+    assert.deepEqual(
+      sessionEvents.filter((event) => event.type === 'session_updated').map((event) => event.payload),
+      [{ backgroundTasks: [] }],
+    )
+    assert.equal(mon.adapter.listLiveSessions()[0]?.hasChildProcess, true, 'the session goes on in the same child')
+    await collect(mon.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
+  }
+
   async function testAbortSignalEndsTheTurnStream(): Promise<void> {
     const { adapter } = createAdapter((_userMessage, context) => {
       context.emit({
@@ -2470,6 +2613,142 @@ test('a Claude agent resumed by SendMessage in a later child reports to the lane
   assert.equal(finished[0]?.payload?.toolUseId, 'toolu_agent', 'its answer lands in its own lane, not on SendMessage')
   assert.equal(finished[1]?.payload?.toolUseId, 'toolu_agent')
   assert.equal(finished[1]?.payload?.status, 'completed')
+})
+
+// The order Claude Code streams one Monitor in: the call, the whole list of
+// background work (which can only say the task is a shell), then the task's
+// start, which links it to the call.
+test('a Claude monitor is listed as background work until it reports, and housekeeping and agents are not', () => {
+  const state = { ...mapperState(), turn: null, tasks: new Map(), monitorCalls: new Map() }
+  const map = (message: Record<string, unknown>) => mapSdkMessage(state, { session_id: 'native', ...message })
+  const listed = (events: ConversationEvent[]) =>
+    events.flatMap((event) => (event.type === 'session_updated' ? [event.payload?.backgroundTasks] : []))
+
+  map({
+    type: 'assistant',
+    parent_tool_use_id: null,
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_mon',
+          name: 'Monitor',
+          input: { description: 'CI checks', command: 'gh pr checks --watch', timeout_ms: 600000 },
+        },
+      ],
+    },
+  })
+  assert.deepEqual(
+    listed(
+      map({
+        type: 'system',
+        subtype: 'background_tasks_changed',
+        tasks: [
+          { task_id: 'task_mon', task_type: 'local_bash', description: 'CI checks' },
+          { task_id: 'task_agent', task_type: 'local_agent', description: 'Explore the router' },
+          { task_id: 'task_ambient', task_type: 'local_bash', description: 'watch settings', ambient: true },
+        ],
+      }),
+    ),
+    [[{ taskId: 'task_mon', kind: 'command', description: 'CI checks' }]],
+  )
+  assert.deepEqual(
+    listed(
+      map({
+        type: 'system',
+        subtype: 'task_started',
+        task_id: 'task_mon',
+        tool_use_id: 'toolu_mon',
+        task_type: 'local_bash',
+        description: 'CI checks',
+        is_backgrounded: true,
+      }),
+    ),
+    [[{ taskId: 'task_mon', kind: 'monitor', description: 'CI checks' }]],
+    'its start names the Monitor call, so it is a monitor and not a shell',
+  )
+  assert.deepEqual(
+    listed(
+      map({
+        type: 'system',
+        subtype: 'background_tasks_changed',
+        tasks: [{ task_id: 'task_mon', task_type: 'local_bash', description: 'CI checks' }],
+      }),
+    ),
+    [],
+    'the same list again is no news, and does not forget it is a monitor',
+  )
+  assert.deepEqual(
+    listed(
+      map({
+        type: 'system',
+        subtype: 'task_notification',
+        task_id: 'task_mon',
+        tool_use_id: 'toolu_mon',
+        status: 'completed',
+        summary: 'All checks passed',
+        output_file: '',
+      }),
+    ),
+    [[]],
+  )
+})
+
+// A CLI that sends no whole list still says when each task starts, moves to
+// the background and ends.
+test('Claude shells are listed from their own task messages: a foreground one only once it is backgrounded', () => {
+  const state = { ...mapperState(), turn: null, tasks: new Map(), monitorCalls: new Map() }
+  const map = (message: Record<string, unknown>) => mapSdkMessage(state, { session_id: 'native', ...message })
+  const listed = (events: ConversationEvent[]) =>
+    events.flatMap((event) => (event.type === 'session_updated' ? [event.payload?.backgroundTasks] : []))
+
+  assert.deepEqual(
+    listed(
+      map({
+        type: 'system',
+        subtype: 'task_started',
+        task_id: 'task_build',
+        tool_use_id: 'toolu_build',
+        task_type: 'local_bash',
+        description: 'npm run build',
+        is_backgrounded: false,
+      }),
+    ),
+    [],
+    'a foreground shell is the turn’s own work',
+  )
+  assert.deepEqual(
+    listed(map({ type: 'system', subtype: 'task_updated', task_id: 'task_build', patch: { is_backgrounded: true } })),
+    [[{ taskId: 'task_build', kind: 'command', description: 'npm run build' }]],
+  )
+  assert.deepEqual(
+    listed(
+      map({
+        type: 'system',
+        subtype: 'task_started',
+        task_id: 'task_flow',
+        task_type: 'local_workflow',
+        description: 'Review the diff',
+      }),
+    ),
+    [
+      [
+        { taskId: 'task_build', kind: 'command', description: 'npm run build' },
+        { taskId: 'task_flow', kind: 'task', description: 'Review the diff' },
+      ],
+    ],
+  )
+  assert.deepEqual(
+    listed(map({ type: 'system', subtype: 'task_updated', task_id: 'task_build', patch: { status: 'killed' } })),
+    [[{ taskId: 'task_flow', kind: 'task', description: 'Review the diff' }]],
+  )
+  assert.deepEqual(
+    listed(
+      map({ type: 'system', subtype: 'task_started', task_id: 'task_dream', task_type: 'dream', description: 'x' }),
+    ),
+    [],
+    'a kind of task this build does not know is left out',
+  )
 })
 
 test('a foreground Claude agent keeps its own result and background shells are not agents', () => {

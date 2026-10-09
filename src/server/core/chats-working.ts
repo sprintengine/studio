@@ -2,7 +2,8 @@ import type { ConversationBackend } from './conversation-backend'
 
 /**
  * Whether a chat is working: starting, mid-turn, waiting on a person, or
- * running background agents. What keeps a server from stopping for being
+ * running background agents, shells or monitors (stopping the server would
+ * end those). What keeps a server from stopping for being
  * idle, whether it reads its own chats or a WSL server's over the wire.
  */
 export function chatsAreWorking(conversations: Pick<ConversationBackend, 'listSessions'>): boolean {
@@ -14,6 +15,7 @@ export function chatsAreWorking(conversations: Pick<ConversationBackend, 'listSe
       session.status === 'active' ||
       session.status === 'awaiting_approval' ||
       session.turnStartedAt !== undefined ||
-      (session.backgroundAgents ?? 0) > 0,
+      (session.backgroundAgents ?? 0) > 0 ||
+      (session.backgroundTasks?.length ?? 0) > 0,
   )
 }
