@@ -28,7 +28,9 @@ function recordingSaver() {
   const save: SaveToolResultImages = (input) => {
     saved.push(input)
     return {
-      paths: input.images.map((_, index) => `/Users/dev/Studio/conversation-images/c1/${input.toolUseId}-${index + 1}.png`),
+      paths: input.images.map(
+        (_, index) => `/Users/dev/Studio/conversation-images/c1/${input.toolUseId}-${index + 1}.png`,
+      ),
       written: Promise.resolve(),
     }
   }

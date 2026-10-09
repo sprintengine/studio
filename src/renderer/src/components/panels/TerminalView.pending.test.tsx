@@ -126,7 +126,10 @@ test('the launch itself refuses an agent still waiting on its worktree: no sessi
 })
 
 test('after a restart the prompt is read from the pending record, where it survives', async () => {
-  const { cliStartupPrompt: _gone, ...agent } = pendingAgent({ failure: 'Studio closed.', prompt: 'add a health check' })
+  const { cliStartupPrompt: _gone, ...agent } = pendingAgent({
+    failure: 'Studio closed.',
+    prompt: 'add a health check',
+  })
   seed(agent as never, 'restarted-chat')
   await act(async () => root.render(<TerminalView workspaceId="restarted-chat" agentId="agent" />))
   expect(host.textContent).toContain('add a health check')
