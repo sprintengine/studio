@@ -47,6 +47,8 @@
   --ref-color-coral-400: #fc787c;
   --ref-color-red-600: #d92d2d;
   --ref-color-violet-500: #8957e5;
+  --ref-color-violet-300: #b49af0;
+  --ref-color-violet-600: #6e3fd1;
   --ref-color-gray-500: #6b7280;
   --ref-color-mist-225: #e4e8ec;
   --ref-color-slate-450: #6e7682;
@@ -115,6 +117,9 @@
   --sem-color-scaffold-soft: rgba(137, 87, 229, 0.16);
   --sem-color-find-match: #ffe9a8;
   --sem-color-find-match-current: #ffc93c;
+  --sem-color-agent-trail-ink: var(--ref-color-violet-600);
+  --sem-color-agent-trail-soft: rgba(137, 87, 229, 0.12);
+  --sem-color-agent-trail-soft-strong: rgba(137, 87, 229, 0.22);
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
@@ -240,6 +245,7 @@
   --sem-color-mark-project-chroma: 0.125;
   --sem-color-find-match: #4a3f18;
   --sem-color-find-match-current: #8a6d10;
+  --sem-color-agent-trail-ink: var(--ref-color-violet-300);
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);
@@ -302,6 +308,7 @@
   --sem-color-mark-project-chroma: 0.125;
   --sem-color-find-match: #4a3f18;
   --sem-color-find-match-current: #8a6d10;
+  --sem-color-agent-trail-ink: var(--ref-color-violet-300);
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);
@@ -361,6 +368,7 @@
   --sem-color-mark-project-chroma: 0.09;
   --sem-color-find-match: #ffe9a8;
   --sem-color-find-match-current: #ffc93c;
+  --sem-color-agent-trail-ink: var(--ref-color-violet-600);
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
@@ -4125,6 +4133,46 @@ code {
   font-size: var(--sem-font-size-micro);
   font-weight: var(--sem-font-weight-emphasis);
   opacity: 0.8;
+}
+
+/* ── Agent trail ─────────────────────────────────────────────────────────
+ * Where an agent is at work: the file it is reading or editing, and each
+ * closed folder on the way down to one. A wash on the ROW (the wash channel;
+ * it stands in for a declared role's while it is there), and a trailing group
+ * in the trail's ink: the verb on a file, the count on a folder, and the
+ * agent's own mark on the row it is on right now, all in the trail's violet
+ * (agent-trail.*). Selection still wins the fill. An open folder carries none of it: the rows under it say it. */
+.ds-file-tree-row--agent-reading {
+  background: var(--sem-color-agent-trail-soft);
+}
+
+.ds-file-tree-row--agent-editing {
+  background: var(--sem-color-agent-trail-soft-strong);
+}
+
+.ds-file-tree-agent {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  margin-left: auto;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-agent-trail-ink);
+}
+
+.ds-file-tree-agent + .ds-file-tree-badge {
+  margin-left: 0;
+}
+
+.ds-file-tree-agent-verb {
+  padding: 0 var(--sem-space-xs);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-agent-trail-soft-strong);
+}
+
+.ds-file-tree-agent svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
 }
 
 /* ── Pinned row ──────────────────────────────────────────────────────────
@@ -10547,6 +10595,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
         width: var(--sem-icon-size-sm);
         height: var(--sem-icon-size-sm);
       }
+.ds-embed-component-file-tree .ds-visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
 .ds-embed-component-file-tree .demo-ts {
         color: var(--sem-color-mark-blue);
       }
@@ -13261,6 +13317,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-coral-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.coral-400</code><code class="catalog-token-value">#fc787c</code></p><p class="catalog-token-meta">Luminous error coral for dark surfaces. Source: dark --tone-error.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-red-600)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.red-600</code><code class="catalog-token-value">#d92d2d</code></p><p class="catalog-token-meta">Deep error red for light surfaces, carries white ink. Source: light --tone-error.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-violet-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.violet-500</code><code class="catalog-token-value">#8957e5</code></p><p class="catalog-token-meta">Merged-branch purple, constant across modes (GitHub-family semantic). Source: --tone-merged.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-violet-300)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.violet-300</code><code class="catalog-token-value">#b49af0</code></p><p class="catalog-token-meta">Light violet for ink on dark surfaces. Source: dark sem.color.agent-trail.ink.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-violet-600)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.violet-600</code><code class="catalog-token-value">#6e3fd1</code></p><p class="catalog-token-meta">Deep violet for ink on light surfaces. Source: light sem.color.agent-trail.ink.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-gray-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.gray-500</code><code class="catalog-token-value">#6b7280</code></p><p class="catalog-token-meta">Neutral status grey for light surfaces. Source: light --tone-neutral.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-mist-225)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.mist-225</code><code class="catalog-token-value">#e4e8ec</code></p><p class="catalog-token-meta">Resting-selection surface in light mode.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-450)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-450</code><code class="catalog-token-value">#6e7682</code></p><p class="catalog-token-meta">Subtle text ink on light surfaces. Sits between slate-500 (muted) and slate-400 (disabled) so the ramp orders identically in both modes.</p></div></div>
@@ -13326,6 +13384,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-color-scaffold-soft)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.scaffold.soft</code><code class="catalog-token-value">rgba(137, 87, 229, 0.16)</code><span class="catalog-badge">scaffold</span></p><p class="catalog-token-meta">Soft fill of a named scaffold chip: scaffold.ink at 16%. Fill of a name chip for something being made, once it holds a name. <strong>Do not:</strong> Row selection, banners, or any fill that is not a scaffold chip.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-find-match)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-find-match)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.find.match</code><code class="catalog-token-value">#ffe9a8</code><span class="catalog-badge">find</span></p><p class="catalog-token-meta">The wash behind every match of a find in text the app draws itself, such as Find in chat. Highlighter amber, the same pair the terminal's find decorations paint, so a match looks like a match in a chat and a pane alike; amber because no syntax ink, status mark or selection in the app is a background of that hue. Background of a find match painted over rendered text (a ::highlight pseudo-element). <strong>Do not:</strong> Warning or needs-input (that is status.warn), selection, row backgrounds, or any fill that is not a find match.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-find-match-current)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-find-match-current)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.find.match-current</code><code class="catalog-token-value">#ffc93c</code><span class="catalog-badge">find</span></p><p class="catalog-token-meta">The wash behind the match a find is on: find.match one step stronger, so the current match stands out from the rest without a second hue. Background of the one current match of a find, painted over rendered text. <strong>Do not:</strong> Anything but the current find match; never a selection or focus indicator.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-agent-trail-ink)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-agent-trail-ink)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.agent-trail.ink</code><code class="catalog-token-value">{ref.color.violet-600}</code><span class="catalog-badge">agent-trail</span></p><p class="catalog-token-meta">Ink of the agent trail in the Files tree: the verb, the count and the agent's mark on a row an agent is at work on (file-tree component.md, Agent trail). Deep violet on light, light violet on dark, so it clears AA as 11px text on its own wash. The trailing group of a file-tree row an agent is reading or editing. <strong>Do not:</strong> Status, selection, the accent, a file's name (that is its git tint), or a file-type glyph (mark.violet).</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-color-agent-trail-soft)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.agent-trail.soft</code><code class="catalog-token-value">rgba(137, 87, 229, 0.12)</code><span class="catalog-badge">agent-trail</span></p><p class="catalog-token-meta">Wash of a file-tree row an agent is reading, and of a closed folder leading to one: violet at 12%. The row wash of the agent trail's reading state. <strong>Do not:</strong> Selection, banners, or any fill that is not the agent trail.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-color-agent-trail-soft-strong)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.agent-trail.soft-strong</code><code class="catalog-token-value">rgba(137, 87, 229, 0.22)</code><span class="catalog-badge">agent-trail</span></p><p class="catalog-token-meta">Wash of a file-tree row an agent is editing, and the fill of the trail's verb: violet at 22%. The row wash of the agent trail's editing state, and the pill behind its verb. <strong>Do not:</strong> Selection, banners, or any fill that is not the agent trail.</p></div></div>
 </div>
 <div id="foundations-type" class="catalog-view">
 <h3>Type</h3>
@@ -24874,6 +24935,582 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
         </div>
       </div>
     </div>
+    <div class="demo-stage" data-mode="light">
+      <p class="demo-label">
+        Light — the agent trail: a file being read, the file being edited with the agent on it, and the same tree
+        closed, where the folder counts what it is hiding.
+      </p>
+      <div class="demo-row">
+        <div class="demo-column">
+          <div class="ds-file-tree" role="tree" aria-label="Files in studio (light, agent trail open)" tabindex="0">
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">src</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">clips</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--agent-reading"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">generate.ts</span>
+              <span class="ds-file-tree-agent"
+                ><span class="ds-visually-hidden">, an agent is reading this</span
+                ><span class="ds-file-tree-agent-verb" aria-hidden="true">reading</span></span
+              >
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">types.ts</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">render</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--agent-editing"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">queue.ts</span>
+              <span class="ds-file-tree-agent"
+                ><span class="ds-visually-hidden">, an agent is editing this</span
+                ><span class="ds-file-tree-agent-verb" aria-hidden="true">editing</span
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true">
+                  <rect x="3" y="5.4" width="10" height="7.8" rx="2.4" stroke-width="1.4" stroke-linejoin="round" />
+                  <path d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8" stroke-width="1.3" stroke-linecap="round" />
+                  <circle cx="8" cy="2.4" r=".95" fill="currentColor" stroke="none" />
+                  <rect x="5.4" y="8" width="1.6" height="2.2" rx=".6" fill="currentColor" stroke="none" />
+                  <rect x="9" y="8" width="1.6" height="2.2" rx=".6" fill="currentColor" stroke="none" /></svg
+              ></span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">index.ts</span>
+            </div>
+          </div>
+        </div>
+        <div class="demo-column">
+          <div class="ds-file-tree" role="tree" aria-label="Files in studio (light, agent trail closed)" tabindex="0">
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder ds-file-tree-row--agent-editing"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">src</span>
+              <span class="ds-file-tree-agent"
+                ><span class="ds-visually-hidden">, an agent is editing 2 files in here</span
+                ><span aria-hidden="true">2</span
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true">
+                  <rect x="3" y="5.4" width="10" height="7.8" rx="2.4" stroke-width="1.4" stroke-linejoin="round" />
+                  <path d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8" stroke-width="1.3" stroke-linecap="round" />
+                  <circle cx="8" cy="2.4" r=".95" fill="currentColor" stroke="none" />
+                  <rect x="5.4" y="8" width="1.6" height="2.2" rx=".6" fill="currentColor" stroke="none" />
+                  <rect x="9" y="8" width="1.6" height="2.2" rx=".6" fill="currentColor" stroke="none" /></svg
+              ></span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">index.ts</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="demo-stage" data-mode="dark">
+      <p class="demo-label">
+        Dark — the agent trail: a file being read, the file being edited with the agent on it, and the same tree closed,
+        where the folder counts what it is hiding.
+      </p>
+      <div class="demo-row">
+        <div class="demo-column">
+          <div class="ds-file-tree" role="tree" aria-label="Files in studio (dark, agent trail open)" tabindex="0">
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">src</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">clips</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--agent-reading"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">generate.ts</span>
+              <span class="ds-file-tree-agent"
+                ><span class="ds-visually-hidden">, an agent is reading this</span
+                ><span class="ds-file-tree-agent-verb" aria-hidden="true">reading</span></span
+              >
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">types.ts</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">render</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--agent-editing"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">queue.ts</span>
+              <span class="ds-file-tree-agent"
+                ><span class="ds-visually-hidden">, an agent is editing this</span
+                ><span class="ds-file-tree-agent-verb" aria-hidden="true">editing</span
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true">
+                  <rect x="3" y="5.4" width="10" height="7.8" rx="2.4" stroke-width="1.4" stroke-linejoin="round" />
+                  <path d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8" stroke-width="1.3" stroke-linecap="round" />
+                  <circle cx="8" cy="2.4" r=".95" fill="currentColor" stroke="none" />
+                  <rect x="5.4" y="8" width="1.6" height="2.2" rx=".6" fill="currentColor" stroke="none" />
+                  <rect x="9" y="8" width="1.6" height="2.2" rx=".6" fill="currentColor" stroke="none" /></svg
+              ></span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">index.ts</span>
+            </div>
+          </div>
+        </div>
+        <div class="demo-column">
+          <div class="ds-file-tree" role="tree" aria-label="Files in studio (dark, agent trail closed)" tabindex="0">
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder ds-file-tree-row--agent-editing"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">src</span>
+              <span class="ds-file-tree-agent"
+                ><span class="ds-visually-hidden">, an agent is editing 2 files in here</span
+                ><span aria-hidden="true">2</span
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true">
+                  <rect x="3" y="5.4" width="10" height="7.8" rx="2.4" stroke-width="1.4" stroke-linejoin="round" />
+                  <path d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8" stroke-width="1.3" stroke-linecap="round" />
+                  <circle cx="8" cy="2.4" r=".95" fill="currentColor" stroke="none" />
+                  <rect x="5.4" y="8" width="1.6" height="2.2" rx=".6" fill="currentColor" stroke="none" />
+                  <rect x="9" y="8" width="1.6" height="2.2" rx=".6" fill="currentColor" stroke="none" /></svg
+              ></span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">index.ts</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 </div>
 <div class="catalog-doc">
 <p>A folder of files, as a tree: one 24px row per entry, indented by depth, a disclosure chevron on folders, a 16px glyph slot, the name in its git tint and a one-letter status. It is the Files tab in the workspace pane and the column beside the file in the editor window — the same rows in both, because two trees that drew their own rows would be two answers to &quot;how far does a child indent&quot; and &quot;what does the selected row look like&quot;.</p>
@@ -24881,15 +25518,20 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p><strong>Why not <code>check-row --tree</code>.</strong> [check-row](../check-row/component.md) is the pick-_and_-mark row: it spends its fifth element on a checkbox, because in the Git changes list the tick is the index. A file tree marks nothing — picking a row is the whole interaction — so it has no box, and its rows can stay at four elements (chevron, glyph, name, status) under the ceiling without an amendment.</p>
 <p>In the app: <code>FileTreeRow</code>, <code>FileTreeRootRow</code>, <code>FileTreePinnedRow</code> and <code>FileTreeRows</code> in <code>src/renderer/src/components/ui/FileTree.tsx</code>.</p>
 <h4>Anatomy</h4>
-<p>| Part       | Class                      | Required                                                                                            | | ---------- | -------------------------- | --------------------------------------------------------------------------------------------------- | | Tree       | <code>.ds-file-tree</code>            | yes — <code>role=&quot;tree&quot;</code>, one tab stop, <code>aria-label</code> naming the root                                     | | Band       | <code>.ds-file-tree-band</code>       | no — the chrome row over a tree with no root row: the root's name, then the filter and collapse-all | | Band title | <code>.ds-file-tree-band-title</code> | with the band — folder glyph and the root's name; the full path is its tooltip                      | | Row        | <code>.ds-file-tree-row</code>        | yes — <code>role=&quot;treeitem&quot;</code>, <code>aria-level</code>, <code>aria-selected</code>, <code>aria-expanded</code> on folders                  | | Depth      | <code>--ds-file-tree-depth</code>     | yes — a unitless level; one level is <code>space.lg + space.3xs</code>, the chevron's advance plus a hair      | | Twisty     | <code>.ds-file-tree-twisty</code>     | yes — the chevron; <code>--leaf</code> on a file keeps the slot and drops the mark                             | | Glyph      | <code>.ds-file-tree-glyph</code>      | yes — the reserved 16px slot: the file's kind glyph, or the folder glyph                            | | Name       | <code>.ds-file-tree-name</code>       | yes — truncates from the end; tinted by git status (<code>--modified</code>, <code>--added</code>, <code>--deleted</code>)           | | Badge      | <code>.ds-file-tree-badge</code>      | no — display-only status letter: <code>A</code>, <code>M</code>, <code>R</code>, <code>D</code>, <code>!</code>                                            | | Pinned     | <code>.ds-file-tree-pinned</code>     | no — the open file when it lies outside the root (below); <code>role=&quot;group&quot;</code>, outside the tree          |</p>
+<p>| Part       | Class                      | Required                                                                                            | | ---------- | -------------------------- | --------------------------------------------------------------------------------------------------- | | Tree       | <code>.ds-file-tree</code>            | yes — <code>role=&quot;tree&quot;</code>, one tab stop, <code>aria-label</code> naming the root                                     | | Band       | <code>.ds-file-tree-band</code>       | no — the chrome row over a tree with no root row: the root's name, then the filter and collapse-all | | Band title | <code>.ds-file-tree-band-title</code> | with the band — folder glyph and the root's name; the full path is its tooltip                      | | Row        | <code>.ds-file-tree-row</code>        | yes — <code>role=&quot;treeitem&quot;</code>, <code>aria-level</code>, <code>aria-selected</code>, <code>aria-expanded</code> on folders                  | | Depth      | <code>--ds-file-tree-depth</code>     | yes — a unitless level; one level is <code>space.lg + space.3xs</code>, the chevron's advance plus a hair      | | Twisty     | <code>.ds-file-tree-twisty</code>     | yes — the chevron; <code>--leaf</code> on a file keeps the slot and drops the mark                             | | Glyph      | <code>.ds-file-tree-glyph</code>      | yes — the reserved 16px slot: the file's kind glyph, or the folder glyph                            | | Name       | <code>.ds-file-tree-name</code>       | yes — truncates from the end; tinted by git status (<code>--modified</code>, <code>--added</code>, <code>--deleted</code>)           | | Badge      | <code>.ds-file-tree-badge</code>      | no — display-only status letter: <code>A</code>, <code>M</code>, <code>R</code>, <code>D</code>, <code>!</code>                                            | | Pinned     | <code>.ds-file-tree-pinned</code>     | no — the open file when it lies outside the root (below); <code>role=&quot;group&quot;</code>, outside the tree          | | Agent      | <code>.ds-file-tree-agent</code>      | no — an agent at work on the row (below): the verb or count, then the agent's mark                  |</p>
 <h4>Variants</h4>
 <ul><li><strong>Rooted</strong> — the workspace pane's tree: the first row is the root folder itself, name strong and path muted, and its chevron folds the whole tree. Depth 0 sits one level in from it.</li><li><strong>Banded</strong> — the editor window's tree: a band names the root and carries the view controls, and the first level of the tree is depth 0 with no row above it. The band is the root row's job done once, as chrome.</li><li><strong>Changed files</strong> — a view of the banded tree, not a separate component: only the files git reports as changed, with the folders between them and the root synthesised from their paths. Nothing is read from disk to show it.</li><li><code>.ds-file-tree-row--folder</code> — a folder's name is set at <code>font.weight.medium</code>.</li><li><code>.ds-file-tree-row--ignored</code> — a path the repository ignores: the whole row, glyph included, drops to <code>text.disabled</code>.</li></ul>
 <h4>States</h4>
-<p>| State                      | Treatment                                                  | | -------------------------- | ---------------------------------------------------------- | | Rest                       | <code>text.default</code>; the glyph in its kind hue                  | | Hover                      | <code>bg.hover</code>, name to <code>text.primary</code> — background only       | | Selected (tree has focus)  | <code>--selected</code>: <code>bg.selected</code> plus the 2px inset edge        | | Selected (focus elsewhere) | <code>--resting</code>: <code>bg.selected-resting</code>, no edge                | | Multi-select companion     | <code>--resting</code> — the cursor row alone is <code>--selected</code>         | | Expanded                   | chevron rotated 90°; <code>aria-expanded=&quot;true&quot;</code>                | | Drop target                | <code>bg.selected</code> plus a 1px accent ring (workspace tree only) |</p>
+<p>| State                      | Treatment                                                          | | -------------------------- | ------------------------------------------------------------------ | | Rest                       | <code>text.default</code>; the glyph in its kind hue                          | | Hover                      | <code>bg.hover</code>, name to <code>text.primary</code> — background only               | | Selected (tree has focus)  | <code>--selected</code>: <code>bg.selected</code> plus the 2px inset edge                | | Selected (focus elsewhere) | <code>--resting</code>: <code>bg.selected-resting</code>, no edge                        | | Multi-select companion     | <code>--resting</code> — the cursor row alone is <code>--selected</code>                 | | Expanded                   | chevron rotated 90°; <code>aria-expanded=&quot;true&quot;</code>                        | | Drop target                | <code>bg.selected</code> plus a 1px accent ring (workspace tree only)         | | Agent reading              | <code>--agent-reading</code>: <code>agent-trail.soft</code> (workspace tree only)        | | Agent editing              | <code>--agent-editing</code>: <code>agent-trail.soft-strong</code> (workspace tree only) |</p>
 <p>The two selection tiers are <code>patterns/selection</code> exactly. In the editor window the open file's row is selected; while Monaco has the keyboard it rests, and it takes the full fill and the edge only when the tree itself is being driven. Exactly one edge is ever on screen.</p>
 <h5>Outside the root</h5>
 <p>When the open file is not under the tree's root — an agent's patch written to a scratch folder, a file in the home directory — the tree cannot show it, and saying nothing would leave the person exactly as lost as before. A <strong>pinned</strong> block shows between the band and the tree, for as long as that file is the open one: a caption, _Outside this workspace_ (<code>.ds-file-tree-pinned-label</code>), over one row (<code>.ds-file-tree-pinned-row</code>) holding the file's glyph, its <strong>name</strong> as the primary text (<code>-name</code>), and its folder as muted secondary text (<code>-dir</code>) truncated in the middle — the head of the path gives way, the folder nearest the file stays. The full path is the row's tooltip.</p>
 <p>It sits outside the tree's scroll, so no row slides under it, and outside the tree's keyboard walk. It is the open file, not a keyboard cursor, so it wears the open file's <strong>resting</strong> fill (<code>bg.selected-resting</code>) and never the accent edge. Its menu (a trailing overflow button, and right-click) has two items: _Reveal in Finder_ (_Show in Explorer_ on Windows, _Show in file manager_ elsewhere) and _Copy path_.</p>
+<h5>Agent trail</h5>
+<p>While an agent works, the workspace tree shows where: the file it is reading or editing wears a violet wash, stronger for an edit, with the verb at the row's end (<code>.ds-file-tree-agent-verb</code>, _reading_ or _editing_). The file the agent is on right now also carries the agent's own mark after the verb: its character ([agent-glyph](../agent-glyph/component.md)), or the working mark with characters turned off, both inked violet. A spawned agent wears the face its lane in the chat wears, so two agents in one tree are told apart.</p>
+<p>A <strong>closed</strong> folder holding a marked file takes the same wash and says how many marked files are under it, with the agent's mark when the agent is in there, so a collapsed tree still shows the way down: open the folder and the mark moves one level in. An open folder carries nothing, because the rows under it say it.</p>
+<p>A file stays marked while the call on it runs, ten seconds after, and for as long as it is the last file its agent touched while the chat works — an agent thinking over the file it just read is still on it. Then the wash fades on the row's own colour transition.</p>
+<p>The trail's colours are its own tokens (<code>agent-trail.ink</code>, <code>.soft</code> and <code>.soft-strong</code>), never the identity violet a stylesheet or image glyph wears: no git tint or accent is violet, and a glyph's hue never fills a row, so a violet wash and a violet word at the row's end read as the agent and nothing else. The trail takes the wash channel, standing in for a declared role's wash while it is there; the name keeps its git tint and the glyph its kind hue. Selection still wins the fill.</p>
 <h4>Usage</h4>
 <p><strong>Every row is exactly 24px.</strong> <code>size.hit-target-min</code>, reached through the vertical padding — the glyph slot stays 16px so the chevron, folder and file marks line up with every rail in the app. Nothing a row holds may make it taller; the rename field that replaces a name is 20px for that reason. The fixed pitch is also what lets a folder past a thousand rows be windowed by arithmetic instead of measurement.</p>
 <p><strong>Colour has three channels, one each.</strong> The glyph's hue is the file's kind; the name's tint is its git status; the row's ink is whether it is ignored. Selection lifts the fill and the ink, and removes any wash, but never repaints the glyph or the status tint.</p>
@@ -24897,7 +25539,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p><strong>The tree that only reads writes nothing shared.</strong> The editor window's tree keeps its own expanded folders, and its column's width and visibility live in that window's own storage — never in the workspace's remembered state, which belongs to the workspace tree.</p>
 <p><strong>Rebuilding it in a framework:</strong> what must survive is the fixed 24px pitch, the one glyph column (the leaf keeps the chevron's slot), the three colour channels, the two selection tiers, and the one-tab-stop keyboard contract.</p>
 <h4>Accessibility</h4>
-<ul><li>The tree is <strong>one tab stop</strong>. ↑/↓ move the selection, Home/End jump to the ends, → opens a folder (or steps into it when open), ← closes it (or steps to its parent), Enter opens a file or toggles a folder.</li><li><strong>Escape returns focus to the editor</strong> in the editor window, and must not reach the window's own Escape (which closes it).</li><li>Every row carries <code>aria-level</code>; folders carry <code>aria-expanded</code>; the selected row carries <code>aria-selected=&quot;true&quot;</code>. The chevron is <code>tabindex=&quot;-1&quot;</code> — the keyboard reaches folders through the tree, not through the chevron.</li><li>The status letter is display-only and duplicated in the name's tint; it is never the only carrier of the state.</li><li>The pinned block is a <code>role=&quot;group&quot;</code> beside the tree, not a treeitem, and names itself in full — file, _outside this workspace_, and the folder — since its visible folder may be truncated.</li></ul>
+<ul><li>The tree is <strong>one tab stop</strong>. ↑/↓ move the selection, Home/End jump to the ends, → opens a folder (or steps into it when open), ← closes it (or steps to its parent), Enter opens a file or toggles a folder.</li><li><strong>Escape returns focus to the editor</strong> in the editor window, and must not reach the window's own Escape (which closes it).</li><li>Every row carries <code>aria-level</code>; folders carry <code>aria-expanded</code>; the selected row carries <code>aria-selected=&quot;true&quot;</code>. The chevron is <code>tabindex=&quot;-1&quot;</code> — the keyboard reaches folders through the tree, not through the chevron.</li><li>The status letter is display-only and duplicated in the name's tint; it is never the only carrier of the state.</li><li>The agent trail says itself in words to assistive tech: a visually hidden _an agent is editing this_ on a file, _an agent is reading 3 files in here_ on a folder. The verb, the count and the agent's mark are hidden from it.</li><li>The pinned block is a <code>role=&quot;group&quot;</code> beside the tree, not a treeitem, and names itself in full — file, _outside this workspace_, and the folder — since its visible folder may be truncated.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/file-tree/component.css</summary><pre><code>/* File tree — a folder tree of files, one 24px row per entry.
@@ -25090,6 +25732,46 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
   opacity: 0.8;
 }
 
+/* ── Agent trail ─────────────────────────────────────────────────────────
+ * Where an agent is at work: the file it is reading or editing, and each
+ * closed folder on the way down to one. A wash on the ROW (the wash channel;
+ * it stands in for a declared role's while it is there), and a trailing group
+ * in the trail's ink: the verb on a file, the count on a folder, and the
+ * agent's own mark on the row it is on right now, all in the trail's violet
+ * (agent-trail.*). Selection still wins the fill. An open folder carries none of it: the rows under it say it. */
+.ds-file-tree-row--agent-reading {
+  background: var(--sem-color-agent-trail-soft);
+}
+
+.ds-file-tree-row--agent-editing {
+  background: var(--sem-color-agent-trail-soft-strong);
+}
+
+.ds-file-tree-agent {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  margin-left: auto;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-agent-trail-ink);
+}
+
+.ds-file-tree-agent + .ds-file-tree-badge {
+  margin-left: 0;
+}
+
+.ds-file-tree-agent-verb {
+  padding: 0 var(--sem-space-xs);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-agent-trail-soft-strong);
+}
+
+.ds-file-tree-agent svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
 /* ── Pinned row ──────────────────────────────────────────────────────────
  * The open file when it is NOT under the root, for as long as it is the open
  * file. It sits between the band and the tree, outside the tree's scroll, so
@@ -25203,6 +25885,14 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       .demo-icon svg {
         width: var(--sem-icon-size-sm);
         height: var(--sem-icon-size-sm);
+      }
+      .ds-visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
       }
       /* The kind hue the app's glyph carries for TypeScript. */
       .demo-ts {
@@ -26443,6 +27133,582 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
                   &lt;path d=&quot;M9.5 1.75V4.5h2.75&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg
               &gt;&lt;/span&gt;
               &lt;span class=&quot;ds-file-tree-name&quot;&gt;package.json&lt;/span&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+      &lt;p class=&quot;demo-label&quot;&gt;
+        Light — the agent trail: a file being read, the file being edited with the agent on it, and the same tree
+        closed, where the folder counts what it is hiding.
+      &lt;/p&gt;
+      &lt;div class=&quot;demo-row&quot;&gt;
+        &lt;div class=&quot;demo-column&quot;&gt;
+          &lt;div class=&quot;ds-file-tree&quot; role=&quot;tree&quot; aria-label=&quot;Files in studio (light, agent trail open)&quot; tabindex=&quot;0&quot;&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row ds-file-tree-row--folder&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;1&quot;
+              aria-selected=&quot;false&quot;
+              aria-expanded=&quot;true&quot;
+              style=&quot;--ds-file-tree-depth: 0&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z&quot;
+                    stroke-width=&quot;1.3&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;src&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row ds-file-tree-row--folder&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;2&quot;
+              aria-selected=&quot;false&quot;
+              aria-expanded=&quot;true&quot;
+              style=&quot;--ds-file-tree-depth: 1&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z&quot;
+                    stroke-width=&quot;1.3&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;clips&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row ds-file-tree-row--agent-reading&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;3&quot;
+              aria-selected=&quot;false&quot;
+              style=&quot;--ds-file-tree-depth: 2&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty ds-file-tree-twisty--leaf&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph demo-ts&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+                  &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;path
+                    d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot;
+                    stroke-width=&quot;1.45&quot;
+                    stroke-linecap=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;generate.ts&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-agent&quot;
+                &gt;&lt;span class=&quot;ds-visually-hidden&quot;&gt;, an agent is reading this&lt;/span
+                &gt;&lt;span class=&quot;ds-file-tree-agent-verb&quot; aria-hidden=&quot;true&quot;&gt;reading&lt;/span&gt;&lt;/span
+              &gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;3&quot;
+              aria-selected=&quot;false&quot;
+              style=&quot;--ds-file-tree-depth: 2&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty ds-file-tree-twisty--leaf&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph demo-ts&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+                  &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;path
+                    d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot;
+                    stroke-width=&quot;1.45&quot;
+                    stroke-linecap=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;types.ts&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row ds-file-tree-row--folder&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;2&quot;
+              aria-selected=&quot;false&quot;
+              aria-expanded=&quot;true&quot;
+              style=&quot;--ds-file-tree-depth: 1&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z&quot;
+                    stroke-width=&quot;1.3&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;render&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row ds-file-tree-row--agent-editing&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;3&quot;
+              aria-selected=&quot;false&quot;
+              style=&quot;--ds-file-tree-depth: 2&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty ds-file-tree-twisty--leaf&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph demo-ts&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+                  &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;path
+                    d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot;
+                    stroke-width=&quot;1.45&quot;
+                    stroke-linecap=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;queue.ts&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-agent&quot;
+                &gt;&lt;span class=&quot;ds-visually-hidden&quot;&gt;, an agent is editing this&lt;/span
+                &gt;&lt;span class=&quot;ds-file-tree-agent-verb&quot; aria-hidden=&quot;true&quot;&gt;editing&lt;/span
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;
+                  &lt;rect x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; /&gt;
+                  &lt;path d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;circle cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; fill=&quot;currentColor&quot; stroke=&quot;none&quot; /&gt;
+                  &lt;rect x=&quot;5.4&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot; fill=&quot;currentColor&quot; stroke=&quot;none&quot; /&gt;
+                  &lt;rect x=&quot;9&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot; fill=&quot;currentColor&quot; stroke=&quot;none&quot; /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;2&quot;
+              aria-selected=&quot;false&quot;
+              style=&quot;--ds-file-tree-depth: 1&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty ds-file-tree-twisty--leaf&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph demo-ts&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+                  &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;path
+                    d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot;
+                    stroke-width=&quot;1.45&quot;
+                    stroke-linecap=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;index.ts&lt;/span&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;demo-column&quot;&gt;
+          &lt;div class=&quot;ds-file-tree&quot; role=&quot;tree&quot; aria-label=&quot;Files in studio (light, agent trail closed)&quot; tabindex=&quot;0&quot;&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row ds-file-tree-row--folder ds-file-tree-row--agent-editing&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;1&quot;
+              aria-selected=&quot;false&quot;
+              aria-expanded=&quot;false&quot;
+              style=&quot;--ds-file-tree-depth: 0&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z&quot;
+                    stroke-width=&quot;1.3&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;src&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-agent&quot;
+                &gt;&lt;span class=&quot;ds-visually-hidden&quot;&gt;, an agent is editing 2 files in here&lt;/span
+                &gt;&lt;span aria-hidden=&quot;true&quot;&gt;2&lt;/span
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;
+                  &lt;rect x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; /&gt;
+                  &lt;path d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;circle cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; fill=&quot;currentColor&quot; stroke=&quot;none&quot; /&gt;
+                  &lt;rect x=&quot;5.4&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot; fill=&quot;currentColor&quot; stroke=&quot;none&quot; /&gt;
+                  &lt;rect x=&quot;9&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot; fill=&quot;currentColor&quot; stroke=&quot;none&quot; /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;1&quot;
+              aria-selected=&quot;false&quot;
+              style=&quot;--ds-file-tree-depth: 0&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty ds-file-tree-twisty--leaf&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph demo-ts&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+                  &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;path
+                    d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot;
+                    stroke-width=&quot;1.45&quot;
+                    stroke-linecap=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;index.ts&lt;/span&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+      &lt;p class=&quot;demo-label&quot;&gt;
+        Dark — the agent trail: a file being read, the file being edited with the agent on it, and the same tree closed,
+        where the folder counts what it is hiding.
+      &lt;/p&gt;
+      &lt;div class=&quot;demo-row&quot;&gt;
+        &lt;div class=&quot;demo-column&quot;&gt;
+          &lt;div class=&quot;ds-file-tree&quot; role=&quot;tree&quot; aria-label=&quot;Files in studio (dark, agent trail open)&quot; tabindex=&quot;0&quot;&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row ds-file-tree-row--folder&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;1&quot;
+              aria-selected=&quot;false&quot;
+              aria-expanded=&quot;true&quot;
+              style=&quot;--ds-file-tree-depth: 0&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z&quot;
+                    stroke-width=&quot;1.3&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;src&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row ds-file-tree-row--folder&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;2&quot;
+              aria-selected=&quot;false&quot;
+              aria-expanded=&quot;true&quot;
+              style=&quot;--ds-file-tree-depth: 1&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z&quot;
+                    stroke-width=&quot;1.3&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;clips&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row ds-file-tree-row--agent-reading&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;3&quot;
+              aria-selected=&quot;false&quot;
+              style=&quot;--ds-file-tree-depth: 2&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty ds-file-tree-twisty--leaf&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph demo-ts&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+                  &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;path
+                    d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot;
+                    stroke-width=&quot;1.45&quot;
+                    stroke-linecap=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;generate.ts&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-agent&quot;
+                &gt;&lt;span class=&quot;ds-visually-hidden&quot;&gt;, an agent is reading this&lt;/span
+                &gt;&lt;span class=&quot;ds-file-tree-agent-verb&quot; aria-hidden=&quot;true&quot;&gt;reading&lt;/span&gt;&lt;/span
+              &gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;3&quot;
+              aria-selected=&quot;false&quot;
+              style=&quot;--ds-file-tree-depth: 2&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty ds-file-tree-twisty--leaf&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph demo-ts&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+                  &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;path
+                    d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot;
+                    stroke-width=&quot;1.45&quot;
+                    stroke-linecap=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;types.ts&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row ds-file-tree-row--folder&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;2&quot;
+              aria-selected=&quot;false&quot;
+              aria-expanded=&quot;true&quot;
+              style=&quot;--ds-file-tree-depth: 1&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z&quot;
+                    stroke-width=&quot;1.3&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;render&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row ds-file-tree-row--agent-editing&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;3&quot;
+              aria-selected=&quot;false&quot;
+              style=&quot;--ds-file-tree-depth: 2&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty ds-file-tree-twisty--leaf&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph demo-ts&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+                  &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;path
+                    d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot;
+                    stroke-width=&quot;1.45&quot;
+                    stroke-linecap=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;queue.ts&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-agent&quot;
+                &gt;&lt;span class=&quot;ds-visually-hidden&quot;&gt;, an agent is editing this&lt;/span
+                &gt;&lt;span class=&quot;ds-file-tree-agent-verb&quot; aria-hidden=&quot;true&quot;&gt;editing&lt;/span
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;
+                  &lt;rect x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; /&gt;
+                  &lt;path d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;circle cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; fill=&quot;currentColor&quot; stroke=&quot;none&quot; /&gt;
+                  &lt;rect x=&quot;5.4&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot; fill=&quot;currentColor&quot; stroke=&quot;none&quot; /&gt;
+                  &lt;rect x=&quot;9&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot; fill=&quot;currentColor&quot; stroke=&quot;none&quot; /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;2&quot;
+              aria-selected=&quot;false&quot;
+              style=&quot;--ds-file-tree-depth: 1&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty ds-file-tree-twisty--leaf&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph demo-ts&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+                  &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;path
+                    d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot;
+                    stroke-width=&quot;1.45&quot;
+                    stroke-linecap=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;index.ts&lt;/span&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;demo-column&quot;&gt;
+          &lt;div class=&quot;ds-file-tree&quot; role=&quot;tree&quot; aria-label=&quot;Files in studio (dark, agent trail closed)&quot; tabindex=&quot;0&quot;&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row ds-file-tree-row--folder ds-file-tree-row--agent-editing&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;1&quot;
+              aria-selected=&quot;false&quot;
+              aria-expanded=&quot;false&quot;
+              style=&quot;--ds-file-tree-depth: 0&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z&quot;
+                    stroke-width=&quot;1.3&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;src&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-agent&quot;
+                &gt;&lt;span class=&quot;ds-visually-hidden&quot;&gt;, an agent is editing 2 files in here&lt;/span
+                &gt;&lt;span aria-hidden=&quot;true&quot;&gt;2&lt;/span
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;
+                  &lt;rect x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; /&gt;
+                  &lt;path d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;circle cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; fill=&quot;currentColor&quot; stroke=&quot;none&quot; /&gt;
+                  &lt;rect x=&quot;5.4&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot; fill=&quot;currentColor&quot; stroke=&quot;none&quot; /&gt;
+                  &lt;rect x=&quot;9&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot; fill=&quot;currentColor&quot; stroke=&quot;none&quot; /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div
+              class=&quot;ds-file-tree-row&quot;
+              role=&quot;treeitem&quot;
+              aria-level=&quot;1&quot;
+              aria-selected=&quot;false&quot;
+              style=&quot;--ds-file-tree-depth: 0&quot;
+            &gt;
+              &lt;span class=&quot;ds-file-tree-twisty ds-file-tree-twisty--leaf&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 12 12&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path
+                    d=&quot;M4.25 2.5 7.75 6l-3.5 3.5&quot;
+                    stroke-width=&quot;1.8&quot;
+                    stroke-linecap=&quot;round&quot;
+                    stroke-linejoin=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-glyph demo-ts&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;rect x=&quot;1.6&quot; y=&quot;1.6&quot; width=&quot;12.8&quot; height=&quot;12.8&quot; rx=&quot;2.4&quot; stroke-width=&quot;1.2&quot; /&gt;
+                  &lt;path d=&quot;M4.2 6.3h3.4M5.9 6.3v4.4&quot; stroke-width=&quot;1.45&quot; stroke-linecap=&quot;round&quot; /&gt;
+                  &lt;path
+                    d=&quot;M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5&quot;
+                    stroke-width=&quot;1.45&quot;
+                    stroke-linecap=&quot;round&quot;
+                  /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-name&quot;&gt;index.ts&lt;/span&gt;
             &lt;/div&gt;
           &lt;/div&gt;
         &lt;/div&gt;

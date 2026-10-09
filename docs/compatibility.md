@@ -56,6 +56,12 @@ built before one existed leaves it out, and the desktop reads that absence
 as it did before the member: a "working for" count and the next chat that
 needs you (`nextWaitingChat.ts`) both fall back to `updatedAt`.
 
+The summary also carries `fileActivity`: the files the chat's tool calls are
+reading and editing, and the ones they finished with in the last minute, which
+the Files tree marks. It is additive in the same way. A server built before it
+leaves it out, and the tree reads that as an agent touching nothing: the tree
+draws no trail for that chat, and nothing else reads the member.
+
 ## The support window
 
 Both integer wires accept **one version of slack**: the current version and the

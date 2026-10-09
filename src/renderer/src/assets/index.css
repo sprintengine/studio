@@ -342,6 +342,12 @@
      worktree chip. */
   --extension-ink: var(--sem-color-scaffold-ink);
   --extension-soft: var(--sem-color-scaffold-soft);
+  /* Where an agent is working, in the Files tree (file-tree component.md,
+     "Agent trail"): the ink of its verb, count and mark, and the reading and
+     editing washes. */
+  --agent-trail-ink: var(--sem-color-agent-trail-ink);
+  --agent-trail-soft: var(--sem-color-agent-trail-soft);
+  --agent-trail-soft-strong: var(--sem-color-agent-trail-soft-strong);
   --tone-neutral-soft: var(--sem-color-status-neutral-soft);
   --tone-accent-soft: rgba(63, 148, 104, 0.16);
   --tone-good-soft: var(--sem-color-status-good-soft);

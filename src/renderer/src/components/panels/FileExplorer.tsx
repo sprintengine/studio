@@ -49,6 +49,9 @@ import { InboxSearchInput } from '../ui/InboxSearchInput'
 import { Skeleton } from '../ui/Skeleton'
 import { Input } from '../ui/Input'
 import { Tooltip } from '../ui/Tooltip'
+import { AgentGlyph } from '../ui/AgentGlyph'
+import { WorkingMark } from '../ui/WorkingMark'
+import { useAgentFileTrail } from './useAgentFileTrail'
 import { showToast } from '../../store/toastStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
@@ -389,6 +392,10 @@ function ExplorerTree({
     (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.fileExplorerState?.folderRoles,
   ) as FolderRoleMap | undefined
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
+  // Where the workspace's agents are working: the rows they are reading and
+  // editing, and the closed folders on the way down to them.
+  const agentTrail = useAgentFileTrail(workspaceId, rootPath)
+  const agentCharacters = useWorkspaceStore((s) => s.appSettings.appearance.agentCharacters)
   const dialog = useConfirmDialog()
   const readPersistedExpandedPaths = useCallback(
     () =>
@@ -1763,6 +1770,20 @@ function ExplorerTree({
             const isTestRow = !entry.isDir && isTestPath(entry.path.slice(rootPath.length))
             const wash = resolveRowWash(declaredRole, isTestRow)
             const ignored = isIgnored(entry.path)
+            const trailMark = agentTrail.marks.get(normalizePathKey(entry.path))
+            const agentMark = trailMark
+              ? {
+                  verb: trailMark.verb,
+                  count: trailMark.count,
+                  glyph: trailMark.here ? (
+                    agentCharacters ? (
+                      <AgentGlyph agentId={trailMark.here.agentId} state="working" />
+                    ) : (
+                      <WorkingMark label="Agent working" seed={trailMark.here.agentId} />
+                    )
+                  ) : undefined,
+                }
+              : null
 
             return (
               <FileTreeRow
@@ -1789,6 +1810,7 @@ function ExplorerTree({
                 // keyboard. Selection wins, so the class comes off entirely.
                 washClassName={isSelected || isDropTarget ? '' : rowWashClass(wash)}
                 folderRole={entry.isDir ? (folderRoles?.[entry.path] ?? null) : null}
+                agentMark={agentMark}
                 // The tallest thing a row can hold is the 20px rename field,
                 // which still clears the 20px content box the row leaves, so a
                 // row being renamed does not push its siblings.

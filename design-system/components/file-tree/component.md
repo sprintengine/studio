@@ -34,6 +34,7 @@ In the app: `FileTreeRow`, `FileTreeRootRow`, `FileTreePinnedRow` and
 | Name       | `.ds-file-tree-name`       | yes — truncates from the end; tinted by git status (`--modified`, `--added`, `--deleted`)           |
 | Badge      | `.ds-file-tree-badge`      | no — display-only status letter: `A`, `M`, `R`, `D`, `!`                                            |
 | Pinned     | `.ds-file-tree-pinned`     | no — the open file when it lies outside the root (below); `role="group"`, outside the tree          |
+| Agent      | `.ds-file-tree-agent`      | no — an agent at work on the row (below): the verb or count, then the agent's mark                  |
 
 ## Variants
 
@@ -53,15 +54,17 @@ In the app: `FileTreeRow`, `FileTreeRootRow`, `FileTreePinnedRow` and
 
 ## States
 
-| State                      | Treatment                                                  |
-| -------------------------- | ---------------------------------------------------------- |
-| Rest                       | `text.default`; the glyph in its kind hue                  |
-| Hover                      | `bg.hover`, name to `text.primary` — background only       |
-| Selected (tree has focus)  | `--selected`: `bg.selected` plus the 2px inset edge        |
-| Selected (focus elsewhere) | `--resting`: `bg.selected-resting`, no edge                |
-| Multi-select companion     | `--resting` — the cursor row alone is `--selected`         |
-| Expanded                   | chevron rotated 90°; `aria-expanded="true"`                |
-| Drop target                | `bg.selected` plus a 1px accent ring (workspace tree only) |
+| State                      | Treatment                                                          |
+| -------------------------- | ------------------------------------------------------------------ |
+| Rest                       | `text.default`; the glyph in its kind hue                          |
+| Hover                      | `bg.hover`, name to `text.primary` — background only               |
+| Selected (tree has focus)  | `--selected`: `bg.selected` plus the 2px inset edge                |
+| Selected (focus elsewhere) | `--resting`: `bg.selected-resting`, no edge                        |
+| Multi-select companion     | `--resting` — the cursor row alone is `--selected`                 |
+| Expanded                   | chevron rotated 90°; `aria-expanded="true"`                        |
+| Drop target                | `bg.selected` plus a 1px accent ring (workspace tree only)         |
+| Agent reading              | `--agent-reading`: `agent-trail.soft` (workspace tree only)        |
+| Agent editing              | `--agent-editing`: `agent-trail.soft-strong` (workspace tree only) |
 
 The two selection tiers are `patterns/selection` exactly. In the editor
 window the open file's row is selected; while Monaco has the keyboard it
@@ -86,6 +89,35 @@ the open file's **resting** fill (`bg.selected-resting`) and never the accent
 edge. Its menu (a trailing overflow button, and right-click) has two items:
 _Reveal in Finder_ (_Show in Explorer_ on Windows, _Show in file manager_
 elsewhere) and _Copy path_.
+
+### Agent trail
+
+While an agent works, the workspace tree shows where: the file it is reading
+or editing wears a violet wash, stronger for an edit, with the verb at the
+row's end (`.ds-file-tree-agent-verb`, _reading_ or _editing_). The file the
+agent is on right now also carries the agent's own mark after the verb: its
+character ([agent-glyph](../agent-glyph/component.md)), or the working mark
+with characters turned off, both inked violet. A spawned agent wears the face
+its lane in the chat wears, so two agents in one tree are told apart.
+
+A **closed** folder holding a marked file takes the same wash and says how
+many marked files are under it, with the agent's mark when the agent is in
+there, so a collapsed tree still shows the way down: open the folder and the
+mark moves one level in. An open folder carries nothing, because the rows
+under it say it.
+
+A file stays marked while the call on it runs, ten seconds after, and for as
+long as it is the last file its agent touched while the chat works — an agent
+thinking over the file it just read is still on it. Then the wash fades on the
+row's own colour transition.
+
+The trail's colours are its own tokens (`agent-trail.ink`, `.soft` and
+`.soft-strong`), never the identity violet a stylesheet or image glyph wears:
+no git tint or accent is violet, and a glyph's hue never fills a row, so a
+violet wash and a violet word at the row's end read as the agent and nothing
+else. The trail takes the wash channel, standing in for a declared role's
+wash while it is there; the name keeps its git tint and the glyph its kind
+hue. Selection still wins the fill.
 
 ## Usage
 
@@ -127,6 +159,9 @@ channels, the two selection tiers, and the one-tab-stop keyboard contract.
   keyboard reaches folders through the tree, not through the chevron.
 - The status letter is display-only and duplicated in the name's tint; it is
   never the only carrier of the state.
+- The agent trail says itself in words to assistive tech: a visually hidden
+  _an agent is editing this_ on a file, _an agent is reading 3 files in here_
+  on a folder. The verb, the count and the agent's mark are hidden from it.
 - The pinned block is a `role="group"` beside the tree, not a treeitem, and
   names itself in full — file, _outside this workspace_, and
   the folder — since its visible folder may be truncated.

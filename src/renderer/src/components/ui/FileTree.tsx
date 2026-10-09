@@ -109,6 +109,21 @@ export function FileTreeChevron({
   )
 }
 
+/**
+ * An agent at work on a row: on a file, the agent is reading or editing it;
+ * on a folder, on a file somewhere under it.
+ */
+export type FileTreeAgentMark = {
+  verb: 'reading' | 'editing'
+  /** Marked files under a folder, said on the folder while it is closed. */
+  count: number
+  /**
+   * The agent's mark, on the row it is on right now (and on each closed folder
+   * on the way down to it). Absent on a row it has moved on from.
+   */
+  glyph?: React.ReactNode
+}
+
 /** Where the person is on this row: the keyboard's row, one of its companions, or neither. */
 export type FileTreeRowSelection = 'cursor' | 'companion' | null
 
@@ -139,6 +154,8 @@ export type FileTreeRowProps = {
   washClassName?: string
   /** A folder's declared role, which inks its mark. */
   folderRole?: FolderRole | null
+  /** An agent at work here. An open folder ignores it: the rows under it say it. */
+  agentMark?: FileTreeAgentMark | null
   /** Replaces the name, for an in-place rename field. */
   nameSlot?: React.ReactNode
   rowRef?: React.Ref<HTMLDivElement>
@@ -158,6 +175,7 @@ export function FileTreeRow({
   badge = null,
   washClassName = '',
   folderRole = null,
+  agentMark = null,
   nameSlot,
   rowRef,
   className = '',
@@ -170,13 +188,21 @@ export function FileTreeRow({
   // cursor's 2px inset edge reads `--selection-edge`, which a resting pane
   // rebinds to transparent (`data-selection-pane` on the tree), so exactly one
   // edge is on screen — on the tree the keyboard is driving.
+  // The agent's wash takes the wash channel from a declared role while it is
+  // there: it is the row's news, and the role is still on the folder's mark.
+  const agent = agentMark && !(isDir && expanded) ? agentMark : null
+  const wash = agent
+    ? agent.verb === 'editing'
+      ? 'bg-[color:var(--agent-trail-soft-strong)]'
+      : 'bg-[color:var(--agent-trail-soft)]'
+    : washClassName
   const tone = dropTarget
     ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ring-1 ring-[color:var(--accent-primary)]'
     : selection === 'cursor'
       ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ring-2 ring-inset ring-[color:var(--selection-edge)]'
       : selection === 'companion'
         ? 'bg-[color:var(--bg-selected-resting)] text-[color:var(--text-strong)]'
-        : `${ignored ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-default)]'} ${washClassName} hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`
+        : `${ignored ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-default)]'} ${wash} hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`
 
   return (
     <div
@@ -223,8 +249,38 @@ export function FileTreeRow({
           {nameSlot ?? <span className={`truncate ${nameClassName}`}>{name}</span>}
         </>
       )}
+      {agent ? (
+        <span
+          data-agent-trail={agent.verb}
+          className="ml-auto flex shrink-0 items-center gap-1.5 text-micro leading-4 text-[color:var(--agent-trail-ink)]"
+        >
+          <span className="sr-only">
+            {isDir
+              ? `, an agent is ${agent.verb} ${agent.count} ${agent.count === 1 ? 'file' : 'files'} in here`
+              : `, an agent is ${agent.verb} this`}
+          </span>
+          {isDir ? (
+            <span aria-hidden="true">{agent.count}</span>
+          ) : (
+            <span aria-hidden="true" className="rounded-full bg-[color:var(--agent-trail-soft-strong)] px-1.5">
+              {agent.verb}
+            </span>
+          )}
+          {/* The agent's own mark, inked as the trail: the character and the
+              working mark both draw in the accent, rebound here. */}
+          {agent.glyph ? (
+            <span aria-hidden="true" className="flex shrink-0 [--accent-primary:var(--agent-trail-ink)]">
+              {agent.glyph}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
       {badge ? (
-        <span className="ml-auto shrink-0 font-mono text-micro font-semibold text-current opacity-80">{badge}</span>
+        <span
+          className={`${agent ? '' : 'ml-auto '}shrink-0 font-mono text-micro font-semibold text-current opacity-80`}
+        >
+          {badge}
+        </span>
       ) : null}
     </div>
   )
