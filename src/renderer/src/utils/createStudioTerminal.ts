@@ -13,6 +13,7 @@ import { MONO_FONT_STACK } from './fonts'
 import { logPerfEvent } from './perfDiagnostics'
 import { attachTerminalOsc52Clipboard } from './terminalOsc52Clipboard'
 import { createTerminalSearchHandle, type TerminalSearchHandle } from './terminalSearch'
+import { watchTerminalScrolledAway } from './terminalScrollAway'
 import { createTerminalOscLinkHandler, type TerminalOscLinkCallbacks } from './terminalOscLinks'
 import { terminalSurfaceLinkRoots, type TerminalLinkRoots, type TerminalSurface } from './terminalSurfaces'
 import { bindTerminalTheme, getTerminalTheme } from './terminalTheme'
@@ -32,7 +33,8 @@ import { readTerminalWebglPresence, terminalWebglBudget, watchTerminalPresence }
  * its live re-tint binding), the font, the scrollback, the fit addon, the
  * web-links addon, the write-only OSC 52 clipboard, the search addon, the WebGL
  * renderer and its context-loss fallback, the `linkHandler` every OSC 8
- * hyperlink goes through, and OSC handler registration.
+ * hyperlink goes through, OSC handler registration, and the watch that tells a
+ * pane its viewport has been scrolled away from the newest output.
  *
  * What it deliberately does NOT own: `term.open()`, keyboard handlers, and the
  * file-link provider. Those are per-pane and, in the link provider's case,
@@ -80,6 +82,13 @@ export type CreateStudioTerminalInput = {
   oscHandlers?: TerminalOscHandlers
   /** When given, `loadWebLinks()` becomes live; otherwise it is a no-op. */
   onWebLink?: TerminalWebLinkHandler
+  /**
+   * Hears each time the viewport is scrolled up away from the newest output,
+   * or comes back to it — what a pane's "Jump to latest" control is shown for.
+   * Only flips are reported (see `terminalScrollAway.ts`), so a pane can put
+   * this straight into React state without re-rendering on every write.
+   */
+  onScrolledAwayChange?: (scrolledAway: boolean) => void
 }
 
 export type StudioTerminal = {
@@ -135,6 +144,7 @@ export function createStudioTerminal({
   oscLinks,
   oscHandlers,
   onWebLink,
+  onScrolledAwayChange,
 }: CreateStudioTerminalInput): StudioTerminal {
   const linkHandler: ILinkHandler = createTerminalOscLinkHandler(oscLinks)
   const terminal = new Terminal({
@@ -181,6 +191,8 @@ export function createStudioTerminal({
   // handler — xterm runs them in reverse registration order. Write only; see
   // `terminalOsc52Clipboard.ts` for why read is refused and how, twice.
   oscDisposables.push(attachTerminalOsc52Clipboard({ terminal }))
+
+  const scrollAwayWatch = onScrolledAwayChange ? watchTerminalScrolledAway(terminal, onScrolledAwayChange) : null
 
   // WebGL is not loaded at mount any more: the window's budget hands a context
   // to this terminal while it is on screen, takes it back when its layer goes
@@ -288,6 +300,7 @@ export function createStudioTerminal({
       webLinksAddon?.dispose()
       searchAddon?.dispose()
       for (const disposable of oscDisposables) disposable.dispose()
+      scrollAwayWatch?.dispose()
       unbindTerminalTheme()
       terminal.dispose()
     },
