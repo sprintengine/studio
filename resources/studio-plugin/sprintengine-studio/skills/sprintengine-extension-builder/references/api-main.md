@@ -42,7 +42,7 @@ handler that needs it.
 | `getGitHubService(host)` | `github` | — | GitHub API calls with the user's sign-in — [brokers.md](brokers.md) |
 | `getScheduledAgentsService(host)` | `scheduled-agents.manage` | `scheduled-agents` | Create/list/update/remove/run the module's own scheduled agents, and hear when they change (`onChanged`) and when one starts a chat (`onRun`) |
 | `getCompanionAgentsService(host)` | `agents:companion` | `agent-runtime` | A workspace-bound background agent with a structured `runStructured` task API |
-| `getTextGenerationService(host)` | `agents:generate` | — (resolve in handlers) | One prompt answered by the person's own Claude Code with no chat, workspace or tools — [conversation-api.md](conversation-api.md) |
+| `getTextGenerationService(host)` | `agents:generate` | — (resolve in handlers) | One prompt answered by the person's own Claude Code or Codex with no chat or workspace — [conversation-api.md](conversation-api.md) |
 | `host.requireService(WorkspaceContextToken)` | `ipc:workspace-read` | — (resolve in handlers) | `get(id)` / `list()` of open workspaces: `{ id, name, folderPath, mode }` |
 | `host.requireService(WorkspaceServiceToken)` | `ipc:workspace-write` | — (resolve in handlers) | `create({ name, folderPath })` a workspace |
 

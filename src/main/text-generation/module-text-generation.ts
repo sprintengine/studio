@@ -2,13 +2,13 @@
 // prompt answered by the person's own agent CLI, with no workspace, no tools
 // and no tab. Built on the call that titles chats (text-generation-service.ts),
 // so it carries the same guarantees: the CLI's own login and never an API key,
-// a scratch directory rather than a checkout, tools off.
+// a scratch directory rather than a checkout, one shot.
 //
-// Only Claude Code answers. Its headless call runs with no tools at all,
-// whatever the prompt says; Codex's runs in a read-only sandbox, which still
-// lets the model read any file on the machine, and a module's prompt is text
-// the module chose (often text someone else wrote), so that is a door this
-// service does not open.
+// Every CLI the app has a headless backend for answers (Claude Code and Codex,
+// `supportsTextGeneration`). A call that names none runs on the engine the
+// person chose for Studio's own text generation in Settings, and on Claude
+// Code's small model when they chose none; a call that names a CLI but no model
+// runs that CLI's chosen model when it is the person's, else its small one.
 //
 // `agents:generate` is checked on every call, as the conversation service
 // checks its permissions. Each module has its own lane: two calls run at once,
@@ -23,11 +23,29 @@ import type {
   ModuleTextGenerationRegistry,
   ModuleTextGenerationResult,
 } from '../../shared/modules/conversation-service'
+import {
+  supportsTextGeneration,
+  textGenerationEngineWithDefaults,
+  type TextGenerationEngine,
+  type TextGenerationSettings,
+} from '../../shared/text-generation/contract'
 import { extractJson } from '../companion-agent-service'
-import { HEADLESS_TEXT_CLI, type HeadlessTextRequest, type HeadlessTextResult } from './text-generation-service'
+import type { HeadlessTextRequest, HeadlessTextResult } from './text-generation-service'
 
-/** The model a call runs on when the module names none: the small one titles use. */
-export const MODULE_TEXT_DEFAULT_MODEL = 'claude-haiku-4-5'
+/** The runtime a call answers on when neither the module nor the person chose one. */
+export const MODULE_TEXT_DEFAULT_CLI = 'claude-code'
+
+/**
+ * The engine a call that names no CLI runs on: the one the person chose for
+ * Studio's text generation, when it is one with a headless backend, else
+ * Claude Code; each with its backend's cheap defaults filled in.
+ */
+export function moduleTextGenerationEngine(settings: TextGenerationSettings | null | undefined): TextGenerationEngine {
+  const chosen = settings?.engine
+  return textGenerationEngineWithDefaults(
+    chosen && supportsTextGeneration(chosen.cli) ? chosen : { cli: MODULE_TEXT_DEFAULT_CLI, model: '' },
+  )
+}
 
 // Bounds on what one call may carry: a long digest fits, a runaway does not.
 const MAX_PROMPT_CHARS = 400_000
@@ -54,6 +72,8 @@ export type ModuleTextGenerationDeps = {
   generate: (request: HeadlessTextRequest) => Promise<HeadlessTextResult>
   /** The person's CLI command overrides, read per call. */
   getCliRuntimes?: () => Record<string, { command?: string; hostId?: ExecutionHostId } | undefined> | undefined
+  /** The person's text-generation setting (Settings), read per call; absent, none chosen. */
+  getTextGenerationSettings?: () => TextGenerationSettings | null | undefined
   now?: () => number
 }
 
@@ -142,13 +162,18 @@ export function createModuleTextGenerationRegistry(deps: ModuleTextGenerationDep
       }
       const invalid = invalidInput(input)
       if (invalid) return refuse('invalid_input', invalid)
-      const cli = input.cli?.trim() || HEADLESS_TEXT_CLI
-      if (cli !== HEADLESS_TEXT_CLI) {
+      const preferred = moduleTextGenerationEngine(deps.getTextGenerationSettings?.())
+      const cli = input.cli?.trim() || preferred.cli
+      if (!supportsTextGeneration(cli)) {
         return refuse(
           'unsupported',
-          `Only Claude Code ("${HEADLESS_TEXT_CLI}") answers a module's prompt here: it is the one whose headless call runs with no tools at all.`,
+          `"${cli}" cannot answer a prompt headlessly here; use "claude-code" or "codex", or leave "cli" out.`,
         )
       }
+      // The person's own pick when the call runs on their CLI, else that CLI's small model.
+      const base = cli === preferred.cli ? preferred : textGenerationEngineWithDefaults({ cli, model: '' })
+      const model = input.model?.trim()
+      const engine: TextGenerationEngine = model ? { ...base, model } : base
       const lane = laneOf(moduleId)
       const refused = await enter(lane)
       if (refused) return refuse('busy', refused)
@@ -158,7 +183,7 @@ export function createModuleTextGenerationRegistry(deps: ModuleTextGenerationDep
         const answered = await deps.generate({
           prompt: input.prompt,
           ...(system ? { system } : {}),
-          model: input.model?.trim() || MODULE_TEXT_DEFAULT_MODEL,
+          engine,
           ...(input.maxOutputTokens !== undefined ? { maxOutputTokens: input.maxOutputTokens } : {}),
           ...(cliRuntimes ? { cliRuntimes } : {}),
           timeoutMs: CALL_TIMEOUT_MS,

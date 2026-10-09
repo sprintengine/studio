@@ -162,6 +162,14 @@ export function resolveTextGenerationEngine(
   return fallback ? withDefaults({ cli: fallback, model: '' }) : null
 }
 
+/**
+ * An engine with its backend's cheap defaults filled in: a CLI with an empty
+ * model runs the backend's small model, at its default effort.
+ */
+export function textGenerationEngineWithDefaults(engine: TextGenerationEngine): TextGenerationEngine {
+  return withDefaults(engine)
+}
+
 function withDefaults(engine: TextGenerationEngine): TextGenerationEngine {
   const backend = TEXT_GENERATION_BACKENDS[engine.cli]
   const model = engine.model.trim() || backend?.defaultModel || ''

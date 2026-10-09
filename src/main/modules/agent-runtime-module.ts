@@ -3,6 +3,7 @@ import type { StudioPlatform } from '../../server/platform/platform'
 import type { ConversationCliRuntimeOverrides } from '../../shared/conversation-runtime'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
+import type { TextGenerationSettings } from '../../shared/text-generation/contract'
 import {
   AgentControlPlaneToken,
   AgentLaunchServiceToken,
@@ -96,6 +97,11 @@ export function createAgentRuntimeModule(
     getModulePermissions: ModulePermissionsResolver
     /** Where module storage and module secrets live, and what the secrets are sealed with. */
     platform: Pick<StudioPlatform, 'paths' | 'secrets'>
+    /**
+     * The person's text-generation setting (the core's mirror of it), which a
+     * module's prompt that names no runtime answers on. Absent, Claude Code.
+     */
+    getTextGenerationSettings?: () => TextGenerationSettings | null
   },
 ): CapabilityModule {
   const { paths, secrets: cipher } = options.platform
@@ -188,13 +194,17 @@ export function createAgentRuntimeModule(
         }),
       )
       // Headless text generation behind the SDK's getTextGenerationService:
-      // one prompt answered by the person's own Claude Code with its tools
-      // off, checked per call against `agents:generate`, in a lane per module.
+      // one prompt answered by the person's own agent CLI (the one they chose
+      // for Studio's text generation, by default), checked per call against
+      // `agents:generate`, in a lane per module.
       host.provideService(TextGenerationModuleServiceToken, () =>
         createModuleTextGenerationRegistry({
           getModulePermissions: options.getModulePermissions,
           generate: (request) => generateHeadlessText(request),
           getCliRuntimes: () => effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).cliRuntimes,
+          ...(options.getTextGenerationSettings
+            ? { getTextGenerationSettings: options.getTextGenerationSettings }
+            : {}),
         }),
       )
       // The brokers behind the SDK's getSecretsService and getGitHubService: a

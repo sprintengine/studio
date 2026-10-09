@@ -87,6 +87,7 @@ export function readClaudeStructuredStdout(stdout: string): unknown {
 export type ClaudeTextInvocationInput = {
   binaryPath: string
   model: string
+  reasoning?: string | undefined
   /** The system prompt the call runs under instead of Claude Code's own. */
   system?: string
 }
@@ -105,6 +106,7 @@ export function claudeTextInvocation(input: ClaudeTextInvocationInput): ChatTitl
       'json',
       '--model',
       input.model,
+      ...(input.reasoning ? ['--effort', input.reasoning] : []),
       ...(input.system ? ['--system-prompt', input.system] : []),
       '--settings',
       JSON.stringify({ disableAllHooks: true }),
@@ -161,6 +163,81 @@ export function readClaudeTextStdout(stdout: string): ClaudeTextAnswer | null {
     model: modelUsage[0] ?? null,
     usage: Object.fromEntries(Object.entries(counts).filter(([, value]) => value !== undefined)),
   }
+}
+
+export type CodexTextInvocationInput = {
+  binaryPath: string
+  model: string
+  reasoning?: string | undefined
+  /** A cap on the answer, through Codex's own `model_max_output_tokens`. */
+  maxOutputTokens?: number | undefined
+  /** Where Codex is told to write its last message: the answer. */
+  outputPath: string
+}
+
+// `codex exec` for free text: the title recipe without an output schema, plus
+// `--json`, whose event stream on stdout is where Codex says what the call
+// spent. The answer is the last message, written to `outputPath`.
+export function codexTextInvocation(input: CodexTextInvocationInput): ChatTitleInvocation {
+  return {
+    file: input.binaryPath,
+    args: [
+      'exec',
+      '--ephemeral',
+      '--skip-git-repo-check',
+      '-s',
+      'read-only',
+      '--model',
+      input.model,
+      ...(input.reasoning ? ['-c', `model_reasoning_effort="${input.reasoning}"`] : []),
+      ...(input.maxOutputTokens !== undefined ? ['-c', `model_max_output_tokens=${input.maxOutputTokens}`] : []),
+      '--json',
+      '--output-last-message',
+      input.outputPath,
+      '-',
+    ],
+  }
+}
+
+/**
+ * The message Codex is sent for a call with a system prompt: `codex exec`
+ * takes no system prompt of its own, so the instructions lead the message,
+ * marked off from the prompt they govern.
+ */
+export function codexTextPrompt(system: string, prompt: string): string {
+  return `Instructions for this task:\n${system}\n\n---\n\n${prompt}`
+}
+
+/**
+ * What a `codex exec --json` call spent, by the turn-usage contract, summed
+ * over its `turn.completed` events: Codex counts the cache's share inside its
+ * input, so the fresh input is the rest. Empty when the stream says nothing.
+ */
+export function readCodexTextUsage(stdout: string): ClaudeTextAnswer['usage'] {
+  let input = 0
+  let cached = 0
+  let output = 0
+  let seen = false
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.trim().startsWith('{')) continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const event = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+    if (event?.type !== 'turn.completed' || !event.usage || typeof event.usage !== 'object') continue
+    const usage = event.usage as Record<string, unknown>
+    const count = (value: unknown): number =>
+      typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
+    input += count(usage.input_tokens)
+    cached += count(usage.cached_input_tokens)
+    output += count(usage.output_tokens)
+    seen = true
+  }
+  if (!seen) return {}
+  return { inputTokens: Math.max(0, input - cached), outputTokens: output, cacheReadTokens: cached }
 }
 
 export type CodexInvocationInput = {

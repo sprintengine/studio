@@ -184,7 +184,8 @@ import { getTextGenerationService } from '@sprintengine/module-sdk'
 const generated = await getTextGenerationService(host).generate({
   prompt: digest,                          // up to 400,000 characters
   system: 'You write a three-line standup from a work log.',
-  model: 'claude-haiku-4-5',               // absent: claude-haiku-4-5
+  cli: 'codex',                            // absent: the person's text-generation runtime, else claude-code
+  model: undefined,                        // absent: their chosen model, else the runtime's small one
   maxOutputTokens: 800,
   json: true,                              // the answer is one JSON value; `text` is it, serialised
 })
@@ -192,12 +193,14 @@ if (generated.ok) save(JSON.parse(generated.text), generated.usage)
 else if (generated.code === 'busy') retryLater()
 ```
 
-It runs the person's own Claude Code headless, under the sign-in it already
-holds: no workspace, no tab, no tools at all, nothing in their history.
-Declare `agents:generate`. Each module gets two calls at once and eight
-waiting; past that, or past thirty a minute, a call answers `busy` at once.
-Codex is not offered (`unsupported`): its headless call can still read files.
-Failures: `permission_missing`, `invalid_input`, `unsupported`,
+It runs the person's own agent CLI headless (`claude-code` or `codex`), under
+the sign-in it already holds: no workspace, no tab, nothing in their history.
+With no `cli`, it answers on the runtime and model the person chose for
+Studio's text generation in Settings, and on Claude Code's small model when
+they chose none. Declare `agents:generate`. Each module gets two calls at once
+and eight waiting; past that, or past thirty a minute, a call answers `busy`
+at once. Failures: `permission_missing`, `invalid_input`, `unsupported` (a
+runtime with no headless backend),
 `unavailable` (not installed), `busy`, `timeout`, `failed`, `invalid_output`
 (no usable answer, or no JSON when `json` was asked for).
 

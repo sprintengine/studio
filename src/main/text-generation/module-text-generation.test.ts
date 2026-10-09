@@ -2,14 +2,24 @@ import { expect, test } from 'vitest'
 
 import type { CliDetectResult } from '../../shared/electron-api'
 import type { ModuleTextGenerationResult } from '../../shared/modules/conversation-service'
-import { claudeTextInvocation, readClaudeTextStdout } from './backends'
-import { createModuleTextGenerationRegistry, MODULE_TEXT_DEFAULT_MODEL } from './module-text-generation'
+import type { TextGenerationSettings } from '../../shared/text-generation/contract'
+import {
+  claudeTextInvocation,
+  codexTextInvocation,
+  codexTextPrompt,
+  readClaudeTextStdout,
+  readCodexTextUsage,
+} from './backends'
+import { createModuleTextGenerationRegistry, moduleTextGenerationEngine } from './module-text-generation'
 import type { CommandRunInput } from './run-command'
 import { generateHeadlessText, type HeadlessTextRequest, type HeadlessTextResult } from './text-generation-service'
 
-// A module's headless prompt: one call to the person's own Claude Code with
-// its tools off, checked per call against `agents:generate`, in a lane per
-// module.
+// A module's headless prompt: one call to the person's own agent CLI (Claude
+// Code or Codex), checked per call against `agents:generate`, in a lane per
+// module, on the engine the person chose for Studio's text generation unless
+// the module names one.
+
+const CLAUDE = { cli: 'claude-code', model: 'claude-haiku-4-5', reasoning: 'low' }
 
 const envelope = (result: string, extra: Record<string, unknown> = {}) =>
   JSON.stringify({
@@ -25,11 +35,13 @@ function registry(
   generate: (request: HeadlessTextRequest) => Promise<HeadlessTextResult>,
   permissions: Record<string, string[]> = { insights: ['agents:generate'] },
   now: () => number = Date.now,
+  settings: () => TextGenerationSettings | null = () => null,
 ) {
   return createModuleTextGenerationRegistry({
     getModulePermissions: (moduleId) => permissions[moduleId],
     generate,
     getCliRuntimes: () => ({ 'claude-code': { command: '/opt/claude' } }),
+    getTextGenerationSettings: settings,
     now,
   })
 }
@@ -65,6 +77,60 @@ test('the free-text call shuts every door a title does, with the system prompt a
     '--strict-mcp-config',
   ])
   expect(claudeTextInvocation({ binaryPath: '/bin/claude', model: 'haiku' }).args).not.toContain('--system-prompt')
+  expect(claudeTextInvocation({ binaryPath: '/bin/claude', model: 'haiku', reasoning: 'low' }).args).toContain(
+    '--effort',
+  )
+})
+
+test('the Codex call writes its last message to a file and reports its usage as JSON events', () => {
+  expect(
+    codexTextInvocation({
+      binaryPath: '/bin/codex',
+      model: 'gpt-5.6-luna',
+      reasoning: 'low',
+      maxOutputTokens: 500,
+      outputPath: '/tmp/out.txt',
+    }).args,
+  ).toEqual([
+    'exec',
+    '--ephemeral',
+    '--skip-git-repo-check',
+    '-s',
+    'read-only',
+    '--model',
+    'gpt-5.6-luna',
+    '-c',
+    'model_reasoning_effort="low"',
+    '-c',
+    'model_max_output_tokens=500',
+    '--json',
+    '--output-last-message',
+    '/tmp/out.txt',
+    '-',
+  ])
+  expect(codexTextPrompt('Be terse.', 'Question?')).toBe('Instructions for this task:\nBe terse.\n\n---\n\nQuestion?')
+  const stream = [
+    '{"type":"thread.started","thread_id":"t"}',
+    'not json',
+    '{"type":"turn.completed","usage":{"input_tokens":1200,"cached_input_tokens":1000,"output_tokens":40}}',
+  ].join('\n')
+  expect(readCodexTextUsage(stream)).toEqual({ inputTokens: 200, outputTokens: 40, cacheReadTokens: 1000 })
+  expect(readCodexTextUsage('')).toEqual({})
+})
+
+test('with no runtime named, a call runs on the person’s text-generation engine, else Claude Code', () => {
+  expect(moduleTextGenerationEngine(null)).toEqual(CLAUDE)
+  expect(moduleTextGenerationEngine({ enabled: true, engine: null })).toEqual(CLAUDE)
+  expect(moduleTextGenerationEngine({ enabled: true, engine: { cli: 'codex', model: '' } })).toEqual({
+    cli: 'codex',
+    model: 'gpt-5.6-luna',
+    reasoning: 'low',
+  })
+  expect(
+    moduleTextGenerationEngine({ enabled: false, engine: { cli: 'codex', model: 'gpt-6-sol', reasoning: 'medium' } }),
+  ).toEqual({ cli: 'codex', model: 'gpt-6-sol', reasoning: 'medium' })
+  // A choice with no headless backend falls back to Claude Code.
+  expect(moduleTextGenerationEngine({ enabled: true, engine: { cli: 'cursor', model: 'auto' } })).toEqual(CLAUDE)
 })
 
 test('the answer, its model and its usage are read off the envelope', () => {
@@ -95,7 +161,12 @@ test('generateHeadlessText runs Claude Code in a scratch folder with the prompt 
     error: null,
   }
   const result = await generateHeadlessText(
-    { prompt: 'Summarise this.', system: 'Be brief.', model: 'haiku', maxOutputTokens: 300 },
+    {
+      prompt: 'Summarise this.',
+      system: 'Be brief.',
+      engine: { cli: 'claude-code', model: 'haiku' },
+      maxOutputTokens: 300,
+    },
     {
       detect: async () => detected,
       env: () => ({ PATH: '/bin', ANTHROPIC_API_KEY: 'sk-secret' }),
@@ -113,10 +184,81 @@ test('generateHeadlessText runs Claude Code in a scratch folder with the prompt 
   expect(runs[0]!.cwd).toContain('sprintengine-text-')
 
   const missing = await generateHeadlessText(
-    { prompt: 'x', model: 'haiku' },
+    { prompt: 'x', engine: { cli: 'claude-code', model: 'haiku' } },
     { detect: async () => ({ ...detected, installed: false }) },
   )
   expect(missing).toMatchObject({ ok: false, code: 'unavailable' })
+  const unsupported = await generateHeadlessText(
+    { prompt: 'x', engine: { cli: 'cursor', model: 'auto' } },
+    { detect: async () => detected },
+  )
+  expect(unsupported).toMatchObject({ ok: false, code: 'unsupported' })
+})
+
+test('generateHeadlessText runs Codex with the instructions ahead of the prompt and reads its last message', async () => {
+  const runs: CommandRunInput[] = []
+  const result = await generateHeadlessText(
+    {
+      prompt: 'Summarise this.',
+      system: 'Be brief.',
+      engine: { cli: 'codex', model: 'gpt-5.6-luna', reasoning: 'low' },
+      maxOutputTokens: 300,
+    },
+    {
+      detect: async () => ({
+        cli: 'codex',
+        binary: 'codex',
+        installed: true,
+        version: '1.0.0',
+        resolvedPath: '/bin/codex',
+        hostId: 'local',
+        error: null,
+      }),
+      env: () => ({ PATH: '/bin' }),
+      run: async (input) => {
+        runs.push(input)
+        const outputPath = input.args[input.args.indexOf('--output-last-message') + 1]!
+        const { writeFile } = await import('node:fs/promises')
+        await writeFile(outputPath, 'Two changes.', 'utf8')
+        return {
+          code: 0,
+          stdout: '{"type":"turn.completed","usage":{"input_tokens":50,"cached_input_tokens":10,"output_tokens":5}}\n',
+          stderr: '',
+          timedOut: false,
+          spawnError: null,
+        }
+      },
+    },
+  )
+  expect(result).toMatchObject({
+    ok: true,
+    text: 'Two changes.',
+    model: 'gpt-5.6-luna',
+    usage: { inputTokens: 40, outputTokens: 5, cacheReadTokens: 10 },
+  })
+  expect(runs[0]!.file).toBe('/bin/codex')
+  expect(runs[0]!.stdin).toBe(codexTextPrompt('Be brief.', 'Summarise this.'))
+  expect(runs[0]!.args).toContain('model_max_output_tokens=300')
+})
+
+test('a Codex call that writes no message has no usable answer', async () => {
+  const result = await generateHeadlessText(
+    { prompt: 'x', engine: { cli: 'codex', model: 'gpt-5.6-luna' } },
+    {
+      detect: async () => ({
+        cli: 'codex',
+        binary: 'codex',
+        installed: true,
+        version: '1.0.0',
+        resolvedPath: '/bin/codex',
+        hostId: 'local',
+        error: null,
+      }),
+      env: () => ({ PATH: '/bin' }),
+      run: async () => ({ code: 0, stdout: '', stderr: '', timedOut: false, spawnError: null }),
+    },
+  )
+  expect(result).toMatchObject({ ok: false, code: 'guardrail' })
 })
 
 test('a module needs agents:generate, and a call it cannot make is refused before anything runs', async () => {
@@ -136,12 +278,42 @@ test('a module needs agents:generate, and a call it cannot make is refused befor
     null as never,
   ])
     expect(await service.generate('insights', input)).toMatchObject({ ok: false, code: 'invalid_input' })
-  const codex = await service.generate('insights', { prompt: 'hi', cli: 'codex' })
-  expect(codex).toMatchObject({ ok: false, code: 'unsupported' })
+  const cursor = await service.generate('insights', { prompt: 'hi', cli: 'cursor' })
+  expect(cursor).toMatchObject({ ok: false, code: 'unsupported' })
   expect(calls).toEqual([])
 })
 
-test('a call runs on the small model by default, with the person’s command overrides', async () => {
+test('a call runs on the person’s chosen engine unless it names a runtime or model of its own', async () => {
+  const calls: HeadlessTextRequest[] = []
+  let settings: TextGenerationSettings | null = {
+    enabled: true,
+    engine: { cli: 'codex', model: 'gpt-6-sol', reasoning: 'medium' },
+  }
+  const service = registry(
+    async (request) => {
+      calls.push(request)
+      return answered('ok')
+    },
+    undefined,
+    undefined,
+    () => settings,
+  )
+  await service.generate('insights', { prompt: 'a' })
+  await service.generate('insights', { prompt: 'b', model: 'gpt-6-luna' })
+  await service.generate('insights', { prompt: 'c', cli: 'claude-code' })
+  await service.generate('insights', { prompt: 'd', cli: 'codex' })
+  settings = null
+  await service.generate('insights', { prompt: 'e', cli: 'codex' })
+  expect(calls.map((call) => call.engine)).toEqual([
+    { cli: 'codex', model: 'gpt-6-sol', reasoning: 'medium' },
+    { cli: 'codex', model: 'gpt-6-luna', reasoning: 'medium' },
+    CLAUDE,
+    { cli: 'codex', model: 'gpt-6-sol', reasoning: 'medium' },
+    { cli: 'codex', model: 'gpt-5.6-luna', reasoning: 'low' },
+  ])
+})
+
+test('with nothing chosen, a call runs on Claude Code’s small model, with the person’s command overrides', async () => {
   const calls: HeadlessTextRequest[] = []
   const service = registry(async (request) => {
     calls.push(request)
@@ -157,12 +329,12 @@ test('a call runs on the small model by default, with the person’s command ove
   expect(calls[0]).toMatchObject({
     prompt: 'Question?',
     system: 'Be terse.',
-    model: MODULE_TEXT_DEFAULT_MODEL,
+    engine: CLAUDE,
     maxOutputTokens: 50,
     cliRuntimes: { 'claude-code': { command: '/opt/claude' } },
   })
   await service.generate('insights', { prompt: 'Again', model: ' haiku ', cli: 'claude-code' })
-  expect(calls[1]!.model).toBe('haiku')
+  expect(calls[1]!.engine.model).toBe('haiku')
   expect(calls[1]).not.toHaveProperty('system')
 })
 

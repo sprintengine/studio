@@ -46,6 +46,7 @@ const SERVICE_PERMISSIONS = {
   'core.module-storage': ['storage'],
   'automations.module-service': ['automations.manage'],
   'companion-agents.module-service': ['agents:companion'],
+  'text-generation.module-service': ['agents:generate'],
 }
 const SERVICE_DEPENDENCIES = {
   'automations.provider-registry': 'automations',

@@ -107,7 +107,11 @@ export function createServerModules(deps: {
           conversationLaunchService: core.conversationLaunchService,
           conversationModelCatalog: core.conversationModelCatalog,
         },
-        { getModulePermissions: (moduleId) => byId.get(moduleId)?.permissions, platform },
+        {
+          getModulePermissions: (moduleId) => byId.get(moduleId)?.permissions,
+          platform,
+          getTextGenerationSettings: () => core.textGenerationSettings.get(),
+        },
       )
       load = loadMainModules({
         ipcMain: registry as IpcMain,

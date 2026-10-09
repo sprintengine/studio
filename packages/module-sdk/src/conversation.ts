@@ -570,15 +570,18 @@ export type ModuleChatRuntimeOption = {
  *
  * - `prompt`: the message, up to 400,000 characters.
  * - `system`: a system prompt the call runs under, up to 40,000 characters.
- * - `model`: a model id the runtime takes (`claude-haiku-4-5`, or an alias such
- *   as `haiku`); absent, `claude-haiku-4-5`, a small model chosen for cost.
+ * - `cli`: the chat runtime id to answer on: `claude-code` or `codex`, the
+ *   runtimes the app can drive headlessly (another answers `unsupported`).
+ *   Absent, the runtime the person chose for Studio's own text generation in
+ *   Settings, else `claude-code`.
+ * - `model`: a model id the runtime takes (`claude-haiku-4-5`, an alias such as
+ *   `haiku`, `gpt-5.6-luna`). Absent, the person's chosen model when the call
+ *   runs on their chosen runtime, else that runtime's small default
+ *   (`claude-haiku-4-5` for Claude Code, `gpt-5.6-luna` for Codex).
  * - `maxOutputTokens`: a cap on the answer, 1 to 64,000.
  * - `json`: the answer must be one JSON value. The model is told so, the host
  *   reads the value out of its reply, and `text` is that value serialised;
  *   a reply with no JSON in it answers `invalid_output`.
- * - `cli`: the chat runtime id to answer on; absent, `claude-code`, which is
- *   the only one today: its headless call runs with no tools at all. Another
- *   id answers `unsupported`.
  */
 export type ModuleTextGenerationInput = {
   prompt: string
@@ -614,9 +617,9 @@ export type ModuleTextGenerationResult =
   | { ok: false; code: ModuleTextGenerationErrorCode; message: string }
 
 /**
- * One prompt answered in the background by the person's own agent CLI, under
- * the sign-in it already holds: no workspace, no tools, no chat tab, nothing in
- * the person's history. For a summary, a classification, a standup digest —
+ * One prompt answered in the background by the person's own agent CLI (Claude
+ * Code or Codex), under the sign-in it already holds: no workspace, no chat
+ * tab, nothing in the person's history. For a summary, a classification, a standup digest —
  * anything that is a question and an answer rather than work in a project.
  *
  * Declare `agents:generate` (checked on every call) and check

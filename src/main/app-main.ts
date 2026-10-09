@@ -174,7 +174,12 @@ const getModulePermissions = (moduleId: string): readonly string[] | undefined =
 // Extracted as a const (rather than inlined) so `mainModuleManifests` below can
 // reference its manifest for the enablement gate; constructed after
 // `getModulePermissions` so the companion-attach permission check is wired in.
-const agentRuntimeModule = createAgentRuntimeModule(services, { getModulePermissions, platform: studioPlatform() })
+const agentRuntimeModule = createAgentRuntimeModule(services, {
+  getModulePermissions,
+  platform: studioPlatform(),
+  // A module's prompt that names no runtime answers on the person's choice.
+  getTextGenerationSettings: () => services.studioCore.textGenerationSettings.get(),
+})
 // Out of process every module's server half loads in the server
 // (src/server/desktop/server-modules.ts); the shell loads none and keeps an
 // empty kernel for the renderer-entry channel, which is the shell's.

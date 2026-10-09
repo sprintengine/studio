@@ -33,7 +33,7 @@ known scopes.
 | `backlog.link.open` | Open links and targets attached to Backlog items | Opening a link provider's target |
 | `scheduled-agents.manage` | Schedule agents of its own that start a chat on a timer | Creating, changing and running its own scheduled agents |
 | `agents:companion` | Run its own background agents inside the workspace | The companion-agents service |
-| `agents:generate` | Send prompts to your AI models in the background, without opening a chat | `getTextGenerationService`: one prompt answered by the person's own Claude Code, with no chat, workspace or tools |
+| `agents:generate` | Send prompts to your AI models in the background, without opening a chat | `getTextGenerationService`: one prompt answered by the person's own agent CLI (Claude Code or Codex), with no chat or workspace |
 | `storage` | Save its own data in the workspace folder and app data | The module storage bags |
 | `conversation:read` | Read the chats it started, including everything the agent says in them | `getConversationService`: `subscribe`, `follow`, `transcript`, `reply`, `list`, `watch` |
 | `conversation:operate` | Start chats with agents, send them messages, and stop them | The whole conversation service, `RendererHost.openChat` with `send: true`, and allowing a companion's tool call. Implies `conversation:read` |
