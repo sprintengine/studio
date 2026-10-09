@@ -144,21 +144,42 @@ export { GlobalSurfaceErrorBoundary } from './surfaceErrorBoundary'
 // Rows never carry a bare tone dot (owner ruling): the mark is the app's
 // lifecycle/type iconography, or nothing — the state line carries the words.
 
+/**
+ * One row of the rail. A row comes in two shapes, and which one it takes is
+ * decided by two fields alone:
+ *
+ * - The PLAIN row (the default): an optional `icon`, the `title`, and the
+ *   `stateLine` under it. `tooltip`, `mark` and `actions` apply here.
+ * - The RICH row: set `context` or `detail` (either is enough) and the row
+ *   becomes the app sidebar's three-line row — the context line above the
+ *   title, the title, and the detail line under it — and takes `surface` and
+ *   `emphasis`. It draws no `icon`, no `mark` and no whole-row `tooltip`: its
+ *   marks live on its context and detail lines.
+ *
+ * Keep one shape per rail; a rail that mixes them ladders its titles.
+ */
 export interface SurfaceRailRow {
   /** Stable selection id (run slug / automation id / module record id). */
   id: string
+  /** The row's name. One line, truncating with its full text in a tooltip
+   *  only when it was actually clipped. */
   title: string
-  /** The one-line at-a-glance state ("Active · step 3 of 7", "Ran 2h ago · passed"). */
+  /** The one-line at-a-glance state ("Active · step 3 of 7", "Ran 2h ago · passed").
+   *  Always required: on a rich row with a `detail` it is not drawn but stays
+   *  the row's accessible summary and the text search and tests read. */
   stateLine: string
   /** The row's status/type mark (a LifecycleGlyph or a type glyph). Optional —
-   *  a row with no mark renders title + state line only. */
+   *  a row with no mark renders title + state line only. The rail reserves one
+   *  fixed slot for it as soon as any row carries one, so titles line up.
+   *  Plain rows only. */
   icon?: React.ReactNode
   /** A whole-row tooltip (the product `Tooltip`, on the row button), for a door
    *  whose row carries more than it shows — a door may add the lifecycle word its
    *  glyph draws. Without it the title and the state line each surface their
    *  own full text only when actually clipped (`TruncatedText`), so a row that
    *  fits says nothing twice. Never a native `title=`: an OS tooltip is a
-   *  second dialect beside the product one and is unreachable by keyboard. */
+   *  second dialect beside the product one and is unreachable by keyboard.
+   *  Plain rows only. */
   tooltip?: string
   /** Row-scoped actions (an overflow trigger). Rendered as a SIBLING of the row
    *  button, never nested inside it — one click target per row stays the rule, and
@@ -187,20 +208,24 @@ export interface SurfaceRailRow {
   // that sets neither `context` nor `detail` is the plain two-line row it
   // always was, so the other doors are untouched.
 
-  /** The line ABOVE the title: a small mark, the name of the place the row
+  /** Setting this (or `detail`) makes the row a RICH row.
+   *
+   *  The line ABOVE the title: a small mark, the name of the place the row
    *  belongs to (its project), and a trailing seat that holds the row's clock
    *  — the working mark and how long, or how long since it rested. The one
    *  line that is the same shape on every row, which is what lets the eye
    *  find the clock without reading the row. */
   context?: { icon?: React.ReactNode; label: string; seat?: React.ReactNode }
-  /** The line UNDER the title, replacing the plain `stateLine` text: the
+  /** Setting this (or `context`) makes the row a RICH row.
+   *
+   *  The line UNDER the title, replacing the plain `stateLine` text: the
    *  lifecycle mark, a branch chip, ±lines, the state in words. `stateLine`
    *  stays required — it is the row's one-sentence accessible summary and the
    *  text any search or test can read — and renders sr-only when this is set. */
   detail?: React.ReactNode
   /** The row's surface: it wants a person (the gold wash), or it finished
    *  while nobody was looking (the faint green wash, until it is opened).
-   *  Nothing for the ordinary row. */
+   *  Nothing for the ordinary row. Rich rows only. */
   surface?: 'attention' | 'done'
   /** How loudly the title reads: `active` is bold, `quiet` sits a step back in
    *  subtle ink and brightens on hover — the sidebar's emphasis tiers, so an
@@ -215,7 +240,9 @@ export interface SurfaceRailRow {
   overlay?: React.ReactNode
 }
 
-/** The rail's optional search field — the same idiom as the Backlog toolbar. */
+/** The rail's optional search field — the same idiom as the Backlog toolbar.
+ *  Controlled: the rail draws the field and reports keystrokes, and the door
+ *  narrows its own `rows`. */
 export interface SurfaceRailSearch {
   value: string
   onChange: (next: string) => void
@@ -223,16 +250,21 @@ export interface SurfaceRailSearch {
   ariaLabel: string
 }
 
-/** The rail's optional filter affordance beside the search field. */
+/** The rail's optional filter affordance: one glyph beside the search field
+ *  that opens a menu of radio groups (status, kind, …). Each group is
+ *  controlled by the door, which narrows its own `rows`. Drawn only when the
+ *  rail also has a `search`. */
 export interface SurfaceRailFilter {
   ariaLabel: string
   groups: ReadonlyArray<FilterMenuGroup>
 }
 
 /** The rail's optional project lens. It rides inside the filter glyph's menu as
- *  its leading group — never a separate Select LEADING the rail's
- *  filter controls, exactly where the Backlog door's toolbar puts its own.
- * Which projects a door offers is the door's business; that the
+ *  its LEADING group, labelled "Project" — never a separate Select above the
+ *  rail, so it is out of sight until the filter opens. Like the filter it shows
+ *  only beside a `search`. The group's default (what the glyph treats as "not
+ *  narrowed") is the FIRST item, so lead with "All projects".
+ *  Which projects a door offers is the door's business; that the
  *  operator finds the control in the same place on both is this substrate's. */
 export interface SurfaceRailScope {
   ariaLabel: string
@@ -241,7 +273,10 @@ export interface SurfaceRailScope {
   onChange: (value: string) => void
 }
 
+/** The dashed "New …" row at the head of the rail. Omit it on a door with
+ *  nothing to create and no New row is drawn. */
 export interface SurfaceRailNewAffordance {
+  /** The row's words ("New automation"). A plus glyph leads it. */
   label: string
   /** The "New …" affordance is itself the current selection (Reviews' create flow). */
   selected?: boolean
@@ -259,6 +294,8 @@ const PLUS_ICON = (
   </svg>
 )
 
+/** One quiet group heading and the rows under it. A group with no rows has
+ *  its heading dropped. */
 export interface SurfaceRailGroup {
   key: string
   label: string
@@ -298,13 +335,17 @@ export function SurfaceRailHeader({
    *  no rows is dropped, and a scope control that vanished when its project had
    *  nothing in it would disappear at exactly the moment it was wanted. */
   intro?: React.ReactNode
-  newAffordance: SurfaceRailNewAffordance
+  /** The dashed "New …" row. Omit on a door with nothing to create. */
+  newAffordance?: SurfaceRailNewAffordance
   /** Search over the rows. Omit on a rail with nothing to narrow. */
   search?: SurfaceRailSearch
   /** The narrowing affordance beside the search field — `SurfaceRail`'s own
    *  `FilterMenu`, or a door's equivalent glyph. Ignored without `search`. */
   filterControl?: React.ReactNode
-}): JSX.Element {
+}): JSX.Element | null {
+  // A head with nothing in it draws nothing — not even its divider, which
+  // would then be a rule over the top of the list for no reason.
+  if (!intro && !newAffordance && !search) return null
   return (
     // Outside the scrollport, not stuck to the top of it (owner, 2026-07-30).
     // While this lived inside the scrolling column it had to be `sticky` and paint
@@ -334,20 +375,22 @@ export function SurfaceRailHeader({
           is spelled here. `aria-current` stays explicit: the row announces
           itself as the current one whenever the door says it is selected, even
           while it is off, which is one step wider than the fill it paints. */}
-      <RowButton
-        variant="dashed"
-        selected={newAffordance.selected && !newAffordance.disabled}
-        aria-current={newAffordance.selected ? 'true' : undefined}
-        disabled={newAffordance.disabled}
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect()
-          newAffordance.onActivate({ x: rect.left, y: rect.bottom })
-        }}
-        className="mb-2 text-meta"
-      >
-        {PLUS_ICON}
-        {newAffordance.label}
-      </RowButton>
+      {newAffordance ? (
+        <RowButton
+          variant="dashed"
+          selected={newAffordance.selected && !newAffordance.disabled}
+          aria-current={newAffordance.selected ? 'true' : undefined}
+          disabled={newAffordance.disabled}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            newAffordance.onActivate({ x: rect.left, y: rect.bottom })
+          }}
+          className="mb-2 text-meta"
+        >
+          {PLUS_ICON}
+          {newAffordance.label}
+        </RowButton>
+      ) : null}
       {search ? (
         <div className="flex items-center gap-1 pb-2">
           <InboxSearchInput
@@ -473,6 +516,8 @@ export function SurfaceRail({
   label: string
   /** One line under the door's name — see `SurfaceRailHeader`'s `intro`. */
   intro?: React.ReactNode
+  /** Every row, in display order. ↑/↓ and j/k walk this list and select as
+   *  they go. */
   rows: ReadonlyArray<SurfaceRailRow>
   /** Optional grouping: rows render under quiet group
    *  headers instead of one flat list. `rows` must equal the groups' rows
@@ -481,13 +526,19 @@ export function SurfaceRail({
   /** The selected row id, or null (nothing selected / the "New" affordance is). */
   selectedId: string | null
   onSelect: (id: string) => void
-  newAffordance: SurfaceRailNewAffordance
-  /** The project lens, leading the rail's filter controls (the Backlog toolbar
-   *  idiom). Omit on a door with nothing to scope by. */
+  /** The dashed "New …" row at the head of the rail. Omit it on a door with
+   *  nothing to create, and no New row is drawn. */
+  newAffordance?: SurfaceRailNewAffordance
+  /** The project lens. It is NOT a visible control of its own: it is folded
+   *  into the filter glyph's menu as the leading group, labelled "Project"
+   *  (the Backlog toolbar idiom), so it shows only beside a `search`. Omit on
+   *  a door with nothing to scope by. */
   scope?: SurfaceRailScope
-  /** Search over the rows, rendered above the list (the Backlog toolbar idiom). */
+  /** Search over the rows, rendered above the list (the Backlog toolbar idiom).
+   *  The rail never filters: the door narrows `rows` from `search.value`. */
   search?: SurfaceRailSearch
-  /** Filter glyph beside the search field. Ignored without `search`. */
+  /** Filter glyph beside the search field, opening `scope` (as "Project")
+   *  followed by these groups. Ignored without `search`. */
   filter?: SurfaceRailFilter
   /** Why a narrowed rail is empty ("No runs match."). Rendered only when the
    *  rail has no rows; the door decides whether an empty rail means "nothing

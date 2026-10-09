@@ -45,6 +45,8 @@ const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   'command-context',
   'active-workspace',
   'surface-view',
+  'ui-kit-extras',
+  'chart-tokens',
 ])
 
 export function hostSupports(capability: HostCapability): boolean {

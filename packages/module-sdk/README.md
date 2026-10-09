@@ -537,11 +537,17 @@ esbuild src/renderer.tsx --bundle --format=esm --outfile=module/dist/renderer.mj
 
 `/ui`: `GhostButton`, `OutlineButton`, `PrimaryButton`, `Banner`,
 `PanelHeader`, `Drawer`, `EmptyState`, `Field`, `Input`, `Textarea`,
-`InlineNotice`, `KbdChord`, `LifecycleGlyph`, `LinkButton`, `RowButton`,
-`Section`, `SegmentedControl`, `Select`, `Spinner`, `StatusDot`,
-`TruncatedText`, `CliModelPickerButton`, `FOCUS_RING_CLASS`, and their props.
+`DateTimeInput`, `Toggle`, `InlineNotice`, `KbdChord`, `LifecycleGlyph`,
+`LinkButton`, `RowButton`, `Section`, `SegmentedControl`, `Select` (with a
+`size`), `Spinner`, `StatusDot`, `TruncatedText`, `Chip`, `ChipButton`,
+`ContextMenu`, `MenuItem`, `MenuDivider`, `TaskCard`, `BoardLane`,
+`SafeMarkdown`, `SidebarNavButton`, `CliModelPickerButton` (feed it
+`host.listChatRuntimes()` directly), `FOCUS_RING_CLASS`, and their props.
 `/surface`: `GlobalSurfaceShell`, `useSurfaceBackNav`, `SurfaceRail`,
 `SurfaceCanvasState`, and their props.
+
+Charts take the ordered categorical series `--chart-1` … `--chart-8` and the
+neutral `--chart-other` from `THEME_TOKENS` — never a status tone as a series.
 
 **Tailwind classes you write produce no CSS** — the app's build scans app
 source only. Write plain CSS against the theme tokens, or build a

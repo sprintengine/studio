@@ -65,6 +65,13 @@ export type HostCapability =
   | 'surface-view'
   // `RendererHost.openExternal(url)`; true once the window's link opener is wired.
   | 'open-external'
+  // The extended UI kit: TaskCard, BoardLane, ContextMenu/MenuItem,
+  // DateTimeInput, Toggle, Chip, SafeMarkdown, SidebarNavButton, `Select`'s
+  // `size`, an optional `SurfaceRail` `newAffordance`, and a
+  // `CliModelPickerButton` that takes `listChatRuntimes()` as is.
+  | 'ui-kit-extras'
+  // `--chart-1` … `--chart-8` and `--chart-other` in THEME_TOKENS.
+  | 'chart-tokens'
   // `entry.main` runs in the desktop's own main process, where `electron` can
   // be required. False wherever the main half runs in the Studio server, a
   // Node process with no Electron APIs; a module that cannot live without them

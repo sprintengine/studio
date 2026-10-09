@@ -2120,6 +2120,21 @@ export const THEME_TOKENS = [
   '--tone-good',
   '--tone-error',
   '--tone-merged',
+  // Categorical chart series, in ORDER: series N takes `--chart-N`, never
+  // cycled and never re-assigned by rank — the order is what keeps neighbours
+  // apart under colour-vision deficiency. A ninth series folds into the
+  // neutral `--chart-other`. They are never status: a series that means good
+  // or bad wears `--tone-good` / `--tone-warn` / `--tone-error` instead. Each
+  // clears 3:1 against `--bg-surface` on every theme.
+  '--chart-1',
+  '--chart-2',
+  '--chart-3',
+  '--chart-4',
+  '--chart-5',
+  '--chart-6',
+  '--chart-7',
+  '--chart-8',
+  '--chart-other',
   // Motion. `--motion-normal` is a duration, `--motion-ease` a timing
   // function: use them together on a transition or animation so module UI
   // moves at the app's pace instead of inventing its own.
