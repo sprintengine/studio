@@ -26,6 +26,8 @@ import type {
   ConversationSkillRef,
   ConversationSubagentStatusPayload,
   ConversationSetModelInput,
+  ConversationMcpServerActionInput,
+  ConversationMcpServerActionResult,
   ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
@@ -1590,6 +1592,16 @@ export class ConversationRuntime {
   // carrying the new model is written so the transcript, the thread index, a
   // resume and a remote list all name the model the conversation is now on.
   // Gated on the adapter declaring `liveModelSwitch`, never on its id.
+  /** Reconnect, switch or sign in to one of a live chat's MCP servers, through its provider. */
+  async mcpServerAction(input: ConversationMcpServerActionInput): Promise<ConversationMcpServerActionResult> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session || session.status === 'stopped') return { ok: false, message: 'Conversation session is not running.' }
+    const adapter = this.getAdapterForProviderId(session.providerId)
+    if (!adapter?.mcpServerAction || !session.capabilities?.mcpServerActions?.includes(input.action))
+      return { ok: false, message: 'This chat cannot do that to its MCP servers.' }
+    return adapter.mcpServerAction({ ...session, serverId: input.serverId, action: input.action })
+  }
+
   async setModel(input: ConversationSetModelInput): Promise<ConversationSessionActionResult> {
     if (input.commandId)
       return this.runCommand(

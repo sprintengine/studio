@@ -2,6 +2,10 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 
 import type { AgentCli, McpServerConfig, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type { AgentMcpServer, AgentMcpServerStatus, SkillSource } from '../../../../../shared/skills'
+import type {
+  ConversationMcpServerAction,
+  ConversationMcpServerActionResult,
+} from '../../../../../shared/conversation-runtime'
 import { STUDIO_MCP_SERVER_ID } from '../../../../../shared/product-identity'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { ensureSkillForAgent } from '../../../utils/skillInvocation'
@@ -17,6 +21,7 @@ import {
   LinkButton,
   MENU_GROUP_LABEL_CLASS,
   MENU_ITEM_STACKED_CLASS,
+  OutlineButton,
   Popover,
   SegmentedControl,
   Spinner,
@@ -225,6 +230,15 @@ export type SkillsAndMcpsPickerProps = {
    */
   remote?: { connectionId: string; workspaceId: string }
   /**
+   * A running chat's hand on its own servers: what its CLI lets it do
+   * (`capabilities.mcpServerActions`) and the call that does it. Absent, the
+   * rows only say how each server is.
+   */
+  mcpActions?: {
+    available: readonly ConversationMcpServerAction[]
+    run: (serverId: string, action: ConversationMcpServerAction) => Promise<ConversationMcpServerActionResult>
+  }
+  /**
    * Held by the host instead of the trigger (owner ruling 2026-10-04): the New
    * chat composer opens this from a row of its "+" menu and anchors it on the
    * "+" itself, so the trigger does not decide when it is open.
@@ -246,6 +260,7 @@ export function SkillsAndMcpsPicker({
   mcpCli,
   mcpPickable = true,
   remote,
+  mcpActions,
   open: heldOpen,
   onOpenChange,
 }: SkillsAndMcpsPickerProps) {
@@ -278,7 +293,36 @@ export function SkillsAndMcpsPicker({
 
   const serversCli = mcpCli === undefined ? pluginId : mcpCli
   const localInventory = useWorkspaceSkills(remote ? null : workspaceRoot, pluginId, open && !remote)
-  const localServers = useCliMcpServers(remote ? null : workspaceRoot, includeMcps ? serversCli : null, open)
+  // Read again after an action, so a reconnect or a sign-in shows its outcome.
+  const [serversRead, setServersRead] = useState(0)
+  const localServers = useCliMcpServers(
+    remote ? null : workspaceRoot,
+    includeMcps ? serversCli : null,
+    open,
+    serversRead,
+  )
+  const [serverNotes, setServerNotes] = useState<Record<string, string>>({})
+  const runServerAction = async (row: McpRow, action: ConversationMcpServerAction) => {
+    if (!mcpActions || busyKey) return
+    setBusyKey(row.key)
+    setError(row.key, null)
+    try {
+      const result = await mcpActions.run(row.id, action)
+      if (!result.ok) {
+        setError(row.key, result.message)
+        return
+      }
+      if (result.authUrl) {
+        void window.api.openExternal(result.authUrl)
+        setServerNotes((current) => ({ ...current, [row.key]: 'Finish signing in in your browser.' }))
+      }
+      setServersRead((count) => count + 1)
+    } catch (error) {
+      setError(row.key, error instanceof Error ? error.message : 'That did not work.')
+    } finally {
+      setBusyKey(null)
+    }
+  }
   const remoteExtensions = useRemoteExtensions(remote ?? null, serversCli, open)
   const skillInventory = remote ? remoteExtensions : localInventory
   const reportedServers = remote ? remoteExtensions.servers : localServers
@@ -583,6 +627,9 @@ export function SkillsAndMcpsPicker({
                     row={row}
                     checked={isChecked(row)}
                     pickable={row.kind === 'skill' || (mcpPickable && row.state === 'installed')}
+                    action={row.kind === 'mcp' ? serverActionFor(row, mcpActions?.available) : null}
+                    onAction={(action) => row.kind === 'mcp' && void runServerAction(row, action)}
+                    note={serverNotes[row.key] ?? null}
                     sourceRepo={
                       row.kind !== 'skill'
                         ? undefined
@@ -625,11 +672,38 @@ export function SkillsAndMcpsPicker({
   )
 }
 
+const ACTION_LABEL: Record<ConversationMcpServerAction, string> = {
+  'sign-in': 'Sign in',
+  reconnect: 'Reconnect',
+  enable: 'Enable',
+  disable: 'Disable',
+}
+
+/** The one thing a server that is not connected needs, where the chat's CLI can do it. */
+function serverActionFor(
+  row: McpRow,
+  available: readonly ConversationMcpServerAction[] | undefined,
+): ConversationMcpServerAction | null {
+  if (!available?.length || row.state === 'included' || !row.status) return null
+  const wanted: ConversationMcpServerAction | null =
+    row.status === 'needs-auth'
+      ? 'sign-in'
+      : row.status === 'failed'
+        ? 'reconnect'
+        : row.status === 'disabled' && row.state === 'configured'
+          ? 'enable'
+          : null
+  return wanted && available.includes(wanted) ? wanted : null
+}
+
 function PickerRowView({
   id,
   row,
   checked,
   pickable,
+  action,
+  onAction,
+  note,
   sourceRepo,
   highlighted,
   busy,
@@ -641,6 +715,9 @@ function PickerRowView({
   row: PickerRow
   checked: boolean
   pickable: boolean
+  action: ConversationMcpServerAction | null
+  onAction: (action: ConversationMcpServerAction) => void
+  note: string | null
   sourceRepo?: Pick<SkillSource, 'kind' | 'repo'>
   highlighted: boolean
   busy: boolean
@@ -652,7 +729,18 @@ function PickerRowView({
   const description = row.kind === 'skill' ? row.skill.description : row.description
   const failure = row.kind === 'mcp' && row.status === 'failed' ? row.error : undefined
   const trailing = busy ? (
-    <Spinner size={12} label={row.kind === 'skill' ? 'Installing' : 'Adding'} />
+    <Spinner size={12} label={row.kind === 'skill' ? 'Installing' : action ? ACTION_LABEL[action] : 'Adding'} />
+  ) : action ? (
+    <OutlineButton
+      size="xs"
+      onPointerDown={(event) => event.preventDefault()}
+      onClick={(event) => {
+        event.stopPropagation()
+        onAction(action)
+      }}
+    >
+      {ACTION_LABEL[action]}
+    </OutlineButton>
   ) : checked ? (
     <CheckIcon className="icon-xs text-[color:var(--accent-primary)]" />
   ) : row.kind === 'skill' && row.group === 'available' ? (
@@ -690,6 +778,7 @@ function PickerRowView({
           <span className="block truncate text-meta text-[color:var(--text-muted)]">{description}</span>
         ) : null}
         {failure ? <span className="block truncate text-meta text-[color:var(--tone-error)]">{failure}</span> : null}
+        {note ? <span className="block text-meta text-[color:var(--text-muted)]">{note}</span> : null}
         {error ? (
           <span className="block text-meta text-[color:var(--tone-error)]" role="alert">
             {row.kind === 'skill' ? 'Couldn’t install' : 'Couldn’t add'} — {error}
@@ -724,7 +813,12 @@ function RowIcon({ row, sourceRepo }: { row: PickerRow; sourceRepo?: Pick<SkillS
  * The servers the CLI itself is configured with, and what it last said about
  * each: read on every open, so a server that connected or failed since shows.
  */
-function useCliMcpServers(workspaceRoot: string | null, cli: string | null, active: boolean): AgentMcpServer[] {
+function useCliMcpServers(
+  workspaceRoot: string | null,
+  cli: string | null,
+  active: boolean,
+  read = 0,
+): AgentMcpServer[] {
   const [servers, setServers] = useState<AgentMcpServer[]>([])
   useEffect(() => {
     if (!active || !workspaceRoot || !cli) return
@@ -740,7 +834,7 @@ function useCliMcpServers(workspaceRoot: string | null, cli: string | null, acti
     return () => {
       cancelled = true
     }
-  }, [active, cli, workspaceRoot])
+  }, [active, cli, read, workspaceRoot])
   return servers
 }
 

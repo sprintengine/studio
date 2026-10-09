@@ -64,6 +64,7 @@ export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { cliStderrSummary, LOOKUP_TOOL_KINDS } from '../../shared/conversation/permissionModes'
 import { wslShareSafeDirectoryEnv } from '../git-run'
 import { isMcpServerStatus, publishMcpServerStatus } from '../mcp-server-status/registry'
+import type { AgentMcpServerStatus } from '../../shared/skills'
 
 import type {
   Options,
@@ -726,6 +727,51 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       return [{ id: name, status }]
     })
     publishMcpServerStatus({ cli: CLAUDE_COMMANDS_CLI, cwd: state.workspaceRoot, servers, replace: true })
+    // The init names each server's state; the child's own status adds why one
+    // failed and how many tools a connected one brought.
+    void refreshMcpServers(state)
+  }
+
+  async function refreshMcpServers(state: SessionState): Promise<AgentMcpServerStatus[]> {
+    const q = state.query
+    if (!q || !state.workspaceRoot || typeof q.mcpServerStatus !== 'function') return []
+    const listed = await q.mcpServerStatus().catch(() => null)
+    if (!listed || state.query !== q) return []
+    publishMcpServerStatus({
+      cli: CLAUDE_COMMANDS_CLI,
+      cwd: state.workspaceRoot,
+      replace: true,
+      servers: listed.flatMap((server) =>
+        isMcpServerStatus(server.status)
+          ? [
+              {
+                id: server.name,
+                status: server.status,
+                ...(server.error ? { error: server.error } : {}),
+                ...(Array.isArray(server.tools) ? { toolCount: server.tools.length } : {}),
+              },
+            ]
+          : [],
+      ),
+    })
+    return listed.flatMap((server) => (isMcpServerStatus(server.status) ? [server.status] : []))
+  }
+
+  // A sign-in finishes in the browser and the child reconnects the server
+  // itself; its state is read again every few seconds until it has, for as
+  // long as a person takes to sign in, so the picker shows it connected.
+  function watchSignIn(state: SessionState, serverId: string): void {
+    const startedAt = now()
+    const check = async () => {
+      const q = state.query
+      if (!q || now() - startedAt > MCP_SIGN_IN_WATCH_MS) return
+      const listed = await q.mcpServerStatus().catch(() => null)
+      await refreshMcpServers(state)
+      const server = listed?.find((entry) => entry.name === serverId)
+      if (server && server.status !== 'needs-auth' && server.status !== 'pending') return
+      setTimeout(() => void check(), MCP_SIGN_IN_POLL_MS).unref?.()
+    }
+    setTimeout(() => void check(), MCP_SIGN_IN_POLL_MS).unref?.()
   }
 
   function ensureQuery(state: SessionState): Promise<void> {
@@ -1120,6 +1166,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       cost: true,
       contextMeter: false,
       liveModelSwitch: true,
+      mcpServerActions: ['reconnect', 'enable', 'disable', 'sign-in'],
       atMentions: true,
       steer: true,
       rewind: true,
@@ -1439,6 +1486,46 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     // turn is running: the next turn respawns it with `resume` on the new
     // model, so the conversation continues. Mid-turn the reply on screen
     // finishes on the model it started with.
+    // The child is started for it when the chat is resting: its servers are
+    // its own, and only a running one can reconnect or sign in to one.
+    async mcpServerAction(input) {
+      const state = sessions.get(input.sessionId)
+      if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
+      try {
+        await ensureQuery(state)
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Claude Code could not be started.' }
+      }
+      const q = state.query
+      if (!q) return { ok: false, message: 'Claude Code is not running for this chat.' }
+      try {
+        if (input.action === 'reconnect') await q.reconnectMcpServer(input.serverId)
+        else if (input.action === 'enable' || input.action === 'disable')
+          await q.toggleMcpServer(input.serverId, input.action === 'enable')
+        else {
+          // Not in the SDK's declared surface yet, but sent by its own client
+          // (`mcp_authenticate`): the CLI answers the URL to sign in at and
+          // listens for the callback itself.
+          const authenticate = (q as unknown as { mcpAuthenticate?: (name: string) => Promise<unknown> })
+            .mcpAuthenticate
+          if (typeof authenticate !== 'function')
+            return {
+              ok: false,
+              message: 'This Claude Code cannot sign in to MCP servers from here. Run /mcp in its terminal.',
+            }
+          const answer = (await authenticate.call(q, input.serverId)) as { authUrl?: unknown } | null
+          watchSignIn(state, input.serverId)
+          const authUrl =
+            typeof answer?.authUrl === 'string' && /^https?:\/\//u.test(answer.authUrl) ? answer.authUrl : null
+          return { ok: true, ...(authUrl ? { authUrl } : {}) }
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Claude Code refused that.' }
+      }
+      await refreshMcpServers(state)
+      return { ok: true }
+    },
+
     async setModel(input: MockAdapterModelInput): Promise<ConversationProviderPermissionResult> {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
@@ -1647,6 +1734,9 @@ async function readWorkspaceInstructions(workspaceRoot: string): Promise<string>
 // a stop — before it is taken to be wedged. A live child answers in
 // milliseconds; this only ever fires on one that will not answer at all.
 const UNRESPONSIVE_CHILD_MS = 5_000
+// How long, and how often, a server's state is read again after a sign-in.
+const MCP_SIGN_IN_WATCH_MS = 5 * 60_000
+const MCP_SIGN_IN_POLL_MS = 3_000
 
 /**
  * Whether `promise` settled within `ms`. A rejection counts as an answer

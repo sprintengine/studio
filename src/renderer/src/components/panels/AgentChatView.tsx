@@ -27,6 +27,7 @@ import type {
   ConversationCliRuntimeOverrides,
   ConversationImageAttachment,
   ConversationSessionSummary,
+  ConversationMcpServerAction,
 } from '../../../../shared/conversation-runtime'
 import type { ConversationApprovalDecision } from '../../../../shared/conversation/approvalRules'
 import type { MeshQueuedMessage } from '../../../../shared/tailnet-mesh'
@@ -443,6 +444,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const capabilities = session?.capabilities ?? providerEntry?.capabilities
   const permissionPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
   const permissionMode = resolvePermissionMode(session, agent)
+  const mcpServerActions = capabilities?.mcpServerActions
   const supportsSkills =
     transport.capabilities.skills && capabilities?.skills !== undefined && capabilities.skills !== 'none'
   // The chat has no plan toggle: a turn goes out in the mode the agent is on,
@@ -2610,9 +2612,30 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             mcpPickable: false,
             // A chat on a paired machine lists that machine's.
             ...(transport.remoteExtensions ? { remote: transport.remoteExtensions } : {}),
+            // A live chat here can reconnect its servers, switch them, and
+            // sign in to one, as far as its CLI lets it.
+            ...(transport.kind === 'local' && sessionId && mcpServerActions?.length
+              ? {
+                  mcpActions: {
+                    available: mcpServerActions,
+                    run: (serverId: string, action: ConversationMcpServerAction) =>
+                      window.api.conversationSessionMcpAction({ sessionId, serverId, action }),
+                  },
+                }
+              : {}),
           }
         : undefined,
-    [supportsSkills, workspaceRoot, attachedSkills, setAttachedSkills, chatCli, transport.remoteExtensions],
+    [
+      supportsSkills,
+      workspaceRoot,
+      attachedSkills,
+      setAttachedSkills,
+      chatCli,
+      transport.remoteExtensions,
+      transport.kind,
+      sessionId,
+      mcpServerActions,
+    ],
   )
   const removeDraftFile = useCallback(
     (path: string) =>

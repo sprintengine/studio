@@ -75,6 +75,7 @@ export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   'conversation:sessions:respond-to-request': {},
   'conversation:sessions:send-turn': {},
   'conversation:sessions:set-model': {},
+  'conversation:sessions:mcp-action': {},
   'conversation:sessions:set-permission': {},
   'conversation:sessions:start': {},
   'conversation:sessions:stop': {},

@@ -190,6 +190,8 @@ import type {
   ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationSetModelInput,
+  ConversationMcpServerActionInput,
+  ConversationMcpServerActionResult,
   ConversationSetPermissionInput,
   ConversationProvidersListInput,
   ConversationProviderSignInInput,
@@ -1224,6 +1226,8 @@ export type ElectronApi = {
   // Switch a running conversation to another model of its provider; applies
   // from the next turn.
   conversationSessionSetModel: (input: ConversationSetModelInput) => Promise<ConversationSessionActionResult>
+  /** Reconnect, switch or sign in to one of a live chat's MCP servers; a sign-in answers the URL to finish it at. */
+  conversationSessionMcpAction: (input: ConversationMcpServerActionInput) => Promise<ConversationMcpServerActionResult>
   conversationSessionStop: (input: ConversationStopSessionInput) => Promise<ConversationSessionActionResult>
   // Settle and Snooze: end the chat's child process, keeping the session so the
   // next message respawns it.
