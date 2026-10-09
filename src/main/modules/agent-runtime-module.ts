@@ -32,6 +32,7 @@ import { createModuleStorageRegistry } from '../module-host/module-storage'
 import { moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
+import { provideHostDataServices } from './host-data-services'
 
 // Resolves a module id to the capability permissions it declared in its
 // manifest (disclosure list). The companion registry uses it to gate `attach`
@@ -180,6 +181,11 @@ export function createAgentRuntimeModule(
         getModulePermissions: options.getModulePermissions,
       })
       host.provideService(GitHubModuleServiceToken, () => github.registry)
+      // The Backlog, usage and activity services (host-data-services.ts).
+      provideHostDataServices(host, services, {
+        getModulePermissions: options.getModulePermissions,
+        dataDir: () => paths.dataDir(),
+      })
     },
   }
 }

@@ -34,6 +34,11 @@ const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   'skills',
   'module-assets',
   'notifications',
+  // Backlog, usage and activity services (main/module-host/module-backlog.ts,
+  // main/usage, main/module-host/module-activity.ts).
+  'backlog-write',
+  'usage',
+  'activity',
 ])
 
 export function hostSupports(capability: HostCapability): boolean {

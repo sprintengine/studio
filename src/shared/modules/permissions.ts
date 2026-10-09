@@ -97,6 +97,16 @@ export type CapabilityPermission =
   // Contribute tools to the Studio MCP gateway (`MainHost.registerMcpTools`),
   // which agents in any workspace can then call.
   | 'mcp:tools'
+  // ── Backlog, usage and activity services ──
+  // Read token usage of every agent session on this machine — Studio's chats
+  // and the agent CLIs' own session logs — through the SDK's usage service.
+  // Checked on every call.
+  | 'usage:read'
+  // Read every Studio chat on this machine, read-only: chat summaries and the
+  // person's prompts with the end of each reply (never tool output), through
+  // the SDK's activity service. Checked on every call, and flagged as broad in
+  // the consent prompt.
+  | 'conversation:read-all'
   // Extensible: unknown scopes validate structurally but are flagged as unknown
   // so the consent UI can warn rather than silently grant something opaque.
   | (string & {})
@@ -123,6 +133,9 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'secrets',
   'github',
   'mcp:tools',
+  // Backlog, usage and activity services.
+  'usage:read',
+  'conversation:read-all',
 ]
 
 // Plain, sentence-case descriptions for the install/trust consent prompt.
@@ -139,7 +152,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'ipc:settings': 'Read and change app settings and integrations',
   'ipc:invoke': "Call any of the app's internal APIs, including its own background code (broad scope)",
   'backlog.read': 'Read Backlog item details and source content',
-  'backlog.write': 'Change Backlog item status, links, and metadata',
+  'backlog.write': 'Change Backlog item status, triage, links, and metadata, and create new items',
   'backlog.link.open': 'Open links and targets attached to Backlog items',
   'scheduled-agents.manage': 'Schedule agents of its own that start a chat on a timer',
   'agents:companion': 'Run its own background agents inside the workspace',
@@ -150,6 +163,8 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   secrets: 'Store API keys and send them to the sites it names (the key is never shown back to the extension)',
   github: 'Use your GitHub sign-in to call the GitHub API (the token is never shown to the extension)',
   'mcp:tools': 'Add tools that agents in your workspaces can call',
+  'usage:read': 'See token usage and cost of every agent session on this machine',
+  'conversation:read-all': 'Read every chat on this machine, including what you and the agents wrote (broad scope)',
 }
 
 export function isKnownCapabilityPermission(value: string): boolean {
@@ -161,8 +176,13 @@ export function isKnownCapabilityPermission(value: string): boolean {
 // break, and the consent UI flags it as broad; authors whose module does not
 // use the bridge should declare the `ipc:*` tiers that match what they
 // actually touch instead.
+//
+// `conversation:read-all` is broad for the other reason: it reads what the
+// person wrote in every chat, so the prompt marks it the same way.
+const BROAD_CAPABILITY_PERMISSIONS: ReadonlySet<string> = new Set(['ipc:invoke', 'conversation:read-all'])
+
 export function isBroadCapabilityPermission(value: string): boolean {
-  return value === 'ipc:invoke'
+  return BROAD_CAPABILITY_PERMISSIONS.has(value)
 }
 
 // A human-readable line for the consent prompt; unknown scopes are surfaced

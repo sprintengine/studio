@@ -81,6 +81,12 @@ import {
   GitHubModuleServiceToken as AppGitHubModuleServiceToken,
   ModuleSecretsServiceToken as AppModuleSecretsServiceToken,
 } from '../../../src/main/module-host/service-tokens'
+// Backlog, usage and activity service tokens.
+import {
+  ActivityModuleServiceToken as AppActivityModuleServiceToken,
+  BacklogModuleServiceToken as AppBacklogModuleServiceToken,
+  UsageModuleServiceToken as AppUsageModuleServiceToken,
+} from '../../../src/main/module-host/service-tokens'
 // The host-internal chat tokens, provided by agent-runtime-module.
 import {
   ConversationLaunchServiceToken as AppConversationLaunchServiceToken,
@@ -281,6 +287,10 @@ import type * as appConversation from '../../../src/shared/modules/conversation-
 // are what keep the restatement the contract.
 import type * as protocol from '../../conversation-protocol/src/public'
 import type * as appBrokers from '../../../src/shared/modules/brokers'
+// Backlog, usage and activity services.
+import type * as appBacklogService from '../../../src/shared/modules/backlog-service'
+import type * as appActivity from '../../../src/shared/modules/activity-service'
+import type { BacklogItem as AppBacklogItem } from '../../../src/shared/backlog/scan'
 
 type Extends<A, B> = [A] extends [B] ? true : false
 // Type identity via the generic-function-identity trick: detects added/removed
@@ -582,6 +592,61 @@ expectType<IsExact<appConversation.ModuleConversationRegistry, SdkExpectedRegist
 expectType<IsExact<appBrokers.ModuleSecretsRegistry, SdkExpectedRegistry<sdk.ModuleSecretsService>>>()
 expectType<IsExact<appBrokers.ModuleGitHubRegistry, SdkExpectedRegistry<sdk.ModuleGitHubService>>>()
 
+// ── Backlog, usage and activity services ────────────────────────────────────
+// Every shape exact, except where the app hands out its own Backlog item: the
+// scan's item carries more than the published view, so it must satisfy it and
+// agree exactly on the fields the view names.
+expectType<IsExact<appBacklogService.ModuleBacklogErrorCode, sdk.ModuleBacklogErrorCode>>()
+expectType<IsExact<appBacklogService.ModuleBacklogResult, sdk.ModuleBacklogResult>>()
+expectType<IsExact<appBacklogService.ModuleBacklogLocation, sdk.ModuleBacklogLocation>>()
+expectType<IsExact<appBacklogService.ModuleBacklogTriageInput, sdk.ModuleBacklogTriageInput>>()
+expectType<IsExact<appBacklogService.ModuleBacklogCreateInput, sdk.ModuleBacklogCreateInput>>()
+expectType<IsExact<appBacklogService.ModuleBacklogCreated, sdk.ModuleBacklogCreated>>()
+expectType<IsExact<appBacklogService.ModuleBacklogLinkInput, sdk.ModuleBacklogLinkInput>>()
+expectType<IsExact<appBacklogService.BacklogWatchError, sdk.BacklogWatchError>>()
+expectType<IsExact<appBacklogService.BacklogWatchOptions, sdk.BacklogWatchOptions>>()
+type SdkBacklogItemView = sdk.BacklogItemView
+expectType<Extends<AppBacklogItem, SdkBacklogItemView>>()
+expectType<
+  IsExact<
+    Pick<AppBacklogItem, 'numericId' | 'displayId' | 'epic' | 'modifiedAt'>,
+    Pick<SdkBacklogItemView, 'numericId' | 'displayId' | 'epic' | 'modifiedAt'>
+  >
+>()
+expectType<Extends<appBacklogService.ModuleBacklogService, sdk.ModuleBacklogService>>()
+expectType<IsExact<keyof appBacklogService.ModuleBacklogService, keyof sdk.ModuleBacklogService>>()
+expectType<IsExact<Omit<appBacklogService.ModuleBacklogService, 'list'>, Omit<sdk.ModuleBacklogService, 'list'>>>()
+expectType<Extends<appBacklogService.ModuleBacklogRegistry, SdkExpectedRegistry<sdk.ModuleBacklogService>>>()
+expectType<IsExact<AppRendererHost['getBacklogLocation'], SdkRendererHost['getBacklogLocation']>>()
+expectType<IsExact<AppRendererHost['createBacklogItem'], SdkRendererHost['createBacklogItem']>>()
+expectType<IsExact<AppRendererHost['updateBacklogStatus'], SdkRendererHost['updateBacklogStatus']>>()
+expectType<IsExact<AppRendererHost['updateBacklogTriage'], SdkRendererHost['updateBacklogTriage']>>()
+expectType<IsExact<AppRendererHost['addBacklogLink'], SdkRendererHost['addBacklogLink']>>()
+expectType<IsExact<AppRendererHost['updateBacklogModuleMetadata'], SdkRendererHost['updateBacklogModuleMetadata']>>()
+expectType<
+  IsExact<Parameters<AppRendererHost['watchBacklogItems']>[2], Parameters<SdkRendererHost['watchBacklogItems']>[2]>
+>()
+expectType<IsExact<AppRendererHost['queryUsage'], SdkRendererHost['queryUsage']>>()
+
+expectType<IsExact<appActivity.UsageGroupBy, sdk.UsageGroupBy>>()
+expectType<IsExact<appActivity.UsageQuery, sdk.UsageQuery>>()
+expectType<IsExact<appActivity.UsageTokens, sdk.UsageTokens>>()
+expectType<IsExact<appActivity.UsageRow, sdk.UsageRow>>()
+expectType<IsExact<appActivity.UsageSource, sdk.UsageSource>>()
+expectType<IsExact<appActivity.ModuleUsageErrorCode, sdk.ModuleUsageErrorCode>>()
+expectType<IsExact<appActivity.ModuleUsageResult, sdk.ModuleUsageResult>>()
+expectType<IsExact<appActivity.UsageQueryResult, sdk.UsageQueryResult>>()
+expectType<IsExact<appActivity.ModuleUsageService, sdk.ModuleUsageService>>()
+expectType<IsExact<appActivity.ModuleUsageRegistry, SdkExpectedRegistry<sdk.ModuleUsageService>>>()
+expectType<IsExact<appActivity.ActivityChatSummary, sdk.ActivityChatSummary>>()
+expectType<IsExact<appActivity.ActivityListChatsInput, sdk.ActivityListChatsInput>>()
+expectType<IsExact<appActivity.ActivityPrompt, sdk.ActivityPrompt>>()
+expectType<IsExact<appActivity.ActivityPromptsInput, sdk.ActivityPromptsInput>>()
+expectType<IsExact<appActivity.ModuleActivityErrorCode, sdk.ModuleActivityErrorCode>>()
+expectType<IsExact<appActivity.ModuleActivityResult, sdk.ModuleActivityResult>>()
+expectType<IsExact<appActivity.ModuleActivityService, sdk.ModuleActivityService>>()
+expectType<IsExact<appActivity.ModuleActivityRegistry, SdkExpectedRegistry<sdk.ModuleActivityService>>>()
+
 // Companion agents. The app declares these shapes inline on the registry it
 // serves under 'companion-agents.module-service', so they are read off it: the
 // spec `attach` takes, the handle it returns, and what the handle's methods
@@ -642,8 +707,12 @@ const SDK_SERVICE_TOKEN_KEYS = [
   'conversation.module-service',
   'module-secrets.module-service',
   'github.module-service',
+  // Backlog, usage and activity services.
+  'backlog.module-service',
+  'usage.module-service',
+  'activity.module-service',
 ] as const
-const sdkRuntime = ['index.js', 'conversation.js', 'brokers.js']
+const sdkRuntime = ['index.js', 'conversation.js', 'brokers.js', 'backlog.js', 'activity.js']
   .map((file) => readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', file), 'utf8'))
   .join('\n')
 const sdkKeysInRuntime = new Set(
@@ -676,6 +745,9 @@ assert.equal(
 )
 assert.equal(AppModuleSecretsServiceToken.key, 'module-secrets.module-service', 'ModuleSecretsServiceToken key drifted')
 assert.equal(AppGitHubModuleServiceToken.key, 'github.module-service', 'GitHubModuleServiceToken key drifted')
+assert.equal(AppBacklogModuleServiceToken.key, 'backlog.module-service', 'BacklogModuleServiceToken key drifted')
+assert.equal(AppUsageModuleServiceToken.key, 'usage.module-service', 'UsageModuleServiceToken key drifted')
+assert.equal(AppActivityModuleServiceToken.key, 'activity.module-service', 'ActivityModuleServiceToken key drifted')
 // A third-party module may resolve exactly the keys the SDK resolves — every
 // one of them, and nothing app-internal. The chat launch and the conversation
 // runtime are first-party only: a module reaches chats through its own
@@ -717,7 +789,7 @@ assert.equal(
 )
 // The conversation and broker helpers keep their moduleId-first registries and
 // tokens private the same way; their declarations ship as separate files.
-for (const file of ['conversation.d.ts', 'brokers.d.ts', 'host-api.d.ts']) {
+for (const file of ['conversation.d.ts', 'brokers.d.ts', 'host-api.d.ts', 'backlog.d.ts', 'activity.d.ts']) {
   const declarations = readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', file), 'utf8')
   assert.equal((declarations.match(/\bany\b/g) ?? []).length, 0, `SDK ${file} must not contain \`any\``)
   assert.equal(

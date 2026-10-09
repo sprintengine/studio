@@ -23,6 +23,18 @@ import type {
   ModuleOpenChatResult,
 } from '../../../shared/modules/conversation-service'
 import { getWorkspaceChatOpener } from './chat-opener'
+import type {
+  BacklogWatchError,
+  BacklogWatchOptions,
+  ModuleBacklogCreated,
+  ModuleBacklogCreateInput,
+  ModuleBacklogLinkInput,
+  ModuleBacklogLocation,
+  ModuleBacklogResult,
+  ModuleBacklogTriageInput,
+} from '../../../shared/modules/backlog-service'
+import type { UsageQuery, UsageQueryResult } from '../../../shared/modules/activity-service'
+import type { ModuleHostServiceName } from '../../../shared/modules/host-service-bridge'
 
 // Renderer-side host kernel. Mirrors the main-process MainHost: capability
 // modules register their contributions (panels for now) into shared registries
@@ -729,8 +741,15 @@ export type RegisteredModalSurfaceLauncher = ModalSurfaceLauncher & {
 // never imports backlog internals.
 export type BacklogReader = {
   list(workspaceId: string): Promise<BacklogItem[]>
-  /** Fires once with the current snapshot, then on every change; returns the unsubscriber. */
-  watch(workspaceId: string, cb: (items: BacklogItem[]) => void): () => void
+  /**
+   * Fires once with the current snapshot, then on every change; returns the
+   * unsubscriber. `onError` hears each snapshot that could not be delivered.
+   */
+  watch(
+    workspaceId: string,
+    cb: (items: BacklogItem[]) => void,
+    onError?: (error: BacklogWatchError) => void,
+  ): () => void
 }
 
 // Backing store for the per-module workspace-state accessors. The
@@ -851,10 +870,30 @@ export type RendererHost = {
    * A contract, not a security boundary.
    */
   invoke(channel: string, payload?: unknown): Promise<unknown>
-  /** The workspace's Backlog items (read-only views; mutate via BacklogItemActionContext). */
+  /** The workspace's Backlog items (read-only views; change them with the write methods below). Requires `backlog.read`. */
   listBacklogItems(workspaceId: string): Promise<BacklogItem[]>
-  /** Observe the workspace's Backlog: fires with the current snapshot, then on change. */
-  watchBacklogItems(workspaceId: string, cb: (items: BacklogItem[]) => void): () => void
+  /**
+   * Observe the workspace's Backlog: fires with the current snapshot, then on
+   * change. `options.onError` hears why a snapshot could not be delivered; the
+   * watch stays open. Requires `backlog.read`.
+   */
+  watchBacklogItems(workspaceId: string, cb: (items: BacklogItem[]) => void, options?: BacklogWatchOptions): () => void
+  // ── Backlog writes and usage, through main's moduleId-first registries ──
+  // (shared/modules/host-service-bridge.ts). Result-shaped, never a throw.
+  getBacklogLocation(workspaceId: string): Promise<ModuleBacklogResult<{ location: ModuleBacklogLocation }>>
+  createBacklogItem(
+    workspaceId: string,
+    input: ModuleBacklogCreateInput,
+  ): Promise<ModuleBacklogResult<ModuleBacklogCreated>>
+  updateBacklogStatus(workspaceId: string, itemId: string, status: BacklogItemStatus): Promise<ModuleBacklogResult>
+  updateBacklogTriage(
+    workspaceId: string,
+    itemId: string,
+    triage: ModuleBacklogTriageInput,
+  ): Promise<ModuleBacklogResult>
+  addBacklogLink(workspaceId: string, itemId: string, link: ModuleBacklogLinkInput): Promise<ModuleBacklogResult>
+  updateBacklogModuleMetadata(workspaceId: string, itemId: string, value: unknown): Promise<ModuleBacklogResult>
+  queryUsage(query: UsageQuery): Promise<UsageQueryResult>
   /**
    * Resolve a workspace id to its read-only view. Null means "not currently
    * resolvable" — an unknown id, or early boot before the shell wires the
@@ -1311,6 +1350,50 @@ export function createRendererHost(): RendererKernel {
     }
     return backlogReader.reader
   }
+  // The Backlog reads are checked against the declared `backlog.read` for a
+  // third-party module. A bundled module is the app's own code and declares
+  // nothing; it is not held to a disclosure list.
+  const requireBacklogRead = (moduleId: string, manifest: CapabilityManifest | undefined): void => {
+    if (manifest?.source !== 'third-party' || manifest.permissions?.includes('backlog.read')) return
+    throw new Error(
+      `Module "${moduleId}" does not declare the "backlog.read" permission, so it cannot read the Backlog.`,
+    )
+  }
+  // A call into one of main's moduleId-first registries. Main checks the
+  // permission; a refusal or a missing door comes back as data.
+  const callHostService = async <T>(
+    moduleId: string,
+    service: ModuleHostServiceName,
+    method: string,
+    args: unknown[],
+    unavailableCode: string,
+  ): Promise<T> => {
+    const invoke = typeof window === 'undefined' ? undefined : window.api?.moduleHostServiceInvoke
+    if (!invoke) {
+      return { ok: false, code: unavailableCode, message: `The ${service} service is not available here.` } as T
+    }
+    try {
+      return (await invoke({ moduleId, service, method, args })) as T
+    } catch (error) {
+      return {
+        ok: false,
+        code: unavailableCode,
+        message: error instanceof Error ? error.message : String(error),
+      } as T
+    }
+  }
+  // The Backlog writes follow the Backlog module's enablement like its reads:
+  // switched off, the Backlog is off for modules too.
+  const callBacklog = <T extends object = object>(
+    moduleId: string,
+    method: string,
+    args: unknown[],
+  ): Promise<ModuleBacklogResult<T>> => {
+    if (backlogReader && moduleEnabledResolver && !moduleEnabledResolver(backlogReader.moduleId)) {
+      return Promise.resolve({ ok: false, code: 'backlog_unavailable', message: 'The Backlog module is disabled.' })
+    }
+    return callHostService<ModuleBacklogResult<T>>(moduleId, 'backlog', method, args, 'backlog_unavailable')
+  }
   const enabledModuleCommands = (moduleEnabled?: (moduleId: string) => boolean): RegisteredModuleCommand[] =>
     [...moduleCommands.values()]
       .filter((command) => !moduleEnabled || moduleEnabled(command.moduleId))
@@ -1602,26 +1685,63 @@ export function createRendererHost(): RendererKernel {
           backlogReader = { moduleId, reader }
         },
         async listBacklogItems(workspaceId) {
+          requireBacklogRead(moduleId, manifest)
           return requireBacklogReader().list(workspaceId)
         },
-        watchBacklogItems(workspaceId, cb) {
+        watchBacklogItems(workspaceId, cb, options) {
+          requireBacklogRead(moduleId, manifest)
           const reader = requireBacklogReader()
-          return reader.watch(workspaceId, (items) => {
-            // Live gate on every delivery, not just at subscribe: an active
-            // watch stops streaming the moment the user disables the backlog
-            // module (and resumes on re-enable) instead of outliving the
-            // toggle. The provider is re-read so the gate follows ownership.
-            if (backlogReader && moduleEnabledResolver && !moduleEnabledResolver(backlogReader.moduleId)) {
-              return
-            }
-            try {
-              cb(items)
-            } catch (error) {
-              // A throwing module callback must not break the shared scan's
-              // emit loop for sibling subscribers (the Backlog panel included).
-              console.error(`[modules] backlog watch callback from module "${moduleId}" threw:`, error)
-            }
-          })
+          const backlogOff = (): boolean =>
+            backlogReader !== null && moduleEnabledResolver !== null && !moduleEnabledResolver(backlogReader.moduleId)
+          const onError = options?.onError
+          return reader.watch(
+            workspaceId,
+            (items) => {
+              // Live gate on every delivery, not just at subscribe: an active
+              // watch stops streaming the moment the user disables the backlog
+              // module (and resumes on re-enable) instead of outliving the
+              // toggle. The provider is re-read so the gate follows ownership.
+              if (backlogOff()) return
+              try {
+                cb(items)
+              } catch (error) {
+                // A throwing module callback must not break the shared scan's
+                // emit loop for sibling subscribers (the Backlog panel included).
+                console.error(`[modules] backlog watch callback from module "${moduleId}" threw:`, error)
+              }
+            },
+            onError
+              ? (error) => {
+                  if (backlogOff()) return
+                  try {
+                    onError(error)
+                  } catch (thrown) {
+                    console.error(`[modules] backlog watch onError from module "${moduleId}" threw:`, thrown)
+                  }
+                }
+              : undefined,
+          )
+        },
+        getBacklogLocation(workspaceId) {
+          return callBacklog(moduleId, 'getLocation', [workspaceId])
+        },
+        createBacklogItem(workspaceId, input) {
+          return callBacklog(moduleId, 'create', [workspaceId, input])
+        },
+        updateBacklogStatus(workspaceId, itemId, status) {
+          return callBacklog(moduleId, 'updateStatus', [workspaceId, itemId, status])
+        },
+        updateBacklogTriage(workspaceId, itemId, triage) {
+          return callBacklog(moduleId, 'updateTriage', [workspaceId, itemId, triage])
+        },
+        addBacklogLink(workspaceId, itemId, link) {
+          return callBacklog(moduleId, 'addLink', [workspaceId, itemId, link])
+        },
+        updateBacklogModuleMetadata(workspaceId, itemId, value) {
+          return callBacklog(moduleId, 'updateModuleMetadata', [workspaceId, itemId, value])
+        },
+        queryUsage(query) {
+          return callHostService<UsageQueryResult>(moduleId, 'usage', 'query', [query], 'unavailable')
         },
         getAssetUrl(relativePath) {
           if (moduleEnabledResolver && !moduleEnabledResolver(moduleId)) throw new Error('Module is disabled.')

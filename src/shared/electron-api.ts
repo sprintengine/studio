@@ -222,6 +222,7 @@ import type {
   ConversationApprovalRuleRevokeResult,
 } from './conversation-runtime'
 import type { ModuleBridgeInvokeResult } from './modules/bridge'
+import type { ModuleHostServiceRequest } from './modules/host-service-bridge'
 import type {
   ConversationWorkspaceKey,
   ConversationThreadsResult,
@@ -1678,6 +1679,8 @@ export type ElectronApi = {
   onThirdPartyModulesChanged: (cb: () => void) => () => void
   /** Renderer→module-main bridge: invoke a channel a third-party module registered via registerIpc. Refusals are structured, not rejections. */
   moduleBridgeInvoke: (channel: string, payload?: unknown) => Promise<ModuleBridgeInvokeResult>
+  /** A module renderer's call into a host service its main half reaches through the SDK (Backlog writes, usage). Answers are result-shaped. */
+  moduleHostServiceInvoke: (request: ModuleHostServiceRequest) => Promise<unknown>
   /** Every capability module's main→renderer events on one host-owned channel; the renderer kernel fans them out by `sourceModuleId`. Returns the unsubscriber. */
   onModuleEvent: (cb: (envelope: ModuleEventEnvelope) => void) => () => void
   terminalSpawn: (
