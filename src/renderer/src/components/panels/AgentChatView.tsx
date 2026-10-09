@@ -184,6 +184,7 @@ import {
 import { ConversationPendingDock, coversComposer, type ApprovalModeSwitch } from './agentChat/pendingDock'
 import { QueuedTurnRow, queuedTurnSendNow } from './agentChat/queuedTurnBubble'
 import { ComposerTray, ComposerTrayRow } from './agentChat/composerTray'
+import { BackgroundTasksTrayRow } from './agentChat/backgroundTasksRow'
 import { WorktreeInstallTrayRow } from './agentChat/worktreeInstallRow'
 import { StudioConnectionNotice } from './agentChat/studioConnectionNotice'
 import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
@@ -3424,6 +3425,19 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 <ComposerTrayRow tone="neutral" onDismiss={() => setPermissionNotice(null)}>
                   <span className="text-[color:var(--text-muted)]">{permissionNotice}</span>
                 </ComposerTrayRow>
+              ) : null}
+              {/* The shells and monitors the agent left running when its turn
+                ended: a monitor it will wake for, a dev server it is done
+                with. Only between turns, and only for a live session: a
+                transcript read back after a restart names a process that is
+                gone. */}
+              {sessionId !== null && !projection.activeTurn ? (
+                <BackgroundTasksTrayRow
+                  tasks={projection.backgroundTasks}
+                  seed={sessionId}
+                  onStop={operate ? () => void interrupt() : undefined}
+                  stopping={pending === 'stopping'}
+                />
               ) : null}
               {requestPending ? null : (
                 <>

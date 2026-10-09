@@ -196,6 +196,9 @@ function reconcileProjection(previous: ConversationProjection, next: Conversatio
     entries,
     usage: sameValue(previous.usage, next.usage) ? previous.usage : next.usage,
     agentTypes: sameValue(previous.agentTypes, next.agentTypes, -1) ? previous.agentTypes : next.agentTypes,
+    backgroundTasks: sameValue(previous.backgroundTasks, next.backgroundTasks, -1)
+      ? previous.backgroundTasks
+      : next.backgroundTasks,
     promptCache: sameValue(previous.promptCache, next.promptCache) ? previous.promptCache : next.promptCache,
   }
 }

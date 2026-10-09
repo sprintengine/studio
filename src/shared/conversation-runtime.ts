@@ -5,6 +5,7 @@
 // below is the runtime's own: session inputs, results and summaries.
 import type {
   ConversationApprovalKind,
+  ConversationBackgroundTask,
   ConversationEvent,
   ConversationJsonValue,
   ConversationMessageOrigin,
@@ -18,6 +19,8 @@ import type {
 export type {
   ConversationApprovalKind,
   ConversationApprovalRequestedPayload,
+  ConversationBackgroundTask,
+  ConversationBackgroundTaskKind,
   ConversationApprovalResolvedPayload,
   ConversationCursor,
   ConversationEvent,
@@ -84,6 +87,10 @@ export type ConversationSessionSummary = {
   // Background subagents still running. They keep the conversation working
   // after its turn has ended, so the sidebar and tab still show activity.
   backgroundAgents?: number
+  // Shells and monitors the chat's process still runs after its turn ended.
+  // They keep that process alive, and a monitor keeps the chat working too,
+  // since it wakes the agent when it has something to say. Absent when none.
+  backgroundTasks?: ConversationBackgroundTask[]
   // When the most recent turn completed or failed (the event's own time, so it
   // survives a resume). Absent until a turn has ended. The sidebar and the tab
   // count "finished" from this rather than `updatedAt`, which also moves on a

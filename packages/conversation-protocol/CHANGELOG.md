@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Background work has a type.** `ConversationBackgroundTask` (`taskId`,
+  `kind`, optional `description` and `persistent`) is one shell, monitor or
+  other task a session's process runs after its turn ended, and
+  `ConversationBackgroundTaskKind` is `command`, `monitor` or `task`. A
+  `session_updated` event carries them as `backgroundTasks`, the whole list
+  each time it changes; an empty list says nothing runs any more.
+
 - **A step names the pictures it returned.** `images` is an optional member
   of `ConversationToolOutputPayload`: the files a step's pictures (a browser
   screenshot, say) were written to on the desktop that ran it, in the order

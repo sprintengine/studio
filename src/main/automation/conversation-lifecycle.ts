@@ -3,6 +3,7 @@ import type { WorkspaceFieldsPatch, WorkspaceSyncCommandResult, WorkspaceSyncEve
 import { isSettledWorkspace, settleWorkspacePatch, wakeWorkspacePatch } from '../../shared/workspace-lifecycle'
 import type { ConversationEvent, ConversationSessionSummary } from '../../shared/conversation-runtime'
 import { conversationSessionWorking, conversationTurnInProgress } from '../../shared/conversation/phase'
+import { backgroundTasksWakeAgent } from '../../shared/conversation/backgroundTasks'
 
 // A chat's rest and its two person-clocks, written for a paired device.
 //
@@ -89,14 +90,20 @@ export const OWN_SETTLE_GRACE_MS = 2_000
 
 /**
  * Whether, of a workspace's chats, the one piece of work is `agentId`'s own
- * turn: its chat is mid-turn with no agent it launched still working in the
- * background (settling would end those), and no other chat is at work. Only
+ * turn: its chat is mid-turn with no agent or monitor it launched still
+ * working in the background (settling would end those), and no other chat is at work. Only
  * a chat counts as the asking agent's: a chat's turn end is what the settle
  * waits on, and a terminal agent's is not heard where the settle is kept.
  */
 export function onlyOwnChatTurn(sessions: ReadonlyArray<ConversationSessionSummary>, agentId: string): boolean {
   const own = sessions.filter((session) => session.agentId === agentId && session.status !== 'stopped')
-  if (own.length !== 1 || !conversationTurnInProgress(own[0]) || (own[0].backgroundAgents ?? 0) > 0) return false
+  if (
+    own.length !== 1 ||
+    !conversationTurnInProgress(own[0]) ||
+    (own[0].backgroundAgents ?? 0) > 0 ||
+    backgroundTasksWakeAgent(own[0].backgroundTasks)
+  )
+    return false
   return !sessions.some((session) => session !== own[0] && conversationSessionWorking(session))
 }
 
