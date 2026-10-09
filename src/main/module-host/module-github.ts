@@ -96,12 +96,7 @@ const METHODS = new Set(['GET', 'POST', 'PATCH', 'PUT', 'DELETE'])
 const TEMPLATE_PATTERN = /^\/[A-Za-z0-9\-._~/{}]*$/
 const PLACEHOLDER_PATTERN = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g
 
-function failure(
-  code: Failure['code'],
-  message: string,
-  status?: number,
-  headers?: Record<string, string>,
-): Failure {
+function failure(code: Failure['code'], message: string, status?: number, headers?: Record<string, string>): Failure {
   return {
     ok: false,
     code,
@@ -369,7 +364,10 @@ export function createModuleGitHubRegistry(deps: ModuleGitHubDeps): ModuleGitHub
         if (!media.ok) return media
         if (request.ifNoneMatch !== undefined) {
           if (typeof request.ifNoneMatch !== 'string' || !ETAG_PATTERN.test(request.ifNoneMatch)) {
-            return failure('invalid_route', 'ifNoneMatch takes an etag exactly as an earlier answer\'s headers.etag carried it.')
+            return failure(
+              'invalid_route',
+              "ifNoneMatch takes an etag exactly as an earlier answer's headers.etag carried it.",
+            )
           }
         }
 
@@ -408,7 +406,10 @@ export function createModuleGitHubRegistry(deps: ModuleGitHubDeps): ModuleGitHub
             `graphql is read-only; a ${writes[0]} is refused. Use request() for a write, on an explicit action of the person's.`,
           )
         }
-        if (variables !== undefined && (typeof variables !== 'object' || variables === null || Array.isArray(variables))) {
+        if (
+          variables !== undefined &&
+          (typeof variables !== 'object' || variables === null || Array.isArray(variables))
+        ) {
           return failure('invalid_query', 'variables must be an object.')
         }
         let body: string
@@ -468,7 +469,7 @@ export function createModuleGitHubRegistry(deps: ModuleGitHubDeps): ModuleGitHub
         if (!isGitHubStorageUrl(location)) {
           return failure(
             'redirect_not_allowed',
-            "GitHub redirected the download somewhere other than its own storage, so the host did not follow it.",
+            'GitHub redirected the download somewhere other than its own storage, so the host did not follow it.',
             status,
           )
         }

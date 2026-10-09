@@ -75,7 +75,7 @@ export function createModuleAppStateMirror(options: {
     for (const namespace of new Set([...Object.keys(before), ...Object.keys(next)])) {
       if (JSON.stringify(before[namespace] ?? {}) === JSON.stringify(next[namespace] ?? {})) continue
       changed = true
-      const values = Object.freeze({ ...(next[namespace] ?? {}) })
+      const values = Object.freeze({ ...next[namespace] })
       for (const listener of listeners.get(namespace) ?? []) {
         try {
           listener(values)
@@ -94,7 +94,11 @@ export function createModuleAppStateMirror(options: {
   const startWatching = (): void => {
     if (watching || options.watchFile === false) return
     watching = true
-    watchFile(options.filePath, { interval: options.watchIntervalMs ?? WATCH_INTERVAL_MS, persistent: false }, onFileChange)
+    watchFile(
+      options.filePath,
+      { interval: options.watchIntervalMs ?? WATCH_INTERVAL_MS, persistent: false },
+      onFileChange,
+    )
   }
   const stopWatching = (): void => {
     if (!watching) return

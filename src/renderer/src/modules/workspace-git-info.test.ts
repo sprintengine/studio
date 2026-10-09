@@ -8,7 +8,14 @@ import { createRendererHost } from './renderer-host'
 // shell's git read is asked anything.
 
 function manifest(permissions: string[]): CapabilityManifest {
-  return { id: 'pr-radar', displayName: 'PR Radar', version: 1, defaultEnabled: true, source: 'third-party', permissions }
+  return {
+    id: 'pr-radar',
+    displayName: 'PR Radar',
+    version: 1,
+    defaultEnabled: true,
+    source: 'third-party',
+    permissions,
+  }
 }
 
 test('a module without ipc:workspace-read is refused before the source is asked', async () => {

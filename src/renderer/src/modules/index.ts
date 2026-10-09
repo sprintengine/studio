@@ -337,7 +337,8 @@ if (typeof window !== 'undefined') {
         // IPC, from the same working root every live-runtime surface uses.
         rendererHost.setWorkspaceGitInfoSource(async (workspaceId) => {
           const workspace = useWorkspaceStore.getState().workspaces.find((entry) => entry.id === workspaceId)
-          if (!workspace) return { ok: false, code: 'unknown_workspace', message: `No open workspace "${workspaceId}".` }
+          if (!workspace)
+            return { ok: false, code: 'unknown_workspace', message: `No open workspace "${workspaceId}".` }
           const root = workspaceWorktree.workspaceWorkingRoot(workspace)
           if (!root) return { ok: false, code: 'no_folder', message: 'The workspace has no folder.' }
           if (typeof window.api?.getModuleWorkspaceGitInfo !== 'function') {

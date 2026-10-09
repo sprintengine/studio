@@ -136,7 +136,6 @@ export type StudioGatewayToolResolver = (() => McpToolRegistration[]) & {
   coreToolNames(): ReadonlySet<string>
 }
 
-
 // The user's module switch reaches the MCP surface (owner ruling): the
 // tool keeps being advertised so an agent learns the capability exists, and a
 // call while the owner is disabled answers one plain, actionable sentence as a

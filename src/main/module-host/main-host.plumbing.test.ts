@@ -113,4 +113,3 @@ test('getAssetPath resolves only verified files whose bytes still match', async 
     await rm(root, { recursive: true, force: true })
   }
 })
-

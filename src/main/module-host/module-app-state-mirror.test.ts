@@ -110,7 +110,7 @@ test('MainHost reads and watches its own namespace through the mirror', () => {
   assert.equal(heard.length, 1)
 })
 
-test("unloading a module drops its app-state watches", async () => {
+test('unloading a module drops its app-state watches', async () => {
   const kernel = createMainKernel(createFakeIpcMain().ipcMain)
   const mirror = createModuleAppStateMirror({ filePath, watchFile: false })
   kernel.hostFor('agent-runtime').provideService({ key: 'core.module-app-state' }, () => mirror)

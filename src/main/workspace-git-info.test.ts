@@ -50,7 +50,11 @@ test('GitHub remotes are read in every URL form', () => {
 })
 
 test('a folder with no repository, or no folder, says so', async () => {
-  assert.deepEqual(await readFolderGitInfo(null), { ok: false, code: 'no_folder', message: 'The workspace has no folder.' })
+  assert.deepEqual(await readFolderGitInfo(null), {
+    ok: false,
+    code: 'no_folder',
+    message: 'The workspace has no folder.',
+  })
   const result = await readFolderGitInfo('/Users/dev/plain', { readRepoRoot: async () => null })
   assert.equal(result.ok === false && result.code, 'not_a_repository')
   const machine = await readFolderGitInfo('ssh://build-box/home/dev/app')

@@ -93,7 +93,9 @@ test('an etag that could split a header is refused before anything is sent', asy
 })
 
 test("accept takes one of GitHub's media types and nothing else", async () => {
-  const { calls, radar } = harness(() => new Response('diff --git a/x b/x', { headers: { 'content-type': 'text/plain' } }))
+  const { calls, radar } = harness(
+    () => new Response('diff --git a/x b/x', { headers: { 'content-type': 'text/plain' } }),
+  )
   const diff = await radar.request({ route: '/repos/acme/app/pulls/7', accept: 'application/vnd.github.diff' })
   assert.ok(diff.ok)
   assert.equal(diff.data, 'diff --git a/x b/x')
@@ -120,10 +122,7 @@ test('the GraphQL lexer sees top-level keywords only', () => {
   assert.deepEqual(graphqlTopLevelKeywords('{ viewer { mutation: login } }'), [])
   assert.deepEqual(graphqlTopLevelKeywords('# mutation\n{ search(query: "mutation {}") { issueCount } }'), [])
   assert.deepEqual(graphqlTopLevelKeywords('query { a(x: """ mutation { } """) }'), ['query'])
-  assert.deepEqual(graphqlTopLevelKeywords('mutation M { addStar(input: {}) { clientMutationId } }'), [
-    'mutation',
-    'M',
-  ])
+  assert.deepEqual(graphqlTopLevelKeywords('mutation M { addStar(input: {}) { clientMutationId } }'), ['mutation', 'M'])
   assert.equal(graphqlTopLevelKeywords('query'), null)
 })
 

@@ -52,11 +52,17 @@ test('the wire name is what an MCP client files the tool under', () => {
 
 test('a module tool named like a core tool is refused, naming the core tool', () => {
   assert.throws(
-    () => kernel().hostFor('decision-log').registerMcpTools([tool('backlog_list')]),
+    () =>
+      kernel()
+        .hostFor('decision-log')
+        .registerMcpTools([tool('backlog_list')]),
     /collides with the core gateway tool "backlog\.list"/,
   )
   assert.throws(
-    () => kernel().hostFor('decision-log').registerMcpTools([tool('workspace.create')]),
+    () =>
+      kernel()
+        .hostFor('decision-log')
+        .registerMcpTools([tool('workspace.create')]),
     /collides with the core gateway tool "workspace\.create"/,
   )
 })
@@ -66,7 +72,10 @@ test("a name in one of the shell's own families is refused", () => {
   assert.equal(coreMcpToolConflict('canvas.paint', []), 'canvas.*')
   assert.equal(coreMcpToolConflict('browsers_click', []), null)
   assert.throws(
-    () => kernel().hostFor('decision-log').registerMcpTools([tool('terminal_run')]),
+    () =>
+      kernel()
+        .hostFor('decision-log')
+        .registerMcpTools([tool('terminal_run')]),
     /collides with the core gateway tool "terminal\.\*"/,
   )
 })
