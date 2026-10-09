@@ -35,7 +35,7 @@ vi.mock('../../../store/workspaceStore', () => ({
   },
 }))
 
-const { holdCliUpdateToasts, showCliUpdateToast } = await import('./cliUpdateToast')
+const { CLI_UPDATE_PROGRESS_INTERVAL_MS, holdCliUpdateToasts, showCliUpdateToast } = await import('./cliUpdateToast')
 
 const ADVISORY: CliVersionAdvisory = {
   cli: 'codex' as CliVersionAdvisory['cli'],
@@ -170,4 +170,98 @@ test('holds nest, and a release called twice counts once', () => {
   assert.equal(toast(), undefined, 'the second hold still stands')
   second()
   assert.ok(toast())
+})
+
+// While the update runs, the toast carries the updater's newest line: main
+// streams the output on the install channel, and the toast follows it.
+function streamingUpdate() {
+  const listeners = new Set<(chunk: string) => void>()
+  let settle: (result: unknown) => void = () => {}
+  const api = (anyGlobal.window as { api: Record<string, unknown> }).api
+  api.cliUpdate = () =>
+    new Promise((resolve) => {
+      settle = resolve
+    })
+  api.onCliInstallOutput = (cli: string, listener: (chunk: string) => void) => {
+    assert.equal(cli, 'codex')
+    listeners.add(listener)
+    return () => listeners.delete(listener)
+  }
+  return {
+    emit: (chunk: string) => {
+      for (const listener of listeners) listener(chunk)
+    },
+    listening: () => listeners.size,
+    settle: async (result: unknown) => {
+      settle(result)
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+    },
+  }
+}
+
+const FAILED = { ok: false, cli: 'codex', installed: true, version: '0.40.0', resolvedPath: null, log: '' }
+
+test('a running update shows the newest output line, at most four times a second', async () => {
+  vi.useFakeTimers()
+  try {
+    const update = streamingUpdate()
+    showCliUpdateToast(ADVISORY)
+    toast()
+      ?.actions?.find((action) => action.id === 'update')
+      ?.run()
+    assert.equal(toast()?.title, 'Updating Codex…')
+    assert.equal(toast()?.description, undefined)
+
+    update.emit('\x1b[1m$ npm install -g @openai/codex@latest\x1b[0m\n')
+    vi.advanceTimersByTime(0)
+    assert.equal(toast()?.description, '$ npm install -g @openai/codex@latest', 'the first line shows at once')
+
+    update.emit('fetch  10%')
+    update.emit('\rfetch  60%')
+    assert.equal(toast()?.description, '$ npm install -g @openai/codex@latest', 'the next waits out the interval')
+    vi.advanceTimersByTime(CLI_UPDATE_PROGRESS_INTERVAL_MS)
+    assert.equal(toast()?.description, 'fetch 60%', 'and then shows the newest, not each frame')
+
+    await update.settle({ ...FAILED, ok: true, version: '0.41.0', error: null })
+    assert.equal(toast()?.title, 'Codex updated to 0.41.0')
+    assert.equal(update.listening(), 0, 'the toast stops listening when the update settles')
+    update.emit('late output\n')
+    vi.advanceTimersByTime(CLI_UPDATE_PROGRESS_INTERVAL_MS)
+    assert.equal(toast()?.title, 'Codex updated to 0.41.0')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('a failed update keeps the last thing the updater said', async () => {
+  const update = streamingUpdate()
+  showCliUpdateToast(ADVISORY)
+  toast()
+    ?.actions?.find((action) => action.id === 'update')
+    ?.run()
+  update.emit('npm error code EACCES\nnpm error path /usr/local/lib/node_modules\n')
+  await update.settle({ ...FAILED, error: null })
+  assert.equal(toast()?.title, 'Codex did not update')
+  assert.equal(
+    toast()?.description,
+    'The update did not finish. Last output: npm error path /usr/local/lib/node_modules',
+  )
+})
+
+test('progress does not bring back an updating toast the person dismissed', async () => {
+  vi.useFakeTimers()
+  try {
+    const update = streamingUpdate()
+    showCliUpdateToast(ADVISORY)
+    toast()
+      ?.actions?.find((action) => action.id === 'update')
+      ?.run()
+    useToastStore.getState().dismissToast('cli-update:codex')
+    update.emit('still going\n')
+    vi.advanceTimersByTime(CLI_UPDATE_PROGRESS_INTERVAL_MS)
+    assert.equal(toast(), undefined)
+    await update.settle({ ...FAILED, ok: true, version: '0.41.0', error: null })
+  } finally {
+    vi.useRealTimers()
+  }
 })

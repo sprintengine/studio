@@ -21,6 +21,7 @@ import { createStudioTerminal, type StudioTerminal, type TerminalSurface } from 
 import { useTerminalFind } from '../../hooks/useTerminalFind'
 import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
 import { TerminalFindBar } from '../terminal/TerminalFindBar'
+import { TerminalJumpToLatest } from '../terminal/TerminalJumpToLatest'
 import { createTerminalFileLinkProvider, terminalWslDistro } from '../../utils/terminalFileLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { createSessionAckReporter } from '../../utils/terminalOutputAck'
@@ -196,6 +197,14 @@ function TerminalViewOnThisComputer({
   // today `useTerminalFind`, which loads the search addon on the first find.
   const studioTerminalRef = useRef<StudioTerminal | null>(null)
   const find = useTerminalFind({ workspaceId, containerRef, terminalRef: studioTerminalRef })
+  // Scrolled up away from the newest output, so "Jump to latest" is offered.
+  const [scrolledAway, setScrolledAway] = useState(false)
+  // Back to the bottom, and the keyboard back to the agent: the person jumped
+  // there to see what it is doing now, usually to answer it.
+  const jumpToLatest = () => {
+    studioTerminalRef.current?.terminal.scrollToBottom()
+    focusTerminalRef.current()
+  }
   const [isFileDragOver, setIsFileDragOver] = useState(false)
   // A failed file-link click or file drop, anchored to the pointer that raised
   // it so the error surfaces next to the cursor instead of a corner toast.
@@ -480,6 +489,7 @@ function TerminalViewOnThisComputer({
       onWebLink: (event, uri) => {
         setLinkMenu({ target: { kind: 'url', url: uri }, x: event.clientX, y: event.clientY })
       },
+      onScrolledAwayChange: setScrolledAway,
     })
     studioTerminalRef.current = studioTerminal
     const term = studioTerminal.terminal
@@ -1501,6 +1511,8 @@ function TerminalViewOnThisComputer({
       applyCursorFrozenRef.current = null
       // A resume in flight dies with this terminal; its edge goes with it.
       setIsResuming(false)
+      // And the next terminal starts at its bottom.
+      setScrolledAway(false)
       focusTerminalRef.current = () => {
         containerRef.current?.focus()
       }
@@ -1636,6 +1648,7 @@ function TerminalViewOnThisComputer({
     >
       <TerminalMount ref={terminalMountRef} />
       <TerminalFindBar find={find} />
+      <TerminalJumpToLatest visible={scrolledAway} onJump={jumpToLatest} />
       {/* No replay skeleton on terminals: an xterm renders its own content
           progressively (and a revealed cold terminal resyncs in place), so a
           skeleton there just reads as a flash. Keep it only for the genuine
