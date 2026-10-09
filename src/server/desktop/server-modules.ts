@@ -118,6 +118,9 @@ export function createServerModules(deps: {
         launchErrors: thirdParty.launchErrors,
         deliverModuleEvent: (event) => platform.clients.publish(MODULE_EVENTS_CHANNEL, event),
         electronMain: false,
+        // A module tool that would shadow one of the gateway's own is refused
+        // at registration, naming the tool it collides with.
+        coreMcpToolNames: () => nextGateway.coreToolNames(),
       })
       manifests = [
         agentRuntime.manifest,

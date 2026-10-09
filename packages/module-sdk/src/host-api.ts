@@ -54,6 +54,9 @@ export type HostCapability =
   // ── Main-host plumbing: settings, workspaces, storage, GitHub, skills, MCP ──
   // `MainHost.getSkillStatus`: is a skill present, without writing it.
   | 'skill-status'
+  // `McpConnectionMetadata.verified` on every module tool call, and core tool
+  // name collisions refused at `registerMcpTools`.
+  | 'mcp-verified-identity'
   | (string & {})
 
 export type HostApiCompatibility =

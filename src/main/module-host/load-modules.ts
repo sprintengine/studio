@@ -133,6 +133,8 @@ export function loadMainModules(options: {
   registerTimeoutMs?: number
   /** False in the Studio server out of process: see `MainKernelOptions.electronMain`. */
   electronMain?: boolean
+  /** The gateway's own tool names: see `MainKernelOptions.coreMcpToolNames`. */
+  coreMcpToolNames?: () => Iterable<string>
 }): LoadMainModulesResult {
   const { ipcMain, modules, overrides = {}, provideServices, ineligible, launchErrors = [] } = options
   const registerTimeoutMs = options.registerTimeoutMs ?? REGISTER_MAIN_TIMEOUT_MS
@@ -150,6 +152,7 @@ export function loadMainModules(options: {
     resolveModuleManifest: (moduleId) => byId.get(moduleId)?.manifest,
     resolveModuleRoot: (moduleId) => options.moduleRoots?.[moduleId],
     ...(options.skillRegistry ? { skillRegistry: options.skillRegistry } : {}),
+    ...(options.coreMcpToolNames ? { coreMcpToolNames: options.coreMcpToolNames } : {}),
   })
   const hostScope = kernel.hostFor('@host')
   provideServices?.(hostScope)

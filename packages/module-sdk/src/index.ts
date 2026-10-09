@@ -308,13 +308,23 @@ export type McpToolResult = {
 }
 
 /**
- * Who is calling over the gateway, as far as the connection declared.
+ * Who is calling over the gateway.
  *
- * `studio-agent`/`external-local` arrive on the owner-only local socket and
- * their identity is advisory. `remote-tailnet` arrives on the opt-in tailnet
- * listener, where the transport proved which paired device is calling before
- * dispatch — `deviceId`, `deviceName`, and `peerNode` are set by the app, not
- * by the caller.
+ * `studio-agent`/`external-local` arrive on the owner-only local socket.
+ * There the identity is a claim — whatever has filesystem access can declare
+ * an agent of its choosing — unless the connection presented the launch token
+ * Studio issued that agent's launch, which proves it (`verified: true`). `remote-tailnet`
+ * arrives on the opt-in tailnet listener, where the transport proved which
+ * paired device is calling before dispatch — `deviceId`, `deviceName`, and
+ * `peerNode` are set by the app, not by the caller.
+ *
+ * A chat Studio launched always connects with its launch token, so its calls
+ * arrive as `kind: 'studio-agent'`, `verified: true`, with `workspaceId` and
+ * `agentId` always set. `agentName` (the chat's display name) and `cliId` (the
+ * runtime id, the same ids `listChatRuntimes()` lists) are set whenever the
+ * launch recorded them, which a chat started from the app always does; an
+ * agent from a plain terminal declares whatever it likes and stays
+ * `verified: false`.
  */
 export type McpConnectionMetadata = {
   kind: 'studio-agent' | 'external-local' | 'remote-tailnet'
@@ -325,6 +335,14 @@ export type McpConnectionMetadata = {
   deviceId?: string
   deviceName?: string
   peerNode?: string
+  /**
+   * True when a launch token or the tailnet transport PROVED the identity
+   * above; false when it is only declared. The host sets it on every call to
+   * your tool (`host.supports('mcp-verified-identity')`); a host older than
+   * this field leaves it out, so read a missing value as false. Label
+   * authorship as verified only on `true`.
+   */
+  verified?: boolean
 }
 
 export type McpConnectionContext = {
@@ -334,7 +352,18 @@ export type McpConnectionContext = {
 /**
  * One MCP tool contributed to the always-on Studio gateway. `inputSchema` is a
  * JSON Schema object; array-typed fields must stay arrays end to end. Tool
- * names are a public contract for agents — pick stable, module-prefixed names.
+ * names are a public contract for agents — pick stable names of your own, in a
+ * family named for your module (`decisions.record`, `decisions_list`).
+ *
+ * The gateway serves the name verbatim. MCP clients that take no dot write
+ * `a_b` for `a.b`, so names are compared in that form: a name that matches a
+ * core gateway tool (`backlog_list` vs the core's `backlog.list`), falls in one
+ * of the shell's families (`browser`, `canvas`, `editor`, `tour`, `terminal`),
+ * or matches another module's tool is a registration error that names the
+ * conflict. The core families (`agent`, `backlog`, `conversation`, `schedule`,
+ * `workspace`, `worktree`, `module`, `marketplace`, `tailnet`, `studio`,
+ * `sprintengine`, `app`, …) are reserved: new core tools land in them, so keep
+ * out of them even where no tool collides today.
  */
 export type McpToolRegistration = {
   name: string
@@ -450,8 +479,9 @@ export type MainHost = {
   registerIpc(channel: string, handler: IpcInvokeHandler): void
   /**
    * Contribute MCP tools to the Studio gateway, owned by this module's id. A
-   * tool name another module already registered is a registration error (the
-   * whole batch is rejected). Availability follows the module's enablement
+   * tool name another module already registered, or one that collides with a
+   * core gateway tool (see `McpToolRegistration` for the rule), is a
+   * registration error naming the conflict (the whole batch is rejected). Availability follows the module's enablement
    * live: a disabled module's tools stay listed on the gateway and answer
    * calls with an actionable enable error instead of running. An MCP tool is
    * agent-reachable capability: declare the `mcp:tools` permission, without

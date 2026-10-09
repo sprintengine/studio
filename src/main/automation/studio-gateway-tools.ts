@@ -7,7 +7,12 @@ import { CONVERSATION_COMMAND_TOOL_NAMES } from './tailnet/tailnet-conversation-
 import { TAILNET_MUTATION_TOOL_NAMES } from './tailnet/tailnet-tools'
 import { TOUR_MUTATION_TOOL_NAMES } from './tour-tools'
 import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
-import { toolError, type McpConnectionContext, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import {
+  mcpToolWireName,
+  toolError,
+  type McpConnectionContext,
+  type McpToolRegistration,
+} from '../../shared/modules/mcp-tools'
 import { runAsModuleToolCall } from '../module-host/module-tool-caller'
 
 const APP_MUTATION_TOOLS = new Set([
@@ -81,7 +86,7 @@ export function createStudioGatewayTools(options: {
    */
   callerPermissionCeiling?: (context: McpConnectionContext | undefined) => CliPermissionPreset | null
   warn?: (message: string) => void
-}): () => McpToolRegistration[] {
+}): StudioGatewayToolResolver {
   const coreNames = new Set<string>()
   const requireUnique = (name: string): void => {
     if (coreNames.has(name)) {
@@ -90,11 +95,12 @@ export function createStudioGatewayTools(options: {
     coreNames.add(name)
   }
   for (const registration of options.appTools) requireUnique(registration.name)
+  const coreWireNames = new Set([...coreNames].map(mcpToolWireName))
   // The resolver runs per request; a persistent shadowing module would emit the
   // same collision warning on every tools/list without this once-guard.
   const warnedCollisions = new Set<string>()
 
-  return () => {
+  const resolve = (): McpToolRegistration[] => {
     const merged = [...options.appTools]
     const names = new Set(coreNames)
     for (const contribution of options.resolveModuleTools()) {
@@ -102,7 +108,7 @@ export function createStudioGatewayTools(options: {
       // Module-vs-module collisions are already rejected at registration by
       // the kernel; this guards a module shadowing a CORE tool name, which the
       // kernel cannot know. First (core) wins so the gateway keeps serving.
-      if (names.has(registration.name)) {
+      if (names.has(registration.name) || coreWireNames.has(mcpToolWireName(registration.name))) {
         const collisionKey = `${contribution.moduleId}:${registration.name}`
         if (!warnedCollisions.has(collisionKey)) {
           warnedCollisions.add(collisionKey)
@@ -117,7 +123,19 @@ export function createStudioGatewayTools(options: {
     }
     return merged
   }
+  return Object.assign(resolve, { coreToolNames: (): ReadonlySet<string> => coreNames })
 }
+
+/**
+ * The gateway's per-request tool resolver, plus the names of the core tools it
+ * was built with: what the module host checks a module's tool names against
+ * at registration, so a module that would shadow one hears it as an error
+ * instead of being silently not served.
+ */
+export type StudioGatewayToolResolver = (() => McpToolRegistration[]) & {
+  coreToolNames(): ReadonlySet<string>
+}
+
 
 // The user's module switch reaches the MCP surface (owner ruling): the
 // tool keeps being advertised so an agent learns the capability exists, and a
@@ -137,13 +155,22 @@ function gateOnModuleEnablement(
     handler: async (args, context) =>
       isModuleEnabled(moduleId)
         ? runAsModuleToolCall({ permissionCeiling: callerPermissionCeiling?.(context) ?? null }, () =>
-            registration.handler(args, context),
+            registration.handler(args, withVerifiedIdentity(context)),
           )
         : toolError(
             `${moduleId}_module_disabled`,
             `The ${moduleDisplayName} module is disabled. Enable it in Settings → Modules to use ${moduleId} tools.`,
           ),
   }
+}
+
+// A module tool always hears whether the caller's identity was proven: true
+// only when a launch token or the tailnet transport established it. Core tools
+// read the metadata as the transports wrote it; this is the module contract's
+// promise that the flag is present, never left for the module to guess.
+function withVerifiedIdentity(context: McpConnectionContext | undefined): McpConnectionContext | undefined {
+  if (!context) return context
+  return { ...context, metadata: { ...context.metadata, verified: context.metadata.verified === true } }
 }
 
 // Does this tool change state? Two decisions read it: the tailnet scope a

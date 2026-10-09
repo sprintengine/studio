@@ -191,6 +191,9 @@ const moduleLoad = loadMainModules({
   // the renderer kernel routes each envelope to its own module's subscribers.
   // Nothing is buffered for windows opened later — see shared/modules/events.ts.
   deliverModuleEvent: (event) => studioPlatform().clients.publish(MODULE_EVENTS_CHANNEL, event),
+  // A module tool that would shadow one of the gateway's own is refused at
+  // registration, naming the tool it collides with.
+  coreMcpToolNames: () => services.automationService?.coreToolNames() ?? [],
 })
 // The manifest universe the enablement gate resolves against — every main module
 // present on this channel, so a module and its dependencies (scheduled agents,

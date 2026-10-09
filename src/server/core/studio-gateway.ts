@@ -252,6 +252,11 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
      * toolsets (phase 7, 3.7).
      */
     ownTools: (): McpToolRegistration[] => resolveGatewayTools(),
+    /**
+     * The names of the core's own tools, without any a module contributes:
+     * what the module host refuses a module tool name against.
+     */
+    coreToolNames: (): ReadonlySet<string> => resolveGatewayTools.coreToolNames(),
     /** Link in what the registry reads from the RPC that pairs apps. */
     linkClientTools: (links: ClientToolLinks) => Object.assign(clientToolLinks, links),
     shutdown: async () => {

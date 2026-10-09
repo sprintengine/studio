@@ -3,7 +3,7 @@ import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import { MODULE_BRIDGE_INVOKE_CHANNEL, type ModuleBridgeInvokeResult } from '../../shared/modules/bridge'
 import { MODULE_EVENTS_CHANNEL, validateModuleEventTopic, type ModuleEventEnvelope } from '../../shared/modules/events'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
-import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
+import { coreMcpToolConflict, mcpToolWireName, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import {
   validateModuleNotifyInput,
   type ModuleNotification,
@@ -160,7 +160,8 @@ export type MainHost = {
   /**
    * Contribute MCP tools to the always-on Studio gateway. Registrations are
    * owned by this module's id exactly as IPC channels are: a name another
-   * module already holds is a registration error, and the whole batch is
+   * module already holds — or a core gateway tool's (`coreMcpToolNames`) — is
+   * a registration error, and the whole batch is
    * validated before any tool lands so a rejected batch registers nothing.
    * Availability follows the owner's live enablement at the gateway — tools
    * of a disabled-but-registered module stay listed and answer an actionable
@@ -316,6 +317,14 @@ export type MainKernelOptions = {
   resolveModuleRoot?: (moduleId: string) => string | undefined
   /** Skill registry override. Defaults to the real one in builtin-skills.ts. */
   skillRegistry?: ModuleSkillHostRegistry
+  /**
+   * The Studio gateway's own tool names, read at each registration. A module
+   * tool that would collide with one (same name as an MCP client files it, or
+   * a name in the shell's own families) is a registration error naming the
+   * core tool, rather than a tool the gateway silently does not serve.
+   * Absent (tests, a host with no gateway) only module-vs-module is checked.
+   */
+  coreMcpToolNames?: () => Iterable<string>
 }
 
 // Flood bounds: a module may emit at most this many notifications per window;
@@ -626,16 +635,37 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         // Validate the whole batch before landing any of it: a module whose
         // registerMain fails on a collision must not leave half its tools
         // behind on the always-serving gateway.
-        const batch = new Set<string>()
+        //
+        // Names are compared as an MCP client files them (`a.b` and `a_b` are
+        // one name to an agent), and against the gateway's own tools too: a
+        // collision with a core tool used to be a warning in a log nobody
+        // reads, while the module's tool quietly never reached an agent.
+        const coreNames = [...(options.coreMcpToolNames?.() ?? [])]
+        const batch = new Map<string, string>()
         for (const tool of tools) {
-          const existing = mcpTools.get(tool.name)
+          const wire = mcpToolWireName(tool.name)
+          const core = coreMcpToolConflict(tool.name, coreNames)
+          if (core) {
+            throw new Error(
+              `MCP tool "${tool.name}" from module "${moduleId}" collides with the core gateway tool "${core}"; ` +
+                'core tool names and families are reserved, so give the tool a name of your own.',
+            )
+          }
+          const existing = [...mcpTools.values()].find((entry) => mcpToolWireName(entry.registration.name) === wire)
           if (existing) {
-            throw new Error(`MCP tool "${tool.name}" is already registered by module "${existing.owner}".`)
+            throw new Error(
+              `MCP tool "${tool.name}" is already registered by module "${existing.owner}"` +
+                (existing.registration.name === tool.name ? '.' : ` (as "${existing.registration.name}").`),
+            )
           }
-          if (batch.has(tool.name)) {
-            throw new Error(`MCP tool "${tool.name}" is registered twice by module "${moduleId}".`)
+          const twin = batch.get(wire)
+          if (twin !== undefined) {
+            throw new Error(
+              `MCP tool "${tool.name}" is registered twice by module "${moduleId}"` +
+                (twin === tool.name ? '.' : ` (also as "${twin}").`),
+            )
           }
-          batch.add(tool.name)
+          batch.set(wire, tool.name)
         }
         for (const tool of tools) {
           const registration = thirdParty ? { ...tool, mutates: tool.mutates !== false } : tool
