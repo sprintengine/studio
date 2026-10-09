@@ -25,7 +25,6 @@ import type {
   TourRevealRequest,
   TourSummary,
 } from './tours/tour-types'
-import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type { ConversationPeek } from './conversation-peek'
 import type {
   ChatTitleRequest,
@@ -1364,7 +1363,6 @@ export type ElectronApi = {
   showMenubarMenu: (label: string, position?: { x?: number; y?: number }) => Promise<boolean>
   clipboardReadText: () => Promise<string>
   clipboardWriteText: (text: string) => Promise<void>
-  voiceTranscribe: (wav: ArrayBuffer, settings: TranscriptionRequestSettings) => Promise<VoiceTranscribeResponse>
   // What this machine actually has: probed `git`/`gh` versions plus gh's own
   // auth login. Read-only and argument-free — see src/shared/version-control.ts.
   probeVersionControlProviders: () => Promise<VersionControlProviderProbe[]>

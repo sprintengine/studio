@@ -274,6 +274,10 @@ test('KeyboardShortcutsTab', async () => {
     'sprint-engine.open.settings',
     'sprintengine.open.settings',
     'sprint-engine.new',
+    // Voice dictation's toggle, in its module spelling and the shell id its
+    // stored bindings were keyed by before it moved onto the module.
+    'voice-dictation.toggle',
+    'voice.toggle',
   ]) {
     assert.ok(RETIRED_COMMAND_IDS.includes(id), `${id} is listed as retired`)
   }

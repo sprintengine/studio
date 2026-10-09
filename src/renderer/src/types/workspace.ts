@@ -192,21 +192,6 @@ export type WorkspaceWindowState = {
   lastFocusedAt: number
 }
 
-// Whisper model ids understood by a Multivoice transcription host (the lowercase
-// WhisperModel enum from multivoice-tauri). The host loads/downloads the model.
-export type VoiceDictationModel = 'tiny' | 'base' | 'small' | 'medium' | 'large-v2' | 'large-v3' | 'large-v3-turbo'
-
-export type VoiceDictationSettings = {
-  /** Base URL of the Multivoice transcription host (remote, LAN, or localhost). */
-  serverUrl: string
-  /** Optional bearer token sent as `Authorization: Bearer …`. */
-  authToken: string
-  /** Whisper model the host should use. */
-  model: VoiceDictationModel
-  /** ISO language code, or 'auto' to let the model detect it. */
-  language: string
-}
-
 // Theme system source of truth lives in `src/renderer/src/types/appTheme.ts`.
 // AppearanceSettings is imported here so AppSettings (below) can reference it;
 // every other theme symbol (AppTheme, ResolvedAppTheme, the picker option list,
@@ -405,8 +390,6 @@ export type AppSettings = {
    */
   designSystemSeen: Record<string, string>
   appearance: AppearanceSettings
-  /** Voice dictation transcription server + model configuration. */
-  voiceDictation: VoiceDictationSettings
   /** Capability-module enablement overrides, keyed by module id. */
   modules: ModuleEnablementOverrides
   /**
@@ -510,7 +493,7 @@ export type AgentConfigAdoptionResult =
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
 export type DiagnosticSource =
-  'agents' | 'auth' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'terminal' | 'update' | 'voice' | 'workspace'
+  'agents' | 'auth' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'terminal' | 'update' | 'workspace'
 
 // A typed, serializable deep-focus target for a notification's Open action. The
 // shell treats it as opaque (it only knows how to reveal the workspace); the

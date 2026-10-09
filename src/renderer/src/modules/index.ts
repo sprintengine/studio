@@ -12,7 +12,6 @@ import { devToolsRendererModule } from './dev-tools-module'
 import { gitRendererModule } from './git-module'
 import { memoryRendererModule } from './memory-module'
 import { scheduledAgentsRendererModule } from './scheduled-agents-module'
-import { voiceDictationRendererModule } from './voice-dictation-module'
 import { createRendererHost, type RendererModule } from './renderer-host'
 
 // Bundled renderer capability modules. Features migrate onto the host one at a
@@ -27,7 +26,6 @@ const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   memoryRendererModule,
   gitRendererModule,
   scheduledAgentsRendererModule,
-  voiceDictationRendererModule,
 ]
 
 // Full bundled manifest list. Kept complete in every build channel: it backs
@@ -47,7 +45,7 @@ export const BUNDLED_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest
 // "simplify" this back to `import.meta.env.DEV`.
 const IS_PRODUCTION_BUILD: boolean = import.meta.env.PROD === true
 
-// Active renderer modules for this build channel. Dev-only modules (Voice)
+// Active renderer modules for this build channel. Dev-only modules (none today)
 // are dropped from a packaged (production) renderer bundle so they are absent everywhere downstream: host registration, the
 // enablement universe, profiles, and the Settings → Modules manager. In a dev
 // build the full set is active and the modules remain user-toggleable. See

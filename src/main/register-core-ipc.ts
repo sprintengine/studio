@@ -58,7 +58,6 @@ import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVersionControlIpc } from './ipc/version-control-ipc'
-import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerPanePopOutIpc } from './ipc/pane-popout-ipc'
 import { registerBrowserIpc } from './ipc/browser-ipc'
@@ -89,7 +88,6 @@ import { openDiagnosticsLogsFolder } from './diagnostics-folder'
 import { writeDiagnosticLog } from './diagnostics-service'
 
 export type CoreIpcOptions = {
-  includeDevModules?: boolean
   applyModuleEnablementLive?: ModuleEnablementLiveApplier
   /**
    * The Studio server in a process of its own: its domains register there, on
@@ -159,11 +157,6 @@ export function registerCoreIpc(
   registerTextGenerationIpc(ipcMain)
   // The chat's "Create PR": git, gh and the drafting CLI all run on this computer.
   registerPullRequestCreateIpc(ipcMain)
-  // Voice dictation is a dev-only capability (the `voice-dictation` module). Its
-  // main IPC is not yet a capability module, so gate it on the build channel
-  // here so `voice:transcribe` is genuinely absent in a packaged build, not just
-  // orphaned behind a hidden renderer surface.
-  if (options.includeDevModules ?? true) registerVoiceIpc(ipcMain)
   registerAuthIpc(ipcMain, services.sprintengineAuth)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
   registerStudioPluginIpc(ipcMain, services.studioPluginService)

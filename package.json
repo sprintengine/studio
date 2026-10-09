@@ -220,10 +220,7 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
-      "notarize": true,
-      "extendInfo": {
-        "NSMicrophoneUsageDescription": "SprintEngine Studio uses the microphone for voice dictation, transcribing your speech to text."
-      }
+      "notarize": true
     },
     "linux": {
       "target": [

@@ -4,7 +4,7 @@
 import type { DiagnosticLevel } from './git'
 
 export type DiagnosticSource =
-  'agents' | 'auth' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'terminal' | 'update' | 'voice' | 'workspace'
+  'agents' | 'auth' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'terminal' | 'update' | 'workspace'
 
 // Serializable deep-focus target for a notification's Open action. Mirrors the
 // renderer `NotificationNavigationTarget` (src/renderer/src/types/workspace.ts);

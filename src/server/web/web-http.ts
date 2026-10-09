@@ -54,7 +54,7 @@ export function pageHeaders(input: CspInput): Record<string, string> {
     'Referrer-Policy': 'no-referrer',
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Cross-Origin-Resource-Policy': 'same-origin',
-    'Permissions-Policy': 'camera=(), geolocation=(), microphone=(self)',
+    'Permissions-Policy': 'camera=(), geolocation=(), microphone=()',
     'Cache-Control': 'no-store',
   }
 }

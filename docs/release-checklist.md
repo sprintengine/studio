@@ -39,6 +39,17 @@ commit, never squash or rebase, with Conventional Commit titles; see
 Removals an installed profile cannot be migrated through. State each in the notes
 of the first release that ships it, then delete the line.
 
+- Voice dictation, 2026-10-09: the top-bar microphone button, its shortcut
+  (`voice-dictation.toggle`, and the older `voice.toggle` spelling) and the
+  Settings -> Voice dictation section are removed. The feature only ever shipped
+  in from-source development builds, so a packaged install loses nothing it
+  showed. Its saved settings - the transcription server URL, model, language and
+  bearer token - are dropped from the profile on first launch, and a custom
+  shortcut saved for it is dropped when Settings -> Shortcuts is opened. The app
+  no longer declares microphone use: the macOS build loses the `audio-input`
+  entitlement and microphone usage description, app windows refuse microphone
+  and camera requests, and the served web client's Permissions-Policy denies the
+  microphone. There is no replacement.
 - Attention Queue shortcut: the cross-workspace Attention Queue popover in the
   window's top-right corner was removed - the sidebar rows and the Home glyph's
   notifications already say which agents are waiting on you - and the

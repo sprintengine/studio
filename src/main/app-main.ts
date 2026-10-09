@@ -109,14 +109,13 @@ if (serverHost) {
 const services = createAppServices(DIAGNOSTICS_ENABLED, serverHost?.link ?? null)
 let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 
-// Dev-only capability surfaces (Voice) ship only in
+// Dev-only capability surfaces (none today) ship only in
 // from-source dev builds. A packaged/installed build is the production channel,
 // so they are excluded from registration entirely. See
 // src/shared/modules/dev-only.ts.
 const includeDevModules = !app.isPackaged
 
 const coreIpc = registerCoreIpc(ipcMain, services, DIAGNOSTICS_ENABLED, {
-  includeDevModules,
   applyModuleEnablementLive: (overrides) => applyModuleEnablementLive?.(overrides),
   ...(serverHost
     ? {

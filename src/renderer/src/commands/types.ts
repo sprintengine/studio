@@ -1,5 +1,5 @@
 export type CommandCategory =
-  'settings' | 'command_palette' | 'workspace' | 'panel' | 'voice' | 'git' | 'terminal' | 'diagnostics'
+  'settings' | 'command_palette' | 'workspace' | 'panel' | 'git' | 'terminal' | 'diagnostics'
 
 // The scopes the module SDK publishes by name (its mirror of `CommandScope`).
 type PublishedCommandScope = 'global' | 'workspace' | 'workspace-navigation' | 'editor' | 'terminal' | 'panel'

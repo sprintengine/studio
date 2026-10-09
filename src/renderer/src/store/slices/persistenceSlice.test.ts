@@ -294,7 +294,31 @@ test('persistenceSlice', async () => {
   )
   assert.equal(migratedTransportReset.appSettings.lastSelectedCli, 'codex', 'v67 leaves other persisted settings alone')
 
-  assert.equal(WORKSPACE_STORE_VERSION, 77, 'the editor-window default is the newest step, at store v77')
+  assert.equal(WORKSPACE_STORE_VERSION, 78, 'the voice dictation settings drop is the newest step, at store v78')
+
+  // v78: voice dictation retired. Its settings carried a bearer token in plain
+  // text, so an upgrading profile loses the whole key; the rest of the blob is
+  // left alone.
+  {
+    const withDictation = migratePersistedWorkspaceState(
+      {
+        workspaces: [],
+        activeWorkspaceId: null,
+        appSettings: {
+          lastSelectedCli: 'codex',
+          voiceDictation: {
+            serverUrl: 'http://127.0.0.1:48173',
+            authToken: 'secret',
+            model: 'small',
+            language: 'auto',
+          },
+        },
+      },
+      77,
+    ) as { appSettings: AppSettings }
+    assert.equal('voiceDictation' in withDictation.appSettings, false, 'the dictation settings and token are dropped')
+    assert.equal(withDictation.appSettings.lastSelectedCli, 'codex', 'v78 leaves other persisted settings alone')
+  }
 
   // v77: files open in the editor window by default. A stored `false` was
   // never a choice (docking one file back flipped it), so every profile below
