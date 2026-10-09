@@ -181,6 +181,10 @@ type RuntimeSession = ConversationSessionSummary & {
   // runs that message as the command, so they wait here and go with the next
   // message that is not one, exactly once.
   pendingSkills?: ConversationSkillRef[]
+  // Skills the CLI has been told to run in this chat. They live in its own
+  // history from then on, so a skill that stays attached is run once, not on
+  // every message.
+  invokedSkills?: Set<string>
   approvalRequests: Map<string, PermissionModeRequest>
   automaticApprovals: Map<string, string>
   // Requests an answer has been sent for, by the person, a remembered rule or
@@ -908,6 +912,8 @@ export class ConversationRuntime {
         workspaceRoot: session.workspaceRoot,
         skills: turnSkills,
         mode: adapter.capabilities?.skills ?? 'none',
+        cli: cliForConversationProvider(session.providerId),
+        ...(session.invokedSkills ? { invoked: session.invokedSkills } : {}),
       })
       mentions = await resolveConversationMentions({
         workspaceRoot: session.workspaceRoot,
@@ -944,7 +950,12 @@ export class ConversationRuntime {
     // The files attached by path go after the words, where they are, for the
     // agent to read off the disk; the transcript keeps them as a list.
     const filesContext = attachedFilesContext(files)
+    if (skills.invocation && session.stateful && !opensWithCommand)
+      session.invokedSkills = new Set([...(session.invokedSkills ?? []), ...skills.ids])
+    // A skill run by name opens the message: the CLI reads a leading `/name`
+    // as the command, and the person's words after it as what it is for.
     const providerMessage = [
+      session.stateful && !opensWithCommand ? skills.invocation : undefined,
       session.stateful && !opensWithCommand ? skills.context : undefined,
       opensWithCommand ? undefined : session.revertedNote,
       message,
@@ -1705,6 +1716,7 @@ export class ConversationRuntime {
     session.runningSubagents.clear()
     session.backgroundAgents = 0
     session.pendingSkills = undefined
+    session.invokedSkills = undefined
     session.updatedAt = this.now()
     this.releaseTranscript(session)
     return { ok: true, session: this.toSummary(session) }

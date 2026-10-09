@@ -975,6 +975,8 @@ export type AgentSkill = {
   /** How to invoke it in this CLI, rendered from the plugin's own template. */
   invocation: string
   source: AgentSkillSource
+  /** The skill source it was installed from, when a source installed it. */
+  sourceId?: string
   /**
    * Every CLI bound to this harness. The skill lives in one directory, and each
    * of these can read it — this is the attribution that stops a shared skill
@@ -990,14 +992,26 @@ export type AgentSkill = {
  * CLIs that express that state list it as disabled rather than omitting it, so
  * dropping it here would hide something the user wrote.
  */
+/** A server's connection as the running CLI last reported it. */
+export type AgentMcpServerStatus = 'connected' | 'failed' | 'needs-auth' | 'pending' | 'disabled'
+
 export type AgentMcpServer = {
   id: string
   transport: string
   /** Absent unless the config states it — a count is never guessed. */
   toolCount?: number
-  /** Which of the CLI's two declared config files this entry won from. */
-  scope: 'workspace' | 'user'
-  configPath: string
+  /**
+   * Which of the CLI's two declared config files this entry won from, or
+   * `session` for a server only a running CLI reported (one from its own user
+   * settings, a plugin, or its account), which has no file of ours to name.
+   */
+  scope: 'workspace' | 'user' | 'session'
+  /** Absent for a `session` server. */
+  configPath?: string
+  /** Absent until a chat on this CLI in this folder has reported it. */
+  status?: AgentMcpServerStatus
+  /** Why it failed, in the CLI's words, when it did. */
+  error?: string
 }
 
 /**

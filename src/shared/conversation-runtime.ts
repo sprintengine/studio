@@ -451,6 +451,9 @@ export type ConversationCapabilities = {
   questions: boolean
   planMode: boolean
   images: boolean
+  // `native`: the provider loads attached skills itself. `context`: the
+  // runtime delivers them, as the CLI's own invocation by name when a CLI
+  // stands behind the chat (conversation-skills.ts), else as instructions.
   skills: 'native' | 'context' | 'none'
   reasoningEfforts: string[] | null
   interrupt: boolean

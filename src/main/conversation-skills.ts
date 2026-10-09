@@ -5,12 +5,48 @@ import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../shared/skill-harness
 import { createWorkspaceSkillsService } from './workspace-skills-service'
 import { createAgentSkillInstaller } from './agent-skill-installer'
 
-export type ResolvedConversationSkills = { ids: string[]; context?: string }
+/**
+ * `invocation` is the CLI's own way of running the skills by name, to open the
+ * message with; `context` is their instructions, for a provider no CLI stands
+ * behind to load a skill from disk.
+ */
+export type ResolvedConversationSkills = { ids: string[]; context?: string; invocation?: string }
 export type ConversationSkillsResolver = (input: {
   workspaceRoot: string
   skills: ConversationSkillRef[]
   mode: ConversationCapabilities['skills']
+  /** The CLI behind the chat, when one is: it decides how a skill is run. */
+  cli?: string | null
+  /** Skills this chat has already run; they stay in the CLI's own history, so they are not run again. */
+  invoked?: ReadonlySet<string>
 }) => Promise<ResolvedConversationSkills>
+
+type SkillInvocation = {
+  /** The workspace folders the CLI finds skills in, each holding `skills/<id>/SKILL.md`. */
+  dirs: readonly string[]
+  render: (ids: readonly string[]) => string
+}
+
+// A CLI that loads skills itself is told which to run, in the form it parses,
+// rather than handed the SKILL.md: the skill then arrives the way the CLI's own
+// picker would send it, with its folder, scripts and references beside it, and
+// costs a name instead of the whole file on every turn. The first `/name` opens
+// the message, which is the one place an ACP agent runs a command; the rest are
+// named inline, and the model starts them with its skill tool. OpenCode runs
+// skills only through that tool, so it is asked by name.
+const slashInvocation = (ids: readonly string[]) => ids.map((id) => `/${id}`).join(' ')
+const CLI_SKILL_INVOCATION: Readonly<Record<string, SkillInvocation>> = {
+  codex: { dirs: ['.codex', '.agents'], render: (ids) => ids.map((id) => `$${id}`).join(' ') },
+  cursor: { dirs: ['.cursor', '.claude', '.codex', '.agents'], render: slashInvocation },
+  grok: { dirs: ['.grok'], render: slashInvocation },
+  opencode: {
+    dirs: ['.opencode', '.claude', '.agents'],
+    render: (ids) =>
+      ids.length === 1
+        ? `Use the ${ids[0]} skill.`
+        : `Use the ${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]} skills.`,
+  },
+}
 
 /** Resolve the same workspace inventory and installer used by skill chips. */
 export function createConversationSkillsResolver(
@@ -21,9 +57,32 @@ export function createConversationSkillsResolver(
 ): ConversationSkillsResolver {
   const inventory = options.inventory ?? createWorkspaceSkillsService()
   const installer = options.installer ?? createAgentSkillInstaller()
-  return async ({ workspaceRoot, skills, mode }) => {
+  return async ({ workspaceRoot, skills, mode, cli, invoked }) => {
     if (skills.length === 0) return { ids: [] }
     if (mode === 'none') throw new Error('This conversation provider does not support attached skills.')
+    const invocation = mode === 'context' && cli ? CLI_SKILL_INVOCATION[cli] : undefined
+    if (invocation) {
+      const ids: string[] = []
+      const readable = async (id: string) => {
+        for (const dir of invocation.dirs)
+          if (await isFile(join(workspaceRoot, dir, 'skills', id, 'SKILL.md'))) return true
+        return false
+      }
+      for (const skill of skills) {
+        if (!/^[\w.-]+(?::[\w.-]+)?$/.test(skill.id) || skill.id === '.' || skill.id === '..')
+          throw new Error('Attached skill identity is invalid.')
+        if (ids.includes(skill.id)) continue
+        if (!(await readable(skill.id))) {
+          const attached = await installer.attach({ workspaceRoot, skillId: skill.id })
+          if (!attached.ok) throw new Error(`Could not attach ${skill.id}: ${attached.message}`)
+          if (!(await readable(skill.id)))
+            throw new Error(`Skill ${skill.id} could not be installed where ${cli} reads skills.`)
+        }
+        ids.push(skill.id)
+      }
+      const fresh = ids.filter((id) => !invoked?.has(id))
+      return { ids, ...(fresh.length ? { invocation: invocation.render(fresh) } : {}) }
+    }
     const listed = await inventory.listWorkspaceSkills({ workspaceRoot })
     if (!listed.ok) throw new Error(listed.message)
     const ids: string[] = []

@@ -65,6 +65,7 @@ function reachableRow(skill: AgentSkillRow, harnessId: string): WorkspaceSkill {
     // legacy union does not enumerate. Attribution stays truthful either way.
     harnesses: [harnessId as SkillHarness],
     installState: 'installed',
+    ...(skill.sourceId ? { sourceId: skill.sourceId } : {}),
   }
 }
 

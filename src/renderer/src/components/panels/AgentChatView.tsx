@@ -2595,16 +2595,18 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         ? {
             workspaceRoot,
             // A chat stages skills itself, so the workspace-wide inventory is
-            // its list; it reads no MCP servers.
+            // its list. Its servers were set when it started: they are listed
+            // with how each is connecting, and none is picked from here.
             pluginId: null,
             skills: attachedSkills,
             onSkillsChange: setAttachedSkills,
             mcpServers: NO_MCP_SERVERS,
             onMcpServersChange: ignoreMcpServers,
-            includeMcps: false,
+            mcpCli: chatCli,
+            mcpPickable: false,
           }
         : undefined,
-    [supportsSkills, workspaceRoot, attachedSkills, setAttachedSkills],
+    [supportsSkills, workspaceRoot, attachedSkills, setAttachedSkills, chatCli],
   )
   const removeDraftFile = useCallback(
     (path: string) =>

@@ -63,6 +63,7 @@ import { isBackgroundLaunchAck, isSubagentStep } from '../../shared/conversation
 export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { cliStderrSummary, LOOKUP_TOOL_KINDS } from '../../shared/conversation/permissionModes'
 import { wslShareSafeDirectoryEnv } from '../git-run'
+import { isMcpServerStatus, publishMcpServerStatus } from '../mcp-server-status/registry'
 
 import type {
   Options,
@@ -634,7 +635,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
             state.interruptedSendUuids.clear()
           }
         }
-        if (message.type === 'system') noteCommandList(state, message)
+        if (message.type === 'system') {
+          noteCommandList(state, message)
+          noteMcpServers(state, message)
+        }
         const forking = state.resumeAt !== null
         const ends = message.type === 'result' && resultEndsExchange(state.pendingSendUuids, message)
         deliver(state, mapSdkMessage(state, message, { exchangeContinues: message.type === 'result' && !ends }))
@@ -709,6 +713,19 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       return
     }
     publishConversationCommands({ cli: CLAUDE_COMMANDS_CLI, cwd: state.workspaceRoot, commands: next })
+  }
+
+  // Every server the CLI loaded, from its own settings and plugins as well as
+  // the ones this app gave it, with whether each connected: the init names
+  // them all at the start of every exchange.
+  function noteMcpServers(state: SessionState, message: Record<string, unknown>): void {
+    if (message.subtype !== 'init' || !state.workspaceRoot || !Array.isArray(message.mcp_servers)) return
+    const servers = message.mcp_servers.flatMap((entry: unknown) => {
+      const { name, status } = (entry ?? {}) as { name?: unknown; status?: unknown }
+      if (typeof name !== 'string' || !name || !isMcpServerStatus(status)) return []
+      return [{ id: name, status }]
+    })
+    publishMcpServerStatus({ cli: CLAUDE_COMMANDS_CLI, cwd: state.workspaceRoot, servers, replace: true })
   }
 
   function ensureQuery(state: SessionState): Promise<void> {

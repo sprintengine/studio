@@ -30,6 +30,8 @@ import {
 } from './codex-json-rpc'
 import { explainCodexInitializeTimeout, isCodexInitializeTimeout } from './codex-start-failure'
 import { conversationCommandsFor, publishConversationCommands } from '../conversation-commands/registry'
+import { publishMcpServerStatus } from '../mcp-server-status/registry'
+import type { AgentMcpServerStatus } from '../../shared/skills'
 import { CODEX_COMPACT_COMMAND, codexCompactRequest, codexConversationCommands } from '../conversation-commands/codex'
 import type { ConversationCommand } from '../../shared/conversation/commands'
 import { codexPlanInput, codexTool, codexToolResult } from './codex-items'
@@ -718,13 +720,20 @@ export function createCodexConversationProvider(
       // once for the conversation, not on every turn.
       case 'mcpServer/startupStatus/updated': {
         const name = text(params.name)
-        if (params.status !== 'failed' || !name || state.failedServers.has(name)) return
-        state.failedServers.add(name)
         // Codex's error opens by naming the server again.
         const error = text(params.error).replace(
           /^MCP client for `[^`]*` failed to start:\s*(MCP startup failed:\s*)?/,
           '',
         )
+        const status = CODEX_MCP_STATUS[text(params.status)]
+        if (name && status && state.input.workspaceRoot)
+          publishMcpServerStatus({
+            cli: 'codex',
+            cwd: state.input.workspaceRoot,
+            servers: [{ id: name, status, ...(status === 'failed' && error ? { error } : {}) }],
+          })
+        if (params.status !== 'failed' || !name || state.failedServers.has(name)) return
+        state.failedServers.add(name)
         note(state, `Codex's MCP server “${name}” did not start${error ? `: ${error}` : '.'}`)
         return
       }
@@ -1518,6 +1527,13 @@ function imageExtension(bytes: Buffer): string {
  * Codex reads an override's key as a dotted path, so an id with a dot in it
  * cannot be named and refuses the start.
  */
+/** Codex's startup states, as the picker says a server's connection. */
+const CODEX_MCP_STATUS: Readonly<Record<string, AgentMcpServerStatus>> = {
+  starting: 'pending',
+  ready: 'connected',
+  failed: 'failed',
+}
+
 export function codexMcpServerArgs(servers: readonly ConversationMcpServer[]): string[] {
   const str = (value: string): string => JSON.stringify(value)
   const table = (entries: Array<[string, string]>): string =>
