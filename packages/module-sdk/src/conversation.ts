@@ -286,13 +286,27 @@ export type ModuleConversationService = {
     options?: ModuleConversationCommandOptions,
   ): Promise<ModuleConversationResult<{ modelId: string; notice?: string }>>
   stop(ref: ModuleConversationRef): Promise<ModuleConversationResult>
-  /** Live events from now on. Returns the unsubscriber. */
+  /**
+   * Live events from now on. Returns the unsubscriber.
+   *
+   * A chat the host does not know yet is attached to all the same: at startup
+   * a saved chat's workspace may not be loaded, and its events are delivered
+   * from the moment it is. A ref that names no chat of this module's delivers
+   * nothing, ever. Throws only for a mistake in the call: no
+   * `conversation:read`, or a ref without a `workspaceId` and `agentId`.
+   * (A host from before this answered an unknown chat by throwing `not_owned`.)
+   */
   subscribe(ref: ModuleConversationRef, cb: (event: ModuleConversationEvent) => void): () => void
   /**
    * Follow the conversation with no gap: a snapshot, or only the events after
    * a cursor the module already holds, then a `synchronized` fence, then live
    * events (see `ModuleConversationStreamFrame`). Render what you cached
    * first, then follow from its cursor. Returns the unsubscriber.
+   *
+   * Like `subscribe`, a chat the host does not know yet is followed from the
+   * moment it is (its snapshot comes then), and a ref naming no chat of this
+   * module's delivers nothing. Throws for no `conversation:read`, a malformed
+   * ref or cursor, or a known chat whose workspace has no project folder.
    */
   follow(
     ref: ModuleConversationRef,

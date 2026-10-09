@@ -191,7 +191,21 @@ function harness(
     for (const listener of listeners) listener(event(type, ref, payload))
   }
 
-  return { registry, workspaces, sessions, calls, emit, follows, listenerCount: () => listeners.size }
+  /** Tell the service the workspaces changed, as the registry's bus does. */
+  function workspacesChanged(): void {
+    for (const listener of workspaceListeners) listener()
+  }
+
+  return {
+    registry,
+    workspaces,
+    sessions,
+    calls,
+    emit,
+    follows,
+    workspacesChanged,
+    listenerCount: () => listeners.size,
+  }
 }
 
 let eventSeq = 0
@@ -259,7 +273,7 @@ test('create refuses input it cannot use, and passes the launch’s own refusals
 })
 
 test('a module reaches only its own chats: another module’s and the person’s are not_owned', async () => {
-  const { registry, workspaces, calls } = harness({ reviews: OPERATE, calendar: OPERATE })
+  const { registry, workspaces, calls, emit, follows } = harness({ reviews: OPERATE, calendar: OPERATE })
   const created = await registry.forModule('reviews').create({ workspaceId: 'ws-1', cli: 'claude-code' })
   assert.ok(created.ok)
   const reviewsChat = { workspaceId: 'ws-1', agentId: created.conversation.agentId }
@@ -284,11 +298,17 @@ test('a module reaches only its own chats: another module’s and the person’s
     )
     assert.equal(((await calendar.setPermissionPreset(ref, 'manual')) as { code?: string }).code, 'not_owned')
     assert.equal(((await calendar.setModel(ref, 'default')) as { code?: string }).code, 'not_owned')
-    assert.throws(
-      () => calendar.subscribe(ref, () => undefined),
-      /not started by this module|was started by this module/,
-    )
+    // A subscribe or follow is attached (the chat may only not be known yet),
+    // and hears nothing of a chat that is not the module's.
+    const heard: unknown[] = []
+    const unsubscribe = calendar.subscribe(ref, (event) => heard.push(event))
+    const unfollow = calendar.follow(ref, undefined, (frame) => heard.push(frame))
+    emit('content_delta', ref, { text: 'not for calendar' })
+    assert.deepEqual(heard, [])
+    unsubscribe()
+    unfollow()
   }
+  assert.equal(follows.length, 0, 'no follow of a chat that is not the module’s ever reaches the session API')
   assert.deepEqual(calendar.list(), [], 'another module lists none of them')
   assert.deepEqual(
     registry
@@ -882,7 +902,11 @@ test('follow hands the session API the module’s cursor, redacts what comes bac
   const service = registry.forModule('reviews')
   for (const options of [{ afterSeq: -1 }, { generation: '' }, { turnLimit: 0 }, { turnLimit: 101 }])
     assert.throws(() => service.follow(ref, options, () => undefined), /afterSeq|generation|turnLimit/)
-  assert.throws(() => service.follow({ workspaceId: 'ws-1', agentId: 'nothing' }, undefined, () => undefined))
+  assert.throws(() => service.follow({ workspaceId: '', agentId: 'x' }, undefined, () => undefined), /ref/)
+  // A chat that is not the module's (or not known yet) is waited for, never
+  // followed: nothing reaches the session API for it.
+  service.follow({ workspaceId: 'ws-1', agentId: 'nothing' }, undefined, () => undefined)()
+  assert.equal(follows.length, 1)
   assert.throws(() => registry.forModule('none').follow(ref, undefined, () => undefined), /conversation:read/)
   const second = service.follow(ref, undefined, () => undefined)
   assert.deepEqual(follows[1]!.input, { key: { workspaceRoot: '/repo/a', workspaceId: 'ws-1', agentId: ref.agentId } })
@@ -892,4 +916,55 @@ test('follow hands the session API the module’s cursor, redacts what comes bac
   service.follow(ref, undefined, () => undefined)
   registry.dispose()
   assert.equal(follows[2]!.disposed, true)
+})
+
+test('subscribe and follow attach to a chat whose workspace is not loaded yet, from the moment it is', async () => {
+  const { registry, workspaces, emit, follows, workspacesChanged } = harness({ reviews: OPERATE })
+  const service = registry.forModule('reviews')
+  const created = await service.create({ workspaceId: 'ws-2', cli: 'claude-code' })
+  assert.ok(created.ok)
+  const ref = { workspaceId: 'ws-2', agentId: created.conversation.agentId }
+  // Startup: the saved chat's workspace is not loaded yet.
+  const loaded = workspaces.splice(1, 1)[0]!
+
+  const heard: ModuleConversationEvent[] = []
+  const frames: ModuleConversationStreamFrame[] = []
+  const unsubscribe = service.subscribe(ref, (event) => heard.push(event))
+  const unfollow = service.follow(ref, undefined, (frame) => frames.push(frame))
+  emit('content_delta', ref, { text: 'before it is known' })
+  assert.deepEqual(heard, [], 'nothing is delivered while the chat is unknown')
+  assert.equal(follows.length, 0, 'the follow waits for the chat')
+
+  workspaces.push(loaded)
+  workspacesChanged()
+  assert.equal(follows.length, 1, 'the follow starts once the chat is known')
+  assert.deepEqual(follows[0]!.input.key, { workspaceRoot: '/repo/b', workspaceId: 'ws-2', agentId: ref.agentId })
+  emit('content_delta', ref, { text: 'after' })
+  assert.deepEqual(
+    heard.map((event) => event.payload?.text),
+    ['after'],
+  )
+  follows[0]!.listener({ type: 'synchronized', seq: 1 })
+  assert.deepEqual(frames, [{ type: 'synchronized', seq: 1 }])
+  workspacesChanged()
+  assert.equal(follows.length, 1, 'a follow that started is not started again')
+
+  unsubscribe()
+  unfollow()
+  assert.equal(follows[0]!.disposed, true)
+})
+
+test('a follow let go before its chat is known never starts', async () => {
+  const { registry, workspaces, follows, workspacesChanged } = harness({ reviews: OPERATE })
+  const service = registry.forModule('reviews')
+  const created = await service.create({ workspaceId: 'ws-2', cli: 'claude-code' })
+  assert.ok(created.ok)
+  const loaded = workspaces.splice(1, 1)[0]!
+  const unfollow = service.follow({ workspaceId: 'ws-2', agentId: created.conversation.agentId }, undefined, () => {
+    throw new Error('never called')
+  })
+  unfollow()
+  workspaces.push(loaded)
+  workspacesChanged()
+  assert.equal(follows.length, 0)
 })

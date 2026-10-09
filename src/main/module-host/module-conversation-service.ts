@@ -11,8 +11,13 @@
 // `conversation:read` covers subscribe, transcript, list and watch;
 // `conversation:operate` covers everything and implies read. The calls that
 // answer a result say `permission_missing`; the ones that cannot (subscribe,
-// list, watch) throw, since calling them without the permission is a mistake
-// in the module and not a state of the world.
+// follow, list, watch) throw, since calling them without the permission is a
+// mistake in the module and not a state of the world. A malformed ref or
+// cursor is the same kind of mistake. A chat that is not known yet is not:
+// `subscribe` and `follow` attach to it and deliver from the moment it is
+// known to be the module's (a saved chat whose workspace the host has not
+// loaded at startup), and a ref naming nothing of the module's delivers
+// nothing, which no module can tell from a quiet chat.
 //
 // A module picks any of the four presets for its chats, up to a ceiling:
 // `auto`, or `bypass` for a module that declared `conversation:bypass`, so the
@@ -584,6 +589,10 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
   const subscribers = new Map<string, Set<Subscriber>>()
   // Every open follow's closer, so teardown ends them all.
   const follows = new Set<() => void>()
+  // Follows of chats the host does not know yet (a workspace not loaded at
+  // startup): each is tried again whenever the workspaces change, and starts
+  // once its chat is known to be the module's.
+  const pendingFollows = new Set<() => void>()
   const watchers = new Set<Watcher>()
   let unsubscribeRuntime: (() => void) | null = null
   let unsubscribeWorkspaces: (() => void) | null = null
@@ -626,14 +635,19 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     if (owner) refreshWatchers(owner)
   }
 
+  function onWorkspacesChanged(): void {
+    for (const retry of [...pendingFollows]) retry()
+    refreshWatchers()
+  }
+
   function ensureListening(): void {
     unsubscribeRuntime ??= deps.runtime.onEvent(onRuntimeEvent)
-    if (watchers.size > 0 && deps.onWorkspacesChanged)
-      unsubscribeWorkspaces ??= deps.onWorkspacesChanged(() => refreshWatchers())
+    if ((watchers.size > 0 || pendingFollows.size > 0) && deps.onWorkspacesChanged)
+      unsubscribeWorkspaces ??= deps.onWorkspacesChanged(onWorkspacesChanged)
   }
 
   function releaseIfIdle(): void {
-    if (watchers.size === 0) {
+    if (watchers.size === 0 && pendingFollows.size === 0) {
       unsubscribeWorkspaces?.()
       unsubscribeWorkspaces = null
     }
@@ -883,7 +897,14 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
 
       subscribe(ref, cb) {
         requireRead(moduleId)
-        if (!isRef(ref) || !findOwned(moduleId, ref)) throw new Error(notOwned(ref).message)
+        if (!isRef(ref)) throw new Error('A conversation ref names its workspaceId and agentId.')
+        // Attached whether or not the chat is known yet: at startup a saved
+        // chat's workspace may not be loaded, and a subscribe made then would
+        // otherwise be refused for a chat that is the module's. Nothing leaks
+        // by it: every event is checked against the chat's owner as it
+        // arrives, so a ref naming a chat that is not the module's (or
+        // nothing) delivers nothing, ever — the same as a ref to a chat that
+        // is quiet, so it is no probe either.
         const key = refKey(ref)
         const subscriber: Subscriber = { moduleId, ref: { workspaceId: ref.workspaceId, agentId: ref.agentId }, cb }
         const set = subscribers.get(key) ?? new Set()
@@ -899,12 +920,11 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
 
       follow(ref, options, onFrame) {
         requireRead(moduleId)
-        if (!isRef(ref)) throw new Error(notOwned(ref).message)
-        const owned = findOwned(moduleId, ref)
-        if (!owned) throw new Error(notOwned(ref).message)
-        if (!owned.workingRoot) throw new Error(`Workspace "${ref.workspaceId}" has no project folder.`)
+        if (!isRef(ref)) throw new Error('A conversation ref names its workspaceId and agentId.')
         const cursor = followCursor(options)
         if (typeof cursor === 'string') throw new Error(cursor)
+        const owned = findOwned(moduleId, ref)
+        if (owned && !owned.workingRoot) throw new Error(`Workspace "${ref.workspaceId}" has no project folder.`)
         const followed = { workspaceId: ref.workspaceId, agentId: ref.agentId }
         let open = true
         const deliver = (frame: ModuleConversationStreamFrame) => {
@@ -920,27 +940,53 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
           open = false
           handle?.dispose()
           follows.delete(close)
+          if (pendingFollows.delete(retry)) releaseIfIdle()
+        }
+        const start = (chat: OwnedChat) => {
+          if (!chat.workingRoot) {
+            close()
+            deliver({ type: 'error', message: `Workspace "${ref.workspaceId}" has no project folder.` })
+            return
+          }
+          handle = deps.follow(
+            {
+              key: { workspaceRoot: chat.workingRoot, workspaceId: ref.workspaceId, agentId: ref.agentId },
+              ...cursor,
+            },
+            (frame) => {
+              if (!open) return
+              // Read live, as `subscribe` reads it: a permission narrowed, or a
+              // chat's record gone, ends the stream with a sentence.
+              if (!canRead(moduleId) || !findOwned(moduleId, followed)) {
+                close()
+                deliver({ type: 'error', message: 'This conversation is no longer readable by this module.' })
+                return
+              }
+              deliver(redactFrame(frame))
+            },
+          )
+          // A follow undone before the join answered drops what it set up.
+          if (!open) handle.dispose()
+        }
+        // A chat the host does not know yet (its workspace not loaded at
+        // startup) is followed from the moment it is known to be the module's,
+        // as `subscribe` attaches to it. Until then the follow delivers
+        // nothing, which is also all a ref to another's chat ever gets.
+        function retry(): void {
+          if (!open || !canRead(moduleId)) return
+          const known = findOwned(moduleId, followed)
+          if (!known) return
+          pendingFollows.delete(retry)
+          releaseIfIdle()
+          start(known)
         }
         follows.add(close)
-        handle = deps.follow(
-          {
-            key: { workspaceRoot: owned.workingRoot, workspaceId: ref.workspaceId, agentId: ref.agentId },
-            ...cursor,
-          },
-          (frame) => {
-            if (!open) return
-            // Read live, as `subscribe` reads it: a permission narrowed, or a
-            // chat's record gone, ends the stream with a sentence.
-            if (!canRead(moduleId) || !findOwned(moduleId, followed)) {
-              close()
-              deliver({ type: 'error', message: 'This conversation is no longer readable by this module.' })
-              return
-            }
-            deliver(redactFrame(frame))
-          },
-        )
-        // A follow undone before the join answered drops what it set up.
-        if (!open) handle.dispose()
+        if (owned) {
+          start(owned)
+        } else {
+          pendingFollows.add(retry)
+          ensureListening()
+        }
         return close
       },
 
@@ -1015,6 +1061,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     registry,
     dispose() {
       for (const close of [...follows]) close()
+      pendingFollows.clear()
       subscribers.clear()
       watchers.clear()
       unsubscribeWorkspaces?.()
