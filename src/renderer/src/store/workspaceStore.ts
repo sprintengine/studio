@@ -18,7 +18,6 @@ import type {
   AgentConfigAdoptionResult,
   AgentConversationRuntime,
   AppSettings,
-  VoiceDictationSettings,
   CliRuntimeSettings,
   NewChatAgentChoice,
   AgentExecution,
@@ -317,7 +316,6 @@ export interface WorkspaceStore
   /** Keep the app (and its running agents) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
   setTelemetryEnabled: (enabled: boolean) => void
-  setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /** Drop what the app kept for uninstalled modules: the enablement choice and the settings namespace. */
   forgetModules: (moduleIds: readonly string[]) => void

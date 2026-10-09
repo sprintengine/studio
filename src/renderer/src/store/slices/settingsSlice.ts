@@ -32,8 +32,6 @@ import type {
   NewChatAgentChoice,
   AgentConversationRuntime,
   CliPermissionPreset,
-  VoiceDictationModel,
-  VoiceDictationSettings,
   Workspace,
 } from '../../types/workspace'
 import type { DiscoveredCliModel, DiscoveredCliModelCatalog } from '../../../../shared/cli-model-catalog'
@@ -226,44 +224,6 @@ export function normalizeMcpSettings(value: unknown): McpSettings {
   return {
     syncEnabled: candidate.syncEnabled === true,
     servers,
-  }
-}
-
-const VOICE_DICTATION_MODELS: readonly VoiceDictationModel[] = [
-  'tiny',
-  'base',
-  'small',
-  'medium',
-  'large-v2',
-  'large-v3',
-  'large-v3-turbo',
-]
-
-export function defaultVoiceDictationSettings(): VoiceDictationSettings {
-  return {
-    // Multivoice transcription-host default bind address.
-    serverUrl: 'http://127.0.0.1:48173',
-    authToken: '',
-    model: 'small',
-    language: 'auto',
-  }
-}
-
-export function normalizeVoiceDictationSettings(settings: unknown): VoiceDictationSettings {
-  const defaults = defaultVoiceDictationSettings()
-  if (!settings || typeof settings !== 'object') return defaults
-  const candidate = settings as Partial<VoiceDictationSettings>
-  return {
-    serverUrl: typeof candidate.serverUrl === 'string' ? candidate.serverUrl.trim() : defaults.serverUrl,
-    authToken: typeof candidate.authToken === 'string' ? candidate.authToken : defaults.authToken,
-    model:
-      typeof candidate.model === 'string' && VOICE_DICTATION_MODELS.includes(candidate.model as VoiceDictationModel)
-        ? (candidate.model as VoiceDictationModel)
-        : defaults.model,
-    language:
-      typeof candidate.language === 'string' && candidate.language.trim()
-        ? candidate.language.trim()
-        : defaults.language,
   }
 }
 
@@ -716,7 +676,6 @@ export const defaultAppSettings = (): AppSettings => ({
   // the marker rule treats as "already seen, except the last thirty days".
   designSystemSeen: {},
   appearance: defaultAppearanceSettings(),
-  voiceDictation: defaultVoiceDictationSettings(),
   modules: {},
   moduleSettings: {},
   modulesChosen: false,
@@ -785,7 +744,6 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     designProjectScopePath: normalizeFolderPathSetting(settings?.designProjectScopePath),
     designSystemSeen: normalizeDesignSystemSeen(settings?.designSystemSeen),
     appearance: normalizeAppearanceSettings(settings?.appearance),
-    voiceDictation: normalizeVoiceDictationSettings(settings?.voiceDictation),
     modules: normalizeModuleOverrides(settings?.modules),
     moduleSettings: liftRetiredModuleSettings(normalizeModuleSettings(settings?.moduleSettings), settings),
     // Existing installs (already have workspaces) are treated as chosen so the
@@ -1111,7 +1069,6 @@ export interface SettingsSliceActions {
   /** Keep the app (and its running agents) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
   setTelemetryEnabled: (enabled: boolean) => void
-  setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setAppearanceTheme: (theme: AppTheme) => void
   setAppearanceWindowMaterial: (material: WindowMaterial) => void
   setAppearanceChatContrast: (contrast: number) => void
@@ -1762,14 +1719,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setTelemetryEnabled: (enabled) =>
       set((state) => {
         state.appSettings.telemetryEnabled = enabled !== false
-      }),
-
-    setVoiceDictationSettings: (update) =>
-      set((state) => {
-        state.appSettings.voiceDictation = normalizeVoiceDictationSettings({
-          ...(state.appSettings.voiceDictation ?? defaultVoiceDictationSettings()),
-          ...update,
-        })
       }),
 
     setAppearanceTheme: (theme) =>

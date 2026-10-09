@@ -89,8 +89,11 @@ export async function runScheduledAgent(
       prompt: agent.prompt,
       ...(agent.skills.length > 0 ? { skills: agent.skills.map((skill) => skill.id) } : {}),
       ...(agent.mcpServers.length > 0 ? { connectorIds: agent.mcpServers.map((server) => server.id) } : {}),
+      // The extension that made the schedule owns each run's chat, so its
+      // conversation service reaches it, and its tag rides on the chat.
       ...(agent.ownerModuleId ? { ownerModuleId: agent.ownerModuleId } : {}),
       scheduledAgentId: agent.id,
+      ...(agent.tag ? { scheduledAgentTag: agent.tag } : {}),
       // A run starts on the schedule's time, not on anyone's request, so it
       // must not take the window from whatever the person is doing; it waits
       // in the list with the schedule's clock on it.
@@ -108,7 +111,7 @@ export async function runScheduledAgent(
   }
   if (refusedBeforeLaunch !== null) return { at, ok: false, message: refusedBeforeLaunch }
   launchedWorkspaceId = launched.workspaceId
-  return { at, ok: true, workspaceId: launched.workspaceId }
+  return { at, ok: true, workspaceId: launched.workspaceId, agentId: launched.agentId }
 }
 
 /**

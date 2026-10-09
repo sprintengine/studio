@@ -9,7 +9,7 @@ import { collapseDuplicateKeybindings } from '../commands/keybindings'
 import type { CommandAvailability, CommandContribution, CommandScope, ModuleCommandContext } from '../commands/types'
 import type { AppNotification, LayoutTemplate, Workspace } from '../types/workspace'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../utils/backlog'
-import type { ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
+import type { ModuleWorkspaceGitInfoResult, ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
 import { AGENT_RUNTIME_MODULE_ID } from '../../../shared/backlog/agent-links'
 import type { WorkspaceFileWatcher, WorkspaceFileWatchEvent } from './workspace-file-watch'
 import type { ColorSchemeWatcher, ModuleColorScheme } from './color-scheme-watch'
@@ -23,6 +23,19 @@ import type {
   ModuleOpenChatResult,
 } from '../../../shared/modules/conversation-service'
 import { getWorkspaceChatOpener } from './chat-opener'
+import type {
+  BacklogWatchError,
+  BacklogWatchOptions,
+  ModuleBacklogCreated,
+  ModuleBacklogCreateInput,
+  ModuleBacklogLinkInput,
+  ModuleBacklogLocation,
+  ModuleBacklogResult,
+  ModuleBacklogTriageInput,
+} from '../../../shared/modules/backlog-service'
+import type { UsageQuery, UsageQueryResult } from '../../../shared/modules/activity-service'
+import type { ModuleHostServiceName } from '../../../shared/modules/host-service-bridge'
+import { publishSurfaceView } from '../components/workspace/surfaceView'
 
 // Renderer-side host kernel. Mirrors the main-process MainHost: capability
 // modules register their contributions (panels for now) into shared registries
@@ -340,7 +353,12 @@ export type NotificationAction = {
 }
 
 export type NotificationActionProvider = {
-  /** The notification source this provider owns — the emitter tag its module writes. */
+  /**
+   * The notification source this provider owns — the emitter tag its module
+   * writes. A module's own `notify` rows are keyed by its module id, so a
+   * provider registered with `source: host.moduleId` adds actions to them; a
+   * third-party module may register no other source.
+   */
   source: string
   resolveActions(context: NotificationActionContext): NotificationAction[]
 }
@@ -374,12 +392,18 @@ export type ModuleCommandDefinition = {
    */
   availability?: readonly CommandAvailability[] | ((context: ModuleCommandContext) => boolean)
   allowInEditableTarget?: boolean
-  run: () => void | Promise<void>
+  /**
+   * The handler. It receives the same `ModuleCommandContext` the availability
+   * predicate was evaluated against, from the window the command ran in — so
+   * "this workspace" is the one the person was looking at. A zero-argument
+   * handler is still a valid one.
+   */
+  run: (context: ModuleCommandContext) => void | Promise<void>
 }
 
 export type RegisteredModuleCommand = CommandContribution & {
   moduleId: string
-  run: () => void | Promise<void>
+  run: (context: ModuleCommandContext) => void | Promise<void>
 }
 
 // A Settings overlay section contributed by a module. The host owns
@@ -423,13 +447,17 @@ export type RegisteredSettingsSection = SettingsSectionDefinition & {
 // shared/modules/workspace-view so the renderer and main surfaces can't drift.
 export type { ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
 
-// A top-nav door a module contributes to the workspace sidebar's instance-level
-// nav cluster (the band that holds New chat, Automations, Connectors).
-// The entry is a self-contained row component so it owns its full behavior —
-// a status dot, an open action against the LOCAL window's store, active-state —
-// exactly like the shell's own doors; the host only owns placement + gating.
-// Consumers filter by the owning module's enablement and sort by `order`, so a
-// module toggle adds/removes its door without a reload, at a deterministic slot.
+// A module's own row component for its door. The sidebar's instance-level nav
+// cluster these were first drawn in is gone (Extensions drawer ruling,
+// 2026-09-05): a door is a row of the Extensions drawer now, so that is where
+// a nav entry is drawn — AS its door's row, in place of the generic
+// label-and-glyph one, when its id is the id of a global surface the same
+// module registered (the door contract: entry id == surface id). An entry that
+// names no surface of its module's is not drawn; there is no row for it to be.
+// The component owns its full behaviour — an open action against the LOCAL
+// window's store, its own reading of selected — and wears the `badge` the host
+// derived for the row. Consumers filter by the owning module's enablement, so a
+// module toggle adds/removes the row without a reload.
 export type SidebarNavEntryRenderProps = {
   /** The sidebar is collapsed to the icon rail; render icon-only with a tooltip. */
   collapsed: boolean
@@ -447,12 +475,12 @@ export type SidebarNavEntryComponent =
   ComponentType<SidebarNavEntryRenderProps> | LazyExoticComponent<ComponentType<SidebarNavEntryRenderProps>>
 
 export type SidebarNavEntryDefinition = {
+  /** The id of the global surface this row is the door of (`registerGlobalSurface`). */
   id: string
   /**
-   * Sort key within the top-nav cluster; lower renders first. The shell's
-   * built-in doors reserve Create=0, Automations=10, Connectors=30,
-   * so a module door slots deterministically around them (40 and up lands after
-   * Connectors). Ties break on id.
+   * Sort key among nav entries; lower first, ties break on id. Installed doors
+   * sit in the drawer in surface-id order after the product's own rows, so
+   * this only orders entries against each other.
    */
   order: number
   /** The row. Rendered as its own element so it may use hooks and own its behavior. */
@@ -469,7 +497,12 @@ export type RegisteredSidebarNavEntry = SidebarNavEntryDefinition & {
  * the row is absent with the module, so a count with no row never appears.
  */
 export type DoorBadgeContribution = {
-  /** Matches a sidebar nav entry id / Extensions drawer row id. */
+  /**
+   * The row that wears the count: a fixed Extensions drawer row id (`design`,
+   * `plugins`, `skills`) for a bundled module, or — for an installed module —
+   * the id of a global surface it registered. A surface with several `views`
+   * wears it on its first row.
+   */
   rowId: string
   /** Live items on this door waiting on the operator. Not a React hook. */
   getWaitingCount(): number
@@ -729,8 +762,15 @@ export type RegisteredModalSurfaceLauncher = ModalSurfaceLauncher & {
 // never imports backlog internals.
 export type BacklogReader = {
   list(workspaceId: string): Promise<BacklogItem[]>
-  /** Fires once with the current snapshot, then on every change; returns the unsubscriber. */
-  watch(workspaceId: string, cb: (items: BacklogItem[]) => void): () => void
+  /**
+   * Fires once with the current snapshot, then on every change; returns the
+   * unsubscriber. `onError` hears each snapshot that could not be delivered.
+   */
+  watch(
+    workspaceId: string,
+    cb: (items: BacklogItem[]) => void,
+    onError?: (error: BacklogWatchError) => void,
+  ): () => void
 }
 
 // Backing store for the per-module workspace-state accessors. The
@@ -763,9 +803,53 @@ export type ModuleAppStateStore = {
 // events. One preload listener backs every module's subscriptions.
 export type ModuleEventSource = (cb: (envelope: ModuleEventEnvelope) => void) => () => void
 
+// ── Shell feedback, links and context for module code ──────────────────────
+
+/** A toast's tone: the toast region's own vocabulary (components/ui/tokens `Tone`). */
+export type ModuleToastTone = 'neutral' | 'accent' | 'good' | 'warn' | 'error'
+
+/**
+ * Transient feedback — the answer to "did it work?" after a command or a click
+ * in a door. Rides the app's one toast region, under the module's name, and
+ * leaves on its own (polite tones after 5 s, warn and error after 10 s,
+ * held while hovered). Anything the person must be able to find again belongs
+ * in the bell (`MainHost.notify`), not here.
+ */
+export type ModuleToastInput = {
+  tone: ModuleToastTone
+  /** One line, sentence case. Non-empty; clipped at 200 characters. */
+  message: string
+  /** An optional second line; clipped at 500 characters. */
+  detail?: string
+  /** At most one button. Pressing it runs `run` and dismisses the toast. */
+  action?: { label: string; run: () => void | Promise<void> }
+}
+
+/** What the shell's toast region takes from a module toast; the module's name is stamped by the host. */
+export type ModuleToastSink = (input: ModuleToastInput & { moduleId: string; moduleName: string }) => () => void
+
+export type ModuleOpenExternalResult =
+  { ok: true } | { ok: false; code: 'invalid_url' | 'unavailable' | 'failed'; message: string }
+
+/** The shell's own external-link path (`window.api.openExternal`): the system browser, never this window. */
+export type ModuleExternalLinkOpener = (url: string) => Promise<{ ok: true } | { ok: false; message: string }>
+
+/** The workspace this window is showing, for `getActiveWorkspaceId` / `watchActiveWorkspace`. */
+export type ActiveWorkspaceSource = {
+  get(): string | null
+  /** `onChange` may fire for unrelated writes; the kernel dedupes. Returns the unsubscriber. */
+  subscribe(onChange: () => void): () => void
+}
+
 export type RendererHost = {
   /** The host API this app provides; see shared/modules/host-api.ts. */
   readonly hostApiVersion: number
+  /**
+   * This module's id: the one its manifest declares, which every scoped call
+   * is stamped with — the prefix its `invoke` channels carry, the `source`
+   * its notification rows are filed under.
+   */
+  readonly moduleId: string
   /** Whether this host provides `capability` now; false for names it does not know. */
   supports(capability: HostCapability): boolean
   /** Stable URL for a file packaged inside this trusted module. Relative HTML assets and workers retain this module origin. */
@@ -786,17 +870,22 @@ export type RendererHost = {
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
   /**
-   * Contribute a top-nav door to the workspace sidebar's instance-level nav
-   * cluster. Registered unconditionally at boot; the sidebar filters by this
-   * module's enablement and orders by `order`, so a module toggle shows/hides
-   * the door without a reload. The row acts on the local window's store.
+   * Contribute this module's own row component for one of its doors: drawn in
+   * the Extensions drawer AS the row of the global surface with the same id,
+   * in place of the generic label-and-glyph row, and handed the row's `badge`.
+   * An entry whose id names no global surface of this module's is not drawn.
+   * Registered unconditionally at boot; the drawer filters by this module's
+   * enablement, so a toggle shows/hides the row without a reload.
    */
   registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
   /**
-   * Contribute the waiting-count a drawer / nav-entry row wears. The shell
-   * merges this with that row's unread bell news; the contribution is gone
-   * with the module, so a count with no row never appears. Duplicate `rowId`
-   * is a registration error.
+   * Contribute the waiting-count a drawer row wears: `rowId` is the id of one
+   * of this module's global surfaces (or a fixed drawer row, for a bundled
+   * module). The shell merges it with the row's unread bell news — this
+   * module's `notify` rows that name the door as their `target` — and the
+   * app rail's Extensions square sums the rows. The contribution is gone with
+   * the module, so a count with no row never appears. Duplicate `rowId` is a
+   * registration error.
    */
   registerDoorBadge(contribution: DoorBadgeContribution): void
   /**
@@ -847,14 +936,35 @@ export type RendererHost = {
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`. The channel must be `<moduleId>:`-prefixed —
    * validated here before any IPC, and again by the main-side dispatcher,
-   * which requires the owning module to declare the `ipc:invoke` permission.
+   * which requires the owning module to declare `module:bridge` (or the broad
+   * `ipc:invoke` it was split out of).
    * A contract, not a security boundary.
    */
   invoke(channel: string, payload?: unknown): Promise<unknown>
-  /** The workspace's Backlog items (read-only views; mutate via BacklogItemActionContext). */
+  /** The workspace's Backlog items (read-only views; change them with the write methods below). Requires `backlog.read`. */
   listBacklogItems(workspaceId: string): Promise<BacklogItem[]>
-  /** Observe the workspace's Backlog: fires with the current snapshot, then on change. */
-  watchBacklogItems(workspaceId: string, cb: (items: BacklogItem[]) => void): () => void
+  /**
+   * Observe the workspace's Backlog: fires with the current snapshot, then on
+   * change. `options.onError` hears why a snapshot could not be delivered; the
+   * watch stays open. Requires `backlog.read`.
+   */
+  watchBacklogItems(workspaceId: string, cb: (items: BacklogItem[]) => void, options?: BacklogWatchOptions): () => void
+  // ── Backlog writes and usage, through main's moduleId-first registries ──
+  // (shared/modules/host-service-bridge.ts). Result-shaped, never a throw.
+  getBacklogLocation(workspaceId: string): Promise<ModuleBacklogResult<{ location: ModuleBacklogLocation }>>
+  createBacklogItem(
+    workspaceId: string,
+    input: ModuleBacklogCreateInput,
+  ): Promise<ModuleBacklogResult<ModuleBacklogCreated>>
+  updateBacklogStatus(workspaceId: string, itemId: string, status: BacklogItemStatus): Promise<ModuleBacklogResult>
+  updateBacklogTriage(
+    workspaceId: string,
+    itemId: string,
+    triage: ModuleBacklogTriageInput,
+  ): Promise<ModuleBacklogResult>
+  addBacklogLink(workspaceId: string, itemId: string, link: ModuleBacklogLinkInput): Promise<ModuleBacklogResult>
+  updateBacklogModuleMetadata(workspaceId: string, itemId: string, value: unknown): Promise<ModuleBacklogResult>
+  queryUsage(query: UsageQuery): Promise<UsageQueryResult>
   /**
    * Resolve a workspace id to its read-only view. Null means "not currently
    * resolvable" — an unknown id, or early boot before the shell wires the
@@ -871,6 +981,16 @@ export type RendererHost = {
    * Disclosure permission: `ipc:workspace-read`.
    */
   listWorkspaces(): Promise<ModuleWorkspaceView[]>
+  /**
+   * A workspace's checked-out branch (null when detached) and its remotes,
+   * each with `owner/repo` when it is a GitHub repository — SSH host aliases
+   * from ~/.ssh/config resolved. Read by git from the workspace's working
+   * root, so a worktree reports its own branch and a submodule its own
+   * remotes. The `entry.main` twin is `MainHost.getWorkspaceGitInfo`.
+   * Requires `ipc:workspace-read` (checked: `permission_missing` without it).
+   * Never throws.
+   */
+  getWorkspaceGitInfo(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
   /**
    * Observe the open workspaces: `cb` fires once with the current list, then
    * on every change (deduped by value, so an unrelated store write does not
@@ -979,8 +1099,11 @@ export type RendererHost = {
   focusTab(input: ModuleFocusTabInput): boolean
   /**
    * Open a chat in a workspace and focus it; the prompt lands as a draft
-   * unless `send: true`. Answers `unavailable` until the shell registers its
-   * opener (see chat-opener.ts). Requires `conversation:operate`.
+   * unless `send: true`. `name` titles it, and `dedupeKey` focuses the chat
+   * this module opened under that key instead of opening another. Answers
+   * `unavailable` until the shell registers its opener (see chat-opener.ts).
+   * A draft requires `chat:draft` or `conversation:operate`; `send: true`
+   * requires `conversation:operate`.
    */
   openChat(input: ModuleOpenChatInput): Promise<ModuleOpenChatResult>
   /**
@@ -989,6 +1112,41 @@ export type RendererHost = {
    * shell wires the catalog.
    */
   listChatRuntimes(): ModuleChatRuntimeOption[]
+  /**
+   * Show a toast: transient feedback in the app's toast region, under this
+   * module's name. Returns its dismisser. An empty message or an unknown tone
+   * throws; while this module is disabled, or before the window has wired its
+   * toast region (`supports('toast')`), nothing shows and the dismisser is a
+   * no-op.
+   */
+  toast(input: ModuleToastInput): () => void
+  /**
+   * The workspace this window is showing, or null — none is open, or a door
+   * holds the card region with no workspace behind it. Null before the shell
+   * wires workspace state.
+   */
+  getActiveWorkspaceId(): string | null
+  /**
+   * Observe the workspace this window is showing: `cb` fires once with the
+   * current id, then whenever it changes (deduped). Returns the unsubscriber;
+   * call it on unmount.
+   */
+  watchActiveWorkspace(cb: (workspaceId: string | null) => void): () => void
+  /**
+   * Say which of this module's surface `views` the surface is showing, so
+   * exactly that drawer row reads selected — including after the person moved
+   * with the surface's own rail. `null` says it shows none (call it as the
+   * surface unmounts). False for a surface this module did not register, a
+   * view id the surface does not declare, or while the module is disabled.
+   */
+  setSurfaceView(surfaceId: string, viewId: string | null): boolean
+  /**
+   * Open an http(s) URL in the system browser, through the app's own
+   * external-link path — never in this window. Anything else is refused as
+   * `invalid_url` before it leaves the renderer; `unavailable` while this
+   * module is disabled or before the window has wired its link opener.
+   */
+  openExternal(url: string): Promise<ModuleOpenExternalResult>
 }
 
 // What a bundled module's renderer half receives: the published surface plus
@@ -1182,6 +1340,54 @@ export type RendererKernel = {
    * boot, tests) the list reads empty.
    */
   setChatRuntimeSource(source: () => ModuleChatRuntimeOption[]): void
+  /**
+   * Source for `RendererHost.getWorkspaceGitInfo`. Wired once at boot by
+   * modules/index.ts (store working root + the shell's git read over IPC);
+   * absent (early boot, tests) every read answers `unavailable`.
+   */
+  setWorkspaceGitInfoSource(source: (workspaceId: string) => Promise<ModuleWorkspaceGitInfoResult>): void
+  /**
+   * This window files module notifications into its bell (modules/index.ts
+   * wires the push channel). What `RendererHost.supports('notifications')`
+   * answers.
+   */
+  setModuleNotificationsWired(wired: boolean): void
+  /**
+   * The toast region behind `RendererHost.toast`, set by the window's toast
+   * host while it is mounted and cleared (null) when it unmounts. Absent,
+   * `supports('toast')` is false and a toast shows nothing.
+   */
+  setToastSink(sink: ModuleToastSink | null): void
+  /** The link path behind `RendererHost.openExternal`. Absent, it answers `unavailable`. */
+  setExternalLinkOpener(opener: ModuleExternalLinkOpener): void
+  /** Source for `RendererHost.getActiveWorkspaceId` / `watchActiveWorkspace`. Absent, both read null. */
+  setActiveWorkspaceSource(source: ActiveWorkspaceSource): void
+  /**
+   * A module notification row's Open: the opener for `target` when it names
+   * one of `moduleId`'s own global surfaces (and, given, one of its views) and
+   * the module is enabled; null otherwise — a row can never open another
+   * module's door. Runs the view's `open` (or the surface's `onOpen`) first,
+   * the order every deep-link opener uses.
+   */
+  moduleSurfaceTargetOpener(moduleId: string, target: { surfaceId: string; viewId?: string }): (() => void) | null
+}
+
+const MAX_TOAST_MESSAGE_LENGTH = 200
+const MAX_TOAST_DETAIL_LENGTH = 500
+const TOAST_TONES: ReadonlySet<string> = new Set<ModuleToastTone>(['neutral', 'accent', 'good', 'warn', 'error'])
+
+// What `openExternal` takes: an absolute http(s) URL and nothing else, checked
+// before it leaves the renderer (main's own check stays the last word).
+function externalHttpUrl(url: unknown): string | null {
+  if (typeof url !== 'string' || url.trim().length === 0) return null
+  try {
+    const parsed = new URL(url.trim())
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+    if (parsed.username || parsed.password) return null
+    return parsed.toString()
+  } catch {
+    return null
+  }
 }
 
 const SHELL_COMMAND_IDS: ReadonlySet<string> = new Set(COMMAND_REGISTRY.map((command) => command.id))
@@ -1281,8 +1487,15 @@ export function createRendererHost(): RendererKernel {
   let workspaceFileWatcher: WorkspaceFileWatcher | null = null
   let tabFocuser: ModuleTabFocuser | null = null
   let chatRuntimeSource: (() => ModuleChatRuntimeOption[]) | null = null
+  let workspaceGitInfoSource: ((workspaceId: string) => Promise<ModuleWorkspaceGitInfoResult>) | null = null
   let workspaceListSource: WorkspaceListSource | null = null
   let colorSchemeWatcher: ColorSchemeWatcher | null = null
+  let moduleNotificationsWired = false
+  let toastSink: ModuleToastSink | null = null
+  let externalLinkOpener: ModuleExternalLinkOpener | null = null
+  let activeWorkspaceSource: ActiveWorkspaceSource | null = null
+  const moduleIsDisabled = (moduleId: string): boolean =>
+    moduleEnabledResolver !== null && !moduleEnabledResolver(moduleId)
   const agentRuntimeDisabled = (): boolean =>
     moduleEnabledResolver !== null && !moduleEnabledResolver(AGENT_RUNTIME_MODULE_ID)
   // Shared gate for the live-runtime methods: the error names the
@@ -1311,6 +1524,50 @@ export function createRendererHost(): RendererKernel {
     }
     return backlogReader.reader
   }
+  // The Backlog reads are checked against the declared `backlog.read` for a
+  // third-party module. A bundled module is the app's own code and declares
+  // nothing; it is not held to a disclosure list.
+  const requireBacklogRead = (moduleId: string, manifest: CapabilityManifest | undefined): void => {
+    if (manifest?.source !== 'third-party' || manifest.permissions?.includes('backlog.read')) return
+    throw new Error(
+      `Module "${moduleId}" does not declare the "backlog.read" permission, so it cannot read the Backlog.`,
+    )
+  }
+  // A call into one of main's moduleId-first registries. Main checks the
+  // permission; a refusal or a missing door comes back as data.
+  const callHostService = async <T>(
+    moduleId: string,
+    service: ModuleHostServiceName,
+    method: string,
+    args: unknown[],
+    unavailableCode: string,
+  ): Promise<T> => {
+    const invoke = typeof window === 'undefined' ? undefined : window.api?.moduleHostServiceInvoke
+    if (!invoke) {
+      return { ok: false, code: unavailableCode, message: `The ${service} service is not available here.` } as T
+    }
+    try {
+      return (await invoke({ moduleId, service, method, args })) as T
+    } catch (error) {
+      return {
+        ok: false,
+        code: unavailableCode,
+        message: error instanceof Error ? error.message : String(error),
+      } as T
+    }
+  }
+  // The Backlog writes follow the Backlog module's enablement like its reads:
+  // switched off, the Backlog is off for modules too.
+  const callBacklog = <T extends object = object>(
+    moduleId: string,
+    method: string,
+    args: unknown[],
+  ): Promise<ModuleBacklogResult<T>> => {
+    if (backlogReader && moduleEnabledResolver && !moduleEnabledResolver(backlogReader.moduleId)) {
+      return Promise.resolve({ ok: false, code: 'backlog_unavailable', message: 'The Backlog module is disabled.' })
+    }
+    return callHostService<ModuleBacklogResult<T>>(moduleId, 'backlog', method, args, 'backlog_unavailable')
+  }
   const enabledModuleCommands = (moduleEnabled?: (moduleId: string) => boolean): RegisteredModuleCommand[] =>
     [...moduleCommands.values()]
       .filter((command) => !moduleEnabled || moduleEnabled(command.moduleId))
@@ -1326,12 +1583,18 @@ export function createRendererHost(): RendererKernel {
       })
   return {
     hostFor(moduleId, manifest) {
+      const moduleName = manifest?.displayName?.trim() || moduleId
       return {
         hostApiVersion: HOST_API_VERSION,
+        moduleId,
         supports(capability) {
           // Opening a chat needs the shell's opener, which a window registers
-          // once it mounts; the answer follows it rather than a table.
-          if (capability === 'chat.open') return getWorkspaceChatOpener() !== null
+          // once it mounts; the answer follows it rather than a table. The
+          // same for every capability that is a window's wiring, not a build's.
+          if (capability === 'chat.open' || capability === 'chat.open-options') return getWorkspaceChatOpener() !== null
+          if (capability === 'notifications') return moduleNotificationsWired
+          if (capability === 'toast') return toastSink !== null
+          if (capability === 'open-external') return externalLinkOpener !== null
           return hostSupports(capability)
         },
         registerPanel(componentId, component) {
@@ -1394,6 +1657,14 @@ export function createRendererHost(): RendererKernel {
           }
         },
         registerNotificationActionProvider(provider) {
+          // An installed module's rows are filed under its own id, and that is
+          // the only source it may claim: a provider on a core source would
+          // put its actions on rows the app wrote.
+          if (manifest?.source === 'third-party' && provider.source !== moduleId) {
+            throw new Error(
+              `Module "${moduleId}" may only register a notification action provider for its own rows (source "${moduleId}"); got "${provider.source}".`,
+            )
+          }
           if (notificationActionProviders.has(provider.source)) {
             const owner = notificationActionProviders.get(provider.source)
             throw new Error(
@@ -1602,26 +1873,63 @@ export function createRendererHost(): RendererKernel {
           backlogReader = { moduleId, reader }
         },
         async listBacklogItems(workspaceId) {
+          requireBacklogRead(moduleId, manifest)
           return requireBacklogReader().list(workspaceId)
         },
-        watchBacklogItems(workspaceId, cb) {
+        watchBacklogItems(workspaceId, cb, options) {
+          requireBacklogRead(moduleId, manifest)
           const reader = requireBacklogReader()
-          return reader.watch(workspaceId, (items) => {
-            // Live gate on every delivery, not just at subscribe: an active
-            // watch stops streaming the moment the user disables the backlog
-            // module (and resumes on re-enable) instead of outliving the
-            // toggle. The provider is re-read so the gate follows ownership.
-            if (backlogReader && moduleEnabledResolver && !moduleEnabledResolver(backlogReader.moduleId)) {
-              return
-            }
-            try {
-              cb(items)
-            } catch (error) {
-              // A throwing module callback must not break the shared scan's
-              // emit loop for sibling subscribers (the Backlog panel included).
-              console.error(`[modules] backlog watch callback from module "${moduleId}" threw:`, error)
-            }
-          })
+          const backlogOff = (): boolean =>
+            backlogReader !== null && moduleEnabledResolver !== null && !moduleEnabledResolver(backlogReader.moduleId)
+          const onError = options?.onError
+          return reader.watch(
+            workspaceId,
+            (items) => {
+              // Live gate on every delivery, not just at subscribe: an active
+              // watch stops streaming the moment the user disables the backlog
+              // module (and resumes on re-enable) instead of outliving the
+              // toggle. The provider is re-read so the gate follows ownership.
+              if (backlogOff()) return
+              try {
+                cb(items)
+              } catch (error) {
+                // A throwing module callback must not break the shared scan's
+                // emit loop for sibling subscribers (the Backlog panel included).
+                console.error(`[modules] backlog watch callback from module "${moduleId}" threw:`, error)
+              }
+            },
+            onError
+              ? (error) => {
+                  if (backlogOff()) return
+                  try {
+                    onError(error)
+                  } catch (thrown) {
+                    console.error(`[modules] backlog watch onError from module "${moduleId}" threw:`, thrown)
+                  }
+                }
+              : undefined,
+          )
+        },
+        getBacklogLocation(workspaceId) {
+          return callBacklog(moduleId, 'getLocation', [workspaceId])
+        },
+        createBacklogItem(workspaceId, input) {
+          return callBacklog(moduleId, 'create', [workspaceId, input])
+        },
+        updateBacklogStatus(workspaceId, itemId, status) {
+          return callBacklog(moduleId, 'updateStatus', [workspaceId, itemId, status])
+        },
+        updateBacklogTriage(workspaceId, itemId, triage) {
+          return callBacklog(moduleId, 'updateTriage', [workspaceId, itemId, triage])
+        },
+        addBacklogLink(workspaceId, itemId, link) {
+          return callBacklog(moduleId, 'addLink', [workspaceId, itemId, link])
+        },
+        updateBacklogModuleMetadata(workspaceId, itemId, value) {
+          return callBacklog(moduleId, 'updateModuleMetadata', [workspaceId, itemId, value])
+        },
+        queryUsage(query) {
+          return callHostService<UsageQueryResult>(moduleId, 'usage', 'query', [query], 'unavailable')
         },
         getAssetUrl(relativePath) {
           if (moduleEnabledResolver && !moduleEnabledResolver(moduleId)) throw new Error('Module is disabled.')
@@ -1644,6 +1952,23 @@ export function createRendererHost(): RendererKernel {
         },
         async listWorkspaces() {
           return workspaceListSource ? workspaceListSource.list() : []
+        },
+        async getWorkspaceGitInfo(workspaceId) {
+          if (!manifest?.permissions?.includes('ipc:workspace-read')) {
+            return {
+              ok: false,
+              code: 'permission_missing',
+              message: `Module "${moduleId}" must declare the "ipc:workspace-read" permission to read a workspace's git information.`,
+            }
+          }
+          if (!workspaceGitInfoSource) {
+            return { ok: false, code: 'unavailable', message: 'Workspace git information is not available yet.' }
+          }
+          try {
+            return await workspaceGitInfoSource(workspaceId)
+          } catch {
+            return { ok: false, code: 'git_failed', message: "The workspace's git information could not be read." }
+          }
         },
         watchWorkspaces(cb) {
           // Unwired (early boot, windowless bundles) still honours the
@@ -1717,11 +2042,19 @@ export function createRendererHost(): RendererKernel {
           return requireAgentRuntime(tabFocuser, 'Tab focus')(input)
         },
         async openChat(input) {
-          if (!manifest?.permissions?.includes('conversation:operate')) {
+          // A draft the person reads and sends needs only `chat:draft`; a
+          // prompt sent for them is driving the chat, which is
+          // `conversation:operate`'s, as it is everywhere else.
+          const permissions = manifest?.permissions ?? []
+          const operate = permissions.includes('conversation:operate')
+          if (input?.send === true ? !operate : !operate && !permissions.includes('chat:draft')) {
             return {
               ok: false,
               code: 'permission_missing',
-              message: `Module "${moduleId}" does not declare the "conversation:operate" permission, so it cannot open a chat.`,
+              message:
+                input?.send === true
+                  ? `Module "${moduleId}" does not declare the "conversation:operate" permission, so it cannot open a chat and send its prompt.`
+                  : `Module "${moduleId}" declares neither "chat:draft" nor "conversation:operate", so it cannot open a chat.`,
             }
           }
           const opener = getWorkspaceChatOpener()
@@ -1732,6 +2065,110 @@ export function createRendererHost(): RendererKernel {
         },
         listChatRuntimes() {
           return chatRuntimeSource ? chatRuntimeSource() : []
+        },
+        toast(input) {
+          if (!input || typeof input !== 'object') throw new Error('toast(...) requires a payload object.')
+          if (typeof input.tone !== 'string' || !TOAST_TONES.has(input.tone)) {
+            throw new Error('toast(...) tone must be "neutral", "accent", "good", "warn" or "error".')
+          }
+          const message = typeof input.message === 'string' ? input.message.trim() : ''
+          if (message.length === 0) throw new Error('toast(...) requires a non-empty message.')
+          if (input.detail !== undefined && typeof input.detail !== 'string') {
+            throw new Error('toast(...) detail must be a string when provided.')
+          }
+          const action = input.action
+          if (
+            action !== undefined &&
+            (!action ||
+              typeof action.label !== 'string' ||
+              action.label.trim().length === 0 ||
+              typeof action.run !== 'function')
+          ) {
+            throw new Error('toast(...) action must be { label, run } with a non-empty label.')
+          }
+          if (!toastSink || moduleIsDisabled(moduleId)) return () => {}
+          const detail = input.detail?.trim()
+          return toastSink({
+            tone: input.tone,
+            message: message.slice(0, MAX_TOAST_MESSAGE_LENGTH),
+            ...(detail ? { detail: detail.slice(0, MAX_TOAST_DETAIL_LENGTH) } : {}),
+            ...(action
+              ? {
+                  action: {
+                    label: action.label.trim(),
+                    run: () => {
+                      // The module's handler, contained: a throw is the
+                      // module's bug, not the toast region's.
+                      try {
+                        void Promise.resolve(action.run()).catch((error: unknown) =>
+                          console.error(`[modules] toast action from module "${moduleId}" failed:`, error),
+                        )
+                      } catch (error) {
+                        console.error(`[modules] toast action from module "${moduleId}" threw:`, error)
+                      }
+                    },
+                  },
+                }
+              : {}),
+            moduleId,
+            moduleName,
+          })
+        },
+        getActiveWorkspaceId() {
+          return activeWorkspaceSource ? activeWorkspaceSource.get() : null
+        },
+        watchActiveWorkspace(cb) {
+          // Fires once either way, like watchWorkspaces: a door renders its
+          // no-workspace state rather than waiting for a first delivery.
+          if (!activeWorkspaceSource) {
+            cb(null)
+            return () => {}
+          }
+          const source = activeWorkspaceSource
+          let last = source.get()
+          cb(last)
+          return source.subscribe(() => {
+            const next = source.get()
+            if (next === last) return
+            last = next
+            try {
+              cb(next)
+            } catch (error) {
+              console.error(`[modules] active-workspace watcher from module "${moduleId}" threw:`, error)
+            }
+          })
+        },
+        setSurfaceView(surfaceId, viewId) {
+          const surface = typeof surfaceId === 'string' ? globalSurfaces.get(surfaceId.trim()) : undefined
+          if (surface?.moduleId !== moduleId || moduleIsDisabled(moduleId)) return false
+          if (viewId === null) {
+            publishSurfaceView(surface.id, null)
+            return true
+          }
+          const wanted = typeof viewId === 'string' ? viewId.trim() : ''
+          const view = surface.views?.find((candidate) => candidate.id === wanted)
+          if (!view) return false
+          publishSurfaceView(surface.id, view.id)
+          return true
+        },
+        async openExternal(url) {
+          const safe = externalHttpUrl(url)
+          if (!safe) {
+            return { ok: false, code: 'invalid_url', message: 'Only an absolute http(s) URL can be opened.' }
+          }
+          if (!externalLinkOpener || moduleIsDisabled(moduleId)) {
+            return { ok: false, code: 'unavailable', message: 'This window cannot open links yet.' }
+          }
+          try {
+            const result = await externalLinkOpener(safe)
+            return result.ok ? { ok: true } : { ok: false, code: 'failed', message: result.message }
+          } catch (error) {
+            return {
+              ok: false,
+              code: 'failed',
+              message: error instanceof Error ? error.message : 'Could not open the link.',
+            }
+          }
         },
         async invoke(channel, payload) {
           if (!channel.startsWith(`${moduleId}:`)) {
@@ -1909,11 +2346,46 @@ export function createRendererHost(): RendererKernel {
     setChatRuntimeSource(source) {
       chatRuntimeSource = source
     },
+    setWorkspaceGitInfoSource(source) {
+      workspaceGitInfoSource = source
+    },
     setWorkspaceListSource(source) {
       workspaceListSource = source
     },
     setColorSchemeWatcher(watcher) {
       colorSchemeWatcher = watcher
+    },
+    setModuleNotificationsWired(wired) {
+      moduleNotificationsWired = wired
+    },
+    setToastSink(sink) {
+      toastSink = sink
+    },
+    setExternalLinkOpener(opener) {
+      externalLinkOpener = opener
+    },
+    setActiveWorkspaceSource(source) {
+      activeWorkspaceSource = source
+    },
+    moduleSurfaceTargetOpener(moduleId, target) {
+      const surfaceId = typeof target?.surfaceId === 'string' ? target.surfaceId.trim() : ''
+      const surface = globalSurfaces.get(surfaceId)
+      if (!surface || surface.moduleId !== moduleId || !surfaceOpener) return null
+      if (moduleIsDisabled(moduleId)) return null
+      const viewId = typeof target.viewId === 'string' ? target.viewId.trim() : ''
+      const view = viewId ? surface.views?.find((candidate) => candidate.id === viewId) : undefined
+      // A view the surface no longer declares opens the surface plainly
+      // rather than not at all: the row still names this module's door.
+      const opener = surfaceOpener
+      return () => {
+        try {
+          if (view) view.open()
+          else surface.onOpen?.()
+        } catch (error) {
+          console.error(`[modules] surface "${surface.id}" of module "${moduleId}" failed to land its view:`, error)
+        }
+        opener.openGlobalSurface(surface.id)
+      }
     },
   }
 }

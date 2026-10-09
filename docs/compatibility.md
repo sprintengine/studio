@@ -120,8 +120,8 @@ already exist, and the first message goes once the install ends. It is an
 optional member with no capability: a client that does not read it sees the
 chat start a little later, and an older desktop never sends it. A paired
 desktop's New chat added two more (2026-10-09): `new-chat-worktree-name`
-(`conversation.create` takes `worktreeName`, the name a `worktree` is cut
-under) and `new-chat-in-worktree` (it takes `inWorktree`, a worktree the
+(`conversation.create` takes `worktreeName`, what a `worktree` and its
+branch are named from) and `new-chat-in-worktree` (it takes `inWorktree`, a worktree the
 project already has, by the path `workspace.checkout` lists). Its answer then
 names the `worktree` the chat runs in, an optional member like
 `dependencyInstall`. The desktop asking refuses a worktree a machine does not
@@ -171,7 +171,10 @@ HOST_API_VERSION`. `checkHostApiCompatibility` is the one check; it is
   `conversations`, `conversation-controls`, `conversation-streams`,
   `conversation-requests`, `conversation-permissions`, `chat.open`, `companion-agents`,
   `scheduled-agents`, `secrets`, `github`, `storage`, `mcp-tools`, `skills`,
-  `module-assets`, `notifications`, and `electron-main`, which the main host
+  `module-assets`, `notifications`, `companion-tools`, `conversation-replies`,
+  `text-generation`, `conversation-worktrees`, `chat-runtimes`,
+  `scheduled-agent-runs`, `chat.open-options` (a renderer's, answered live
+  like `chat.open`), and `electron-main`, which the main host
   answers itself: true in the desktop's own main process, false where a
   module's main half runs in the Studio server out of process.
 - **`requires.hostCapabilities`.** An optional manifest field (added with

@@ -1,0 +1,16 @@
+{
+  "id": "mcp",
+  "title": "MCP tools",
+  "summary": "Tools any agent in a workspace can call through the Studio MCP gateway, registered from entry.main.",
+  "requires": ["main"],
+  "permissions": ["mcp:tools"],
+  "dependsOn": [],
+  "entry": {},
+  "scripts": {},
+  "devDependencies": {},
+  "register": {
+    "in": "main",
+    "import": "import { registerTools } from './mcp-tools'",
+    "call": "registerTools(host)"
+  }
+}

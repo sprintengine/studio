@@ -24,7 +24,8 @@ grow this one into it.
 | Option | `.ds-select-option` | yes — `role="option"`, one per choice |
 | Check | `.ds-select-check` | on the selected option only |
 
-The trigger sits at `size.control.sm` — the height of every labelled control,
+The trigger sits at `size.control.sm` by default (see the sizes under
+Variants) — the height of every labelled control,
 so a select and an input on the same row share a baseline. The popup opens at
 least as wide as its trigger, caps its height and scrolls past ~8 rows, and is
 an overlay surface: `bg.surface-raised`, `border.strong`, `radius.overlay`,
@@ -48,8 +49,15 @@ state indicator — the visible popup is the state.
   means "look again before you rely on this" — risk. A good choice is the
   normal case and earns no color, and the accent belongs to the primary
   action, not to a value display.
-- **No size variants.** One control height; density comes from layout, not
-  from smaller selects.
+- **Sizes: `sm` (default), `xs`, `md`** (`ds-select--xs`, `ds-select--md`;
+  the shipped `size` prop). They are the control ramp's steps under the same
+  names the button and input use, so a select stands level with the controls
+  in its row: `sm` is `size.control.sm` and every labelled form field; `xs`
+  (`size.control.xs`, `font.size.meta`) is the dense toolbar step that sits in
+  a row of `xs` buttons; `md` (`size.control.md`, `space.lg` inset) sits
+  beside an `md` button. The options echo the trigger's type size. A size is
+  chosen to match the row, never to make a select quieter than the controls
+  beside it — density still comes from layout.
 
 ## States
 

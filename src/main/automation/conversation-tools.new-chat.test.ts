@@ -176,7 +176,7 @@ test('worktreeName with worktree reaches the launch as the new worktree’s name
     worktreeName: ' login-fix ',
   })
   assert.equal(result.isError, undefined)
-  assert.deepEqual(requests, [{ workspaceId: 'ws-1', newChat: true, newWorktree: true, newWorktreeName: 'login-fix' }])
+  assert.deepEqual(requests, [{ workspaceId: 'ws-1', newChat: true, newWorktree: true, worktreeName: 'login-fix' }])
 })
 
 test('inWorktree with newChat reaches the launch as the existing worktree to start in', async () => {

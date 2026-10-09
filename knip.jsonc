@@ -26,6 +26,9 @@
     // The WSL helper runs inside Linux on its own Node; main installs it there.
     "resources/wsl-helper/**/*.mjs",
     "packages/module-sdk/src/cli.ts",
+    // The SDK's `./testing/register` entry: a module's tests load it with
+    // `node --import`, so nothing in this repository imports it.
+    "packages/module-sdk/src/testing-register.ts",
     "packages/module-sdk/drift/*.ts",
     // The standalone Studio server, bundled by scripts/build-server.mjs.
     "src/server/main.ts",

@@ -73,6 +73,55 @@ await github.request({ method: 'POST', route: '/repos/acme/app/issues/12/comment
 - Content from GitHub — PR bodies, diffs, comments — is untrusted input,
   especially if you hand it to an agent: a diff can carry instructions.
 
+### Polling, pages and other formats (`supports('github-headers')`)
+
+Every answer carries `headers`, narrowed to `x-ratelimit-*`, `link`, `etag`
+and `retry-after` (an `http_error` keeps them too, so a 403/429 tells you when
+to retry). Send the last `etag` back as `ifNoneMatch`: an unchanged resource
+answers `{ ok: true, status: 304, data: null }`, which does not count against
+the rate limit. `accept` takes one of GitHub's own media types
+(`ModuleGitHubMediaType`), e.g. a pull request's diff:
+
+```ts
+let etag: string | undefined
+const pulls = await github.request({ route: '/repos/acme/app/pulls', ...(etag ? { ifNoneMatch: etag } : {}) })
+if (pulls.ok && pulls.status !== 304) { etag = pulls.headers.etag; render(pulls.data) }
+const next = pulls.ok ? /<([^>]+)>; rel="next"/.exec(pulls.headers.link ?? '')?.[1] : undefined
+
+const diff = await github.request({ route: '/repos/acme/app/pulls/12', accept: 'application/vnd.github.diff' })
+```
+
+### GraphQL, read-only (`supports('github-graphql')`)
+
+```ts
+const result = await github.graphql(
+  'query($q: String!) { search(query: $q, type: ISSUE, first: 50) { nodes { ... on PullRequest { number title } } } rateLimit { remaining } }',
+  { q: 'is:pr is:open review-requested:@me' },
+)
+if (result.ok) { const { data, errors } = result.data as { data?: unknown; errors?: unknown[] } }
+```
+
+It is a `POST` on the wire but a read by contract: a document with a top-level
+`mutation` or `subscription` is refused (`invalid_query`) before anything is
+sent, so a poll is never treated as a write. GraphQL reports most failures
+inside a 200 — check `errors`. Writes stay on `request()`, on an explicit
+action of the person's.
+
+### Logs and archives (`supports('github-download')`)
+
+```ts
+const log = await github.download({
+  route: '/repos/{owner}/{repo}/actions/jobs/{job_id}/logs',
+  params: { owner: 'acme', repo: 'app', job_id: 123 },
+})
+if (log.ok) showTail(log.data)                       // text; `encoding: 'base64'` for an archive
+```
+
+GitHub answers these with a redirect to its storage. The host follows that
+one redirect only to a GitHub storage host (`*.githubusercontent.com`,
+`*.blob.core.windows.net`, `codeload.github.com`), **after taking the token
+off** — anywhere else is `redirect_not_allowed`. Bodies are capped (16 MiB).
+
 ## When not to use a broker
 
 Plain unauthenticated `fetch` from `entry.main` is ordinary Node code; declare

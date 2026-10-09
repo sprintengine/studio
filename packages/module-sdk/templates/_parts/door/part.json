@@ -1,0 +1,16 @@
+{
+  "id": "door",
+  "title": "Door",
+  "summary": "A full-page surface drawn with the host's door shell, with its own row in the Extensions drawer.",
+  "requires": ["renderer"],
+  "permissions": [],
+  "dependsOn": [],
+  "entry": {},
+  "scripts": {},
+  "devDependencies": {},
+  "register": {
+    "in": "renderer",
+    "import": "import { registerDoor } from './door'",
+    "call": "registerDoor(host)"
+  }
+}

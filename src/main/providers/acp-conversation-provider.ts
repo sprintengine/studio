@@ -53,6 +53,7 @@ import type {
   ConversationPermissionPreset,
   ConversationToolKind,
 } from '../../shared/conversation-runtime'
+import { turnUsageOf } from '../../shared/conversation/turn-usage'
 import type {
   ConversationProviderAdapter,
   MockAdapterSessionInput,
@@ -396,6 +397,11 @@ type State = {
   // replacement session's identity, so the person knows context was replayed.
   resumeNotice?: string
   assistantText: string
+  // The agent's latest message of the turn: what it said since its last tool
+  // call or plan, which `turn_completed` reports as the reply. `replyClosed`
+  // marks a tool or plan said since, so the next text starts a new message.
+  reply: string
+  replyClosed: boolean
   // The preset changed while a turn ran; the next turn starts a new child.
   relaunch?: boolean
 }
@@ -700,9 +706,14 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         emit(state, value.sessionUpdate === 'agent_message_chunk' ? 'content_delta' : 'reasoning_delta', {
           text: value.content.text,
         })
-      if (value.sessionUpdate === 'agent_message_chunk' && value.content.type === 'text')
+      if (value.sessionUpdate === 'agent_message_chunk' && value.content.type === 'text') {
         state.assistantText += value.content.text
+        if (state.replyClosed) state.reply = ''
+        state.replyClosed = false
+        state.reply += value.content.text
+      }
     } else if (value.sessionUpdate === 'tool_call' || value.sessionUpdate === 'tool_call_update') {
+      state.replyClosed = true
       const prior = state.toolCalls.get(value.toolCallId)
       // Kept from the update that first showed a spawn, and added to as later
       // ones fill in its input: an update may retitle the call with what the
@@ -752,6 +763,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           partial: value.status !== 'completed' && value.status !== 'failed',
         })
     } else if (value.sessionUpdate === 'plan') {
+      state.replyClosed = true
       const toolUseId = `plan_${state.turn.turnId}`
       emit(state, 'tool_started', {
         toolUseId,
@@ -1128,6 +1140,8 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         replayHistory: false,
         seedPending: input.seedFromHistory === true,
         assistantText: '',
+        reply: '',
+        replyClosed: false,
       }
       sessions.set(input.sessionId, state)
       try {
@@ -1160,6 +1174,8 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       state.turn = input
       state.cancelled = false
       state.assistantText = ''
+      state.reply = ''
+      state.replyClosed = false
       const abort = () => void cancelTurn(state)
       input.signal?.addEventListener('abort', abort, { once: true })
       void (async () => {
@@ -1248,12 +1264,26 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
             })
           if (!state.cancelled && result.stopReason !== 'cancelled')
             state.history.push({ user: input.message, assistant: state.assistantText })
+          // What the turn spent, as the agent's own protocol counts it.
+          const usage = result.usage
+            ? turnUsageOf({
+                inputTokens: result.usage.inputTokens,
+                outputTokens: result.usage.outputTokens,
+                cacheReadTokens: result.usage.cachedReadTokens ?? undefined,
+                cacheWriteTokens: result.usage.cachedWriteTokens ?? undefined,
+              })
+            : null
+          const reply = state.reply.trim() ? state.reply : ''
           emit(
             state,
             state.cancelled || result.stopReason === 'cancelled' ? 'turn_failed' : 'turn_completed',
             state.cancelled || result.stopReason === 'cancelled'
               ? { reason: 'interrupted' }
-              : { stopReason: result.stopReason },
+              : {
+                  stopReason: result.stopReason,
+                  ...(reply ? { text: reply } : {}),
+                  ...(usage ? { usage } : {}),
+                },
           )
         } catch (error) {
           emit(state, 'turn_failed', {

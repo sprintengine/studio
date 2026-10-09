@@ -409,21 +409,21 @@ test('a chat whose install the quit stopped sends nothing on the way out', async
 // A paired desktop's New chat picks its worktree as this machine's door does:
 // a name for the one cut for it, or a worktree the project already has.
 
-test('a new worktree takes the name it was asked for, under the same container and an agent branch', async () => {
+test('a paired machine’s named worktree is cut under that name, and the answer says where', async () => {
   const h = harness()
   const result = await h.service.launch({
     workspaceId: 'ws-app',
     newChat: true,
     newWorktree: true,
-    newWorktreeName: 'Login Fix',
+    worktreeName: 'login-fix',
     cli: 'codex',
   })
   assert.ok(result.ok)
-  assert.equal(h.worktreeAsks[0]?.destinationPath, '/Users/dev/.sprintengine-worktrees/app/login-fix')
-  assert.equal(h.worktreeAsks[0]?.branchName, 'agent/login-fix')
+  assert.equal(h.worktreeAsks[0]?.destinationPath, '/Users/dev/.sprintengine-worktrees/app/login-fix-k7qz')
+  assert.equal(h.worktreeAsks[0]?.branchName, 'agent/login-fix-k7qz')
   assert.deepEqual(result.worktree, {
-    path: '/Users/dev/.sprintengine-worktrees/app/login-fix',
-    branch: 'agent/login-fix',
+    path: '/Users/dev/.sprintengine-worktrees/app/login-fix-k7qz',
+    branch: 'agent/login-fix-k7qz',
   })
 })
 
@@ -433,7 +433,7 @@ test('a blank worktree name is a made-up one', async () => {
     workspaceId: 'ws-app',
     newChat: true,
     newWorktree: true,
-    newWorktreeName: '  ',
+    worktreeName: '  ',
     cli: 'codex',
   })
   assert.ok(result.ok)

@@ -8,6 +8,7 @@ import { isAbsolute, join } from 'path'
 import { diffBranchSelection, listBranchSteps, readFileAtRev } from '../branch-steps'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import { readRepositoryIdentityRead } from '../repository-identity'
+import { readFolderGitInfo } from '../workspace-git-info'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
 import type { AgentWorktreeCleanupInput, BranchStepSelection } from '../../shared/electron-api'
 import { cleanupAgentWorktreesOnce } from '../agent-worktree-cleanup'
@@ -180,6 +181,15 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
   ipcMain.handle('git:get-repository-identity', async (_, folderPath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-repository-identity', { folderPath }, () =>
       readRepositoryIdentityRead(folderPath),
+    )
+  })
+
+  // A capability module's `RendererHost.getWorkspaceGitInfo`: the branch and
+  // remotes of the folder the renderer resolved as the workspace's working
+  // root (the module's permission is checked renderer-side, before this).
+  ipcMain.handle('git:get-module-workspace-info', async (_, folderPath: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-module-workspace-info', { folderPath }, () =>
+      readFolderGitInfo(typeof folderPath === 'string' ? folderPath : null),
     )
   })
 

@@ -1,6 +1,7 @@
 import type { IpcRendererEvent } from 'electron'
 import { ipc as ipcRenderer } from '../ipc-router'
 import type {
+  AppRestartResult,
   AppUpdateChannelSetting,
   AppUpdateCheckResult,
   AppUpdateState,
@@ -13,6 +14,7 @@ export const updateApi = {
   updateCheck: (): Promise<AppUpdateCheckResult> => ipcRenderer.invoke('update:check'),
   updateDownload: (): Promise<AppUpdateCheckResult> => ipcRenderer.invoke('update:download'),
   updateQuitAndInstall: (): Promise<AppUpdateCheckResult> => ipcRenderer.invoke('update:quit-and-install'),
+  restartApp: (): Promise<AppRestartResult> => ipcRenderer.invoke('app:restart'),
   updateOpenReleaseNotes: (): Promise<{ opened: true; url: string }> => ipcRenderer.invoke('update:open-release-notes'),
   updateGetChannel: (): Promise<AppUpdateChannelSetting> => ipcRenderer.invoke('update:get-channel'),
   updateSetChannel: (channel: AppUpdateTrack): Promise<AppUpdateCheckResult> =>
@@ -32,6 +34,7 @@ export const updateApi = {
   | 'updateCheck'
   | 'updateDownload'
   | 'updateQuitAndInstall'
+  | 'restartApp'
   | 'updateOpenReleaseNotes'
   | 'updateGetChannel'
   | 'updateSetChannel'

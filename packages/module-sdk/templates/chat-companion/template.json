@@ -4,7 +4,7 @@
   "summary": "Starts and follows chats of its own with the conversation API, and opens chat drafts with openChat.",
   "permissions": [
     "conversation:operate",
-    "ipc:invoke",
+    "module:bridge",
     "ipc:workspace-read"
   ],
   "capabilities": [

@@ -45,7 +45,6 @@ import { splashApi } from './api/splash'
 import { startupApi } from './api/startup'
 import { terminalApi } from './api/terminal'
 import { updateApi } from './api/update'
-import { voiceApi } from './api/voice'
 import { windowApi } from './api/window'
 import { browserApi } from './api/browser'
 import { canvasApi } from './api/canvas'
@@ -125,7 +124,6 @@ export const apiModules = {
   ...skillsApi,
   ...terminalApi,
   ...updateApi,
-  ...voiceApi,
   ...appMenuApi,
   ...workspaceBackupApi,
   ...workspaceSkillsApi,

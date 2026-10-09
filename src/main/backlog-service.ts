@@ -155,6 +155,28 @@ async function withBacklogMutationLock<T>(workspace: ValidWorkspace, operation: 
   }
 }
 
+/**
+ * Run `operation` in this project's Backlog mutation lane — the one id
+ * allocation and creation hold — so a writer outside this file (a module's
+ * Backlog service) cannot interleave with another writer on the same project.
+ * `operation` must not call a writer here that takes the lane itself
+ * (`createBacklogItem`, `ensureBacklogItemIds`, `repairBacklogIntegrity`): the
+ * lane is not re-entrant, and waiting on itself would never finish.
+ */
+export async function withBacklogWorkspaceLock<T>(workspaceRoot: string, operation: () => Promise<T>): Promise<T> {
+  const workspace = await validateWorkspaceRoot(workspaceRoot)
+  return withBacklogMutationLock(workspace, operation)
+}
+
+/**
+ * The display key ids are composed with (`MC` in `MC-240`) without writing
+ * anything: the committed one, else the default the first scan would persist.
+ */
+export async function peekBacklogDisplayKey(workspaceRoot: string): Promise<string> {
+  const workspace = await validateWorkspaceRoot(workspaceRoot)
+  return (await peekBacklogWorkspaceKey(workspace)) ?? deriveDefaultBacklogKey(basename(workspace.root))
+}
+
 export async function readBacklogObjectStore(workspaceRoot: string): Promise<BacklogReadResult> {
   try {
     const workspace = await validateWorkspaceRoot(workspaceRoot)
@@ -765,6 +787,8 @@ export type BacklogCreateInput = {
   workspaceRoot: string
   title: string
   description?: string
+  /** The new item's lifecycle; `idea` when absent or not one the app knows. */
+  status?: string
   type?: string
   difficulty?: string
   criticality?: string
@@ -773,7 +797,8 @@ export type BacklogCreateInput = {
 }
 
 export type BacklogCreateResult =
-  { ok: true; id: string; relativePath: string; store: BacklogObjectStorePayload } | { ok: false; message: string }
+  | { ok: true; id: string; relativePath: string; numericId: number; store: BacklogObjectStorePayload }
+  | { ok: false; message: string }
 
 export type BacklogIntegrityRepairInput = {
   workspaceRoot: string
@@ -822,7 +847,7 @@ export async function createBacklogItem(input: BacklogCreateInput): Promise<Back
       const frontmatter: Array<[key: string, value: string | undefined]> = [
         ['id', formatBacklogNumericId(numericId)],
         ['type', isBacklogType(input.type) ? input.type : undefined],
-        ['status', 'idea'],
+        ['status', isBacklogStatus(input.status) && input.status !== 'archived' ? input.status : 'idea'],
         ['difficulty', isBacklogDifficulty(input.difficulty) ? input.difficulty : undefined],
         ['criticality', isBacklogCriticality(input.criticality) ? input.criticality : undefined],
         ['risk', isBacklogRisk(input.risk) ? input.risk : undefined],
@@ -850,7 +875,7 @@ export async function createBacklogItem(input: BacklogCreateInput): Promise<Back
       }
       const nextStore = normalizeStore({ schemaVersion: 1, items: [...store.items, record] })
       await saveStore(workspace, nextStore)
-      return { ok: true, id: record.id, relativePath, store: nextStore }
+      return { ok: true, id: record.id, relativePath, numericId, store: nextStore }
     })
   } catch (error) {
     return { ok: false, message: errorMessage(error) }

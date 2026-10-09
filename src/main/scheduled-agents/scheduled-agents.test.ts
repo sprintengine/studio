@@ -370,7 +370,7 @@ test('a run is a new chat in the project, on its machine, with what it was made 
       now: () => NOW,
     },
   )
-  assert.deepEqual(result, { at: NOW, ok: true, workspaceId: 'w-1' })
+  assert.deepEqual(result, { at: NOW, ok: true, workspaceId: 'w-1', agentId: 'a' })
   assert.equal(typeof requests[0]?.onFirstSendFailed, 'function', 'the run hears if its first message is refused')
   assert.deepEqual(
     requests.map(({ onFirstSendFailed: _heard, ...request }) => request),
@@ -472,7 +472,7 @@ test('a run whose first message is refused is a failed run, whenever the refusal
     onFirstSendFailed: (workspaceId, message) => late.push([workspaceId, message]),
     now: () => NOW,
   })
-  assert.deepEqual(started, { at: NOW, ok: true, workspaceId: 'w-1' })
+  assert.deepEqual(started, { at: NOW, ok: true, workspaceId: 'w-1', agentId: launched.agentId })
   refuse?.('refused')
   assert.deepEqual(late, [['w-1', 'refused']])
 })

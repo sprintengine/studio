@@ -86,7 +86,9 @@ import type {
   ConversationToolOutputPayload,
   ConversationToolStartedPayload,
   ConversationTurnRetryingPayload,
+  ConversationTurnUsage,
 } from '../../shared/conversation-runtime'
+import { addTurnUsage, turnUsageOf } from '../../shared/conversation/turn-usage'
 import type {
   ConversationProviderAdapter,
   ConversationProviderForkResult,
@@ -2055,6 +2057,10 @@ export function mapSdkMessage(
     // failed, which no usage limit explains. Cleared at every result.
     assistantRateLimited?: boolean
     assistantAuthFailed?: boolean
+    // What the open turn has spent so far: each exchange's result reports its
+    // own, and a turn a steered message extended is several exchanges. Told
+    // on `turn_completed` and cleared at every turn end.
+    turnUsage?: ConversationTurnUsage
   },
   message: Record<string, unknown>,
   // exchangeContinues: a `result` that answers only part of what the child was
@@ -2379,9 +2385,23 @@ export function mapSdkMessage(
       if (options.interrupted) {
         state.openToolUseIds?.clear()
         if (state.lastChainUuid) state.settledChainUuid = state.lastChainUuid
+        state.turnUsage = undefined
         break
       }
       const usage = asRecord(message.usage)
+      // The exchange's spend, by the turn-usage contract: `input_tokens` is
+      // already the fresh share, with the cache's reads and writes beside it.
+      const exchangeUsage = usage
+        ? turnUsageOf({
+            inputTokens: usage.input_tokens,
+            outputTokens: usage.output_tokens,
+            cacheReadTokens: usage.cache_read_input_tokens,
+            cacheWriteTokens: usage.cache_creation_input_tokens,
+          })
+        : null
+      const turnUsage = addTurnUsage(state.turnUsage, exchangeUsage)
+      if (options.exchangeContinues) state.turnUsage = turnUsage ?? undefined
+      else state.turnUsage = undefined
       if (usage) {
         const inputTokens =
           numberOr(usage.input_tokens, 0) +
@@ -2483,9 +2503,13 @@ export function mapSdkMessage(
           }),
         )
       } else {
+        // The CLI's `result` is the text of the turn's last assistant message.
+        const text = typeof message.result === 'string' && message.result.trim() ? message.result : undefined
         events.push(
           eventFor(state, 'turn_completed', {
             turnId,
+            ...(text !== undefined ? { text } : {}),
+            ...(turnUsage ? { usage: turnUsage } : {}),
             ...(costUsd !== undefined ? { costUsd } : {}),
             ...(typeof message.duration_ms === 'number' ? { durationMs: message.duration_ms } : {}),
             ...(typeof message.num_turns === 'number' ? { numTurns: message.num_turns } : {}),

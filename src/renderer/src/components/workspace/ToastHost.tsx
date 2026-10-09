@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react'
 
 import { ToastRegion } from '../ui/ToastRegion'
 import { showToast, useToastStore } from '../../store/toastStore'
+import { getRendererHost } from '../../modules'
+import { createModuleToastSink } from './moduleToasts'
 import { isPairRequestTerminalPhase } from '../../../../shared/tailnet'
 import { PairRequestToastAccept } from '../remote/PairRequestToastAccept'
 import { shortMachineName } from '../remote/machineRowModel'
@@ -17,7 +19,24 @@ export function ToastHost() {
   useMeshToastBridge()
   usePairRequestToastBridge()
   useListenerToastBridge()
+  useModuleToastSink()
   return <ToastRegion />
+}
+
+// Capability modules' `RendererHost.toast` lands in this region while it is
+// mounted — so `supports('toast')` is true exactly in a window that has one —
+// and stops when it unmounts rather than writing to a store nobody draws.
+function useModuleToastSink(): void {
+  useEffect(() => {
+    const host = getRendererHost()
+    host.setToastSink(
+      createModuleToastSink({
+        show: showToast,
+        dismiss: (id) => useToastStore.getState().dismissToast(id),
+      }),
+    )
+    return () => host.setToastSink(null)
+  }, [])
 }
 
 // A pair request has a five-minute TTL and — since the owner ruling of

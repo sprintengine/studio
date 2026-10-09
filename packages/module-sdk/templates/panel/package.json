@@ -2,15 +2,17 @@
   "name": "{{id}}",
   "version": "0.1.0",
   "private": true,
-  "description": "{{displayName}} — a SprintEngine Studio extension ({{templateTitle}} template).",
+  "description": "{{displayName}} \u2014 a SprintEngine Studio extension ({{templateTitle}} template).",
   "type": "module",
   "engines": {
     "node": ">=22.15"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "build": "esbuild src/renderer.tsx --bundle --format=esm --platform=browser --target=chrome130 --jsx=automatic --loader:.css=text --external:react --external:react-dom --external:react-dom/client --external:react/jsx-runtime --external:@monaco-editor/react --external:@sprintengine/module-sdk/ui --external:@sprintengine/module-sdk/surface --outfile=module/dist/renderer.mjs && node scripts/dev-install.mjs --no-install",
-    "test": "node --test test/smoke.test.mjs",
+    "build:renderer": "esbuild src/renderer.tsx --bundle --format=esm --platform=browser --target=chrome130 --jsx=automatic --loader:.css=text --external:react --external:react-dom --external:react-dom/client --external:react/jsx-runtime --external:@monaco-editor/react --external:@sprintengine/module-sdk/ui --external:@sprintengine/module-sdk/surface --outfile=module/dist/renderer.mjs",
+    "build": "npm run build:renderer --if-present && npm run build:main --if-present && node scripts/dev-install.mjs --no-install",
+    "build:test": "esbuild \"test/**/*.test.ts\" --bundle --platform=node --format=esm --target=node22 --packages=external --jsx=automatic --loader:.css=text --outbase=test --outdir=test/.build --out-extension:.js=.mjs --log-level=warning",
+    "test": "npm run build:test && node --import @sprintengine/module-sdk/testing/register --test test/smoke.test.mjs \"test/.build/**/*.test.mjs\"",
     "validate": "node scripts/validate.mjs",
     "check": "npm run typecheck && npm run build && npm test && npm run validate",
     "dev:install": "npm run build && node scripts/dev-install.mjs",
@@ -22,6 +24,7 @@
     "@types/react": "^19.3.0",
     "esbuild": "^0.28.2",
     "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "typescript": "^7.0.2"
   }
 }

@@ -27,6 +27,20 @@
   transition: border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
+/* Size steps on the control ramp, matching the button and input steps of the
+ * same name so a select sits level with the controls in its row. The default
+ * above is `sm`. `xs` is the dense toolbar step and drops to meta type; the
+ * popup's options echo whichever type size the trigger shows. */
+.ds-select--xs {
+  height: var(--sem-size-control-xs);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-select--md {
+  height: var(--sem-size-control-md);
+  padding: 0 var(--sem-space-lg);
+}
+
 /* Hover lifts the border and the ink; the background does not move — a value
  * display is not a row, and bg.hover on it would read as a list. */
 .ds-select:hover:not(:disabled) {

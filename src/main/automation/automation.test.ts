@@ -3441,10 +3441,12 @@ test('automation', async () => {
     assert.deepEqual(listedIds, ['backlog'], 'no dev-only module appears in a packaged build')
     assert.equal((listed.structuredContent as { channel: string }).channel, 'production')
 
-    const devOnly = await tool(tools, 'module.status').handler({ id: 'voice-dictation' })
-    const error = (devOnly.structuredContent as { error: { code: string; message: string } }).error
-    assert.equal(error.code, 'module_not_in_build', 'a dev-only id is absent, not disabled')
-    assert.match(error.message, /development builds/)
+    // No module is dev-only today, so this asks after a retired id instead: it
+    // is reserved, so it reads as known-but-absent rather than unknown.
+    const retired = await tool(tools, 'module.status').handler({ id: 'voice-dictation' })
+    const error = (retired.structuredContent as { error: { code: string; message: string } }).error
+    assert.equal(error.code, 'module_not_in_build', 'a reserved id is absent, not disabled')
+    assert.match(error.message, /not part of this production build/)
   }
 
   async function testModuleToolsRefuseBeforeTheRegistryArrives(): Promise<void> {

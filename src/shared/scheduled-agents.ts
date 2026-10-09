@@ -40,11 +40,29 @@ export type ScheduledAgentSchedule = {
 /** A skill or an installed MCP server, by id, with the name its chip shows. */
 export type ScheduledAgentAttachment = { id: string; name: string }
 
+/**
+ * Whether the last run started its chat, and where. `agentId` is the run's
+ * chat agent in `workspaceId`; absent on a run recorded before it was kept.
+ */
 export type ScheduledAgentLastRun =
-  { at: number; ok: true; workspaceId: string } | { at: number; ok: false; message: string }
+  { at: number; ok: true; workspaceId: string; agentId?: string } | { at: number; ok: false; message: string }
+
+/** A run whose chat started: when, and the chat it started (workspace and agent). */
+export type ScheduledAgentRun = { at: number; workspaceId: string; agentId: string }
 
 export type ScheduledAgent = {
   id: string
+  /**
+   * The scheduled agent's title in the sidebar and its editor. Absent, the
+   * prompt's first line is.
+   */
+  name?: string
+  /**
+   * The creator's own label for it, carried onto each run's chat (the agent
+   * record's `scheduledAgentTag`) so whoever made it can tell which of its
+   * schedules a chat came from. Never shown to the person.
+   */
+  tag?: string
   /** The first message each run's chat is sent. Its first line is the scheduled agent's title. */
   prompt: string
   schedule: ScheduledAgentSchedule
@@ -73,9 +91,16 @@ export type ScheduledAgent = {
   lastFailureSeenAt: number | null
 }
 
-/** What a person (or an extension, or an agent) writes: everything but the bookkeeping. */
+/**
+ * What a person (or an extension, or an agent) writes: everything but the
+ * bookkeeping. A draft without `name` or `tag` keeps the ones the scheduled
+ * agent has, so the New chat panel editing an extension's schedule does not
+ * drop them; an empty one clears it.
+ */
 export type ScheduledAgentDraft = Pick<
   ScheduledAgent,
+  | 'name'
+  | 'tag'
   | 'prompt'
   | 'schedule'
   | 'folderPath'
@@ -108,14 +133,18 @@ export const SCHEDULED_AGENTS_IPC = {
 export const DEFAULT_SCHEDULED_AGENT_CRON = '0 9 * * 1-5'
 
 const MAX_TITLE_LENGTH = 80
+const MAX_NAME_LENGTH = 120
+const MAX_TAG_LENGTH = 200
 
-/** The sidebar's name for a scheduled agent: its prompt's first line. */
-export function scheduledAgentTitle(prompt: string): string {
+/** The sidebar's name for a scheduled agent: the name it was given, else its prompt's first line. */
+export function scheduledAgentTitle(prompt: string, name?: string): string {
   const firstLine =
+    name?.trim() ||
     prompt
       .split(/\r?\n/u)
       .map((line) => line.trim())
-      .find((line) => line.length > 0) ?? ''
+      .find((line) => line.length > 0) ||
+    ''
   if (!firstLine) return 'Scheduled agent'
   return firstLine.length > MAX_TITLE_LENGTH ? `${firstLine.slice(0, MAX_TITLE_LENGTH - 1).trimEnd()}…` : firstLine
 }
@@ -266,10 +295,20 @@ export function validateScheduledAgentDraft(
   }
   const worktreeName =
     isRecord(input.worktree) && typeof input.worktree.name === 'string' ? input.worktree.name.trim() : null
+  // Left out when the draft does not name it, so an edit keeps the one there;
+  // empty (or null) clears it.
+  const name = optionalLabel(input, 'name', MAX_NAME_LENGTH)
+  if (name === false)
+    return { ok: false, message: `A scheduled agent's name is text of at most ${MAX_NAME_LENGTH} characters.` }
+  const tag = optionalLabel(input, 'tag', MAX_TAG_LENGTH)
+  if (tag === false)
+    return { ok: false, message: `A scheduled agent's tag is text of at most ${MAX_TAG_LENGTH} characters.` }
 
   return {
     ok: true,
     draft: {
+      ...(name !== undefined ? { name } : {}),
+      ...(tag !== undefined ? { tag } : {}),
       prompt,
       schedule: { cron, timezone, ...(once !== undefined ? { once } : {}) },
       folderPath,
@@ -282,6 +321,24 @@ export function validateScheduledAgentDraft(
       worktree: isRecord(input.worktree) ? { name: worktreeName ?? '' } : null,
     },
   }
+}
+
+// A name or tag in a draft: absent (undefined), cleared (''), the trimmed text,
+// or false for something that is not text that short.
+function optionalLabel(input: Record<string, unknown>, key: 'name' | 'tag', max: number): string | undefined | false {
+  if (!(key in input) || input[key] === undefined) return undefined
+  if (input[key] === null) return ''
+  if (typeof input[key] !== 'string') return false
+  const value = input[key].trim()
+  return value.length > max ? false : value
+}
+
+/** A record's name and tag as stored: a cleared one is absent, never empty. */
+export function withoutEmptyLabels<T extends { name?: string; tag?: string }>(record: T): T {
+  const next = { ...record }
+  if (next.name === '') delete next.name
+  if (next.tag === '') delete next.tag
+  return next
 }
 
 function attachments(input: unknown): ScheduledAgentAttachment[] {

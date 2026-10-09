@@ -119,8 +119,9 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           worktreeName: {
             type: 'string',
             description:
-              'With worktree, the name the new worktree and its `agent/<name>` branch take, as typed into New ' +
-              "chat's Worktree field on this machine; a made-up `chat-<id>` when omitted or blank.",
+              "With worktree, what the new worktree is named from, as typed into New chat's Worktree field: its " +
+              "branch is `agent/<name>-<suffix>`, the short suffix keeping each chat's branch its own. A made-up " +
+              '`chat-<suffix>` when omitted or blank.',
           },
           inWorktree: {
             type: 'string',
@@ -227,7 +228,7 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           ...(args.newChat === true ? { newChat: true } : {}),
           ...(args.worktree === true ? { newWorktree: true } : {}),
           ...(typeof args.worktreeName === 'string' && args.worktreeName.trim()
-            ? { newWorktreeName: args.worktreeName.trim() }
+            ? { worktreeName: args.worktreeName.trim() }
             : {}),
           ...(typeof args.inWorktree === 'string' && args.inWorktree.trim()
             ? { existingWorktreePath: args.inWorktree.trim() }

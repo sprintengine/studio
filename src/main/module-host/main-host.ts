@@ -1,22 +1,37 @@
+import { createHash } from 'node:crypto'
+import { readFileSync, realpathSync } from 'node:fs'
+import { isAbsolute, relative } from 'node:path'
+
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 
 import { MODULE_BRIDGE_INVOKE_CHANNEL, type ModuleBridgeInvokeResult } from '../../shared/modules/bridge'
 import { MODULE_EVENTS_CHANNEL, validateModuleEventTopic, type ModuleEventEnvelope } from '../../shared/modules/events'
-import type { CapabilityManifest } from '../../shared/modules/manifest'
-import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
+import type { CapabilityManifest, ModuleFileDigests } from '../../shared/modules/manifest'
+import type { ModuleWorkspaceGitInfoResult } from '../../shared/modules/workspace-view'
+import { coreMcpToolConflict, mcpToolWireName, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import type { ModuleChatRuntimeOption } from '../../shared/modules/conversation-service'
 import {
+  MODULE_NOTIFICATIONS_RECENT_CHANNEL,
   validateModuleNotifyInput,
   type ModuleNotification,
+  type ModuleNotificationDelivery,
   type ModuleNotifyInput,
 } from '../../shared/modules/notifications'
-import type { EnsureSkillInstalledResult, ModuleSkillRegistration } from '../../shared/modules/skills'
+import type {
+  EnsureSkillInstalledResult,
+  ModuleSkillRegistration,
+  ModuleSkillStatusResult,
+} from '../../shared/modules/skills'
 import { HOST_API_VERSION, hostSupports, type HostCapability } from '../../shared/modules/host-api'
 import {
   ensureSkillInstalled as ensureSkillInstalledOnDisk,
+  getSkillStatus as getSkillStatusOnDisk,
   registerModuleSkills,
   unregisterModuleSkills,
 } from '../builtin-skills'
-import { resolveModuleSkillDirectory } from '../modules/entry-containment'
+import { resolveContainedPath, resolveModuleSkillDirectory } from '../modules/entry-containment'
+import { MODULE_HOST_SERVICE_CHANNEL } from '../../shared/modules/host-service-bridge'
+import { createModuleHostServiceDispatcher } from './module-host-service-ipc'
 
 // Main-process host kernel. Replaces the static, central wiring in
 // app-services.ts / register-*-ipc.ts with registries that capability modules
@@ -119,6 +134,8 @@ export type ModuleSkillHostRegistry = {
   register(moduleId: string, registrations: readonly ModuleSkillRegistration[]): void
   unregister(moduleId: string): void
   ensureInstalled(workspaceRoot: string, skillId: string): Promise<EnsureSkillInstalledResult>
+  /** The same check, read only: nothing is written to the workspace. */
+  getStatus(workspaceRoot: string, skillId: string): Promise<ModuleSkillStatusResult>
 }
 
 // The service keys a third-party module may resolve: exactly the tokens the
@@ -133,12 +150,27 @@ export const THIRD_PARTY_SERVICE_KEYS: ReadonlySet<string> = new Set([
   'conversation.module-service',
   'module-secrets.module-service',
   'github.module-service',
+  // Backlog, usage and activity services.
+  'backlog.module-service',
+  'usage.module-service',
+  'activity.module-service',
+  'text-generation.module-service',
 ])
+
+// The declarations that open the renderer→module-main bridge for a module's
+// channels: its own scope, and the broad legacy one it was split out of.
+const BRIDGE_PERMISSIONS: ReadonlySet<string> = new Set(['module:bridge', 'ipc:invoke'])
+
+// The app-internal service behind `MainHost.listChatRuntimes` (the agent
+// runtime module provides it, as ChatRuntimesToken). A host method rather than
+// a published token: every module may read it, with no permission to declare.
+export const CHAT_RUNTIMES_SERVICE_KEY = 'core.chat-runtimes'
 
 const defaultSkillRegistry: ModuleSkillHostRegistry = {
   register: registerModuleSkills,
   unregister: unregisterModuleSkills,
   ensureInstalled: ensureSkillInstalledOnDisk,
+  getStatus: getSkillStatusOnDisk,
 }
 
 export type MainHost = {
@@ -148,11 +180,18 @@ export type MainHost = {
   readonly hostApiVersion: number
   /** Whether this host provides `capability` now; false for names it does not know. */
   supports(capability: HostCapability): boolean
+  /**
+   * The agent runtimes a chat can run on, as the renderer's `listChatRuntimes`
+   * lists them, with the ones this machine lacks marked unavailable. Empty
+   * when the agent runtime module provides no list.
+   */
+  listChatRuntimes(): Promise<ModuleChatRuntimeOption[]>
   registerIpc(channel: string, handler: IpcInvokeHandler): void
   /**
    * Contribute MCP tools to the always-on Studio gateway. Registrations are
    * owned by this module's id exactly as IPC channels are: a name another
-   * module already holds is a registration error, and the whole batch is
+   * module already holds — or a core gateway tool's (`coreMcpToolNames`) — is
+   * a registration error, and the whole batch is
    * validated before any tool lands so a rejected batch registers nothing.
    * Availability follows the owner's live enablement at the gateway — tools
    * of a disabled-but-registered module stay listed and answer an actionable
@@ -183,6 +222,43 @@ export type MainHost = {
    * id answers `{ ok: false, status: 'unknown-skill' }`.
    */
   ensureSkillInstalled(workspaceRoot: string, skillId: string): Promise<EnsureSkillInstalledResult>
+  /**
+   * Whether a skill is present in a workspace, without writing anything: the
+   * read half of `ensureSkillInstalled`, answering in the same vocabulary
+   * (`missing` and `update-available` are the states `ensure…` would act on).
+   * Never throws.
+   */
+  getSkillStatus(workspaceRoot: string, skillId: string): Promise<ModuleSkillStatusResult>
+  /**
+   * The module's private directory under the app's per-user data, created on
+   * demand (by the storage service) and removed at uninstall
+   * (forget-modules.ts). Throws when no storage service is provided.
+   */
+  getModuleDataDir(): string
+  /**
+   * The absolute path of a file the module was verified with, while its bytes
+   * still match — the main-side twin of `RendererHost.getAssetUrl`. Throws for
+   * anything else.
+   */
+  getAssetPath(relativePath: string): string
+  /**
+   * A workspace's checked-out branch and remotes (with `owner/repo` for a
+   * GitHub one), read by git from the workspace's folder. A third-party
+   * module must declare `ipc:workspace-read`. Never throws.
+   */
+  getWorkspaceGitInfo(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
+  /**
+   * One key of the module's app-level state — the namespace its Settings
+   * section and `RendererHost.setModuleAppState` write — as main's mirror last
+   * heard it from a window, persisted, so it reads with no window open.
+   * Read-only: main never writes it back. `undefined` when never set.
+   */
+  getModuleAppState<T = unknown>(key: string): T | undefined
+  /**
+   * Hear the module's whole app-state namespace whenever it changes (not on
+   * subscribe). Returns the unsubscriber; unloading the module drops it too.
+   */
+  watchModuleAppState(cb: (values: Readonly<Record<string, unknown>>) => void): () => void
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   /**
    * A third-party module resolves only the services the SDK publishes a token
@@ -211,9 +287,12 @@ export type MainHost = {
    */
   registerSidecar(spec: SidecarSpec, lifecycle?: SidecarLifecycle): SidecarHandle
   /**
-   * Surface a user-visible status notification. The source module id is
+   * Surface a user-visible status notification: a row in the bell of every
+   * open window, under this module's display name. The source module id is
    * stamped from this host's scope; invalid payloads throw. Emission is
    * flood-bounded per module (identical repeats and rate overruns are dropped).
+   * `target` names one of this module's own global surfaces for the row to
+   * open. `supports('notifications')` is true where delivery is wired.
    */
   notify(input: ModuleNotifyInput): void
   /**
@@ -257,7 +336,7 @@ export type MainKernel = {
   isStarted(): boolean
   /**
    * Infrastructure-only notification entry: stamps `sourceModuleId`, applies
-   * flood bounding, and buffers. Module code never sees the kernel —
+   * flood bounding, buffers, and delivers to the clients. Module code never sees the kernel —
    * it emits through its scoped host's `notify`, which delegates here with the
    * host's own id. The kernel is also how host-level diagnostics (e.g.
    * third-party entry.main launch failures) are attributed to the failing
@@ -284,6 +363,12 @@ export type MainKernelOptions = {
   electronMain?: boolean
   /** Sends one module event to every open renderer window. Absent in tests. */
   deliverModuleEvent?: (event: ModuleEventEnvelope) => void
+  /**
+   * Sends one bell row to every attached client (shared/modules/notifications.ts).
+   * Absent, notifications are only buffered, and `supports('notifications')`
+   * answers false: a module must be able to tell that nobody will see them.
+   */
+  deliverModuleNotification?: (notification: ModuleNotificationDelivery) => void
   /** Clock override for flood-bound tests. */
   now?: () => number
   /**
@@ -301,6 +386,20 @@ export type MainKernelOptions = {
   resolveModuleRoot?: (moduleId: string) => string | undefined
   /** Skill registry override. Defaults to the real one in builtin-skills.ts. */
   skillRegistry?: ModuleSkillHostRegistry
+  /**
+   * The Studio gateway's own tool names, read at each registration. A module
+   * tool that would collide with one (same name as an MCP client files it, or
+   * a name in the shell's own families) is a registration error naming the
+   * core tool, rather than a tool the gateway silently does not serve.
+   * Absent (tests, a host with no gateway) only module-vs-module is checked.
+   */
+  coreMcpToolNames?: () => Iterable<string>
+  /**
+   * The file digests a third-party module was verified with at discovery, for
+   * `getAssetPath`: only a listed file resolves, and only while its bytes
+   * still match. Bundled modules have none and resolve nothing.
+   */
+  resolveModuleVerifiedFiles?: (moduleId: string) => ModuleFileDigests | undefined
 }
 
 // Flood bounds: a module may emit at most this many notifications per window;
@@ -339,6 +438,20 @@ type ServiceEntry = {
   value: unknown
 }
 
+// The key the storage service is provided under (service-tokens.ts'
+// ModuleStorageToken, and the SDK's private token behind getModuleStorage).
+// Spelled out here because service-tokens.ts imports this file.
+const MODULE_STORAGE_SERVICE_KEY = 'core.module-storage'
+// The first-party service behind `getWorkspaceGitInfo` (WorkspaceGitInfoToken).
+export const WORKSPACE_GIT_INFO_SERVICE_KEY = 'core.workspace-git-info'
+// The first-party mirror of the renderer's module app state (ModuleAppStateToken).
+export const MODULE_APP_STATE_SERVICE_KEY = 'core.module-app-state'
+
+type ModuleAppStateReader = {
+  get(moduleId: string): Readonly<Record<string, unknown>>
+  subscribe(moduleId: string, listener: (values: Readonly<Record<string, unknown>>) => void): () => void
+}
+
 // One record per registered channel: ownership for collision reports and
 // teardown, plus the handler itself — ipcMain cannot be invoked in-process,
 // and the bridge dispatcher needs to call owned handlers directly. Reserved
@@ -355,12 +468,25 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
   let shutdownBeginHooks: HookEntry<ShutdownBeginHook>[] = []
   let shutdownHooks: HookEntry<ShutdownHook>[] = []
   const sidecarEntries = new Map<string, SidecarEntry>()
+  // App-state watches per module, so unloading a module stops its callbacks.
+  const appStateWatches = new Map<string, Set<() => void>>()
+  const appStateReader = (): ModuleAppStateReader | undefined => {
+    const reader = services.get(MODULE_APP_STATE_SERVICE_KEY)?.value as Partial<ModuleAppStateReader> | undefined
+    return typeof reader?.get === 'function' && typeof reader.subscribe === 'function'
+      ? (reader as ModuleAppStateReader)
+      : undefined
+  }
   // Skill ids per module, so unregisterModule can drop them without asking the
   // registry to scan. The registry is the truth; this is the kernel's receipt.
   const skillIdsByModule = new Map<string, Set<string>>()
   const skillRegistry = options.skillRegistry ?? defaultSkillRegistry
   const now = options.now ?? Date.now
-  const recent: ModuleNotification[] = []
+  const recent: ModuleNotificationDelivery[] = []
+  // Ids are unique per kernel: a window reading the recent backlog after a live
+  // delivery dedupes on them. The prefix keeps two runs of the app apart, since
+  // a window's bell persists across them.
+  const notificationIdPrefix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  let notificationSeq = 0
   const floodStateByModule = new Map<string, ModuleNotificationFloodState>()
   let started = false
 
@@ -370,7 +496,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
 
   // The renderer→module-main bridge dispatcher. Routes an invoke to a channel
   // a module registered via registerIpc, applying the bridgeability rules
-  // (owner prefix + `ipc:invoke` permission); every refusal is structured
+  // (owner prefix + `module:bridge` or `ipc:invoke`); every refusal is structured
   // data (see bridge.ts). This is defense in depth for a contract, not a
   // security boundary — the renderer-side host already validates the
   // module-id prefix before IPC.
@@ -405,16 +531,29 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         message: `Channel "${channel}" is not bridgeable: the owning module's manifest could not be resolved.`,
       }
     }
-    if (!manifest.permissions?.includes('ipc:invoke')) {
+    // `module:bridge` is the bridge's own scope; `ipc:invoke`, the broad scope
+    // it was split out of, keeps opening it for manifests from before the split.
+    if (!manifest.permissions?.some((permission) => BRIDGE_PERMISSIONS.has(permission))) {
       return {
         ok: false,
         code: 'permission_missing',
-        message: `Module "${entry.owner}" does not declare the "ipc:invoke" permission, so its channels cannot be bridged.`,
+        message: `Module "${entry.owner}" does not declare the "module:bridge" permission, so its channels cannot be bridged.`,
       }
     }
     return { ok: true, result: await entry.handler(event, payload) }
   }
   hostFor('@host').registerIpc(MODULE_BRIDGE_INVOKE_CHANNEL, dispatchBridgeInvoke)
+  // The renderer's door to the Backlog and usage services a module's main half
+  // reaches through the SDK (shared/modules/host-service-bridge.ts).
+  hostFor('@host').registerIpc(
+    MODULE_HOST_SERVICE_CHANNEL,
+    createModuleHostServiceDispatcher((key) => services.get(key)?.value),
+  )
+  // The bell's backlog for a window that boots after a notification was sent
+  // (a launch failure, an onStartup notify). Copies, oldest first.
+  hostFor('@host').registerIpc(MODULE_NOTIFICATIONS_RECENT_CHANNEL, () =>
+    recent.map((notification) => ({ ...notification })),
+  )
 
   function emitNotification(sourceModuleId: string, input: ModuleNotifyInput): void {
     const validated = validateModuleNotifyInput(input)
@@ -422,16 +561,26 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       throw new Error(`Module "${sourceModuleId}" ${validated.message}`)
     }
     const emittedAt = now()
-    if (!passesFloodBound(sourceModuleId, validated.severity, validated.title, validated.body, emittedAt)) return
-    const notification: ModuleNotification = {
+    if (!passesFloodBound(sourceModuleId, validated, emittedAt)) return
+    const notification: ModuleNotificationDelivery = {
+      id: `${notificationIdPrefix}-${(notificationSeq += 1)}`,
       sourceModuleId,
+      sourceModuleName: options.resolveModuleManifest?.(sourceModuleId)?.displayName?.trim() || sourceModuleId,
       severity: validated.severity,
       title: validated.title,
       body: validated.body,
+      ...(validated.target ? { target: validated.target } : {}),
       emittedAt,
     }
     recent.push(notification)
     if (recent.length > NOTIFICATION_BUFFER_LIMIT) recent.splice(0, recent.length - NOTIFICATION_BUFFER_LIMIT)
+    // Best effort, like an event: a client that cannot be reached does not
+    // make the module's notify throw. The row is still in the backlog.
+    try {
+      options.deliverModuleNotification?.({ ...notification })
+    } catch (error) {
+      console.warn(`[modules] could not deliver a notification from "${sourceModuleId}":`, error)
+    }
   }
 
   function emitModuleEvent(sourceModuleId: string, topic: string, payload?: unknown): void {
@@ -466,9 +615,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
 
   function passesFloodBound(
     moduleId: string,
-    severity: string,
-    title: string,
-    body: string | undefined,
+    payload: Pick<ModuleNotification, 'severity' | 'title' | 'body' | 'target'>,
     emittedAt: number,
   ): boolean {
     const state = floodStateByModule.get(moduleId) ?? { emittedAt: [], lastKey: '', lastAt: 0, warnedDropAt: 0 }
@@ -476,7 +623,15 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     const windowStart = emittedAt - NOTIFICATION_RATE_WINDOW_MS
     state.emittedAt = state.emittedAt.filter((at) => at > windowStart)
 
-    const key = JSON.stringify([severity, title, body ?? ''])
+    // The door is part of what was said: the same words about two different
+    // targets are two rows, not a repeat.
+    const key = JSON.stringify([
+      payload.severity,
+      payload.title,
+      payload.body ?? '',
+      payload.target?.surfaceId ?? '',
+      payload.target?.viewId ?? '',
+    ])
     const isRepeat = key === state.lastKey && state.lastAt > windowStart
     const isOverRate = state.emittedAt.length >= NOTIFICATION_RATE_MAX_PER_WINDOW
     if (isRepeat || isOverRate) {
@@ -589,12 +744,55 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     throw new Error(`Service "${key}" is not available to third-party modules.`)
   }
 
+  // A module asset by path: the same refusals `moduleAssetUrl` makes, then
+  // only a verified file, held to the bytes it was verified with.
+  function resolveAssetPath(moduleId: string, relativePath: string): string {
+    if (
+      typeof relativePath !== 'string' ||
+      !relativePath ||
+      relativePath.startsWith('/') ||
+      /[\\\0?#]/.test(relativePath) ||
+      relativePath.split('/').some((part) => !part || part === '.' || part === '..')
+    ) {
+      throw new Error(`Module "${moduleId}" asset path must be a module-relative file path, got "${relativePath}".`)
+    }
+    const root = options.resolveModuleRoot?.(moduleId)
+    const verified = options.resolveModuleVerifiedFiles?.(moduleId)
+    if (!root || !verified) {
+      throw new Error(`Module "${moduleId}" has no verified files on disk, so "${relativePath}" has no path.`)
+    }
+    const expected = verified[relativePath]
+    if (expected === undefined) {
+      throw new Error(`"${relativePath}" is not among module "${moduleId}"'s verified files.`)
+    }
+    const candidate = resolveContainedPath(root, relativePath, 'asset path')
+    const realRoot = realpathSync(root)
+    const real = realpathSync(candidate)
+    const within = relative(realRoot, real)
+    if (!within || within.startsWith('..') || isAbsolute(within)) {
+      throw new Error(`Module "${moduleId}" asset "${relativePath}" resolves outside the module.`)
+    }
+    if (createHash('sha256').update(readFileSync(real)).digest('hex') !== expected) {
+      throw new Error(`Module "${moduleId}" asset "${relativePath}" changed after it was verified.`)
+    }
+    return real
+  }
+
   function hostFor(moduleId: string): MainHost {
     return {
       moduleId,
       hostApiVersion: HOST_API_VERSION,
-      supports: (capability) =>
-        capability === 'electron-main' ? (options.electronMain ?? true) : hostSupports(capability),
+      supports: (capability) => {
+        if (capability === 'electron-main') return options.electronMain ?? true
+        // A bell row needs a client to reach: true only where delivery is wired.
+        if (capability === 'notifications') return options.deliverModuleNotification !== undefined
+        return hostSupports(capability)
+      },
+      async listChatRuntimes() {
+        const list = services.get(CHAT_RUNTIMES_SERVICE_KEY)?.value as
+          (() => Promise<ModuleChatRuntimeOption[]>) | undefined
+        return list ? list() : []
+      },
       registerIpc(channel, handler) {
         const existing = channels.get(channel)
         if (existing) {
@@ -611,16 +809,37 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         // Validate the whole batch before landing any of it: a module whose
         // registerMain fails on a collision must not leave half its tools
         // behind on the always-serving gateway.
-        const batch = new Set<string>()
+        //
+        // Names are compared as an MCP client files them (`a.b` and `a_b` are
+        // one name to an agent), and against the gateway's own tools too: a
+        // collision with a core tool used to be a warning in a log nobody
+        // reads, while the module's tool quietly never reached an agent.
+        const coreNames = [...(options.coreMcpToolNames?.() ?? [])]
+        const batch = new Map<string, string>()
         for (const tool of tools) {
-          const existing = mcpTools.get(tool.name)
+          const wire = mcpToolWireName(tool.name)
+          const core = coreMcpToolConflict(tool.name, coreNames)
+          if (core) {
+            throw new Error(
+              `MCP tool "${tool.name}" from module "${moduleId}" collides with the core gateway tool "${core}"; ` +
+                'core tool names and families are reserved, so give the tool a name of your own.',
+            )
+          }
+          const existing = [...mcpTools.values()].find((entry) => mcpToolWireName(entry.registration.name) === wire)
           if (existing) {
-            throw new Error(`MCP tool "${tool.name}" is already registered by module "${existing.owner}".`)
+            throw new Error(
+              `MCP tool "${tool.name}" is already registered by module "${existing.owner}"` +
+                (existing.registration.name === tool.name ? '.' : ` (as "${existing.registration.name}").`),
+            )
           }
-          if (batch.has(tool.name)) {
-            throw new Error(`MCP tool "${tool.name}" is registered twice by module "${moduleId}".`)
+          const twin = batch.get(wire)
+          if (twin !== undefined) {
+            throw new Error(
+              `MCP tool "${tool.name}" is registered twice by module "${moduleId}"` +
+                (twin === tool.name ? '.' : ` (also as "${twin}").`),
+            )
           }
-          batch.add(tool.name)
+          batch.set(wire, tool.name)
         }
         for (const tool of tools) {
           const registration = thirdParty ? { ...tool, mutates: tool.mutates !== false } : tool
@@ -646,6 +865,56 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       },
       ensureSkillInstalled(workspaceRoot, skillId) {
         return skillRegistry.ensureInstalled(workspaceRoot, skillId)
+      },
+      getSkillStatus(workspaceRoot, skillId) {
+        return skillRegistry.getStatus(workspaceRoot, skillId)
+      },
+      getModuleDataDir() {
+        const storage = services.get(MODULE_STORAGE_SERVICE_KEY)?.value as
+          { dataDir?: (moduleId: string) => string } | undefined
+        if (typeof storage?.dataDir !== 'function') {
+          throw new Error(`Module "${moduleId}" asked for its data directory, and no storage service is provided.`)
+        }
+        return storage.dataDir(moduleId)
+      },
+      getAssetPath(relativePath) {
+        return resolveAssetPath(moduleId, relativePath)
+      },
+      getModuleAppState<T = unknown>(key: string): T | undefined {
+        if (typeof key !== 'string' || key.trim().length === 0) return undefined
+        return appStateReader()?.get(moduleId)[key] as T | undefined
+      },
+      watchModuleAppState(cb) {
+        const reader = appStateReader()
+        if (!reader) return () => {}
+        const stop = reader.subscribe(moduleId, cb)
+        const owned = appStateWatches.get(moduleId) ?? new Set<() => void>()
+        owned.add(stop)
+        appStateWatches.set(moduleId, owned)
+        return () => {
+          if (!owned.delete(stop)) return
+          stop()
+        }
+      },
+      async getWorkspaceGitInfo(workspaceId) {
+        const permissions = options.resolveModuleManifest?.(moduleId)?.permissions
+        if (isThirdParty(moduleId) && !permissions?.includes('ipc:workspace-read')) {
+          return {
+            ok: false,
+            code: 'permission_missing',
+            message: `Module "${moduleId}" must declare the "ipc:workspace-read" permission to read a workspace's git information.`,
+          }
+        }
+        const reader = services.get(WORKSPACE_GIT_INFO_SERVICE_KEY)?.value as
+          { read?: (workspaceId: string) => Promise<ModuleWorkspaceGitInfoResult> } | undefined
+        if (typeof reader?.read !== 'function') {
+          return { ok: false, code: 'unavailable', message: 'Workspace git information is not available here.' }
+        }
+        try {
+          return await reader.read(workspaceId)
+        } catch {
+          return { ok: false, code: 'git_failed', message: "The workspace's git information could not be read." }
+        }
       },
       provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T {
         if (services.has(token.key)) {
@@ -749,6 +1018,8 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       if (entry.moduleId === moduleId) services.delete(serviceKey)
     }
     if (skillIdsByModule.delete(moduleId)) skillRegistry.unregister(moduleId)
+    for (const stop of appStateWatches.get(moduleId) ?? []) stop()
+    appStateWatches.delete(moduleId)
   }
 
   return {
