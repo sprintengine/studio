@@ -3,13 +3,15 @@
 
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { buildSync } from 'esbuild'
 import { createElement, lazy } from 'react'
 import { describe, test } from 'vitest'
 
+import { getActivityService, getUsageService } from '../src/activity.js'
+import { getBacklogService } from '../src/backlog.js'
 import { getConversationService } from '../src/conversation.js'
 import { getGitHubService, getSecretsService } from '../src/brokers.js'
 import {
@@ -274,6 +276,7 @@ describe('createFakeMainHost', () => {
         ok: true,
         status: 200,
         data: [{ number: 1 }],
+        headers: {},
       },
     )
     const unscripted = await github.request({ route: '/user' })
@@ -477,5 +480,433 @@ describe('the pass-through kit', () => {
     assert.equal(run.status, 0, run.stderr)
     assert.match(run.stdout, /data-kit="GlobalSurfaceShell"/)
     assert.match(run.stdout, /Rendered in Node/)
+  })
+})
+
+describe('createFakeMainHost: Backlog, usage and activity', () => {
+  test('the Backlog checks backlog.read and backlog.write, validates as the host does, and is shared with the renderer', async () => {
+    const main = createFakeMainHost({ moduleId: 'board', permissions: ['backlog.read'] })
+    const backlog = getBacklogService(main.host)
+    const refused = await backlog.create('ws-app', { title: 'Ship it' })
+    assert.equal(!refused.ok && refused.code, 'permission_missing')
+    main.permissions.add('backlog.write')
+
+    main.services.backlog.setKey('ws-app', 'MC')
+    const created = await backlog.create('ws-app', { title: 'Ship it', body: 'Before Friday.', type: 'feature' })
+    assert.ok(created.ok)
+    assert.equal(created.id, 'backlog/ship-it.md')
+    assert.equal(created.displayId, 'MC-1')
+    assert.equal(created.path, `${ROOT}/backlog/ship-it.md`)
+    const invalid = await backlog.create('ws-app', { title: 'x', type: 'chore' })
+    assert.equal(!invalid.ok && invalid.code, 'invalid_input')
+    const unknown = await backlog.create('nowhere', { title: 'x' })
+    assert.equal(!unknown.ok && unknown.code, 'unknown_workspace')
+
+    const renderer = createFakeRendererHost({ main })
+    const seen: number[] = []
+    renderer.host.watchBacklogItems('ws-app', (items) => seen.push(items.length))
+    const fromWindow = await renderer.host.createBacklogItem('ws-app', { title: 'From the window' })
+    assert.ok(fromWindow.ok && fromWindow.numericId === 2)
+    assert.deepEqual(await backlog.updateStatus('ws-app', created.id, 'ready'), { ok: true })
+    assert.equal((await backlog.updateStatus('ws-app', 'backlog/nope.md', 'ready')).ok, false)
+    assert.deepEqual(
+      await backlog.addLink('ws-app', created.id, {
+        id: 'pr-1',
+        type: 'review',
+        label: 'PR #1',
+        target: { kind: 'pull-request', id: '1' },
+      }),
+      { ok: true },
+    )
+    const foreign = await backlog.addLink('ws-app', created.id, {
+      id: 'x',
+      moduleId: 'someone-else',
+      type: 'review',
+      label: 'x',
+      target: { kind: 'x', id: 'x' },
+    })
+    assert.equal(!foreign.ok && foreign.code, 'invalid_input')
+    assert.deepEqual(await backlog.updateModuleMetadata('ws-app', created.id, { lane: 2 }), { ok: true })
+    assert.deepEqual(await backlog.updateTriage('ws-app', created.id, { difficulty: 'm', risk: null }), { ok: true })
+
+    const [item] = (await renderer.host.listBacklogItems('ws-app')).filter((entry) => entry.id === created.id)
+    assert.equal(item?.status, 'ready')
+    assert.equal(item?.difficulty, 'm')
+    assert.deepEqual(item?.metadata, { board: { lane: 2 } })
+    assert.equal(item?.links[0]?.moduleId, 'board', 'the host stamps the owner')
+    assert.match(item?.sourceContent ?? '', /status: ready/)
+    assert.deepEqual(seen, [1, 2, 2, 2, 2, 2], 'the watch heard every change')
+
+    main.permissions.delete('backlog.read')
+    await assert.rejects(renderer.host.listBacklogItems('ws-app'), /"backlog.read" permission/)
+    assert.throws(() => renderer.host.watchBacklogItems('ws-app', () => {}), /"backlog.read" permission/)
+  })
+
+  test('a Backlog watch hears why it cannot deliver, and stays open', () => {
+    const renderer = createFakeRendererHost({
+      moduleId: 'board',
+      permissions: ['backlog.read'],
+      workspaces: [
+        { id: 'ws-app', name: 'App', folderPath: ROOT, mode: 'standard' },
+        { id: 'ws-scratch', name: 'Scratch', folderPath: null, mode: 'standard' },
+      ],
+      backlogItems: { 'ws-app': [{ title: 'Seeded' }] },
+    })
+    const errors: string[] = []
+    const counts: number[] = []
+    renderer.host.watchBacklogItems('ws-scratch', () => {}, { onError: (error) => errors.push(error.code) })
+    renderer.host.watchBacklogItems('ws-app', (items) => counts.push(items.length), {
+      onError: (error) => errors.push(error.code),
+    })
+    renderer.services.backlog.failScan('ws-app', 'backlog/broken.md: bad frontmatter')
+    renderer.services.backlog.failScan('ws-app', null)
+    assert.deepEqual(errors, ['workspace_folder_missing', 'scan_failed'])
+    assert.deepEqual(counts, [1, 1])
+  })
+
+  test('usage sums what was recorded over the window and the dimensions asked for, behind usage:read', async () => {
+    const hour = Date.parse('2026-10-09T09:00:00Z')
+    const main = createFakeMainHost({ moduleId: 'meter', permissions: [] })
+    const usage = getUsageService(main.host)
+    const refused = await usage.query({ from: hour, to: hour + 3_600_000 })
+    assert.equal(!refused.ok && refused.code, 'permission_missing')
+    assert.throws(() => usage.onChanged(() => {}), /"usage:read" permission/)
+    main.permissions.add('usage:read')
+
+    let changes = 0
+    usage.onChanged(() => (changes += 1))
+    main.services.usage.record(
+      { at: hour + 60_000, model: 'opus', tokens: { input: 10, output: 5 } },
+      { at: hour + 120_000, model: 'opus', tokens: { input: 1 }, reportedCostUsd: 0.5 },
+      { at: hour + 60_000, model: 'haiku', tokens: { output: 2 } },
+      { at: hour + 7_200_000, model: 'opus', tokens: { input: 100 } },
+    )
+    assert.equal(changes, 1)
+    const byModel = await usage.query({ from: hour, to: hour + 3_600_000, groupBy: ['model'] })
+    assert.ok(byModel.ok)
+    assert.deepEqual(
+      byModel.rows.map((row) => [row.model, row.tokens.input + row.tokens.output, row.requests, row.reportedCostUsd]),
+      [
+        ['opus', 16, 2, 0.5],
+        ['haiku', 2, 1, null],
+      ],
+    )
+    const backwards = await usage.query({ from: hour, to: hour })
+    assert.equal(!backwards.ok && backwards.code, 'invalid_input')
+    const renderer = createFakeRendererHost({ main })
+    const total = await renderer.host.queryUsage({ from: hour, to: hour + 10_800_000 })
+    assert.ok(total.ok && total.rows.length === 1 && total.rows[0]?.tokens.input === 111)
+  })
+
+  test('activity lists the chats of open workspaces and the prompts in a window, newest kept', async () => {
+    const main = createFakeMainHost({ moduleId: 'standup', permissions: ['conversation:read-all'] })
+    const activity = getActivityService(main.host)
+    main.services.activity.addChat({ workspaceId: 'ws-app', agentId: 'a1', title: 'Plan', updatedAt: 200 })
+    main.services.activity.addChat({ workspaceId: 'ws-gone', agentId: 'a2', title: 'Closed' })
+    for (const at of [100, 150, 300]) {
+      main.services.activity.addPrompt({ at, workspaceId: 'ws-app', agentId: 'a1', text: `at ${at}` })
+    }
+    const chats = await activity.listChats()
+    assert.ok(chats.ok)
+    assert.deepEqual(
+      chats.chats.map((chat) => chat.title),
+      ['Plan'],
+      'a chat in a workspace that is not open is not reachable',
+    )
+    const prompts = await activity.prompts({ from: 0, to: 250, limit: 1 })
+    assert.ok(prompts.ok)
+    assert.deepEqual(
+      prompts.prompts.map((prompt) => prompt.text),
+      ['at 150'],
+    )
+    assert.equal(prompts.truncated, true)
+    const bad = await activity.prompts({ from: 0, to: 250, limit: 5000 })
+    assert.equal(!bad.ok && bad.code, 'invalid_input')
+    main.permissions.clear()
+    const refused = await activity.listChats()
+    assert.equal(!refused.ok && refused.code, 'permission_missing')
+  })
+})
+
+describe('createFakeMainHost: settings, workspaces, storage, GitHub and skills', () => {
+  test('storage lists by prefix, reads many at once, and its watch hears own writes and outside changes', async () => {
+    const fake = createFakeMainHost({ moduleId: 'notes', permissions: ['storage'] })
+    const storage = getModuleStorage(fake.host)
+    const heard: string[][] = []
+    const stop = storage.watch({ workspaceRoot: ROOT }, (change) => heard.push(change.keys))
+    assert.throws(() => storage.watch({ workspaceRoot: 'relative' }, () => {}), /absolute path/)
+    await storage.set({ key: 'decision.1', value: 'a', workspaceRoot: ROOT })
+    await storage.set({ key: 'decision.2', value: 'b', workspaceRoot: ROOT })
+    await storage.set({ key: 'index', value: [], workspaceRoot: ROOT })
+    await storage.delete({ key: 'never-set', workspaceRoot: ROOT })
+    await storage.set({ key: 'elsewhere', value: 1 })
+    fake.services.storage.changeExternally('decision.3', 'c', ROOT)
+    assert.deepEqual(heard, [['decision.1'], ['decision.2'], ['index'], ['decision.3']])
+    stop()
+    assert.deepEqual(await storage.list({ workspaceRoot: ROOT, prefix: 'decision.' }), {
+      ok: true,
+      keys: ['decision.1', 'decision.2', 'decision.3'],
+    })
+    assert.deepEqual(await storage.getMany({ keys: ['decision.1', 'missing'], workspaceRoot: ROOT }), {
+      ok: true,
+      values: { 'decision.1': 'a' },
+    })
+    const tooMany = await storage.getMany({ keys: Array.from({ length: 1001 }, (_, index) => `k${index}`) })
+    assert.equal(!tooMany.ok && tooMany.code, 'invalid_key')
+  })
+
+  test('GitHub keeps the readable headers, answers 304 to a matching etag, refuses a mutation and downloads', async () => {
+    const fake = createFakeMainHost({ moduleId: 'radar', permissions: ['github'] })
+    const github = getGitHubService(fake.host)
+    fake.services.github.respond('GET', '/repos/{owner}/{repo}/pulls', {
+      ok: true,
+      data: [],
+      headers: { ETag: '"abc"', 'X-RateLimit-Remaining': '42', 'Content-Type': 'application/json' },
+    })
+    const first = await github.request({ route: '/repos/{owner}/{repo}/pulls' })
+    assert.deepEqual(first, {
+      ok: true,
+      status: 200,
+      data: [],
+      headers: { etag: '"abc"', 'x-ratelimit-remaining': '42' },
+    })
+    const again = await github.request({ route: '/repos/{owner}/{repo}/pulls', ifNoneMatch: '"abc"' })
+    assert.ok(again.ok && again.status === 304 && again.data === null)
+    const badAccept = await github.request({ route: '/user', accept: 'text/html' as never })
+    assert.equal(!badAccept.ok && badAccept.code, 'invalid_route')
+
+    const mutation = await github.graphql('mutation { addStar(input: {}) { clientMutationId } }')
+    assert.equal(!mutation.ok && mutation.code, 'invalid_query')
+    assert.equal(fake.services.github.graphqlRequests.length, 0, 'a refused query is never sent')
+    fake.services.github.respondGraphql(({ variables }) => ({ ok: true, data: { data: { viewer: variables } } }))
+    const viewer = await github.graphql('query($login: String!) { user(login: $login) { name } }', { login: 'dev' })
+    assert.ok(viewer.ok)
+    assert.deepEqual(viewer.data, { data: { viewer: { login: 'dev' } } })
+
+    fake.services.github.respondDownload('/repos/{owner}/{repo}/actions/jobs/{job_id}/logs', {
+      ok: true,
+      body: 'step 1\nstep 2',
+      contentType: 'text/plain',
+    })
+    const logs = await github.download({ route: '/repos/{owner}/{repo}/actions/jobs/{job_id}/logs' })
+    assert.ok(logs.ok && logs.data === 'step 1\nstep 2' && logs.encoding === 'utf8')
+    const encoded = await github.download({
+      route: '/repos/{owner}/{repo}/actions/jobs/{job_id}/logs',
+      encoding: 'base64',
+    })
+    assert.ok(encoded.ok && Buffer.from(encoded.data, 'base64').toString('utf8') === 'step 1\nstep 2')
+    const unscripted = await github.download({ route: '/repos/acme/app/zipball' })
+    assert.equal(!unscripted.ok && unscripted.status, 404)
+  })
+
+  test('workspaces keep a closed history and answer git info, behind ipc:workspace-read on both hosts', async () => {
+    let clock = 1_000
+    const main = createFakeMainHost({
+      moduleId: 'vcs',
+      permissions: [],
+      now: () => clock,
+      workspaces: [
+        { id: 'ws-app', name: 'App', folderPath: ROOT, mode: 'standard' },
+        { id: 'ws-docs', name: 'Docs', folderPath: '/Users/dev/projects/docs', mode: 'standard' },
+      ],
+    })
+    const context = main.host.requireService(WorkspaceContextToken)
+    main.services.workspaces.close('ws-docs')
+    clock = 2_000
+    assert.deepEqual(await context.list(), [
+      { id: 'ws-app', name: 'App', folderPath: ROOT, mode: 'standard', open: true },
+    ])
+    assert.deepEqual(
+      (await context.list({ includeClosed: true })).map((entry) => [entry.id, entry.open, entry.closedAt]),
+      [
+        ['ws-app', true, undefined],
+        ['ws-docs', false, 1_000],
+      ],
+    )
+
+    const refused = await main.host.getWorkspaceGitInfo('ws-app')
+    assert.equal(!refused.ok && refused.code, 'permission_missing')
+    assert.deepEqual(main.undeclared.at(-1), {
+      what: 'getWorkspaceGitInfo',
+      needs: ['ipc:workspace-read'],
+      checked: true,
+    })
+    main.permissions.add('ipc:workspace-read')
+    const plain = await main.host.getWorkspaceGitInfo('ws-app')
+    assert.equal(!plain.ok && plain.code, 'not_a_repository')
+    main.services.workspaces.setGitInfo('ws-app', {
+      branch: 'main',
+      remotes: [{ name: 'origin', url: 'git@github.com:acme/app.git', github: 'acme/app' }],
+    })
+    const renderer = createFakeRendererHost({ main })
+    const info = await renderer.host.getWorkspaceGitInfo('ws-app')
+    assert.ok(info.ok && info.branch === 'main' && info.remotes[0]?.github === 'acme/app')
+    const closed = await renderer.host.getWorkspaceGitInfo('ws-docs')
+    assert.equal(!closed.ok && closed.code, 'unknown_workspace')
+  })
+
+  test('module app state is the windows’ to set and main’s to read; a data dir, asset paths and skill status', async () => {
+    const fake = createFakeMainHost({ moduleId: 'pulse', permissions: ['storage'], appState: { pollMinutes: 15 } })
+    assert.equal(fake.host.getModuleAppState('pollMinutes'), 15)
+    const heard: unknown[] = []
+    fake.host.watchModuleAppState((values) => heard.push(values.pollMinutes))
+    assert.deepEqual(heard, [], 'main hears changes, not the current value')
+    const renderer = createFakeRendererHost({ main: fake })
+    renderer.host.setModuleAppState('pollMinutes', 5)
+    fake.setAppState('pollMinutes', 30)
+    assert.deepEqual(heard, [5, 30])
+    assert.equal(renderer.host.getModuleAppState('pollMinutes'), 30)
+
+    const dir = fake.host.getModuleDataDir()
+    assert.ok(existsSync(dir) && dir.endsWith('pulse'))
+    assert.equal(fake.host.getModuleDataDir(), dir)
+    fake.dispose()
+    assert.equal(existsSync(dir), false, 'dispose removes the temporary folder')
+    assert.throws(
+      () =>
+        createFakeMainHost({ moduleId: 'pulse', services: { 'core.module-storage': null } }).host.getModuleDataDir(),
+      /no storage service is provided/,
+    )
+
+    const root = join(process.cwd(), 'packages', 'module-sdk')
+    const assets = createFakeMainHost({ moduleId: 'pulse', moduleRoot: root, verifiedFiles: ['package.json'] })
+    assert.equal(assets.host.getAssetPath('package.json'), join(root, 'package.json'))
+    assert.throws(() => assets.host.getAssetPath('README.md'), /not among module "pulse"'s verified files/)
+    assert.throws(() => assets.host.getAssetPath('../package.json'), /module-relative file path/)
+
+    fake.host.registerSkills([{ id: 'pulse-guide', sourceDir: 'skills/pulse-guide', description: 'Guide' }])
+    assert.deepEqual(await fake.host.getSkillStatus(ROOT, 'pulse-guide'), { ok: false, status: 'missing' })
+    assert.deepEqual(await fake.host.ensureSkillInstalled(ROOT, 'pulse-guide'), { ok: true, status: 'installed' })
+    assert.deepEqual(await fake.host.getSkillStatus(ROOT, 'pulse-guide'), { ok: true, status: 'installed' })
+    fake.skills.setStatus(ROOT, 'pulse-guide', 'update-available')
+    assert.deepEqual(await fake.host.ensureSkillInstalled(ROOT, 'pulse-guide'), { ok: true, status: 'updated' })
+    fake.skills.setStatus(ROOT, 'pulse-guide', 'modified')
+    assert.deepEqual(await fake.host.ensureSkillInstalled(ROOT, 'pulse-guide'), { ok: true, status: 'modified' })
+    assert.equal((await fake.host.getSkillStatus(ROOT, 'nobody')).status, 'unknown-skill')
+  })
+
+  test('notify keeps a valid target, refuses a malformed one and clips as the host clips', () => {
+    const fake = createFakeMainHost({ moduleId: 'notes' })
+    fake.host.notify({ severity: 'info', title: 'x'.repeat(250), target: { surfaceId: ' notes ', viewId: 'inbox' } })
+    assert.equal(fake.notifications[0]?.title.length, 200)
+    assert.deepEqual(fake.notifications[0]?.target, { surfaceId: 'notes', viewId: 'inbox' })
+    assert.throws(() => fake.host.notify({ severity: 'info', title: 'x', target: { surfaceId: '' } }), /surfaceId/)
+  })
+
+  test('the fakes support every capability HostCapability names', () => {
+    const source = readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'src', 'host-api.ts'), 'utf8')
+    const union = source.slice(
+      source.indexOf('export type HostCapability'),
+      source.indexOf('export type HostApiCompatibility'),
+    )
+    const named = [...union.matchAll(/^\s*\|\s*'([^']+)'/gm)].map((match) => match[1]!)
+    assert.ok(named.length > 30, `found only ${named.length} capabilities; is the scan broken?`)
+    const main = createFakeMainHost({ moduleId: 'probe' }).host
+    const renderer = createFakeRendererHost({ moduleId: 'probe' }).host
+    assert.deepEqual(
+      named.filter((capability) => !main.supports(capability) || !renderer.supports(capability)),
+      [],
+      'add the capability to KNOWN_CAPABILITIES in testing.ts (and fake what it gates)',
+    )
+  })
+})
+
+describe('createFakeRendererHost: toasts, links and the window', () => {
+  test('toasts, links, the active workspace, surface views and the command context', async () => {
+    const renderer = createFakeRendererHost({
+      moduleId: 'board',
+      workspaces: [
+        { id: 'ws-app', name: 'App', folderPath: ROOT, mode: 'standard' },
+        { id: 'ws-board', name: 'Board', folderPath: ROOT, mode: 'board' },
+      ],
+    })
+    assert.equal(renderer.host.moduleId, 'board')
+
+    const dismiss = renderer.host.toast({ tone: 'good', message: '  Saved  ', action: { label: 'Undo', run() {} } })
+    assert.equal(renderer.toasts[0]?.message, 'Saved')
+    assert.equal(renderer.toasts[0]?.action?.label, 'Undo')
+    dismiss()
+    assert.equal(renderer.toasts[0]?.dismissed, true)
+    assert.throws(() => renderer.host.toast({ tone: 'loud' as never, message: 'x' }), /tone/)
+    assert.throws(() => renderer.host.toast({ tone: 'good', message: ' ' }), /non-empty message/)
+
+    assert.deepEqual(await renderer.host.openExternal('https://example.com/a b'), { ok: true })
+    assert.deepEqual(renderer.openedUrls, ['https://example.com/a%20b'])
+    const refused = await renderer.host.openExternal('file:///etc/passwd')
+    assert.equal(!refused.ok && refused.code, 'invalid_url')
+
+    const active: Array<string | null> = []
+    renderer.host.watchActiveWorkspace((id) => active.push(id))
+    renderer.setActiveWorkspace('ws-board')
+    renderer.setActiveWorkspace('ws-board')
+    renderer.setActiveWorkspace(null)
+    assert.deepEqual(active, ['ws-app', 'ws-board', null])
+
+    renderer.host.registerGlobalSurface({
+      id: 'board',
+      label: 'Board',
+      views: [{ id: 'lanes', label: 'Lanes' }],
+      Component: () => null,
+    })
+    assert.equal(renderer.host.setSurfaceView('board', 'lanes'), true)
+    assert.equal(renderer.host.setSurfaceView('board', 'missing'), false)
+    assert.equal(renderer.host.setSurfaceView('someone-else', null), false)
+    assert.deepEqual(renderer.surfaceViews, { board: 'lanes' })
+
+    const contexts: unknown[] = []
+    renderer.host.registerCommand({
+      id: 'refresh',
+      title: 'Refresh',
+      category: 'Board',
+      scopes: ['global'],
+      availability: (context) => context.activeWorkspaceMode === 'board',
+      run: (context) => void contexts.push(context),
+    })
+    await assert.rejects(renderer.runCommand('refresh'), /not available/)
+    renderer.setActiveWorkspace('ws-board')
+    await renderer.runCommand('refresh')
+    assert.deepEqual(contexts, [{ activeWorkspaceId: 'ws-board', activeWorkspaceMode: 'board' }])
+
+    const older = createFakeRendererHost({ moduleId: 'board', capabilities: ['notifications'] })
+    older.host.toast({ tone: 'good', message: 'Nobody sees this' })
+    assert.deepEqual(older.toasts, [])
+    const unavailable = await older.host.openExternal('https://example.com')
+    assert.equal(!unavailable.ok && unavailable.code, 'unavailable')
+  })
+
+  test('a notification provider is for the module’s own rows, and a door badge row is claimed once', () => {
+    const renderer = createFakeRendererHost({ moduleId: 'board' })
+    assert.throws(
+      () => renderer.host.registerNotificationActionProvider({ source: 'backlog', resolveActions: () => [] }),
+      /only register a notification action provider for its own rows/,
+    )
+    renderer.host.registerNotificationActionProvider({ source: 'board', resolveActions: () => [] })
+    const badge = { rowId: 'board', getWaitingCount: () => 2, subscribe: () => () => {} }
+    renderer.host.registerDoorBadge(badge)
+    assert.throws(() => renderer.host.registerDoorBadge(badge), /already registered/)
+  })
+})
+
+describe('the pass-through kit: board, menu, input and Markdown components', () => {
+  test('draws the newer components with their text', async () => {
+    const html = await renderToHtml(
+      createElement(
+        kit.BoardLane,
+        { label: 'Ready', count: 1, flipKey: 'a' },
+        createElement(kit.TaskCard, { tone: 'accent', identifier: 'MC-240', title: 'Ship it' }),
+        createElement(kit.SafeMarkdown, { text: '**Before** Friday' }),
+        createElement(kit.ContextMenu, { x: 1, y: 2, ariaLabel: 'Card', onClose() {} }, [
+          createElement(kit.MenuItem, { key: 'a', onClick() {} }, 'Archive'),
+          createElement(kit.MenuDivider, { key: 'b' }),
+        ]),
+        createElement(kit.Toggle, { checked: true, onChange() {}, ariaLabel: 'Auto' }),
+        createElement(kit.Chip, null, 'Pinned'),
+      ),
+    )
+    for (const text of ['data-kit="BoardLane"', 'MC-240', 'Ship it', 'Before', 'Archive', 'data-kit="MenuDivider"']) {
+      assert.match(html, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    }
+    assert.match(html, /data-kit="Toggle" data-checked="true"/)
+    assert.match(html, /Pinned/)
   })
 })

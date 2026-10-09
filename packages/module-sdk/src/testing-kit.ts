@@ -43,6 +43,10 @@ const TEXT_PROPS = new Set([
   'retryLabel',
   'placeholder',
   'count',
+  // SafeMarkdown's source, and a TaskCard's key and supporting line.
+  'text',
+  'identifier',
+  'supporting',
 ])
 // Props that only style or wire up; never drawn.
 const SKIPPED_PROPS = new Set(['className', 'style', 'ref', 'key', 'children'])
@@ -138,6 +142,18 @@ export const Drawer = stand<typeof ui.Drawer>(Object.assign(drawer, { Body: pass
 export const TruncatedText = stand<typeof ui.TruncatedText>(passThrough('TruncatedText'))
 export const KbdChord = stand<typeof ui.KbdChord>(passThrough('KbdChord'))
 export const CliModelPickerButton = stand<typeof ui.CliModelPickerButton>(passThrough('CliModelPickerButton'))
+export const DateTimeInput = stand<typeof ui.DateTimeInput>(passThrough('DateTimeInput'))
+export const Toggle = stand<typeof ui.Toggle>(passThrough('Toggle'))
+export const ContextMenu = stand<typeof ui.ContextMenu>(passThrough('ContextMenu'))
+export const MenuItem = stand<typeof ui.MenuItem>(passThrough('MenuItem'))
+export const MenuDivider = stand<typeof ui.MenuDivider>(passThrough('MenuDivider'))
+export const Chip = stand<typeof ui.Chip>(passThrough('Chip'))
+export const ChipButton = stand<typeof ui.ChipButton>(passThrough('ChipButton'))
+export const TaskCard = stand<typeof ui.TaskCard>(passThrough('TaskCard'))
+export const BoardLane = stand<typeof ui.BoardLane>(passThrough('BoardLane'))
+/** Drawn as its Markdown source, as text: assert on the words, not the formatting. */
+export const SafeMarkdown = stand<typeof ui.SafeMarkdown>(passThrough('SafeMarkdown'))
+export const SidebarNavButton = stand<typeof ui.SidebarNavButton>(passThrough('SidebarNavButton'))
 
 // ── @sprintengine/module-sdk/surface ─────────────────────────────────────────
 

@@ -14,14 +14,24 @@
 // service is one entry there, one field on `FakeServices`, and its row in
 // MODULE_SERVICE_REQUIREMENTS (services.ts).
 
-import { isAbsolute } from 'node:path'
+import { mkdirSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
 
 import type {
+  BacklogItemLink,
+  BacklogItemStatus,
+  BacklogItemView,
   CompanionAgentEvent,
   CompanionAgentHandle,
   CompanionAgentSpec,
   CompanionAgentStatus,
+  ModuleStorageChange,
   ModuleStorageResult,
+  ModuleWorkspaceGitInfoResult,
+  ModuleWorkspaceGitRemote,
+  ModuleWorkspaceListEntry,
+  ModuleWorkspaceListOptions,
   ModuleWorkspaceView,
   ScheduledAgentDraft,
   ScheduledAgentLastRun,
@@ -30,6 +40,26 @@ import type {
   WorkspaceCreateInput,
   WorkspaceCreateResult,
 } from './index.js'
+import type {
+  ActivityChatSummary,
+  ActivityListChatsInput,
+  ActivityPrompt,
+  ActivityPromptsInput,
+  UsageGroupBy,
+  UsageQuery,
+  UsageQueryResult,
+  UsageRow,
+  UsageSource,
+  UsageTokens,
+} from './activity.js'
+import type {
+  BacklogWatchError,
+  ModuleBacklogCreateInput,
+  ModuleBacklogLinkInput,
+  ModuleBacklogLocation,
+  ModuleBacklogResult,
+  ModuleBacklogTriageInput,
+} from './backlog.js'
 import type {
   ModuleConversationCreateInput,
   ModuleConversationEvent,
@@ -42,6 +72,9 @@ import type {
   ModuleConversationSummary,
 } from './conversation.js'
 import type {
+  ModuleGitHubDownloadRequest,
+  ModuleGitHubDownloadResponse,
+  ModuleGitHubMediaType,
   ModuleGitHubRequest,
   ModuleGitHubResponse,
   ModuleSecretFetchInit,
@@ -58,6 +91,8 @@ export type FakeServiceContext = {
   now(): number
   /** The workspaces every fake resolves ids and roots against. */
   readonly workspaces: FakeWorkspaces
+  /** What `MainHost.getModuleDataDir` answers. Absent: a fresh temporary folder, made on first use. */
+  readonly dataDir?: string
 }
 
 type Failure<C extends string> = { ok: false; code: C; message: string }
@@ -65,46 +100,108 @@ const failure = <C extends string>(code: C, message: string): Failure<C> => ({ o
 
 // ── Workspaces ───────────────────────────────────────────────────────────────
 
+/**
+ * What `getWorkspaceGitInfo` answers for a workspace with a folder: its
+ * branch (null when detached) and remotes, or one of the failures git itself
+ * can produce. (`permission_missing`, `unknown_workspace` and `no_folder` the
+ * fake answers on its own.)
+ */
+export type FakeWorkspaceGitInfo =
+  | { branch: string | null; remotes: ModuleWorkspaceGitRemote[] }
+  | { code: 'not_a_repository' | 'unavailable' | 'git_failed'; message?: string }
+
 /** The workspaces the host knows about: `WorkspaceContextToken`, `WorkspaceServiceToken`, and every id a fake checks. */
 export type FakeWorkspaces = {
-  /** Every workspace, hydrated or not. */
+  /** Every open workspace, hydrated or not. */
   all(): ModuleWorkspaceView[]
+  /** Open a workspace (one closed earlier leaves the history). */
   add(workspace: ModuleWorkspaceView): void
+  /** Forget a workspace outright: not open, and not in the closed history either. */
   remove(id: string): void
   /**
-   * While false, `get` answers null and `list` answers `[]` — the host right
-   * after launch, before workspace state re-hydrates. Code that treats null as
-   * "deleted" fails a test that toggles this.
+   * Close a workspace, as the person would: it leaves the open list and is
+   * listed by `list({ includeClosed: true })`, newest first, with `open: false`
+   * and `closedAt` (the fake clock, or `closedAt` when given).
+   */
+  close(id: string, closedAt?: number): void
+  /** The closed history, newest first, as `list({ includeClosed: true })` appends it. */
+  closed(): ModuleWorkspaceListEntry[]
+  /**
+   * While false, `get` answers null and `list` answers no open workspace — the
+   * host right after launch, before workspace state re-hydrates. Code that
+   * treats null as "deleted" fails a test that toggles this.
    */
   setHydrated(hydrated: boolean): void
+  /**
+   * Script `getWorkspaceGitInfo` (main and renderer) for a workspace. A
+   * workspace with a folder and nothing scripted answers `not_a_repository`.
+   */
+  setGitInfo(workspaceId: string, info: FakeWorkspaceGitInfo): void
   /** The workspaces `WorkspaceServiceToken.create` made, in order. */
   readonly created: WorkspaceCreateInput[]
 }
 
-export function createFakeWorkspaces(initial: readonly ModuleWorkspaceView[]): FakeWorkspaces & {
+export function createFakeWorkspaces(
+  initial: readonly ModuleWorkspaceView[],
+  now: () => number = Date.now,
+): FakeWorkspaces & {
   find(id: string): ModuleWorkspaceView | undefined
   hydrated(): boolean
+  gitInfo(workspaceId: string): ModuleWorkspaceGitInfoResult
 } {
   const list = initial.map((workspace) => ({ ...workspace }))
+  const closedList: ModuleWorkspaceListEntry[] = []
+  const gitInfo = new Map<string, FakeWorkspaceGitInfo>()
   const created: WorkspaceCreateInput[] = []
   let hydrated = true
+  const forgetClosed = (id: string): void => {
+    const index = closedList.findIndex((entry) => entry.id === id)
+    if (index !== -1) closedList.splice(index, 1)
+  }
+  const removeOpen = (id: string): ModuleWorkspaceView | undefined => {
+    const index = list.findIndex((existing) => existing.id === id)
+    return index === -1 ? undefined : list.splice(index, 1)[0]
+  }
   return {
     all: () => list.map((workspace) => ({ ...workspace })),
     add(workspace) {
+      forgetClosed(workspace.id)
       const index = list.findIndex((existing) => existing.id === workspace.id)
       if (index === -1) list.push({ ...workspace })
       else list[index] = { ...workspace }
     },
     remove(id) {
-      const index = list.findIndex((existing) => existing.id === id)
-      if (index !== -1) list.splice(index, 1)
+      removeOpen(id)
+      forgetClosed(id)
     },
+    close(id, closedAt) {
+      const workspace = removeOpen(id)
+      if (!workspace) throw new Error(`No open workspace "${id}" to close.`)
+      forgetClosed(id)
+      closedList.push({ ...workspace, open: false, closedAt: closedAt ?? now() })
+      closedList.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0))
+    },
+    closed: () => closedList.map((entry) => ({ ...entry })),
     setHydrated(next) {
       hydrated = next
+    },
+    setGitInfo(workspaceId, info) {
+      gitInfo.set(workspaceId, structuredClone(info))
     },
     created,
     find: (id) => list.find((workspace) => workspace.id === id),
     hydrated: () => hydrated,
+    gitInfo(workspaceId) {
+      const workspace = list.find((entry) => entry.id === workspaceId)
+      if (!workspace) return failure('unknown_workspace', `No open workspace "${workspaceId}".`)
+      if (!workspace.folderPath) return failure('no_folder', 'The workspace has no folder.')
+      const scripted = gitInfo.get(workspaceId)
+      if (!scripted) return failure('not_a_repository', `${workspace.folderPath} is not in a git repository.`)
+      if ('code' in scripted) {
+        return failure(scripted.code, scripted.message ?? `The fake host answered "${scripted.code}".`)
+      }
+      return { ok: true, branch: scripted.branch, remotes: structuredClone(scripted.remotes) }
+    },
   }
 }
 
@@ -117,8 +214,11 @@ function workspaceContextRegistry(workspaces: InternalWorkspaces) {
       const found = workspaces.find(workspaceId)
       return found ? { ...found } : null
     },
-    async list(): Promise<ModuleWorkspaceView[]> {
-      return workspaces.hydrated() ? workspaces.all() : []
+    async list(options?: ModuleWorkspaceListOptions): Promise<ModuleWorkspaceListEntry[]> {
+      const open = workspaces.hydrated() ? workspaces.all().map((view) => ({ ...view, open: true })) : []
+      if (options?.includeClosed !== true) return open
+      const openIds = new Set(open.map((entry) => entry.id))
+      return [...open, ...workspaces.closed().filter((entry) => !openIds.has(entry.id))]
     },
   }
 }
@@ -151,10 +251,21 @@ export type FakeStorage = {
   peek(key: string, workspaceRoot?: string): unknown
   /** Every key in a scope, sorted. */
   keys(workspaceRoot?: string): string[]
-  /** Write a value as if an earlier run had stored it. */
+  /** Write a value as if an earlier run had stored it. `watch` listeners hear nothing. */
   seed(key: string, value: unknown, workspaceRoot?: string): void
-  /** Every call, in order: `['set', key, workspaceRoot]`. */
-  readonly calls: Array<[method: 'get' | 'set' | 'delete' | 'list', key: string | null, workspaceRoot: string | null]>
+  /**
+   * Change a value by other means — a `git pull` into the workspace, a
+   * teammate's commit, a hand edit — as the host's poll would find it: the
+   * value is written (deleted for `undefined`) and `watch` listeners of the
+   * scope hear `{ keys: [key] }`.
+   */
+  changeExternally(key: string, value: unknown, workspaceRoot?: string): void
+  /** The directory `getModuleDataDir` handed out, or null before the module asked for one. */
+  dataDir(): string | null
+  /** Every call, in order: `['set', key, workspaceRoot]` (`key` is null for `list`, `getMany` and `watch`). */
+  readonly calls: Array<
+    [method: 'get' | 'getMany' | 'set' | 'delete' | 'list' | 'watch', key: string | null, workspaceRoot: string | null]
+  >
 }
 
 // The host's own rules (module-storage.ts in the app): keys are file names.
@@ -162,18 +273,28 @@ const STORAGE_KEY_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/
 const WINDOWS_RESERVED_KEY = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/
 /** The host's cap on one stored value, in bytes of JSON. */
 export const MODULE_STORAGE_VALUE_LIMIT_BYTES = 1024 * 1024
+/** The most keys one `getMany` reads. */
+const MODULE_STORAGE_GET_MANY_LIMIT = 1000
+// A module id the host refuses as a folder name.
+const UNSAFE_SEGMENT = /[\\/]|^\.\.?$/
 
 type StorageCode = 'invalid_key' | 'invalid_value' | 'value_too_large' | 'invalid_workspace_root' | 'io_error'
 
-function storageRegistry(): { registry: object; handle: FakeStorage } {
+function storageRegistry(context: FakeServiceContext): { registry: object; handle: FakeStorage } {
   const scopes = new Map<string, Map<string, string>>()
+  const watchers = new Map<string, Set<(change: ModuleStorageChange) => void>>()
   const calls: FakeStorage['calls'] = []
+  let dataDir: string | null = null
   const GLOBAL = '\u0000global'
   const scope = (root: string | undefined): Map<string, string> => {
     const id = root ?? GLOBAL
     let store = scopes.get(id)
     if (!store) scopes.set(id, (store = new Map()))
     return store
+  }
+  // Heard at once by every watcher of the scope, as the host hears its own writes.
+  const announce = (root: string | undefined, key: string): void => {
+    for (const listener of [...(watchers.get(root ?? GLOBAL) ?? [])]) listener({ keys: [key] })
   }
   const keyIssue = (key: unknown): Failure<StorageCode> | null => {
     if (typeof key !== 'string' || !STORAGE_KEY_PATTERN.test(key)) {
@@ -221,22 +342,84 @@ function storageRegistry(): { registry: object; handle: FakeStorage } {
         return failure('value_too_large', `Value exceeds the ${MODULE_STORAGE_VALUE_LIMIT_BYTES / 1024 / 1024} MB cap.`)
       }
       scope(input.workspaceRoot).set(input.key, text)
+      announce(input.workspaceRoot, input.key)
       return { ok: true }
     },
     async delete(_moduleId: string, input: Scoped): Promise<ModuleStorageResult<{ deleted: boolean }>> {
       calls.push(['delete', input?.key ?? null, input?.workspaceRoot ?? null])
       const issue = keyIssue(input?.key) ?? rootIssue(input?.workspaceRoot)
       if (issue) return issue
-      return { ok: true, deleted: scope(input.workspaceRoot).delete(input.key) }
+      const deleted = scope(input.workspaceRoot).delete(input.key)
+      // Deleting a key that was never set changes nothing, so nothing is heard.
+      if (deleted) announce(input.workspaceRoot, input.key)
+      return { ok: true, deleted }
     },
     async list(
       _moduleId: string,
-      input?: { workspaceRoot?: string },
+      input?: { workspaceRoot?: string; prefix?: string },
     ): Promise<ModuleStorageResult<{ keys: string[] }>> {
       calls.push(['list', null, input?.workspaceRoot ?? null])
       const issue = rootIssue(input?.workspaceRoot)
       if (issue) return issue
-      return { ok: true, keys: [...scope(input?.workspaceRoot).keys()].sort() }
+      const prefix = input?.prefix
+      if (prefix !== undefined && typeof prefix !== 'string') return failure('invalid_key', 'prefix must be a string.')
+      const keys = [...scope(input?.workspaceRoot).keys()].filter(
+        (key) => prefix === undefined || key.startsWith(prefix),
+      )
+      return { ok: true, keys: keys.sort() }
+    },
+    async getMany(
+      _moduleId: string,
+      input: { keys: string[]; workspaceRoot?: string },
+    ): Promise<ModuleStorageResult<{ values: Record<string, unknown> }>> {
+      calls.push(['getMany', null, input?.workspaceRoot ?? null])
+      const keys = (input as { keys?: unknown } | undefined)?.keys
+      if (!Array.isArray(keys)) return failure('invalid_key', 'getMany takes { keys: string[] }.')
+      if (keys.length > MODULE_STORAGE_GET_MANY_LIMIT) {
+        return failure('invalid_key', `getMany reads at most ${MODULE_STORAGE_GET_MANY_LIMIT} keys at once.`)
+      }
+      for (const key of keys) {
+        const issue =
+          typeof key === 'string' ? keyIssue(key) : failure<StorageCode>('invalid_key', 'Every key must be a string.')
+        if (issue) return issue
+      }
+      const rootProblem = rootIssue(input.workspaceRoot)
+      if (rootProblem) return rootProblem
+      const store = scope(input.workspaceRoot)
+      const values: Record<string, unknown> = {}
+      for (const key of new Set(keys as string[])) {
+        const text = store.get(key)
+        if (text !== undefined) values[key] = JSON.parse(text) as unknown
+      }
+      return { ok: true, values }
+    },
+    watch(
+      _moduleId: string,
+      input: { workspaceRoot?: string } | undefined,
+      listener: (change: ModuleStorageChange) => void,
+    ): () => void {
+      calls.push(['watch', null, input?.workspaceRoot ?? null])
+      if (typeof listener !== 'function') throw new Error('watch needs a listener function.')
+      const issue = rootIssue(input?.workspaceRoot)
+      if (issue) throw new Error(issue.message)
+      const id = input?.workspaceRoot ?? GLOBAL
+      let set = watchers.get(id)
+      if (!set) watchers.set(id, (set = new Set()))
+      set.add(listener)
+      return () => {
+        set.delete(listener)
+      }
+    },
+    // What `MainHost.getModuleDataDir` reads, as the host's storage service provides it.
+    dataDir(moduleId: string): string {
+      if (UNSAFE_SEGMENT.test(moduleId) || moduleId.trim().length === 0) {
+        throw new Error(`Module id "${moduleId}" is not usable as a data folder.`)
+      }
+      if (dataDir === null) {
+        dataDir = context.dataDir ?? join(mkdtempSync(join(tmpdir(), 'sprintengine-module-data-')), moduleId)
+        mkdirSync(dataDir, { recursive: true })
+      }
+      return dataDir
     },
   }
   const handle: FakeStorage = {
@@ -248,6 +431,12 @@ function storageRegistry(): { registry: object; handle: FakeStorage } {
     seed(key, value, workspaceRoot) {
       scope(workspaceRoot).set(key, JSON.stringify(value))
     },
+    changeExternally(key, value, workspaceRoot) {
+      if (value === undefined) scope(workspaceRoot).delete(key)
+      else scope(workspaceRoot).set(key, JSON.stringify(value))
+      announce(workspaceRoot, key)
+    },
+    dataDir: () => dataDir,
     calls,
   }
   return { registry, handle }
@@ -995,32 +1184,168 @@ function secretsRegistry(context: FakeServiceContext): { registry: object; handl
 
 // ── GitHub ───────────────────────────────────────────────────────────────────
 
-/** A scripted GitHub answer: what `request` resolves to, or the data of a 200. */
-export type FakeGitHubAnswer = ModuleGitHubResponse | ((request: ModuleGitHubRequest) => ModuleGitHubResponse)
+/**
+ * A scripted GitHub answer. A success needs only `data`: `status` defaults to
+ * 200 and `headers` to none, and the headers a module may read are kept the
+ * way the host keeps them (`etag`, `link`, `retry-after`, `x-ratelimit-*`,
+ * lowercased).
+ */
+export type FakeGitHubReply =
+  | { ok: true; status?: number; data: unknown; headers?: Record<string, string> }
+  | Extract<ModuleGitHubResponse, { ok: false }>
+
+/** What `request` resolves to for a route: a reply, or one computed from the request. */
+export type FakeGitHubAnswer = FakeGitHubReply | ((request: ModuleGitHubRequest) => FakeGitHubReply)
+
+/** What `graphql` answers: GitHub's whole answer (`{ data, errors? }`) as `data`. */
+export type FakeGitHubGraphqlAnswer =
+  FakeGitHubReply | ((input: { query: string; variables?: Record<string, unknown> }) => FakeGitHubReply)
+
+/** A scripted download: the bytes (or text) behind the redirect, encoded as the request asks. */
+export type FakeGitHubDownloadReply =
+  | {
+      ok: true
+      body: string | Uint8Array
+      contentType?: string | null
+      status?: number
+      headers?: Record<string, string>
+    }
+  | Extract<ModuleGitHubResponse, { ok: false }>
+
+export type FakeGitHubDownloadAnswer =
+  FakeGitHubDownloadReply | ((request: ModuleGitHubDownloadRequest) => FakeGitHubDownloadReply)
 
 /** The signed-in user's GitHub, as scripted answers keyed by `METHOD /route`. */
 export type FakeGitHub = {
   /**
    * Answer `method route` (the route as the module writes it, placeholders
    * and all: `GET /repos/{owner}/{repo}/pulls`). Unscripted requests answer
-   * 404 `http_error`.
+   * 404 `http_error`. A request whose `ifNoneMatch` is the `etag` of the
+   * answer it would get is answered 304 with `data: null`, as GitHub does.
    */
   respond(method: NonNullable<ModuleGitHubRequest['method']>, route: string, answer: FakeGitHubAnswer): void
+  /**
+   * What a read-only `graphql` query answers. Unscripted: 200 with
+   * `{ data: null, errors: [...] }`, the way GraphQL reports a failure. A
+   * mutation or subscription is refused (`invalid_query`) before it is sent.
+   */
+  respondGraphql(answer: FakeGitHubGraphqlAnswer): void
+  /** What `download(route)` answers (the route as the module writes it). Unscripted: 404 `http_error`. */
+  respondDownload(route: string, answer: FakeGitHubDownloadAnswer): void
   /** Signed in (as `login`) or not; signed out answers `not_signed_in`. Default: signed in as `dev`. */
   setSignedIn(signedIn: boolean, login?: string): void
-  /** Every request, in order. */
+  /** Every REST request sent, in order. */
   readonly requests: ModuleGitHubRequest[]
+  /** Every GraphQL query sent (refused ones are not sent). */
+  readonly graphqlRequests: Array<{ query: string; variables?: Record<string, unknown> }>
+  /** Every download sent. */
+  readonly downloads: ModuleGitHubDownloadRequest[]
 }
 
 const GITHUB_METHODS = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE']
+// The host's own lists (module-github.ts in the app): GitHub's media types,
+// the response headers a module may read, and an etag's shape.
+const GITHUB_MEDIA_TYPES: ReadonlySet<ModuleGitHubMediaType> = new Set<ModuleGitHubMediaType>([
+  'application/vnd.github+json',
+  'application/vnd.github.raw+json',
+  'application/vnd.github.text+json',
+  'application/vnd.github.html+json',
+  'application/vnd.github.full+json',
+  'application/vnd.github.base64+json',
+  'application/vnd.github.object+json',
+  'application/vnd.github.raw',
+  'application/vnd.github.diff',
+  'application/vnd.github.patch',
+  'application/vnd.github.sha',
+])
+const GITHUB_RESPONSE_HEADERS = new Set(['link', 'etag', 'retry-after'])
+const GITHUB_ETAG_PATTERN = /^(?:W\/)?"[\x21\x23-\x7e]{0,200}"$/
+
+function githubHeaders(headers: Record<string, string> | undefined): Record<string, string> {
+  const picked: Record<string, string> = {}
+  for (const [name, value] of Object.entries(headers ?? {})) {
+    const lower = name.toLowerCase()
+    if (GITHUB_RESPONSE_HEADERS.has(lower) || lower.startsWith('x-ratelimit-')) picked[lower] = value
+  }
+  return picked
+}
+
+// The operation keywords at the top level of a GraphQL document (strings,
+// block strings and comments skipped), or null for a document that selects
+// nothing — the same reading the host's check makes before it sends one.
+function graphqlTopLevelKeywords(query: string): string[] | null {
+  const keywords: string[] = []
+  let depth = 0
+  let sawSelection = false
+  let index = 0
+  while (index < query.length) {
+    const char = query[index]!
+    if (char === '#') {
+      while (index < query.length && query[index] !== '\n' && query[index] !== '\r') index += 1
+      continue
+    }
+    if (query.startsWith('"""', index)) {
+      index += 3
+      while (index < query.length && !query.startsWith('"""', index)) index += query.startsWith('\\"""', index) ? 4 : 1
+      index += 3
+      continue
+    }
+    if (char === '"') {
+      index += 1
+      while (index < query.length && query[index] !== '"' && query[index] !== '\n') {
+        index += query[index] === '\\' ? 2 : 1
+      }
+      index += 1
+      continue
+    }
+    if (char === '{' || char === '(' || char === '[') {
+      if (char === '{') sawSelection = true
+      depth += 1
+      index += 1
+      continue
+    }
+    if (char === '}' || char === ')' || char === ']') {
+      depth = Math.max(0, depth - 1)
+      index += 1
+      continue
+    }
+    if (/[_A-Za-z]/.test(char)) {
+      const start = index
+      while (index < query.length && /[_0-9A-Za-z]/.test(query[index]!)) index += 1
+      if (depth === 0) keywords.push(query.slice(start, index))
+      continue
+    }
+    index += 1
+  }
+  return sawSelection ? keywords : null
+}
 
 function githubRegistry(context: FakeServiceContext): { registry: object; handle: FakeGitHub } {
   const answers = new Map<string, FakeGitHubAnswer>()
+  const downloadAnswers = new Map<string, FakeGitHubDownloadAnswer>()
+  let graphqlAnswer: FakeGitHubGraphqlAnswer | null = null
   const requests: ModuleGitHubRequest[] = []
+  const graphqlRequests: FakeGitHub['graphqlRequests'] = []
+  const downloads: ModuleGitHubDownloadRequest[] = []
   let signedIn = true
   let login = 'dev'
   const allowed = (): boolean => context.permissions.has('github')
   const missingMessage = `Module "${context.moduleId}" must declare the "github" permission.`
+  const signedOut = () => failure('not_signed_in', 'Sign in to GitHub in Settings to let extensions use it.')
+  const mediaIssue = (accept: unknown) =>
+    accept !== undefined && (typeof accept !== 'string' || !GITHUB_MEDIA_TYPES.has(accept as ModuleGitHubMediaType))
+      ? failure('invalid_route', `"${String(accept)}" is not one of the GitHub media types a request may ask for.`)
+      : null
+  // A scripted reply as the host would hand it over: status and headers filled in.
+  const settle = (reply: FakeGitHubReply): ModuleGitHubResponse => {
+    if (!reply.ok) return structuredClone(reply)
+    return {
+      ok: true,
+      status: reply.status ?? 200,
+      data: structuredClone(reply.data),
+      headers: githubHeaders(reply.headers),
+    }
+  }
 
   const registry = {
     async request(_m: string, request: ModuleGitHubRequest): Promise<ModuleGitHubResponse> {
@@ -1032,11 +1357,22 @@ function githubRegistry(context: FakeServiceContext): { registry: object; handle
       if (!GITHUB_METHODS.includes(method)) {
         return failure('invalid_route', `Method "${method}" is not one GitHub's REST API takes.`)
       }
+      const media = mediaIssue(request.accept)
+      if (media) return media
+      if (
+        request.ifNoneMatch !== undefined &&
+        (typeof request.ifNoneMatch !== 'string' || !GITHUB_ETAG_PATTERN.test(request.ifNoneMatch))
+      ) {
+        return failure(
+          'invalid_route',
+          "ifNoneMatch takes an etag exactly as an earlier answer's headers.etag carried it.",
+        )
+      }
       if (method === 'GET' && request.body !== undefined) {
         return failure('invalid_route', 'A GET request carries no body; use params.')
       }
       requests.push(structuredClone(request))
-      if (!signedIn) return failure('not_signed_in', 'Sign in to GitHub in Settings to let extensions use it.')
+      if (!signedIn) return signedOut()
       const scripted = answers.get(`${method} ${request.route}`)
       if (scripted === undefined) {
         return {
@@ -1046,7 +1382,74 @@ function githubRegistry(context: FakeServiceContext): { registry: object; handle
           message: `No scripted answer for ${method} ${request.route}.`,
         }
       }
-      return structuredClone(typeof scripted === 'function' ? scripted(structuredClone(request)) : scripted)
+      const answer = settle(typeof scripted === 'function' ? scripted(structuredClone(request)) : scripted)
+      // Nothing changed since the etag the module holds: GitHub answers 304.
+      if (answer.ok && request.ifNoneMatch !== undefined && answer.headers.etag === request.ifNoneMatch) {
+        return { ok: true, status: 304, data: null, headers: answer.headers }
+      }
+      return answer
+    },
+    async graphql(_m: string, query: string, variables?: Record<string, unknown>): Promise<ModuleGitHubResponse> {
+      if (!allowed()) return failure('permission_missing', missingMessage)
+      if (typeof query !== 'string' || query.trim() === '') {
+        return failure('invalid_query', 'graphql needs a query document.')
+      }
+      const keywords = graphqlTopLevelKeywords(query)
+      if (keywords === null) return failure('invalid_query', 'The document selects nothing.')
+      const write = keywords.find((keyword) => keyword === 'mutation' || keyword === 'subscription')
+      if (write) {
+        return failure(
+          'invalid_query',
+          `graphql is read-only; a ${write} is refused. Use request() for a write, on an explicit action of the person's.`,
+        )
+      }
+      if (
+        variables !== undefined &&
+        (typeof variables !== 'object' || variables === null || Array.isArray(variables))
+      ) {
+        return failure('invalid_query', 'variables must be an object.')
+      }
+      const input = variables === undefined ? { query } : { query, variables: structuredClone(variables) }
+      graphqlRequests.push(input)
+      if (!signedIn) return signedOut()
+      if (graphqlAnswer === null) {
+        return {
+          ok: true,
+          status: 200,
+          data: { data: null, errors: [{ message: 'No scripted GraphQL answer.' }] },
+          headers: {},
+        }
+      }
+      return settle(typeof graphqlAnswer === 'function' ? graphqlAnswer(structuredClone(input)) : graphqlAnswer)
+    },
+    async download(_m: string, request: ModuleGitHubDownloadRequest): Promise<ModuleGitHubDownloadResponse> {
+      if (!allowed()) return failure('permission_missing', missingMessage)
+      if (typeof request?.route !== 'string' || !request.route.startsWith('/')) {
+        return failure('invalid_route', 'download needs a route.')
+      }
+      const media = mediaIssue(request.accept)
+      if (media) return media
+      if (request.encoding !== undefined && request.encoding !== 'utf8' && request.encoding !== 'base64') {
+        return failure('invalid_route', 'encoding is "utf8" or "base64".')
+      }
+      const encoding = request.encoding ?? 'utf8'
+      downloads.push(structuredClone(request))
+      if (!signedIn) return signedOut()
+      const scripted = downloadAnswers.get(request.route)
+      if (scripted === undefined) {
+        return { ok: false, code: 'http_error', status: 404, message: `No scripted download for ${request.route}.` }
+      }
+      const reply = typeof scripted === 'function' ? scripted(structuredClone(request)) : scripted
+      if (!reply.ok) return structuredClone(reply)
+      const bytes = typeof reply.body === 'string' ? Buffer.from(reply.body, 'utf8') : Buffer.from(reply.body)
+      return {
+        ok: true,
+        status: reply.status ?? 200,
+        data: bytes.toString(encoding),
+        encoding,
+        contentType: reply.contentType ?? null,
+        headers: githubHeaders(reply.headers),
+      }
     },
     async status() {
       if (!allowed()) throw new Error(missingMessage)
@@ -1057,11 +1460,702 @@ function githubRegistry(context: FakeServiceContext): { registry: object; handle
     respond(method, route, answer) {
       answers.set(`${method} ${route}`, answer)
     },
+    respondGraphql(answer) {
+      graphqlAnswer = answer
+    },
+    respondDownload(route, answer) {
+      downloadAnswers.set(route, answer)
+    },
     setSignedIn(next, nextLogin) {
       signedIn = next
       if (nextLogin) login = nextLogin
     },
     requests,
+    graphqlRequests,
+    downloads,
+  }
+  return { registry, handle }
+}
+
+// ── Backlog ──────────────────────────────────────────────────────────────────
+
+/** An item as a test puts it in a Backlog: a title, and whatever else it needs (the rest is filled in). */
+export type FakeBacklogItemInput = Partial<BacklogItemView> & { title: string; risk?: string }
+
+/**
+ * A workspace's Backlog, held in memory: what `getBacklogService` and the
+ * renderer's Backlog reads and writes see, with the host's validation and the
+ * `backlog.read` / `backlog.write` checks.
+ */
+export type FakeBacklog = {
+  /** The items of a workspace's Backlog now (fresh copies). */
+  items(workspaceId: string): BacklogItemView[]
+  /** Replace a workspace's Backlog, as if its files were already there; watchers hear it. */
+  seed(workspaceId: string, items: readonly FakeBacklogItemInput[]): void
+  /** Where the Backlog lives (default `<folder>/backlog`, `isDefault`, `exists`). `exists: false` lists no items. */
+  setLocation(workspaceId: string, location: Partial<ModuleBacklogLocation>): void
+  /** The workspace key display ids are made with (`MC` gives `MC-240`). Default: none, so no `displayId`. */
+  setKey(workspaceId: string, key: string | null): void
+  /**
+   * Make the Backlog unreadable (a broken file): `list` answers
+   * `backlog_unavailable` and watchers hear `scan_failed` until it is cleared
+   * with null.
+   */
+  failScan(workspaceId: string, message: string | null): void
+  /**
+   * Hear a workspace's Backlog as the Backlog panel does: once now, then on
+   * every change. `onError` hears why a snapshot could not be delivered. What
+   * `RendererHost.watchBacklogItems` is built on.
+   */
+  watch(
+    workspaceId: string,
+    cb: (items: BacklogItemView[]) => void,
+    onError?: (error: BacklogWatchError) => void,
+  ): () => void
+}
+
+const BACKLOG_STATUSES: ReadonlySet<string> = new Set<BacklogItemStatus>([
+  'idea',
+  'ready',
+  'in_progress',
+  'needs_input',
+  'completed',
+  'archived',
+])
+// The app's vocabulary (shared/backlog/scan.ts): a value outside it is refused, never guessed.
+const BACKLOG_TYPES: ReadonlySet<string> = new Set(['epic', 'feature', 'bug', 'mockup', 'spike'])
+const BACKLOG_DIFFICULTIES: ReadonlySet<string> = new Set(['xs', 's', 'm', 'l', 'xl'])
+const BACKLOG_CRITICALITIES: ReadonlySet<string> = new Set(['low', 'normal', 'high', 'critical'])
+const BACKLOG_RISKS: ReadonlySet<string> = new Set(['low', 'normal', 'high'])
+const BACKLOG_LINK_TYPES: ReadonlySet<string> = new Set([
+  'execution',
+  'issue',
+  'review',
+  'artifact',
+  'external',
+  'agent',
+])
+const EPIC_SLUG = /^[a-z0-9][a-z0-9-]*$/
+const MAX_BACKLOG_TITLE = 300
+const MAX_BACKLOG_BODY = 256 * 1024
+
+type StoredBacklogItem = BacklogItemView & { risk?: string; body: string }
+
+function backlogRegistry(context: FakeServiceContext): { registry: object; handle: FakeBacklog } {
+  const workspaces = context.workspaces as InternalWorkspaces
+  const backlogs = new Map<string, StoredBacklogItem[]>()
+  const locations = new Map<string, Partial<ModuleBacklogLocation>>()
+  const keys = new Map<string, string>()
+  const scanFailures = new Map<string, string>()
+  const watchers = new Set<{
+    workspaceId: string
+    cb: (items: BacklogItemView[]) => void
+    onError?: (error: BacklogWatchError) => void
+  }>()
+  type BacklogFailure = Extract<ModuleBacklogResult, { ok: false }>
+
+  const denied = (permission: 'backlog.read' | 'backlog.write'): BacklogFailure | null =>
+    context.permissions.has(permission)
+      ? null
+      : failure(
+          'permission_missing',
+          `Module "${context.moduleId}" does not declare the "${permission}" permission, so it cannot ${
+            permission === 'backlog.read' ? 'read' : 'change'
+          } the Backlog.`,
+        )
+  const folderOf = (workspaceId: unknown): { folder: string } | BacklogFailure => {
+    if (typeof workspaceId !== 'string' || !workspaceId.trim())
+      return failure('invalid_input', 'A workspace id is required.')
+    const workspace = workspaces.find(workspaceId)
+    if (!workspace) return failure('unknown_workspace', `There is no open workspace "${workspaceId}".`)
+    if (!workspace.folderPath) {
+      return failure(
+        'workspace_folder_missing',
+        `Workspace "${workspaceId}" has no project folder, so it has no Backlog.`,
+      )
+    }
+    return { folder: workspace.folderPath }
+  }
+  const locationOf = (workspaceId: string, folder: string): ModuleBacklogLocation => ({
+    root: join(folder, 'backlog'),
+    isDefault: true,
+    exists: true,
+    ...locations.get(workspaceId),
+  })
+  const listOf = (workspaceId: string): StoredBacklogItem[] => {
+    let list = backlogs.get(workspaceId)
+    if (!list) backlogs.set(workspaceId, (list = []))
+    return list
+  }
+  const view = (item: StoredBacklogItem): BacklogItemView => {
+    const { body: _body, ...rest } = item
+    return structuredClone(rest)
+  }
+  // The file as the app would write it: frontmatter over the body.
+  const render = (workspaceId: string, item: StoredBacklogItem): void => {
+    const key = keys.get(workspaceId)
+    if (key && item.numericId !== undefined) item.displayId = `${key}-${item.numericId}`
+    const fields: Array<[string, unknown]> = [
+      ['id', item.numericId],
+      ['title', item.title],
+      ['status', item.status],
+      ['type', item.type],
+      ['epic', item.epic],
+      ['difficulty', item.difficulty],
+      ['criticality', item.criticality],
+      ['risk', item.risk],
+    ]
+    const frontmatter = fields
+      .filter(([, value]) => value !== undefined)
+      .map(([name, value]) => `${name}: ${String(value)}`)
+    item.sourceContent = `---\n${frontmatter.join('\n')}\n---\n${item.body ? `\n${item.body}\n` : ''}`
+    item.excerpt =
+      item.body
+        .split('\n')
+        .find((line) => line.trim())
+        ?.trim() ?? ''
+  }
+  const nextNumber = (workspaceId: string): number =>
+    Math.max(0, ...listOf(workspaceId).map((item) => item.numericId ?? 0)) + 1
+  const snapshot = (workspaceId: string): { items: BacklogItemView[] } | BacklogWatchError => {
+    const workspace = workspaces.find(workspaceId)
+    if (!workspace) return { code: 'unknown_workspace', message: `There is no open workspace "${workspaceId}".` }
+    if (!workspace.folderPath) {
+      return { code: 'workspace_folder_missing', message: `Workspace "${workspaceId}" has no project folder.` }
+    }
+    const scanFailure = scanFailures.get(workspaceId)
+    if (scanFailure) return { code: 'scan_failed', message: scanFailure }
+    if (!locationOf(workspaceId, workspace.folderPath).exists) return { items: [] }
+    return { items: listOf(workspaceId).map(view) }
+  }
+  const deliver = (watcher: {
+    workspaceId: string
+    cb: (items: BacklogItemView[]) => void
+    onError?: (error: BacklogWatchError) => void
+  }): void => {
+    const now = snapshot(watcher.workspaceId)
+    if ('items' in now) watcher.cb(now.items)
+    else watcher.onError?.(now)
+  }
+  const changed = (workspaceId: string): void => {
+    for (const watcher of [...watchers]) if (watcher.workspaceId === workspaceId) deliver(watcher)
+  }
+  const make = (
+    workspaceId: string,
+    folder: string,
+    input: FakeBacklogItemInput,
+    numericId: number,
+  ): StoredBacklogItem => {
+    const slug =
+      input.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 60) || 'item'
+    const taken = new Set(listOf(workspaceId).map((item) => item.relativePath))
+    const base = `backlog/${input.epic ? `${input.epic}/` : ''}${slug}`
+    let relativePath = input.relativePath ?? `${base}.md`
+    for (let n = 2; !input.relativePath && taken.has(relativePath); n += 1) relativePath = `${base}-${n}.md`
+    const body = input.sourceContent
+      ? input.sourceContent.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+      : (input.excerpt ?? '')
+    const item: StoredBacklogItem = {
+      metadata: {},
+      links: [],
+      excerpt: '',
+      sourceContent: '',
+      status: 'idea',
+      numericId,
+      modifiedAt: context.now(),
+      ...structuredClone(input),
+      id: input.id ?? relativePath,
+      relativePath,
+      path: input.path ?? join(locationOf(workspaceId, folder).root, relativePath.replace(/^backlog\//, '')),
+      body,
+    }
+    render(workspaceId, item)
+    if (input.sourceContent !== undefined) item.sourceContent = input.sourceContent
+    return item
+  }
+  // A write to one existing item: the permission, the workspace, the item, then the change.
+  const mutate = async (
+    workspaceId: string,
+    itemId: unknown,
+    change: (item: StoredBacklogItem) => void,
+  ): Promise<ModuleBacklogResult> => {
+    const refused = denied('backlog.write')
+    if (refused) return refused
+    const resolved = folderOf(workspaceId)
+    if ('ok' in resolved) return resolved
+    if (typeof itemId !== 'string' || !itemId.trim()) return failure('invalid_input', 'An item id is required.')
+    const item = listOf(workspaceId).find((entry) => entry.id === itemId.trim())
+    if (!item) return failure('not_found', `There is no Backlog item "${itemId}" in this workspace.`)
+    change(item)
+    item.modifiedAt = context.now()
+    render(workspaceId, item)
+    changed(workspaceId)
+    return { ok: true }
+  }
+
+  const registry = {
+    async list(_m: string, workspaceId: string): Promise<ModuleBacklogResult<{ items: BacklogItemView[] }>> {
+      const refused = denied('backlog.read')
+      if (refused) return refused
+      const resolved = folderOf(workspaceId)
+      if ('ok' in resolved) return resolved
+      const scanFailure = scanFailures.get(workspaceId)
+      if (scanFailure) return failure('backlog_unavailable', `The Backlog could not be read: ${scanFailure}`)
+      if (!locationOf(workspaceId, resolved.folder).exists) return { ok: true, items: [] }
+      return { ok: true, items: listOf(workspaceId).map(view) }
+    },
+    async getLocation(
+      _m: string,
+      workspaceId: string,
+    ): Promise<ModuleBacklogResult<{ location: ModuleBacklogLocation }>> {
+      const refused = denied('backlog.read')
+      if (refused) return refused
+      const resolved = folderOf(workspaceId)
+      if ('ok' in resolved) return resolved
+      return { ok: true, location: locationOf(workspaceId, resolved.folder) }
+    },
+    async create(_m: string, workspaceId: string, input: ModuleBacklogCreateInput) {
+      const refused = denied('backlog.write')
+      if (refused) return refused
+      const resolved = folderOf(workspaceId)
+      if ('ok' in resolved) return resolved
+      const invalid = invalidBacklogCreate(input)
+      if (invalid) return failure('invalid_input', invalid)
+      const numericId = nextNumber(workspaceId)
+      const item = make(
+        workspaceId,
+        resolved.folder,
+        {
+          title: input.title.trim(),
+          status: input.status ?? 'idea',
+          excerpt: input.body?.trim() ?? '',
+          ...(input.type ? { type: input.type } : {}),
+          ...(input.epic ? { epic: input.epic } : {}),
+          ...(input.difficulty ? { difficulty: input.difficulty } : {}),
+          ...(input.criticality ? { criticality: input.criticality } : {}),
+          ...(input.risk ? { risk: input.risk } : {}),
+        },
+        numericId,
+      )
+      listOf(workspaceId).push(item)
+      changed(workspaceId)
+      return {
+        ok: true as const,
+        id: item.id,
+        relativePath: item.relativePath,
+        path: item.path,
+        numericId,
+        ...(item.displayId ? { displayId: item.displayId } : {}),
+      }
+    },
+    updateStatus(_m: string, workspaceId: string, itemId: string, status: BacklogItemStatus) {
+      if (typeof status !== 'string' || !BACKLOG_STATUSES.has(status)) {
+        return Promise.resolve(failure('invalid_input', `"${String(status)}" is not a Backlog item status.`))
+      }
+      return mutate(workspaceId, itemId, (item) => {
+        item.status = status
+      })
+    },
+    updateTriage(_m: string, workspaceId: string, itemId: string, triage: ModuleBacklogTriageInput) {
+      const invalid = invalidBacklogTriage(triage)
+      if (invalid) return Promise.resolve(failure('invalid_input', invalid))
+      return mutate(workspaceId, itemId, (item) => {
+        for (const axis of ['difficulty', 'criticality', 'risk'] as const) {
+          if (!(axis in triage)) continue
+          const value = triage[axis]
+          if (value == null) delete item[axis]
+          else item[axis] = value
+        }
+      })
+    },
+    addLink(moduleId: string, workspaceId: string, itemId: string, link: ModuleBacklogLinkInput) {
+      const invalid = invalidBacklogLink(moduleId, link)
+      if (invalid) return Promise.resolve(failure('invalid_input', invalid))
+      return mutate(workspaceId, itemId, (item) => {
+        // The owner is the caller, whatever the link said.
+        const owned: BacklogItemLink = { ...structuredClone(link), moduleId }
+        const index = item.links.findIndex((existing) => existing.id === owned.id)
+        if (index === -1) item.links.push(owned)
+        else item.links[index] = owned
+      })
+    },
+    updateModuleMetadata(moduleId: string, workspaceId: string, itemId: string, value: unknown) {
+      try {
+        if (value !== undefined) JSON.stringify(value)
+      } catch {
+        return Promise.resolve(failure('invalid_input', 'Module metadata must be JSON-serializable.'))
+      }
+      return mutate(workspaceId, itemId, (item) => {
+        if (value === undefined) delete item.metadata[moduleId]
+        else item.metadata[moduleId] = JSON.parse(JSON.stringify(value)) as unknown
+      })
+    },
+  }
+
+  const handle: FakeBacklog = {
+    items: (workspaceId) => listOf(workspaceId).map(view),
+    seed(workspaceId, items) {
+      const folder = workspaces.find(workspaceId)?.folderPath ?? '/'
+      backlogs.set(workspaceId, [])
+      for (const input of items)
+        listOf(workspaceId).push(make(workspaceId, folder, input, input.numericId ?? nextNumber(workspaceId)))
+      changed(workspaceId)
+    },
+    setLocation(workspaceId, location) {
+      locations.set(workspaceId, { ...locations.get(workspaceId), ...location })
+      changed(workspaceId)
+    },
+    setKey(workspaceId, key) {
+      if (key) keys.set(workspaceId, key)
+      else keys.delete(workspaceId)
+      for (const item of listOf(workspaceId)) {
+        if (!key) delete item.displayId
+        render(workspaceId, item)
+      }
+      changed(workspaceId)
+    },
+    failScan(workspaceId, message) {
+      if (message) scanFailures.set(workspaceId, message)
+      else scanFailures.delete(workspaceId)
+      changed(workspaceId)
+    },
+    watch(workspaceId, cb, onError) {
+      const watcher = { workspaceId, cb, ...(onError ? { onError } : {}) }
+      watchers.add(watcher)
+      deliver(watcher)
+      return () => {
+        watchers.delete(watcher)
+      }
+    },
+  }
+  return { registry, handle }
+}
+
+function invalidBacklogCreate(input: unknown): string | null {
+  const value = input as Record<string, unknown> | null
+  if (!value || typeof value !== 'object') return 'The new item is required.'
+  if (typeof value.title !== 'string' || !value.title.trim()) return 'A title is required.'
+  if (value.title.length > MAX_BACKLOG_TITLE) return `A title is at most ${MAX_BACKLOG_TITLE} characters.`
+  if (value.body !== undefined && typeof value.body !== 'string') return '"body" must be a string.'
+  if (typeof value.body === 'string' && value.body.length > MAX_BACKLOG_BODY) return 'The body is too long.'
+  if (value.status !== undefined && (typeof value.status !== 'string' || !BACKLOG_STATUSES.has(value.status))) {
+    return `"${String(value.status)}" is not a Backlog item status.`
+  }
+  if (value.status === 'archived') return 'A new item cannot start archived.'
+  if (value.type !== undefined && !BACKLOG_TYPES.has(value.type as string))
+    return `"${String(value.type)}" is not a Backlog type.`
+  if (value.epic !== undefined && (typeof value.epic !== 'string' || !EPIC_SLUG.test(value.epic))) {
+    return `"${String(value.epic)}" is not an epic slug.`
+  }
+  if (value.difficulty !== undefined && !BACKLOG_DIFFICULTIES.has(value.difficulty as string)) {
+    return `"${String(value.difficulty)}" is not a difficulty.`
+  }
+  if (value.criticality !== undefined && !BACKLOG_CRITICALITIES.has(value.criticality as string)) {
+    return `"${String(value.criticality)}" is not a criticality.`
+  }
+  if (value.risk !== undefined && !BACKLOG_RISKS.has(value.risk as string))
+    return `"${String(value.risk)}" is not a risk.`
+  return null
+}
+
+function invalidBacklogTriage(triage: unknown): string | null {
+  const value = triage as Record<string, unknown> | null
+  if (!value || typeof value !== 'object') return 'The triage to change is required.'
+  if (value.difficulty != null && !BACKLOG_DIFFICULTIES.has(value.difficulty as string)) {
+    return `"${String(value.difficulty)}" is not a difficulty.`
+  }
+  if (value.criticality != null && !BACKLOG_CRITICALITIES.has(value.criticality as string)) {
+    return `"${String(value.criticality)}" is not a criticality.`
+  }
+  if (value.risk != null && !BACKLOG_RISKS.has(value.risk as string)) return `"${String(value.risk)}" is not a risk.`
+  return null
+}
+
+function invalidBacklogLink(moduleId: string, link: unknown): string | null {
+  const value = link as Record<string, unknown> | null
+  if (!value || typeof value !== 'object') return 'The link is required.'
+  if (value.moduleId !== undefined && value.moduleId !== moduleId) {
+    return `A module records links as itself; "${String(value.moduleId)}" is not "${moduleId}".`
+  }
+  if (typeof value.id !== 'string' || !value.id.trim()) return 'A link id is required.'
+  if (typeof value.type !== 'string' || !BACKLOG_LINK_TYPES.has(value.type))
+    return `"${String(value.type)}" is not a link type.`
+  if (typeof value.label !== 'string') return 'A link label is required.'
+  const target = value.target as Record<string, unknown> | null
+  if (!target || typeof target !== 'object' || typeof target.kind !== 'string' || typeof target.id !== 'string') {
+    return 'A link target needs a kind and an id.'
+  }
+  return null
+}
+
+// ── Usage ────────────────────────────────────────────────────────────────────
+
+/**
+ * Token usage a session spent, as the host's scan would have found it: one
+ * hour of one session on one model. Only `at` is required.
+ */
+export type FakeUsageRecord = {
+  /** When (epoch ms); counted in the hour it falls in, as the host keeps usage to the hour. */
+  at: number
+  /** Default `claude-sonnet-4-5`. */
+  model?: string
+  /** Default `claude-agent`. */
+  providerId?: string
+  /** Default null: a session no open workspace holds. */
+  workspaceId?: string | null
+  /** Default `session-1`. */
+  sessionId?: string
+  agentId?: string
+  chatTitle?: string | null
+  tokens?: Partial<UsageTokens>
+  /** Default 1. */
+  requests?: number
+  reportedCostUsd?: number | null
+}
+
+/** The usage the host has read off this machine's session logs, and the levers that change it. */
+export type FakeUsage = {
+  /** Add usage, as a scan that found new turns would; `onChanged` listeners hear it. */
+  record(...records: FakeUsageRecord[]): void
+  /** What `sources` answers. Default: the three sources, nothing found, no error. */
+  setSources(sources: UsageSource[]): void
+  /** Every query, in order. */
+  readonly queries: UsageQuery[]
+}
+
+const USAGE_GROUP_BY: ReadonlySet<string> = new Set<UsageGroupBy>(['day', 'model', 'workspace', 'session', 'provider'])
+const HOUR_MS = 3_600_000
+
+function usageDay(hourMs: number): string {
+  const date = new Date(hourMs)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function usageRegistry(context: FakeServiceContext): { registry: object; handle: FakeUsage } {
+  const records: FakeUsageRecord[] = []
+  const listeners = new Set<() => void>()
+  const queries: UsageQuery[] = []
+  let scannedAt: number | null = null
+  let sources: UsageSource[] = [
+    { id: 'studio', found: 0, error: null },
+    { id: 'claude-code', found: 0, error: null },
+    { id: 'codex', found: 0, error: null },
+  ]
+  const permitted = (): boolean => context.permissions.has('usage:read')
+  const invalid = (input: UsageQuery): string | null => {
+    if (!input || typeof input !== 'object') return 'A query is required.'
+    if (typeof input.from !== 'number' || !Number.isFinite(input.from)) return '"from" must be a time in epoch ms.'
+    if (typeof input.to !== 'number' || !Number.isFinite(input.to)) return '"to" must be a time in epoch ms.'
+    if (input.to <= input.from) return '"to" must be after "from".'
+    if (input.groupBy !== undefined) {
+      if (!Array.isArray(input.groupBy)) return '"groupBy" must be a list.'
+      const unknown = input.groupBy.find((dimension) => !USAGE_GROUP_BY.has(dimension))
+      if (unknown !== undefined) return `"${String(unknown)}" is not a usage dimension.`
+    }
+    return null
+  }
+  // Summed over the window and the dimensions asked for, as the host sums them.
+  const aggregate = (query: UsageQuery): UsageRow[] => {
+    const groupBy = new Set(query.groupBy ?? [])
+    const rows = new Map<string, UsageRow>()
+    for (const record of records) {
+      const hour = Math.floor(record.at / HOUR_MS) * HOUR_MS
+      if (hour < query.from || hour >= query.to) continue
+      const model = record.model ?? 'claude-sonnet-4-5'
+      const providerId = record.providerId ?? 'claude-agent'
+      const workspaceId = record.workspaceId ?? null
+      const sessionId = record.sessionId ?? 'session-1'
+      const day = groupBy.has('day') ? usageDay(hour) : undefined
+      const key = JSON.stringify([
+        day,
+        groupBy.has('model') ? model : undefined,
+        groupBy.has('provider') ? providerId : undefined,
+        groupBy.has('workspace') ? workspaceId : undefined,
+        groupBy.has('session') ? sessionId : undefined,
+      ])
+      let row = rows.get(key)
+      if (!row) {
+        row = {
+          ...(day !== undefined ? { day } : {}),
+          ...(groupBy.has('model') ? { model } : {}),
+          ...(groupBy.has('provider') ? { providerId } : {}),
+          ...(groupBy.has('workspace') ? { workspaceId } : {}),
+          ...(groupBy.has('session')
+            ? { sessionId, ...(record.agentId ? { agentId: record.agentId } : {}), chatTitle: record.chatTitle ?? null }
+            : {}),
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          requests: 0,
+          reportedCostUsd: null,
+        }
+        rows.set(key, row)
+      }
+      row.tokens.input += record.tokens?.input ?? 0
+      row.tokens.output += record.tokens?.output ?? 0
+      row.tokens.cacheRead += record.tokens?.cacheRead ?? 0
+      row.tokens.cacheWrite += record.tokens?.cacheWrite ?? 0
+      row.requests += record.requests ?? 1
+      if (typeof record.reportedCostUsd === 'number') {
+        row.reportedCostUsd = (row.reportedCostUsd ?? 0) + record.reportedCostUsd
+      }
+    }
+    const total = (row: UsageRow): number =>
+      row.tokens.input + row.tokens.output + row.tokens.cacheRead + row.tokens.cacheWrite
+    return [...rows.values()].sort((a, b) => (a.day ?? '').localeCompare(b.day ?? '') || total(b) - total(a))
+  }
+
+  const registry = {
+    async query(moduleId: string, query: UsageQuery): Promise<UsageQueryResult> {
+      if (!permitted()) {
+        return {
+          ok: false,
+          code: 'permission_missing',
+          message: `Module "${moduleId}" does not declare the "usage:read" permission, so it cannot read token usage.`,
+        }
+      }
+      const problem = invalid(query)
+      if (problem) return { ok: false, code: 'invalid_input', message: problem }
+      queries.push(structuredClone(query))
+      // The first query waits for the first read, so it never answers unscanned.
+      scannedAt ??= context.now()
+      return { ok: true, rows: aggregate(query), scannedAt, sources: structuredClone(sources) }
+    },
+    onChanged(moduleId: string, listener: () => void): () => void {
+      if (!permitted()) {
+        throw new Error(
+          `Module "${moduleId}" does not declare the "usage:read" permission, so it cannot watch token usage.`,
+        )
+      }
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+  }
+  const handle: FakeUsage = {
+    record(...added) {
+      records.push(...structuredClone(added))
+      scannedAt = context.now()
+      for (const listener of [...listeners]) listener()
+    },
+    setSources(next) {
+      sources = structuredClone(next)
+    },
+    queries,
+  }
+  return { registry, handle }
+}
+
+// ── Activity ─────────────────────────────────────────────────────────────────
+
+/** The person's Studio chats and what they typed in them, as the activity service reads them. */
+export type FakeActivity = {
+  /**
+   * Add (or replace, by workspace and agent id) one of the person's chats.
+   * Defaults: title `Chat`, Claude Code, `turnCount` 1, status `ready`,
+   * created and updated now. Only chats in an open workspace are listed, as
+   * on the host.
+   */
+  addChat(chat: Partial<ActivityChatSummary> & { workspaceId: string; agentId: string }): void
+  /** Add a message the person sent (with the tail of the reply, if any). */
+  addPrompt(prompt: ActivityPrompt): void
+  /** Every chat added, open workspace or not. */
+  chats(): ActivityChatSummary[]
+}
+
+const ACTIVITY_DEFAULT_LIMIT = 200
+const ACTIVITY_MAX_LIMIT = 1000
+
+function activityRegistry(context: FakeServiceContext): { registry: object; handle: FakeActivity } {
+  const workspaces = context.workspaces as InternalWorkspaces
+  const chats = new Map<string, ActivityChatSummary>()
+  const prompts: ActivityPrompt[] = []
+  const denied = () =>
+    context.permissions.has('conversation:read-all')
+      ? null
+      : failure(
+          'permission_missing',
+          `Module "${context.moduleId}" does not declare the "conversation:read-all" permission, so it cannot read your chats.`,
+        )
+  const invalidWindow = (from: unknown, to: unknown, required: boolean): string | null => {
+    for (const [name, value] of [
+      ['from', from],
+      ['to', to],
+    ] as const) {
+      if (value === undefined && !required) continue
+      if (typeof value !== 'number' || !Number.isFinite(value)) return `"${name}" must be a time in epoch ms.`
+    }
+    if (typeof from === 'number' && typeof to === 'number' && to <= from) return '"to" must be after "from".'
+    return null
+  }
+  const invalidWorkspace = (workspaceId: unknown): string | null =>
+    workspaceId === undefined || (typeof workspaceId === 'string' && workspaceId.trim())
+      ? null
+      : '"workspaceId" must be a workspace id.'
+  // Chats in a closed workspace are not reachable, as on the host.
+  const reachable = (workspaceId: string, only?: string): boolean =>
+    (only === undefined || workspaceId === only) && workspaces.find(workspaceId) !== undefined
+
+  const registry = {
+    async listChats(_m: string, input?: ActivityListChatsInput) {
+      const refused = denied()
+      if (refused) return refused
+      const invalid = invalidWindow(input?.from, input?.to, false) ?? invalidWorkspace(input?.workspaceId)
+      if (invalid) return failure('invalid_input', invalid)
+      const listed = [...chats.values()]
+        .filter((chat) => reachable(chat.workspaceId, input?.workspaceId))
+        .filter(
+          (chat) =>
+            (input?.from === undefined || chat.updatedAt >= input.from) &&
+            (input?.to === undefined || chat.createdAt < input.to),
+        )
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+      return { ok: true as const, chats: structuredClone(listed) }
+    },
+    async prompts(_m: string, input: ActivityPromptsInput) {
+      const refused = denied()
+      if (refused) return refused
+      const limitIssue =
+        input?.limit === undefined ||
+        (typeof input.limit === 'number' &&
+          Number.isInteger(input.limit) &&
+          input.limit > 0 &&
+          input.limit <= ACTIVITY_MAX_LIMIT)
+          ? null
+          : `"limit" must be a whole number from 1 to ${ACTIVITY_MAX_LIMIT}.`
+      const invalid = invalidWindow(input?.from, input?.to, true) ?? invalidWorkspace(input?.workspaceId) ?? limitIssue
+      if (invalid) return failure('invalid_input', invalid)
+      const limit = input.limit ?? ACTIVITY_DEFAULT_LIMIT
+      const found = prompts
+        .filter((prompt) => reachable(prompt.workspaceId, input.workspaceId))
+        .filter((prompt) => prompt.at >= input.from && prompt.at < input.to)
+        .sort((a, b) => a.at - b.at)
+      const truncated = found.length > limit
+      return { ok: true as const, prompts: structuredClone(truncated ? found.slice(-limit) : found), truncated }
+    },
+  }
+  const handle: FakeActivity = {
+    addChat(chat) {
+      const at = context.now()
+      chats.set(`${chat.workspaceId}\u0000${chat.agentId}`, {
+        title: 'Chat',
+        cli: 'claude-code',
+        providerId: 'claude-agent',
+        model: 'claude-sonnet-4-5',
+        createdAt: at,
+        updatedAt: at,
+        turnCount: 1,
+        status: 'ready',
+        ...structuredClone(chat),
+      })
+    },
+    addPrompt(prompt) {
+      prompts.push(structuredClone(prompt))
+    },
+    chats: () => structuredClone([...chats.values()]),
   }
   return { registry, handle }
 }
@@ -1077,6 +2171,9 @@ export type FakeServices = {
   companions: FakeCompanions
   secrets: FakeSecrets
   github: FakeGitHub
+  backlog: FakeBacklog
+  usage: FakeUsage
+  activity: FakeActivity
 }
 
 /** How a service's fake is made. */
@@ -1099,10 +2196,13 @@ export const SERVICE_FAKES: Readonly<Record<string, FakeServiceDefinition>> = {
     name: null,
     create: (context) => ({ registry: workspaceContextRegistry(context.workspaces as InternalWorkspaces) }),
   },
-  'core.module-storage': { name: 'storage', create: () => storageRegistry() },
+  'core.module-storage': { name: 'storage', create: storageRegistry },
   'conversation.module-service': { name: 'conversations', create: conversationsRegistry },
   'scheduled-agents.module-service': { name: 'scheduledAgents', create: scheduledAgentsRegistry },
   'companion-agents.module-service': { name: 'companions', create: companionsRegistry },
   'module-secrets.module-service': { name: 'secrets', create: secretsRegistry },
   'github.module-service': { name: 'github', create: githubRegistry },
+  'backlog.module-service': { name: 'backlog', create: backlogRegistry },
+  'usage.module-service': { name: 'usage', create: usageRegistry },
+  'activity.module-service': { name: 'activity', create: activityRegistry },
 }

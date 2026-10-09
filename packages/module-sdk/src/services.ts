@@ -92,6 +92,28 @@ export const MODULE_SERVICE_REQUIREMENTS: readonly ModuleServiceRequirement[] = 
     providedBy: 'agent-runtime',
     checked: true,
   },
+  {
+    key: 'backlog.module-service',
+    via: 'getBacklogService',
+    // Reads need `backlog.read` and writes `backlog.write`; each call is checked.
+    permissions: ['backlog.read', 'backlog.write'],
+    providedBy: 'agent-runtime',
+    checked: true,
+  },
+  {
+    key: 'usage.module-service',
+    via: 'getUsageService',
+    permissions: ['usage:read'],
+    providedBy: 'agent-runtime',
+    checked: true,
+  },
+  {
+    key: 'activity.module-service',
+    via: 'getActivityService',
+    permissions: ['conversation:read-all'],
+    providedBy: 'agent-runtime',
+    checked: true,
+  },
 ]
 
 /**

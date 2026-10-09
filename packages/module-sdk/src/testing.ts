@@ -3,24 +3,34 @@
 //
 // - `createFakeMainHost` is a `MainHost` with stateful fakes of every service
 //   the SDK publishes (storage, chats, scheduled agents, companions, secrets,
-//   GitHub, workspaces), held to the host's rules: the same storage key
-//   pattern, root rule and 1 MB cap, the same `permission_missing` answers for
-//   the permissions the host checks, the same refusals on the renderer bridge.
-//   `ipc.invoke` calls the module's channels the way its renderer would and
-//   `tools.call` calls its MCP tools the way an agent would.
+//   GitHub, workspaces, the Backlog, usage, activity), held to the host's
+//   rules: the same storage key pattern, root rule and 1 MB cap, the same
+//   `permission_missing` answers for the permissions the host checks, the same
+//   refusals on the renderer bridge. `ipc.invoke` calls the module's channels
+//   the way its renderer would and `tools.call` calls its MCP tools the way an
+//   agent would.
 // - `createFakeRendererHost` is a `RendererHost` that records every
-//   registration and renders a registered door, panel, modal, settings
-//   section or top-bar item to HTML; `invoke` and `subscribe` reach a fake
-//   main host when given one.
+//   registration, toast and opened link, and renders a registered door, panel,
+//   modal, settings section or top-bar item to HTML; `invoke`, `subscribe`, the
+//   module app state, the Backlog and usage reach a fake main host when given
+//   one.
 // - `installTestingKit` routes `@sprintengine/module-sdk/ui`, `/surface` and
 //   `@monaco-editor/react` to a pass-through kit (`./testing/kit`) whose
 //   components draw their props and children, so a built renderer bundle loads
 //   and renders in Node, and a door that throws on render fails its test.
 //
+// A host method or service added to the SDK lands here too: the method on the
+// fake host (its permission in MAIN_METHOD_PERMISSIONS or
+// RENDERER_METHOD_PERMISSIONS, its capability in KNOWN_CAPABILITIES), a
+// service's fake in SERVICE_FAKES (testing-services.ts). The typecheck fails
+// until the fake hosts implement every method, and a test fails until every
+// capability is known.
+//
 // Node only (it uses `node:module` hooks); never import it from module code.
 
+import { existsSync, rmSync } from 'node:fs'
 import { registerHooks } from 'node:module'
-import { isAbsolute } from 'node:path'
+import { dirname, isAbsolute, resolve as resolvePath } from 'node:path'
 
 import { HOST_API_VERSION } from './host-api.js'
 import type { HostCapability } from './host-api.js'
@@ -37,15 +47,23 @@ import type {
   McpToolResult,
   ModalSurfaceDefinition,
   ModuleColorScheme,
+  ModuleCommandContext,
   ModuleCommandDefinition,
   ModuleFocusTabInput,
+  ModuleNotificationTarget,
   ModuleNotifyInput,
+  ModuleOpenExternalResult,
   ModuleSkillRegistration,
+  ModuleSkillStatus,
+  ModuleSkillStatusResult,
+  ModuleToastInput,
+  ModuleToastTone,
   ModuleWorkspaceView,
   NotificationActionProvider,
   RendererHost,
   ServiceToken,
   SettingsSectionDefinition,
+  SidebarNavEntryBadge,
   SidebarNavEntryDefinition,
   SidecarSpec,
   TopBarItemDefinition,
@@ -55,16 +73,23 @@ import type {
 } from './index.js'
 import type { ModuleChatRuntimeOption, ModuleOpenChatInput, ModuleOpenChatResult } from './conversation.js'
 import { moduleServiceRequirement } from './services.js'
+import type { UsageQuery, UsageQueryResult } from './activity.js'
 import {
   createFakeWorkspaces,
   SERVICE_FAKES,
+  type FakeBacklog,
+  type FakeBacklogItemInput,
   type FakeServiceContext,
   type FakeServices,
+  type FakeUsage,
   type FakeWorkspaces,
 } from './testing-services.js'
 import type { ComponentType, ReactNode } from 'react'
 
 export type {
+  FakeActivity,
+  FakeBacklog,
+  FakeBacklogItemInput,
   FakeCompanions,
   FakeCompanionTurn,
   FakeConversationEventInput,
@@ -72,12 +97,19 @@ export type {
   FakeConversations,
   FakeGitHub,
   FakeGitHubAnswer,
+  FakeGitHubDownloadAnswer,
+  FakeGitHubDownloadReply,
+  FakeGitHubGraphqlAnswer,
+  FakeGitHubReply,
   FakeScheduledAgents,
   FakeSecretRequest,
   FakeSecrets,
   FakeServiceContext,
   FakeServices,
   FakeStorage,
+  FakeUsage,
+  FakeUsageRecord,
+  FakeWorkspaceGitInfo,
   FakeWorkspaces,
 } from './testing-services.js'
 export { MODULE_STORAGE_VALUE_LIMIT_BYTES } from './testing-services.js'
@@ -90,7 +122,8 @@ export const DEFAULT_FAKE_WORKSPACES: readonly ModuleWorkspaceView[] = [
 ]
 
 // Every capability this SDK knows. A fake answers `supports` with these unless
-// told otherwise, so a module's "older host" branch is opt-in to test.
+// told otherwise, so a module's "older host" branch is opt-in to test. A test
+// fails when HostCapability (host-api.ts) names one this list does not.
 const KNOWN_CAPABILITIES: readonly HostCapability[] = [
   'conversations',
   'conversation-controls',
@@ -107,7 +140,35 @@ const KNOWN_CAPABILITIES: readonly HostCapability[] = [
   'skills',
   'module-assets',
   'notifications',
+  // Backlog, usage and activity services.
+  'backlog-write',
+  'usage',
+  'activity',
+  // Shell surfaces and the renderer host.
+  'sidebar-nav-entries',
+  'door-badges',
+  'toast',
+  'module-id',
+  'command-context',
+  'active-workspace',
+  'surface-view',
+  'open-external',
+  'ui-kit-extras',
+  'chart-tokens',
   'electron-main',
+  // Main-host plumbing: settings, workspaces, storage, GitHub, skills, MCP.
+  'skill-status',
+  'mcp-verified-identity',
+  'github-headers',
+  'github-graphql',
+  'github-download',
+  'storage-query',
+  'storage-watch',
+  'module-data-dir',
+  'main-asset-path',
+  'workspace-git-info',
+  'workspace-history',
+  'main-app-state',
 ]
 
 /** What a fake host is told about the module: its id and the permissions its manifest declares. */
@@ -145,9 +206,20 @@ function refusal(message: string, code: string): Error {
 
 const NOTIFY_SEVERITIES = ['info', 'warning', 'error']
 const MAX_TOPIC_LENGTH = 128
+const MAX_NOTIFY_TITLE_LENGTH = 200
+const MAX_NOTIFY_BODY_LENGTH = 2000
+const MAX_NOTIFY_TARGET_ID_LENGTH = 200
 
+function notifyTargetId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 && trimmed.length <= MAX_NOTIFY_TARGET_ID_LENGTH ? trimmed : null
+}
+
+// The host's validation (shared/modules/notifications.ts in the app): what a
+// bell row would carry, trimmed and clipped, or the throw the module would get.
 function validateNotify(moduleId: string, input: unknown): ModuleNotifyInput {
-  const { severity, title, body } = (input ?? {}) as Record<string, unknown>
+  const { severity, title, body, target } = (input ?? {}) as Record<string, unknown>
   const fail = (message: string): never => {
     throw new Error(`Module "${moduleId}" notify(...) ${message}`)
   }
@@ -157,11 +229,53 @@ function validateNotify(moduleId: string, input: unknown): ModuleNotifyInput {
   }
   if (typeof title !== 'string' || !title.trim()) fail('requires a non-empty title.')
   if (body !== undefined && typeof body !== 'string') fail('body must be a string when provided.')
+  let validTarget: ModuleNotificationTarget | undefined
+  if (target !== undefined) {
+    if (!target || typeof target !== 'object') fail('target must be { surfaceId, viewId? } when provided.')
+    const { surfaceId, viewId } = target as Record<string, unknown>
+    const validSurfaceId = notifyTargetId(surfaceId) ?? fail('target.surfaceId must be a non-empty string.')
+    const validViewId = viewId === undefined ? undefined : notifyTargetId(viewId)
+    if (validViewId === null) fail('target.viewId must be a non-empty string when provided.')
+    validTarget = { surfaceId: validSurfaceId, ...(validViewId ? { viewId: validViewId } : {}) }
+  }
   const trimmed = (body as string | undefined)?.trim()
   return {
     severity: severity as ModuleNotifyInput['severity'],
-    title: (title as string).trim(),
-    ...(trimmed ? { body: trimmed } : {}),
+    title: (title as string).trim().slice(0, MAX_NOTIFY_TITLE_LENGTH),
+    ...(trimmed ? { body: trimmed.slice(0, MAX_NOTIFY_BODY_LENGTH) } : {}),
+    ...(validTarget ? { target: validTarget } : {}),
+  }
+}
+
+// ── Module app state ─────────────────────────────────────────────────────────
+
+// The module's app-level state (its Settings values): one namespace the
+// renderer reads and writes and `entry.main` reads, so a fake renderer given a
+// fake main host shares it, as the windows and main do.
+type AppStateStore = {
+  get(key: string): unknown
+  all(): Record<string, unknown>
+  set(key: string, value: unknown): void
+  subscribe(cb: (values: Readonly<Record<string, unknown>>) => void): () => void
+}
+
+function createAppStateStore(initial: Record<string, unknown> | undefined): AppStateStore {
+  const values: Record<string, unknown> = structuredClone(initial ?? {})
+  const listeners = new Set<(values: Readonly<Record<string, unknown>>) => void>()
+  return {
+    get: (key) => structuredClone(values[key]),
+    all: () => structuredClone(values),
+    set(key, value) {
+      if (value === undefined) delete values[key]
+      else values[key] = structuredClone(value)
+      for (const listener of [...listeners]) listener(structuredClone(values))
+    },
+    subscribe(cb) {
+      listeners.add(cb)
+      return () => {
+        listeners.delete(cb)
+      }
+    },
   }
 }
 
@@ -191,6 +305,18 @@ export type FakeMainHostOptions = FakeModuleIdentity & {
   builtinSkills?: readonly string[]
   /** The clock every fake stamps with. Default: `Date.now`. */
   now?: () => number
+  /** Module app state (Settings values) a window already pushed, for `getModuleAppState`. */
+  appState?: Record<string, unknown>
+  /** What `getModuleDataDir` answers. Default: a fresh temporary folder, made on first use (`dispose` removes it). */
+  dataDir?: string
+  /** The module's folder, which `getAssetPath` resolves under. Default: the working directory (the project root under `npm test`). */
+  moduleRoot?: string
+  /**
+   * The files the module was verified with (`module/manifest.json`'s `files`),
+   * module-relative. Given, `getAssetPath` resolves only these, as the host
+   * does; absent, any file that exists under `moduleRoot`.
+   */
+  verifiedFiles?: readonly string[]
 }
 
 export type FakeMainHost = {
@@ -223,6 +349,14 @@ export type FakeMainHost = {
   skills: {
     registered: ModuleSkillRegistration[]
     ensured: Array<{ workspaceRoot: string; skillId: string }>
+    /**
+     * Put a skill in a state in a workspace, for `getSkillStatus` and
+     * `ensureSkillInstalled` to find: `local` or `modified` (a copy the app
+     * leaves alone), `update-available` (`ensure…` answers `updated`),
+     * `install-failed`, …. Unset, a known skill is `missing` until
+     * `ensureSkillInstalled` installs it.
+     */
+    setStatus(workspaceRoot: string, skillId: string, status: ModuleSkillStatus): void
   }
   sidecars: SidecarSpec[]
   /** The stateful service fakes, to arrange the world and read what the module did to it. */
@@ -237,21 +371,78 @@ export type FakeMainHost = {
   shutdown(): Promise<void>
   /** Hear every `emit` (a fake renderer host subscribes this way). */
   onEmit(listener: (topic: string, payload: unknown) => void): () => void
+  /** The module app state now, as `getModuleAppState` reads it. */
+  appState(): Record<string, unknown>
+  /**
+   * Change one key of the module app state, as a window's Settings section
+   * would push it (`undefined` removes it); `watchModuleAppState` listeners
+   * hear the whole namespace. A fake renderer given this host shares it.
+   */
+  setAppState(key: string, value: unknown): void
+  /** Remove the temporary data directory `getModuleDataDir` made (never a `dataDir` the test passed). */
+  dispose(): void
 }
 
 type MainInternals = {
   moduleId: string
   workspaces: ReturnType<typeof createFakeWorkspaces>
+  appState: AppStateStore
   registry(key: string): object | undefined
+}
+
+// Disclosure permissions for main host methods; the host checks
+// `getWorkspaceGitInfo` itself (`permission_missing`).
+const MAIN_METHOD_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
+  getModuleAppState: ['storage'],
+  watchModuleAppState: ['storage'],
+  getModuleDataDir: ['storage'],
+  getWorkspaceGitInfo: ['ipc:workspace-read'],
+}
+const CHECKED_MAIN_METHODS = new Set(['getWorkspaceGitInfo'])
+
+// The skill states an agent launched in the workspace would find the skill in.
+const SKILL_PRESENT: ReadonlySet<ModuleSkillStatus> = new Set<ModuleSkillStatus>([
+  'installed',
+  'updated',
+  'update-available',
+  'local',
+  'modified',
+  'delivered-at-launch',
+])
+
+// The host's rule for a module-relative file path (an asset).
+function validateAssetPath(relativePath: string, moduleId: string): string[] {
+  if (
+    typeof relativePath !== 'string' ||
+    !relativePath ||
+    relativePath.startsWith('/') ||
+    /[\\\0?#]/.test(relativePath)
+  ) {
+    throw new Error(`Module "${moduleId}" asset path must be a module-relative file path, got "${relativePath}".`)
+  }
+  const parts = relativePath.split('/')
+  if (parts.some((part) => !part || part === '.' || part === '..')) {
+    throw new Error(`Module "${moduleId}" asset path must be a module-relative file path, got "${relativePath}".`)
+  }
+  return parts
 }
 const mainInternals = new WeakMap<FakeMainHost, MainInternals>()
 
 export function createFakeMainHost(options: FakeMainHostOptions): FakeMainHost {
   const { moduleId, permissions } = identityOf(options)
   const now = options.now ?? Date.now
-  const workspaces = createFakeWorkspaces(options.workspaces ?? DEFAULT_FAKE_WORKSPACES)
+  const workspaces = createFakeWorkspaces(options.workspaces ?? DEFAULT_FAKE_WORKSPACES, now)
   const capabilities = new Set<string>(options.capabilities ?? KNOWN_CAPABILITIES)
-  const context: FakeServiceContext = { moduleId, permissions, now, workspaces }
+  const context: FakeServiceContext = {
+    moduleId,
+    permissions,
+    now,
+    workspaces,
+    ...(options.dataDir ? { dataDir: options.dataDir } : {}),
+  }
+  const appState = createAppStateStore(options.appState)
+  const skillStatuses = new Map<string, ModuleSkillStatus>()
+  const skillKey = (workspaceRoot: string, skillId: string): string => `${workspaceRoot}\u0000${skillId}`
 
   // Every built-in fake is made up front, so a test can arrange its state
   // before the module resolves it.
@@ -325,7 +516,13 @@ export function createFakeMainHost(options: FakeMainHostOptions): FakeMainHost {
     },
     emitted: [],
     notifications: [],
-    skills: { registered: [], ensured: [] },
+    skills: {
+      registered: [],
+      ensured: [],
+      setStatus(workspaceRoot, skillId, status) {
+        skillStatuses.set(skillKey(workspaceRoot, skillId), status)
+      },
+    },
     sidecars: [],
     services: fakes,
     resolved: [],
@@ -343,6 +540,35 @@ export function createFakeMainHost(options: FakeMainHostOptions): FakeMainHost {
         emitListeners.delete(listener)
       }
     },
+    appState: () => appState.all(),
+    setAppState(key, value) {
+      appState.set(key, value)
+    },
+    dispose() {
+      const made = fakes.storage.dataDir()
+      if (made && !options.dataDir) rmSync(dirname(made), { recursive: true, force: true })
+    },
+  }
+
+  function use(method: string): void {
+    const needs = MAIN_METHOD_PERMISSIONS[method]
+    if (!needs || needs.some((permission) => permissions.has(permission))) return
+    if (!fake.undeclared.some((entry) => entry.what === method)) {
+      fake.undeclared.push({ what: method, needs, checked: CHECKED_MAIN_METHODS.has(method) })
+    }
+  }
+  const knownSkill = (skillId: string): boolean =>
+    fake.skills.registered.some((skill) => skill.id === skillId) || builtinSkills.has(skillId)
+  // What the installer would find, without writing anything.
+  function skillStatus(workspaceRoot: string, skillId: string): ModuleSkillStatusResult {
+    if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) {
+      return { ok: false, status: 'missing-workspace', message: 'No workspace root was given.' }
+    }
+    if (!knownSkill(skillId)) {
+      return { ok: false, status: 'unknown-skill', message: `No skill "${skillId}" is registered.` }
+    }
+    const status = skillStatuses.get(skillKey(workspaceRoot, skillId)) ?? 'missing'
+    return { ok: SKILL_PRESENT.has(status), status }
   }
 
   function resolve<T>(token: ServiceToken<T>, required: boolean): T | undefined {
@@ -406,10 +632,61 @@ export function createFakeMainHost(options: FakeMainHostOptions): FakeMainHost {
     },
     async ensureSkillInstalled(workspaceRoot, skillId) {
       fake.skills.ensured.push({ workspaceRoot, skillId })
-      if (!fake.skills.registered.some((skill) => skill.id === skillId) && !builtinSkills.has(skillId)) {
-        return { ok: false, status: 'unknown-skill', message: `No skill "${skillId}" is registered.` }
+      const found = skillStatus(workspaceRoot, skillId)
+      if (found.status === 'missing') {
+        skillStatuses.set(skillKey(workspaceRoot, skillId), 'installed')
+        return { ok: true, status: 'installed' }
       }
-      return { ok: true, status: 'installed' }
+      if (found.status === 'update-available') {
+        skillStatuses.set(skillKey(workspaceRoot, skillId), 'installed')
+        return { ok: true, status: 'updated' }
+      }
+      return found
+    },
+    async getSkillStatus(workspaceRoot, skillId) {
+      return skillStatus(workspaceRoot, skillId)
+    },
+    getModuleDataDir() {
+      use('getModuleDataDir')
+      const key = 'core.module-storage'
+      const storage = (
+        options.services && Object.hasOwn(options.services, key) ? options.services[key] : registries.get(key)
+      ) as { dataDir?: (moduleId: string) => string } | null | undefined
+      if (typeof storage?.dataDir !== 'function') {
+        throw new Error(`Module "${moduleId}" asked for its data directory, and no storage service is provided.`)
+      }
+      return storage.dataDir(moduleId)
+    },
+    getAssetPath(relativePath) {
+      validateAssetPath(relativePath, moduleId)
+      const root = options.moduleRoot ?? process.cwd()
+      const listed = options.verifiedFiles ? options.verifiedFiles.includes(relativePath) : true
+      const path = resolvePath(root, relativePath)
+      if (!listed || !existsSync(path)) {
+        throw new Error(`"${relativePath}" is not among module "${moduleId}"'s verified files.`)
+      }
+      return path
+    },
+    async getWorkspaceGitInfo(workspaceId) {
+      use('getWorkspaceGitInfo')
+      if (!permissions.has('ipc:workspace-read')) {
+        return {
+          ok: false,
+          code: 'permission_missing',
+          message: `Module "${moduleId}" must declare the "ipc:workspace-read" permission to read a workspace's git information.`,
+        }
+      }
+      return workspaces.gitInfo(workspaceId)
+    },
+    getModuleAppState<T = unknown>(key: string): T | undefined {
+      use('getModuleAppState')
+      if (typeof key !== 'string' || key.trim().length === 0) return undefined
+      return appState.get(key) as T | undefined
+    },
+    watchModuleAppState(cb) {
+      use('watchModuleAppState')
+      // Heard on change only, not on subscribe, as the host's main half is.
+      return appState.subscribe(cb)
     },
     provideService(token, factory) {
       if (provided.has(token.key) || registries.has(token.key)) {
@@ -452,7 +729,7 @@ export function createFakeMainHost(options: FakeMainHostOptions): FakeMainHost {
     },
   }
   fake.host = host
-  mainInternals.set(fake, { moduleId, workspaces, registry: (key) => registries.get(key) })
+  mainInternals.set(fake, { moduleId, workspaces, appState, registry: (key) => registries.get(key) })
   return fake
 }
 
@@ -539,13 +816,19 @@ async function renderComponent(component: unknown, props: object): Promise<strin
 // ── The renderer host ────────────────────────────────────────────────────────
 
 export type FakeRendererHostOptions = FakeModuleIdentity & {
-  /** The module's main half: `invoke` reaches its channels and `subscribe` hears its `emit`. */
+  /**
+   * The module's main half: `invoke` reaches its channels, `subscribe` hears
+   * its `emit`, and the module app state, the Backlog, usage and workspace
+   * git info are its.
+   */
   main?: FakeMainHost
   /** The open workspaces. Default: the main fake's, or one `ws-app`. */
   workspaces?: readonly ModuleWorkspaceView[]
-  /** Backlog items per workspace id. */
-  backlogItems?: Record<string, BacklogItemView[]>
-  /** Module app state already saved. */
+  /** The workspace this window shows (`getActiveWorkspaceId`). Default: the first workspace, or null. */
+  activeWorkspaceId?: string | null
+  /** Backlog items per workspace id, seeded into the Backlog (`services.backlog`). */
+  backlogItems?: Record<string, readonly FakeBacklogItemInput[]>
+  /** Module app state already saved (added to the main fake's, given one). */
   appState?: Record<string, unknown>
   /** Workspace module state already saved, per workspace id. */
   workspaceState?: Record<string, unknown>
@@ -554,6 +837,8 @@ export type FakeRendererHostOptions = FakeModuleIdentity & {
   chatRuntimes?: ModuleChatRuntimeOption[]
   /** What `supports` answers true for. Default: every capability this SDK knows. */
   capabilities?: readonly string[]
+  /** The clock the renderer's own Backlog and usage fakes stamp with. Default: `Date.now`. */
+  now?: () => number
 }
 
 /** Everything the module registered, by kind. */
@@ -573,6 +858,17 @@ export type FakeRendererRegistrations = {
   modalSurfaces: ModalSurfaceDefinition[]
 }
 
+/** A toast the module showed, as the toast region got it (trimmed and clipped). */
+export type FakeToast = {
+  tone: ModuleToastTone
+  message: string
+  detail?: string
+  /** Its button: call `run()` to press it, as the person would. */
+  action?: ModuleToastInput['action']
+  /** Whether the module called the dismisser `toast` returned. */
+  dismissed: boolean
+}
+
 export type FakeRendererHost = {
   /** Hand this to `registerRenderer`. */
   host: RendererHost
@@ -583,8 +879,20 @@ export type FakeRendererHost = {
   openedChats: ModuleOpenChatInput[]
   focusedTabs: ModuleFocusTabInput[]
   openedSurfaces: Array<{ kind: 'global' | 'modal' | 'workspace'; id: string }>
+  /** Every toast shown, in order (none while `supports('toast')` is false). */
+  toasts: FakeToast[]
+  /** Every URL `openExternal` handed to the system browser, normalised. */
+  openedUrls: string[]
+  /** The view each of the module's surfaces last said it shows (`setSurfaceView`), by surface id. */
+  surfaceViews: Record<string, string | null>
   /** Host methods used without a permission that covers them. A clean module leaves this empty. */
   undeclared: FakeUndeclaredUse[]
+  /**
+   * The world the renderer reads and writes: the main fake's when given one.
+   * `workspaces.setGitInfo` scripts `getWorkspaceGitInfo`, `backlog` holds the
+   * Backlog, `usage` the token usage `queryUsage` sums.
+   */
+  services: Pick<FakeServices, 'workspaces' | 'backlog' | 'usage'>
   /** Module app state as saved. */
   appState(): Record<string, unknown>
   /** Workspace module state as saved for a workspace. */
@@ -593,8 +901,10 @@ export type FakeRendererHost = {
   emit(topic: string, payload?: unknown): void
   /** Change the open workspaces; `watchWorkspaces` listeners hear it. */
   setWorkspaces(workspaces: readonly ModuleWorkspaceView[]): void
-  /** Change the Backlog of a workspace; `watchBacklogItems` listeners hear it. */
-  setBacklogItems(workspaceId: string, items: BacklogItemView[]): void
+  /** Show another workspace in this window (null for none); `watchActiveWorkspace` listeners hear it. */
+  setActiveWorkspace(workspaceId: string | null): void
+  /** Replace the Backlog of a workspace (`services.backlog.seed`); `watchBacklogItems` listeners hear it. */
+  setBacklogItems(workspaceId: string, items: readonly FakeBacklogItemInput[]): void
   setColorScheme(scheme: ModuleColorScheme): void
   /** Deliver a change to a `watchWorkspaceFile` watch. */
   changeWorkspaceFile(workspaceId: string, relativePath: string, event: WorkspaceFileWatchEvent): void
@@ -605,19 +915,25 @@ export type FakeRendererHost = {
     panel(componentId: string, props?: { workspaceId?: string }): Promise<string>
     settings(id: string): Promise<string>
     topBar(id: string): Promise<string>
-    navEntry(id: string, props?: { collapsed?: boolean }): Promise<string>
+    navEntry(id: string, props?: { collapsed?: boolean; badge?: SidebarNavEntryBadge | null }): Promise<string>
   }
-  /** Run a registered command as the palette would. */
-  runCommand(id: string): Promise<void>
+  /**
+   * Run a registered command as the palette would: refused when its
+   * `availability` says no, and handed the `ModuleCommandContext` (this
+   * window's active workspace and its mode, overridable with `context`).
+   */
+  runCommand(id: string, context?: Partial<ModuleCommandContext>): Promise<void>
 }
 
-// Disclosure permissions for renderer host methods (the ones the host checks
-// itself — `openChat`, `invoke` — answer for themselves).
+// Permissions for renderer host methods: disclosure for most, and checked by
+// the host for the ones in CHECKED_RENDERER_METHODS (which answer
+// `permission_missing` or throw, as the host does).
 const RENDERER_METHOD_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   getWorkspace: ['ipc:workspace-read'],
   listWorkspaces: ['ipc:workspace-read'],
   watchWorkspaces: ['ipc:workspace-read'],
   getWorkingRoot: ['ipc:workspace-read'],
+  getWorkspaceGitInfo: ['ipc:workspace-read'],
   getWorkspaceModuleState: ['storage'],
   setWorkspaceModuleState: ['storage'],
   getModuleAppState: ['storage'],
@@ -625,27 +941,53 @@ const RENDERER_METHOD_PERMISSIONS: Readonly<Record<string, readonly string[]>> =
   watchModuleAppState: ['storage'],
   listBacklogItems: ['backlog.read'],
   watchBacklogItems: ['backlog.read'],
+  getBacklogLocation: ['backlog.read'],
+  createBacklogItem: ['backlog.write'],
+  updateBacklogStatus: ['backlog.write'],
+  updateBacklogTriage: ['backlog.write'],
+  addBacklogLink: ['backlog.write'],
+  updateBacklogModuleMetadata: ['backlog.write'],
+  queryUsage: ['usage:read'],
   watchWorkspaceFile: ['filesystem:read-workspace'],
   openChat: ['conversation:operate'],
   invoke: [...BRIDGE_PERMISSIONS],
 }
-const CHECKED_RENDERER_METHODS = new Set(['openChat', 'invoke'])
+const CHECKED_RENDERER_METHODS = new Set([
+  'openChat',
+  'invoke',
+  'getWorkspaceGitInfo',
+  'listBacklogItems',
+  'watchBacklogItems',
+  'getBacklogLocation',
+  'createBacklogItem',
+  'updateBacklogStatus',
+  'updateBacklogTriage',
+  'addBacklogLink',
+  'updateBacklogModuleMetadata',
+  'queryUsage',
+])
 
-function validateAssetPath(relativePath: string): string[] {
-  if (
-    typeof relativePath !== 'string' ||
-    !relativePath ||
-    relativePath.startsWith('/') ||
-    /[\\\0?#]/.test(relativePath)
-  ) {
-    throw new Error('Asset path must be a module-relative file path.')
+const TOAST_TONES: ReadonlySet<string> = new Set<ModuleToastTone>(['neutral', 'accent', 'good', 'warn', 'error'])
+const MAX_TOAST_MESSAGE_LENGTH = 200
+const MAX_TOAST_DETAIL_LENGTH = 500
+
+// What `openExternal` takes: an absolute http(s) URL with no credentials.
+function externalHttpUrl(url: unknown): string | null {
+  if (typeof url !== 'string' || url.trim().length === 0) return null
+  try {
+    const parsed = new URL(url.trim())
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+    if (parsed.username || parsed.password) return null
+    return parsed.toString()
+  } catch {
+    return null
   }
-  const parts = relativePath.split('/')
-  if (parts.some((part) => !part || part === '.' || part === '..')) {
-    throw new Error('Asset path must stay inside the module directory.')
-  }
-  return parts
 }
+
+type BacklogRegistry = {
+  list(moduleId: string, workspaceId: string): Promise<{ ok: boolean; items?: BacklogItemView[]; message?: string }>
+} & Record<string, (moduleId: string, ...args: never[]) => Promise<unknown>>
+type UsageRegistry = { query(moduleId: string, query: UsageQuery): Promise<UsageQueryResult> }
 
 export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRendererHost {
   const main = options.main
@@ -662,19 +1004,55 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
     internals?.workspaces.all() ??
     DEFAULT_FAKE_WORKSPACES
   ).map((workspace) => ({ ...workspace }))
-  const backlog = new Map(Object.entries(options.backlogItems ?? {}))
-  const appState: Record<string, unknown> = structuredClone(options.appState ?? {})
+
+  // The services behind the renderer's Backlog, usage and git-info methods:
+  // the main fake's (the host bridges to main's registries), or the
+  // renderer's own when it is tested alone.
+  const world = ((): {
+    workspaces: ReturnType<typeof createFakeWorkspaces>
+    backlog: { registry: BacklogRegistry; handle: FakeBacklog }
+    usage: { registry: UsageRegistry; handle: FakeUsage }
+    appState: AppStateStore
+  } => {
+    if (main && internals) {
+      return {
+        workspaces: internals.workspaces,
+        backlog: {
+          registry: internals.registry('backlog.module-service') as BacklogRegistry,
+          handle: main.services.backlog,
+        },
+        usage: { registry: internals.registry('usage.module-service') as UsageRegistry, handle: main.services.usage },
+        appState: internals.appState,
+      }
+    }
+    const own = createFakeWorkspaces(workspaces, options.now)
+    const context: FakeServiceContext = { moduleId, permissions, now: options.now ?? Date.now, workspaces: own }
+    const backlog = SERVICE_FAKES['backlog.module-service']!.create(context)
+    const usage = SERVICE_FAKES['usage.module-service']!.create(context)
+    return {
+      workspaces: own,
+      backlog: { registry: backlog.registry as BacklogRegistry, handle: backlog.handle as FakeBacklog },
+      usage: { registry: usage.registry as UsageRegistry, handle: usage.handle as FakeUsage },
+      appState: createAppStateStore(undefined),
+    }
+  })()
+  for (const [key, value] of Object.entries(options.appState ?? {})) world.appState.set(key, value)
+  for (const [workspaceId, items] of Object.entries(options.backlogItems ?? {})) {
+    world.backlog.handle.seed(workspaceId, items)
+  }
+
   const workspaceState = new Map(Object.entries(structuredClone(options.workspaceState ?? {})))
   let colorScheme: ModuleColorScheme = options.colorScheme ?? 'light'
+  let activeWorkspaceId: string | null =
+    options.activeWorkspaceId !== undefined ? options.activeWorkspaceId : (workspaces[0]?.id ?? null)
   const chatRuntimes = options.chatRuntimes ?? [
     { id: 'claude', label: 'Claude Code', available: true, models: [], lastSelected: true },
   ]
 
   const subscribers = new Set<{ topic: string; cb: (payload: unknown) => void }>()
   const workspaceWatchers = new Set<(list: ModuleWorkspaceView[]) => void>()
-  const backlogWatchers = new Set<{ workspaceId: string; cb: (items: BacklogItemView[]) => void }>()
+  const activeWorkspaceWatchers = new Set<(workspaceId: string | null) => void>()
   const schemeWatchers = new Set<(scheme: ModuleColorScheme) => void>()
-  const appStateWatchers = new Set<(values: Readonly<Record<string, unknown>>) => void>()
   const fileWatchers = new Set<{ key: string; cb: (event: WorkspaceFileWatchEvent) => void }>()
   let nextChat = 1
 
@@ -702,8 +1080,12 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
     openedChats: [],
     focusedTabs: [],
     openedSurfaces: [],
+    toasts: [],
+    openedUrls: [],
+    surfaceViews: {},
     undeclared: [],
-    appState: () => structuredClone(appState),
+    services: { workspaces: world.workspaces, backlog: world.backlog.handle, usage: world.usage.handle },
+    appState: () => world.appState.all(),
     workspaceState: (workspaceId) => structuredClone(workspaceState.get(workspaceId)),
     emit(topic, payload) {
       for (const subscriber of subscribers) {
@@ -712,13 +1094,19 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
     },
     setWorkspaces(next) {
       workspaces = next.map((workspace) => ({ ...workspace }))
+      if (!main) {
+        for (const workspace of world.workspaces.all()) world.workspaces.remove(workspace.id)
+        for (const workspace of workspaces) world.workspaces.add(workspace)
+      }
       for (const cb of workspaceWatchers) cb(workspaces.map((workspace) => ({ ...workspace })))
     },
+    setActiveWorkspace(workspaceId) {
+      if (workspaceId === activeWorkspaceId) return
+      activeWorkspaceId = workspaceId
+      for (const cb of [...activeWorkspaceWatchers]) cb(workspaceId)
+    },
     setBacklogItems(workspaceId, items) {
-      backlog.set(workspaceId, items)
-      for (const watcher of backlogWatchers) {
-        if (watcher.workspaceId === workspaceId) watcher.cb(structuredClone(items))
-      }
+      world.backlog.handle.seed(workspaceId, items)
     },
     setColorScheme(scheme) {
       colorScheme = scheme
@@ -740,19 +1128,34 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
       },
       settings: (id) =>
         renderComponent(find(registrations.settingsSections, id, 'settings section').Component, {
-          values: structuredClone(appState),
+          values: world.appState.all(),
           setValue(key: string, value: unknown) {
-            appState[key] = structuredClone(value)
+            world.appState.set(key, value)
           },
         }),
       topBar: (id) => renderComponent(find(registrations.topBarItems, id, 'top-bar item').Component, {}),
       navEntry: (id, props = {}) =>
         renderComponent(find(registrations.sidebarNavEntries, id, 'sidebar nav entry').Component, {
           collapsed: props.collapsed ?? false,
+          badge: props.badge ?? null,
         }),
     },
-    async runCommand(id) {
-      await find(registrations.commands, id, 'command').run()
+    async runCommand(id, overrides) {
+      const command = find(registrations.commands, id, 'command')
+      const context: ModuleCommandContext = {
+        activeWorkspaceId,
+        activeWorkspaceMode: workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.mode ?? null,
+        ...overrides,
+      }
+      const { availability } = command
+      const available =
+        typeof availability === 'function'
+          ? availability(context)
+          : !availability?.includes('activeWorkspace') || context.activeWorkspaceId !== null
+      if (!available) throw new Error(`Command "${id}" is not available here, so the palette would not offer it.`)
+      // An older host calls the handler with nothing.
+      if (capabilities.has('command-context')) await command.run(context)
+      else await (command.run as () => void | Promise<void>)()
     },
   }
 
@@ -783,13 +1186,23 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
     const found = workspaces.find((workspace) => workspace.id === id)
     return found ? { ...found } : null
   }
+  // The renderer's Backlog reads throw without `backlog.read`, as the host's do.
+  const requireBacklogRead = (): void => {
+    if (permissions.has('backlog.read')) return
+    throw new Error(
+      `Module "${moduleId}" does not declare the "backlog.read" permission, so it cannot read the Backlog.`,
+    )
+  }
+  const backlogCall = <T>(method: string, args: unknown[]): Promise<T> =>
+    (world.backlog.registry[method] as (moduleId: string, ...rest: unknown[]) => Promise<T>)(moduleId, ...args)
 
   const host: RendererHost = {
     hostApiVersion: HOST_API_VERSION,
+    moduleId,
     supports: (capability) => capabilities.has(capability),
     getAssetUrl(relativePath) {
       record('getAssetUrl', [relativePath])
-      return `module-asset://${moduleId}/${validateAssetPath(relativePath).map(encodeURIComponent).join('/')}`
+      return `module-asset://${moduleId}/${validateAssetPath(relativePath, moduleId).map(encodeURIComponent).join('/')}`
     },
     registerPanel(componentId, component) {
       record('registerPanel', [componentId, component])
@@ -822,6 +1235,17 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
     },
     registerNotificationActionProvider(provider) {
       record('registerNotificationActionProvider', [provider])
+      // An installed module's bell rows are filed under its own id, the only source it may claim.
+      if (provider.source !== moduleId) {
+        throw new Error(
+          `Module "${moduleId}" may only register a notification action provider for its own rows (source "${moduleId}"); got "${provider.source}".`,
+        )
+      }
+      if (registrations.notificationActionProviders.some((existing) => existing.source === provider.source)) {
+        throw new Error(
+          `Notification action provider for source "${provider.source}" is already registered by module "${moduleId}".`,
+        )
+      }
       registrations.notificationActionProviders.push(provider)
     },
     registerCommand(definition) {
@@ -838,7 +1262,12 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
     },
     registerDoorBadge(contribution) {
       record('registerDoorBadge', [contribution])
-      registrations.doorBadges.push(contribution)
+      const rowId = typeof contribution.rowId === 'string' ? contribution.rowId.trim() : ''
+      if (!rowId) throw new Error('Door badge row id must be a non-empty string.')
+      if (registrations.doorBadges.some((existing) => existing.rowId === rowId)) {
+        throw new Error(`Door badge for row "${rowId}" is already registered by module "${moduleId}".`)
+      }
+      registrations.doorBadges.push({ ...contribution, rowId })
     },
     registerTopBarItem(definition) {
       record('registerTopBarItem', [definition])
@@ -866,16 +1295,43 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
     },
     async listBacklogItems(workspaceId) {
       record('listBacklogItems', [workspaceId])
-      return structuredClone(backlog.get(workspaceId) ?? [])
+      requireBacklogRead()
+      const listed = await world.backlog.registry.list(moduleId, workspaceId)
+      if (!listed.ok) throw new Error(listed.message)
+      return listed.items ?? []
     },
-    watchBacklogItems(workspaceId, cb) {
-      record('watchBacklogItems', [workspaceId, cb])
-      const watcher = { workspaceId, cb }
-      backlogWatchers.add(watcher)
-      cb(structuredClone(backlog.get(workspaceId) ?? []))
-      return () => {
-        backlogWatchers.delete(watcher)
-      }
+    watchBacklogItems(workspaceId, cb, watchOptions) {
+      record('watchBacklogItems', [workspaceId, cb, watchOptions])
+      requireBacklogRead()
+      return world.backlog.handle.watch(workspaceId, cb, watchOptions?.onError)
+    },
+    getBacklogLocation(workspaceId) {
+      record('getBacklogLocation', [workspaceId])
+      return backlogCall('getLocation', [workspaceId])
+    },
+    createBacklogItem(workspaceId, input) {
+      record('createBacklogItem', [workspaceId, input])
+      return backlogCall('create', [workspaceId, input])
+    },
+    updateBacklogStatus(workspaceId, itemId, status) {
+      record('updateBacklogStatus', [workspaceId, itemId, status])
+      return backlogCall('updateStatus', [workspaceId, itemId, status])
+    },
+    updateBacklogTriage(workspaceId, itemId, triage) {
+      record('updateBacklogTriage', [workspaceId, itemId, triage])
+      return backlogCall('updateTriage', [workspaceId, itemId, triage])
+    },
+    addBacklogLink(workspaceId, itemId, link) {
+      record('addBacklogLink', [workspaceId, itemId, link])
+      return backlogCall('addLink', [workspaceId, itemId, link])
+    },
+    updateBacklogModuleMetadata(workspaceId, itemId, value) {
+      record('updateBacklogModuleMetadata', [workspaceId, itemId, value])
+      return backlogCall('updateModuleMetadata', [workspaceId, itemId, value])
+    },
+    queryUsage(query) {
+      record('queryUsage', [query])
+      return world.usage.registry.query(moduleId, query)
     },
     async getWorkspace(workspaceId) {
       record('getWorkspace', [workspaceId])
@@ -884,6 +1340,17 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
     async listWorkspaces() {
       record('listWorkspaces', [])
       return workspaces.map((workspace) => ({ ...workspace }))
+    },
+    async getWorkspaceGitInfo(workspaceId) {
+      record('getWorkspaceGitInfo', [workspaceId])
+      if (!permissions.has('ipc:workspace-read')) {
+        return {
+          ok: false,
+          code: 'permission_missing',
+          message: `Module "${moduleId}" must declare the "ipc:workspace-read" permission to read a workspace's git information.`,
+        }
+      }
+      return world.workspaces.gitInfo(workspaceId)
     },
     watchWorkspaces(cb) {
       record('watchWorkspaces', [cb])
@@ -915,21 +1382,18 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
     },
     getModuleAppState<T = unknown>(key: string): T | undefined {
       record('getModuleAppState', [key])
-      return structuredClone(appState[key]) as T | undefined
+      return world.appState.get(key) as T | undefined
     },
     setModuleAppState(key, value) {
       record('setModuleAppState', [key, value])
-      appState[key] = structuredClone(value)
-      for (const cb of appStateWatchers) cb(structuredClone(appState))
+      world.appState.set(key, value)
       return true
     },
     watchModuleAppState(cb) {
       record('watchModuleAppState', [cb])
-      appStateWatchers.add(cb)
-      cb(structuredClone(appState))
-      return () => {
-        appStateWatchers.delete(cb)
-      }
+      const stop = world.appState.subscribe(cb)
+      cb(world.appState.all())
+      return stop
     },
     subscribe(topic, cb) {
       record('subscribe', [topic, cb])
@@ -995,6 +1459,76 @@ export function createFakeRendererHost(options: FakeRendererHostOptions): FakeRe
     listChatRuntimes() {
       record('listChatRuntimes', [])
       return structuredClone(chatRuntimes)
+    },
+    toast(input) {
+      record('toast', [input])
+      if (!input || typeof input !== 'object') throw new Error('toast(...) requires a payload object.')
+      if (typeof input.tone !== 'string' || !TOAST_TONES.has(input.tone)) {
+        throw new Error('toast(...) tone must be "neutral", "accent", "good", "warn" or "error".')
+      }
+      const message = typeof input.message === 'string' ? input.message.trim() : ''
+      if (message.length === 0) throw new Error('toast(...) requires a non-empty message.')
+      if (input.detail !== undefined && typeof input.detail !== 'string') {
+        throw new Error('toast(...) detail must be a string when provided.')
+      }
+      const action = input.action
+      if (
+        action !== undefined &&
+        (!action || typeof action.label !== 'string' || !action.label.trim() || typeof action.run !== 'function')
+      ) {
+        throw new Error('toast(...) action must be { label, run } with a non-empty label.')
+      }
+      // A window with no toast region shows nothing; the dismisser does nothing.
+      if (!capabilities.has('toast')) return () => {}
+      const detail = input.detail?.trim()
+      const shown: FakeToast = {
+        tone: input.tone,
+        message: message.slice(0, MAX_TOAST_MESSAGE_LENGTH),
+        ...(detail ? { detail: detail.slice(0, MAX_TOAST_DETAIL_LENGTH) } : {}),
+        ...(action ? { action: { label: action.label.trim(), run: action.run } } : {}),
+        dismissed: false,
+      }
+      fake.toasts.push(shown)
+      return () => {
+        shown.dismissed = true
+      }
+    },
+    getActiveWorkspaceId() {
+      record('getActiveWorkspaceId', [])
+      return activeWorkspaceId
+    },
+    watchActiveWorkspace(cb) {
+      record('watchActiveWorkspace', [cb])
+      activeWorkspaceWatchers.add(cb)
+      cb(activeWorkspaceId)
+      return () => {
+        activeWorkspaceWatchers.delete(cb)
+      }
+    },
+    setSurfaceView(surfaceId, viewId) {
+      record('setSurfaceView', [surfaceId, viewId])
+      const id = typeof surfaceId === 'string' ? surfaceId.trim() : ''
+      const surface = registrations.globalSurfaces.find((entry) => entry.id === id)
+      if (!surface) return false
+      if (viewId === null) {
+        fake.surfaceViews[surface.id] = null
+        return true
+      }
+      const wanted = typeof viewId === 'string' ? viewId.trim() : ''
+      const view = surface.views?.find((candidate) => candidate.id === wanted)
+      if (!view) return false
+      fake.surfaceViews[surface.id] = view.id
+      return true
+    },
+    async openExternal(url): Promise<ModuleOpenExternalResult> {
+      record('openExternal', [url])
+      const safe = externalHttpUrl(url)
+      if (!safe) return { ok: false, code: 'invalid_url', message: 'Only an absolute http(s) URL can be opened.' }
+      if (!capabilities.has('open-external')) {
+        return { ok: false, code: 'unavailable', message: 'This window cannot open links yet.' }
+      }
+      fake.openedUrls.push(safe)
+      return { ok: true }
     },
     async invoke(channel, payload) {
       record('invoke', [channel, payload])
