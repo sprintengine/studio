@@ -69,6 +69,7 @@ import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillsService } from './skills'
+import { createWorkspaceExtensionsReader } from './workspace-extensions'
 import { sweepGitRepoCache } from './skills/git-repo-reader'
 import {
   getBundledAgentStateReporterPath,
@@ -1693,6 +1694,12 @@ export function createAppServices(
               listModuleContributedTools: () =>
                 resolveModuleMcpTools().map((tool) => ({ moduleId: tool.moduleId, toolName: tool.registration.name })),
               readMarketplaceRegistry: (input) => marketplaceRegistryReader.read(input),
+              // What a paired machine's composer offers a chat here.
+              readWorkspaceExtensions: createWorkspaceExtensionsReader({
+                listWorkspaceSkills: (input) => workspaceSkillsService.listWorkspaceSkills(input),
+                agentCapabilities: (input) => agentCapabilityService.resolve(input),
+                listSources: () => skillsService.listSources(),
+              }),
             }),
           ),
           // Remote-control configuration, local socket only: the listener refuses

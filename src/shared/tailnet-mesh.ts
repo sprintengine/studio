@@ -90,6 +90,11 @@ export type MeshWorkspaceCheckout = {
 export type MeshWorkspaceCheckoutResult =
   { ok: true; checkout: MeshWorkspaceCheckout } | { ok: false; code: string; message: string }
 
+/** A paired machine's `workspace.extensions` answer for one of its projects. */
+export type MeshWorkspaceExtensionsResult =
+  | { ok: true; extensions: import('./workspace-extensions').WorkspaceExtensions }
+  | { ok: false; code: string; message: string }
+
 /**
  * A part of a browse this machine is not allowed to read, named with the reason.
  *
@@ -329,6 +334,7 @@ export const MESH_SETTLE_CONVERSATION_CHANNEL = 'mesh:settle-conversation'
 export const MESH_VISIT_CONVERSATION_CHANNEL = 'mesh:visit-conversation'
 /** One remote workspace's checkout facts (branch, branches, worktrees) over `workspace.checkout`. */
 export const MESH_WORKSPACE_CHECKOUT_CHANNEL = 'mesh:workspace-checkout'
+export const MESH_WORKSPACE_EXTENSIONS_CHANNEL = 'mesh:workspace-extensions'
 
 /**
  * What forgetting a machine did, from the Mesh's side.
@@ -407,6 +413,10 @@ export type MeshConversationFrame = ConversationSessionFrame | MeshConversationL
  * sends it when the turn ends. False for a machine that does not, where the
  * message waits here and goes when the turn ends only if this machine is
  * awake to send it.
+ *
+ * `sendSkills`: the machine advertises `conversation-send-skills` and
+ * `workspace-extensions` — a message to one of its chats may carry its skills,
+ * listed for the composer by `meshWorkspaceExtensions`.
  */
 export type MeshConversationListResult =
   | {
@@ -417,6 +427,7 @@ export type MeshConversationListResult =
       permissionModes?: boolean
       lifecycle?: boolean
       queuedSends?: boolean
+      sendSkills?: boolean
     }
   | { ok: false; code: string; message: string }
 

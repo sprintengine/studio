@@ -217,3 +217,24 @@ test('the answer names the worktree the chat runs in, and only when it runs in o
   const plain = await create().registration.handler({ workspaceId: 'ws-1', newChat: true })
   assert.equal('worktree' in (plain.structuredContent as object), false)
 })
+
+test("skills reach the launch, each an id of this machine's skills", async () => {
+  const { registration, requests } = create()
+  const result = await registration.handler({
+    workspaceId: 'ws-1',
+    newChat: true,
+    prompt: 'hi',
+    skills: ['systematic-debugging', 'superpowers:brainstorming'],
+  })
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(requests[0]?.skills, ['systematic-debugging', 'superpowers:brainstorming'])
+})
+
+test('skills that are not a list of ids are refused before anything starts', async () => {
+  const { registration, requests } = create()
+  for (const skills of ['review', ['../etc'], [''], [1], Array.from({ length: 33 }, (_, i) => `s${i}`)]) {
+    const result = await registration.handler({ workspaceId: 'ws-1', skills })
+    assert.equal(errorCode(result), 'invalid_arguments', JSON.stringify(skills))
+  }
+  assert.equal(requests.length, 0)
+})

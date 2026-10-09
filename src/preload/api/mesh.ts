@@ -7,6 +7,7 @@ import {
   MESH_SETTLE_CONVERSATION_CHANNEL,
   MESH_VISIT_CONVERSATION_CHANNEL,
   MESH_WORKSPACE_CHECKOUT_CHANNEL,
+  MESH_WORKSPACE_EXTENSIONS_CHANNEL,
   MESH_FORGET_CHANNEL,
   MESH_GET_LIVE_STATE_CHANNEL,
   MESH_LIST_CONNECTIONS_CHANNEL,
@@ -22,6 +23,7 @@ import {
   type MeshSettleConversationResult,
   type MeshVisitConversationResult,
   type MeshWorkspaceCheckoutResult,
+  type MeshWorkspaceExtensionsResult,
   type MeshEvent,
   type MeshLiveState,
   type MeshPairResult,
@@ -96,11 +98,13 @@ export const meshApi = {
     worktree?: MeshNewChatWorktree
     /** Images that go with the first message; main puts them in that machine's upload store first. */
     attachments?: ConversationImageAttachment[]
+    skills?: string[]
   }): Promise<MeshCreateConversationResult> => {
-    const { attachments, ...rest } = input
+    const { attachments, skills, ...rest } = input
     return ipcRenderer.invoke(MESH_CREATE_CONVERSATION_CHANNEL, {
       ...rest,
       ...(attachments?.length ? { attachments } : {}),
+      ...(skills?.length ? { skills } : {}),
     }) as Promise<MeshCreateConversationResult>
   },
   meshSettleConversation: (input: {
@@ -116,6 +120,12 @@ export const meshApi = {
       connectionId,
       workspaceId,
     }) as Promise<MeshWorkspaceCheckoutResult>,
+  meshWorkspaceExtensions: (input: {
+    connectionId: string
+    workspaceId: string
+    cli?: string
+  }): Promise<MeshWorkspaceExtensionsResult> =>
+    ipcRenderer.invoke(MESH_WORKSPACE_EXTENSIONS_CHANNEL, input) as Promise<MeshWorkspaceExtensionsResult>,
   // Whole-app mesh lifecycle (remote-sessions-ux): machine paired/forgotten,
   // reachability and pairing waits, broadcast to every window.
   meshGetLiveState: (): Promise<MeshLiveState> =>
@@ -169,12 +179,14 @@ export const meshApi = {
     message: string
     attachments?: ConversationImageAttachment[]
     queue?: boolean
+    skills?: string[]
   }): Promise<MeshConversationCommandResult> =>
     ipcRenderer.invoke(MESH_CONVERSATION_SEND_CHANNEL, {
       key: input.key,
       message: input.message,
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       ...(input.queue ? { queue: true } : {}),
+      ...(input.skills?.length ? { skills: input.skills } : {}),
     }) as Promise<MeshConversationCommandResult>,
   meshConversationCancelQueued: (input: { key: MeshConversationKey; queuedId: string }) =>
     command(input.key, { kind: 'cancelQueued', queuedId: input.queuedId }),
@@ -222,6 +234,7 @@ export const meshApi = {
   | 'meshSettleConversation'
   | 'meshVisitConversation'
   | 'meshWorkspaceCheckout'
+  | 'meshWorkspaceExtensions'
   | 'meshGetLiveState'
   | 'onMeshEvent'
   | 'meshConversationList'

@@ -22,7 +22,7 @@ import { useSshMachines } from '../../settings/SshMachinesSection'
 import { FolderIdentityIcon } from '../FolderIdentityIcon'
 import { useProjectColor } from '../../../hooks/useProjectColors'
 import { projectColorKey } from '../../../utils/projectColor'
-import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
+import { resolveSkillMentionPrefix } from '../../../../../shared/skill-invocation'
 import { composerTokenAt } from '../../../../../shared/conversation/composerTrigger'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import {
@@ -365,6 +365,8 @@ export type RemoteNewChatLaunch = {
   worktree?: MeshNewChatWorktree
   /** Which repository the remote workspace is, as its machine served it (one-project-across-machines). */
   remoteRepository: RepositoryIdentity | null
+  /** That machine's skill ids, attached as the chat's chips and installed over there. */
+  skills?: string[]
   /**
    * The images staged with the prompt, as their bytes: the files that hold
    * them here name nothing on that machine, so the bytes go up its upload
@@ -1671,20 +1673,16 @@ export default function NewAgentPanel({
       // The worktree the project already has, picked and still on offer.
       const remoteRunsIn = remoteWorktreePickable ? remoteExistingWorktree : null
       if (confirm.kind !== 'conversation') return
-      // A chat's skills are this machine's and its attached files are local
-      // files: neither has a way over yet, and a path on this disk typed into
+      // Attached files are files on this disk, and a path here typed into
       // that machine's prompt names nothing there, so their chips refuse
-      // rather than vanish. Images do travel: their bytes go with the launch,
-      // and the first message carries them over there as images.
-      const stranded = [
-        confirm.skills?.length ? 'the skills' : null,
-        files.length > 0 ? 'the attached files' : null,
-      ].filter((entry): entry is string => entry !== null)
-      if (stranded.length > 0) {
+      // rather than vanish. Images travel as bytes with the launch, and skills
+      // are that machine's own, picked from its list: it installs and runs
+      // them, and refuses them in words if it is too old to.
+      if (files.length > 0) {
         showToast({
           tone: 'warn',
           title: 'That chat cannot travel yet',
-          description: `Remove ${stranded.join(' and ')} to start on ${remoteTarget.connection.machineName}, or start it on This device.`,
+          description: `Remove the attached files to start on ${remoteTarget.connection.machineName}, or start it on This device.`,
         })
         return
       }
@@ -1710,6 +1708,7 @@ export default function NewAgentPanel({
             : {}),
         remoteRepository: remoteTarget.picked.repository,
         ...(images.length > 0 ? { images: images.map(remoteImage) } : {}),
+        ...(confirm.skills?.length ? { skills: confirm.skills.map((skill) => skill.id) } : {}),
       })
         .finally(() => setRemoteLaunching(false))
         // The host reports its own failures as toasts; a throw past its catch
@@ -2015,6 +2014,15 @@ export default function NewAgentPanel({
   // What the launch reads skills and MCP servers through: nothing for a plain shell.
   const skillsOffered = selection.kind !== 'terminal'
   const { skills: pickedSkills, setSkills, mcpServers: pickedMcpServers, setMcpServers } = composer
+  const remotePickedConnection = remoteTarget?.picked ? remoteTarget.connection.id : null
+  const remotePickedWorkspace = remoteTarget?.picked?.workspaceId ?? null
+  const remoteSkillsSource = React.useMemo(
+    () =>
+      remotePickedConnection && remotePickedWorkspace
+        ? { connectionId: remotePickedConnection, workspaceId: remotePickedWorkspace }
+        : null,
+    [remotePickedConnection, remotePickedWorkspace],
+  )
   const plusSkills = React.useMemo(
     () =>
       skillsOffered
@@ -2027,9 +2035,22 @@ export default function NewAgentPanel({
             onSkillsChange: setSkills,
             mcpServers: pickedMcpServers,
             onMcpServersChange: setMcpServers,
+            // A chat on a paired machine is offered that machine's skills and
+            // servers. Its servers are its own to configure, so none is
+            // added from here.
+            ...(remoteSkillsSource ? { remote: remoteSkillsSource, mcpPickable: false } : {}),
           }
         : undefined,
-    [commandCli, pickedMcpServers, pickedSkills, setMcpServers, setSkills, skillsOffered, workspaceRoot],
+    [
+      commandCli,
+      pickedMcpServers,
+      pickedSkills,
+      remoteSkillsSource,
+      setMcpServers,
+      setSkills,
+      skillsOffered,
+      workspaceRoot,
+    ],
   )
   const scheduleShown = scheduleOffered || editing !== null
   const scheduleDisabled = editing

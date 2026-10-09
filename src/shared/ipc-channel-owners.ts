@@ -121,6 +121,7 @@ export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   'mesh:settle-conversation': {},
   'mesh:visit-conversation': {},
   'mesh:workspace-checkout': {},
+  'mesh:workspace-extensions': {},
   // The module kernel's own channel and the bundled modules' (scheduled agents).
   'modules:bridge:invoke': {},
   'modules:host-service:invoke': {},

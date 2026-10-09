@@ -108,6 +108,12 @@ export type ConversationTransportCapabilities = {
    * sent from here when the turn ends — so only while this machine is awake.
    */
   hostQueue: boolean
+  /**
+   * Attach skills to a message. Here, the workspace's own; on a paired
+   * machine, that machine's, listed through `remoteExtensions`, where it
+   * advertises taking them (`conversation-send-skills`).
+   */
+  skills: boolean
 }
 
 /** What an action answers: the local session API's result, or a remote command's. */
@@ -120,6 +126,8 @@ export type ConversationTransport = {
   kind: 'local' | 'remote'
   /** The paired machine the conversation runs on, for a remote transport. */
   machineName?: string
+  /** Where a remote chat's skills and MCP servers are listed: the machine and the project there. */
+  remoteExtensions?: { connectionId: string; workspaceId: string }
   capabilities: ConversationTransportCapabilities
   subscribe(input: ConversationSubscribeInput, cb: (frame: ConversationSessionFrame) => void): () => void
   loadEarlier(input: ConversationLoadEarlierInput): Promise<ConversationPageResult>
@@ -195,6 +203,7 @@ const LOCAL_CAPABILITIES: ConversationTransportCapabilities = {
   steer: true,
   // The chat runs here: its queue is on the machine that sends it already.
   hostQueue: false,
+  skills: true,
 }
 
 type LocalParts = Omit<ConversationTransport, 'kind' | 'capabilities' | 'services'>
@@ -352,7 +361,10 @@ export function createRemoteConversationTransport(input: {
       steer: false,
       // Turned on from the machine's list, when it advertises queued sends.
       hostQueue: false,
+      // Turned on from the machine's list, when it takes skills with a message.
+      skills: false,
     },
+    remoteExtensions: { connectionId: key.connectionId, workspaceId: key.workspaceId },
     subscribe: (subscription, cb) =>
       window.api.onMeshConversationSession({ key, turnLimit: subscription.turnLimit }, (frame) => {
         if (frame.type === 'link') input.onLink?.(frame)
@@ -371,6 +383,9 @@ export function createRemoteConversationTransport(input: {
           key,
           message: turn.message,
           ...(turn.attachments?.length ? { attachments: turn.attachments } : {}),
+          // The machine resolves them against its own folder, as its own
+          // composer's chips are.
+          ...(turn.skills?.length ? { skills: turn.skills.map((skill) => skill.id) } : {}),
         }),
       ),
     queue: async (turn) =>

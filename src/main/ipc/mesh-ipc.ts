@@ -6,6 +6,7 @@ import {
   MESH_SETTLE_CONVERSATION_CHANNEL,
   MESH_VISIT_CONVERSATION_CHANNEL,
   MESH_WORKSPACE_CHECKOUT_CHANNEL,
+  MESH_WORKSPACE_EXTENSIONS_CHANNEL,
   MESH_FORGET_CHANNEL,
   MESH_GET_LIVE_STATE_CHANNEL,
   MESH_LIST_CONNECTIONS_CHANNEL,
@@ -105,6 +106,7 @@ export function registerMeshIpc(ipcMain: IpcMain, service: AutomationService): v
       effort: record.effort,
       worktree: record.worktree,
       attachments: record.attachments,
+      skills: record.skills,
     })
   })
   // A remote chat's rest and visit clock, kept by the machine it runs on.
@@ -126,6 +128,12 @@ export function registerMeshIpc(ipcMain: IpcMain, service: AutomationService): v
   ipcMain.handle(MESH_WORKSPACE_CHECKOUT_CHANNEL, (_event, input: unknown) => {
     const record = asRecord(input)
     return service.mesh().workspaceCheckout(record?.connectionId, record?.workspaceId)
+  })
+  ipcMain.handle(MESH_WORKSPACE_EXTENSIONS_CHANNEL, (_event, input: unknown) => {
+    const record = asRecord(input) ?? {}
+    return service
+      .mesh()
+      .workspaceExtensions({ connectionId: record.connectionId, workspaceId: record.workspaceId, cli: record.cli })
   })
 
   // Conversations on a paired machine. Like every `mesh:*` channel these
@@ -178,6 +186,7 @@ export function registerMeshIpc(ipcMain: IpcMain, service: AutomationService): v
       message: record.message,
       attachments: record.attachments,
       queue: record.queue,
+      skills: record.skills,
     })
   })
   ipcMain.handle(MESH_CONVERSATION_TOOL_DETAIL_CHANNEL, (_event, input: unknown) => {

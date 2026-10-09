@@ -444,7 +444,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const permissionPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
   const permissionMode = resolvePermissionMode(session, agent)
   const supportsSkills =
-    transport.capabilities.composerContext && capabilities?.skills !== undefined && capabilities.skills !== 'none'
+    transport.capabilities.skills && capabilities?.skills !== undefined && capabilities.skills !== 'none'
   // The chat has no plan toggle: a turn goes out in the mode the agent is on,
   // which is the default unless a read-only ask was set for it.
   const conversationMode: 'default' | 'ask' = agent?.conversationMode === 'ask' ? 'ask' : 'default'
@@ -2562,7 +2562,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     workspaceRunsHere(binding.workspace) &&
     clientSupports('drag-paths')
 
-  const skillInventory = useWorkspaceSkills(workspaceRoot, null, supportsSkills)
+  const skillInventory = useWorkspaceSkills(
+    workspaceRoot,
+    null,
+    supportsSkills && transport.capabilities.composerContext,
+  )
   // Held from render to render, as the "+" menu that takes them is memoized:
   // a list rebuilt each render redrew the menu on every keystroke and token.
   const attachedSkills = useMemo(
@@ -2604,9 +2608,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             onMcpServersChange: ignoreMcpServers,
             mcpCli: chatCli,
             mcpPickable: false,
+            // A chat on a paired machine lists that machine's.
+            ...(transport.remoteExtensions ? { remote: transport.remoteExtensions } : {}),
           }
         : undefined,
-    [supportsSkills, workspaceRoot, attachedSkills, setAttachedSkills, chatCli],
+    [supportsSkills, workspaceRoot, attachedSkills, setAttachedSkills, chatCli, transport.remoteExtensions],
   )
   const removeDraftFile = useCallback(
     (path: string) =>
@@ -2649,7 +2655,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     workspaceRoot,
     draft,
     caret: composerCaret,
-    skillsEnabled: supportsSkills,
+    // The type-ahead reads this machine's inventory; a remote chat's skills come from its "+".
+    skillsEnabled: supportsSkills && transport.capabilities.composerContext,
     // A file mention names a file on this machine's disk.
     mentionsEnabled: transport.capabilities.composerContext,
     commandMenu: commandMenuAvailable

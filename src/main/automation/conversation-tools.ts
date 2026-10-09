@@ -39,6 +39,9 @@ export const CONVERSATION_MUTATION_TOOL_NAMES: readonly string[] = [
 ]
 
 const EFFORT_ID = /^[a-z0-9_-]{1,40}$/i
+// A skill's directory name, as the chat runtime accepts one (conversation-skills.ts).
+const SKILL_ID = /^[\w.-]{1,200}(?::[\w.-]{1,200})?$/
+const MAX_CREATE_SKILLS = 32
 
 export type ConversationToolsDeps = {
   launch: ConversationLaunchService['launch']
@@ -159,6 +162,14 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
               'one is refused with "permission_escalation", and an omitted one takes the stricter of the two.',
           },
           prompt: { type: 'string', description: "The chat's first message." },
+          skills: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              "Skill ids to attach, as New chat's skill chips attach them: each is installed into the chat's " +
+              'folder before its session starts, run with the first message, and kept on the chat. An id no ' +
+              'skill on this machine answers to is refused with "unknown_skill".',
+          },
           name: { type: 'string', description: 'Agent display name; one from the name pool when omitted.' },
           notifyParent: {
             type: 'boolean',
@@ -187,6 +198,14 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           if (args[key] !== undefined && typeof args[key] !== 'string') {
             return toolError('invalid_arguments', `"${key}" must be a string when provided.`)
           }
+        }
+        if (
+          args.skills !== undefined &&
+          (!Array.isArray(args.skills) ||
+            args.skills.length > MAX_CREATE_SKILLS ||
+            !args.skills.every((skill) => typeof skill === 'string' && SKILL_ID.test(skill)))
+        ) {
+          return toolError('invalid_arguments', `"skills" must be a list of at most ${MAX_CREATE_SKILLS} skill ids.`)
         }
         for (const key of ['newChat', 'worktree', 'notifyParent'] as const) {
           if (args[key] !== undefined && typeof args[key] !== 'boolean') {
@@ -237,6 +256,7 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           ...(typeof args.cli === 'string' ? { cli: args.cli } : {}),
           ...(typeof args.cliModel === 'string' ? { cliModel: args.cliModel } : {}),
           ...(typeof args.prompt === 'string' ? { prompt: args.prompt } : {}),
+          ...(Array.isArray(args.skills) && args.skills.length > 0 ? { skills: args.skills as string[] } : {}),
           ...(typeof args.name === 'string' ? { name: args.name } : {}),
           ...(capped.permissionPreset ? { permissionPreset: capped.permissionPreset } : {}),
         })

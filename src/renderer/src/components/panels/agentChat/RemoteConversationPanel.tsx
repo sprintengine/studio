@@ -146,6 +146,7 @@ export default function RemoteConversationPanel({
   // turn ends, so this machine may sleep or close meanwhile; and what it
   // holds for this chat, as it last said.
   const [queuedSends, setQueuedSends] = useState(false)
+  const [sendSkills, setSendSkills] = useState(false)
   const [hostQueued, setHostQueued] = useState<MeshQueuedMessage[]>([])
   const modelSwitch = listedModelSwitch && Boolean(thread?.models)
   // Bumped after an accepted model switch, so the list is read again and the
@@ -166,6 +167,8 @@ export default function RemoteConversationPanel({
   permissionModesRef.current = permissionModes
   const queuedSendsRef = useRef(queuedSends)
   queuedSendsRef.current = queuedSends
+  const sendSkillsRef = useRef(sendSkills)
+  sendSkillsRef.current = sendSkills
   const threadRef = useRef(thread)
   threadRef.current = thread
   const transport = useMemo(() => {
@@ -197,6 +200,7 @@ export default function RemoteConversationPanel({
           modelSwitch: modelSwitchRef.current,
           permissionModes: permissionModesRef.current,
           hostQueue: queuedSendsRef.current,
+          skills: sendSkillsRef.current,
         }
       },
       ...(setModel
@@ -232,6 +236,7 @@ export default function RemoteConversationPanel({
         setListedModelSwitch(result.modelSwitch === true)
         setPermissionModes(result.permissionModes === true)
         setQueuedSends(result.queuedSends === true)
+        setSendSkills(result.sendSkills === true)
         setThread(
           result.conversations.find(
             (entry) => entry.workspaceId === remoteWorkspaceId && entry.agentId === remoteAgentId,

@@ -160,6 +160,9 @@ export const TAILNET_CAPABILITIES = [
   'conversation-cli-permission-modes',
   'conversation-lifecycle',
   'conversation-queued-sends',
+  // A message may bring skills (2026-10-09): `send` takes `skills`, ids of
+  // this machine's skills the chat runs with it. CONVERSATION_SEND_SKILLS_CAPABILITY.
+  'conversation-send-skills',
   // A phone's New chat as this machine's own (2026-10-05). They name gateway
   // tools' arguments and answers, not the conversation lane, so they carry no
   // `conversation-` prefix and are not the protocol package's to list:
@@ -191,6 +194,15 @@ export const TAILNET_CAPABILITIES = [
   // one: an older handler skips both arguments and starts the chat elsewhere.
   'new-chat-worktree-name',
   'new-chat-in-worktree',
+  // A paired desktop's composer offers this machine's skills and MCP servers
+  // (2026-10-09): `workspace.extensions` lists a project's skills and, for a
+  // CLI, its MCP servers with the connection each last reported; and
+  // `conversation.create` takes `skills`, installed into the chat's folder
+  // and run with its first message. A client that does not see them refuses
+  // a skill chip for this machine rather than send it to a handler that
+  // skips the argument.
+  'workspace-extensions',
+  'new-chat-skills',
 ] as const
 
 export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]

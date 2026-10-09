@@ -219,6 +219,12 @@ export type SkillsAndMcpsPickerProps = {
    */
   mcpPickable?: boolean
   /**
+   * A chat on a paired machine: its skills and MCP servers are that
+   * machine's, listed by it for the project there. A skill a pick would
+   * install is installed over there when the chat takes it.
+   */
+  remote?: { connectionId: string; workspaceId: string }
+  /**
    * Held by the host instead of the trigger (owner ruling 2026-10-04): the New
    * chat composer opens this from a row of its "+" menu and anchors it on the
    * "+" itself, so the trigger does not decide when it is open.
@@ -239,6 +245,7 @@ export function SkillsAndMcpsPicker({
   includeMcps = true,
   mcpCli,
   mcpPickable = true,
+  remote,
   open: heldOpen,
   onOpenChange,
 }: SkillsAndMcpsPickerProps) {
@@ -269,9 +276,12 @@ export function SkillsAndMcpsPicker({
   const listRef = useRef<HTMLDivElement>(null)
   const listId = useId()
 
-  const skillInventory = useWorkspaceSkills(workspaceRoot, pluginId, open)
   const serversCli = mcpCli === undefined ? pluginId : mcpCli
-  const reportedServers = useCliMcpServers(workspaceRoot, includeMcps ? serversCli : null, open)
+  const localInventory = useWorkspaceSkills(remote ? null : workspaceRoot, pluginId, open && !remote)
+  const localServers = useCliMcpServers(remote ? null : workspaceRoot, includeMcps ? serversCli : null, open)
+  const remoteExtensions = useRemoteExtensions(remote ?? null, serversCli, open)
+  const skillInventory = remote ? remoteExtensions : localInventory
+  const reportedServers = remote ? remoteExtensions.servers : localServers
   const sources = useSkillSourcesById(open)
   const installedServers = useWorkspaceStore((s) => s.appSettings.mcp?.servers)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
@@ -290,7 +300,9 @@ export function SkillsAndMcpsPicker({
     })
     const ordered =
       tab === 'mcp' && includeMcps
-        ? buildMcpRows(installedServers ?? {}, reportedServers)
+        ? // The app's own MCP settings are this machine's; a remote chat's
+          // servers are the ones that machine reports.
+          buildMcpRows(remote ? {} : (installedServers ?? {}), reportedServers)
         : [
             ...skillRows.filter((row) => row.group === 'installed'),
             ...skillRows.filter((row) => row.group === 'available'),
@@ -338,6 +350,10 @@ export function SkillsAndMcpsPicker({
   const toggleSkill = async (row: SkillRow) => {
     if (isChecked(row)) {
       onSkillsChange(skills.filter((skill) => skill.id !== row.skill.id))
+      return
+    }
+    if (row.group === 'available' && remote) {
+      onSkillsChange([...skills, row.skill])
       return
     }
     if (row.group === 'available') {
@@ -568,7 +584,13 @@ export function SkillsAndMcpsPicker({
                     checked={isChecked(row)}
                     pickable={row.kind === 'skill' || (mcpPickable && row.state === 'installed')}
                     sourceRepo={
-                      row.kind === 'skill' && row.skill.sourceId ? sources.get(row.skill.sourceId) : undefined
+                      row.kind !== 'skill'
+                        ? undefined
+                        : row.skill.sourceRepo
+                          ? { kind: 'github', repo: row.skill.sourceRepo }
+                          : row.skill.sourceId
+                            ? sources.get(row.skill.sourceId)
+                            : undefined
                     }
                     highlighted={highlighted?.key === row.key}
                     busy={busyKey === row.key}
@@ -720,6 +742,53 @@ function useCliMcpServers(workspaceRoot: string | null, cli: string | null, acti
     }
   }, [active, cli, workspaceRoot])
   return servers
+}
+
+/**
+ * A paired machine's skills and MCP servers for one of its projects, read on
+ * every open as the local ones are.
+ */
+function useRemoteExtensions(
+  remote: { connectionId: string; workspaceId: string } | null,
+  cli: string | null,
+  active: boolean,
+): { skills: WorkspaceSkill[]; servers: AgentMcpServer[]; loading: boolean; error: string | null } {
+  const [state, setState] = useState<{
+    skills: WorkspaceSkill[]
+    servers: AgentMcpServer[]
+    loading: boolean
+    error: string | null
+  }>({ skills: [], servers: [], loading: false, error: null })
+  const connectionId = remote?.connectionId ?? null
+  const workspaceId = remote?.workspaceId ?? null
+  useEffect(() => {
+    if (!active || !connectionId || !workspaceId) return
+    let cancelled = false
+    setState((current) => ({ ...current, loading: true, error: null }))
+    window.api
+      .meshWorkspaceExtensions({ connectionId, workspaceId, ...(cli ? { cli } : {}) })
+      .then((answer) => {
+        if (cancelled) return
+        setState(
+          answer.ok
+            ? { skills: answer.extensions.skills, servers: answer.extensions.servers, loading: false, error: null }
+            : { skills: [], servers: [], loading: false, error: answer.message },
+        )
+      })
+      .catch((error: unknown) => {
+        if (!cancelled)
+          setState({
+            skills: [],
+            servers: [],
+            loading: false,
+            error: error instanceof Error ? error.message : 'Could not list that machine’s skills.',
+          })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [active, cli, connectionId, workspaceId])
+  return state
 }
 
 /** The skill sources by id, for the owner's face on a skill one installed. */
