@@ -139,6 +139,7 @@ import { usageLimitProviderOf } from '../../store/usageLimitsStore'
 import { studioAppCommands, useConversationCommands } from './agentChat/useConversationCommands'
 import { composerAppCommand } from './agentChat/composerAppCommands'
 import { commandInsertText } from './agentChat/slashCommandMenu'
+import { tokenOpensMessage } from '../../../../shared/conversation/composerTrigger'
 import { useConversationSearchJump } from './agentChat/conversationSearchJump'
 import { useTurnNavigation } from './agentChat/turnNavigation'
 import { TimelineMinimap } from './agentChat/TimelineMinimap'
@@ -2680,16 +2681,24 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         if (command.name === 'terminal') resumeInTerminalRef.current()
         return
       }
-      // Everything else is text the CLI expands when the message goes out.
-      // A space already after the token is reused rather than doubled.
-      const text = commandInsertText(command)
+      // Everything else is text the CLI expands when the message goes out —
+      // as `/name` where the token opens the message, and as a form the agent
+      // reads mid-message anywhere else. A space already after the token is
+      // reused rather than doubled.
+      const opensMessage = tokenOpensMessage(draft, range.start)
+      const text = commandInsertText(command, opensMessage)
       const end = text.endsWith(' ') && /^\s/u.test(draft.slice(range.end)) ? range.end + 1 : range.end
       const next = draft.slice(0, range.start) + text + draft.slice(end)
       setDraft(next)
       pendingCaretRef.current = range.start + text.length
       setComposerCaret(range.start + text.length)
       detachRecall()
-      setCommandHint(command.argumentHint ? { command: command.name, hint: command.argumentHint, draft: next } : null)
+      // Arguments follow a command only where it runs, at the message's start.
+      setCommandHint(
+        opensMessage && command.argumentHint
+          ? { command: command.name, hint: command.argumentHint, draft: next }
+          : null,
+      )
     },
     onPickSkill: (skill, range) => {
       setAttachedSkills([...attachedSkills, skill])

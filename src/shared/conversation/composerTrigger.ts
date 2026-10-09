@@ -5,35 +5,64 @@ export type ComposerTrigger = {
   range: { start: number; end: number }
 }
 
+/** A marker character and what was typed after it, for the token the caret sits in. */
+export type ComposerToken = {
+  marker: string
+  query: string
+  range: { start: number; end: number }
+}
+
+/**
+ * The token under the caret when it opens with one of `markers` at a token
+ * boundary: the start of the draft, the start of a line, or after whitespace.
+ * Inside a word the character is the word's own — `dev@example.com`, `US$40`,
+ * `and/or`, `src/foo` — and opens nothing. The token runs from the marker to
+ * the next whitespace, so a pick replaces the whole of it even with the caret
+ * part-way through.
+ *
+ * A token whose query opens with another marker (`//`, `@$`) is not one. A `/`
+ * whose query holds another `/` is a path (`/Users/dev/app`, `/src/foo`), not
+ * a command or a skill; and `https://` never gets this far, its `/` following
+ * a colon.
+ */
+export function composerTokenAt(text: string, caret: number, markers: string): ComposerToken | null {
+  if (!markers || !Number.isInteger(caret) || caret < 0 || caret > text.length) return null
+  const match = /(?:^|\s)(\S)(\S*)$/u.exec(text.slice(0, caret))
+  if (!match || !markers.includes(match[1])) return null
+  const marker = match[1],
+    query = match[2]
+  if (/[/@$]/u.test(query[0] ?? '') || query[0] === marker) return null
+  if (marker === '/' && query.includes('/')) return null
+  const start = caret - query.length - 1
+  const suffix = text.slice(caret).search(/\s/u)
+  return { marker, query, range: { start, end: suffix < 0 ? text.length : caret + suffix } }
+}
+
+/**
+ * Whether a token starting at `start` opens the message: nothing but blank
+ * space before it. A CLI runs a `/command` only there, so a command picked
+ * anywhere else has to go in as something the agent reads mid-message.
+ */
+export function tokenOpensMessage(text: string, start: number): boolean {
+  return !text.slice(0, start).trim()
+}
+
 /**
  * Token boundaries prevent mail addresses and mid-word punctuation opening a picker.
  *
- * `/` is stricter than the other two. A CLI expands a command only when it
- * opens the message, so the command menu opens only where `/` is the first
- * non-blank character of the whole draft — never mid-sentence or on a later
- * line, where "and/or" or a pasted `src/foo` path would otherwise keep popping
- * it and a picked command would be sent as prose. A `/` whose query
- * holds another `/` is a path (`/Users/dev/app`), not a command. The caret
- * must still be inside the token: arguments follow a space, and a space closes
- * the menu so they are typed as plain text.
+ * All three markers open where a token can start — the start of the draft, the
+ * start of any line, after whitespace — with the caret still inside the token:
+ * arguments follow a space, and a space closes the menu so they are typed as
+ * plain text. A `/` later in the message opens the command menu too (owner
+ * ruling 2026-10-09). A CLI expands a command only when the message opens with
+ * it, so what a pick puts there is the menu's to decide (`tokenOpensMessage`).
  */
 export function detectComposerTrigger(text: string, caret: number): ComposerTrigger | null {
-  if (!Number.isInteger(caret) || caret < 0 || caret > text.length) return null
-  const prefix = text.slice(0, caret)
-  const match = /(?:^|\s)([/@$])([^\s]*)$/u.exec(prefix)
-  if (!match) return null
-  const marker = match[1],
-    query = match[2]
-  if (/[/@$]/u.test(query[0] ?? '')) return null
-  const start = caret - query.length - 1
-  if (marker === '/') {
-    if (query.includes('/')) return null
-    if (prefix.slice(0, start).trim()) return null
-  }
-  const suffix = text.slice(caret).search(/\s/u)
+  const token = composerTokenAt(text, caret, '/@$')
+  if (!token) return null
   return {
-    kind: marker === '/' ? 'slash' : marker === '$' ? 'skill' : 'mention',
-    query,
-    range: { start, end: suffix < 0 ? text.length : caret + suffix },
+    kind: token.marker === '/' ? 'slash' : token.marker === '$' ? 'skill' : 'mention',
+    query: token.query,
+    range: token.range,
   }
 }

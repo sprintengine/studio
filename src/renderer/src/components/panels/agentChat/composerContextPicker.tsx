@@ -1,7 +1,11 @@
 import React, { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
 import type { FileSearchEntry } from '../../../../../shared/ipc/filesystem'
-import { detectComposerTrigger, type ComposerTrigger } from '../../../../../shared/conversation/composerTrigger'
+import {
+  detectComposerTrigger,
+  tokenOpensMessage,
+  type ComposerTrigger,
+} from '../../../../../shared/conversation/composerTrigger'
 import type { ConversationMentionRef } from '../../../../../shared/conversation/mentions'
 import { rankMentionCandidates } from '../../../../../shared/conversation/searchRanking'
 import type { ConversationCommand } from '../../../../../shared/conversation/commands'
@@ -16,7 +20,12 @@ import {
 } from '../../ui'
 import { AttachmentChip } from '../../ui/AttachmentChip'
 import { recentFileVisit, workspaceFileVisits } from '../../../utils/recentFileVisits'
-import { rankConversationCommands, SlashCommandMenu, type SlashCommandMenuStatus } from './slashCommandMenu'
+import {
+  commandWorksMidMessage,
+  rankConversationCommands,
+  SlashCommandMenu,
+  type SlashCommandMenuStatus,
+} from './slashCommandMenu'
 import { useConversationTransport } from './conversationTransport'
 import { isImeKey, type ComposerKeyEvent } from './ComposerField'
 
@@ -231,12 +240,16 @@ export function useComposerContextPicker({
   // The command menu's rows and highlight live here rather than inside the
   // menu, because the field is the combobox: its `aria-activedescendant`
   // names the highlighted row, and the keys that move it arrive on the field.
+  // A `/` later in the message lists only what does something there: the CLI
+  // runs a command only as the message's first word (`commandWorksMidMessage`).
   const commandQuery = trigger?.kind === 'slash' ? trigger.query : null
+  const commandOpensMessage = trigger?.kind === 'slash' && tokenOpensMessage(draft, trigger.range.start)
   const allCommands = commandMenu?.commands
-  const commandRows = useMemo(
-    () => (commandQuery === null || !allCommands ? [] : rankConversationCommands(allCommands, commandQuery)),
-    [allCommands, commandQuery],
-  )
+  const commandRows = useMemo(() => {
+    if (commandQuery === null || !allCommands) return []
+    const rows = rankConversationCommands(allCommands, commandQuery)
+    return commandOpensMessage ? rows : rows.filter(commandWorksMidMessage)
+  }, [allCommands, commandQuery, commandOpensMessage])
   const [commandIndex, setCommandIndex] = useState(0)
   useEffect(() => setCommandIndex(0), [commandQuery])
   const activeCommand = Math.min(commandIndex, Math.max(0, commandRows.length - 1))

@@ -47,6 +47,9 @@ test('NewAgentPanel', async () => {
   anyGlobal.FileReader = dom.window.FileReader
   anyGlobal.File = dom.window.File
   anyGlobal.getComputedStyle = dom.window.getComputedStyle
+  // jsdom has no `CSS`; the skill type-ahead escapes a row id with it to keep
+  // the highlighted row in view.
+  anyGlobal.CSS = { escape: (value: string) => value.replace(/["\\]/gu, '\\$&') }
   anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
   class ResizeObserverStub {
     observe(): void {}
@@ -3532,6 +3535,82 @@ test('NewAgentPanel', async () => {
       assert.ok(!text.includes('What should your extension do?'))
       assert.equal(door.view.container.querySelector('[data-extension-name-chip]'), null)
       door.view.unmount()
+    })
+
+    // `/` opens the skill picker wherever a token starts — the draft's start, a
+    // later line, after a space — and never inside a word, a path or a URL. A
+    // chat takes the pick as a chip, the "+" menu's, and loses only the token.
+    const settlePicker = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)))
+    const skillRow = (id: string) =>
+      dom.window.document.querySelector<HTMLElement>(`[data-skill-row="${id}"]`) ?? undefined
+    await check('a chat: / after text opens the skill picker, and a pick becomes a chip', async () => {
+      seedStore()
+      // A chat's picker lists the workspace-wide inventory, as its "+" does.
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      const listed = api.workspaceSkillsList
+      api.workspaceSkillsList = async () => ({
+        ok: true,
+        skills: [{ id: 'backlog', name: 'backlog', source: 'builtin', harnesses: [], installState: 'installed' }],
+      })
+      try {
+        const view = await render({ initialSelection: { kind: 'conversation' } })
+        const field = composerField(view.container)
+        for (const draft of ['/', 'A paragraph of context.\n/', 'some text /', 'some text /back']) {
+          await act(async () => typeIntoComposer(field, draft))
+          await settlePicker()
+          assert.ok(skillRow('backlog'), `the picker opens for ${JSON.stringify(draft)}`)
+        }
+        for (const draft of ['and/or', 'see src/foo', 'see https://example.com/', 'a/b']) {
+          await act(async () => typeIntoComposer(field, draft))
+          await settlePicker()
+          assert.equal(skillRow('backlog'), undefined, `no picker for ${JSON.stringify(draft)}`)
+        }
+
+        await act(async () => typeIntoComposer(field, 'some text /'))
+        await settlePicker()
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+          )
+        })
+        await settlePicker()
+        assert.equal(skillRow('backlog'), undefined, 'Esc closes it')
+        assert.equal(view.closed(), 0, 'and leaves the panel open')
+
+        await act(async () => typeIntoComposer(field, 'Fix the flaky test.\n/back'))
+        await settlePicker()
+        await act(async () => {
+          skillRow('backlog')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        await settlePicker()
+        assert.equal(composerText(field), 'Fix the flaky test.\n', 'the pick takes the token and nothing else')
+        assert.ok(
+          view.find((el) => el.getAttribute('aria-label') === 'Remove skill backlog'),
+          'and attaches the skill as a chip',
+        )
+        view.unmount()
+      } finally {
+        api.workspaceSkillsList = listed
+      }
+    })
+
+    await check('a terminal agent: a / mid-draft inserts the CLI’s mention in place of just its token', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'general' } })
+      const field = composerField(view.container)
+      const { EditorView } = await import('@codemirror/view')
+      await act(async () => {
+        typeIntoComposer(field, 'first line\nthen /back the rest')
+        EditorView.findFromDOM(field.closest<HTMLElement>('.cm-editor')!)!.dispatch({ selection: { anchor: 21 } })
+      })
+      await settlePicker()
+      assert.ok(skillRow('backlog'), 'the caret in the token opens the picker')
+      await act(async () => {
+        skillRow('backlog')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      await settlePicker()
+      assert.equal(composerText(field), 'first line\nthen /backlog the rest', 'the rest of the draft is left as it was')
+      view.unmount()
     })
 
     if (failures > 0) {

@@ -1,7 +1,12 @@
 import { JSDOM } from 'jsdom'
 import { expect, test, vi } from 'vitest'
 import type { ConversationCommand } from '../../../../../shared/conversation/commands'
-import { commandInsertText, commandSourceLabel, rankConversationCommands } from './slashCommandMenu'
+import {
+  commandInsertText,
+  commandSourceLabel,
+  commandWorksMidMessage,
+  rankConversationCommands,
+} from './slashCommandMenu'
 
 const command = (
   name: string,
@@ -59,6 +64,20 @@ test('a query nothing matches leaves no rows', () => {
 test('a pick inserts the command with a trailing space, or the text the command asks for', () => {
   expect(commandInsertText(command('review'))).toBe('/review ')
   expect(commandInsertText(command('backlog', 'skill', { insertText: '$backlog ' }))).toBe('$backlog ')
+})
+
+test('later in the message a skill goes in as a phrase, and a row with its own text keeps it', () => {
+  expect(commandInsertText(command('design-review', 'skill'), false)).toBe('the design-review skill ')
+  expect(commandInsertText(command('design-review', 'skill'), true)).toBe('/design-review ')
+  expect(commandInsertText(command('backlog', 'skill', { insertText: '$backlog ' }), false)).toBe('$backlog ')
+})
+
+test('later in the message only the rows that do something there are offered', () => {
+  expect(commandWorksMidMessage(command('model', 'app'))).toBe(true)
+  expect(commandWorksMidMessage(command('deploy', 'skill'))).toBe(true)
+  expect(commandWorksMidMessage(command('backlog', 'skill', { insertText: '$backlog ' }))).toBe(true)
+  expect(commandWorksMidMessage(command('compact', 'cli'))).toBe(false)
+  expect(commandWorksMidMessage(command('release-notes', 'custom'))).toBe(false)
 })
 
 test('each source has its own quiet label, and the CLI is named', () => {
