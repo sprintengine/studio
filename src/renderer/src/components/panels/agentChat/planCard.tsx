@@ -9,10 +9,12 @@
 // the title and the opening lines, and a long plan fades out under them
 // rather than unrolling a wall of text between tool rows.
 
-import React from 'react'
+import React, { useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { showToast } from '../../../store/toastStore'
+import { useRevealMatch } from '../../../utils/revealMatch'
 import { Badge, CopyGlyphButton, GhostButton } from '../../ui'
+import { CHAT_FIND_SEGMENT_ATTRIBUTE } from './chatFindSegment'
 import { ConversationMarkdown, useConversationLinkContext } from './conversationLinks'
 import type { ChatServices } from './chatServices'
 import { useConversationTransport } from './conversationTransport'
@@ -103,21 +105,45 @@ export function OpenPlanButton({ onOpen }: { onOpen: () => void }) {
   )
 }
 
-export function ResolvedPlanCard({ plan, planFilePath }: { plan: string; planFilePath?: string }) {
+export function ResolvedPlanCard({
+  plan,
+  planFilePath,
+  findSegment,
+}: {
+  plan: string
+  planFilePath?: string
+  /** The plan's key in Find in chat's index (chatFind.ts). */
+  findSegment?: string
+}) {
   const open = usePlanOpener()
-  const title = planTitle(plan) ?? 'Proposed plan'
+  const named = planTitle(plan)
+  const title = named ?? 'Proposed plan'
   const body = planBody(plan)
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  // A find that lands past the preview shows the whole plan, for as long as
+  // the card is drawn. Not remembered, unlike a folded message: the card has
+  // no control to fold it again, and its full reading is the pane's.
+  const [revealed, setRevealed] = useState(false)
   // Without a pane to open it in, the card is the only place to read the plan,
   // so it shows the whole of it.
-  const clamped = open !== null && planIsLong(body)
+  const clamped = open !== null && planIsLong(body) && !revealed
+  useRevealMatch(cardRef, clamped, () => setRevealed(true))
+  // Only words the plan wrote are searched: the fallback title is the card's.
+  const segment = { [CHAT_FIND_SEGMENT_ATTRIBUTE]: findSegment }
   return (
     <div
+      ref={cardRef}
       data-conversation-plan=""
       className="rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]"
     >
       <div className="flex items-center gap-2 px-3 pt-2">
         <Badge className="shrink-0">Plan</Badge>
-        <span className="min-w-0 flex-1 truncate text-body font-medium text-[color:var(--text-strong)]">{title}</span>
+        <span
+          className="min-w-0 flex-1 truncate text-body font-medium text-[color:var(--text-strong)]"
+          {...(named ? segment : {})}
+        >
+          {title}
+        </span>
         {open ? <OpenPlanButton onOpen={() => open(plan, planFilePath)} /> : null}
         <CopyGlyphButton size="xs" label="Copy plan" text={plan.trim()} className="shrink-0" />
       </div>
@@ -126,6 +152,7 @@ export function ResolvedPlanCard({ plan, planFilePath }: { plan: string; planFil
           className={`min-w-0 px-3 pb-2 pt-1 text-meta leading-5 ${
             clamped ? 'max-h-40 overflow-hidden [mask-image:linear-gradient(to_bottom,black_50%,transparent)]' : ''
           }`}
+          {...segment}
         >
           <ConversationMarkdown text={body} size="compact" />
         </div>

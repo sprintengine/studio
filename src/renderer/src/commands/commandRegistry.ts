@@ -259,6 +259,23 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'chat.replay.start' },
   }),
+  // Find in the conversation you are reading: its messages, replies and plans,
+  // a match at a time. ⌘F because that is where a person's hand goes to find
+  // anything, and it is free here: `terminal.find` holds the chord on the more
+  // specific `terminal` scope and wins inside a terminal, and
+  // `shellTakesChordFrom` hands it back to Monaco and to everything that is
+  // not a chat. `allowInEditableTarget` so it works from the composer, where
+  // the person is when they think to look something up.
+  command({
+    id: 'chat.find',
+    title: 'Find in chat',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+F'],
+    availability: ['activeWorkspace'],
+    allowInEditableTarget: true,
+    handlerPath: { kind: 'panel-event', eventId: 'chat.find' },
+  }),
   // Quote what is selected in a conversation's transcript into its composer,
   // as the selection toolbar's Quote does. `>` is markdown's quote marker and
   // what the chord inserts, and on a US layout ⌘⇧. is ⌘> — the physical key is

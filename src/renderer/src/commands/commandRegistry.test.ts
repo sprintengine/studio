@@ -187,6 +187,20 @@ test('the settle chord ships free of conflicts and reaches the chat from its com
   assert.deepEqual(findKeybindingConflicts(settle!, COMMAND_REGISTRY), [])
 })
 
+test('Find in chat shares ⌘F with Find in terminal without a blocking conflict', () => {
+  const chat = getCommandDefinition('chat.find')
+  const terminal = getCommandDefinition('terminal.find')
+  assert.deepEqual(chat?.defaultKeybindings, ['primary+f'])
+  assert.deepEqual(terminal?.defaultKeybindings, ['primary+f'])
+  // The terminal's sits on the narrower scope, which outranks the chat's
+  // inside a terminal; keyTargetGate keeps the chat's to the chat.
+  assert.deepEqual(chat?.scopes, ['workspace'])
+  assert.deepEqual(terminal?.scopes, ['terminal'])
+  assert.equal(chat?.allowInEditableTarget, true, 'it is reached for from the composer')
+  assert.deepEqual(chat?.handlerPath, { kind: 'panel-event', eventId: 'chat.find' })
+  assert.equal(hasBlockingKeybindingConflict(findKeybindingConflicts(chat!, COMMAND_REGISTRY)), false)
+})
+
 test('the pane "+" chord ships free of conflicts', () => {
   const add = getCommandDefinition('pane.add')
   assert.deepEqual(add?.defaultKeybindings, ['primary+t'])

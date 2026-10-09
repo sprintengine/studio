@@ -2,6 +2,7 @@ import { JSDOM } from 'jsdom'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, expect, test } from 'vitest'
+import { revealMatch } from '../../../utils/revealMatch'
 import { selectionClipboard } from '../../../utils/selectionToMarkdown'
 import type { TranscriptEntry } from './conversationProjection'
 import { UserTimelineRow } from './timelineRows'
@@ -162,6 +163,17 @@ test('Show full message opens the fold and Show less closes it, and the choice o
   await act(async () => view.toggle()!.click())
   expect(view.region().dataset.userMessageCollapsed).toBe('true')
   expect(view.toggle()!.textContent).toBe('Show full message')
+})
+
+test('a find that lands in a folded message opens it, and it stays open for reading', async () => {
+  renderedLines = 20
+  const view = await mount(lines(20), 'fold-find')
+  const segment = view.host.querySelector('[data-chat-find-segment="user:fold-find"]')!
+  expect(segment.textContent).toContain('pasted line 20')
+  await act(async () => revealMatch(segment.lastChild!))
+  expect(view.region().dataset.userMessageCollapsed).toBe('false')
+  await view.remount()
+  expect(view.toggle()!.getAttribute('aria-expanded')).toBe('true')
 })
 
 test('a folded message still copies whole, without its control', async () => {

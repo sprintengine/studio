@@ -32,6 +32,7 @@ import { ConversationFileLink, ConversationMarkdown, useConversationLinkContext 
 import { stepWentWrong, ToolRow, toolGlyphInk, toolPresentationInput } from './toolRows/ToolRow'
 import { useConversationDisclosure } from './conversationViewState'
 import { UserMessageFold } from './userMessageFold'
+import { CHAT_FIND_SEGMENT_ATTRIBUTE, chatFindSegmentKey } from './chatFindSegment'
 import { presentToolItem, summarizeToolGroup } from '../../../../../shared/conversation/presentation'
 import type { ConversationToolKind } from '../../../../../shared/conversation-runtime'
 import {
@@ -339,6 +340,7 @@ function UserMessageBody({ id, text }: { id: string; text: string }) {
       conversationKey={`${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`}
       id={id}
       measureKey={text}
+      findSegment={chatFindSegmentKey.user(id)}
       className={`min-w-0 text-heading text-[color:var(--text-strong)] ${USER_MESSAGE_PROSE}`}
     >
       <ConversationMarkdown text={text} userText />
@@ -447,7 +449,11 @@ export function AssistantTurnBlock({
         // The pane's full width, as the composer below it: the column's edges
         // are the list's own padding, so prose, code blocks and tool rows all
         // share them with the user's bubble.
-        <div ref={proseRef} className="min-w-0">
+        <div
+          ref={proseRef}
+          className="min-w-0"
+          {...{ [CHAT_FIND_SEGMENT_ATTRIBUTE]: chatFindSegmentKey.reply(entry.turnId) }}
+        >
           <ConversationMarkdown text={entry.text} streaming={entry.status === 'streaming'} />
         </div>
       ) : null}
@@ -1108,7 +1114,11 @@ export function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry,
       ) : (
         <div>
           {entry.requestKind === 'plan' && entry.plan?.trim() ? (
-            <ResolvedPlanCard plan={entry.plan} planFilePath={entry.planFilePath} />
+            <ResolvedPlanCard
+              plan={entry.plan}
+              planFilePath={entry.planFilePath}
+              findSegment={chatFindSegmentKey.plan(entry.requestId)}
+            />
           ) : (
             <div className="text-meta leading-5 text-[color:var(--text-muted)]">
               {entry.requestKind === 'plan' ? 'Proposed a plan' : entry.summary}

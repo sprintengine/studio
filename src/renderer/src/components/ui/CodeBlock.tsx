@@ -8,6 +8,7 @@ import { Tooltip } from './Tooltip'
 import { TruncatedText } from './TruncatedText'
 import { TerminalPromptGlyph, ViewSourceGlyph, WrapLinesGlyph } from './CodeBlockGlyphs'
 import { codeBlockTitle, countLines, pastableShellCommand } from './codeBlockModel'
+import { useRevealMatch } from '../../utils/revealMatch'
 import {
   cachedCodeLines,
   HIGHLIGHT_LINE_LIMIT,
@@ -186,6 +187,10 @@ export function CodeBlock(props: CodeBlockProps) {
   const drawn = props.drawing != null && !streaming && !showSource
   const foldable = props.collapsible !== false && !streaming && !drawn && lineCount > COLLAPSE_AFTER_LINES
   const folded = foldable && !expanded
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  // A find in the app's own text (Find in chat) that lands on a folded line
+  // opens the block, as "Show all" would.
+  useRevealMatch(bodyRef, folded, () => setExpanded(true))
   const command = props.onPasteInTerminal ? pastableShellCommand(code, props.language, streaming) : null
   const onPaste = props.onPasteInTerminal
 
@@ -254,7 +259,13 @@ export function CodeBlock(props: CodeBlockProps) {
           {props.drawing}
         </div>
       ) : null}
-      <div id={bodyId} className="ds-code-block__body" data-folded={folded ? '' : undefined} hidden={drawn}>
+      <div
+        ref={bodyRef}
+        id={bodyId}
+        className="ds-code-block__body"
+        data-folded={folded ? '' : undefined}
+        hidden={drawn}
+      >
         <pre ref={preRef}>
           <CodeBoundary code={code}>
             <HighlightedSource code={code} language={title.highlightLanguage} streaming={streaming} />

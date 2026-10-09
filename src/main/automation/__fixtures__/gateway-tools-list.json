@@ -150,7 +150,7 @@
     },
     {
       "name": "conversation.settle",
-      "sha256": "603c8e54e5f390be64b96a79ea57dbc6517c614c11711223513b4a0b6440c997"
+      "sha256": "1cc60f2e59d82bafa25aa76409b275281ab8b724262dafc7bc4c6661c9984fa6"
     },
     {
       "name": "conversation.visit",
@@ -456,7 +456,7 @@
     },
     {
       "name": "conversation.settle",
-      "sha256": "603c8e54e5f390be64b96a79ea57dbc6517c614c11711223513b4a0b6440c997"
+      "sha256": "1cc60f2e59d82bafa25aa76409b275281ab8b724262dafc7bc4c6661c9984fa6"
     },
     {
       "name": "conversation.visit",

@@ -229,14 +229,20 @@ export function descendantPids(rootPid: number, procs: readonly ProcRow[]): Set<
   return seen
 }
 
-function stripUserAgent(userAgent: string): string {
+/**
+ * The guest's user agent without the tokens that say "this is an Electron
+ * app". Electron builds its default from `app.getName()` with the spaces taken
+ * out, so a packaged build carries `SprintEngineStudio/<version>` (the
+ * productName) and a dev build `sprintengine-studio/<version>` (the package
+ * name). What is left is product tokens and comments separated by single
+ * spaces, the shape RFC 9110 gives a User-Agent.
+ */
+export function stripUserAgent(userAgent: string): string {
   // A dev server that sniffs `Electron/` serves a different page than the
   // one the person will ship; so does one that sees the app's own token.
   return userAgent
-    .replace(/\s?Electron\/\S+/i, '')
-    .replace(/\s?sprintengine\/\S+/i, '')
-    .replace(/\s?sprintengine-studio\/\S+/i, '')
-    .replace(/\s{2,}/g, ' ')
+    .replace(/(^|\s)(?:Electron|sprintengine(?:-?studio)?)\/\S+/gi, '$1')
+    .replace(/\s+/g, ' ')
     .trim()
 }
 

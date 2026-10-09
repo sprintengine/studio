@@ -1713,7 +1713,7 @@ export default function SettingsPanel({
         onBack={doorBack.onBack}
         canGoBack={doorBack.canGoBack}
       >
-        <div className="h-full min-h-0 overflow-y-auto px-5 py-4">{bodyContent}</div>
+        <div className="h-full min-h-0 overflow-y-auto px-5 py-4 [scrollbar-gutter:stable]">{bodyContent}</div>
       </GlobalSurfaceShell>
     )
   }
@@ -1727,7 +1727,7 @@ export default function SettingsPanel({
     // suppresses the chevron there, so no onBack is passed.
     return (
       <GlobalSurfaceShell ariaLabel="Settings" bar={{ title: 'Settings' }} rail={sidebarNode}>
-        <div className="h-full min-h-0 overflow-y-auto px-5 py-4">{bodyContent}</div>
+        <div className="h-full min-h-0 overflow-y-auto px-5 py-4 [scrollbar-gutter:stable]">{bodyContent}</div>
       </GlobalSurfaceShell>
     )
   }

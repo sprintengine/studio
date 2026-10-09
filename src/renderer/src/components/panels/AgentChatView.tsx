@@ -279,6 +279,8 @@ export {
   resolvePermissionPreset,
 } from './agentChat/chatPermissions'
 import { MODEL_PICKER_TOGGLE_COMMAND, registerMountedChatView } from './agentChat/mountedChatViews'
+import { useChatFind } from './agentChat/useChatFind'
+import { FindBar } from '../find/FindBar'
 export {
   MODEL_PICKER_TOGGLE_COMMAND,
   registerMountedChatView,
@@ -2476,6 +2478,19 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     }),
     [],
   )
+  const chatFind = useChatFind({
+    rows: timelineRows,
+    listRef,
+    transcriptRef,
+    shellRef,
+    jumpToRow,
+    pauseFollowing: () => {
+      atBottomRef.current = false
+      setAtBottom(false)
+    },
+    focusFallback: () => composerRef.current?.focus(),
+  })
+  const openChatFind = chatFind.openFind
   useEffect(
     () =>
       registerMountedChatView({
@@ -2493,8 +2508,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           composerRef.current?.focus()
         },
         restartSession: () => void restartSessionRef.current(),
+        openFind: openChatFind,
       }),
-    [workspaceId, agentId, stepTurn],
+    [workspaceId, agentId, stepTurn, openChatFind],
   )
   const modelPickerShortcutLabel = useMemo(() => {
     const keybinding = getEffectiveKeybindings(MODEL_PICKER_TOGGLE_COMMAND, keybindingSettings)[0]
@@ -3186,6 +3202,22 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             does a terminal agent, and a thread title here repeated the first
             message over its own bubble. */}
 
+          {/* Over the transcript's top-right, outside its log: the bar is
+            chrome, and a change to its count is not a message. Not under a
+            replay, which draws over the live chat it would be searching. */}
+          {chatFind.open && replay === null ? (
+            <FindBar
+              label="Find in chat"
+              query={chatFind.query}
+              onQueryChange={chatFind.setQuery}
+              status={chatFind.status}
+              hasMatches={chatFind.hasMatches}
+              onNext={chatFind.findNext}
+              onPrevious={chatFind.findPrevious}
+              onClose={chatFind.close}
+              inputRef={chatFind.inputRef}
+            />
+          ) : null}
           <div
             ref={transcriptRef}
             // Under a replay the live chat keeps running, out of reach.

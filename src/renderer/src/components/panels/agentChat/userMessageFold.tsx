@@ -1,5 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
+import { useRevealMatch } from '../../../utils/revealMatch'
 import { GhostButton } from '../../ui'
+import { CHAT_FIND_SEGMENT_ATTRIBUTE } from './chatFindSegment'
 import { ChevronRightGlyph } from './toolRows/ToolKindGlyph'
 import { useConversationDisclosure } from './conversationViewState'
 
@@ -56,6 +58,7 @@ export function UserMessageFold({
   conversationKey,
   id,
   measureKey,
+  findSegment,
   className,
   children,
 }: {
@@ -63,10 +66,13 @@ export function UserMessageFold({
   id: string
   /** Changes when the content does (the message text), so a recycled row re-measures. */
   measureKey: string
+  /** The message's key in Find in chat's index (chatFind.ts). */
+  findSegment?: string
   className?: string
   children: ReactNode
 }): JSX.Element {
   const regionId = useId()
+  const regionRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
   const [foldHeight, setFoldHeight] = useState<number | null>(null)
   const [expanded, setExpanded] = useConversationDisclosure(conversationKey, `user-message:${id}`, false)
@@ -91,9 +97,14 @@ export function UserMessageFold({
 
   const foldable = foldHeight !== null
   const collapsed = foldable && !expanded
+  // A find that lands in the message opens it the way "Show full message"
+  // does, remembered, so it is still open to read once the find is closed and
+  // folds again from the same control.
+  useRevealMatch(regionRef, collapsed, () => setExpanded(true))
   return (
     <div className="min-w-0">
       <div
+        ref={regionRef}
         id={regionId}
         data-user-message-collapsed={collapsed ? 'true' : 'false'}
         className={
@@ -103,7 +114,7 @@ export function UserMessageFold({
         }
         style={collapsed ? { maxHeight: foldHeight } : undefined}
       >
-        <div ref={contentRef} className={className}>
+        <div ref={contentRef} className={className} {...{ [CHAT_FIND_SEGMENT_ATTRIBUTE]: findSegment }}>
           {children}
         </div>
       </div>

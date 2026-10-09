@@ -668,7 +668,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
       <div className="relative flex-1 overflow-hidden">
         {markdownModeToggle}
         {showPreview ? (
-          <div className="h-full overflow-y-auto bg-[color:var(--bg-app)] px-8 pb-8 pt-8">
+          <div className="h-full overflow-y-auto bg-[color:var(--bg-app)] px-8 pb-8 pt-8 [scrollbar-gutter:stable]">
             {/* The mode toggle floats over this same `relative` box at `top-3`
                 and is a `size-control-xs` (26px) IconButton, so it occupies
                 y 12 → 38 — past the 32px `pt-8` inset the prose starts at. The
