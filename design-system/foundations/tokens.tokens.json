@@ -827,40 +827,6 @@
           }
         }
       },
-      "find": {
-        "match": {
-          "$type": "color",
-          "$value": "rgba(204, 132, 0, 0.24)",
-          "$description": "The wash under each text match a find in the current view turned up: amber at 24%, the hue of a highlighter pen, so a match reads as marked text rather than as a selection or a state.",
-          "$extensions": {
-            "com.sprintengine": {
-              "role": "emphasis",
-              "use": "Every match of a find-in-view query, painted over the text itself (the chat's find, through the CSS Custom Highlight API).",
-              "doNotUse": "The match the find is on now (that is find.match-active), a selection, a status, or any row or control background.",
-              "modes": {
-                "light": "rgba(204, 132, 0, 0.24)",
-                "dark": "rgba(252, 192, 48, 0.22)"
-              }
-            }
-          }
-        },
-        "match-active": {
-          "$type": "color",
-          "$value": "rgba(204, 132, 0, 0.55)",
-          "$description": "The wash under the one match a find is on now: the same amber as find.match, one step stronger, so the current match stands out among the others without a second hue.",
-          "$extensions": {
-            "com.sprintengine": {
-              "role": "emphasis",
-              "use": "The current match of a find-in-view query, painted over the text, among others wearing find.match.",
-              "doNotUse": "Any match but the current one, and never on its own as a fill: the strong step only reads against the soft one.",
-              "modes": {
-                "light": "rgba(204, 132, 0, 0.55)",
-                "dark": "rgba(252, 192, 48, 0.5)"
-              }
-            }
-          }
-        }
-      },
       "overlay": {
         "scrim": {
           "$type": "color",

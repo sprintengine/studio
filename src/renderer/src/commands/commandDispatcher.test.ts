@@ -706,27 +706,3 @@ test('commandDispatcher', async () => {
 
   console.log('command dispatcher module command tests passed')
 })
-
-test('⌘F is the chat find inside a chat, the terminal find inside a terminal, and nothing elsewhere', () => {
-  const dispatcher = new RendererCommandDispatcher(500)
-  const cmdF = {
-    key: 'f',
-    code: 'KeyF',
-    ctrlKey: false,
-    metaKey: true,
-    altKey: false,
-    shiftKey: false,
-    defaultPrevented: false,
-    repeat: false,
-    isComposing: false,
-  }
-  const resolve = (activeScopes: string[], now: number) =>
-    dispatcher.resolve(cmdF, { activeScopes, platform: 'darwin', availability: { activeWorkspace: true }, now })
-  const inWorkspace = ['global', 'workspace', 'workspace-navigation']
-  const chat = resolve([...inWorkspace, 'chat'], 0)
-  assert.equal(chat.kind === 'matched' ? chat.commandId : chat.kind, 'chat.find')
-  const terminal = resolve([...inWorkspace, 'terminal'], 1_000)
-  assert.equal(terminal.kind === 'matched' ? terminal.commandId : terminal.kind, 'terminal.find')
-  // An editor, a settings field: the key is theirs.
-  assert.equal(resolve(inWorkspace, 2_000).kind, 'unmatched')
-})

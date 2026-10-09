@@ -57,18 +57,6 @@ export function isTerminalKeyTarget(target: EventTarget | null | undefined): boo
 }
 
 /**
- * Whether a keystroke came from inside a chat: its transcript, its find bar or
- * its composer. What makes the `chat` command scope real, the way
- * `isTerminalKeyTarget` makes `terminal` real; the chat's shell carries the
- * marker (AgentChatView's ChatShell).
- */
-export function isChatKeyTarget(target: EventTarget | null | undefined): boolean {
-  const element = target as { closest?: (selector: string) => unknown } | null | undefined
-  if (!element || typeof element.closest !== 'function') return false
-  return element.closest('[data-chat-pane]') != null
-}
-
-/**
  * The marker a pane's own chrome puts on itself — today the find bar.
  *
  * A terminal pane installs NATIVE listeners on its container (mousedown,

@@ -221,8 +221,6 @@ function scopeSpecificity(command: CommandContribution, activeScopes: readonly C
   if (command.scopes.some((scope) => scope.startsWith('panel:') && activeScopes.includes(scope))) return 4
   if (command.scopes.includes('editor') && activeScopes.includes('editor')) return 3
   if (command.scopes.includes('terminal') && activeScopes.includes('terminal')) return 3
-  // A key from inside a chat, as `terminal` is a key from inside a terminal.
-  if (command.scopes.includes('chat') && activeScopes.includes('chat')) return 3
   if (command.scopes.includes('workspace') && activeScopes.includes('workspace')) return 2
   if (command.scopes.includes('workspace-navigation') && activeScopes.includes('workspace-navigation')) return 2
   if (command.scopes.includes('global')) return 1

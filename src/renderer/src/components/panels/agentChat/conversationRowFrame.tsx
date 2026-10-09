@@ -1,8 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
-/** The row attribute the chat's find looks for the match it is on under (conversationFind.ts). */
-export const CONVERSATION_ROW_ATTRIBUTE = 'data-conversation-row'
-
 /** Animate arrival once, never a historical page or a recycled mount. */
 export function ConversationRowFrame({
   id,
@@ -25,8 +22,6 @@ export function ConversationRowFrame({
   }, [id, live, seen])
   return (
     <div
-      // Where the chat's find looks for the match it is on (conversationFind.ts).
-      {...{ [CONVERSATION_ROW_ATTRIBUTE]: id }}
       className={flash ? 'attention-row-pulse' : entering ? 'conversation-row-enter' : undefined}
       onAnimationEnd={(event) => {
         if (event.target !== event.currentTarget) return

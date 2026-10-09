@@ -248,7 +248,7 @@ import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
 // deferred chunk.
 import type { PaletteScope } from '../commandPaletteSearch'
 import { subscribePaletteOpenRequest, type PaletteAgentTarget } from '../palette/paletteOpenRequest'
-import { isChatKeyTarget, isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
+import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
 import { controlTabContextItemOf, controlTabContextOf, cycleFocusedControlTabScope } from '../../utils/controlTab'
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { createAppUpdateToastDriver, showAppUpdateOutcomeToast } from './manager/appUpdateToast'
@@ -4291,12 +4291,9 @@ export default function WorkspaceManager() {
       // from the event rather than from the active tab is what keeps ⌘F inside
       // a Monaco editor as Monaco's own find — the shell never claims a key it
       // did not receive from a terminal.
-      // `chat` is the same, for a key from inside a chat.
       activeScopes: isTerminalKeyTarget(event.target)
         ? [...activeCommandScopes, 'terminal' as const]
-        : isChatKeyTarget(event.target)
-          ? [...activeCommandScopes, 'chat' as const]
-          : activeCommandScopes,
+        : activeCommandScopes,
       commands: commandContributions,
       disabledCommandIds,
       keybindingOverrides: keybindingSettings?.overrides,
