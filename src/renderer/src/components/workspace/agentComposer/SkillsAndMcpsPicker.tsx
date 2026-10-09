@@ -13,6 +13,8 @@ import { CheckIcon } from '../../AppIcons'
 import SprintEngineFrond from '../../brand/SprintEngineFrond'
 import { sourceAvatarUrl } from '../globalSurface/extensions/catalogue/SourceAvatar'
 import { EXTENSIONS_BROWSE_DEEPLINK } from '../../settings/extensionsRoute'
+import { EXTENSIONS_DRAWER_VIEWS } from '../globalSurface/extensions/extensionsSurfaceTarget'
+import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import {
@@ -79,7 +81,7 @@ type McpRow = {
 
 export type PickerRow = SkillRow | McpRow
 
-type PickerTab = 'skills' | 'mcp'
+type PickerTab = 'skills' | 'mcp' | 'browse'
 
 const GROUP_LABEL: Record<PickerRow['group'], string> = {
   installed: 'Skills in this workspace',
@@ -331,6 +333,13 @@ export function SkillsAndMcpsPicker({
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
+  const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
+  // Browse installs to this machine, so a chat on another one is not offered it.
+  const tabItems: Array<{ value: PickerTab; label: string }> = [
+    { value: 'skills', label: 'Skills' },
+    ...(includeMcps ? [{ value: 'mcp' as const, label: 'MCP servers' }] : []),
+    ...(remote ? [] : [{ value: 'browse' as const, label: 'Browse' }]),
+  ]
 
   const rows = useMemo<PickerRow[]>(() => {
     const skillRows: SkillRow[] = skillInventory.skills.map((skill) => {
@@ -343,14 +352,16 @@ export function SkillsAndMcpsPicker({
       }
     })
     const ordered =
-      tab === 'mcp' && includeMcps
-        ? // The app's own MCP settings are this machine's; a remote chat's
-          // servers are the ones that machine reports.
-          buildMcpRows(remote ? {} : (installedServers ?? {}), reportedServers)
-        : [
-            ...skillRows.filter((row) => row.group === 'installed'),
-            ...skillRows.filter((row) => row.group === 'available'),
-          ]
+      tab === 'browse'
+        ? []
+        : tab === 'mcp' && includeMcps
+          ? // The app's own MCP settings are this machine's; a remote chat's
+            // servers are the ones that machine reports.
+            buildMcpRows(remote ? {} : (installedServers ?? {}), reportedServers)
+          : [
+              ...skillRows.filter((row) => row.group === 'installed'),
+              ...skillRows.filter((row) => row.group === 'available'),
+            ]
     const normalized = query.trim().toLowerCase()
     return ordered.filter((row) => rowMatches(row, normalized))
   }, [includeMcps, installedHere, installedServers, query, reportedServers, skillInventory.skills, tab])
@@ -533,15 +544,12 @@ export function SkillsAndMcpsPicker({
       }
     >
       <div className="flex max-h-[420px] w-[360px] flex-col overflow-hidden">
-        {includeMcps ? (
+        {tabItems.length > 1 ? (
           <div className="border-b border-[color:var(--border-subtle)] p-1.5">
             <SegmentedControl
               ariaLabel="Show"
               size="sm"
-              items={[
-                { value: 'skills', label: 'Skills' },
-                { value: 'mcp', label: 'MCP servers' },
-              ]}
+              items={tabItems}
               value={tab}
               onChange={(next: PickerTab) => {
                 setTab(next)
@@ -577,8 +585,12 @@ export function SkillsAndMcpsPicker({
               setHighlight(0)
             }}
             onKeyDown={onKeyDown}
-            placeholder={tab === 'mcp' ? 'Search MCP servers…' : 'Search skills…'}
-            aria-label={tab === 'mcp' ? 'Search MCP servers' : 'Search skills'}
+            placeholder={
+              tab === 'browse' ? 'Search the marketplace…' : tab === 'mcp' ? 'Search MCP servers…' : 'Search skills…'
+            }
+            aria-label={
+              tab === 'browse' ? 'Search the marketplace' : tab === 'mcp' ? 'Search MCP servers' : 'Search skills'
+            }
             className="min-w-0 flex-1 px-1 py-1 text-body"
           />
         </div>
@@ -601,7 +613,18 @@ export function SkillsAndMcpsPicker({
               {skillInventory.error}
             </div>
           ) : null}
-          {rows.length === 0 && (tab === 'mcp' || (!skillInventory.loading && !skillInventory.error)) ? (
+          {tab === 'browse' ? (
+            <MarketplaceList
+              query={query}
+              onOpen={() => {
+                setOpen(false)
+                openExtensionsSurface({ view: EXTENSIONS_DRAWER_VIEWS.plugins })
+              }}
+            />
+          ) : null}
+          {tab !== 'browse' &&
+          rows.length === 0 &&
+          (tab === 'mcp' || (!skillInventory.loading && !skillInventory.error)) ? (
             <div className="px-2.5 py-3 text-meta text-[color:var(--text-muted)]" role="status">
               {query.trim()
                 ? `Nothing matches “${query.trim()}”`
@@ -664,7 +687,7 @@ export function SkillsAndMcpsPicker({
             }}
             className="text-micro"
           >
-            Browse extensions →
+            Manage extensions →
           </LinkButton>
         </div>
       </div>
@@ -883,6 +906,114 @@ function useRemoteExtensions(
     }
   }, [active, cli, connectionId, workspaceId])
   return state
+}
+
+/**
+ * The marketplace, searched in place: each plugin with its own icon and
+ * publisher, and whether it is installed. Installing one goes through its
+ * trust review in Extensions, which is where a plugin's code is looked at
+ * before it runs, so a row opens it there rather than installing from here.
+ */
+function MarketplaceList({ query, onOpen }: { query: string; onOpen: () => void }) {
+  const [state, setState] = useState<{
+    plugins: MarketplacePluginEntry[]
+    installed: ReadonlySet<string>
+    loading: boolean
+    error: string | null
+  }>({ plugins: [], installed: new Set(), loading: true, error: null })
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      window.api.readMarketplaceRegistry(),
+      window.api.readMarketplacePluginUpdateStates().catch(() => null),
+    ])
+      .then(([registry, states]) => {
+        if (cancelled) return
+        setState({
+          plugins: registry.ok ? registry.marketplace.plugins : [],
+          installed: new Set(states?.ok ? states.entries.map((entry) => entry.id) : []),
+          loading: false,
+          error: registry.ok ? null : registry.message,
+        })
+      })
+      .catch((error: unknown) => {
+        if (!cancelled)
+          setState({
+            plugins: [],
+            installed: new Set(),
+            loading: false,
+            error: error instanceof Error ? error.message : 'The marketplace could not be read.',
+          })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const normalized = query.trim().toLowerCase()
+  const shown = state.plugins.filter(
+    (plugin) =>
+      !normalized ||
+      [plugin.id, plugin.name, plugin.summary, plugin.publisher.name, ...(plugin.tags ?? [])].some((text) =>
+        text.toLowerCase().includes(normalized),
+      ),
+  )
+  if (state.loading)
+    return (
+      <div className="flex items-center gap-2 px-2.5 py-3 text-meta text-[color:var(--text-muted)]" role="status">
+        <Spinner />
+        Loading…
+      </div>
+    )
+  if (state.error)
+    return (
+      <div className="px-2.5 py-2 text-meta text-[color:var(--tone-error)]" role="status">
+        {state.error}
+      </div>
+    )
+  if (shown.length === 0)
+    return (
+      <div className="px-2.5 py-3 text-meta text-[color:var(--text-muted)]" role="status">
+        {normalized ? `Nothing matches “${query.trim()}”` : 'The marketplace is empty'}
+      </div>
+    )
+  return (
+    <div role="list" aria-label="Marketplace">
+      {shown.map((plugin) => {
+        const installed = state.installed.has(plugin.id)
+        return (
+          <div
+            key={plugin.id}
+            role="listitem"
+            className={`${MENU_ITEM_STACKED_CLASS} text-[color:var(--text-default)]`}
+          >
+            <span className="mt-0.5 flex shrink-0 items-center justify-center">
+              <ExtensionIcon name={plugin.name} icon={plugin.icon} size={ROW_ICON_SIZE} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex min-w-0 items-baseline gap-1.5">
+                <span className="truncate text-body font-medium text-[color:var(--text-strong)]">{plugin.name}</span>
+                <span className="shrink-0 truncate text-micro text-[color:var(--text-subtle)]">
+                  {plugin.publisher.name}
+                </span>
+              </span>
+              {plugin.summary ? (
+                <span className="block truncate text-meta text-[color:var(--text-muted)]">{plugin.summary}</span>
+              ) : null}
+            </span>
+            <span className="mt-0.5 shrink-0">
+              {installed ? (
+                <span className="text-micro text-[color:var(--text-subtle)]">Installed</span>
+              ) : (
+                <OutlineButton size="xs" onClick={onOpen}>
+                  Install
+                </OutlineButton>
+              )}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 /** The skill sources by id, for the owner's face on a skill one installed. */
