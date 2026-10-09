@@ -17,6 +17,8 @@ import {
   unregisterModuleSkills,
 } from '../builtin-skills'
 import { resolveModuleSkillDirectory } from '../modules/entry-containment'
+import { MODULE_HOST_SERVICE_CHANNEL } from '../../shared/modules/host-service-bridge'
+import { createModuleHostServiceDispatcher } from './module-host-service-ipc'
 
 // Main-process host kernel. Replaces the static, central wiring in
 // app-services.ts / register-*-ipc.ts with registries that capability modules
@@ -133,6 +135,10 @@ export const THIRD_PARTY_SERVICE_KEYS: ReadonlySet<string> = new Set([
   'conversation.module-service',
   'module-secrets.module-service',
   'github.module-service',
+  // Backlog, usage and activity services.
+  'backlog.module-service',
+  'usage.module-service',
+  'activity.module-service',
 ])
 
 const defaultSkillRegistry: ModuleSkillHostRegistry = {
@@ -415,6 +421,12 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     return { ok: true, result: await entry.handler(event, payload) }
   }
   hostFor('@host').registerIpc(MODULE_BRIDGE_INVOKE_CHANNEL, dispatchBridgeInvoke)
+  // The renderer's door to the Backlog and usage services a module's main half
+  // reaches through the SDK (shared/modules/host-service-bridge.ts).
+  hostFor('@host').registerIpc(
+    MODULE_HOST_SERVICE_CHANNEL,
+    createModuleHostServiceDispatcher((key) => services.get(key)?.value),
+  )
 
   function emitNotification(sourceModuleId: string, input: ModuleNotifyInput): void {
     const validated = validateModuleNotifyInput(input)

@@ -59,6 +59,10 @@ export default defineConfig({
         input: {
           index: resolve('src/main/index.ts'),
           'studio-server': resolve('src/server/desktop-main.ts'),
+          // The usage scan's worker thread (src/main/usage/usage-service.ts
+          // starts it from beside main's entry), so reading gigabytes of agent
+          // session logs never runs on the main thread.
+          'usage-scan-worker': resolve('src/main/usage/usage-scan-worker.ts'),
         },
         // Every chunk beside the entries, as with one entry: main's code finds
         // the renderer and the resources relative to its own `__dirname`, which

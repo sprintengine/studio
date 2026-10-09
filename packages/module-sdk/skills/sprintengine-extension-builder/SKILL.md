@@ -76,6 +76,9 @@ Then in Studio: **Settings → Modules**, find the module, trust it.
 | One control in the top bar | `registerTopBarItem` | — | top-bar-item |
 | Options in Settings | `registerSettingsSection` (values readable via `getModuleAppState`) | `storage` to read them elsewhere | settings-section |
 | An action on a Backlog item | `registerBacklogItemAction` | `backlog.*` if it reads/writes more | backlog-action |
+| Reading or changing Backlog items (a board, a quick-add) | renderer: `listBacklogItems`, `createBacklogItem`, `updateBacklogStatus`, …; main: `getBacklogService(host)` | `backlog.read` / `backlog.write` | — |
+| Token usage and cost across agent sessions | main: `getUsageService(host)`; renderer: `queryUsage` | `usage:read` | — |
+| Reading the person's own chats (standups, prompt coaching) | main: `getActivityService(host)` | `conversation:read-all` (broad) | — |
 | An action on files in the Files tree | `registerFileAction` | — | file-action |
 | A pick-and-close dialog over the workspace | `registerModalSurface({ launcher })` | — | — |
 | Tools agents call | main: `host.registerMcpTools` | `mcp:tools` | mcp-tools |
@@ -99,8 +102,10 @@ References: [api-renderer.md](references/api-renderer.md),
 Studio drives agents as chats. An extension starts, prompts, watches and stops
 its **own** chats through `getConversationService(host)` in `entry.main`, or
 opens one for the person with `host.openChat` in the renderer (a draft by
-default: the person reads and sends it). It never sees the person's own chats
-or another module's. There is no API to spawn a terminal agent, run a CLI in a
+default: the person reads and sends it). It never drives the person's own chats
+or another module's; reading the person's chats is the separate, read-only
+`getActivityService(host)` behind the broad `conversation:read-all`
+([api-main.md](references/api-main.md)). There is no API to spawn a terminal agent, run a CLI in a
 pane, or inject into another session — do not look for one, and do not shell
 out to an agent CLI from `entry.main` to get around it. See
 [conversation-api.md](references/conversation-api.md).

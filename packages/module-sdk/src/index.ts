@@ -13,6 +13,16 @@
 
 import type { ComponentType, LazyExoticComponent } from 'react'
 
+import type { UsageQuery, UsageQueryResult } from './activity.js'
+import type {
+  BacklogWatchOptions,
+  ModuleBacklogCreated,
+  ModuleBacklogCreateInput,
+  ModuleBacklogLinkInput,
+  ModuleBacklogLocation,
+  ModuleBacklogResult,
+  ModuleBacklogTriageInput,
+} from './backlog.js'
 import type { ModuleChatRuntimeOption, ModuleOpenChatInput, ModuleOpenChatResult } from './conversation.js'
 import type { HostCapability } from './host-api.js'
 
@@ -166,6 +176,12 @@ export type CapabilityPermission =
   | 'github'
   // Contribute tools to the Studio MCP gateway (`MainHost.registerMcpTools`).
   | 'mcp:tools'
+  // ── Backlog, usage and activity services ──
+  // See token usage of every agent session on this machine (`getUsageService`).
+  | 'usage:read'
+  // Read every Studio chat on this machine, read-only (`getActivityService`).
+  // A broad scope: the consent prompt flags it.
+  | 'conversation:read-all'
   | (string & {})
 
 export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
@@ -190,6 +206,9 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'secrets',
   'github',
   'mcp:tools',
+  // Backlog, usage and activity services.
+  'usage:read',
+  'conversation:read-all',
 ]
 
 // ── Notifications ────────────────────────────────────────────────────────────
@@ -1228,6 +1247,14 @@ export type BacklogItemView = {
   links: BacklogItemLink[]
   excerpt: string
   sourceContent: string
+  /** The item's number (frontmatter `id:`), once the app has allocated one. */
+  numericId?: number
+  /** The id people read, `<workspace key>-<numericId>` (e.g. `MC-240`), when the item has a number. */
+  displayId?: string
+  /** The slug of the epic the item belongs to (frontmatter `epic:`). */
+  epic?: string
+  /** When the item last changed (epoch ms): its frontmatter `updated:` instant, else the file's mtime. */
+  modifiedAt: number
 }
 
 export type BacklogItemActionCategory = 'execute' | 'analyze' | 'transform' | 'publish' | 'review' | 'organize'
@@ -1805,18 +1832,53 @@ export type RendererHost = {
   openModalSurface(id: string): boolean
   /**
    * The workspace's Backlog items as read-only views. Declare the
-   * `backlog.read` permission (install-time disclosure). Mutations go through
-   * `BacklogItemActionContext` (Backlog actions) or the item's file — never
-   * through this read surface. Rejects when the backlog module is disabled.
+   * `backlog.read` permission; the host checks it. Change items with the
+   * Backlog write methods below (or `getBacklogService` in `entry.main`) —
+   * never by writing an item's file. Rejects when the backlog module is
+   * disabled.
    */
   listBacklogItems(workspaceId: string): Promise<BacklogItemView[]>
   /**
    * Observe the workspace's Backlog: `cb` fires once with the current
    * snapshot, then on every change (scans are debounced ~300ms behind file
    * edits). Returns the unsubscriber — call it when your panel unmounts.
-   * Throws when the backlog module is disabled. Declare `backlog.read`.
+   * `options.onError` hears why a snapshot could not be delivered (no project
+   * folder, an unreadable Backlog); the watch stays open and a later readable
+   * scan calls `cb` again. Throws when the backlog module is disabled or
+   * `backlog.read` is not declared.
    */
-  watchBacklogItems(workspaceId: string, cb: (items: BacklogItemView[]) => void): () => void
+  watchBacklogItems(
+    workspaceId: string,
+    cb: (items: BacklogItemView[]) => void,
+    options?: BacklogWatchOptions,
+  ): () => void
+  // ── Backlog writes (renderer twin of `getBacklogService`) ──
+  // Each goes through the app's own Backlog service in main and answers a
+  // result, never a throw. `itemId` is a `BacklogItemView.id`. Reads need
+  // `backlog.read`, writes `backlog.write`; `supports('backlog-write')` says
+  // whether the host has them.
+  /** Where the workspace's Backlog lives. */
+  getBacklogLocation(workspaceId: string): Promise<ModuleBacklogResult<{ location: ModuleBacklogLocation }>>
+  /** Create an item the way the app does: its id, file name and frontmatter follow the app's rules. */
+  createBacklogItem(
+    workspaceId: string,
+    input: ModuleBacklogCreateInput,
+  ): Promise<ModuleBacklogResult<ModuleBacklogCreated>>
+  updateBacklogStatus(workspaceId: string, itemId: string, status: BacklogItemStatus): Promise<ModuleBacklogResult>
+  updateBacklogTriage(
+    workspaceId: string,
+    itemId: string,
+    triage: ModuleBacklogTriageInput,
+  ): Promise<ModuleBacklogResult>
+  addBacklogLink(workspaceId: string, itemId: string, link: ModuleBacklogLinkInput): Promise<ModuleBacklogResult>
+  updateBacklogModuleMetadata(workspaceId: string, itemId: string, value: unknown): Promise<ModuleBacklogResult>
+  /**
+   * Token usage of every agent session on this machine — the renderer twin of
+   * `getUsageService(host).query`. Declare `usage:read`;
+   * `supports('usage')` says whether the host has it. For live updates, call
+   * it again when your `entry.main` hears `onChanged`.
+   */
+  queryUsage(query: UsageQuery): Promise<UsageQueryResult>
   /**
    * Resolve a workspace id (e.g. from `WorkspacePanelProps.workspaceId`) to
    * its read-only view — the supported way to get a workspace's folder root,
@@ -2169,6 +2231,43 @@ export {
   type ModuleOpenChatInput,
   type ModuleOpenChatResult,
 } from './conversation.js'
+
+// ── Backlog, usage and activity services ─────────────────────────────────────
+
+export {
+  getBacklogService,
+  type BacklogWatchError,
+  type BacklogWatchOptions,
+  type ModuleBacklogCreated,
+  type ModuleBacklogCreateInput,
+  type ModuleBacklogErrorCode,
+  type ModuleBacklogLinkInput,
+  type ModuleBacklogLocation,
+  type ModuleBacklogResult,
+  type ModuleBacklogService,
+  type ModuleBacklogTriageInput,
+} from './backlog.js'
+
+export {
+  getActivityService,
+  getUsageService,
+  type ActivityChatSummary,
+  type ActivityListChatsInput,
+  type ActivityPrompt,
+  type ActivityPromptsInput,
+  type ModuleActivityErrorCode,
+  type ModuleActivityResult,
+  type ModuleActivityService,
+  type ModuleUsageErrorCode,
+  type ModuleUsageResult,
+  type ModuleUsageService,
+  type UsageGroupBy,
+  type UsageQuery,
+  type UsageQueryResult,
+  type UsageRow,
+  type UsageSource,
+  type UsageTokens,
+} from './activity.js'
 
 export {
   getGitHubService,

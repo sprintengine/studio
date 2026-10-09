@@ -144,7 +144,8 @@ if (host.supports('conversations')) registerChatFeatures(host)
 is true for a capability the host provides now — a service can be missing
 because the module that provides it is turned off. Names: `conversations`,
 `chat.open`, `companion-agents`, `scheduled-agents`, `secrets`, `github`,
-`storage`, `mcp-tools`, `skills`, `module-assets`, `notifications`. An unknown
+`storage`, `mcp-tools`, `skills`, `module-assets`, `notifications`,
+`backlog-write`, `usage`, `activity`. An unknown
 name answers `false`, so a module may probe for capabilities newer than its
 SDK.
 
@@ -165,6 +166,10 @@ checked on every call, and a module without them gets `permission_missing`:
 | `mcp:tools` | `MainHost.registerMcpTools` |
 | `agents:companion` | Attaching a companion agent |
 | `ipc:invoke` | The renderer → `entry.main` bridge (`RendererHost.invoke`) |
+| `backlog.read` | `getBacklogService` reads; `listBacklogItems`, `watchBacklogItems`, `getBacklogLocation` |
+| `backlog.write` | `getBacklogService` writes; the renderer's `createBacklogItem`, `updateBacklogStatus`, `updateBacklogTriage`, `addBacklogLink`, `updateBacklogModuleMetadata` |
+| `usage:read` | `getUsageService`, `RendererHost.queryUsage` |
+| `conversation:read-all` | `getActivityService` (flagged as a broad scope in the consent prompt) |
 
 The full vocabulary and its consent copy is in
 [`docs/module-authors/permissions.md`](../../docs/module-authors/permissions.md)
@@ -251,7 +256,9 @@ reads its chats) and `dependsOn: ["agent-runtime"]`.
   **`watch(filter, cb)`** give `ModuleConversationSummary` rows.
 - A module reaches **only the chats it created** — never the person's own and
   never another module's (`not_owned`). Its chats are otherwise ordinary: they
-  appear in the sidebar and on paired devices like any other.
+  appear in the sidebar and on paired devices like any other. Reading the
+  person's chats is a separate, read-only service behind its own broad
+  permission: see "The person's chats" below.
 - Failures come back as `{ ok: false, code, message }` with a
   `ModuleConversationErrorCode`, never a throw.
 
@@ -381,7 +388,11 @@ load.
   on a workspace, synced across windows) and `getModuleAppState` /
   `setModuleAppState` / `watchModuleAppState` (app-level, shared with your
   Settings section's values). Declare `storage`.
-- **Backlog:** `listBacklogItems`, `watchBacklogItems` (declare `backlog.read`).
+- **Backlog:** `listBacklogItems`, `watchBacklogItems(id, cb, { onError })`,
+  `getBacklogLocation` (declare `backlog.read`); `createBacklogItem`,
+  `updateBacklogStatus`, `updateBacklogTriage`, `addBacklogLink`,
+  `updateBacklogModuleMetadata` (declare `backlog.write`). See "The Backlog".
+- **Usage:** `queryUsage(query)` (declare `usage:read`). See "Token usage".
 - **Theme:** `watchColorScheme(cb)` for a runtime you host (Monaco, a chart
   library); ordinary UI reads `THEME_TOKENS`.
 - **Bridge and events:** `invoke(channel, payload)` and `subscribe(topic, cb)`.
@@ -442,6 +453,110 @@ const view = await host.requireService(WorkspaceContextToken).get(workspaceId) /
 
 `create` resolves once the workspace is confirmed, so a returned id is real.
 The context service (declare `ipc:workspace-read`) also has `list()`.
+
+<!-- Backlog, usage and activity services -->
+
+## The Backlog
+
+A module reads and changes a workspace's Backlog through the host, never by
+reading or writing item files itself. `getBacklogService(host)` in
+`entry.main`, and the same calls on `RendererHost`:
+
+```ts
+import { getBacklogService } from '@sprintengine/module-sdk'
+
+const backlog = getBacklogService(host)
+const created = await backlog.create(workspaceId, { title: 'Faster refunds', status: 'ready', epic: 'payments' })
+if (created.ok) console.log(created.displayId, created.relativePath) // "MC-241", "backlog/payments/2026-10-09-faster-refunds.md"
+await backlog.updateStatus(workspaceId, itemId, 'in_progress')
+await backlog.addLink(workspaceId, itemId, { id: 'board-chat', type: 'agent', label: 'Board chat', target: { kind: 'chat', id: agentId } })
+
+// renderer
+const moved = await host.updateBacklogStatus(workspaceId, item.id, 'completed')
+```
+
+- `itemId` is a `BacklogItemView.id` (the item's logical path, `backlog/…`).
+- Every write is a call into the app's own Backlog service, in the project's
+  mutation lane, so it never interleaves with another writer. `create` takes
+  the app's create path: it allocates the next number, files the item under
+  its epic's folder with a unique name, and answers `{ id, relativePath,
+  path, numericId, displayId }`.
+- `addLink` records the link as your module's (a `moduleId` naming another
+  module is refused); `updateModuleMetadata` writes your module's entry only.
+- `getLocation` / `getBacklogLocation` answer `{ root, isDefault, exists }`:
+  where the item files are, including a Backlog the person moved elsewhere.
+- `list(workspaceId)` (main) reads the items from disk now.
+- Answers are `{ ok: true, … }` or `{ ok: false, code, message }` with a
+  `ModuleBacklogErrorCode`; values outside the app's vocabulary are refused
+  as `invalid_input`, never guessed.
+- `BacklogItemView` carries `numericId`, `displayId` (`MC-240`, with the
+  workspace's key), `epic` and `modifiedAt`.
+- `watchBacklogItems(workspaceId, cb, { onError })`: `onError` hears a
+  workspace with no folder, one that cannot be resolved, or a Backlog that
+  could not be read. The watch stays open and calls `cb` again after the next
+  readable scan.
+
+Declare `backlog.read` for reads and `backlog.write` for writes; the host
+checks both. `host.supports('backlog-write')` says whether the host has the
+write API.
+
+## Token usage
+
+`getUsageService(host).query({ from, to, groupBy })` answers token usage of
+every agent session on this machine: Studio's chats, and the Claude Code and
+Codex sessions a person ran in a terminal (read from the CLIs' own session
+logs). The renderer twin is `host.queryUsage(query)`.
+
+```ts
+import { getUsageService } from '@sprintengine/module-sdk'
+
+const usage = getUsageService(host)
+const week = await usage.query({ from: Date.now() - 7 * 864e5, to: Date.now(), groupBy: ['day', 'model'] })
+// week.rows: [{ day: '2026-10-08', model: 'claude-opus-4-1', tokens: { input, output, cacheRead, cacheWrite }, requests, reportedCostUsd }]
+const off = usage.onChanged(() => refreshMyView())
+```
+
+- `groupBy` is any of `day` (local calendar day), `model`, `provider`,
+  `workspace` and `session`; without it the query answers one total row.
+- A session a Studio chat ran is counted once: from the CLI's own log when this
+  machine has it, under the chat's workspace, agent id and title. A terminal
+  session is attributed to the open workspace whose folder holds it (a
+  worktree is followed to its repository); `workspaceId` is null otherwise.
+- The service returns tokens; pricing them is your module's job.
+  `reportedCostUsd` is set only for turns whose tokens come from a Studio
+  transcript, where the runtime reported a cost.
+- Usage is kept to the hour, so a window is too.
+- Nothing is read at startup. The first query waits for the first read of the
+  logs (seconds on a large history; incremental after that, cached across
+  runs); later queries answer at once and read again in the background.
+  `onChanged` fires after a read that changed the numbers.
+
+Declare `usage:read` (the consent prompt says "See token usage and cost of
+every agent session on this machine"); check `host.supports('usage')`.
+
+## The person's chats (activity)
+
+`getActivityService(host)` reads the person's Studio chats in every open
+workspace, read-only:
+
+- `listChats({ from?, to?, workspaceId? })` → `{ workspaceId, agentId, title,
+  cli, providerId, model, createdAt, updatedAt, turnCount, status }` per chat,
+  newest first.
+- `prompts({ from, to, workspaceId?, limit? })` → `{ at, workspaceId,
+  agentId, text, replyTail? }`: each message the person sent, with the last
+  few hundred characters of the agent's reply. `limit` defaults to 200 (at
+  most 1000); `truncated` says older ones were left out.
+
+It never returns tool calls, tool output, reasoning or attachments, and every
+event is redacted the way the conversation service redacts what it hands
+modules. Messages the app sent on the person's behalf are not theirs and are
+left out. Chats in closed workspaces, and agent sessions outside Studio, are
+not covered.
+
+Declare `conversation:read-all`. Its consent prompt says "Read every chat on
+this machine, including what you and the agents wrote" and is flagged as a
+broad scope, so ask for it only when reading the person's chats is the point
+of the module. Check `host.supports('activity')`.
 
 ## Scheduled agents
 

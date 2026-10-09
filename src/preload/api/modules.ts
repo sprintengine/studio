@@ -9,6 +9,8 @@ import type {
 } from '../../shared/electron-api'
 import type { ModuleBridgeInvokeRequest, ModuleBridgeInvokeResult } from '../../shared/modules/bridge'
 import { MODULE_BRIDGE_INVOKE_CHANNEL } from '../../shared/modules/bridge'
+import type { ModuleHostServiceRequest } from '../../shared/modules/host-service-bridge'
+import { MODULE_HOST_SERVICE_CHANNEL } from '../../shared/modules/host-service-bridge'
 import type { ModuleEventEnvelope } from '../../shared/modules/events'
 import { MODULE_EVENTS_CHANNEL } from '../../shared/modules/events'
 import type {
@@ -42,6 +44,7 @@ type ModulesIpcRenderer = {
     channel: typeof MODULE_BRIDGE_INVOKE_CHANNEL,
     request: ModuleBridgeInvokeRequest,
   ): Promise<ModuleBridgeInvokeResult>
+  invoke(channel: typeof MODULE_HOST_SERVICE_CHANNEL, request: ModuleHostServiceRequest): Promise<unknown>
   on(
     channel: typeof MODULE_EVENTS_CHANNEL | 'modules:third-party:changed',
     listener: (event: IpcRendererEvent, envelope: ModuleEventEnvelope) => void,
@@ -74,6 +77,8 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
     },
     moduleBridgeInvoke: (channel: string, payload?: unknown): Promise<ModuleBridgeInvokeResult> =>
       renderer.invoke(MODULE_BRIDGE_INVOKE_CHANNEL, { channel, payload }),
+    moduleHostServiceInvoke: (request: ModuleHostServiceRequest): Promise<unknown> =>
+      renderer.invoke(MODULE_HOST_SERVICE_CHANNEL, request),
     // Every module's events ride this one channel; the renderer kernel fans
     // them out to the owning module's subscribers. The preload stays neutral —
     // it never inspects `sourceModuleId`, exactly as it never inspects a
@@ -94,6 +99,7 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
     | 'listThirdPartyRendererEntries'
     | 'onThirdPartyModulesChanged'
     | 'moduleBridgeInvoke'
+    | 'moduleHostServiceInvoke'
     | 'onModuleEvent'
   >
 }

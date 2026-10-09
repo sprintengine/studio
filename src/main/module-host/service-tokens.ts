@@ -4,6 +4,8 @@ import type { ModuleStorageRegistry } from './module-storage'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
 import type { ModuleGitHubRegistry, ModuleSecretsRegistry } from '../../shared/modules/brokers'
 import type { ModuleConversationRegistry } from '../../shared/modules/conversation-service'
+import type { ModuleBacklogRegistry } from '../../shared/modules/backlog-service'
+import type { ModuleActivityRegistry, ModuleUsageRegistry } from '../../shared/modules/activity-service'
 import type { ScheduledAgentsModuleRegistry, ScheduledAgentsService } from '../scheduled-agents/service'
 import { createServiceToken } from './main-host'
 
@@ -82,3 +84,11 @@ export const ModuleSecretsServiceToken = createServiceToken<ModuleSecretsRegistr
 // The signed-in user's GitHub, brokered per module (`github` permission). Key
 // mirrors the private token behind the SDK's getGitHubService helper.
 export const GitHubModuleServiceToken = createServiceToken<ModuleGitHubRegistry>('github.module-service')
+// ── Backlog, usage and activity services ──
+// Each key mirrors the private token behind its SDK helper
+// (getBacklogService, getUsageService, getActivityService); each registry
+// checks its permission on every call (`backlog.read`/`backlog.write`,
+// `usage:read`, `conversation:read-all`).
+export const BacklogModuleServiceToken = createServiceToken<ModuleBacklogRegistry>('backlog.module-service')
+export const UsageModuleServiceToken = createServiceToken<ModuleUsageRegistry>('usage.module-service')
+export const ActivityModuleServiceToken = createServiceToken<ModuleActivityRegistry>('activity.module-service')

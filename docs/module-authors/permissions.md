@@ -28,8 +28,8 @@ known scopes.
 | `ipc:workspace-write` | Create and change workspaces, files, and tasks through the app's APIs | See tier mapping below |
 | `ipc:settings` | Read and change app settings and integrations | See tier mapping below |
 | `ipc:invoke` | Call any of the app's internal APIs, including its own background code (broad scope) | The entire `window.api` surface, **and** the renderer&rarr;module-main bridge |
-| `backlog.read` | Read Backlog item details and source content | `listBacklogItems`, `watchBacklogItems` |
-| `backlog.write` | Change Backlog item status, links, and metadata | Backlog status/link/metadata writes |
+| `backlog.read` | Read Backlog item details and source content | `listBacklogItems`, `watchBacklogItems`, `getBacklogLocation`, and the reads of `getBacklogService` |
+| `backlog.write` | Change Backlog item status, triage, links, and metadata, and create new items | The Backlog write API (`getBacklogService`, `createBacklogItem`, `updateBacklogStatus`, `updateBacklogTriage`, `addBacklogLink`, `updateBacklogModuleMetadata`) and the same writes in a Backlog action |
 | `backlog.link.open` | Open links and targets attached to Backlog items | Opening a link provider's target |
 | `scheduled-agents.manage` | Schedule agents of its own that start a chat on a timer | Creating, changing and running its own scheduled agents |
 | `agents:companion` | Run its own background agents inside the workspace | The companion-agents service |
@@ -40,6 +40,8 @@ known scopes.
 | `secrets` | Store API keys and send them to the sites it names (the key is never shown back to the extension) | `getSecretsService` |
 | `github` | Use your GitHub sign-in to call the GitHub API (the token is never shown to the extension) | `getGitHubService` |
 | `mcp:tools` | Add tools that agents in your workspaces can call | `MainHost.registerMcpTools` |
+| `usage:read` | See token usage and cost of every agent session on this machine | `getUsageService`, `RendererHost.queryUsage`: token counts of Studio chats and of the Claude Code and Codex sessions on the machine |
+| `conversation:read-all` | Read every chat on this machine, including what you and the agents wrote (broad scope) | `getActivityService`: summaries of the person's Studio chats and the messages they sent, with the end of each reply |
 
 ## The `ipc:*` tiers
 
@@ -93,7 +95,15 @@ behind `conversation:read` / `conversation:operate`.
     hands the credential to module code: a secret leaves the host only inside a
     request to an https origin it was stored with, and the GitHub token only
     inside a request to the GitHub API;
-  - `mcp:tools` is checked when a third-party module registers gateway tools.
+  - `mcp:tools` is checked when a third-party module registers gateway tools;
+  - `backlog.read` and `backlog.write` are checked on every call to the
+    Backlog service (`getBacklogService` and the renderer's Backlog write
+    methods), and `backlog.read` on a third-party module's
+    `listBacklogItems` / `watchBacklogItems`;
+  - `usage:read` is checked on every call to the usage service;
+  - `conversation:read-all` is checked on every call to the activity service.
+    It is the one scope that reaches the person's own chats, read-only, and
+    the consent prompt flags it as broad, as it does `ipc:invoke`.
 - A module reaches agents only as chats. There is no scope for launching or
   driving an agent terminal, because no module API does it.
 - Declaring less than you use is a trust violation users can hold against your

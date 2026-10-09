@@ -45,6 +45,13 @@ export type HostCapability =
   | 'skills'
   | 'module-assets'
   | 'notifications'
+  // The Backlog write API: `getBacklogService` in main, and the renderer's
+  // `createBacklogItem` / `updateBacklogStatus` / … beside `listBacklogItems`.
+  | 'backlog-write'
+  // `getUsageService` and the renderer's `queryUsage` (permission `usage:read`).
+  | 'usage'
+  // `getActivityService` (permission `conversation:read-all`).
+  | 'activity'
   // `entry.main` runs in the desktop's own main process, where `electron` can
   // be required. False wherever the main half runs in the Studio server, a
   // Node process with no Electron APIs; a module that cannot live without them

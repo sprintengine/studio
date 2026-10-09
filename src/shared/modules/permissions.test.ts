@@ -140,3 +140,22 @@ test('permissions', async () => {
   testExtensionPlatformScopesAreKnownAndDescribed()
   console.log('permissions tests passed')
 })
+
+test('usage:read and conversation:read-all are known, described, and read-all is flagged broad', () => {
+  for (const scope of ['usage:read', 'conversation:read-all']) {
+    assert.equal(isKnownCapabilityPermission(scope), true, `${scope} is a known scope`)
+    assert.equal(validateCapabilityPermissions([scope]).ok, true)
+  }
+  assert.equal(
+    describeCapabilityPermission('usage:read'),
+    'See token usage and cost of every agent session on this machine',
+  )
+  assert.match(
+    describeCapabilityPermission('conversation:read-all'),
+    /^Read every chat on this machine, including what you and the agents wrote/,
+  )
+  // Reading every chat is broad the way `ipc:invoke` is; usage counts are not.
+  assert.equal(isBroadCapabilityPermission('conversation:read-all'), true)
+  assert.equal(isBroadCapabilityPermission('usage:read'), false)
+  assert.equal(isBroadCapabilityPermission('conversation:read'), false)
+})

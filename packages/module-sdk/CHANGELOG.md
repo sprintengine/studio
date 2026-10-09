@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+### Added: Backlog, usage and activity services
+
+- **Backlog writes.** `getBacklogService(host)` in `entry.main` — `list`,
+  `getLocation`, `create`, `updateStatus`, `updateTriage`, `addLink`,
+  `updateModuleMetadata` — and the renderer twins `getBacklogLocation`,
+  `createBacklogItem`, `updateBacklogStatus`, `updateBacklogTriage`,
+  `addBacklogLink`, `updateBacklogModuleMetadata`. Every write goes through
+  the app's Backlog service in the project's mutation lane; `create` takes the
+  app's create path and answers the new item's id, number and display id.
+  Result-shaped (`ModuleBacklogResult`). `host.supports('backlog-write')`.
+- **`BacklogItemView`** gains `numericId`, `displayId` (`MC-240`), `epic` and
+  `modifiedAt`.
+- **`watchBacklogItems(workspaceId, cb, { onError })`**: a workspace with no
+  folder, one that cannot be resolved, or an unreadable Backlog now reaches the
+  module (`BacklogWatchError`) instead of only the console.
+- **Usage.** `getUsageService(host)` (`query({ from, to, groupBy })`,
+  `onChanged`) and `RendererHost.queryUsage`: token usage of Studio chats and of
+  the Claude Code and Codex sessions on the machine, each request counted once
+  and attributed to open workspaces. New permission `usage:read`;
+  `host.supports('usage')`.
+- **Activity.** `getActivityService(host)` (`listChats`, `prompts`): the
+  person's Studio chats and their messages with the tail of each reply,
+  read-only, never tool output. New permission `conversation:read-all`, flagged
+  as a broad scope in the consent prompt; `host.supports('activity')`.
+
+### Changed
+
+- **`backlog.read` and `backlog.write` are checked.** The Backlog service checks
+  both on every call, and a third-party module's `listBacklogItems` /
+  `watchBacklogItems` now throw without `backlog.read`, which the docs always
+  asked for. The `listBacklogItems` doc no longer suggests writing an item's
+  file: a module changes items through the host only.
+
 ## 1.0.0-beta.1
 
 Automations became scheduled agents: a prompt and a cron schedule, each run a
