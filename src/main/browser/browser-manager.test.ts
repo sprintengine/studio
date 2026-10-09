@@ -7,6 +7,7 @@ import {
   descendantPids,
   fileStamp,
   parseListeningSockets,
+  stripUserAgent,
 } from './browser-manager'
 import { applyGuestWebPreferences } from './guest-policy'
 import { BROWSER_PARTITION } from '../../shared/browser'
@@ -202,4 +203,32 @@ test('browser-manager', async () => {
     assignments.restore('tab-2', 'ws-2')
     assert.equal(assignments.get('ws-1', 'agent-c'), undefined)
   })
+})
+
+// Chrome's own user agent, with the two tokens Electron adds: the app name with
+// its spaces removed, then `Electron/<version>`.
+const CHROME_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+function electronUserAgent(appToken: string): string {
+  return CHROME_UA.replace('Chrome/140.0.0.0', `${appToken} Chrome/140.0.0.0 Electron/38.0.0`)
+}
+
+test('user agent: a packaged build loses its space-less productName token', () => {
+  assert.equal(stripUserAgent(electronUserAgent('SprintEngineStudio/0.4.0')), CHROME_UA)
+})
+
+test('user agent: a dev build loses its package-name token', () => {
+  assert.equal(stripUserAgent(electronUserAgent('sprintengine-studio/0.4.0')), CHROME_UA)
+  assert.equal(stripUserAgent(electronUserAgent('sprintengine/0.4.0')), CHROME_UA)
+})
+
+test('user agent: what is left is single-spaced, with no space at either end', () => {
+  const stripped = stripUserAgent(`Electron/38.0.0  ${electronUserAgent('SprintEngineStudio/0.4.0')}  `)
+  assert.equal(stripped, CHROME_UA)
+  assert.doesNotMatch(stripped, /\s{2}|^\s|\s$/)
+})
+
+test('user agent: a token that only contains the name is left alone', () => {
+  const ua = `${CHROME_UA} NotSprintEngineStudio/1.0`
+  assert.equal(stripUserAgent(ua), ua)
 })
