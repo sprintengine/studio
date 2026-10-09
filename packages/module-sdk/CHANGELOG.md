@@ -1,5 +1,64 @@
 # Changelog
 
+## Unreleased
+
+### Agents, conversations and scheduled agents
+
+Additive: host API 1 still. Each item has a `host.supports(...)` answer, named
+beside it.
+
+#### Changed
+
+- **A companion's structured run no longer approves its agent's tool calls.**
+  `runStructured` takes `tools: 'none' | 'ask' | 'auto'`, default `'none'`:
+  every approval the agent raises is denied, and the agent is told before the
+  prompt that it has no tools. `'ask'` leaves approvals open for the person,
+  relayed with the new `handle.respondToApproval({ requestId, decision })`
+  (allowing needs `conversation:operate`); `'auto'` approves them all and
+  needs `conversation:bypass` (refused without it). Companion sessions start
+  on `manual`, so every tool asks. A module that relied on the old
+  auto-approve passes `tools: 'auto'` and declares `conversation:bypass`.
+  `engine.cli` also takes a chat runtime id (`claude-code`) beside a provider
+  id (`claude-agent`). `companion-tools`.
+- **`subscribe` and `follow` no longer throw `not_owned`** for a chat the host
+  has not loaded yet (a saved chat at startup): they attach and deliver once
+  it is known. A ref to anything not the module's delivers nothing. They throw
+  only without `conversation:read` or for a malformed ref or cursor.
+- **`openChat` drafts need only `chat:draft`.** `send: true` still needs
+  `conversation:operate`.
+
+#### Added
+
+- **`turn_completed` carries `text` and `usage`.** `text` is the agent's last
+  message of the turn; `usage` is `{ inputTokens, outputTokens,
+  cacheReadTokens, cacheWriteTokens }` summed over the turn, fresh input
+  apart from the prompt cache's share, a count the runtime cannot report left
+  out (`ModuleConversationTurnCompletedPayload`,
+  `ModuleConversationTurnUsage`). Claude Code, Codex and ACP agents report
+  them. `reply(ref, turnId?)` reads a finished turn's text off the transcript;
+  `no_reply` joins the error codes. `conversation-replies`.
+- **`getTextGenerationService(host).generate({ prompt, system?, model?,
+  maxOutputTokens?, json?, cli? })`**: one prompt answered by the person's own
+  Claude Code with no workspace, chat or tools, as `{ ok, text, usage, model }`
+  or a typed failure. New permission `agents:generate`. Each module gets two
+  calls at once and eight waiting, and thirty a minute. `text-generation`.
+- **`create({ worktree: { name? } })`** starts a chat in a fresh worktree of
+  the project, in a workspace of its own; `worktree_unavailable` joins the
+  error codes. `conversation-worktrees`.
+- **`openChat({ name, dedupeKey })`**: the chat's title, and a key that
+  focuses the chat this module already opened under it (`existing: true`)
+  instead of opening another; `invalid_input` joins its failures. New
+  permission `chat:draft`. `chat.open-options` (renderer).
+- **`MainHost.listChatRuntimes()`**, the renderer's list from `entry.main`,
+  with missing runtimes `available: false`. The runtime id is documented as
+  the one id every `cli` takes. `chat-runtimes`.
+- **Scheduled agents can be traced.** `name` (the sidebar's title) and `tag`
+  (your own label) on `ScheduledAgent` and its draft (an update without them
+  keeps them); `lastRun.agentId`; `onRun((agent, run) => …)`, which also hears
+  a one-time schedule's run before it closes; and `scheduledAgentId` /
+  `scheduledAgentTag` on a run's `ModuleConversationSummary`. The type docs
+  say what happens to a missed time. `scheduled-agent-runs`.
+
 ## 1.0.0-beta.1
 
 Automations became scheduled agents: a prompt and a cron schedule, each run a

@@ -144,7 +144,11 @@ if (host.supports('conversations')) registerChatFeatures(host)
 is true for a capability the host provides now — a service can be missing
 because the module that provides it is turned off. Names: `conversations`,
 `chat.open`, `companion-agents`, `scheduled-agents`, `secrets`, `github`,
-`storage`, `mcp-tools`, `skills`, `module-assets`, `notifications`. An unknown
+`storage`, `mcp-tools`, `skills`, `module-assets`, `notifications`. For agents,
+conversations and scheduled agents also: `companion-tools`,
+`conversation-replies`, `conversation-worktrees`, `text-generation`,
+`chat-runtimes`, `scheduled-agent-runs` and (in the renderer)
+`chat.open-options`; each is described where its API is, below. An unknown
 name answers `false`, so a module may probe for capabilities newer than its
 SDK.
 
@@ -157,13 +161,15 @@ checked on every call, and a module without them gets `permission_missing`:
 
 | Permission | Checked on |
 | --- | --- |
-| `conversation:read` | `getConversationService`: `subscribe`, `transcript`, `list`, `watch` |
-| `conversation:operate` | Everything in the conversation service, and `RendererHost.openChat`. Implies read. |
-| `conversation:bypass` | Running the module's chats on `bypass`; without it they go no looser than `auto` |
+| `conversation:read` | `getConversationService`: `subscribe`, `follow`, `transcript`, `reply`, `list`, `watch` |
+| `conversation:operate` | Everything in the conversation service, `RendererHost.openChat` with `send: true`, and allowing a companion's tool call. Implies read. |
+| `conversation:bypass` | Running the module's chats on `bypass` (without it they go no looser than `auto`), and a companion task with `tools: 'auto'` |
+| `chat:draft` | `RendererHost.openChat` without `send` (a draft the person reads and sends) |
 | `secrets` | `getSecretsService` |
 | `github` | `getGitHubService` |
 | `mcp:tools` | `MainHost.registerMcpTools` |
 | `agents:companion` | Attaching a companion agent |
+| `agents:generate` | `getTextGenerationService(host).generate` |
 | `ipc:invoke` | The renderer → `entry.main` bridge (`RendererHost.invoke`) |
 
 The full vocabulary and its consent copy is in
@@ -189,8 +195,11 @@ export const registerMain: RegisterMain = (host) => {
     })
     if (!created.ok) return created // { ok: false, code, message }
     const { conversation } = created
-    const off = chats.subscribe(conversation, (event) => {
-      if (event.type === 'turn_completed') off()
+    const off = chats.subscribe(conversation, async (event) => {
+      if (event.type !== 'turn_completed') return
+      off()
+      const reply = await chats.reply(conversation) // the agent's last message of the turn
+      if (reply.ok) host.emit('summary', reply.text)
     })
     return { ok: true, agentId: conversation.agentId }
   })
@@ -204,7 +213,11 @@ reads its chats) and `dependsOn: ["agent-runtime"]`.
   to the person's last choice, `prompt` is the opening turn, `skills` are
   installed and invoked, `attachments` are images, `name` is optional.
   `permissionPreset` is `'manual'`, `'none'`, `'auto'` or `'bypass'`; absent
-  takes the person's default.
+  takes the person's default. `worktree: { name? }` starts the chat in a fresh
+  git worktree of the project (branch `agent/<name>-<suffix>`), in a workspace
+  of its own whose id the answer names; a project that is not a git
+  repository answers `worktree_unavailable`. Check
+  `host.supports('conversation-worktrees')`.
 - **`send(ref, { message, skills?, attachments?, steer? })`** adds a turn;
   `steer: true` lands it inside the turn already running. `interrupt` and
   `stop` do what they say.
@@ -246,9 +259,20 @@ reads its chats) and `dependsOn: ["agent-runtime"]`.
   ones after them), one `synchronized` fence, then live events. Render what
   you cached, then follow from its cursor; keep each fence's `seq` and
   `generation` as the next cursor. A snapshot with `reset: true` replaces what
-  you held. Check `host.supports('conversation-streams')`.
+  you held. Check `host.supports('conversation-streams')`. Both attach to a
+  chat the host has not loaded yet (a saved chat at startup) and deliver once
+  it is; they throw only without `conversation:read` or for a malformed ref.
   **`transcript(ref)`** replays everything recorded. **`list(filter?)`** and
-  **`watch(filter, cb)`** give `ModuleConversationSummary` rows.
+  **`watch(filter, cb)`** give `ModuleConversationSummary` rows; a scheduled
+  run's chat carries `scheduledAgentId` and `scheduledAgentTag`.
+- **Replies and usage.** A `turn_completed` event's payload carries `text`
+  (the agent's last message of the turn), `usage` (`{ inputTokens,
+  outputTokens, cacheReadTokens, cacheWriteTokens }`, summed over the turn's
+  model requests, fresh input apart from the prompt cache's share; a count
+  the runtime cannot report is absent) and `costUsd`, where the runtime can
+  say them (`ModuleConversationTurnCompletedPayload`).
+  **`reply(ref, turnId?)`** reads a finished turn's text for you; never
+  rebuild it from `content_delta`s. Check `host.supports('conversation-replies')`.
 - A module reaches **only the chats it created** — never the person's own and
   never another module's (`not_owned`). Its chats are otherwise ordinary: they
   appear in the sidebar and on paired devices like any other.
@@ -269,11 +293,21 @@ if (opened.ok) host.focusTab({ workspaceId, kind: 'chat', id: opened.agentId })
 
 `openChat` adds a chat to the workspace and focuses it. By default the prompt
 lands in the composer as a **draft** the person reads and sends; `send: true`
-sends it as the first turn. Declare `conversation:operate`; check
+sends it as the first turn. Declare `chat:draft` for drafts, or
+`conversation:operate`, which `send: true` needs; check
 `host.supports('chat.open')` first (`unavailable` means this window cannot
-open chats). `listChatRuntimes()` is the catalog the shell's own chat picker
-reads, with the person's last choice marked — use it for a picker, and pass the
-chosen `id` / model as `cli` / `model`.
+open chats). `name` titles the chat, and `dedupeKey` (your own key for it)
+focuses the chat this module already opened under that key in the workspace
+instead of opening a second, answering `existing: true` and changing nothing
+in it (`host.supports('chat.open-options')`). `listChatRuntimes()` is the
+catalog the shell's own chat picker reads, with the person's last choice
+marked — use it for a picker, and pass the chosen `id` / model as `cli` /
+`model`. The same list is `await host.listChatRuntimes()` in `entry.main`.
+
+A runtime's `id` (`claude-code`, `codex`, `cursor`, `opencode`, `grok`) is the
+one id every API takes for it: a conversation's and a scheduled agent's
+`cli`, a companion's `engine.cli` (which also takes the older provider ids,
+`claude-agent` and the like) and text generation's `cli`.
 
 `focusTab({ workspaceId, kind, id })` focuses a chat by its agent id
 (`kind: 'chat'`) or a file tab by workspace-relative path (`kind: 'file'`).
@@ -285,6 +319,36 @@ It returns `false` for an id that is not a chat in that workspace.
 your module drives with structured runs (`runStructured`) and messages, without
 a chat tab. `attach` never starts anything; the first run does. Declare
 `agents:companion`.
+
+The agent asks before every tool it uses, and a run's `tools` decides the
+answer: `'none'` (the default) denies them all and tells the agent up front
+it has no tools — use it for any prompt carrying text you did not write;
+`'ask'` leaves them for the person, whose answer you relay with
+`handle.respondToApproval({ requestId, decision })` (allowing needs
+`conversation:operate`); `'auto'` approves them all and needs
+`conversation:bypass`. `engine.cli` takes a runtime id. Check
+`host.supports('companion-tools')`: an older host approves every tool call.
+
+### One prompt, no chat: text generation
+
+```ts
+import { getTextGenerationService } from '@sprintengine/module-sdk'
+
+const answer = await getTextGenerationService(host).generate({
+  prompt: digest,
+  system: 'Write a three-line standup from this work log.',
+  json: true, // optional: the answer must be one JSON value
+})
+if (answer.ok) console.log(answer.text, answer.usage, answer.model)
+```
+
+`generate` answers one prompt through the person's own Claude Code, headless
+and under its own sign-in: no workspace, no chat tab, no tools, nothing in
+their history. `model` defaults to `claude-haiku-4-5`; `maxOutputTokens` caps
+the answer. Declare `agents:generate` and check
+`host.supports('text-generation')`. Each module gets two calls at once and
+eight waiting, and more than thirty a minute answer `busy`. Failures are typed
+(`ModuleTextGenerationErrorCode`), never thrown.
 
 ## Brokered credentials
 
@@ -334,6 +398,9 @@ move the request elsewhere is `invalid_route`. Declare `github`; check
 `MainHost` (handed to `registerMain`):
 
 - `moduleId`, `hostApiVersion`, `supports(capability)`.
+- `listChatRuntimes()` — the agent runtimes a chat can run on, as the
+  renderer lists them, with the ones this machine lacks marked unavailable
+  (`host.supports('chat-runtimes')`).
 - `registerIpc(channel, handler)` — a channel your renderer calls through
   `invoke`; it must start with `<moduleId>:`.
 - `provideService` / `getService` / `requireService(token)` — the service bridge. A
@@ -471,11 +538,26 @@ export const registerMain: RegisterMain = (host) => {
       skills: [],
       mcpServers: [],
       worktree: null,
+      name: 'Morning forecast', // the sidebar's title; absent, the prompt's first line
+      tag: 'city:dublin', // your own label; each run's chat carries it
     })
     return created.ok ? created.agent.id : null
   })
 }
 ```
+
+To follow a run, listen with `onRun((agent, run) => …)`: it names each run's
+chat (`run.workspaceId`, `run.agentId`) as it starts, a one-time schedule's
+included (it closes itself straight after, so `onChanged` never shows that
+run). The chat is your module's, so the conversation service follows it, and
+its summary carries `scheduledAgentId` and `scheduledAgentTag`; `lastRun` also
+names its `agentId`. A repeating schedule's times missed while the app was
+closed are not replayed (the next run counts from start-up); a one-time
+schedule missed that way runs once the app is open; times missed while the
+computer slept run once on waking; and a time that comes while the previous
+run is still working is skipped, not queued. Check
+`host.supports('scheduled-agent-runs')` before relying on `name`, `tag` or
+`onRun`.
 
 ## Skills a module ships
 
