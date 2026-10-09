@@ -509,8 +509,20 @@ export type AgentConfigAdoptionResult =
   | { status: 'failed'; message: string }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
+// `module` is a capability module's own `notify` row (the bell rows
+// shared/modules/notifications.ts delivers); which module is `sourceModule`.
 export type DiagnosticSource =
-  'agents' | 'auth' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'terminal' | 'update' | 'voice' | 'workspace'
+  | 'agents'
+  | 'auth'
+  | 'cli'
+  | 'filesystem'
+  | 'marketplace'
+  | 'models'
+  | 'module'
+  | 'terminal'
+  | 'update'
+  | 'voice'
+  | 'workspace'
 
 // A typed, serializable deep-focus target for a notification's Open action. The
 // shell treats it as opaque (it only knows how to reveal the workspace); the
@@ -542,6 +554,19 @@ export type DiagnosticLogInput = {
    * source rule.
    */
   extensionsRow?: string
+  /**
+   * Set only on a capability module's `notify` row (source `module`): the
+   * module that sent it, stamped by the host kernel from the module's scope —
+   * never taken from the module — so the row can say who it is from and only
+   * that module's action provider can add to it.
+   */
+  sourceModule?: { id: string; name: string }
+  /**
+   * The module door the row opens: one of `sourceModule`'s own global surfaces,
+   * and optionally the view to land on. Opening refuses a surface another
+   * module registered.
+   */
+  surfaceTarget?: { surfaceId: string; viewId?: string }
   /**
    * A message the person wrote that never reached its agent CLI, kept so the
    * row can give it back (Copy message). Only the undelivered-first-message

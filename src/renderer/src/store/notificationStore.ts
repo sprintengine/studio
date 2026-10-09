@@ -20,7 +20,16 @@ type RailSeenSection = 'extensions'
 // replaced it (2026-09-30).
 const RETIRED_NOTIFICATION_SOURCES: ReadonlySet<string> = new Set(['sprintengine', 'automations'])
 
-type PersistedNotificationState = Pick<NotificationStore, 'notifications' | 'sectionSeenAt' | 'dismissedUpdates'>
+type PersistedNotificationState = Pick<
+  NotificationStore,
+  'notifications' | 'sectionSeenAt' | 'dismissedUpdates' | 'filedModuleNotificationIds'
+>
+
+// How many delivered module-notification ids are remembered. The main kernel
+// keeps its last 50 for a window that boots late (shared/modules/notifications.ts),
+// so remembering twice that is enough to never file one of them twice — and a
+// row the person cleared does not come back with the next window.
+const MAX_FILED_MODULE_NOTIFICATION_IDS = 100
 
 // How many dismissed updates are remembered. A key names one version
 // (`settingsUpdateBadges.ts`), so the list only ever needs the few that are
@@ -52,6 +61,9 @@ export function mergePersistedNotificationState<T extends PersistedNotificationS
     dismissedUpdates: Array.isArray(stored.dismissedUpdates)
       ? stored.dismissedUpdates.filter((key): key is string => typeof key === 'string')
       : current.dismissedUpdates,
+    filedModuleNotificationIds: Array.isArray(stored.filedModuleNotificationIds)
+      ? stored.filedModuleNotificationIds.filter((id): id is string => typeof id === 'string')
+      : current.filedModuleNotificationIds,
   }
 }
 
@@ -79,6 +91,17 @@ interface NotificationStore {
    */
   dismissedUpdates: string[]
   dismissUpdate: (key: string) => void
+  /**
+   * The module notifications this bell has already filed, by delivery id: a
+   * window hears a row live and may read it again from the kernel's backlog
+   * as it boots, and a row the person cleared must not come back either way.
+   */
+  filedModuleNotificationIds: string[]
+  /**
+   * File one delivered module notification, once. False when its delivery id
+   * was filed before (live and again from the backlog, or cleared since).
+   */
+  fileModuleNotification: (deliveryId: string, entry: DiagnosticLogEntry) => boolean
   clearAll: () => void
 }
 
@@ -88,6 +111,7 @@ export const useNotificationStore = create<NotificationStore>()(
       notifications: [],
       sectionSeenAt: {},
       dismissedUpdates: [],
+      filedModuleNotificationIds: [],
 
       addNotification: (entry) => {
         const notification: AppNotification = {
@@ -138,6 +162,26 @@ export const useNotificationStore = create<NotificationStore>()(
             state.dismissedUpdates.splice(0, state.dismissedUpdates.length - MAX_DISMISSED_UPDATES)
           }
         }),
+
+      fileModuleNotification: (deliveryId, entry) => {
+        let filed = false
+        set((state) => {
+          if (state.filedModuleNotificationIds.includes(deliveryId)) return
+          filed = true
+          state.filedModuleNotificationIds.push(deliveryId)
+          if (state.filedModuleNotificationIds.length > MAX_FILED_MODULE_NOTIFICATION_IDS) {
+            state.filedModuleNotificationIds.splice(
+              0,
+              state.filedModuleNotificationIds.length - MAX_FILED_MODULE_NOTIFICATION_IDS,
+            )
+          }
+          state.notifications.unshift({ ...entry, read: false })
+          if (state.notifications.length > MAX_NOTIFICATIONS) {
+            state.notifications.length = MAX_NOTIFICATIONS
+          }
+        })
+        return filed
+      },
 
       clearAll: () =>
         set((state) => {
