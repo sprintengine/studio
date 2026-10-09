@@ -143,6 +143,12 @@ const PAIR_WAIT_GRACE_MS = 15_000
 const DEFAULT_REACHABILITY_INTERVAL_MS = 5 * 60_000
 /** A check must be cheap for a sleeping laptop too: three seconds, not the browse's ten. */
 const DEFAULT_REACHABILITY_TIMEOUT_MS = 3_000
+/**
+ * How long a New chat with images waits for the chat over there to begin a
+ * turn on its first message. Long enough for a CLI's slow start, as the
+ * create's own wait is.
+ */
+const DEFAULT_FIRST_MESSAGE_TIMEOUT_MS = 60_000
 
 export type TailnetMeshService = {
   /**
@@ -238,6 +244,15 @@ export type TailnetMeshService = {
     permissionPreset?: unknown
     /** The CLI's effort level the chat keeps. Sent only to a machine that advertises `new-chat-effort`. */
     effort?: unknown
+    /**
+     * Images that go with the first message, in the shape a chat here sends
+     * them. The chat is started without its prompt, each image goes up the
+     * machine's upload route under the new chat's session, and the prompt is
+     * then sent naming them, as a message to a followed chat is (and as the
+     * phone's New chat with pictures does). The answer comes once the chat
+     * has taken that message; a chat that could not is settled and refused.
+     */
+    attachments?: unknown
   }): Promise<MeshCreateConversationResult>
   /**
    * Settle a chat on a paired machine, or bring it back with `settled: false`
@@ -376,6 +391,8 @@ export type TailnetMeshServiceOptions = {
   pairPollMs?: number
   reachabilityIntervalMs?: number
   reachabilityTimeoutMs?: number
+  /** How long a New chat's first message with images may take to be taken; tests shorten it. */
+  firstMessageTimeoutMs?: number
   createStore?: (options: { resolveUserDataDir: () => string; log?: (message: string) => void }) => TailnetMeshStore
   /** Timing for followed conversations; tests shorten it. */
   conversations?: Pick<
@@ -397,6 +414,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
   const pairPollMs = Math.max(50, options.pairPollMs ?? DEFAULT_PAIR_POLL_MS)
   const reachabilityIntervalMs = Math.max(50, options.reachabilityIntervalMs ?? DEFAULT_REACHABILITY_INTERVAL_MS)
   const reachabilityTimeoutMs = Math.max(50, options.reachabilityTimeoutMs ?? DEFAULT_REACHABILITY_TIMEOUT_MS)
+  const firstMessageTimeoutMs = Math.max(50, options.firstMessageTimeoutMs ?? DEFAULT_FIRST_MESSAGE_TIMEOUT_MS)
   const activity = options.activity ?? powerActivity
   const stretch = (): number => (activity.isOnBattery() ? BATTERY_STRETCH : 1)
   /** Someone could be looking: a window is up and the screen is not locked. */
@@ -1487,6 +1505,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     cliModel?: unknown
     permissionPreset?: unknown
     effort?: unknown
+    attachments?: unknown
   }): Promise<MeshCreateConversationResult> {
     const connection = connectionFor(input.connectionId)
     if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
@@ -1495,13 +1514,30 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     }
     const presetRefusal = permissionModeRefusal(connection, input.permissionPreset)
     if (presetRefusal) return presetRefusal
+    // The images are checked before anything is made over there: what the
+    // local boundary refuses, and a machine that has said it takes no
+    // uploads, are refused with no chat left behind.
+    let images: ConversationImageAttachment[] = []
+    if (input.attachments !== undefined) {
+      const parsed = parseImageAttachments(input.attachments)
+      if (!parsed.ok) return { ok: false, code: 'invalid_arguments', message: parsed.message }
+      images = parsed.attachments
+    }
+    if (images.length > 0) {
+      const capabilities = peerCapabilities.get(connection.id)
+      if (capabilities && !tailnetPeerSupports(capabilities, 'upload'))
+        return { ok: false, code: 'images_unsupported', message: uploadsUnsupported(connection) }
+    }
     // Forwarded verbatim: the remote validates every field, and its refusal
     // reaches the caller word for word. The workspace names the project the
     // picker chose, not a chat to join, so the chat is asked for as a new one.
     const args = {
       workspaceId: input.workspaceId,
       ...(typeof input.cli === 'string' && input.cli ? { cli: input.cli } : {}),
-      ...(typeof input.prompt === 'string' && input.prompt ? { prompt: input.prompt } : {}),
+      // With images the prompt is the first message's words, sent once the
+      // images are up: an upload is kept for the chat's session, which only
+      // exists once the chat does.
+      ...(typeof input.prompt === 'string' && input.prompt && images.length === 0 ? { prompt: input.prompt } : {}),
       ...(typeof input.cliModel === 'string' && input.cliModel ? { cliModel: input.cliModel } : {}),
       ...(typeof input.permissionPreset === 'string' && input.permissionPreset
         ? { permissionPreset: input.permissionPreset }
@@ -1552,6 +1588,20 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
         message: 'That machine started the chat but did not say which one it is, so it cannot be opened.',
       }
     }
+    if (images.length > 0) {
+      const prompt = typeof input.prompt === 'string' ? input.prompt : ''
+      const first = await sendFirstMessage(connection, { workspaceId, agentId }, prompt, images)
+      if (!first.ok) {
+        // An empty chat nobody asked for is put to rest, where the machine
+        // keeps rest, so it does not sit in its list. The draft stays here.
+        void settleConversation({ connectionId: connection.id, workspaceId }).catch(() => undefined)
+        return {
+          ok: false,
+          code: first.code,
+          message: `Its first message did not go: ${first.message}`,
+        }
+      }
+    }
     return {
       ok: true,
       workspaceId,
@@ -1560,6 +1610,66 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       providerId: typeof conversation?.providerId === 'string' ? conversation.providerId : '',
       modelId: typeof conversation?.modelId === 'string' ? conversation.modelId : '',
     }
+  }
+
+  // A new chat's first message with its images, sent the way a pane here
+  // sends one to a chat it follows: up the upload route under the chat's live
+  // session, then a `send` naming them over the chat's conversation socket.
+  // The socket is this call's own follow, shared with any pane that opens the
+  // chat meanwhile. A send is answered when its turn ends, so the message
+  // counts as taken once the chat says it began a turn on it; the follow is
+  // let go when the send is answered, or when nothing came of it in time.
+  async function sendFirstMessage(
+    connection: StoredMeshConnection,
+    chat: { workspaceId: string; agentId: string },
+    message: string,
+    images: ConversationImageAttachment[],
+  ): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    // The list that names the chat's session is read fresh: one read before
+    // the chat existed would not list it.
+    forgetSharedReads(connection.id, 'conversations')
+    const uploaded = await uploadConversationImages(connection, chat, images)
+    if (!uploaded.ok) return uploaded
+    const key = { connectionId: connection.id, ...chat }
+    const followId = `new-chat-${randomBytes(9).toString('base64url')}`
+    let taken: () => void = () => undefined
+    const began = new Promise<{ ok: true }>((resolve) => (taken = () => resolve({ ok: true })))
+    const followed = await remoteConversations.follow({
+      followId,
+      key,
+      emit: (frame) => {
+        if (frame.type === 'event' && (frame.event.type === 'user_message' || frame.event.type === 'turn_started'))
+          taken()
+      },
+    })
+    if (!followed.ok) {
+      remoteConversations.unfollow(followId)
+      return followed
+    }
+    const sent = conversationCommand({
+      key,
+      command: { kind: 'send', message, uploadIds: uploaded.uploadIds },
+    })
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const late = new Promise<{ ok: false; code: string; message: string }>((resolve) => {
+      timer = setTimeout(
+        () =>
+          resolve({
+            ok: false,
+            code: 'timeout',
+            message: `${connection.machineName} did not take it in time.`,
+          }),
+        firstMessageTimeoutMs,
+      )
+      timer.unref?.()
+    })
+    const outcome = await Promise.race([sent, began, late])
+    if (timer) clearTimeout(timer)
+    // Let go once the send is answered; at once when it was not taken, which
+    // also withdraws a send still waiting for the socket.
+    if (outcome.ok) void sent.finally(() => remoteConversations.unfollow(followId))
+    else remoteConversations.unfollow(followId)
+    return outcome
   }
 
   // ── A remote chat's rest and visit clock ────────────────────────────────
@@ -1752,6 +1862,11 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
   }
 
   // ── Images sent to paired machines ────────────────────────────────────────
+
+  function uploadsUnsupported(connection: StoredMeshConnection): string {
+    return `${connection.machineName} does not take pictures from another desktop yet. Update Studio there to attach them.`
+  }
+
   //
   // A message from here to a chat over there carries its images as the phone's
   // does: each is put in that machine's upload store under this pairing and
@@ -1767,7 +1882,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     // A machine that said what it can do and left uploads out cannot take a
     // picture, and is not asked. One that has not said is asked, and a route
     // it does not have reads as the same thing.
-    const unsupported = `${connection.machineName} does not take pictures from another desktop yet. Update Studio there to attach them.`
+    const unsupported = uploadsUnsupported(connection)
     const capabilities = peerCapabilities.get(connection.id)
     if (capabilities && !tailnetPeerSupports(capabilities, 'upload'))
       return { ok: false, code: 'images_unsupported', message: unsupported }

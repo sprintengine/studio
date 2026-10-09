@@ -3809,6 +3809,9 @@ export default function WorkspaceManager() {
           permissionPreset: launch.permissionPreset,
           // Present only for a machine that keeps one (`new-chat-effort`).
           effort: launch.effort,
+          // The staged images, as bytes: main puts them in that machine's
+          // upload store and the first message names them there.
+          ...(launch.images?.length ? { attachments: launch.images } : {}),
         })
         .catch((error: unknown): { ok: false; code: string; message: string } => ({
           ok: false,

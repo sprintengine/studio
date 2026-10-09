@@ -91,8 +91,15 @@ export const meshApi = {
     permissionPreset?: string
     /** The CLI's effort level; dropped for a machine that does not advertise `new-chat-effort`. */
     effort?: string
-  }): Promise<MeshCreateConversationResult> =>
-    ipcRenderer.invoke(MESH_CREATE_CONVERSATION_CHANNEL, input) as Promise<MeshCreateConversationResult>,
+    /** Images that go with the first message; main puts them in that machine's upload store first. */
+    attachments?: ConversationImageAttachment[]
+  }): Promise<MeshCreateConversationResult> => {
+    const { attachments, ...rest } = input
+    return ipcRenderer.invoke(MESH_CREATE_CONVERSATION_CHANNEL, {
+      ...rest,
+      ...(attachments?.length ? { attachments } : {}),
+    }) as Promise<MeshCreateConversationResult>
+  },
   meshSettleConversation: (input: {
     connectionId: string
     workspaceId: string

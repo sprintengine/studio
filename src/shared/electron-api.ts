@@ -938,6 +938,12 @@ export type ElectronApi = {
     permissionPreset?: string
     /** The CLI's effort level; dropped for a machine that does not advertise `new-chat-effort`. */
     effort?: string
+    /**
+     * Images that go with the first message. Each is put in that machine's
+     * upload store under the new chat's session, and the first message names
+     * them, as a message sent to a followed chat does.
+     */
+    attachments?: ConversationImageAttachment[]
   }) => Promise<MeshCreateConversationResult>
   /**
    * Settle a chat on a paired machine, or bring it back with `settled: false`

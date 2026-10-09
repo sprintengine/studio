@@ -27,7 +27,13 @@ import type { RemoteJsonSocket, RemoteJsonSocketHandlers } from './tailnet/tailn
 import { pairingUrl } from './tailnet/tailnet-service'
 import { createScheduledMessages } from '../scheduled-messages/scheduled-messages'
 import { studioHeldMessages } from '../../server/core/studio-scheduled-messages'
-import { TAILNET_IDENTITY_PATH, TAILNET_PAIR_PATH, TAILNET_UPLOAD_PATH } from './tailnet/tailnet-routes'
+import {
+  TAILNET_IDENTITY_PATH,
+  TAILNET_MCP_PATH,
+  TAILNET_PAIR_PATH,
+  TAILNET_UPLOAD_PATH,
+} from './tailnet/tailnet-routes'
+import { toolError, toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 
 // Another Studio desktop following this machine's conversations over the
 // tailnet. Both halves are real: the gateway, its conversation socket, the
@@ -121,7 +127,13 @@ type Harness = {
 const workspaceId = 'workspace'
 const agentId = 'agent'
 
-async function startHarness(options: { holdQueued?: boolean } = {}): Promise<Harness> {
+/**
+ * The far end's gateway tools, for a test that starts a chat there: built once
+ * the runtime and the workspace folder exist.
+ */
+type HarnessTools = (runtime: ConversationRuntime, workspaceRoot: string) => McpToolRegistration[]
+
+async function startHarness(options: { holdQueued?: boolean; tools?: HarnessTools } = {}): Promise<Harness> {
   const workspaceRoot = mkdtempSync(join(tmpdir(), 'remote-conversation-host-'))
   const remoteDir = mkdtempSync(join(tmpdir(), 'remote-conversation-devices-'))
   const localDir = mkdtempSync(join(tmpdir(), 'remote-conversation-local-'))
@@ -196,6 +208,7 @@ async function startHarness(options: { holdQueued?: boolean } = {}): Promise<Har
       })
     },
   }
+  const tools = options.tools?.(runtime, workspaceRoot) ?? []
   const devices = createTailnetDeviceStore({ resolveUserDataDir: () => remoteDir })
   const build = (port: number): TailnetGatewayServer =>
     createTailnetGatewayServer({
@@ -203,7 +216,7 @@ async function startHarness(options: { holdQueued?: boolean } = {}): Promise<Har
       port,
       serverName: 'sprintengine-studio',
       serverVersion: '9.9.9',
-      resolveTools: () => [],
+      resolveTools: () => tools,
       isMutation: () => false,
       devices,
       conversations,
@@ -505,6 +518,7 @@ test('a paired desktop attaches images to a message: each goes up the upload rou
 
 test('a machine whose handshake leaves uploads out is not sent an image, and says so in words', async () => {
   let uploads = 0
+  let toolCalls = 0
   const device = {
     deviceId: 'device-1',
     deviceName: 'dev-macbook-air',
@@ -516,6 +530,7 @@ test('a machine whose handshake leaves uploads out is not sent an image, and say
     const path = new URL(request.url ?? '/', 'http://peer.invalid').pathname
     request.resume()
     if (path === TAILNET_UPLOAD_PATH) uploads++
+    if (path === TAILNET_MCP_PATH) toolCalls++
     const known = path === TAILNET_PAIR_PATH || path === TAILNET_IDENTITY_PATH
     response.writeHead(known ? 200 : 404, { 'Content-Type': 'application/json' })
     response.end(JSON.stringify(path === TAILNET_PAIR_PATH ? { ...device, deviceToken: 'device-token' } : device))
@@ -540,10 +555,161 @@ test('a machine whose handshake leaves uploads out is not sent an image, and say
     assert.equal(answer.ok ? '' : answer.code, 'images_unsupported')
     assert.match(answer.ok ? '' : answer.message, /Update Studio there/)
     assert.equal(uploads, 0)
+
+    // A New chat with images is refused the same way, before a chat is made
+    // over there that would be left empty.
+    const created = await mesh.createConversation({
+      connectionId: paired.connection.id,
+      workspaceId,
+      prompt: 'look',
+      attachments: [{ id: 'a-1', mediaType: 'image/png', dataBase64: 'iVBORw==', byteLength: 4 }],
+    })
+    assert.equal(created.ok ? '' : created.code, 'images_unsupported')
+    assert.match(created.ok ? '' : created.message, /Update Studio there/)
+    assert.equal(toolCalls, 0, 'no chat was asked for')
+    assert.equal(uploads, 0)
   } finally {
     mesh.shutdown()
     await new Promise<void>((resolve) => peer.close(() => resolve()))
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/**
+ * The far end's `conversation.create` and `conversation.settle`, as a test
+ * double: a create starts a session for `newAgentId` in the harness workspace
+ * (or, for `ghostAgentId`, answers with a chat that has none), and both
+ * record what they were asked.
+ */
+function chatTools(record: { creates: Array<Record<string, unknown>>; settles: Array<Record<string, unknown>> }) {
+  return ((runtime, workspaceRoot) => [
+    {
+      name: 'conversation.create',
+      description: 'Start a chat.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: true },
+      handler: async (args) => {
+        record.creates.push(args)
+        const agent = args.cli === 'ghost' ? ghostAgentId : newAgentId
+        let sessionId = 'none'
+        if (agent === newAgentId) {
+          const started = await runtime.startSession({
+            workspaceRoot,
+            workspaceId,
+            agentId: agent,
+            providerId: 'mock-provider',
+            modelId: 'mock-model',
+            permissionPreset: 'bypass',
+          })
+          if (!started.ok) return toolError('conversation_start_failed', started.message)
+          sessionId = started.session.sessionId
+        }
+        return toolSuccess({
+          conversation: {
+            workspaceId,
+            agentId: agent,
+            name: 'Chat 2',
+            providerId: 'mock',
+            modelId: 'mock-model',
+            sessionId,
+          },
+        })
+      },
+    },
+    {
+      name: 'conversation.settle',
+      description: 'Settle a chat.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: true },
+      handler: async (args) => {
+        record.settles.push(args)
+        return toolSuccess({ workspaceId: args.workspaceId, settledAt: 1 })
+      },
+    },
+  ]) satisfies HarnessTools
+}
+
+const newAgentId = 'agent-new'
+const ghostAgentId = 'agent-ghost'
+
+test('a New chat on a paired desktop takes its images with its first message, as one here does', async () => {
+  const record = { creates: [] as Array<Record<string, unknown>>, settles: [] as Array<Record<string, unknown>> }
+  const h = await startHarness({ tools: chatTools(record) })
+  try {
+    const connectionId = await h.pair(['conversation:read', 'conversation:operate'])
+    const turns = vi.spyOn(h.runtime, 'sendTurn')
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7, 8, 9])
+    const created = h.mesh.createConversation({
+      connectionId,
+      workspaceId,
+      cli: 'mock-cli',
+      prompt: 'what is in this screenshot',
+      permissionPreset: 'bypass',
+      attachments: [
+        { id: 'a-1', mediaType: 'image/png', dataBase64: png.toString('base64'), name: 'shot.png', byteLength: 11 },
+      ],
+    })
+    await h.provider.turnStarted()
+    const answer = await created
+    assert.ok(answer.ok, answer.ok ? '' : answer.message)
+    assert.equal(answer.agentId, newAgentId, 'the chat over there is the one opened here')
+    assert.equal(record.creates.length, 1)
+    assert.equal(record.creates[0]?.prompt, undefined, 'the chat is made without its words, which follow its images')
+    const turn = turns.mock.calls.at(-1)![0]
+    assert.notEqual(turn.sessionId, h.sessionId, 'the turn is the new chat’s, not the one already there')
+    assert.equal(turn.message, 'what is in this screenshot', 'the words arrive as written, with no path in them')
+    assert.deepEqual(
+      turn.attachments?.map((attachment) => [
+        attachment.mediaType,
+        attachment.name,
+        Buffer.from(attachment.dataBase64, 'base64').equals(png),
+      ]),
+      [['image/png', 'shot.png', true]],
+      'the chat over there is handed the same bytes as its first message',
+    )
+    assert.equal(record.settles.length, 0, 'a chat that took its message is left alone')
+    h.provider.push(null)
+  } finally {
+    await h.close()
+  }
+})
+
+test('a New chat whose images cannot go is refused, and the empty chat over there is put to rest', async () => {
+  const record = { creates: [] as Array<Record<string, unknown>>, settles: [] as Array<Record<string, unknown>> }
+  const h = await startHarness({ tools: chatTools(record) })
+  try {
+    const connectionId = await h.pair(['conversation:read', 'conversation:operate'])
+    const turns = vi.spyOn(h.runtime, 'sendTurn')
+    // A chat over there with no live session to keep an upload for: it reads
+    // as a chat that takes no images, as one whose CLI reads none does.
+    const answer = await h.mesh.createConversation({
+      connectionId,
+      workspaceId,
+      cli: 'ghost',
+      prompt: 'look',
+      attachments: [{ id: 'a-1', mediaType: 'image/png', dataBase64: 'iVBORw==', byteLength: 4 }],
+    })
+    assert.equal(answer.ok ? '' : answer.code, 'images_unsupported')
+    assert.match(answer.ok ? '' : answer.message, /first message did not go: .*does not take images/u)
+    await waitFor(() => record.settles.length === 1, 'the empty chat is settled')
+    assert.equal(record.settles[0]?.workspaceId, workspaceId)
+    assert.equal(turns.mock.calls.length, 0, 'nothing was sent in place of the images')
+
+    // Bad images are refused before anything is made.
+    const before = record.creates.length
+    const invalid = await h.mesh.createConversation({
+      connectionId,
+      workspaceId,
+      prompt: 'a document',
+      attachments: [{ id: 'p-1', mediaType: 'application/pdf', dataBase64: 'iVBORw==', byteLength: 4 }],
+    })
+    assert.equal(invalid.ok ? '' : invalid.code, 'invalid_arguments')
+    assert.equal(record.creates.length, before, 'no chat was asked for')
+
+    // Without images, a New chat is asked for with its words, as it always was.
+    const plain = await h.mesh.createConversation({ connectionId, workspaceId, cli: 'ghost', prompt: 'hello' })
+    assert.ok(plain.ok, plain.ok ? '' : plain.message)
+    assert.equal(record.creates.at(-1)?.prompt, 'hello')
+  } finally {
+    await h.close()
   }
 })
 
