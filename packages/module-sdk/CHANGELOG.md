@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 1.0.0-beta.1
+
+Automations became scheduled agents: a prompt and a cron schedule, each run a
+new chat. The app no longer has an automations engine for a module to extend.
+Beside that, it adds the Backlog, usage, activity and text-generation
+services, the shell's notifications and window context, main-host plumbing,
+`module:bridge`, the testing kit, and companion tools, turn replies and
+scheduled-agent runs, all additive under host API 1.
 
 ### Added: Backlog, usage and activity services
 
@@ -326,11 +333,6 @@ beside it.
   a one-time schedule's run before it closes; and `scheduledAgentId` /
   `scheduledAgentTag` on a run's `ModuleConversationSummary`. The type docs
   say what happens to a missed time. `scheduled-agent-runs`.
-
-## 1.0.0-beta.1
-
-Automations became scheduled agents: a prompt and a cron schedule, each run a
-new chat. The app no longer has an automations engine for a module to extend.
 
 ### Breaking: removed
 
