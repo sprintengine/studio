@@ -38,6 +38,7 @@ type ModulesIpcRenderer = {
     channel: 'modules:third-party:set-trust',
     payload: { id: string; trusted: boolean },
   ): Promise<ThirdPartyModuleTrustResult>
+  invoke(channel: 'modules:third-party:reveal', id: string): Promise<ThirdPartyModuleTrustResult>
   invoke(
     channel: 'modules:third-party:uninstall',
     input: ThirdPartyModuleUninstallInput,
@@ -82,6 +83,8 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
       renderer.invoke('modules:third-party:set-trust', { id, trusted }),
     uninstallThirdPartyModule: (input: ThirdPartyModuleUninstallInput): Promise<ThirdPartyModuleUninstallResult> =>
       renderer.invoke('modules:third-party:uninstall', input),
+    revealThirdPartyModule: (id: string): Promise<ThirdPartyModuleTrustResult> =>
+      renderer.invoke('modules:third-party:reveal', id),
     listThirdPartyRendererEntries: (): Promise<ThirdPartyRendererEntriesResult> =>
       renderer.invoke(THIRD_PARTY_RENDERER_ENTRIES_CHANNEL),
     onThirdPartyModulesChanged: (cb: () => void) => {
@@ -120,6 +123,7 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
     | 'installThirdPartyModuleFolder'
     | 'setThirdPartyModuleTrust'
     | 'uninstallThirdPartyModule'
+    | 'revealThirdPartyModule'
     | 'listThirdPartyRendererEntries'
     | 'onThirdPartyModulesChanged'
     | 'moduleBridgeInvoke'

@@ -136,6 +136,8 @@ const browserEmptyStates = {
   setTextGenerationSettings: async () => undefined,
   // A browser tab has no quit to ask about, and no app to relaunch.
   restartApp: undefined,
+  // Nor a file manager on the server's disk to open a module's folder in.
+  revealThirdPartyModule: undefined,
   getQuitConfirmation: async () => null,
   setQuitConfirmation: async () => null,
   getAgentBrowserTools: async () => null,

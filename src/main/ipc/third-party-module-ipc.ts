@@ -1,7 +1,7 @@
 import { lstat, realpath, rm } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
 
-import { app, type IpcMain, type IpcMainInvokeEvent } from 'electron'
+import { app, shell, type IpcMain, type IpcMainInvokeEvent } from 'electron'
 
 import type { ThirdPartyModuleUninstallResult } from '../../shared/electron-api'
 import { checkHostApiCompatibility } from '../../shared/modules/host-api'
@@ -169,6 +169,22 @@ export function registerThirdPartyModuleIpc(
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }
+    },
+  )
+
+  // "Show files": open the module's own folder. The renderer never learns
+  // where modules live, so main resolves the id to its installed folder.
+  ipcMain.handle(
+    'modules:third-party:reveal',
+    async (event: IpcMainInvokeEvent, input: unknown): Promise<ThirdPartyModuleTrustResult> => {
+      assertAppSender(event)
+      const id = typeof input === 'string' ? input.trim() : ''
+      if (!isModuleIdSegment(id)) return { ok: false, message: 'A module id is required.' }
+      const { modules } = await discoverUserModules(defaultUserModuleRoot(), trustContext())
+      const target = modules.find((module) => module.manifest.id === id)
+      if (!target) return { ok: false, message: `Module "${id}" is not installed.` }
+      const failure = await shell.openPath(target.moduleRoot)
+      return failure ? { ok: false, message: failure } : { ok: true }
     },
   )
 

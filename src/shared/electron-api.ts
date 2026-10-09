@@ -1684,6 +1684,8 @@ export type ElectronApi = {
   setThirdPartyModuleTrust: (id: string, trusted: boolean) => Promise<ThirdPartyModuleTrustResult>
   /** Remove a third-party module however it was installed (folder, marketplace, GitHub), with its trust, enablement and secrets. */
   uninstallThirdPartyModule: (input: ThirdPartyModuleUninstallInput) => Promise<ThirdPartyModuleUninstallResult>
+  /** Open an installed third-party module's folder. Absent where there is no file manager to open it in. */
+  revealThirdPartyModule?: (id: string) => Promise<ThirdPartyModuleTrustResult>
   /** Serve trusted third-party modules' entry.renderer bundles for the renderer loader. */
   listThirdPartyRendererEntries: () => Promise<ThirdPartyRendererEntriesResult>
   /** Install/trust changed; renderer-only modules may now be available. */
