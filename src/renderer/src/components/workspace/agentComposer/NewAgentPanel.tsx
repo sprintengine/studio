@@ -22,6 +22,7 @@ import { FolderIdentityIcon } from '../FolderIdentityIcon'
 import { useProjectColor } from '../../../hooks/useProjectColors'
 import { projectColorKey } from '../../../utils/projectColor'
 import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
+import { composerTokenAt } from '../../../../../shared/conversation/composerTrigger'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import {
   dataTransferHasDroppableFiles,
@@ -915,6 +916,13 @@ export default function NewAgentPanel({
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
 
   const [prompt, setPrompt] = React.useState(() => editing?.prompt ?? draft?.prompt ?? '')
+  // Where the caret is, as the field last said, with the draft it said it of.
+  // A draft set from here (a card, a pick) puts the field's caret at its end,
+  // which is where a caret for a draft the field has not spoken of is taken to
+  // be. A pick that wants it elsewhere asks through `pendingCaretRef`.
+  const [promptCaretAt, setPromptCaretAt] = React.useState<{ value: string; caret: number } | null>(null)
+  const promptCaret = promptCaretAt?.value === prompt ? promptCaretAt.caret : prompt.length
+  const pendingCaretRef = React.useRef<number | null>(null)
   const [enginePopoverOpen, setEnginePopoverOpen] = React.useState(false)
   // The hidden file input the "+" menu's Attach files row clicks. The menu
   // and the skills picker it opens over the same "+" are `ComposerPlusMenu`.
@@ -1127,13 +1135,18 @@ export default function NewAgentPanel({
   const effectiveMode = useCliPermissionMode(launchCli)
 
   // ── The skill trigger ────────────────────────────────────────────────────
-  // A chat carries skills as attachments rather than a typed invocation, so the
-  // CLI's mention syntax is a terminal launch's alone.
+  // A terminal agent takes a skill as its CLI types one (`/name` on Claude
+  // Code, `$name` on Codex), so the trigger is the CLI's declared prefix and a
+  // pick inserts the CLI's mention. A chat carries skills as attachments rather
+  // than a typed invocation, the same chips the "+" menu adds, so there `/`
+  // opens the picker and a pick becomes a chip, whichever runtime the chat
+  // runs on. A plain shell takes neither.
   const skillIntegration = React.useMemo(() => {
     if (!commandCli) return undefined
     return pluginCatalogEntries.find((entry) => entry.id === commandCli)?.skillIntegration
   }, [commandCli, pluginCatalogEntries])
   const mentionPrefix = resolveSkillMentionPrefix(skillIntegration)
+  const skillMarker = selection.kind === 'conversation' ? '/' : selection.kind === 'general' ? mentionPrefix : undefined
 
   // `/schedule every weekday at 9`: the schedule said where the cursor is.
   // Offered wherever scheduling is, from a chat launch too — picking a
@@ -1157,20 +1170,53 @@ export default function NewAgentPanel({
     promptRef.current?.focus()
   }, [])
 
-  const [mentionDismissed, setMentionDismissed] = React.useState(false)
+  // The type-ahead opens on a marker at a token boundary — the start of the
+  // draft, of any line, or after a space — with the caret in the token, and a
+  // pick replaces that token alone. Esc keeps it shut for the token it was
+  // pressed in; a token no skill matches closes it until the next keystroke.
+  const [mentionDismissedAt, setMentionDismissedAt] = React.useState<number | null>(null)
+  const [mentionEmpty, setMentionEmpty] = React.useState(false)
   const mentionRef = React.useRef<InlineSkillPickerHandle | null>(null)
-  const mentionQuery = React.useMemo(() => {
-    if (!mentionPrefix || mentionDismissed || slashQuery !== null) return null
-    const match = new RegExp(`(?:^|\\s)\\${mentionPrefix}([^\\s]*)$`).exec(prompt)
-    return match ? match[1] : null
-  }, [mentionDismissed, mentionPrefix, prompt, slashQuery])
+  const mentionToken = React.useMemo(
+    () => (skillMarker && slashQuery === null ? composerTokenAt(prompt, promptCaret, skillMarker) : null),
+    [prompt, promptCaret, skillMarker, slashQuery],
+  )
+  const mentionStart = mentionToken?.range.start ?? null
+  React.useEffect(() => {
+    if (mentionDismissedAt !== null && mentionStart !== mentionDismissedAt) setMentionDismissedAt(null)
+  }, [mentionDismissedAt, mentionStart])
+  const mentionQuery =
+    mentionToken && !mentionEmpty && mentionToken.range.start !== mentionDismissedAt ? mentionToken.query : null
+  const dismissMention = React.useCallback(() => setMentionDismissedAt(mentionStart), [mentionStart])
+
+  // Put the caret where a pick asked once the rewritten draft has rendered.
+  React.useEffect(() => {
+    const caret = pendingCaretRef.current
+    if (caret === null) return
+    pendingCaretRef.current = null
+    promptRef.current?.focus()
+    promptRef.current?.setSelectionRange(caret, caret)
+    setPromptCaretAt({ value: prompt, caret })
+  }, [prompt])
+
+  const replaceMentionToken = (text: string) => {
+    if (!mentionToken) return
+    const { start, end } = mentionToken.range
+    // A space already after the token is reused rather than doubled.
+    const tail = text.endsWith(' ') && /^\s/u.test(prompt.slice(end)) ? end + 1 : end
+    pendingCaretRef.current = start + text.length
+    setPrompt(prompt.slice(0, start) + text + prompt.slice(tail))
+  }
 
   const applySkillMention = (skill: WorkspaceSkill) => {
+    if (selection.kind === 'conversation') {
+      if (!composer.skills.some((entry) => entry.id === skill.id)) composer.setSkills([...composer.skills, skill])
+      replaceMentionToken('')
+      return
+    }
     const mention = renderSkillMention(skillIntegration, skill.id)
-    if (!mention || !mentionPrefix) return
-    setPrompt((current) => current.replace(new RegExp(`\\${mentionPrefix}[^\\s]*$`), `${mention} `))
-    setMentionDismissed(true)
-    promptRef.current?.focus()
+    if (!mention) return
+    replaceMentionToken(`${mention} `)
   }
 
   // Switching CLIs re-renders mentions already typed in the new one's form.
@@ -1756,7 +1802,7 @@ export default function NewAgentPanel({
         }
       } else if (event.key === 'Escape') {
         event.preventDefault()
-        setMentionDismissed(true)
+        dismissMention()
         return
       }
     }
@@ -2108,13 +2154,13 @@ export default function NewAgentPanel({
             <InlineSkillPicker
               ref={mentionRef}
               workspaceRoot={workspaceRoot}
-              pluginId={launchCli}
+              pluginId={commandCli}
               query={mentionQuery}
               onPick={applySkillMention}
               onMatchCountChange={(count) => {
-                if (count === 0 && mentionQuery.length > 0) setMentionDismissed(true)
+                if (count === 0 && mentionQuery.length > 0) setMentionEmpty(true)
               }}
-              onDismiss={() => setMentionDismissed(true)}
+              onDismiss={dismissMention}
             />
           ) : null}
 
@@ -2163,10 +2209,14 @@ export default function NewAgentPanel({
                 event.preventDefault()
                 void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
               }}
-              onChange={(value) => {
+              onChange={(value, caret) => {
                 setPrompt(value)
-                setMentionDismissed(false)
+                setPromptCaretAt({ value, caret })
+                setMentionEmpty(false)
               }}
+              // The field's own text, not this render's `prompt`: a caret
+              // moved straight after an edit arrives before the re-render.
+              onSelectionChange={(caret) => setPromptCaretAt({ value: promptRef.current?.value ?? prompt, caret })}
               onKeyDown={onPromptKeyDown}
               placeholder={placeholder}
               disabled={isTerminalLaunch}
