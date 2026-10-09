@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 
 import {
   KNOWN_CAPABILITY_PERMISSIONS,
+  capabilityAccess,
   describeCapabilityPermission,
   isBroadCapabilityPermission,
   isKnownCapabilityPermission,
+  partitionCapabilityAccess,
   validateCapabilityPermissions,
 } from './permissions'
 import { test } from 'vitest'
@@ -169,4 +171,67 @@ test('usage:read and conversation:read-all are known, described, and read-all is
   assert.equal(isBroadCapabilityPermission('conversation:read-all'), true)
   assert.equal(isBroadCapabilityPermission('usage:read'), false)
   assert.equal(isBroadCapabilityPermission('conversation:read'), false)
+})
+
+// The at-a-glance table Settings → Extensions draws its warning glyphs from.
+// One row per known scope, so a scope added to the vocabulary without a short
+// title fails here rather than reaching a row as "Unrecognized".
+const NEEDS_CARE = [
+  'filesystem:read-home',
+  'filesystem:write-workspace',
+  'process:spawn',
+  'network',
+  'ipc:invoke',
+  'ipc:settings',
+  'conversation:operate',
+  'conversation:bypass',
+  'conversation:read-all',
+  'github',
+  'secrets',
+  'usage:read',
+]
+
+test('every known scope has a short title, and exactly the sensitive ones need care', () => {
+  for (const permission of KNOWN_CAPABILITY_PERMISSIONS) {
+    const access = capabilityAccess(permission)
+    assert.doesNotMatch(access.title, /Unrecognized/, `${permission} has a title of its own`)
+    assert.ok(access.title.split(' ').length <= 6, `${permission}: "${access.title}" stays short`)
+    assert.equal(access.care, NEEDS_CARE.includes(permission), `${permission} care flag`)
+    if (access.care) {
+      assert.ok(access.why, `${permission} says why it needs care`)
+      assert.ok(access.why!.split(/\s+/).length <= 6, `${permission}: "${access.why}" is six words or fewer`)
+    } else {
+      assert.equal(access.why, undefined, `${permission} is standard and carries no why`)
+    }
+    assert.doesNotMatch(
+      `${access.title} ${access.why ?? ''}`,
+      /sandbox|enforce|prevent|restrict|block/i,
+      `${permission} short copy stays disclosure-only`,
+    )
+    assert.doesNotMatch(access.title, /…$/, 'no trailing ellipsis')
+  }
+})
+
+test('the owner-approved titles read as written', () => {
+  assert.equal(capabilityAccess('filesystem:read-home').title, 'Reads your home folder')
+  assert.equal(capabilityAccess('filesystem:write-workspace').title, 'Edits files in your projects')
+  assert.equal(capabilityAccess('ipc:invoke').title, 'Broad access to Studio')
+  assert.equal(capabilityAccess('conversation:operate').title, 'Runs chats with your agents')
+  assert.equal(capabilityAccess('conversation:bypass').title, 'Lets agents act without asking')
+  assert.equal(capabilityAccess('github').title, 'Uses your GitHub sign-in')
+})
+
+test('an unrecognized scope always needs care and names itself', () => {
+  const access = capabilityAccess('totally-made-up')
+  assert.equal(access.care, true)
+  assert.match(access.title, /totally-made-up/)
+  assert.ok(access.why)
+})
+
+test('partitioning keeps declared order within each group', () => {
+  assert.deepEqual(partitionCapabilityAccess(['storage', 'github', 'mystery:scope', 'backlog.read', 'network']), {
+    care: ['github', 'mystery:scope', 'network'],
+    standard: ['storage', 'backlog.read'],
+  })
+  assert.deepEqual(partitionCapabilityAccess([]), { care: [], standard: [] })
 })

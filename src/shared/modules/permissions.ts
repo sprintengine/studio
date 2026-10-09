@@ -215,6 +215,92 @@ export function describeCapabilityPermission(permission: string): string {
   return PERMISSION_DESCRIPTIONS[permission] ?? `Unrecognized capability: ${permission}`
 }
 
+// ── At-a-glance access ───────────────────────────────────────────────────────
+//
+// The sentences above are what the full disclosure reads. A list of extensions
+// cannot afford a sentence per scope, so every known scope also has a short
+// title, and the ones that warrant a second look before trusting — reach past
+// the module's own data, act as the person, or run unattended — are marked
+// `care` with a "why" of six words or fewer. Settings → Extensions draws one
+// warning glyph per `care` scope on a row and lists the titles on hover; its
+// details and trust review show the why. An unrecognized scope always needs
+// care: nothing here can say what it grants.
+//
+// Disclosure phrasing only, like the sentences: what the module says it does,
+// never what the app prevents.
+
+export type CapabilityAccess = {
+  /** Short sentence-case title: "Reads your home folder". */
+  title: string
+  /** Warrants a second look before trusting. */
+  care: boolean
+  /** Six words or fewer, for `care` scopes only. */
+  why?: string
+}
+
+const CAPABILITY_ACCESS: Record<string, CapabilityAccess> = {
+  // Needs care.
+  'filesystem:read-home': { title: 'Reads your home folder', care: true, why: 'Including other apps’ data' },
+  'filesystem:write-workspace': {
+    title: 'Edits files in your projects',
+    care: true,
+    why: 'Creates and changes project files',
+  },
+  'process:spawn': { title: 'Runs programs on this machine', care: true, why: 'Any command, with your access' },
+  network: { title: 'Uses the network', care: true, why: 'Can send data to any site' },
+  'ipc:settings': { title: 'Changes your settings', care: true, why: 'Including integrations and extensions' },
+  'ipc:invoke': { title: 'Broad access to Studio', care: true, why: 'Calls any internal API' },
+  'conversation:operate': { title: 'Runs chats with your agents', care: true, why: 'Starts, messages and stops chats' },
+  'conversation:bypass': {
+    title: 'Lets agents act without asking',
+    care: true,
+    why: 'Edits and commands without approval',
+  },
+  'conversation:read-all': { title: 'Reads all your chats', care: true, why: 'Every chat on this machine' },
+  github: { title: 'Uses your GitHub sign-in', care: true, why: 'Calls GitHub as you' },
+  secrets: { title: 'Holds your API keys', care: true, why: 'Sends them to sites it names' },
+  'usage:read': { title: 'Sees your usage and cost', care: true, why: 'Every agent session on this machine' },
+  // Standard.
+  'filesystem:read-workspace': { title: 'Reads your projects', care: false },
+  'ipc:workspace-read': { title: 'Sees workspace and git state', care: false },
+  'ipc:workspace-write': { title: 'Changes workspaces and tasks', care: false },
+  'module:bridge': { title: 'Talks to its own background code', care: false },
+  'backlog.read': { title: 'Reads the Backlog', care: false },
+  'backlog.write': { title: 'Changes Backlog items', care: false },
+  'backlog.link.open': { title: 'Opens Backlog links', care: false },
+  'scheduled-agents.manage': { title: 'Schedules agents', care: false },
+  'agents:companion': { title: 'Runs background agents', care: false },
+  'agents:generate': { title: 'Sends prompts to your models', care: false },
+  storage: { title: 'Saves its own data', care: false },
+  'conversation:read': { title: 'Reads its own chats', care: false },
+  'chat:draft': { title: 'Drafts messages for you to send', care: false },
+  'mcp:tools': { title: 'Adds tools for agents', care: false },
+}
+
+/** The short title, care flag and why for one scope; unknown scopes always need care. */
+export function capabilityAccess(permission: string): CapabilityAccess {
+  return (
+    CAPABILITY_ACCESS[permission] ?? {
+      title: `Unrecognized: ${permission}`,
+      care: true,
+      why: 'Not a scope this version knows',
+    }
+  )
+}
+
+/** A manifest's scopes split into those that need care and the rest, each in declared order. */
+export function partitionCapabilityAccess(permissions: readonly string[]): {
+  care: string[]
+  standard: string[]
+} {
+  const care: string[] = []
+  const standard: string[] = []
+  for (const permission of permissions) {
+    ;(capabilityAccess(permission).care ? care : standard).push(permission)
+  }
+  return { care, standard }
+}
+
 // The permissions validator lives in the published SDK so the app and the
 // `sprintengine-module` CLI validate manifests identically; re-exported here for
 // app code.
