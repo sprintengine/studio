@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, unwatchFile, watchFile, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 // Main's copy of every module's app-level state — the `module:<id>`
@@ -56,7 +56,7 @@ export function createModuleAppStateMirror(options: {
 }): ModuleAppStateMirror & { dispose(): void } {
   let namespaces: Namespaces | null = null
   const listeners = new Map<string, Set<(values: Readonly<Record<string, unknown>>) => void>>()
-  let watching = false
+  let watching: ReturnType<typeof setInterval> | null = null
   // What the file looked like when last read or written, so a read with no
   // watch running still notices a push another process wrote since.
   let seen: string | null = null
@@ -99,23 +99,22 @@ export function createModuleAppStateMirror(options: {
     return changed
   }
 
-  const onFileChange = (): void => {
-    adopt(read())
-  }
-
+  // Poll the file's signature against the one last read or written rather
+  // than using fs.watchFile: watchFile takes its baseline from its first
+  // asynchronous stat, so a push another process writes before that stat lands
+  // becomes the baseline and is never reported. Comparing against `seen` has
+  // no baseline to race.
   const startWatching = (): void => {
     if (watching || options.watchFile === false) return
-    watching = true
-    watchFile(
-      options.filePath,
-      { interval: options.watchIntervalMs ?? WATCH_INTERVAL_MS, persistent: false },
-      onFileChange,
-    )
+    watching = setInterval(() => {
+      if (fileSignature() !== seen) adopt(read())
+    }, options.watchIntervalMs ?? WATCH_INTERVAL_MS)
+    watching.unref?.()
   }
   const stopWatching = (): void => {
     if (!watching) return
-    watching = false
-    unwatchFile(options.filePath, onFileChange)
+    clearInterval(watching)
+    watching = null
   }
 
   return {
