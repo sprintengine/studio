@@ -474,7 +474,7 @@ export const OutlineButton = React.forwardRef<
 })
 
 // The outline made SOLID, for a control that floats over scrolling content —
-// the conversation's "Jump to latest" pill, and nothing else so far. The
+// the "Jump to latest" pill over a conversation or a scrolled-up terminal. The
 // outline's transparent ground is right for a button standing in the flow, but
 // over a transcript it let the text run straight through the label at rest and
 // only went solid under the pointer, so the pill read as broken rather than as

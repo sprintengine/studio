@@ -37,6 +37,7 @@ import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { TerminalMount } from '../terminal/TerminalMount'
 import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalFindBar } from '../terminal/TerminalFindBar'
+import { TerminalJumpToLatest } from '../terminal/TerminalJumpToLatest'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { hostPlatform } from '../../clientCapabilities'
@@ -64,6 +65,10 @@ function PlainTerminalPanelOnThisComputer({
   // today `useTerminalFind`, which loads the search addon on the first find.
   const studioTerminalRef = useRef<StudioTerminal | null>(null)
   const find = useTerminalFind({ workspaceId, containerRef, terminalRef: studioTerminalRef })
+  // Scrolled up away from the newest output, so "Jump to latest" is offered.
+  const [scrolledAway, setScrolledAway] = useState(false)
+  // Set by the mount effect, which owns the terminal and its focus path.
+  const jumpToLatestRef = useRef<(() => void) | null>(null)
   const [isFileDragOver, setIsFileDragOver] = useState(false)
   // A failed file drop or a dead link, anchored to the pointer that raised it so
   // the error surfaces next to the cursor instead of a corner toast.
@@ -192,6 +197,7 @@ function PlainTerminalPanelOnThisComputer({
       onWebLink: (event, uri) => {
         setLinkMenu({ target: { kind: 'url', url: uri }, x: event.clientX, y: event.clientY })
       },
+      onScrolledAwayChange: setScrolledAway,
       // OSC 7 — the shell reporting its working directory. xterm registers
       // handlers for 0,1,2,4,8,10-12,104,110-112 and NOT 7, so without this the
       // sequence the startup script now emits (`terminal-launch.ts`) would be
@@ -270,6 +276,12 @@ function PlainTerminalPanelOnThisComputer({
     const focusTerminal = () => {
       terminalDiagnostics.recordFocus()
       term.focus()
+    }
+    // Back to the bottom, and the keyboard back to the terminal: the person
+    // jumped there to see what the program is doing now, usually to answer it.
+    jumpToLatestRef.current = () => {
+      term.scrollToBottom()
+      focusTerminal()
     }
 
     term.attachCustomKeyEventHandler((event) => {
@@ -550,6 +562,9 @@ function PlainTerminalPanelOnThisComputer({
       ackReporter.dispose()
       unregisterTerminalInstance(sessionId)
       studioTerminalRef.current = null
+      // The next terminal this effect builds starts at its bottom.
+      jumpToLatestRef.current = null
+      setScrolledAway(false)
       // Last: it unbinds the theme and disposes the terminal itself, so nothing
       // above may still be reading `term`.
       studioTerminal.dispose()
@@ -656,6 +671,7 @@ function PlainTerminalPanelOnThisComputer({
       >
         <TerminalMount ref={terminalMountRef} />
         <TerminalFindBar find={find} />
+        <TerminalJumpToLatest visible={scrolledAway} onJump={() => jumpToLatestRef.current?.()} />
         {/* No replay skeleton on terminals (see TerminalView): xterm renders
             its own content; keep the skeleton only for the folder check. */}
         {folderBlocked && checkingFolder ? <TerminalReplaySkeleton /> : null}
