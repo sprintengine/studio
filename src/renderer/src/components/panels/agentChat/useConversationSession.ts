@@ -6,7 +6,7 @@ import type {
   ConversationPage,
   ConversationSessionFrame,
 } from '../../../../../shared/conversation-runtime'
-import { useWindowPageVisible } from '../../../utils/windowActivity'
+import { useWindowPageVisible, windowActivity } from '../../../utils/windowActivity'
 import { useConversationTransport, type ConversationTransport } from './conversationTransport'
 import { retryLabel } from './conversationTimeline'
 import { compactTokenRuns, SeqRanges } from './sessionEventLog'
@@ -188,9 +188,25 @@ export function frameUrgency(frame: ConversationSessionFrame): FrameUrgency {
   return TURN_EVENTS.has(type) ? 'turn' : 'step'
 }
 
-// A token waits for the next animation frame, or for this long where frames do
-// not run (a window the system is not drawing), whichever comes first.
-const TOKEN_FLUSH_FALLBACK_MS = 48
+// Streamed tokens render at most once per this interval while the window has
+// focus. Rendering on every display frame re-rendered the chat 60–120 times a
+// second for as long as a reply streamed, and each render is a full transcript
+// derive and a layout pass; 20 a second reads as the same live stream. The
+// first token after a quiet spell still renders at once.
+export const TOKEN_FLUSH_INTERVAL_MS = 50
+// The same, while the window can be seen but someone is working in another
+// app: the stream is still visible at a glance, and four renders a second is
+// enough to watch it move.
+export const TOKEN_FLUSH_BACKGROUND_INTERVAL_MS = 250
+
+// Every reader holding streamed tokens for its next flush. A test that renders
+// one token at a time (the chat render budget) flushes them by hand rather
+// than waiting out the interval in real time.
+const pendingTokenFlushes = new Set<() => void>()
+
+export function flushPendingTokensForTests(): void {
+  for (const flush of [...pendingTokenFlushes]) flush()
+}
 
 // One live subscription per conversation and transport, shared by everything
 // on screen that reads it: the chat and the Agents pane show the same events,
@@ -515,8 +531,8 @@ function loadEarlierTurns(transport: ConversationTransport, shared: SharedSessio
  * be seen (the window's visibility is added here); a reader nobody can see
  * takes in only what it acts on — a turn starting or ending, a request, a sent
  * message — and catches up on the rest in one render when it is seen again. A
- * reader that is seen renders streamed tokens once per frame, however many
- * arrived in it.
+ * reader that is seen renders streamed tokens at most once per flush interval
+ * (`TOKEN_FLUSH_INTERVAL_MS`), however many arrived in between.
  */
 export function useConversationSession(
   workspaceRoot: string | null,
@@ -538,18 +554,18 @@ export function useConversationSession(
     if (!workspaceRoot) return
     const shared = openSharedSession(conversationTransport, { workspaceRoot, workspaceId, agentId })
     sharedRef.current = shared
-    let frame = 0
     let timer: ReturnType<typeof setTimeout> | null = null
     let behind = false
+    let flushedAt = Number.NEGATIVE_INFINITY
     const cancel = () => {
-      if (frame) cancelAnimationFrame(frame)
-      frame = 0
       if (timer !== null) clearTimeout(timer)
       timer = null
+      pendingTokenFlushes.delete(flush)
     }
     const flush = () => {
       cancel()
       behind = false
+      flushedAt = Date.now()
       setState(readSnapshot(shared))
     }
     const listener = (urgency: FrameUrgency) => {
@@ -557,9 +573,10 @@ export function useConversationSession(
       behind = true
       if (!activeRef.current) return cancel()
       if (urgency === 'step') return flush()
-      if (frame || timer !== null) return
-      if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(flush)
-      timer = setTimeout(flush, TOKEN_FLUSH_FALLBACK_MS)
+      if (timer !== null) return
+      const interval = windowActivity().get().focused ? TOKEN_FLUSH_INTERVAL_MS : TOKEN_FLUSH_BACKGROUND_INTERVAL_MS
+      timer = setTimeout(flush, Math.max(0, flushedAt + interval - Date.now()))
+      pendingTokenFlushes.add(flush)
     }
     catchUpRef.current = () => {
       if (behind) flush()
