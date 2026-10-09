@@ -303,7 +303,11 @@ export { attachmentCountLabel, attachmentPreviewUrl, ComposerAttachmentStrip, op
 
 // What keeps the transcript at its end while the reader is there: a row added
 // or growing, and the list itself resizing (a pane dragged, the composer tray
-// growing). One path, not the list's plus an effect per token.
+// growing). One path, not the list's plus an effect per token. While a turn
+// streams the follow is instant: the last row grows on every flush, and a
+// smooth follow restarts its glide each time, so the list would be in a
+// smooth scroll — a frame and a scroll handler per display refresh — for the
+// whole reply.
 const END_FOLLOW_TRIGGERS = { dataChange: true, itemLayout: true, layout: true }
 
 // Said on the composer when a settled chat's worktree could not be checked out
@@ -3301,7 +3305,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 maintainVisibleContentPosition={{ data: true, size: true }}
                 maintainScrollAtEnd={
                   atBottom && !followPaused && !landsAtDivider
-                    ? { animated: !prefersReducedMotion(), on: END_FOLLOW_TRIGGERS }
+                    ? { animated: !projection.activeTurn && !prefersReducedMotion(), on: END_FOLLOW_TRIGGERS }
                     : false
                 }
                 anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
