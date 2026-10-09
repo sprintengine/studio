@@ -34,6 +34,8 @@ const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   'skills',
   'module-assets',
   'notifications',
+  // Agents, conversations and scheduled agents.
+  'companion-tools',
 ])
 
 export function hostSupports(capability: HostCapability): boolean {

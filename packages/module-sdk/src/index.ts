@@ -747,7 +747,15 @@ export type CompanionAgentSpec = {
   name: string
   /** Absolute workspace folder (the main process has no id → folder registry). */
   workspaceRoot: string
-  /** Engine selection; defaults resolve to the workspace's harness CLI/model. */
+  /**
+   * Engine selection. `cli` takes the chat runtime id a conversation's `cli`
+   * takes and `listChatRuntimes()` lists (`claude-code`, `codex`, `cursor`,
+   * `opencode`, `grok`), or the conversation provider id behind it
+   * (`claude-agent`, `codex-agent`, …): both name the same engine, so one id
+   * space covers chats and companions. Absent, Claude Code on `sonnet`; another
+   * engine without a `model` runs its own default model. A runtime id needs
+   * `host.supports('companion-tools')`; an older host takes provider ids only.
+   */
   engine?: { cli?: string; model?: string }
   /** Advisory context roots; the provider resolves knowledge from workspaceRoot. */
   contextRoots?: { knowledge?: boolean }
@@ -763,7 +771,35 @@ export type CompanionRunStructuredOptions<T> = {
   /** Validator errors are fed back to the agent and the turn retried. Default 1. */
   retries?: number
   onPhase?: (phase: string) => void
+  /**
+   * What the run does when its agent asks to use a tool (an edit, a command,
+   * a web request, an MCP tool; a companion session asks before every one):
+   *
+   * - `none` (the default): the host denies every request, and tells the
+   *   agent before your prompt that it has no tools for this task. Use it for
+   *   anything fed text you did not write (logs, PR comments, transcripts):
+   *   whatever that text says, the agent can only answer.
+   * - `ask`: requests stay open for the person. They arrive in `onEvent` as
+   *   `approval_requested`; show them, and relay the person's answer with
+   *   `respondToApproval`. The run waits until each is answered (or you
+   *   `interrupt`).
+   * - `auto`: the host approves every request, which is as loose as a chat on
+   *   `bypass`. Needs the `conversation:bypass` permission: without it the run
+   *   is refused (the promise rejects, naming the permission), and it is
+   *   refused too while your module serves an MCP tool call from an agent that
+   *   asks before acting.
+   *
+   * Check `host.supports('companion-tools')`: an older host ignores `tools`
+   * and approves every request.
+   */
+  tools?: 'none' | 'ask' | 'auto'
 }
+
+/**
+ * An answer to one approval request the companion's agent raised: allow it
+ * once, or deny it. A rule that outlives the request is the person's to make.
+ */
+export type CompanionApprovalAnswer = { requestId: string; decision: 'once' | 'deny' }
 
 export type CompanionAgentHandle = {
   readonly workspaceId: string
@@ -773,8 +809,21 @@ export type CompanionAgentHandle = {
   onStatus(cb: (status: CompanionAgentStatus) => void): () => void
   /** Run a structured JSON task: extract final JSON, validate, retry-once, return typed. */
   runStructured<T>(opts: CompanionRunStructuredOptions<T>): Promise<T>
-  /** A chat turn on the session's own transport. */
+  /**
+   * A chat turn on the session's own transport. Its approvals are left open,
+   * as a structured run's with `tools: 'ask'` are.
+   */
   send(message: string): Promise<void>
+  /**
+   * Relay the person's answer to an approval request that is still open (an
+   * `approval_requested` event's `requestId`): one from a `tools: 'ask'` run
+   * or from a `send` turn. Never answer on the person's behalf. Allowing
+   * (`once`) needs the `conversation:operate` permission, as answering an
+   * approval in a chat does; without it a request can only be denied.
+   * Answers `{ ok: false }` for a request that is not open. Check
+   * `host.supports('companion-tools')`.
+   */
+  respondToApproval(input: CompanionApprovalAnswer): Promise<{ ok: true } | { ok: false; message: string }>
   onEvent(cb: (event: CompanionAgentEvent) => void): () => void
   interrupt(): void
   /** Ends the session; the handle becomes inert. Re-attach spawns a fresh one. */
@@ -812,7 +861,20 @@ export function getCompanionAgentsService(host: MainHost): CompanionAgentsServic
   const registry = host.requireService(companionAgentsModuleServiceToken)
   const moduleId = host.moduleId
   return {
-    attach: (spec) => registry.attach(moduleId, spec),
+    attach: (spec) => {
+      const handle: Omit<CompanionAgentHandle, 'respondToApproval'> &
+        Partial<Pick<CompanionAgentHandle, 'respondToApproval'>> = registry.attach(moduleId, spec)
+      if (handle.respondToApproval) return handle as CompanionAgentHandle
+      // A host older than `companion-tools` has no answer to give; say so
+      // rather than leave the module a TypeError.
+      return Object.assign(handle, {
+        respondToApproval: () =>
+          Promise.resolve({
+            ok: false as const,
+            message: `This version of the app has no "respondToApproval"; check host.supports('companion-tools').`,
+          }),
+      })
+    },
   }
 }
 

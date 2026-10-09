@@ -37,6 +37,10 @@ export type HostCapability =
   | 'conversation-permissions'
   | 'chat.open'
   | 'companion-agents'
+  // ── Agents, conversations and scheduled agents ──
+  // A companion's structured run takes `tools` ('none' by default, 'ask',
+  // 'auto'), its handle `respondToApproval`, and its engine a chat runtime id.
+  | 'companion-tools'
   | 'scheduled-agents'
   | 'secrets'
   | 'github'

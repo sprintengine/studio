@@ -406,10 +406,11 @@ test('companion-agent-service', async () => {
   }
 
   // The canonical mock-conversation-provider ends its turn at an approval card
-  // (stateless). A structured run is autonomous, so the service auto-resolves the
-  // approval and the turn reaches turn_completed. The mock's content is not JSON,
-  // so validation then fails — which is exactly how we observe the auto-approve
-  // drove the stateless turn to completion.
+  // (stateless). A structured run with `tools: 'auto'` approves it, and the
+  // turn reaches turn_completed. The mock's content is not JSON, so validation
+  // then fails — which is exactly how we observe the auto-approve drove the
+  // stateless turn to completion. (The default, `none`, denies it instead:
+  // companion-agent-service.tools.test.ts.)
   async function testMockProviderApprovalIsAutoResolvedForStructuredRun(): Promise<void> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'companion-'))
     try {
@@ -427,7 +428,7 @@ test('companion-agent-service', async () => {
       handle.onEvent((event) => events.push(event.type))
 
       await assert.rejects(
-        handle.runStructured({ prompt: 'Anything.', validate: () => ({ ok: false, errors: ['n/a'] }) }),
+        handle.runStructured({ prompt: 'Anything.', tools: 'auto', validate: () => ({ ok: false, errors: ['n/a'] }) }),
         (error: unknown) => error instanceof CompanionValidationError,
       )
       // The approval was auto-resolved and the turn completed.
