@@ -199,6 +199,9 @@ export type ModuleConversationErrorCode =
   | 'runtime_refused'
   // `reply`: the conversation has no finished turn (with that id).
   | 'no_reply'
+  // `create` with `worktree`: the project is not a git repository, or the
+  // worktree could not be made.
+  | 'worktree_unavailable'
 
 export type ModuleConversationCreateInput = {
   workspaceId: string
@@ -229,6 +232,20 @@ export type ModuleConversationCreateInput = {
   allowedTools?: string[]
   /** As `ModuleConversationCommandOptions`: a retried create finds the chat the first one made. */
   commandId?: string
+  /**
+   * Start the chat in a fresh git worktree of `workspaceId`'s project instead
+   * of its checkout, the way a scheduled agent's run with a worktree starts:
+   * cut from the project's default branch (from the worktree pool where the
+   * app keeps one), on branch `agent/<name>-<suffix>` (the short suffix keeps
+   * each chat's branch its own; absent `name`, `agent/chat-<suffix>`), in a
+   * new workspace of its own marked as a worktree of the project. The answer's
+   * `workspaceId` is that new workspace, so address the chat by it. The chat
+   * waits in the sidebar rather than taking the window. A project that is not
+   * a git repository answers `worktree_unavailable`, and nothing is started.
+   * Check `host.supports('conversation-worktrees')`: an older host ignores it
+   * and starts the chat in the checkout.
+   */
+  worktree?: { name?: string }
 }
 
 export type ModuleConversationResult<T = object> =

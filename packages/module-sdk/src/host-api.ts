@@ -46,6 +46,8 @@ export type HostCapability =
   | 'conversation-replies'
   // `getTextGenerationService(host).generate`: one prompt, no chat.
   | 'text-generation'
+  // The conversation service's `create` takes `worktree`.
+  | 'conversation-worktrees'
   | 'scheduled-agents'
   | 'secrets'
   | 'github'

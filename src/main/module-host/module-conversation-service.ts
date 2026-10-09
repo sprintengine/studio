@@ -187,6 +187,9 @@ const APPROVAL_DECISIONS: ReadonlySet<string> = new Set<ModuleConversationApprov
   'deny',
 ])
 
+// A worktree's name becomes a branch and a folder; a sentence is not one.
+const MAX_WORKTREE_NAME_CHARS = 80
+
 /** The loosest preset a module's chats run on unless it declared `conversation:bypass`. */
 export const MODULE_CONVERSATION_DEFAULT_CEILING: CliPermissionPreset = 'auto'
 
@@ -534,6 +537,16 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         `Module "${moduleId}" must declare "conversation:bypass" to let a chat use tools without asking.`,
       )
     }
+    const worktree = input.worktree
+    if (
+      worktree !== undefined &&
+      (typeof worktree !== 'object' ||
+        worktree === null ||
+        (worktree.name !== undefined &&
+          (typeof worktree.name !== 'string' || worktree.name.length > MAX_WORKTREE_NAME_CHARS)))
+    ) {
+      return failure('invalid_input', `"worktree" takes an optional "name" of at most ${MAX_WORKTREE_NAME_CHARS} characters.`)
+    }
     const permissionPreset = capped(moduleId, input.permissionPreset)
     // A mode belongs to the preset asked for; one lowered to the ceiling
     // runs its own mode.
@@ -552,8 +565,22 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
       ...(input.allowedTools?.length ? { allowedTools: input.allowedTools } : {}),
       ownerModuleId: moduleId,
       ...(launchCommandId ? { launchCommandId } : {}),
+      // A chat in a worktree of its own is a new chat, in a workspace of its
+      // own, as a scheduled run's is; it waits in the list rather than taking
+      // the window from whatever the person is doing.
+      ...(worktree
+        ? {
+            newChat: true,
+            newWorktree: true,
+            background: true,
+            ...(worktree.name?.trim() ? { worktreeName: worktree.name.trim() } : {}),
+          }
+        : {}),
     })
-    if (!launched.ok) return failure(launched.code as ModuleConversationErrorCode, launched.message)
+    if (!launched.ok) {
+      const code = launched.code === 'workspace_create_failed' ? 'conversation_start_failed' : launched.code
+      return failure(code as ModuleConversationErrorCode, launched.message)
+    }
     const live = liveSession(launched)
     const record = deps.getWorkspaceAgents().find((workspace) => workspace.id === launched.workspaceId)?.agents[
       launched.agentId

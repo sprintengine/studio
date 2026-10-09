@@ -42,6 +42,8 @@ function harness(
     callerCeiling?: () => CliPermissionPreset | null
     /** Whether the fake provider takes a new model mid-conversation. */
     liveModelSwitch?: boolean
+    /** A project that is a git repository: a chat may be born in a worktree of it. */
+    git?: boolean
   } = {},
 ) {
   const workspaces: ModuleConversationWorkspace[] = [
@@ -59,6 +61,8 @@ function harness(
     responses: [] as unknown[],
     presets: [] as unknown[],
     models: [] as unknown[],
+    worktrees: [] as Array<{ repoRoot: string; destinationPath: string; branchName: string }>,
+    created: [] as Array<{ name?: string; folderPath?: string | null; background?: boolean; worktree?: unknown }>,
   }
   let suffix = 0
   let sessionSeq = 0
@@ -147,10 +151,35 @@ function harness(
       for (const listener of workspaceListeners) listener()
       return { ok: true }
     },
-    // A module's chat always joins the workspace it names; none is a `newChat`.
+    // A module's chat joins the workspace it names, unless it asked for a
+    // worktree: then it is a new chat in a workspace of its own.
     listWorkspaces: () => workspaces,
-    createWorkspace: () => ({ ok: false, message: 'a module never starts a newChat' }),
-    removeWorkspace: () => undefined,
+    createWorkspace: (request) => {
+      calls.created.push({
+        name: request.name,
+        folderPath: request.folderPath,
+        ...(request.background ? { background: request.background } : {}),
+        ...(request.worktree ? { worktree: request.worktree } : {}),
+      })
+      const id = `ws-new-${calls.created.length}`
+      workspaces.push({ id, folderPath: request.folderPath, agents: { ...(request.agents ?? {}) } })
+      for (const listener of workspaceListeners) listener()
+      return { ok: true, workspaceId: id }
+    },
+    removeWorkspace: (id) => {
+      const index = workspaces.findIndex((workspace) => workspace.id === id)
+      if (index >= 0) workspaces.splice(index, 1)
+    },
+    getRepoRoot: async (folderPath) => (options.git ? folderPath : null),
+    createWorktree: async (input) => {
+      calls.worktrees.push({
+        repoRoot: input.repoRoot,
+        destinationPath: input.destinationPath,
+        branchName: input.branchName,
+      })
+      return { ok: true, path: input.destinationPath, branch: input.branchName, baseRef: 'main' }
+    },
+    newWorktreeSuffix: () => 'AB12',
     startSession: (input) => runtime.startSession(input),
     send: async () => ({ ok: true }) as never,
     newAgentSuffix: () => `s${++suffix}`,
@@ -991,6 +1020,53 @@ test('a reply is the turn’s own text, or what it streamed when the host did no
   const missing = replyOf(events, 't9')
   assert.equal(!missing.ok && missing.code, 'no_reply')
   assert.equal(replyOf([]).ok, false)
+})
+
+test('create with a worktree starts the chat in a fresh worktree, in a workspace of its own, owned by the module', async () => {
+  const { registry, calls, workspaces } = harness({ reviews: OPERATE }, { git: true })
+  const service = registry.forModule('reviews')
+  const created = await service.create({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    prompt: 'Fix the flaky test',
+    worktree: { name: 'Fix flaky test' },
+  })
+  assert.ok(created.ok)
+  assert.equal(calls.worktrees.length, 1)
+  assert.equal(calls.worktrees[0]!.repoRoot, '/repo/a')
+  assert.equal(calls.worktrees[0]!.branchName, 'agent/fix-flaky-test-ab12')
+  assert.equal(calls.created.length, 1)
+  assert.equal(calls.created[0]!.folderPath, calls.worktrees[0]!.destinationPath)
+  assert.equal(calls.created[0]!.background, true, 'it waits in the list rather than taking the window')
+  assert.ok(calls.created[0]!.worktree, 'the new workspace is marked as a worktree of the project')
+  // The chat lives in the new workspace, and the module reaches it there.
+  assert.equal(created.conversation.workspaceId, 'ws-new-1')
+  assert.equal(calls.starts[0]!.workspaceRoot, calls.worktrees[0]!.destinationPath)
+  const agent = workspaces.find((workspace) => workspace.id === 'ws-new-1')!.agents[created.conversation.agentId]
+  assert.equal(agent?.ownerModuleId, 'reviews')
+  assert.deepEqual(
+    service.list().map((entry) => entry.workspaceId),
+    ['ws-new-1'],
+  )
+  assert.equal(workspaces[0]!.agents[created.conversation.agentId], undefined, 'nothing joined the checkout’s workspace')
+
+  // No name: the name a window's New chat gives one.
+  const unnamed = await service.create({ workspaceId: 'ws-1', cli: 'claude-code', worktree: {} })
+  assert.ok(unnamed.ok)
+  assert.equal(calls.worktrees[1]!.branchName, 'agent/chat-ab12')
+})
+
+test('create with a worktree refuses a project that is not a git repository, and a name that is not one', async () => {
+  const { registry, calls } = harness({ reviews: OPERATE })
+  const service = registry.forModule('reviews')
+  const refused = await service.create({ workspaceId: 'ws-1', cli: 'claude-code', worktree: { name: 'x' } })
+  assert.equal(!refused.ok && refused.code, 'worktree_unavailable')
+  assert.match(!refused.ok ? refused.message : '', /not a git repository/)
+  assert.deepEqual(calls.starts, [], 'no chat was started in the checkout instead')
+  for (const worktree of [null, 'x', { name: 3 }, { name: 'x'.repeat(81) }]) {
+    const bad = await service.create({ workspaceId: 'ws-1', cli: 'claude-code', worktree: worktree as never })
+    assert.equal(!bad.ok && bad.code, 'invalid_input')
+  }
 })
 
 test('a follow let go before its chat is known never starts', async () => {

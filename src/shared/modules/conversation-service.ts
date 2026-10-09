@@ -77,6 +77,9 @@ export type ModuleConversationErrorCode =
   | 'runtime_refused'
   // `reply`: the conversation has no finished turn (with that id).
   | 'no_reply'
+  // `create` with `worktree`: the project is not a git repository, or the
+  // worktree could not be made.
+  | 'worktree_unavailable'
 
 export type ModuleConversationCreateInput = {
   workspaceId: string
@@ -92,6 +95,9 @@ export type ModuleConversationCreateInput = {
   // Tools the chat may use without asking. Needs `conversation:bypass`.
   allowedTools?: string[]
   commandId?: string
+  // Start the chat in a fresh worktree of `workspaceId`'s project, in a new
+  // workspace of its own, as a scheduled agent's run starts.
+  worktree?: { name?: string }
 }
 
 export type ModuleConversationResult<T = object> =
