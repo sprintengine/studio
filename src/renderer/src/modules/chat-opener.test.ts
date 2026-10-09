@@ -40,7 +40,7 @@ function manifest(permissions: string[]): CapabilityManifest {
   return { id: 'acme', displayName: 'Acme', version: 1, defaultEnabled: true, source: 'third-party', permissions }
 }
 
-test('openChat refuses a module that did not declare conversation:operate, before reaching the opener', async () => {
+test('openChat refuses a module that declared neither chat:draft nor conversation:operate, before reaching the opener', async () => {
   let called = false
   setWorkspaceChatOpener(async () => {
     called = true
@@ -53,6 +53,32 @@ test('openChat refuses a module that did not declare conversation:operate, befor
     if (!result.ok) assert.equal(result.code, 'permission_missing')
   }
   assert.equal(called, false)
+})
+
+test('chat:draft opens a draft, and only conversation:operate sends the prompt', async () => {
+  const calls: Parameters<WorkspaceChatOpener>[0][] = []
+  setWorkspaceChatOpener(async (input) => {
+    calls.push(input)
+    return { ok: true, agentId: 'chat-1' }
+  })
+  const kernel = createRendererHost()
+  const drafter = kernel.hostFor('acme', manifest(['chat:draft']))
+  assert.deepEqual(await drafter.openChat({ workspaceId: 'ws-1', prompt: 'Fix CI', name: 'Fix CI', dedupeKey: 'pr-12' }), {
+    ok: true,
+    agentId: 'chat-1',
+  })
+  const sent = await drafter.openChat({ workspaceId: 'ws-1', prompt: 'Fix CI', send: true })
+  assert.equal(!sent.ok && sent.code, 'permission_missing')
+  assert.match(!sent.ok ? sent.message : '', /conversation:operate/)
+  const operator = kernel.hostFor('acme', manifest(['conversation:operate']))
+  assert.equal((await operator.openChat({ workspaceId: 'ws-1', prompt: 'Fix CI', send: true })).ok, true)
+  assert.deepEqual(
+    calls.map((call) => [call.send ?? false, call.name ?? null, call.dedupeKey ?? null]),
+    [
+      [false, 'Fix CI', 'pr-12'],
+      [true, null, null],
+    ],
+  )
 })
 
 test('openChat answers unavailable until the shell registers an opener', async () => {
@@ -77,8 +103,10 @@ test('openChat hands the registered opener the input stamped with the calling mo
 test("supports('chat.open') follows the shell's opener rather than a table", () => {
   const host = createRendererHost().hostFor('acme', manifest(['conversation:operate']))
   assert.equal(host.supports('chat.open'), false)
+  assert.equal(host.supports('chat.open-options'), false)
   setWorkspaceChatOpener(async () => ({ ok: true, agentId: 'chat-1' }))
   assert.equal(host.supports('chat.open'), true)
+  assert.equal(host.supports('chat.open-options'), true)
   setWorkspaceChatOpener(null)
   assert.equal(host.supports('chat.open'), false)
   assert.equal(host.supports('conversations'), true)

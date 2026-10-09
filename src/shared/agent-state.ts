@@ -233,6 +233,10 @@ export type AgentState = {
   // is retried finds the chat its first attempt made rather than making a
   // second. Set once at launch and never edited.
   launchCommandId?: string
+  // The key the owning module opened this chat under (`openChat`'s
+  // `dedupeKey`), so asking again focuses it instead of opening another. Set
+  // once, beside `ownerModuleId`, and never edited.
+  moduleChatKey?: string
 }
 
 type AgentBacklogItemRef = {

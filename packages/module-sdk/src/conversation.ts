@@ -497,12 +497,32 @@ export type ModuleOpenChatInput = {
   /**
    * Send the prompt as the chat's first turn. Default false: the prompt lands
    * in the composer as a draft the user reads and sends themselves.
+   *
+   * A draft needs `chat:draft` or `conversation:operate`; `send: true` needs
+   * `conversation:operate`, since it puts words in the agent's ear the person
+   * has not read.
    */
   send?: boolean
+  /**
+   * The chat's title in its tab and the sidebar ("Fix CI on acme/app#12"), up
+   * to 120 characters; absent, a name from the shared pool. Check
+   * `host.supports('chat.open-options')`.
+   */
+  name?: string
+  /**
+   * Your own key for this chat (up to 200 characters), so asking again focuses
+   * it instead of opening a second: when this module already opened a chat in
+   * the workspace with the same key and it is still there, that chat comes to
+   * the front and the answer says `existing: true`. Nothing else in the input
+   * is applied to it: its draft stays the person's and nothing is sent. Check
+   * `host.supports('chat.open-options')`.
+   */
+  dedupeKey?: string
 }
 
 export type ModuleOpenChatResult =
-  | { ok: true; agentId: string }
+  /** `existing`: the chat `dedupeKey` named, focused rather than opened. */
+  | { ok: true; agentId: string; existing?: true }
   | {
       ok: false
       code:
@@ -511,6 +531,7 @@ export type ModuleOpenChatResult =
         | 'workspace_folder_missing'
         | 'cli_not_conversational'
         | 'unavailable'
+        | 'invalid_input'
       message: string
     }
 

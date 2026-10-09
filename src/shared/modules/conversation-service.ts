@@ -198,10 +198,16 @@ export type ModuleOpenChatInput = {
   model?: string
   // Default false: the prompt lands in the composer as a draft.
   send?: boolean
+  // The chat's title; absent picks one from the shared pool.
+  name?: string
+  // Focus the chat this module opened in the workspace with this key, if it is
+  // still there, instead of opening another.
+  dedupeKey?: string
 }
 
 export type ModuleOpenChatResult =
-  | { ok: true; agentId: string }
+  // `existing`: the chat `dedupeKey` named, focused rather than opened.
+  | { ok: true; agentId: string; existing?: true }
   | {
       ok: false
       code:
@@ -210,6 +216,7 @@ export type ModuleOpenChatResult =
         | 'workspace_folder_missing'
         | 'cli_not_conversational'
         | 'unavailable'
+        | 'invalid_input'
       message: string
     }
 

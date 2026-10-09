@@ -48,6 +48,9 @@ export type HostCapability =
   | 'text-generation'
   // The conversation service's `create` takes `worktree`.
   | 'conversation-worktrees'
+  // `RendererHost.openChat` takes `name` and `dedupeKey`, and a draft needs
+  // only `chat:draft`. A renderer's, answered live like `chat.open`.
+  | 'chat.open-options'
   | 'scheduled-agents'
   | 'secrets'
   | 'github'

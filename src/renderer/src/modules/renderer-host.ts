@@ -979,8 +979,11 @@ export type RendererHost = {
   focusTab(input: ModuleFocusTabInput): boolean
   /**
    * Open a chat in a workspace and focus it; the prompt lands as a draft
-   * unless `send: true`. Answers `unavailable` until the shell registers its
-   * opener (see chat-opener.ts). Requires `conversation:operate`.
+   * unless `send: true`. `name` titles it, and `dedupeKey` focuses the chat
+   * this module opened under that key instead of opening another. Answers
+   * `unavailable` until the shell registers its opener (see chat-opener.ts).
+   * A draft requires `chat:draft` or `conversation:operate`; `send: true`
+   * requires `conversation:operate`.
    */
   openChat(input: ModuleOpenChatInput): Promise<ModuleOpenChatResult>
   /**
@@ -1331,7 +1334,7 @@ export function createRendererHost(): RendererKernel {
         supports(capability) {
           // Opening a chat needs the shell's opener, which a window registers
           // once it mounts; the answer follows it rather than a table.
-          if (capability === 'chat.open') return getWorkspaceChatOpener() !== null
+          if (capability === 'chat.open' || capability === 'chat.open-options') return getWorkspaceChatOpener() !== null
           return hostSupports(capability)
         },
         registerPanel(componentId, component) {
@@ -1717,11 +1720,19 @@ export function createRendererHost(): RendererKernel {
           return requireAgentRuntime(tabFocuser, 'Tab focus')(input)
         },
         async openChat(input) {
-          if (!manifest?.permissions?.includes('conversation:operate')) {
+          // A draft the person reads and sends needs only `chat:draft`; a
+          // prompt sent for them is driving the chat, which is
+          // `conversation:operate`'s, as it is everywhere else.
+          const permissions = manifest?.permissions ?? []
+          const operate = permissions.includes('conversation:operate')
+          if (input?.send === true ? !operate : !operate && !permissions.includes('chat:draft')) {
             return {
               ok: false,
               code: 'permission_missing',
-              message: `Module "${moduleId}" does not declare the "conversation:operate" permission, so it cannot open a chat.`,
+              message:
+                input?.send === true
+                  ? `Module "${moduleId}" does not declare the "conversation:operate" permission, so it cannot open a chat and send its prompt.`
+                  : `Module "${moduleId}" declares neither "chat:draft" nor "conversation:operate", so it cannot open a chat.`,
             }
           }
           const opener = getWorkspaceChatOpener()

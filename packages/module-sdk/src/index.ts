@@ -162,6 +162,10 @@ export type CapabilityPermission =
   // without asking (`allowedTools`). Without it a module's chats go no looser
   // than `auto`, whatever it asks for.
   | 'conversation:bypass'
+  // Open a chat with a prompt drafted in its composer for the person to read
+  // and send (`RendererHost.openChat` without `send`). Nothing more: sending,
+  // reading or driving a chat is `conversation:*`'s.
+  | 'chat:draft'
   // Store secrets the host sends only to origins the module named, never
   // handing the value back (the SDK's scoped secrets service).
   | 'secrets'
@@ -192,6 +196,7 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'conversation:read',
   'conversation:operate',
   'conversation:bypass',
+  'chat:draft',
   'secrets',
   'github',
   'mcp:tools',
@@ -2018,9 +2023,12 @@ export type RendererHost = {
   /**
    * Open a chat in a workspace and focus it. By default the prompt lands in the
    * composer as a draft the user sends themselves; `send: true` sends it as the
-   * first turn. Expected failures come back as a result, never a throw
-   * (`unavailable` when this window cannot open chats). Declare
-   * `conversation:operate`.
+   * first turn. `name` titles the chat, and `dedupeKey` focuses the chat this
+   * module already opened under that key instead of opening another (check
+   * `supports('chat.open-options')`). Expected failures come back as a
+   * result, never a throw (`unavailable` when this window cannot open chats).
+   * Declare `chat:draft` to open drafts, or `conversation:operate`, which
+   * `send: true` needs.
    */
   openChat(input: ModuleOpenChatInput): Promise<ModuleOpenChatResult>
   /**
