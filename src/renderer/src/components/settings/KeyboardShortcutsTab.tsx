@@ -55,7 +55,6 @@ const CATEGORY_LABELS: Record<CommandCategory, string> = {
   command_palette: 'Command palette',
   workspace: 'Workspace',
   panel: 'Panels',
-  voice: 'Voice',
   git: 'Git',
   terminal: 'Terminal',
   diagnostics: 'Diagnostics',
@@ -128,6 +127,10 @@ export const RETIRED_COMMAND_IDS: readonly string[] = [
   // glyph's notifications already carry "which agents are waiting on you", so
   // the popover and its toggle command went with it.
   'panel.attention-queue.toggle',
+  // Voice dictation was removed (2026-10-09): its module command, and the
+  // shell-registry id its stored bindings were keyed by before it moved there.
+  'voice-dictation.toggle',
+  'voice.toggle',
 ]
 
 /** Retired ids that still carry a persisted override or disable flag. */

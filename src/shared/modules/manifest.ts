@@ -44,6 +44,8 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   // RETIRED, still reserved: the hosted mobile relay was removed 2026-09-27,
   // when the phone moved to pairing over the tailnet. Same rule as 'switchboard'.
   'mobile-relay',
+  // RETIRED, still reserved: voice dictation was removed 2026-10-09. Same rule
+  // as 'switchboard'.
   'voice-dictation',
 ]
 

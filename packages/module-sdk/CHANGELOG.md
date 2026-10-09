@@ -258,6 +258,11 @@ new chat. The app no longer has an automations engine for a module to extend.
   without declaring it gets `auto`, on `create` and on `setPermissionPreset`:
   lowered, not refused, and the answer names the preset in force. Before,
   `conversation:operate` alone started a conversation on `bypass`.
+- **`voice-dictation` is retired.** The bundled voice dictation module is
+  removed from the app, along with its top-bar control, its
+  `voice-dictation.toggle` command and its settings section. The id stays in
+  `BUNDLED_MODULE_IDS`, reserved, so no third-party module can install under
+  it.
 
 ### Fixed
 

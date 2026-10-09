@@ -61,8 +61,7 @@ the `window.api` areas they call:
   workspace backup writes.
 - **`ipc:settings`** — reading and changing the studio's settings and
   integrations: module enablement, third-party module install/trust, MCP
-  servers and their sync, Skills, the plugin registry, GitHub token, app updates,
-  voice transcription settings.
+  servers and their sync, Skills, the plugin registry, GitHub token, app updates.
 
 A few surfaces (window controls, native dialogs, clipboard, auth/session,
 external-URL opening, and launching or driving agents and terminals) sit

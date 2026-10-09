@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import type { CliRuntimeSettings } from '../../types/workspace'
 import type { Workspace } from '../../types/workspace'
+import { LEGACY_COMMAND_ID_ALIASES } from '../../commands/keybindings'
 import { useWorkspaceStore } from '../workspaceStore'
 import type { ChatListView, DiffViewMode, SettingsOverlayState, SidebarSection } from './settingsSlice'
 import {
@@ -114,7 +115,7 @@ test('settingsSlice', async () => {
           'editor.save': 'Primary+S' as never,
         },
         disabled: {
-          'voice.toggle': true,
+          'retired.command': true,
           'app.settings.open': false,
           'unknown.command': true,
           'terminal.new': 'yes' as never,
@@ -137,7 +138,7 @@ test('settingsSlice', async () => {
   )
   assert.deepEqual(
     normalizedKeybindings.keybindings.disabled,
-    { 'voice.toggle': true, 'unknown.command': true },
+    { 'retired.command': true, 'unknown.command': true },
     'normalization keeps true disabled flags by id; non-true and malformed flags are dropped',
   )
 
@@ -705,7 +706,7 @@ test('settingsSlice', async () => {
     undefined,
     're-enabling deletes the disabled flag',
   )
-  store.setCommandKeybindingDisabled('voice.toggle', true)
+  store.setCommandKeybindingDisabled('retired.command', true)
   store.resetCommandKeybindings('commandPalette.open')
   assert.equal(
     useWorkspaceStore.getState().appSettings.keybindings.overrides['commandPalette.open'],
@@ -713,7 +714,7 @@ test('settingsSlice', async () => {
     'resetCommandKeybindings removes one command override',
   )
   assert.equal(
-    useWorkspaceStore.getState().appSettings.keybindings.disabled['voice.toggle'],
+    useWorkspaceStore.getState().appSettings.keybindings.disabled['retired.command'],
     true,
     'resetCommandKeybindings leaves other command disabled flags alone',
   )
@@ -726,39 +727,44 @@ test('settingsSlice', async () => {
 
   // Writes through a migrated command id must clear state persisted under its
   // legacy id (LEGACY_COMMAND_ID_ALIASES), or the legacy-honoring read paths
-  // resurrect it and e.g. a pre-rename disable can never be undone (
-  // re-namespacing; ported from extraction-branch commits 52d05235/0e57e36f).
-  store.setCommandKeybindingDisabled('voice.toggle', true)
-  store.setCommandKeybindingDisabled('voice-dictation.toggle', false)
-  assert.equal(
-    useWorkspaceStore.getState().appSettings.keybindings.disabled['voice.toggle'],
-    undefined,
-    're-enabling under the current id clears a legacy-id disabled flag',
-  )
-  store.setCommandKeybindings('voice.toggle', ['Primary+R'])
-  store.setCommandKeybindings('voice-dictation.toggle', ['Primary+Shift+R'])
-  assert.equal(
-    useWorkspaceStore.getState().appSettings.keybindings.overrides['voice.toggle'],
-    undefined,
-    'overriding under the current id drops the legacy-id override',
-  )
-  store.setCommandKeybindings('voice-dictation.toggle', [])
-  assert.equal(
-    useWorkspaceStore.getState().appSettings.keybindings.overrides['voice-dictation.toggle'],
-    undefined,
-    'clearing under the current id removes its override',
-  )
-  store.setCommandKeybindings('voice.toggle', ['Primary+R'])
-  store.setCommandKeybindingDisabled('voice.toggle', true)
-  store.resetCommandKeybindings('voice-dictation.toggle')
-  assert.deepEqual(
-    [
-      useWorkspaceStore.getState().appSettings.keybindings.overrides['voice.toggle'],
-      useWorkspaceStore.getState().appSettings.keybindings.disabled['voice.toggle'],
-    ],
-    [undefined, undefined],
-    'resetCommandKeybindings clears legacy-id override and disabled flag',
-  )
+  // resurrect it and e.g. a pre-rename disable can never be undone. No command
+  // is migrating today, so a fixture alias stands in for one.
+  LEGACY_COMMAND_ID_ALIASES['fixture-module.toggle'] = 'fixture.toggle'
+  try {
+    store.setCommandKeybindingDisabled('fixture.toggle', true)
+    store.setCommandKeybindingDisabled('fixture-module.toggle', false)
+    assert.equal(
+      useWorkspaceStore.getState().appSettings.keybindings.disabled['fixture.toggle'],
+      undefined,
+      're-enabling under the current id clears a legacy-id disabled flag',
+    )
+    store.setCommandKeybindings('fixture.toggle', ['Primary+R'])
+    store.setCommandKeybindings('fixture-module.toggle', ['Primary+Shift+R'])
+    assert.equal(
+      useWorkspaceStore.getState().appSettings.keybindings.overrides['fixture.toggle'],
+      undefined,
+      'overriding under the current id drops the legacy-id override',
+    )
+    store.setCommandKeybindings('fixture-module.toggle', [])
+    assert.equal(
+      useWorkspaceStore.getState().appSettings.keybindings.overrides['fixture-module.toggle'],
+      undefined,
+      'clearing under the current id removes its override',
+    )
+    store.setCommandKeybindings('fixture.toggle', ['Primary+R'])
+    store.setCommandKeybindingDisabled('fixture.toggle', true)
+    store.resetCommandKeybindings('fixture-module.toggle')
+    assert.deepEqual(
+      [
+        useWorkspaceStore.getState().appSettings.keybindings.overrides['fixture.toggle'],
+        useWorkspaceStore.getState().appSettings.keybindings.disabled['fixture.toggle'],
+      ],
+      [undefined, undefined],
+      'resetCommandKeybindings clears legacy-id override and disabled flag',
+    )
+  } finally {
+    delete LEGACY_COMMAND_ID_ALIASES['fixture-module.toggle']
+  }
 
   // setCliRuntime on a plugin-id key (no bundled default) must NOT pin the command
   // to the plugin id when only its models are set; a blank command resolves

@@ -252,9 +252,9 @@ function resolveInitialSettingsTab(initialTab: string | null | undefined): strin
   // The Mobile tab paired a phone through the hosted relay, which was removed
   // (owner ruling 2026-09-27). A phone pairs over the tailnet now, from Remote.
   if (initialTab === 'mobile') return 'remote'
-  // Voice dictation moved onto the module-contributed section path;
-  // legacy deep-links (persisted routes) land on its section tab.
-  if (initialTab === 'voice-dictation') return moduleSectionTabId('voice-dictation')
+  // Voice dictation was removed (2026-10-09). A persisted route to its tab, in
+  // either the built-in or the module-section spelling, lands on General.
+  if (initialTab === 'voice-dictation' || initialTab === moduleSectionTabId('voice-dictation')) return 'general'
   return initialTab ?? null
 }
 
@@ -762,9 +762,8 @@ export default function SettingsPanel({
   const [activeSettingsTab, setActiveSettingsTab] = useState<string>(() => {
     const resolved = resolveInitialSettingsTab(initialTab)
     if (isSettingsTabId(resolved)) return resolved
-    // A deep-link may land on a contributed section (the voice-dictation tab
-    // since top-bar items arrived); a section that isn't actually visible falls back to the
-    // first visible tab via the effect below.
+    // A deep-link may land on a contributed section; a section that isn't
+    // actually visible falls back to the first visible tab via the effect below.
     if (typeof resolved === 'string' && resolved.startsWith(MODULE_SECTION_TAB_PREFIX)) return resolved
     return 'general'
   })

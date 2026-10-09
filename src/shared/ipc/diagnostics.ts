@@ -17,7 +17,6 @@ export type DiagnosticSource =
   | 'module'
   | 'terminal'
   | 'update'
-  | 'voice'
   | 'workspace'
 
 // Serializable deep-focus target for a notification's Open action. Mirrors the

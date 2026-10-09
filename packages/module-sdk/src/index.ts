@@ -128,6 +128,7 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'scheduled-agents',
   // Retired but still reserved (the hosted mobile relay, removed 2026-09-27).
   'mobile-relay',
+  // Retired but still reserved (voice dictation, removed 2026-10-09).
   'voice-dictation',
 ]
 

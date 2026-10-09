@@ -16,9 +16,10 @@
 // `BUNDLED_MODULE_IDS` (the reserved-id, anti-impersonation set in
 // `manifest.ts`) — a third-party module must never be able to claim these ids,
 // even in a build where the feature is absent.
-export const DEV_ONLY_MODULE_IDS: readonly string[] = [
-  'voice-dictation', // Voice module
-]
+//
+// Empty today: voice dictation, the last dev-only module, was retired
+// 2026-10-09. The gate stays so the next unfinished feature can ride it.
+export const DEV_ONLY_MODULE_IDS: readonly string[] = []
 
 const DEV_ONLY_MODULE_ID_SET: ReadonlySet<string> = new Set(DEV_ONLY_MODULE_IDS)
 
