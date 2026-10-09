@@ -110,7 +110,8 @@ export function FindBar({
             onNext()
             return
           }
-          if (event.key !== 'Enter') return
+          // An Enter that commits an IME composition is the input method's, not a step.
+          if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
           event.preventDefault()
           // Enter walks forward, Shift+Enter back — the find idiom everywhere
           // else, and the reason the two buttons are a convenience rather than

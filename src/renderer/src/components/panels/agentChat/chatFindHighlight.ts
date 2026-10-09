@@ -59,6 +59,7 @@ const BREAKS = new Set([
 function skipped(element: Element): boolean {
   return (
     element.hasAttribute('data-copy-exclude') ||
+    element.hasAttribute('hidden') ||
     element.getAttribute('aria-hidden') === 'true' ||
     element.classList.contains('katex-mathml') ||
     element.tagName === 'SCRIPT' ||

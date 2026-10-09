@@ -259,12 +259,6 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'chat.replay.start' },
   }),
-  // Quote what is selected in a conversation's transcript into its composer,
-  // as the selection toolbar's Quote does. `>` is markdown's quote marker and
-  // what the chord inserts, and on a US layout ⌘⇧. is ⌘> — the physical key is
-  // what the dispatcher matches, so the chord is written unshifted. Outside
-  // editable targets only: the selection it acts on is in the transcript, and
-  // focus is there with it.
   // Find in the conversation you are reading: its messages, replies and plans,
   // a match at a time. ⌘F because that is where a person's hand goes to find
   // anything, and it is free here: `terminal.find` holds the chord on the more
@@ -282,6 +276,12 @@ export const COMMAND_REGISTRY = [
     allowInEditableTarget: true,
     handlerPath: { kind: 'panel-event', eventId: 'chat.find' },
   }),
+  // Quote what is selected in a conversation's transcript into its composer,
+  // as the selection toolbar's Quote does. `>` is markdown's quote marker and
+  // what the chord inserts, and on a US layout ⌘⇧. is ⌘> — the physical key is
+  // what the dispatcher matches, so the chord is written unshifted. Outside
+  // editable targets only: the selection it acts on is in the transcript, and
+  // focus is there with it.
   command({
     id: 'chat.quoteSelection',
     title: 'Quote selection in reply',
