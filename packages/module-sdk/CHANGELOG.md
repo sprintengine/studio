@@ -207,6 +207,15 @@ for the tokens.
     `@monaco-editor/react` whose components draw their props and children, so
     a door renders in Node) and `/testing/register` (for
     `node --import`, installing the kit before any test file loads).
+  - The fakes cover every API above: the Backlog, usage and activity services
+    (`services.backlog` / `usage` / `activity`, with their permissions
+    checked); storage `list({ prefix })`, `getMany` and `watch`; GitHub
+    headers, `ifNoneMatch`, read-only `graphql` and `download`; closed
+    workspaces and git info; `getModuleAppState` / `watchModuleAppState`,
+    `getModuleDataDir`, `getAssetPath` and `getSkillStatus` in main; and
+    `toast`, `openExternal`, `moduleId`, the active workspace,
+    `setSurfaceView`, the command context and notify `target` in the
+    renderer, with stand-ins for the new kit components.
 - **`MODULE_SERVICE_REQUIREMENTS`** (with `moduleServiceRequirement`,
   `dependsOnReaches`, `MODULE_DEPENDENCY_CHAINS`): for each service a module
   may resolve, the permission it needs, the module that provides it, and

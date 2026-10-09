@@ -95,6 +95,17 @@ await registerRenderer(renderer.host)
 assert.match(await renderer.render.surface('<id>'), /Nothing yet/)
 ```
 
+Every service and host method has a fake you can arrange and read back:
+`main.services.backlog.seed(...)`, `usage.record(...)`,
+`activity.addChat(...)`, `storage.changeExternally(...)` (a `git pull` the
+watch hears), `github.respond(...)` / `respondGraphql(...)` /
+`respondDownload(...)`, `workspaces.close(id)` / `setGitInfo(id, ...)`,
+`main.setAppState(key, value)` (a Settings change `entry.main` hears),
+`main.skills.setStatus(...)`. On the renderer: `renderer.toasts`,
+`renderer.openedUrls`, `renderer.surfaceViews`,
+`renderer.setActiveWorkspace(id)`, and `runCommand(id)` hands `run` the
+command context. Pass `capabilities: [...]` to test an older host's branch.
+
 A render is a server render: effects do not run, and `useSyncExternalStore`
 needs its third argument. The smoke test renders every door, panel, settings
 section and top-bar item the module registers, so one that throws fails

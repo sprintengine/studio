@@ -128,20 +128,48 @@ const html = await renderer.render.surface('my-extension')   // a door, rendered
 
 - **`createFakeMainHost({ moduleId, permissions } | { manifest }, …)`** is a
   `MainHost` with stateful fakes of every published service, held to the host's
-  rules: storage (`services.storage`, the real key pattern, absolute-root rule
-  and 1 MB cap), chats (`services.conversations`, with `emitEvent`, ownership
-  and the preset ceiling), scheduled agents (`fire`), companions (`respond`),
-  secrets (origins, https, redaction), GitHub (`respond('GET', '/route', …)`,
-  `setSignedIn`) and workspaces (`setHydrated(false)` for the after-launch null).
+  rules. Each service's handle is on `services`, to arrange the world and read
+  what the module did to it:
+  - `storage`: the real key pattern, absolute-root rule and 1 MB cap;
+    `list({ prefix })`, `getMany` and `watch`, which hears the module's own
+    writes and `changeExternally(key, value, root)` (a `git pull`, a hand edit).
+  - `conversations`: `emitEvent`, ownership and the preset ceiling;
+    `scheduledAgents` (`fire`); `companions` (`respond`); `secrets` (origins,
+    https, redaction).
+  - `github`: `respond('GET', '/route', …)` (headers narrowed to the ones a
+    module may read, 304 for a matching `ifNoneMatch`), `respondGraphql` (a
+    mutation is refused before it is sent), `respondDownload`, `setSignedIn`.
+  - `backlog` (`seed`, `setKey`, `setLocation`, `failScan`), `usage`
+    (`record` usage, summed over the query's window and `groupBy`) and
+    `activity` (`addChat`, `addPrompt`), behind `backlog.read` /
+    `backlog.write`, `usage:read` and `conversation:read-all`.
+  - `workspaces`: `setHydrated(false)` for the after-launch null, `close(id)`
+    for `list({ includeClosed: true })`, `setGitInfo(id, …)` for
+    `getWorkspaceGitInfo` on both hosts.
+
   A permission the host checks is refused as the host refuses it
   (`permission_missing`, or a throw); a disclosure-only one used undeclared is
   listed in `undeclared`. `ipc.invoke` needs `module:bridge` and clones like
-  IPC; `tools.call` hands the handler agent metadata; `emitted`,
-  `notifications`, `skills`, `startup()` and `shutdown()` cover the rest.
+  IPC; `tools.call` hands the handler agent metadata. The module app state is
+  the windows' to write: `setAppState(key, value)` pushes a Settings change
+  that `watchModuleAppState` hears (`appState` seeds it).
+  `getModuleDataDir()` hands out a temporary folder (`dispose()` removes it;
+  `dataDir` picks one), `getAssetPath` resolves under `moduleRoot` (default
+  the working directory, limited to `verifiedFiles` when given), and
+  `skills.setStatus(root, id, status)` scripts `getSkillStatus` and
+  `ensureSkillInstalled`. `emitted`, `notifications` (validated, `target`
+  included), `skills`, `startup()` and `shutdown()` cover the rest.
 - **`createFakeRendererHost({ … , main? })`** records every registration
   (`registrations`), renders a registered door, modal, panel, settings section,
-  top-bar item or nav entry to HTML (`render.*`), runs commands
-  (`runCommand`), and records `openChat`, `focusTab` and surface opens.
+  top-bar item or nav entry to HTML (`render.*`), and records `openChat`,
+  `focusTab`, surface opens, `toasts` (validated and clipped; press one's
+  `action.run()`), `openedUrls` and `surfaceViews`. `runCommand(id, context?)`
+  refuses a command its `availability` rules out and hands `run` the
+  `ModuleCommandContext` of the active workspace (`activeWorkspaceId`,
+  `setActiveWorkspace`). Given `main`, the module app state, the Backlog,
+  usage and git info are main's (`services`); alone, it keeps its own.
+  `capabilities` without `toast`, `open-external` or `command-context` tests
+  the older-host branch.
 - **`installTestingKit()`** (or `node --import @sprintengine/module-sdk/testing/register`)
   routes `@sprintengine/module-sdk/ui`, `/surface` and `@monaco-editor/react` to
   `@sprintengine/module-sdk/testing/kit`, whose components render a
