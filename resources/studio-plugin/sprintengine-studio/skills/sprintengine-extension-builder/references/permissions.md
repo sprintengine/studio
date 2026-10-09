@@ -49,6 +49,9 @@ permission: what they can then do is what the permissions above cover.
 `getCompanionAgentsService` at the top of `registerMain` lists
 `"agent-runtime"`, so the provider registers first.
 
-The smoke test (`test/smoke.test.mjs`) fails when a service reached during
-registration is missing its permission or dependency, and when a renderer
-module registers IPC channels without `module:bridge`.
+The smoke test (`test/smoke.test.mjs`) fails when a service the module
+resolves, or a renderer host method it calls, is missing its permission; when
+a service resolved during registration is missing its dependency; and when a
+module with a renderer registers IPC channels without `module:bridge`. It reads
+the SDK's own table of what each service needs (`MODULE_SERVICE_REQUIREMENTS`),
+so it cannot fall behind the host.

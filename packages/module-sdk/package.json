@@ -46,6 +46,10 @@
     "./testing/kit": {
       "types": "./dist/testing-kit.d.ts",
       "default": "./dist/testing-kit.js"
+    },
+    "./testing/register": {
+      "types": "./dist/testing-register.d.ts",
+      "default": "./dist/testing-register.js"
     }
   },
   "bin": {

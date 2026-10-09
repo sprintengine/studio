@@ -504,6 +504,10 @@ export function installTestingKit(): void {
  * Suspense to settle. Rejects with the error when a component throws, so a
  * door that cannot render fails its test. Needs `react` and `react-dom`
  * installed beside the test.
+ *
+ * The comments a server render puts between adjacent text nodes (`<!-- -->`)
+ * are dropped, so `Preview: {greeting}` reads as `Preview: Hello` to a
+ * text assertion, as it does on screen.
  */
 export async function renderToHtml(node: ReactNode): Promise<string> {
   const { prerender } = await import('react-dom/static')
@@ -523,7 +527,7 @@ export async function renderToHtml(node: ReactNode): Promise<string> {
   }
   chunks.push(decoder.decode())
   if (errors.length > 0) throw errors[0]
-  return chunks.join('')
+  return chunks.join('').replaceAll('<!-- -->', '')
 }
 
 // A registered component is a plain component or a `lazy` one; both render.

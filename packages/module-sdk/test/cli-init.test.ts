@@ -16,7 +16,12 @@ import { pathToFileURL } from 'node:url'
 import { buildSync } from 'esbuild'
 import { afterAll, beforeAll, describe, test } from 'vitest'
 
-import { EXTENSION_BUILDER_SKILL_DIRS } from '../src/scaffold.js'
+import {
+  EXTENSION_BUILDER_SKILL_DIR,
+  EXTENSION_BUILDER_SKILL_DIRS,
+  EXTENSION_BUILDER_SKILL_POINTER_DIR,
+  EXTENSION_BUILDER_SKILL_POINTER_MARK,
+} from '../src/scaffold.js'
 
 const SDK = join(process.cwd(), 'packages/module-sdk')
 const SDK_VERSION = (JSON.parse(readFileSync(join(SDK, 'package.json'), 'utf8')) as { version: string }).version
@@ -125,5 +130,75 @@ describe('sprintengine-module init', () => {
     const reserved = runCli(['init', join(workDir, 'reserved'), '--template', 'blank', '--id', 'backlog'])
     assert.equal(reserved.status, 1)
     assert.match(reserved.stderr, /reserved/)
+  })
+
+  test('keeps the skill once, with a pointer where Claude Code looks', () => {
+    const dir = join(workDir, 'skill-once')
+    assert.equal(runCli(['init', dir, '--template', 'blank']).status, 0)
+    const pointer = readFileSync(join(dir, EXTENSION_BUILDER_SKILL_POINTER_DIR, 'SKILL.md'), 'utf8')
+    const skill = readFileSync(join(dir, EXTENSION_BUILDER_SKILL_DIR, 'SKILL.md'), 'utf8')
+    assert.ok(pointer.includes(EXTENSION_BUILDER_SKILL_POINTER_MARK))
+    assert.equal(pointer.split('\n---')[0], skill.split('\n---')[0], 'the same name and description')
+    assert.ok(pointer.includes(`${EXTENSION_BUILDER_SKILL_DIR}/SKILL.md`))
+    assert.equal(existsSync(join(dir, EXTENSION_BUILDER_SKILL_POINTER_DIR, 'references')), false, 'no second copy')
+    assert.equal(existsSync(join(dir, EXTENSION_BUILDER_SKILL_DIR, 'references', 'api-main.md')), true)
+  })
+
+  test('--with adds parts on top of the template', () => {
+    const dir = join(workDir, 'composed')
+    const run = runCli(['init', dir, '--template', 'global-surface', '--with', 'main,mcp', '--with', 'settings'])
+    assert.equal(run.status, 0, run.stderr)
+    assert.match(run.stdout, /from the global-surface template with main, mcp, settings/)
+    const manifest = readJson(join(dir, 'module', 'manifest.json')) as {
+      entry: Record<string, string>
+      permissions: string[]
+      dependsOn: string[]
+    }
+    assert.deepEqual(manifest.entry, { renderer: 'dist/renderer.mjs', main: 'dist/main.cjs' })
+    assert.deepEqual(manifest.permissions, ['ipc:workspace-read', 'mcp:tools', 'storage', 'module:bridge'])
+    assert.deepEqual(manifest.dependsOn, ['agent-runtime'])
+    const plugin = readJson(join(dir, 'plugin.json')) as { permissions: string[] }
+    assert.deepEqual(plugin.permissions, manifest.permissions, 'the bundle discloses the same')
+    const pkg = readJson(join(dir, 'package.json')) as { scripts: Record<string, string> }
+    assert.match(pkg.scripts['build:main'] ?? '', /esbuild src\/main\.ts/)
+    const main = readFileSync(join(dir, 'src', 'main.ts'), 'utf8')
+    assert.match(main, /import \{ registerTools \} from '\.\/mcp-tools'/)
+    assert.match(main, /=> \{\n {2}registerTools\(host\)\n/)
+    assert.match(readFileSync(join(dir, 'src', 'renderer.tsx'), 'utf8'), /registerSettings\(host\)/)
+    for (const test of ['test/main.test.ts', 'test/mcp-tools.test.ts', 'test/settings.test.ts']) {
+      assert.equal(existsSync(join(dir, test)), true, `${test} comes with its part`)
+    }
+  })
+
+  test('add puts a part into an existing project, and refuses what it already has', () => {
+    const dir = join(workDir, 'tools-then-door')
+    assert.equal(runCli(['init', dir, '--template', 'mcp-tools']).status, 0)
+    const added = runCli(['add', 'door', '--project', dir])
+    assert.equal(added.status, 0, added.stderr)
+    assert.match(added.stdout, /Added renderer, door/)
+    const manifest = readJson(join(dir, 'module', 'manifest.json')) as {
+      entry: Record<string, string>
+      permissions: string[]
+    }
+    assert.deepEqual(manifest.entry, { main: 'dist/main.cjs', renderer: 'dist/renderer.mjs' })
+    assert.deepEqual(manifest.permissions, ['mcp:tools', 'ipc:workspace-read'], 'no bridge: main registers no channels')
+    assert.match(readFileSync(join(dir, 'src', 'renderer.tsx'), 'utf8'), /registerDoor\(host\)/)
+    const pkg = readJson(join(dir, 'package.json')) as { devDependencies: Record<string, string> }
+    assert.ok(pkg.devDependencies.react && pkg.devDependencies['react-dom'], 'a renderer brings React')
+
+    const again = runCli(['add', 'main', '--project', dir])
+    assert.equal(again.status, 1)
+    assert.match(again.stderr, /already has entry\.main/)
+    const clash = runCli(['add', 'door', '--project', dir])
+    assert.equal(clash.status, 1)
+    assert.match(clash.stderr, /already in the project: src\/door\.tsx/)
+    const unknown = runCli(['add', 'spreadsheet', '--project', dir])
+    assert.equal(unknown.status, 1)
+    assert.match(unknown.stderr, /no "spreadsheet" part/)
+    assert.match(unknown.stderr, /settings {2,}/)
+    const none = runCli(['add', '--project', dir])
+    assert.equal(none.status, 1)
+    assert.match(none.stderr, /door {2,}/)
+    assert.equal(runCli(['add', 'door', '--project', join(workDir, 'nowhere')]).status, 1)
   })
 })

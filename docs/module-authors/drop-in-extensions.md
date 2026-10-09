@@ -35,6 +35,14 @@ the user has trusted execute code.
   opens New chat in extension mode: name the extension, pick the project it goes
   in, describe it, and the project is scaffolded in `<project>/<name>` with a
   chat on it, the `sprintengine-extension-builder` skill attached.
+  Templates combine: `init … --with main,mcp,settings,door`, or
+  `sprintengine-module add <part>` in an existing project.
+- Test without the app. `@sprintengine/module-sdk/testing` has fake main and
+  renderer hosts that keep this app's rules (the permissions it checks,
+  storage's limits, chat ownership, the bridge's `module:bridge`) and a UI kit
+  stand-in that renders in Node; a scaffolded project runs its TypeScript
+  tests and a smoke test that renders every registered surface on
+  `npm run check`. See the SDK README's "Testing".
 - Declare the host API the module was built for: `"engines": { "hostApi": 1 }`.
   A module without it, or built for a host API this app does not load, is
   refused with a message saying which side to update — never shown as merely
@@ -43,8 +51,9 @@ the user has trusted execute code.
   records the sha256 of every file the module ships in the manifest's `files`
   field, so the signature covers the code, not only the manifest.
 - **`files` is required.** A module whose manifest lists no `files` does not
-  load, signed or not. A template's `npm run dev:install` writes it for an
-  unsigned local build (and signs when your key is at
+  load, signed or not. A template's `npm run build` (when the files changed)
+  and `npm run dev:install` write it for an unsigned local build (and sign
+  when your key is at
   `~/.sprintengine/keys/<id>.key`) before copying `module/` here.
 - Install the packed folder by dropping it into `~/.sprintengine/modules/<id>/`,
   or from **Settings → Modules → "Install a module from a folder"**, then grant

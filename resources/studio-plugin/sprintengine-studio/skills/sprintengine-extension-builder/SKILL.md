@@ -26,15 +26,19 @@ src/main.ts           registerMain(host) — Node side (only if the template has
 module/manifest.json  the module manifest; module/ is the ONLY folder that installs
 module/dist/          build output (renderer.mjs, main.cjs)
 plugin.json           bundle manifest for GitHub/marketplace installs; component "module" → module/
-test/smoke.test.mjs   loads the built bundles against fake hosts
+test/smoke.test.mjs   loads the built bundles against the SDK's fake hosts and renders what they register
+test/*.test.ts        the project's own tests, in TypeScript, against the same fakes
 scripts/              validate.mjs, dev-install.mjs (same files as this skill's scripts/)
 IDEA.md               what the person wants — read it first
 ```
 
+The skill itself lives in `.agents/skills/sprintengine-extension-builder/`;
+`.claude/skills/sprintengine-extension-builder/SKILL.md` only points here.
+
 ## First steps in a project
 
-1. `node .claude/skills/sprintengine-extension-builder/scripts/check-toolchain.mjs`
-   (or the `.agents/skills/…` copy). Fix every FAIL line.
+1. `node .agents/skills/sprintengine-extension-builder/scripts/check-toolchain.mjs`.
+   Fix every FAIL line.
 2. `npm install`, then `npm run check`. A fresh project passes; if it does
    not, fix that before changing anything.
 3. Read `IDEA.md`. If the brief leaves the surface, the data or the
@@ -43,14 +47,16 @@ IDEA.md               what the person wants — read it first
    `blank` template, and its first message is the person's request as they
    wrote it (IDEA.md quotes it): that request is the brief.
 4. Pick the smallest surface that does the job (table below) and change the
-   template toward it. Delete what the idea does not need.
+   template toward it. Delete what the idea does not need. A surface the
+   template lacks is one command: `npx sprintengine-module add main|mcp|settings|door`
+   adds its files, test, entry, permissions and build script, and wires it in.
 5. When it works, `npm run dev:install` and tell the person what to click to
    try it (the loop below).
 
 ## The loop
 
 ```sh
-npm run check        # typecheck → build → smoke test → validate. Run it after every change.
+npm run check        # typecheck → build → tests (smoke + test/*.test.ts) → validate. Run it after every change.
 npm run dev:install  # build, write module/manifest.json "files", sign if a key exists, copy to ~/.sprintengine/modules/<id>
 ```
 
@@ -64,6 +70,35 @@ Then in Studio: **Settings → Modules**, find the module, trust it.
   starts as soon as it is trusted.
 - Say what the person should click and what they should see. You cannot see
   Studio's window; they can.
+
+## Testing without Studio
+
+`main.ts` changes need a Studio restart to try, so test them in Node first.
+`@sprintengine/module-sdk/testing` has fake hosts that keep the host's rules
+(the permissions it checks, storage's key and size limits, chat ownership, the
+bridge's `module:bridge`), and a UI kit stand-in that renders. Write tests in
+`test/*.test.ts`; `npm test` bundles them with esbuild and runs them with
+`node --test`:
+
+```ts
+import { createFakeMainHost, createFakeRendererHost } from '@sprintengine/module-sdk/testing'
+import manifest from '../module/manifest.json'
+
+const main = createFakeMainHost({ manifest })
+await registerMain(main.host)
+await main.ipc.invoke('<id>:start', { workspaceId: 'ws-app' })          // what the window would send
+main.services.conversations.emitEvent(ref, { type: 'turn_completed' }) // what the agent would do
+assert.deepEqual(main.undeclared, [])                                   // nothing used undeclared
+
+const renderer = createFakeRendererHost({ main })
+await registerRenderer(renderer.host)
+assert.match(await renderer.render.surface('<id>'), /Nothing yet/)
+```
+
+A render is a server render: effects do not run, and `useSyncExternalStore`
+needs its third argument. The smoke test renders every door, panel, settings
+section and top-bar item the module registers, so one that throws fails
+`npm run check`.
 
 ## Which surface
 
@@ -135,7 +170,8 @@ without it answers `false`; degrade with a message instead of throwing.
   (`BUNDLED_MODULE_IDS`). It prefixes IPC channels, command ids and tool names.
 - `version` is an integer. Bump it on every release.
 - `files` (the digest of every file in `module/`) is written for you by
-  `dev:install` and by `sprintengine-module sign`. Never edit it by hand.
+  `npm run build` (only when the files changed), `dev:install` and
+  `sprintengine-module sign`. Never edit it by hand.
 - `plugin.json` must carry the same `id`, `version` and `permissions`.
 
 ## Permissions
@@ -145,7 +181,8 @@ they are what the person reads before trusting the module, and the host
 enforces several (`conversation:*`, `secrets`, `github`, `mcp:tools`,
 `agents:companion`, `module:bridge` for the bridge). Table and meaning of each:
 [permissions.md](references/permissions.md). The smoke test fails when a
-service reached at registration is missing its permission.
+service the module resolves is missing its permission, or one resolved at
+registration is missing its `dependsOn`.
 
 ## Rules that bite
 

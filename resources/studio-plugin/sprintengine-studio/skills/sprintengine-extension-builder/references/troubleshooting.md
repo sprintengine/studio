@@ -37,6 +37,10 @@ up there first, with the app's own validators.
 | Failed to resolve module specifier "@sprintengine/module-sdk" | The SDK root was left external in the renderer build; bundle it |
 | Cannot find module '…' from entry.main | A dependency left external in the main build; bundle it |
 | `invoke` rejects `permission_missing` | Declare `module:bridge` |
+| Smoke test: "… needs "storage"" (or another permission) | The module resolves a service or calls a host method whose permission the manifest does not declare. Declare it (and in `plugin.json`) |
+| Smoke test: "… is resolved while registering, so "dependsOn" must include …" | Add that module to `dependsOn`, or resolve the service inside the handler that uses it |
+| Smoke test: `door "…" renders` fails | The component threw while rendering; the error follows the line. In tests a render is a server render, so `document`/`window` in render (not in an effect) and `useSyncExternalStore` without its third argument fail too |
+| A test cannot import `@sprintengine/module-sdk/ui` ("provided by the host at runtime") | Run it through `npm test`, which loads `@sprintengine/module-sdk/testing/register` first, or call `installTestingKit()` before importing the component |
 | `invoke` rejects `unknown_channel` | The main entry is not loaded (restart), or the channel name differs |
 | `invoke` rejects `not_bridgeable` | The channel does not start with `<moduleId>:` |
 | `openChat` → `permission_missing` | Declare `conversation:operate` |

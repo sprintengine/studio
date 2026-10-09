@@ -15,8 +15,10 @@ types into, or watches an agent terminal; that surface is not part of the SDK.
 The package is types-first. Beyond the declarations it ships a few small pure
 values (`BUNDLED_MODULE_IDS`, `KNOWN_CAPABILITY_PERMISSIONS`,
 `HOST_API_VERSION`, `createServiceToken`, the `get*Service` helpers), the
-manifest validators, the `sprintengine-module` CLI, the starter templates and
-the `sprintengine-extension-builder` agent skill. It has no runtime dependency
+manifest validators, the `sprintengine-module` CLI, the starter templates,
+the `sprintengine-extension-builder` agent skill, and a testing kit
+(`@sprintengine/module-sdk/testing`: fake hosts that keep the host's rules, and
+a UI kit stand-in that renders in Node). It has no runtime dependency
 on Electron or on the app's code, so a project compiles against the tarball
 alone. Node 22.15 or newer.
 
@@ -26,12 +28,12 @@ alone. Node 22.15 or newer.
 npx -p @sprintengine/module-sdk sprintengine-module init my-extension --template panel
 cd my-extension
 npm install
-npm run check        # typecheck, build, smoke test, validate
+npm run check        # typecheck, build, tests (smoke test and yours), validate
 npm run dev:install  # side-load into Studio on this machine
 ```
 
-`init <dir> --template <id> [--id <module-id>] [--name <display name>]`
-scaffolds a project that already builds, passes its own smoke test and installs.
+`init <dir> --template <id> [--with <part,...>] [--id <module-id>] [--name <display name>]`
+scaffolds a project that already builds, passes its own tests and installs.
 `--sdk-tarball <file>` depends on a local SDK build instead of the npm release
 (for working on the SDK itself). Templates:
 
@@ -48,6 +50,23 @@ scaffolds a project that already builds, passes its own smoke test and installs.
 | `mcp-tools` | Tools any agent in a workspace calls through the Studio MCP gateway |
 | `chat-companion` | Starts and follows chats of its own, and opens chat drafts with `openChat` |
 
+Templates combine. `--with` adds parts on top of the one you start from, and
+`sprintengine-module add <part>...` adds them to a project you already have:
+
+| Part | What it adds |
+| --- | --- |
+| `main` | `src/main.ts` and `entry.main` with its `build:main` script, `dependsOn: ["agent-runtime"]`, and `module:bridge` when the project has a renderer |
+| `mcp` | MCP tools registered from `entry.main` (`mcp:tools`); brings `main` when missing |
+| `settings` | A Settings section (`storage`) |
+| `door` | A full-page surface drawn with the host's door shell |
+
+A part copies its files and its test, merges its entry, permissions and
+`dependsOn` into `module/manifest.json` and `plugin.json`, adds its scripts
+and devDependencies to `package.json`, and wires its registration in by adding
+an import and a call at the top of `registerRenderer` or `registerMain`. A part
+that needs the renderer or main entry brings it. When the entry function is not
+one of the shapes the templates write, `add` says what to call instead.
+
 Studio can do the same from the Extensions door: **Build your own extension**
 opens New chat in extension mode. You name the extension, pick the project it
 goes in and describe it (or start from one of the ideas, one per template);
@@ -60,9 +79,12 @@ SDK of the Studio that made it. Commit `vendor/` with the project.
 
 ### The extension-builder skill
 
-Every scaffolded project carries the `sprintengine-extension-builder` skill in
-`.claude/skills/` and `.agents/skills/` (the package ships it under `skills/`).
-It is the working method for an agent building an extension — the project
+Every scaffolded project carries the `sprintengine-extension-builder` skill
+once, in `.agents/skills/`, where every agent CLI can read it, with a pointer in
+`.claude/skills/` carrying the same name and description so Claude Code picks it
+up for the same requests (the package ships it under `skills/`).
+`npm run validate` fails when the pointer's name or description no longer match
+the skill's. It is the working method for an agent building an extension — the project
 layout, which host API to reach for, choosing permissions, the check /
 side-load loop, signing, publishing, and what "not trusted", "tampered" and
 "incompatible" mean — with references for the main and renderer APIs,
@@ -78,8 +100,63 @@ module/manifest.json  the module manifest; module/ is the only folder that insta
 module/dist/          build output (renderer.mjs, main.cjs)
 plugin.json           the bundle manifest a GitHub or marketplace install reads;
                       its "module" component points at module/
+test/smoke.test.mjs   loads the built bundles against the SDK's fake hosts and renders what they register
+test/*.test.ts        your tests, in TypeScript (see Testing)
 IDEA.md               the brief
 ```
+
+## Testing
+
+`@sprintengine/module-sdk/testing` runs a module in Node without the app:
+
+```ts
+import { createFakeMainHost, createFakeRendererHost } from '@sprintengine/module-sdk/testing'
+import manifest from '../module/manifest.json'
+import { registerMain } from '../src/main'
+import { registerRenderer } from '../src/renderer'
+
+const main = createFakeMainHost({ manifest })            // id and permissions from the manifest
+await registerMain(main.host)
+await main.ipc.invoke('my-extension:start', { workspaceId: 'ws-app' })   // as the renderer would
+main.services.conversations.emitEvent(ref, { type: 'turn_completed' })  // make the agent answer
+await main.tools.call('my_extension_search', { query: 'x' })            // as an agent would
+
+const renderer = createFakeRendererHost({ main })        // invoke and subscribe reach `main`
+await registerRenderer(renderer.host)
+const html = await renderer.render.surface('my-extension')   // a door, rendered to HTML
+```
+
+- **`createFakeMainHost({ moduleId, permissions } | { manifest }, …)`** is a
+  `MainHost` with stateful fakes of every published service, held to the host's
+  rules: storage (`services.storage`, the real key pattern, absolute-root rule
+  and 1 MB cap), chats (`services.conversations`, with `emitEvent`, ownership
+  and the preset ceiling), scheduled agents (`fire`), companions (`respond`),
+  secrets (origins, https, redaction), GitHub (`respond('GET', '/route', …)`,
+  `setSignedIn`) and workspaces (`setHydrated(false)` for the after-launch null).
+  A permission the host checks is refused as the host refuses it
+  (`permission_missing`, or a throw); a disclosure-only one used undeclared is
+  listed in `undeclared`. `ipc.invoke` needs `module:bridge` and clones like
+  IPC; `tools.call` hands the handler agent metadata; `emitted`,
+  `notifications`, `skills`, `startup()` and `shutdown()` cover the rest.
+- **`createFakeRendererHost({ … , main? })`** records every registration
+  (`registrations`), renders a registered door, modal, panel, settings section,
+  top-bar item or nav entry to HTML (`render.*`), runs commands
+  (`runCommand`), and records `openChat`, `focusTab` and surface opens.
+- **`installTestingKit()`** (or `node --import @sprintengine/module-sdk/testing/register`)
+  routes `@sprintengine/module-sdk/ui`, `/surface` and `@monaco-editor/react` to
+  `@sprintengine/module-sdk/testing/kit`, whose components render a
+  `<div data-kit="Name">` holding their text props and children, so a door
+  renders in Node and one that throws fails its test. `renderToHtml(node)`
+  renders any tree, waiting for `lazy` components. It is a server render: no
+  effects run, and `useSyncExternalStore` needs its third argument.
+
+A scaffolded project's tests are TypeScript: `npm test` bundles
+`test/**/*.test.ts` with esbuild into `test/.build/` (`npm run build:test`, so
+it works on every Node the SDK supports, with or without type stripping) and
+runs them with `node --test` beside the smoke test. The smoke test loads the
+built bundles against the fakes, checks the permissions and `dependsOn` the
+registration needs (`MODULE_SERVICE_REQUIREMENTS` says what each service needs),
+and renders everything the renderer registered.
 
 ## What an extension is
 
@@ -582,7 +659,8 @@ since signing rewrites its manifest. `plugin scaffold`, `plugin verify` and
 ## Installing
 
 - **On your machine:** `npm run dev:install` builds, writes `files`, signs when
-  a key is at `~/.sprintengine/keys/<id>.key`, and copies `module/` into
+  a key is at `~/.sprintengine/keys/<id>.key` (and the signature no longer
+  covers the files), and copies `module/` into
   `~/.sprintengine/modules/<id>/`. Studio asks you to trust it (again after each
   rebuild, since trust binds to exact contents). **Settings → Modules → Install
   a module from a folder** does the same for a packed folder.
@@ -591,7 +669,9 @@ since signing rewrites its manifest. `plugin scaffold`, `plugin verify` and
   to a commit, reads **`plugin.json` at the repository root**, shows its name,
   publisher, permissions and whether it is signed, and installs the `module/`
   folder it names. Commit `module/dist/` and the `module/manifest.json` its build
-  produced (with `files`). An **unsigned** module is allowed: Studio warns that
+  produced (with `files`): `npm run build` records the digests, and writes the
+  manifest only when they changed, so it is modified in git exactly when
+  `module/dist/` is. An **unsigned** module is allowed: Studio warns that
   nobody vouches for the code and requires an explicit "I trust this code"
   choice. An update re-checks the commit and asks again when the permissions
   or the signing change. A repository with `.claude-plugin/` is a skill source,

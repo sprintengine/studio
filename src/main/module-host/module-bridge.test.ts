@@ -115,7 +115,7 @@ test('module-bridge', async () => {
   async function testModuleBridgeScopeOpensOwnChannels(): Promise<void> {
     const fake = createBridgeFixture()
     const outcome = await bridgeInvoke(fake, { channel: 'focus-deck:ping' })
-    assert.deepEqual(outcome, { ok: true, result: 'pong' }, 'module:bridge alone opens the module\'s own channels')
+    assert.deepEqual(outcome, { ok: true, result: 'pong' }, "module:bridge alone opens the module's own channels")
   }
 
   async function testDispatcherRefusesWithoutManifestResolver(): Promise<void> {
