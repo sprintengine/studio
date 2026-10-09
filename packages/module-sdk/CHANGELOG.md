@@ -216,6 +216,14 @@ for the tokens.
     `toast`, `openExternal`, `moduleId`, the active workspace,
     `setSurfaceView`, the command context and notify `target` in the
     renderer, with stand-ins for the new kit components.
+  - And the agent and conversation APIs: a text-generation fake
+    (`services.textGeneration`, `agents:generate` checked, `busy` and
+    `unsupported` as the host answers them); companion `tools` with
+    `requestApproval` and `respondToApproval`; conversation `reply`,
+    `create({ worktree })`, turn ids on turn events and `restore` for a
+    chat a subscribe or follow was waiting for; scheduled-agent `name`,
+    `tag`, `onRun` and run chats the module owns; `MainHost.listChatRuntimes`;
+    and `openChat`'s `name`, `dedupeKey` and `chat:draft` rule.
 - **`MODULE_SERVICE_REQUIREMENTS`** (with `moduleServiceRequirement`,
   `dependsOnReaches`, `MODULE_DEPENDENCY_CHAINS`): for each service a module
   may resolve, the permission it needs, the module that provides it, and

@@ -101,7 +101,11 @@ Every service and host method has a fake you can arrange and read back:
 watch hears), `github.respond(...)` / `respondGraphql(...)` /
 `respondDownload(...)`, `workspaces.close(id)` / `setGitInfo(id, ...)`,
 `main.setAppState(key, value)` (a Settings change `entry.main` hears),
-`main.skills.setStatus(...)`. On the renderer: `renderer.toasts`,
+`main.skills.setStatus(...)`, `textGeneration.respond(...)`,
+`conversations.restore(...)` (a saved chat appearing after launch),
+`companions.requestApproval(...)` (an agent asking for a tool mid-run),
+`scheduledAgents.fire(id)` (a run, with its chat and `onRun`),
+`main.setChatRuntimes(...)`. On the renderer: `renderer.toasts`,
 `renderer.openedUrls`, `renderer.surfaceViews`,
 `renderer.setActiveWorkspace(id)`, and `runCommand(id)` hands `run` the
 command context. Pass `capabilities: [...]` to test an older host's branch.

@@ -133,9 +133,23 @@ const html = await renderer.render.surface('my-extension')   // a door, rendered
   - `storage`: the real key pattern, absolute-root rule and 1 MB cap;
     `list({ prefix })`, `getMany` and `watch`, which hears the module's own
     writes and `changeExternally(key, value, root)` (a `git pull`, a hand edit).
-  - `conversations`: `emitEvent`, ownership and the preset ceiling;
-    `scheduledAgents` (`fire`); `companions` (`respond`); `secrets` (origins,
-    https, redaction).
+  - `conversations`: `emitEvent` (turn events get a `turnId`; give
+    `turn_completed` its `text` and `usage` and `reply(ref)` reads it),
+    ownership and the preset ceiling, `create({ worktree })` in a workspace
+    of its own (for a project `setGitInfo` made a repository, else
+    `worktree_unavailable`), and `restore(chat)` to make a saved chat known,
+    which a `subscribe` or `follow` attached before it hears from then on.
+  - `scheduledAgents`: `fire(id)` starts a chat the module owns (with
+    `scheduledAgentId` and `scheduledAgentTag`), sets `lastRun.agentId` and
+    tells `onRun`; `failNextRun`.
+  - `companions`: `respond` (may be async), and `requestApproval` for an
+    agent asking to use a tool mid-run: `tools: 'none'` denies it, `'auto'`
+    (refused without `conversation:bypass`) allows it, `'ask'` leaves it to
+    `respondToApproval`, whose allow needs `conversation:operate`.
+  - `textGeneration`: `respond` (text, an answer with `usage`, or a failure),
+    `setPreferred`, `calls`; `agents:generate` checked, `claude-code` or
+    `codex` only, and the host's two-running, eight-waiting lane (`busy`).
+  - `secrets` (origins, https, redaction).
   - `github`: `respond('GET', '/route', …)` (headers narrowed to the ones a
     module may read, 304 for a matching `ifNoneMatch`), `respondGraphql` (a
     mutation is refused before it is sent), `respondDownload`, `setSignedIn`.
@@ -157,7 +171,8 @@ const html = await renderer.render.surface('my-extension')   // a door, rendered
   `dataDir` picks one), `getAssetPath` resolves under `moduleRoot` (default
   the working directory, limited to `verifiedFiles` when given), and
   `skills.setStatus(root, id, status)` scripts `getSkillStatus` and
-  `ensureSkillInstalled`. `emitted`, `notifications` (validated, `target`
+  `ensureSkillInstalled`, and `setChatRuntimes` what `listChatRuntimes`
+  answers (default `claude-code` and `codex`). `emitted`, `notifications` (validated, `target`
   included), `skills`, `startup()` and `shutdown()` cover the rest.
 - **`createFakeRendererHost({ … , main? })`** records every registration
   (`registrations`), renders a registered door, modal, panel, settings section,
@@ -168,6 +183,9 @@ const html = await renderer.render.surface('my-extension')   // a door, rendered
   `ModuleCommandContext` of the active workspace (`activeWorkspaceId`,
   `setActiveWorkspace`). Given `main`, the module app state, the Backlog,
   usage and git info are main's (`services`); alone, it keeps its own.
+  `openChat` holds a draft to `chat:draft` (or `conversation:operate`) and
+  `send: true` to `conversation:operate`, takes `name`, and answers
+  `existing: true` for a `dedupeKey` it already opened.
   `capabilities` without `toast`, `open-external` or `command-context` tests
   the older-host branch.
 - **`installTestingKit()`** (or `node --import @sprintengine/module-sdk/testing/register`)
