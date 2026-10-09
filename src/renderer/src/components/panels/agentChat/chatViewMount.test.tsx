@@ -2491,7 +2491,8 @@ test('typing and a streamed reply leave the composer’s "+" menu as it was', as
     for (const draft of ['W', 'Wh', 'Why', 'Why n', 'Why not']) await chat.act(async () => chat.type(draft))
     for (const text of ['The ', 'cache ', 'was ', 'keyed ', 'on the path.'])
       await chat.act(async () => chat.emit({ type: 'event', event: event('content_delta', { turnId: 'live', text }) }))
-    await chat.act(async () => new Promise((resolve) => setTimeout(resolve, 60)))
+    const { flushPendingTokensForTests } = await import('./useConversationSession')
+    await chat.act(async () => flushPendingTokensForTests())
     expect(chat.host.textContent).toContain('keyed on the path.')
     expect(plusMenuRenders.count).toBe(0)
   } finally {
