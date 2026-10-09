@@ -13,7 +13,6 @@ import type {
 import { useSession } from '../../hooks/useTerminalSessions'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { noteNewChatStage } from '../../utils/newChatTimings'
 import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { onTerminalFocusRequest } from '../../utils/terminalFocusRequest'
@@ -65,8 +64,6 @@ import {
 import type { McpSettings } from '../../types/workspace'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { TerminalMount } from '../terminal/TerminalMount'
-import { PendingWorktreeTerminal } from '../terminal/PendingWorktreeTerminal'
-import { usePendingWorktreeGate } from './agentChat/chatBinding'
 import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
@@ -184,8 +181,7 @@ function paneIsPainted(): boolean {
   return windowActivity().get().visible
 }
 
-// Exported for its test, which mounts the launch below its gate.
-export function TerminalViewOnThisComputer({
+function TerminalViewOnThisComputer({
   workspaceId,
   agentId,
   sessionId: attachedSessionId,
@@ -371,10 +367,6 @@ export function TerminalViewOnThisComputer({
     if (!container || !mount) return
     if (initialContext.savedFolderPath && !folderReadyPath) return
     if (!initialContext.agent) return
-    // Waiting on its worktree, it has no folder, and a launch would take the
-    // app's default one. TerminalView mounts none of this until the folder
-    // lands; this is the same rule where the spawn is decided.
-    if (initialContext.agent.chatPendingWorktree) return
     if (!initialContext.cli) {
       publishDiagnosticSync({
         level: 'error',
@@ -1036,7 +1028,6 @@ export function TerminalViewOnThisComputer({
       const postStatusCli = postStatusContext.cli
       if (!postStatusAgent || !postStatusCli) return
       if (postStatusContext.savedFolderPath && !folderReadyPath) return
-      if (postStatusAgent.chatPendingWorktree) return
 
       const resumeExistingPty = shouldResume && terminalStatus.processAlive
       // Prefer the resume capability stamped + persisted on the agent (survives a
@@ -1373,7 +1364,6 @@ export function TerminalViewOnThisComputer({
           exitCode: 1,
         }))
       replayGate.finishReplayWait()
-      if (spawnResult.ok) noteNewChatStage(workspaceId, 'terminal-spawned')
       if (disposed) return
       if (spawnResult.ok && !spawnPainted) notePaneAttachedHidden(sessionId)
       if (!spawnResult.ok) {
@@ -1702,24 +1692,9 @@ export function TerminalViewOnThisComputer({
   )
 }
 
-/**
- * A terminal runs on this computer; a workspace on an SSH machine says so
- * instead (phase 8). An agent opened before its worktree mounts no terminal
- * until the worktree is its folder (PendingWorktreeTerminal): the launch below
- * would otherwise spawn it in the app's default folder.
- */
+/** A terminal runs on this computer; a workspace on an SSH machine says so instead (phase 8). */
 export default function TerminalView(props: Props) {
   const machine = useWorkspaceMachine(props.workspaceId)
-  const pendingWorktree = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === props.workspaceId)?.agents[props.agentId]?.chatPendingWorktree,
-  )
-  const startupPrompt = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === props.workspaceId)?.agents[props.agentId]?.cliStartupPrompt ?? null,
-  )
-  const pendingGate = usePendingWorktreeGate(props.workspaceId, pendingWorktree)
   if (machine) return <NotOnMachineYet what="Terminals" machine={machine} />
-  // The record keeps the prompt across a restart, which the agent's own startup prompt does not.
-  if (pendingGate)
-    return <PendingWorktreeTerminal gate={pendingGate} prompt={startupPrompt ?? pendingWorktree?.prompt ?? null} />
   return <TerminalViewOnThisComputer {...props} />
 }

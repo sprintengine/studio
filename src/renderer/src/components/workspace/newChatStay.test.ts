@@ -51,21 +51,3 @@ test('a chat that never gets under way is let go after its first minute', () => 
   assert.deepEqual(stay.review({ stuck: 'idle' }, offScreen).starting, [])
   assert.deepEqual(stay.starting(), [])
 })
-
-test('a chat waiting on its worktree is held past a minute, and its minute starts when the folder lands', () => {
-  let now = 1_000
-  const stay = createNewChatStay(() => now)
-  stay.started('slow-worktree')
-  let waiting = true
-  const isWaiting = () => waiting
-  now += NEW_CHAT_STAY_WATCH_MS + 1
-  assert.deepEqual(stay.review({ 'slow-worktree': 'idle' }, offScreen, isWaiting).starting, ['slow-worktree'])
-  now += NEW_CHAT_STAY_WATCH_MS + 1
-  assert.deepEqual(stay.review({ 'slow-worktree': 'idle' }, offScreen, isWaiting).starting, ['slow-worktree'])
-  // The worktree lands: the agent now has its minute to get under way.
-  waiting = false
-  now += NEW_CHAT_STAY_WATCH_MS - 1
-  assert.deepEqual(stay.review({ 'slow-worktree': 'idle' }, offScreen, isWaiting).starting, ['slow-worktree'])
-  now += 2
-  assert.deepEqual(stay.review({ 'slow-worktree': 'idle' }, offScreen, isWaiting).starting, [])
-})

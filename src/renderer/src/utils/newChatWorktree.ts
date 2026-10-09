@@ -5,7 +5,6 @@ import type { ExecutionHostId } from '../../../shared/execution-host'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type { AgentId, WorkspaceId, WorkspaceWorktree } from '../types/workspace'
 import { publishDiagnosticSync } from './diagnostics'
-import { noteNewChatStage } from './newChatTimings'
 import { agentWorktreePaths, newChatWorktreeName, workspaceProjectRootOf } from './workspaceWorktree'
 
 export type NewChatWorktreeResult =
@@ -53,8 +52,6 @@ export async function createNewChatWorktree(
   folderPath: string | null,
   requestedName: string,
   hostId?: ExecutionHostId | null,
-  /** Told the branch the worktree is cut onto, once it is named and before git is asked for it. */
-  onBranch?: (branch: string) => void,
 ): Promise<NewChatWorktreeResult> {
   const fail = (title: string, message: string): NewChatWorktreeResult => {
     publishDiagnosticSync({ level: 'error', source: 'workspace', title, message })
@@ -75,7 +72,6 @@ export async function createNewChatWorktree(
     const name = requestedName.trim() || newChatWorktreeName(nanoid(4))
     const paths = agentWorktreePaths(repoRoot, name)
     if (!paths) return fail('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
-    onBranch?.(paths.branchName)
     // From the worktree pool, on the default branch (main's git.ts): a
     // reused slot keeps the last agent's installed dependencies. A chat on a
     // WSL machine is declined by the pool and gets a fresh worktree from that
@@ -112,15 +108,12 @@ export async function createNewChatWorktree(
 
 // ── A chat that opened before its worktree ──────────────────────────────────
 //
-// Making a worktree takes seconds (a fetch, then the checkout, then the
-// project's dependency install when it opted in), and the door used to hold
-// the person on New chat for all of them. An agent on a worktree, chat or
-// terminal, now opens at once: its workspace is filed under the project by its
-// worktree marker, has no folder, and its agent carries `chatPendingWorktree`
-// (named for the chat agents that had it first; a terminal agent's reads the
-// same). The attempt below gives it the folder; until then the agent starts
-// nothing. A chat has no root to start a session in, and a terminal agent's
-// pane mounts no terminal (TerminalView): both gate on the record.
+// Making a worktree takes seconds (a fetch, then the checkout), and the door
+// used to hold the person on New chat for all of them. A chat agent on a
+// worktree now opens at once: its workspace is filed under the project by its
+// worktree marker, has no folder, and its agent carries `chatPendingWorktree`.
+// The attempt below gives it the folder; until then the chat starts nothing —
+// it has no root to start a session in, and its pane gates on the record.
 //
 // The attempt is this window's. One that is not running here — the app went
 // away mid-attempt, or the window was reloaded — is never coming back, so the
@@ -129,18 +122,7 @@ export async function createNewChatWorktree(
 
 export type PendingNewChatWorktree = NonNullable<AgentState['chatPendingWorktree']>
 
-/**
- * Where a running attempt is, for the line the chat shows while it waits:
- * making the worktree (the pool's fetch, then the checkout), or running the
- * project's dependency install in it, which a project that opted in waits on
- * before its agent starts (main's worktree-pool/dependency-install.ts).
- * This window's alone and never persisted: the record says only that the chat
- * waits, and an attempt that is not running here has no stage.
- */
-export type NewChatWorktreeStage = 'preparing' | 'installing'
-
 const attempts = new Map<WorkspaceId, Promise<boolean>>()
-const stages = new Map<WorkspaceId, NewChatWorktreeStage>()
 const listeners = new Set<() => void>()
 
 function notify(): void {
@@ -156,34 +138,6 @@ export function subscribeNewChatWorktreeAttempts(listener: () => void): () => vo
 /** Whether this window is making `workspaceId`'s worktree right now. */
 export function newChatWorktreeAttemptRunning(workspaceId: WorkspaceId): boolean {
   return attempts.has(workspaceId)
-}
-
-/** Where this window's attempt at `workspaceId`'s worktree is, or null when none runs here. */
-export function newChatWorktreeStage(workspaceId: WorkspaceId): NewChatWorktreeStage | null {
-  return attempts.has(workspaceId) ? (stages.get(workspaceId) ?? 'preparing') : null
-}
-
-/** The words for a stage, as the chat's waiting line says them. */
-export function newChatWorktreeStageLabel(stage: NewChatWorktreeStage | null): string {
-  return stage === 'installing' ? 'Installing dependencies…' : 'Preparing worktree…'
-}
-
-/**
- * Hear the dependency install the worktree on `branch` starts, which is how an
- * attempt learns it moved from making the worktree to installing in it: the
- * create call answers once, at the end, and the install already announces
- * itself to every window (`onWorktreeInstallChanged`). Matched on the branch,
- * the one thing the attempt names before git answers; the slot's path is the
- * pool's to pick. Nothing to hear outside the desktop app.
- */
-function listenForInstall(branch: () => string | null, onInstalling: () => void): () => void {
-  const api = typeof window === 'undefined' ? null : window.api
-  if (!api || typeof api.onWorktreeInstallChanged !== 'function') return () => undefined
-  return api.onWorktreeInstallChanged((view) => {
-    const wanted = branch()
-    if (!wanted || view.state !== 'running') return
-    if (view.branch.replace(/^refs\/heads\//u, '') === wanted) onInstalling()
-  })
 }
 
 /** Why a pending chat is not being made, or null while its attempt runs. */
@@ -204,16 +158,6 @@ function pendingChatOf(workspaceId: WorkspaceId): { agentId: AgentId; pending: P
 }
 
 /**
- * The agent once its folder is there: no longer waiting, and a terminal
- * agent's first prompt back where its launch reads it. The prompt is kept on
- * the record because the agent's own startup prompt does not survive a
- * restart; set again here, a Retry after a reload still sends it.
- */
-function landedPatch(pending: PendingNewChatWorktree): Partial<AgentState> {
-  return { chatPendingWorktree: undefined, ...(pending.prompt ? { cliStartupPrompt: pending.prompt } : {}) }
-}
-
-/**
  * Make the worktree a pending chat is waiting on, and give the chat its folder.
  * Resolves whether it did; a failure is written onto the chat, which shows it.
  * One attempt per chat at a time; a second caller waits on the first.
@@ -227,22 +171,8 @@ export function prepareNewChatWorktree(workspaceId: WorkspaceId): Promise<boolea
   if (found.pending.failure !== undefined) {
     useWorkspaceStore.getState().updateAgent(workspaceId, found.agentId, { chatPendingWorktree: attempt })
   }
-  let branch: string | null = null
-  const stopListening = listenForInstall(
-    () => branch,
-    () => {
-      if (stages.get(workspaceId) === 'installing') return
-      stages.set(workspaceId, 'installing')
-      notify()
-    },
-  )
   const run = (async () => {
-    const made = await createNewChatWorktree(
-      attempt.projectFolder,
-      attempt.name,
-      attempt.hostId ?? null,
-      (named) => (branch = named),
-    )
+    const made = await createNewChatWorktree(attempt.projectFolder, attempt.name, attempt.hostId ?? null)
     // Started in the project, or closed, while the worktree was being made:
     // the chat is no longer this attempt's to finish, and nothing will ever
     // use the worktree, so it goes back now rather than at a sweep an hour on.
@@ -259,17 +189,13 @@ export function prepareNewChatWorktree(workspaceId: WorkspaceId): Promise<boolea
     // The folder first: the pane gates on the pending record, so clearing it
     // first would show a chat with no folder for a frame.
     store.setWorkspaceChatFolder(workspaceId, made.folderPath, made.worktree)
-    store.updateAgent(workspaceId, still.agentId, landedPatch(still.pending))
-    noteNewChatStage(workspaceId, 'worktree-ready')
+    store.updateAgent(workspaceId, still.agentId, { chatPendingWorktree: undefined })
     return true
   })().finally(() => {
-    stopListening()
     attempts.delete(workspaceId)
-    stages.delete(workspaceId)
     notify()
   })
   attempts.set(workspaceId, run)
-  stages.set(workspaceId, 'preparing')
   notify()
   return run
 }
@@ -304,6 +230,6 @@ export function startPendingNewChatInProject(workspaceId: WorkspaceId): boolean 
   if (!found) return false
   const store = useWorkspaceStore.getState()
   store.setWorkspaceChatFolder(workspaceId, found.pending.projectFolder, null)
-  store.updateAgent(workspaceId, found.agentId, landedPatch(found.pending))
+  store.updateAgent(workspaceId, found.agentId, { chatPendingWorktree: undefined })
   return true
 }

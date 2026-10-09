@@ -16,8 +16,7 @@ export type ChatReadiness =
   | { kind: 'error'; message: string }
   // A New chat opened before its worktree (utils/newChatWorktree.ts): nothing
   // starts until the worktree is the chat's folder, or the attempt failed.
-  // `label` says which part of the wait it is in ("Installing dependencies…").
-  | { kind: 'preparing-worktree'; label?: string }
+  | { kind: 'preparing-worktree' }
   | { kind: 'worktree-failed'; message: string }
   | { kind: 'ready' }
 
@@ -34,7 +33,6 @@ export function readinessLabel(readiness: ChatReadiness): string {
   if (readiness.kind === 'ready') return 'Ready'
   if (readiness.kind === 'loading') return 'Checking provider…'
   if (readiness.kind === 'error' || readiness.kind === 'worktree-failed') return readiness.message
-  if (readiness.kind === 'preparing-worktree' && readiness.label) return readiness.label
   return READINESS_COPY[readiness.kind]
 }
 
@@ -103,15 +101,12 @@ export function ReadinessState({
   canSwitchModel,
   onSwitchModel,
   worktreeActions,
-  worktreeFailedNote = 'Nothing was sent; your message is back in the box below.',
 }: {
   readiness: ChatReadiness
   canSwitchModel: boolean
   onSwitchModel: () => void
   /** A worktree that could not be made: try again, or run in the project instead. */
   worktreeActions?: { onRetry: () => void; onStartInProject: () => void }
-  /** Where the held message is now, said after why the worktree failed. */
-  worktreeFailedNote?: string
 }) {
   if (readiness.kind === 'loading' || readiness.kind === 'preparing-worktree') {
     return (
@@ -128,7 +123,7 @@ export function ReadinessState({
           The worktree couldn’t be made
         </h2>
         <p className="mb-5 max-w-[44ch] text-body leading-[1.55] text-[color:var(--text-muted)]">
-          {readiness.message} {worktreeFailedNote}
+          {readiness.message} Nothing was sent; your message is back in the box below.
         </p>
         {worktreeActions ? (
           <div className="flex items-center gap-2">

@@ -8,8 +8,6 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { Workspace } from '../../../types/workspace'
 import {
   newChatWorktreeAttemptRunning,
-  newChatWorktreeStage,
-  newChatWorktreeStageLabel,
   pendingNewChatWorktreeFailure,
   prepareNewChatWorktree,
   startPendingNewChatInProject,
@@ -65,12 +63,6 @@ export type ChatBinding = {
    * still waiting on its worktree, in place of this machine's provider check.
    */
   readiness?: ChatReadiness
-  /**
-   * The readiness above is a New chat waiting on its worktree, not a transport
-   * that decides readiness itself: the chat still checks its provider on this
-   * machine meanwhile, so the check is done by the time the folder lands.
-   */
-  awaitingWorktree?: boolean
   /** What a chat whose worktree could not be made offers instead. */
   worktreeActions?: { onRetry: () => void; onStartInProject: () => void }
   /** The session as the host last listed it, for a transport that does not start one here. */
@@ -128,7 +120,21 @@ export function useLocalChatBinding(workspaceId: string, agentId: string): ChatB
   // A New chat opened before its worktree is the launch gate: no root until
   // the worktree is its folder, so no session can start and the first message
   // waits; the readiness says what it is waiting on, or why it stopped.
-  const pendingGate = usePendingWorktreeGate(workspaceId, agent?.chatPendingWorktree)
+  const attemptRunning = useSyncExternalStore(subscribeNewChatWorktreeAttempts, () =>
+    newChatWorktreeAttemptRunning(workspaceId),
+  )
+  const pendingWorktree = agent?.chatPendingWorktree
+  const pendingGate = useMemo((): Pick<ChatBinding, 'readiness' | 'worktreeActions'> | null => {
+    if (!pendingWorktree) return null
+    const failure = attemptRunning ? null : pendingNewChatWorktreeFailure(workspaceId, pendingWorktree)
+    return {
+      readiness: failure === null ? { kind: 'preparing-worktree' } : { kind: 'worktree-failed', message: failure },
+      worktreeActions: {
+        onRetry: () => void prepareNewChatWorktree(workspaceId),
+        onStartInProject: () => void startPendingNewChatInProject(workspaceId),
+      },
+    }
+  }, [pendingWorktree, attemptRunning, workspaceId])
   return useMemo(
     () =>
       agent?.conversation
@@ -146,42 +152,4 @@ export function useLocalChatBinding(workspaceId: string, agentId: string): ChatB
         : null,
     [agent, update, workspace, recordUserMessage, rememberModel, pendingGate],
   )
-}
-
-/**
- * What an agent opened before its worktree shows instead of starting
- * (utils/newChatWorktree.ts): the wait and the stage it is in while this
- * window's attempt runs, or why it stopped, with Retry and Start in the
- * project. Null once the agent has its folder. A chat and a terminal agent
- * read the same gate.
- */
-export function usePendingWorktreeGate(
-  workspaceId: string,
-  pendingWorktree: AgentState['chatPendingWorktree'],
-): PendingWorktreeGate | null {
-  const attemptRunning = useSyncExternalStore(subscribeNewChatWorktreeAttempts, () =>
-    newChatWorktreeAttemptRunning(workspaceId),
-  )
-  const attemptStage = useSyncExternalStore(subscribeNewChatWorktreeAttempts, () => newChatWorktreeStage(workspaceId))
-  return useMemo((): PendingWorktreeGate | null => {
-    if (!pendingWorktree) return null
-    const failure = attemptRunning ? null : pendingNewChatWorktreeFailure(workspaceId, pendingWorktree)
-    return {
-      readiness:
-        failure === null
-          ? { kind: 'preparing-worktree', label: newChatWorktreeStageLabel(attemptStage) }
-          : { kind: 'worktree-failed', message: failure },
-      awaitingWorktree: true,
-      worktreeActions: {
-        onRetry: () => void prepareNewChatWorktree(workspaceId),
-        onStartInProject: () => void startPendingNewChatInProject(workspaceId),
-      },
-    }
-  }, [pendingWorktree, attemptRunning, attemptStage, workspaceId])
-}
-
-export type PendingWorktreeGate = {
-  readiness: Extract<ChatReadiness, { kind: 'preparing-worktree' | 'worktree-failed' }>
-  awaitingWorktree: true
-  worktreeActions: NonNullable<ChatBinding['worktreeActions']>
 }
