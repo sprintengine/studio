@@ -103,6 +103,7 @@ export function registerMeshIpc(ipcMain: IpcMain, service: AutomationService): v
       cliModel: record.cliModel,
       permissionPreset: record.permissionPreset,
       effort: record.effort,
+      worktree: record.worktree,
       attachments: record.attachments,
     })
   })

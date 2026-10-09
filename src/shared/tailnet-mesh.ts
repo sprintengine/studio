@@ -141,12 +141,31 @@ export type MeshLinkState =
 export type MeshPairResult = { ok: true; connection: MeshConnection } | { ok: false; code: string; message: string }
 
 /**
+ * Where a New chat on a paired machine runs when it is not the project's own
+ * folder: a worktree cut for it there (a name, or '' for one made up there),
+ * or a worktree the project already has, by the path `workspace.checkout`
+ * listed. A machine is asked for one only where it advertises the capability
+ * (`new-chat-worktree`, `new-chat-worktree-name`, `new-chat-in-worktree`).
+ */
+export type MeshNewChatWorktree = { kind: 'new'; name: string } | { kind: 'existing'; path: string }
+
+/**
  * A chat agent started on a paired machine (`conversation.create`). The chat
  * is known there by its workspace and agent ids, which is what a pane follows
- * it by; `title` is the agent's name there.
+ * it by; `title` is the agent's name there. `worktree` is the worktree it runs
+ * in there, as that machine answered; null for the project's own folder, or a
+ * machine that does not say.
  */
 export type MeshCreateConversationResult =
-  | { ok: true; workspaceId: string; agentId: string; title: string; providerId: string; modelId: string }
+  | {
+      ok: true
+      workspaceId: string
+      agentId: string
+      title: string
+      providerId: string
+      modelId: string
+      worktree?: { path: string; branch: string | null } | null
+    }
   | { ok: false; code: string; message: string }
 
 /**

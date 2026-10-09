@@ -146,7 +146,7 @@
     },
     {
       "name": "conversation.create",
-      "sha256": "2b048bbb35479522d578a0d0f5dc93f45466e885ba5b8ba26f1ce334adc42074"
+      "sha256": "9f39d151eefebc608ca52299c3663a2c93d34dcc23aa4fa6525b81cac560942e"
     },
     {
       "name": "conversation.settle",
@@ -452,7 +452,7 @@
     },
     {
       "name": "conversation.create",
-      "sha256": "2b048bbb35479522d578a0d0f5dc93f45466e885ba5b8ba26f1ce334adc42074"
+      "sha256": "9f39d151eefebc608ca52299c3663a2c93d34dcc23aa4fa6525b81cac560942e"
     },
     {
       "name": "conversation.settle",

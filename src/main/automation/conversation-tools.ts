@@ -116,6 +116,21 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
               '"worktree_unavailable", never started in the checkout. Omitted or false, the chat works in the ' +
               "project's own folder.",
           },
+          worktreeName: {
+            type: 'string',
+            description:
+              "With worktree, what the new worktree is named from, as typed into New chat's Worktree field: its " +
+              "branch is `agent/<name>-<suffix>`, the short suffix keeping each chat's branch its own. A made-up " +
+              '`chat-<suffix>` when omitted or blank.',
+          },
+          inWorktree: {
+            type: 'string',
+            description:
+              'With newChat, start the new chat in a worktree the project already has: its path, one of the ' +
+              '`worktrees` workspace.checkout lists for workspaceId. The chat is listed under the project. A ' +
+              'path the repository does not list is refused with "worktree_unavailable"; the main worktree ' +
+              "is the project's own folder. Not with worktree.",
+          },
           cli: {
             type: 'string',
             description:
@@ -159,7 +174,16 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         if (typeof args.workspaceId !== 'string' || !args.workspaceId.trim()) {
           return toolError('invalid_arguments', '"workspaceId" is required.')
         }
-        for (const key of ['cli', 'cliModel', 'prompt', 'name', 'permissionPreset', 'effort'] as const) {
+        for (const key of [
+          'cli',
+          'cliModel',
+          'prompt',
+          'name',
+          'permissionPreset',
+          'effort',
+          'worktreeName',
+          'inWorktree',
+        ] as const) {
           if (args[key] !== undefined && typeof args[key] !== 'string') {
             return toolError('invalid_arguments', `"${key}" must be a string when provided.`)
           }
@@ -173,6 +197,15 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         // works in that workspace's folder, which already is what it is.
         if (args.worktree === true && args.newChat !== true) {
           return toolError('invalid_arguments', '"worktree" starts a new chat in a worktree: set "newChat" with it.')
+        }
+        if (typeof args.worktreeName === 'string' && args.worktree !== true) {
+          return toolError('invalid_arguments', '"worktreeName" names a new worktree: set "worktree" with it.')
+        }
+        if (typeof args.inWorktree === 'string' && args.newChat !== true) {
+          return toolError('invalid_arguments', '"inWorktree" starts a new chat in a worktree: set "newChat" with it.')
+        }
+        if (typeof args.inWorktree === 'string' && args.worktree === true) {
+          return toolError('invalid_arguments', 'Ask for a new worktree or name one in "inWorktree", not both.')
         }
         // The same shape a window's turn may name an effort in
         // (conversation-ipc-inputs.ts); whether the CLI has the level is the
@@ -194,6 +227,12 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           workspaceId: args.workspaceId.trim(),
           ...(args.newChat === true ? { newChat: true } : {}),
           ...(args.worktree === true ? { newWorktree: true } : {}),
+          ...(typeof args.worktreeName === 'string' && args.worktreeName.trim()
+            ? { worktreeName: args.worktreeName.trim() }
+            : {}),
+          ...(typeof args.inWorktree === 'string' && args.inWorktree.trim()
+            ? { existingWorktreePath: args.inWorktree.trim() }
+            : {}),
           ...(typeof args.effort === 'string' ? { reasoningEffort: args.effort.trim() } : {}),
           ...(typeof args.cli === 'string' ? { cli: args.cli } : {}),
           ...(typeof args.cliModel === 'string' ? { cliModel: args.cliModel } : {}),
@@ -233,6 +272,9 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           notifyParent: linked?.linked === true,
           ...(linked && !linked.linked ? { notifyParentReason: linked.reason } : {}),
           ...(launched.dependencyInstall ? { dependencyInstall: installProjection(launched.dependencyInstall) } : {}),
+          // Where the chat runs, when that is a worktree: a paired machine's
+          // pane names the branch, and its row the worktree, from this.
+          ...(launched.worktree ? { worktree: launched.worktree } : {}),
         })
       },
     },

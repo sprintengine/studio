@@ -245,6 +245,13 @@ export type TailnetMeshService = {
     /** The CLI's effort level the chat keeps. Sent only to a machine that advertises `new-chat-effort`. */
     effort?: unknown
     /**
+     * The worktree the chat starts in there (`MeshNewChatWorktree`). Refused
+     * here, before anything is asked, for a machine that does not advertise
+     * taking it: an older handler skips the argument and starts the chat in
+     * the project's own checkout, which is the one place it was asked not to.
+     */
+    worktree?: unknown
+    /**
      * Images that go with the first message, in the shape a chat here sends
      * them. The chat is started without its prompt, each image goes up the
      * machine's upload route under the new chat's session, and the prompt is
@@ -1505,6 +1512,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     cliModel?: unknown
     permissionPreset?: unknown
     effort?: unknown
+    worktree?: unknown
     attachments?: unknown
   }): Promise<MeshCreateConversationResult> {
     const connection = connectionFor(input.connectionId)
@@ -1514,6 +1522,8 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     }
     const presetRefusal = permissionModeRefusal(connection, input.permissionPreset)
     if (presetRefusal) return presetRefusal
+    const worktree = newChatWorktreeArgs(connection, input.worktree)
+    if ('refused' in worktree) return worktree.refused
     // The images are checked before anything is made over there: what the
     // local boundary refuses, and a machine that has said it takes no
     // uploads, are refused with no chat left behind.
@@ -1550,6 +1560,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       tailnetPeerSupports(peerCapabilities.get(connection.id), 'new-chat-effort')
         ? { effort: input.effort }
         : {}),
+      ...worktree.args,
     }
     const create = (newChat: boolean) =>
       callRemoteTool({
@@ -1563,8 +1574,15 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     let answer = await create(true)
     // A machine that refuses the argument by name is asked the way it was
     // before there was one, and adds the chat to that workspace. One from
-    // before the argument that ignores it does the same without asking.
-    if (!answer.ok && answer.code === 'invalid_arguments' && /newChat/u.test(answer.message))
+    // before the argument that ignores it does the same without asking. Not
+    // with a worktree, which only a new chat is born in: a machine that knows
+    // no `newChat` advertises no worktree either, so it is not asked one.
+    if (
+      !answer.ok &&
+      answer.code === 'invalid_arguments' &&
+      /newChat/u.test(answer.message) &&
+      Object.keys(worktree.args).length === 0
+    )
       answer = await create(false)
     if (!answer.ok) {
       // A machine on a build from before `conversation.create` does not have
@@ -1602,6 +1620,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
         }
       }
     }
+    const ranIn = asRecord(answer.value.worktree)
     return {
       ok: true,
       workspaceId,
@@ -1609,7 +1628,49 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       title: typeof conversation?.name === 'string' && conversation.name ? conversation.name : 'Chat',
       providerId: typeof conversation?.providerId === 'string' ? conversation.providerId : '',
       modelId: typeof conversation?.modelId === 'string' ? conversation.modelId : '',
+      worktree:
+        ranIn && typeof ranIn.path === 'string' && ranIn.path
+          ? { path: ranIn.path, branch: typeof ranIn.branch === 'string' && ranIn.branch ? ranIn.branch : null }
+          : null,
     }
+  }
+
+  // The `conversation.create` arguments a New chat's worktree is asked with,
+  // or the refusal for a machine that has not said it takes them. Each part
+  // has its own capability, as each arrived on its own: a worktree cut there
+  // (`new-chat-worktree`), the name it is cut under (`new-chat-worktree-name`),
+  // and a worktree the project already has (`new-chat-in-worktree`).
+  function newChatWorktreeArgs(
+    connection: StoredMeshConnection,
+    requested: unknown,
+  ): { args: Record<string, unknown> } | { refused: { ok: false; code: string; message: string } } {
+    const record = asRecord(requested)
+    if (!record) return { args: {} }
+    const capabilities = peerCapabilities.get(connection.id)
+    const refuse = (what: string) => ({
+      refused: {
+        ok: false as const,
+        code: 'worktree_unsupported',
+        message: `${connection.machineName} cannot ${what} for a chat started from here. Update SprintEngine Studio there, or start the chat in the project's folder.`,
+      },
+    })
+    if (record.kind === 'new') {
+      if (!tailnetPeerSupports(capabilities, 'new-chat-worktree')) return refuse('make a worktree')
+      const name = typeof record.name === 'string' ? record.name.trim() : ''
+      if (name && !tailnetPeerSupports(capabilities, 'new-chat-worktree-name')) return refuse('name a worktree')
+      return { args: { worktree: true, ...(name ? { worktreeName: name } : {}) } }
+    }
+    if (record.kind === 'existing') {
+      const path = typeof record.path === 'string' ? record.path.trim() : ''
+      if (!path) {
+        return {
+          refused: { ok: false, code: 'invalid_arguments', message: 'Name the worktree to start the chat in.' },
+        }
+      }
+      if (!tailnetPeerSupports(capabilities, 'new-chat-in-worktree')) return refuse('start a chat in a worktree')
+      return { args: { inWorktree: path } }
+    }
+    return { refused: { ok: false, code: 'invalid_arguments', message: 'That is not a worktree to start a chat in.' } }
   }
 
   // A new chat's first message with its images, sent the way a pane here

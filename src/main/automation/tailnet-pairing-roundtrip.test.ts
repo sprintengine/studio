@@ -216,6 +216,8 @@ test('tailnet-pairing-roundtrip', async () => {
         'new-chat-effort',
         'cli-runtime-catalog',
         'chat-mark-unread',
+        'new-chat-worktree-name',
+        'new-chat-in-worktree',
       ])
 
       // The pairing is real only if the token it produced actually drives tools.
@@ -371,6 +373,8 @@ test('tailnet-pairing-roundtrip', async () => {
         'new-chat-effort',
         'cli-runtime-catalog',
         'chat-mark-unread',
+        'new-chat-worktree-name',
+        'new-chat-in-worktree',
       ])
 
       const scanned = parsePairingUrl(harness.service.offerPairing().pairingUrl ?? '')

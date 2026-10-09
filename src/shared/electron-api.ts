@@ -146,6 +146,7 @@ import type {
   MeshBrowse,
   MeshConnection,
   MeshCreateConversationResult,
+  MeshNewChatWorktree,
   MeshSettleConversationResult,
   MeshVisitConversationResult,
   MeshWorkspaceCheckoutResult,
@@ -944,6 +945,8 @@ export type ElectronApi = {
     permissionPreset?: string
     /** The CLI's effort level; dropped for a machine that does not advertise `new-chat-effort`. */
     effort?: string
+    /** A worktree to start in; refused, never dropped, by a machine without the capability for it. */
+    worktree?: MeshNewChatWorktree
     /**
      * Images that go with the first message. Each is put in that machine's
      * upload store under the new chat's session, and the first message names
