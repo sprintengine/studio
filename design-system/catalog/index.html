@@ -653,6 +653,8 @@ code {
 #ds-view-foundations-doc-principles:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-doc-principles"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-components:checked ~ .ds-catalog #components { display: block; }
 #ds-view-components:checked ~ .ds-catalog #components .catalog-view { display: block; }
+#ds-view-component-access-summary:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-access-summary:checked ~ .ds-catalog #component-access-summary { display: block; }
 #ds-view-component-agent-glyph:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-agent-glyph:checked ~ .ds-catalog #component-agent-glyph { display: block; }
 #ds-view-component-attachment-chip:checked ~ .ds-catalog #components { display: block; }
@@ -783,6 +785,8 @@ code {
 #ds-view-component-workspace-panel:checked ~ .ds-catalog #component-workspace-panel { display: block; }
 #ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-components:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-access-summary:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-access-summary"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-access-summary:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-access-summary"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-agent-glyph:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-agent-glyph"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-agent-glyph:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-agent-glyph"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-attachment-chip:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-attachment-chip"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -929,6 +933,142 @@ code {
 #ds-view-pattern-selection:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-selection"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 </style>
 <style>
+/* components/access-summary/component.css */
+/* Access summary — what an installed extension asks to reach, said at three
+ * depths: a glyph count on its list row, a short list in its details and trust
+ * review, and a set of quiet pills for the scopes that need no second look.
+ * Extracted from the shipped `AccessGlyphs`, `AccessCareList` and
+ * `AccessChips` primitives (src/renderer/src/components/ui/AccessSummary.tsx).
+ *
+ * The words are not decided here. Every scope has a short title, and the ones
+ * that need care a why of six words or fewer, in one table beside the full
+ * consent sentences (src/shared/modules/permissions.ts). This draws them. */
+
+/* ── Glyphs — the row's mark ────────────────────────────────────────────── */
+
+/* One warning triangle per scope that needs care. The count is the reading: a
+ * row with three triangles asks for a closer look than a row with one, and a
+ * row with none draws nothing. The glyphs are a tab stop of their own, because
+ * the tooltip naming them opens on focus as well as hover. */
+.ds-access-glyphs {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+  padding: var(--sem-space-2xs) var(--sem-space-xs);
+  border-radius: var(--sem-radius-chip);
+  color: var(--sem-color-status-warn);
+  cursor: help;
+}
+
+.ds-access-glyphs svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* The soft tint is where the pointer is, never at rest: at rest the triangles
+ * are the whole signal, and a tinted box around them would be a pill. */
+.ds-access-glyphs:hover {
+  background: var(--sem-color-status-warn-soft);
+}
+
+.ds-access-glyphs:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* The tooltip body: one line per glyph, the same triangle beside each title,
+ * so the list reads back to the marks it explains. */
+.ds-access-glyphs-list {
+  display: grid;
+  gap: var(--sem-space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-access-glyphs-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+}
+
+.ds-access-glyphs-list svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  color: var(--sem-color-status-warn);
+}
+
+/* ── Care list — details and trust review ──────────────────────────────── */
+
+.ds-access-care {
+  display: grid;
+  gap: var(--sem-space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-access-care-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--sem-space-sm);
+}
+
+.ds-access-care-item svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  /* Level with the first line of the title. */
+  margin-top: var(--sem-space-2xs);
+  color: var(--sem-color-status-warn);
+}
+
+.ds-access-care-title {
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-default);
+}
+
+.ds-access-care-why {
+  grid-column: 2;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+/* The raw scope, for the reader who wants to search for it. Mono, because it
+ * is the identifier itself (see scope-pill for why that matters at this size). */
+.ds-access-care-id {
+  grid-column: 2;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  letter-spacing: var(--sem-font-tracking-wide);
+  color: var(--sem-color-text-subtle);
+}
+
+/* ── Chips — the standard scopes ───────────────────────────────────────── */
+
+/* Disclosed, not flagged: a pill per scope so they can be counted, on the
+ * well ground, with no glyph, no border and no tone. */
+.ds-access-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sem-space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-access-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--sem-icon-size-lg);
+  padding: 0 var(--sem-space-sm);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-well);
+  color: var(--sem-color-text-default);
+  font-size: var(--sem-font-size-meta);
+}
+
 /* components/agent-glyph/component.css */
 /* Agent glyph — a spawned agent drawn as a small character.
  *
@@ -5199,6 +5339,17 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 }
 
 .ds-link-button--quiet:hover:not(:disabled) {
+  color: var(--sem-color-text-primary);
+}
+
+/* name — the name of the thing a list row is about, when the name opens its
+ * details. Title ink at rest so it reads as the row's title; the hover
+ * underline is what says it can be pressed. */
+.ds-link-button--name {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-link-button--name:hover:not(:disabled) {
   color: var(--sem-color-text-primary);
 }
 
@@ -9952,6 +10103,64 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </style>
 <style>
 /* Demo and pattern scaffolding, scoped to each embed wrapper. */
+.ds-embed-component-access-summary {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-access-summary .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-access-summary .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-access-summary .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+.ds-embed-component-access-summary .demo-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sem-space-sm);
+  }
+.ds-embed-component-access-summary .demo-name {
+    font-size: var(--sem-font-size-body);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+.ds-embed-component-access-summary .demo-meta {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-access-summary .demo-tip {
+    display: inline-block;
+    margin-top: var(--sem-space-sm);
+    padding: var(--sem-space-sm) var(--sem-space-md);
+    border: 1px solid var(--sem-color-border-strong);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface-raised);
+    box-shadow: var(--sem-shadow-popover);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-access-summary .demo-card {
+    max-width: 400px;
+    padding: var(--sem-space-xl);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface-raised);
+  }
+.ds-embed-component-access-summary .demo-heading {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-muted);
+  }
+.ds-embed-component-access-summary .demo-heading--second {
+    margin-top: var(--sem-space-lg);
+  }
 .ds-embed-component-agent-glyph {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -13174,6 +13383,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-glyphs" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-doc-principles" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-components" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-access-summary" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-agent-glyph" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-attachment-chip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-badge" />
@@ -13259,6 +13469,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-foundations-glyphs">Glyphs</label>
 <label class="catalog-nav-item" for="ds-view-foundations-doc-principles">Principles</label>
 <label class="catalog-nav-group" for="ds-view-components">Components</label>
+<label class="catalog-nav-item" for="ds-view-component-access-summary">Access summary</label>
 <label class="catalog-nav-item" for="ds-view-component-agent-glyph">Agent glyph</label>
 <label class="catalog-nav-item" for="ds-view-component-attachment-chip">Attachment chip</label>
 <label class="catalog-nav-item" for="ds-view-component-badge">Badge</label>
@@ -13931,6 +14142,358 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </section>
 <section id="components" class="catalog-group">
 <h2>Components</h2>
+<div id="component-access-summary" class="catalog-view catalog-component">
+<h3>Access summary</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-access-summary">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a row's glyphs, with the tooltip body shown open beside them.</p>
+  <div class="demo-row">
+    <span class="demo-name">Insights</span>
+    <span class="demo-meta">Local build · Unsigned</span>
+    <span class="ds-access-glyphs" tabindex="0" role="img" aria-label="Insights needs care: Runs chats with your agents, Reads your home folder, Broad access to Studio"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+  </div>
+  <div class="demo-tip">
+    <ul class="ds-access-glyphs-list">
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Runs chats with your agents</li>
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Reads your home folder</li>
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Broad access to Studio</li>
+    </ul>
+  </div>
+  <p class="demo-label demo-label--second">Light — the details: care list with ids, then the standard scopes as chips.</p>
+  <div class="demo-card">
+    <p class="demo-heading">Needs care</p>
+    <ul class="ds-access-care" aria-label="Needs care">
+      <li class="ds-access-care-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="ds-access-care-title">Runs chats with your agents</span><span class="ds-access-care-why">Starts, messages and stops chats</span><span class="ds-access-care-id">conversation:operate</span></li>
+      <li class="ds-access-care-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="ds-access-care-title">Reads your home folder</span><span class="ds-access-care-why">Including other apps’ data</span><span class="ds-access-care-id">filesystem:read-home</span></li>
+    </ul>
+    <p class="demo-heading demo-heading--second">Also</p>
+    <ul class="ds-access-chips" aria-label="Also">
+      <li class="ds-access-chip">Reads your projects</li>
+      <li class="ds-access-chip">Sees workspace and git state</li>
+      <li class="ds-access-chip">Saves its own data</li>
+    </ul>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — a row's glyphs, with the tooltip body shown open beside them.</p>
+  <div class="demo-row">
+    <span class="demo-name">Insights</span>
+    <span class="demo-meta">Local build · Unsigned</span>
+    <span class="ds-access-glyphs" tabindex="0" role="img" aria-label="Insights needs care: Runs chats with your agents, Reads your home folder, Broad access to Studio"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+  </div>
+  <div class="demo-tip">
+    <ul class="ds-access-glyphs-list">
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Runs chats with your agents</li>
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Reads your home folder</li>
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Broad access to Studio</li>
+    </ul>
+  </div>
+  <p class="demo-label demo-label--second">Dark — the details: care list with ids, then the standard scopes as chips.</p>
+  <div class="demo-card">
+    <p class="demo-heading">Needs care</p>
+    <ul class="ds-access-care" aria-label="Needs care">
+      <li class="ds-access-care-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="ds-access-care-title">Runs chats with your agents</span><span class="ds-access-care-why">Starts, messages and stops chats</span><span class="ds-access-care-id">conversation:operate</span></li>
+      <li class="ds-access-care-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="ds-access-care-title">Reads your home folder</span><span class="ds-access-care-why">Including other apps’ data</span><span class="ds-access-care-id">filesystem:read-home</span></li>
+    </ul>
+    <p class="demo-heading demo-heading--second">Also</p>
+    <ul class="ds-access-chips" aria-label="Also">
+      <li class="ds-access-chip">Reads your projects</li>
+      <li class="ds-access-chip">Sees workspace and git state</li>
+      <li class="ds-access-chip">Saves its own data</li>
+    </ul>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>What an installed extension asks to reach on this machine, said at the depth the surface can afford. Three parts, one vocabulary:</p>
+<ul><li><strong>Glyphs</strong> — on a list row. One warning triangle per scope that needs care, and nothing else. The titles are a hover or a Tab away.</li><li><strong>Care list</strong> — in the extension's details and its trust review. Each scope that needs care as a short title over a why of six words or fewer, and in the details the raw scope id beneath it.</li><li><strong>Chips</strong> — the scopes that need no second look, as a wrapped set of quiet pills.</li></ul>
+<p>The words are not this component's. Every capability scope has a short title, and those that need care a why, in one table beside the full consent sentences (<code>capabilityAccess</code> in <code>src/shared/modules/permissions.ts</code>). A scope the app does not recognise always needs care, because nothing can say what it grants.</p>
+<h4>Why the row gets glyphs and not words</h4>
+<p>A list of extensions used to carry each scope's consent sentence on the row: &quot;Call any of the app's internal APIs, including its own background code (broad scope)&quot;, three or four of them under every name. Nobody reads a row of warning sentences; they read as texture after the second row, which is the opposite of what a warning is for. A count of triangles is read at a glance — three asks for a closer look than one, and none draws nothing at all (&quot;healthy renders no mark&quot;, *Status is earned*). What the triangles stand for is one hover or one Tab away, and the details and the trust review say it in full, so the glyphs are never the only route to the list.</p>
+<h4>Why it is not a badge, a scope pill or a tooltip alone</h4>
+<ul><li><strong>Not a [badge](../badge/component.md).</strong> A badge grades a state with a tone. These are not a state of the extension; they are what it asked for when it was written, and they do not change while it is installed.</li><li><strong>Not a [scope pill](../scope-pill/component.md).</strong> A scope pill's content is the identifier. Here the reader is deciding whether to trust code, and <code>conversation:operate</code> tells them less than &quot;Runs chats with your agents&quot;. The identifier is still shown — in mono, under the title, in the details — for the reader who wants to search for it.</li><li><strong>The tooltip carries a short list, on purpose.</strong> The [tooltip](../tooltip/component.md) entry rules out a list in a tooltip because a tooltip must never be the only route to a value. Here it is not: the list is the accessible name of the glyphs, the details popover and the trust review. The tooltip is the sighted reader's shortcut to the same three or four titles, one line per triangle, so the list reads back to the marks it explains.</li></ul>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Glyphs | <code>.ds-access-glyphs</code> | the row part — a focusable inline group with <code>role=&quot;img&quot;</code> and an <code>aria-label</code> naming every title | | Glyph list | <code>.ds-access-glyphs-list</code> | the glyphs' tooltip body — one line per triangle | | Care list | <code>.ds-access-care</code> | the details part — a labelled <code>&lt;ul&gt;</code> | | Care item | <code>.ds-access-care-item</code> | title, why, and optionally the id | | Title / why / id | <code>.ds-access-care-title</code>, <code>-why</code>, <code>-id</code> | title required; why on every care scope; id in the details only | | Chips | <code>.ds-access-chips</code> | a labelled <code>&lt;ul&gt;</code> of <code>.ds-access-chip</code> |</p>
+<h4>Variants</h4>
+<p>None. The three parts are depths, not variants: a row takes the glyphs, a details surface takes the care list and the chips, a trust review takes the care list and the chips without the ids.</p>
+<h4>States</h4>
+<p>| Part | State | Treatment | |---|---|---| | Glyphs | Rest | <code>status.warn</code> ink, no ground | | Glyphs | Hover | <code>status.warn-soft</code> ground; the tooltip opens after the shared delay | | Glyphs | Focus-visible | The shared ring, and the tooltip opens at once | | Glyphs | None to show | Nothing is drawn — not an empty box, not a zero | | Care list, chips | — | Display only. No hover, no focus, no pressed state |</p>
+<h4>Usage</h4>
+<ul><li><strong>One triangle per scope that needs care.</strong> Never a number beside a single triangle, and never a capped count: four scopes is four triangles.</li><li><strong>Glyphs sit on the title line,</strong> after the row's meta, so they read as a fact about the extension and not as a control beside the switch.</li><li><strong>The why is six words or fewer.</strong> &quot;Calls GitHub as you&quot;, &quot;Every chat on this machine&quot;. A why that needs a sentence is a scope that needs a better title.</li><li><strong>Never imply enforcement.</strong> The titles say what the extension says it does, never what the app prevents: no &quot;sandboxed&quot;, no &quot;restricted to&quot;.</li><li><strong>Care first, then the rest.</strong> A details surface lists the care scopes, then the chips under a quieter heading (&quot;Also&quot;), so the order is the argument.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The glyph group is one tab stop with <code>role=&quot;img&quot;</code> and an <code>aria-label</code> of the form &quot;Weather Deck needs care: Holds your API keys, Uses the network&quot;. A screen-reader user hears the list without opening anything; the tooltip is for the sighted reader and adds nothing the name does not already say.</li><li>Each triangle inside is <code>aria-hidden</code>; the group is the image.</li><li>Status is never colour alone: the triangle is the shape, the warn ink reinforces it, and the name says it in words.</li><li>The care list and the chips are labelled lists (<code>aria-label</code>, e.g. &quot;Needs care&quot;, &quot;Also&quot;), so the two groups are told apart without the headings being read first.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/AccessSummary.tsx</code>, exporting <code>AccessGlyphs</code>, <code>AccessCareList</code> and <code>AccessChips</code> through the kit barrel (<code>ui/index.ts</code>). Settings → Extensions is the first consumer: the row, the details popover and the trust review.</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/access-summary/component.css</summary><pre><code>/* Access summary — what an installed extension asks to reach, said at three
+ * depths: a glyph count on its list row, a short list in its details and trust
+ * review, and a set of quiet pills for the scopes that need no second look.
+ * Extracted from the shipped `AccessGlyphs`, `AccessCareList` and
+ * `AccessChips` primitives (src/renderer/src/components/ui/AccessSummary.tsx).
+ *
+ * The words are not decided here. Every scope has a short title, and the ones
+ * that need care a why of six words or fewer, in one table beside the full
+ * consent sentences (src/shared/modules/permissions.ts). This draws them. */
+
+/* ── Glyphs — the row's mark ────────────────────────────────────────────── */
+
+/* One warning triangle per scope that needs care. The count is the reading: a
+ * row with three triangles asks for a closer look than a row with one, and a
+ * row with none draws nothing. The glyphs are a tab stop of their own, because
+ * the tooltip naming them opens on focus as well as hover. */
+.ds-access-glyphs {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+  padding: var(--sem-space-2xs) var(--sem-space-xs);
+  border-radius: var(--sem-radius-chip);
+  color: var(--sem-color-status-warn);
+  cursor: help;
+}
+
+.ds-access-glyphs svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* The soft tint is where the pointer is, never at rest: at rest the triangles
+ * are the whole signal, and a tinted box around them would be a pill. */
+.ds-access-glyphs:hover {
+  background: var(--sem-color-status-warn-soft);
+}
+
+.ds-access-glyphs:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* The tooltip body: one line per glyph, the same triangle beside each title,
+ * so the list reads back to the marks it explains. */
+.ds-access-glyphs-list {
+  display: grid;
+  gap: var(--sem-space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-access-glyphs-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+}
+
+.ds-access-glyphs-list svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  color: var(--sem-color-status-warn);
+}
+
+/* ── Care list — details and trust review ──────────────────────────────── */
+
+.ds-access-care {
+  display: grid;
+  gap: var(--sem-space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-access-care-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--sem-space-sm);
+}
+
+.ds-access-care-item svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  /* Level with the first line of the title. */
+  margin-top: var(--sem-space-2xs);
+  color: var(--sem-color-status-warn);
+}
+
+.ds-access-care-title {
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-default);
+}
+
+.ds-access-care-why {
+  grid-column: 2;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+/* The raw scope, for the reader who wants to search for it. Mono, because it
+ * is the identifier itself (see scope-pill for why that matters at this size). */
+.ds-access-care-id {
+  grid-column: 2;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  letter-spacing: var(--sem-font-tracking-wide);
+  color: var(--sem-color-text-subtle);
+}
+
+/* ── Chips — the standard scopes ───────────────────────────────────────── */
+
+/* Disclosed, not flagged: a pill per scope so they can be counted, on the
+ * well ground, with no glyph, no border and no tone. */
+.ds-access-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sem-space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-access-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--sem-icon-size-lg);
+  padding: 0 var(--sem-space-sm);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-well);
+  color: var(--sem-color-text-default);
+  font-size: var(--sem-font-size-meta);
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/access-summary/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Access summary&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+  .demo-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sem-space-sm);
+  }
+  .demo-name {
+    font-size: var(--sem-font-size-body);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-meta {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-tip {
+    display: inline-block;
+    margin-top: var(--sem-space-sm);
+    padding: var(--sem-space-sm) var(--sem-space-md);
+    border: 1px solid var(--sem-color-border-strong);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface-raised);
+    box-shadow: var(--sem-shadow-popover);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-default);
+  }
+  .demo-card {
+    max-width: 400px;
+    padding: var(--sem-space-xl);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface-raised);
+  }
+  .demo-heading {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-heading--second {
+    margin-top: var(--sem-space-lg);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a row's glyphs, with the tooltip body shown open beside them.&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;span class=&quot;demo-name&quot;&gt;Insights&lt;/span&gt;
+    &lt;span class=&quot;demo-meta&quot;&gt;Local build · Unsigned&lt;/span&gt;
+    &lt;span class=&quot;ds-access-glyphs&quot; tabindex=&quot;0&quot; role=&quot;img&quot; aria-label=&quot;Insights needs care: Runs chats with your agents, Reads your home folder, Broad access to Studio&quot;&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;/span&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-tip&quot;&gt;
+    &lt;ul class=&quot;ds-access-glyphs-list&quot;&gt;
+      &lt;li&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;Runs chats with your agents&lt;/li&gt;
+      &lt;li&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;Reads your home folder&lt;/li&gt;
+      &lt;li&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;Broad access to Studio&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;Light — the details: care list with ids, then the standard scopes as chips.&lt;/p&gt;
+  &lt;div class=&quot;demo-card&quot;&gt;
+    &lt;p class=&quot;demo-heading&quot;&gt;Needs care&lt;/p&gt;
+    &lt;ul class=&quot;ds-access-care&quot; aria-label=&quot;Needs care&quot;&gt;
+      &lt;li class=&quot;ds-access-care-item&quot;&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;ds-access-care-title&quot;&gt;Runs chats with your agents&lt;/span&gt;&lt;span class=&quot;ds-access-care-why&quot;&gt;Starts, messages and stops chats&lt;/span&gt;&lt;span class=&quot;ds-access-care-id&quot;&gt;conversation:operate&lt;/span&gt;&lt;/li&gt;
+      &lt;li class=&quot;ds-access-care-item&quot;&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;ds-access-care-title&quot;&gt;Reads your home folder&lt;/span&gt;&lt;span class=&quot;ds-access-care-why&quot;&gt;Including other apps’ data&lt;/span&gt;&lt;span class=&quot;ds-access-care-id&quot;&gt;filesystem:read-home&lt;/span&gt;&lt;/li&gt;
+    &lt;/ul&gt;
+    &lt;p class=&quot;demo-heading demo-heading--second&quot;&gt;Also&lt;/p&gt;
+    &lt;ul class=&quot;ds-access-chips&quot; aria-label=&quot;Also&quot;&gt;
+      &lt;li class=&quot;ds-access-chip&quot;&gt;Reads your projects&lt;/li&gt;
+      &lt;li class=&quot;ds-access-chip&quot;&gt;Sees workspace and git state&lt;/li&gt;
+      &lt;li class=&quot;ds-access-chip&quot;&gt;Saves its own data&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — a row's glyphs, with the tooltip body shown open beside them.&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;span class=&quot;demo-name&quot;&gt;Insights&lt;/span&gt;
+    &lt;span class=&quot;demo-meta&quot;&gt;Local build · Unsigned&lt;/span&gt;
+    &lt;span class=&quot;ds-access-glyphs&quot; tabindex=&quot;0&quot; role=&quot;img&quot; aria-label=&quot;Insights needs care: Runs chats with your agents, Reads your home folder, Broad access to Studio&quot;&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;/span&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-tip&quot;&gt;
+    &lt;ul class=&quot;ds-access-glyphs-list&quot;&gt;
+      &lt;li&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;Runs chats with your agents&lt;/li&gt;
+      &lt;li&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;Reads your home folder&lt;/li&gt;
+      &lt;li&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;Broad access to Studio&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;Dark — the details: care list with ids, then the standard scopes as chips.&lt;/p&gt;
+  &lt;div class=&quot;demo-card&quot;&gt;
+    &lt;p class=&quot;demo-heading&quot;&gt;Needs care&lt;/p&gt;
+    &lt;ul class=&quot;ds-access-care&quot; aria-label=&quot;Needs care&quot;&gt;
+      &lt;li class=&quot;ds-access-care-item&quot;&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;ds-access-care-title&quot;&gt;Runs chats with your agents&lt;/span&gt;&lt;span class=&quot;ds-access-care-why&quot;&gt;Starts, messages and stops chats&lt;/span&gt;&lt;span class=&quot;ds-access-care-id&quot;&gt;conversation:operate&lt;/span&gt;&lt;/li&gt;
+      &lt;li class=&quot;ds-access-care-item&quot;&gt;&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 4.75L20.5 19.25H3.5L12 4.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 10V14M12 16.75H12.01&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;ds-access-care-title&quot;&gt;Reads your home folder&lt;/span&gt;&lt;span class=&quot;ds-access-care-why&quot;&gt;Including other apps’ data&lt;/span&gt;&lt;span class=&quot;ds-access-care-id&quot;&gt;filesystem:read-home&lt;/span&gt;&lt;/li&gt;
+    &lt;/ul&gt;
+    &lt;p class=&quot;demo-heading demo-heading--second&quot;&gt;Also&lt;/p&gt;
+    &lt;ul class=&quot;ds-access-chips&quot; aria-label=&quot;Also&quot;&gt;
+      &lt;li class=&quot;ds-access-chip&quot;&gt;Reads your projects&lt;/li&gt;
+      &lt;li class=&quot;ds-access-chip&quot;&gt;Sees workspace and git state&lt;/li&gt;
+      &lt;li class=&quot;ds-access-chip&quot;&gt;Saves its own data&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
 <div id="component-agent-glyph" class="catalog-view catalog-component">
 <h3>Agent glyph</h3>
 <div class="catalog-component-grid">
@@ -31363,6 +31926,11 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
     </p>
   </div>
   <div class="demo-row">
+    <p style="font-size: var(--sem-font-size-body); font-weight: var(--sem-font-weight-emphasis); margin: 0">
+      <button type="button" class="ds-link-button ds-link-button--name ds-link-button--inherit" aria-haspopup="dialog" aria-expanded="false">Weather Deck</button>
+    </p>
+  </div>
+  <div class="demo-row">
     <button type="button" class="ds-link-button" disabled>Reconnect</button>
   </div>
 </div>
@@ -31385,6 +31953,11 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
     </p>
   </div>
   <div class="demo-row">
+    <p style="font-size: var(--sem-font-size-body); font-weight: var(--sem-font-weight-emphasis); margin: 0">
+      <button type="button" class="ds-link-button ds-link-button--name ds-link-button--inherit" aria-haspopup="dialog" aria-expanded="false">Weather Deck</button>
+    </p>
+  </div>
+  <div class="demo-row">
     <button type="button" class="ds-link-button" disabled>Reconnect</button>
   </div>
 </div>
@@ -31395,13 +31968,13 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p><strong>Why it is not an <code>&lt;a&gt;</code>.</strong> None of these navigates. They call something. A link that is not a link is a lie to the keyboard and to assistive technology, and the address bar it implies never appears.</p>
 <p><strong>Why it is not a ghost [button](../button/component.md).</strong> The ghost is the quietest sized member and still brings a <code>size.control.xs</code> height, an <code>space.sm</code> inset, <code>font.weight.medium</code> and a hover fill. Put that inside a 20px metadata line and the line grows, the words either side stop sitting level with it, and the &quot;link&quot; reads as a control someone forgot to finish. In the consuming product every one of these had stayed a raw <code>&lt;button&gt;</code> with <code>border: 0; background: transparent; padding: 0</code> written out by hand — four declarations cancelling the browser, rather than a shape the system had named.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Link | <code>.ds-link-button</code> | yes — a <code>&lt;button&gt;</code> | | Ink | <code>--quiet</code> | no — the default is accent ink | | Type | <code>--inherit</code> | no — the default is <code>font.size.meta</code> |</p>
+<p>| Part | Class | Required | |---|---|---| | Link | <code>.ds-link-button</code> | yes — a <code>&lt;button&gt;</code> | | Ink | <code>--quiet</code>, <code>--name</code> | no — the default is accent ink | | Type | <code>--inherit</code> | no — the default is <code>font.size.meta</code> |</p>
 <p><code>display: inline</code>, so the link wraps with the sentence rather than sitting in it as a box. The radius exists only so the focus ring has corners to draw round; nothing is painted inside it.</p>
 <h4>Variants</h4>
-<ul><li><strong>Default (accent)</strong> — accent ink, deepening to <code>accent.hover</code>, underlined on hover. Accent as <strong>ink</strong> is inside the budget; what the budget forbids is the accent as a fill, which this never takes.</li><li><strong><code>--quiet</code></strong> — <code>text.muted</code> lifting to <code>text.primary</code>, with a <strong>permanent</strong> underline in <code>border.strong</code> at a 2px offset. The disclosure case: &quot;More&quot;, &quot;Show details&quot;. The underline is standing rather than a hover reveal because a quiet link with no colour and no box is indistinguishable from the sentence around it until the pointer happens to cross it.</li><li><strong><code>--row</code></strong> — a full-width flex row with its parts baseline-aligned, for a LIST of links rather than one set inside a sentence: a column of changed files where the name, the folder and the counts have to line up down the list. It is a variant rather than a caller's own <code>display</code>, because <code>display</code> is the one property the base rule spends on being inline — a competing declaration at equal specificity is resolved by stylesheet order, and a row that quietly fell back to <code>inline</code> would lose its columns entirely. Everything else about the link is unchanged: still no box, no height and no ground.</li></ul>
+<ul><li><strong>Default (accent)</strong> — accent ink, deepening to <code>accent.hover</code>, underlined on hover. Accent as <strong>ink</strong> is inside the budget; what the budget forbids is the accent as a fill, which this never takes.</li><li><strong><code>--quiet</code></strong> — <code>text.muted</code> lifting to <code>text.primary</code>, with a <strong>permanent</strong> underline in <code>border.strong</code> at a 2px offset. The disclosure case: &quot;More&quot;, &quot;Show details&quot;. The underline is standing rather than a hover reveal because a quiet link with no colour and no box is indistinguishable from the sentence around it until the pointer happens to cross it.</li><li><strong><code>--name</code></strong> — <code>text.primary</code>, underlined on hover. The name of the thing a list row is about, when the name is what opens that thing's details: the extensions list in Settings, where a row's name opens its details popover. At rest it has to read as the row's title, not as an action — and the accent would turn every title in the list into a second accent. The hover underline is what says it can be pressed; the row around it may also open the same details on a click, but the name is the keyboard's way in.</li><li><strong><code>--row</code></strong> — a full-width flex row with its parts baseline-aligned, for a LIST of links rather than one set inside a sentence: a column of changed files where the name, the folder and the counts have to line up down the list. It is a variant rather than a caller's own <code>display</code>, because <code>display</code> is the one property the base rule spends on being inline — a competing declaration at equal specificity is resolved by stylesheet order, and a row that quietly fell back to <code>inline</code> would lose its columns entirely. Everything else about the link is unchanged: still no box, no height and no ground.</li></ul>
 <ul><li><strong><code>--inherit</code></strong> — takes the surrounding text's size and weight instead of <code>font.size.meta</code>. For the link set inside prose the caller has already sized: a path inside rendered markdown, a name inside a heading. A size of our own there would make one word of a sentence a different size from the rest of it, which is worse than any consistency it buys.</li></ul>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Per ink above | | Hover | Ink one step; accent adds an underline, quiet already has one | | Focus-visible | The shared ring, at the standard offset | | Disabled | 45% opacity, <code>not-allowed</code>, <strong>underline dropped</strong>, ink kept | | Pressed | <strong>Nothing.</strong> A control that shrank mid-sentence would move the words after it |</p>
+<p>| State | Treatment | |---|---| | Rest | Per ink above | | Hover | Ink one step; accent and name add an underline, quiet already has one | | Focus-visible | The shared ring, at the standard offset | | Disabled | 45% opacity, <code>not-allowed</code>, <strong>underline dropped</strong>, ink kept | | Pressed | <strong>Nothing.</strong> A control that shrank mid-sentence would move the words after it |</p>
 <p><strong>Disabled keeps its ink.</strong> A sentence whose one action has fallen to <code>text.disabled</code> reads as broken copy rather than as an unavailable action, and the disabled step is certified for 3:1 non-text contrast only — it may not carry words.</p>
 <h4>Usage</h4>
 <ul><li><strong>One per sentence.</strong> Two link buttons in one line of copy is a line that wanted a control row.</li><li><strong>The label is a verb or a noun the sentence needs</strong>, never &quot;click here&quot; or &quot;learn more&quot; as a stand-alone. <code>principles.md</code> rejects empty-state copy that explains an obvious interaction; a link is copy.</li><li><strong>Not for a primary action.</strong> If the action is what the view is for, it is a button with a box. A link is for an action the sentence mentions in passing.</li><li><strong>Not for navigation.</strong> A destination the shell can route to is a door and gets a real navigation affordance.</li></ul>
@@ -31467,6 +32040,17 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 }
 
 .ds-link-button--quiet:hover:not(:disabled) {
+  color: var(--sem-color-text-primary);
+}
+
+/* name — the name of the thing a list row is about, when the name opens its
+ * details. Title ink at rest so it reads as the row's title; the hover
+ * underline is what says it can be pressed. */
+.ds-link-button--name {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-link-button--name:hover:not(:disabled) {
   color: var(--sem-color-text-primary);
 }
 
@@ -31557,6 +32141,11 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
     &lt;/p&gt;
   &lt;/div&gt;
   &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;p style=&quot;font-size: var(--sem-font-size-body); font-weight: var(--sem-font-weight-emphasis); margin: 0&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-link-button ds-link-button--name ds-link-button--inherit&quot; aria-haspopup=&quot;dialog&quot; aria-expanded=&quot;false&quot;&gt;Weather Deck&lt;/button&gt;
+    &lt;/p&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-link-button&quot; disabled&gt;Reconnect&lt;/button&gt;
   &lt;/div&gt;
 &lt;/div&gt;
@@ -31576,6 +32165,11 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
   &lt;div class=&quot;demo-row&quot;&gt;
     &lt;p style=&quot;font-size: var(--sem-font-size-body); margin: 0&quot;&gt;
       Changed in &lt;button type=&quot;button&quot; class=&quot;ds-link-button ds-link-button--inherit&quot;&gt;src/renderer/src/components/ui/Buttons.tsx&lt;/button&gt; this morning.
+    &lt;/p&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;p style=&quot;font-size: var(--sem-font-size-body); font-weight: var(--sem-font-weight-emphasis); margin: 0&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-link-button ds-link-button--name ds-link-button--inherit&quot; aria-haspopup=&quot;dialog&quot; aria-expanded=&quot;false&quot;&gt;Weather Deck&lt;/button&gt;
     &lt;/p&gt;
   &lt;/div&gt;
   &lt;div class=&quot;demo-row&quot;&gt;

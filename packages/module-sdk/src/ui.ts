@@ -123,7 +123,12 @@ export const GhostButton: ButtonComponent<GhostButtonProps> = hostProvided()
 /** A bordered button for a secondary action beside a primary one. */
 export const OutlineButton: ButtonComponent<OutlineButtonProps> = hostProvided()
 
-export type LinkInk = 'accent' | 'quiet'
+/**
+ * `accent` (default) for an action set in a sentence; `quiet` for a disclosure
+ * ("More"); `name` for a row's name that opens its own details — title ink,
+ * underlined on hover, so a list of names is not a list of accents.
+ */
+export type LinkInk = 'accent' | 'quiet' | 'name'
 export type LinkUnderline = 'hover' | 'always' | 'never'
 export type LinkLayout = 'inline' | 'row'
 

@@ -107,6 +107,8 @@ for the tokens.
   own row wearing its host-derived badge.
 - `Select` takes `size: 'xs' | 'sm' | 'md'` (default `sm`) to sit level with
   the buttons in its row.
+- `LinkButton` takes `ink: 'name'`: title ink, underlined on hover, for a
+  row's name that opens its details.
 - `CliModelPickerButton` takes `host.listChatRuntimes()` as is;
   `CliRuntimeOption[]` still works. Its doc no longer names the nonexistent
   `listAgentRuntimes()`.

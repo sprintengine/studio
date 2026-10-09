@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Access summary</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+  .demo-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sem-space-sm);
+  }
+  .demo-name {
+    font-size: var(--sem-font-size-body);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-meta {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-tip {
+    display: inline-block;
+    margin-top: var(--sem-space-sm);
+    padding: var(--sem-space-sm) var(--sem-space-md);
+    border: 1px solid var(--sem-color-border-strong);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface-raised);
+    box-shadow: var(--sem-shadow-popover);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-default);
+  }
+  .demo-card {
+    max-width: 400px;
+    padding: var(--sem-space-xl);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface-raised);
+  }
+  .demo-heading {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-heading--second {
+    margin-top: var(--sem-space-lg);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a row's glyphs, with the tooltip body shown open beside them.</p>
+  <div class="demo-row">
+    <span class="demo-name">Insights</span>
+    <span class="demo-meta">Local build · Unsigned</span>
+    <span class="ds-access-glyphs" tabindex="0" role="img" aria-label="Insights needs care: Runs chats with your agents, Reads your home folder, Broad access to Studio"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+  </div>
+  <div class="demo-tip">
+    <ul class="ds-access-glyphs-list">
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Runs chats with your agents</li>
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Reads your home folder</li>
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Broad access to Studio</li>
+    </ul>
+  </div>
+  <p class="demo-label demo-label--second">Light — the details: care list with ids, then the standard scopes as chips.</p>
+  <div class="demo-card">
+    <p class="demo-heading">Needs care</p>
+    <ul class="ds-access-care" aria-label="Needs care">
+      <li class="ds-access-care-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="ds-access-care-title">Runs chats with your agents</span><span class="ds-access-care-why">Starts, messages and stops chats</span><span class="ds-access-care-id">conversation:operate</span></li>
+      <li class="ds-access-care-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="ds-access-care-title">Reads your home folder</span><span class="ds-access-care-why">Including other apps’ data</span><span class="ds-access-care-id">filesystem:read-home</span></li>
+    </ul>
+    <p class="demo-heading demo-heading--second">Also</p>
+    <ul class="ds-access-chips" aria-label="Also">
+      <li class="ds-access-chip">Reads your projects</li>
+      <li class="ds-access-chip">Sees workspace and git state</li>
+      <li class="ds-access-chip">Saves its own data</li>
+    </ul>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — a row's glyphs, with the tooltip body shown open beside them.</p>
+  <div class="demo-row">
+    <span class="demo-name">Insights</span>
+    <span class="demo-meta">Local build · Unsigned</span>
+    <span class="ds-access-glyphs" tabindex="0" role="img" aria-label="Insights needs care: Runs chats with your agents, Reads your home folder, Broad access to Studio"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+  </div>
+  <div class="demo-tip">
+    <ul class="ds-access-glyphs-list">
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Runs chats with your agents</li>
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Reads your home folder</li>
+      <li><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Broad access to Studio</li>
+    </ul>
+  </div>
+  <p class="demo-label demo-label--second">Dark — the details: care list with ids, then the standard scopes as chips.</p>
+  <div class="demo-card">
+    <p class="demo-heading">Needs care</p>
+    <ul class="ds-access-care" aria-label="Needs care">
+      <li class="ds-access-care-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="ds-access-care-title">Runs chats with your agents</span><span class="ds-access-care-why">Starts, messages and stops chats</span><span class="ds-access-care-id">conversation:operate</span></li>
+      <li class="ds-access-care-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10V14M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="ds-access-care-title">Reads your home folder</span><span class="ds-access-care-why">Including other apps’ data</span><span class="ds-access-care-id">filesystem:read-home</span></li>
+    </ul>
+    <p class="demo-heading demo-heading--second">Also</p>
+    <ul class="ds-access-chips" aria-label="Also">
+      <li class="ds-access-chip">Reads your projects</li>
+      <li class="ds-access-chip">Sees workspace and git state</li>
+      <li class="ds-access-chip">Saves its own data</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>
