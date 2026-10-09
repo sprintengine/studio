@@ -129,7 +129,9 @@ export type HeadlessTextResult =
  * Claude Code answers on stdout with its tools off and the system prompt as its
  * own; Codex writes its last message to a file, reports its usage on its JSON
  * event stream, and reads the system prompt ahead of the prompt.
- * `maxOutputTokens` caps the answer through the CLI's own output limit.
+ * `maxOutputTokens` caps the answer through Claude Code's own output limit
+ * (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`); Codex has no such setting, so a Codex call
+ * ignores it.
  */
 export async function generateHeadlessText(
   request: HeadlessTextRequest,
@@ -165,7 +167,6 @@ export async function generateHeadlessText(
           binaryPath: binaryPath.path,
           model,
           reasoning: request.engine.reasoning,
-          maxOutputTokens: request.maxOutputTokens,
           outputPath,
         }),
         ...common,

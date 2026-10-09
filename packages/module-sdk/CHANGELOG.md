@@ -298,8 +298,9 @@ beside it.
   maxOutputTokens?, json?, cli? })`**: one prompt answered by the person's own
   agent CLI (`claude-code` or `codex`; absent, the runtime and model they chose
   for Studio's text generation, else Claude Code) with no workspace or chat,
-  as `{ ok, text, usage, model }` or a typed failure. New permission
-  `agents:generate`. Each module gets two calls at once and eight waiting, and
+  as `{ ok, text, usage, model }` or a typed failure. `maxOutputTokens` is
+  honoured by Claude Code and ignored by Codex, which has no output cap. New
+  permission `agents:generate`. Each module gets two calls at once and eight waiting, and
   thirty a minute. `text-generation`.
 - **`create({ worktree: { name? } })`** starts a chat in a fresh worktree of
   the project, in a workspace of its own; `worktree_unavailable` joins the

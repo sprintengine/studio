@@ -188,7 +188,7 @@ const generated = await getTextGenerationService(host).generate({
   system: 'You write a three-line standup from a work log.',
   cli: 'codex',                            // absent: the person's text-generation runtime, else claude-code
   model: undefined,                        // absent: their chosen model, else the runtime's small one
-  maxOutputTokens: 800,
+  maxOutputTokens: 800,                    // honoured by Claude Code; Codex has no output cap and ignores it
   json: true,                              // the answer is one JSON value; `text` is it, serialised
 })
 if (generated.ok) save(JSON.parse(generated.text), generated.usage)

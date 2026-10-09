@@ -462,7 +462,7 @@ under its own sign-in: no workspace, no chat tab, nothing in their history.
 Studio's text generation in Settings, else `claude-code`. `model` absent takes
 the person's chosen model on their chosen runtime, else the runtime's small
 default (`claude-haiku-4-5`, `gpt-5.6-luna`); `maxOutputTokens` caps the
-answer. Declare `agents:generate` and check
+answer on Claude Code (Codex has no output cap and ignores it). Declare `agents:generate` and check
 `host.supports('text-generation')`. Each module gets two calls at once and
 eight waiting, and more than thirty a minute answer `busy`. Failures are typed
 (`ModuleTextGenerationErrorCode`), never thrown.

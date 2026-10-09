@@ -578,7 +578,8 @@ export type ModuleChatRuntimeOption = {
  *   `haiku`, `gpt-5.6-luna`). Absent, the person's chosen model when the call
  *   runs on their chosen runtime, else that runtime's small default
  *   (`claude-haiku-4-5` for Claude Code, `gpt-5.6-luna` for Codex).
- * - `maxOutputTokens`: a cap on the answer, 1 to 64,000.
+ * - `maxOutputTokens`: a cap on the answer, 1 to 64,000. Claude Code honours
+ *   it; Codex has no output cap and ignores it.
  * - `json`: the answer must be one JSON value. The model is told so, the host
  *   reads the value out of its reply, and `text` is that value serialised;
  *   a reply with no JSON in it answers `invalid_output`.
@@ -587,6 +588,7 @@ export type ModuleTextGenerationInput = {
   prompt: string
   system?: string
   model?: string
+  /** A cap on the answer, 1 to 64,000. Honoured by Claude Code; ignored by Codex, which has no output cap. */
   maxOutputTokens?: number
   json?: boolean
   cli?: string

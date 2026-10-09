@@ -169,15 +169,15 @@ export type CodexTextInvocationInput = {
   binaryPath: string
   model: string
   reasoning?: string | undefined
-  /** A cap on the answer, through Codex's own `model_max_output_tokens`. */
-  maxOutputTokens?: number | undefined
   /** Where Codex is told to write its last message: the answer. */
   outputPath: string
 }
 
 // `codex exec` for free text: the title recipe without an output schema, plus
 // `--json`, whose event stream on stdout is where Codex says what the call
-// spent. The answer is the last message, written to `outputPath`.
+// spent. The answer is the last message, written to `outputPath`. There is no
+// output cap: Codex's configuration has no key for one, and an unknown `-c`
+// key is silently ignored, so passing one would only look like a cap.
 export function codexTextInvocation(input: CodexTextInvocationInput): ChatTitleInvocation {
   return {
     file: input.binaryPath,
@@ -190,7 +190,6 @@ export function codexTextInvocation(input: CodexTextInvocationInput): ChatTitleI
       '--model',
       input.model,
       ...(input.reasoning ? ['-c', `model_reasoning_effort="${input.reasoning}"`] : []),
-      ...(input.maxOutputTokens !== undefined ? ['-c', `model_max_output_tokens=${input.maxOutputTokens}`] : []),
       '--json',
       '--output-last-message',
       input.outputPath,

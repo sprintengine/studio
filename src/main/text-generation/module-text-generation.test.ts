@@ -88,7 +88,6 @@ test('the Codex call writes its last message to a file and reports its usage as 
       binaryPath: '/bin/codex',
       model: 'gpt-5.6-luna',
       reasoning: 'low',
-      maxOutputTokens: 500,
       outputPath: '/tmp/out.txt',
     }).args,
   ).toEqual([
@@ -101,8 +100,6 @@ test('the Codex call writes its last message to a file and reports its usage as 
     'gpt-5.6-luna',
     '-c',
     'model_reasoning_effort="low"',
-    '-c',
-    'model_max_output_tokens=500',
     '--json',
     '--output-last-message',
     '/tmp/out.txt',
@@ -238,7 +235,10 @@ test('generateHeadlessText runs Codex with the instructions ahead of the prompt 
   })
   expect(runs[0]!.file).toBe('/bin/codex')
   expect(runs[0]!.stdin).toBe(codexTextPrompt('Be brief.', 'Summarise this.'))
-  expect(runs[0]!.args).toContain('model_max_output_tokens=300')
+  // Codex has no output cap: no config key carries `maxOutputTokens`, and no
+  // unknown one is passed that would look like a cap and do nothing.
+  expect(runs[0]!.args.join(' ')).not.toMatch(/max_output|output_tokens/)
+  expect(runs[0]!.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBeUndefined()
 })
 
 test('a Codex call that writes no message has no usable answer', async () => {
