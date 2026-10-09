@@ -215,11 +215,30 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
 
 export type ModuleNotificationSeverity = 'info' | 'warning' | 'error'
 
+/**
+ * The door a bell row opens: one of YOUR global surfaces (the id you passed
+ * `registerGlobalSurface`), and optionally one of its `views` to land on. The
+ * host refuses a surface another module registered, so a row can only ever
+ * open its own module's door.
+ */
+export type ModuleNotificationTarget = {
+  surfaceId: string
+  viewId?: string
+}
+
 /** What a module passes to `host.notify(...)`; identity and time are stamped by the host. */
 export type ModuleNotifyInput = {
   severity: ModuleNotificationSeverity
+  /** One line. Non-empty; clipped at 200 characters. */
   title: string
+  /** Clipped at 2000 characters. */
   body?: string
+  /**
+   * Make the row open your door: clicking its Open lands the person on
+   * `surfaceId` (and `viewId`, given). The row is also counted on that door's
+   * Extensions drawer row and read when the door is opened.
+   */
+  target?: ModuleNotificationTarget
 }
 
 export type ModuleNotification = {
@@ -228,6 +247,8 @@ export type ModuleNotification = {
   severity: ModuleNotificationSeverity
   title: string
   body?: string
+  /** The door the row opens, when the module named one. */
+  target?: ModuleNotificationTarget
   /** Epoch ms at emission, assigned by the kernel. */
   emittedAt: number
 }
@@ -480,8 +501,14 @@ export type MainHost = {
    */
   registerSidecar(spec: SidecarSpec): SidecarHandle
   /**
-   * Surface a user-visible status notification. Identity is stamped from this
-   * host's scope; emission is flood-bounded per module.
+   * Put a row in the notification bell of every open window, under your
+   * module's display name (stamped by the host — never taken from you). Give
+   * it a `target` and its Open lands on your door; add more actions with a
+   * renderer `registerNotificationActionProvider({ source: <your module id> })`.
+   * Invalid input throws. Flood-bounded per module: an identical repeat within
+   * 10 s, or more than 20 rows in 10 s, is dropped — fold a burst into one row.
+   * A row sent while no window is open is kept (the last 50) and filed when
+   * one opens. `supports('notifications')` is false where nothing would show it.
    */
   notify(input: ModuleNotifyInput): void
   /**
@@ -1406,7 +1433,13 @@ export type ModuleCommandDefinition = {
    */
   availability?: readonly CommandAvailability[] | ((context: ModuleCommandContext) => boolean)
   allowInEditableTarget?: boolean
-  run: () => void | Promise<void>
+  /**
+   * The handler. It receives the `ModuleCommandContext` the availability
+   * predicate was judged on, from the window the command ran in — so "this
+   * workspace" is `context.activeWorkspaceId`. A zero-argument handler is
+   * still valid (`supports('command-context')` says whether the host passes it).
+   */
+  run: (context: ModuleCommandContext) => void | Promise<void>
 }
 
 // ── Settings sections ────────────────────────────────────────────────────────
@@ -1434,43 +1467,72 @@ export type SettingsSectionDefinition = {
 
 // ── Sidebar nav entries ──────────────────────────────────────────────────────
 
+/**
+ * A drawer row's count, as the host derived it: your door badge's waiting
+ * count plus your unread bell rows filed under the door. Draw it with the
+ * kit's `SidebarNavButton` `badge` prop so it reads like every other row's.
+ */
+export type SidebarNavEntryBadge = {
+  count: number
+  tone: 'neutral' | 'accent' | 'good' | 'warn' | 'error'
+  /** The count's full accessible name ("Task Board: 2 waiting on you"). */
+  label: string
+  /** The same without the place ("2 waiting on you"), for a row that already names itself. */
+  detail?: string
+}
+
 export type SidebarNavEntryRenderProps = {
   /** The sidebar is collapsed to the icon rail; render icon-only with a tooltip. */
   collapsed: boolean
+  /**
+   * The count the host derived for your row, or null/absent for none. The host
+   * counts so the row and the app rail's Extensions square above it agree;
+   * wear this rather than drawing a count of your own.
+   */
+  badge?: SidebarNavEntryBadge | null
 }
 
 export type SidebarNavEntryComponent =
   ComponentType<SidebarNavEntryRenderProps> | LazyExoticComponent<ComponentType<SidebarNavEntryRenderProps>>
 
 /**
- * A top-nav door your module contributes to the workspace sidebar's
- * instance-level nav cluster (the band holding New chat and
- * Connectors). The entry is a self-contained row component that owns its full
- * behavior — a status dot, an open action against the local window's store,
- * active state. The sidebar shows it only while your module is enabled and
- * places it by `order`, so the toggle adds/removes the door without a reload.
+ * Your own drawing of a door's row. Installed doors live in the Extensions
+ * drawer; a nav entry whose `id` is the id of a global surface YOUR module
+ * registered is drawn there AS that door's row, in place of the generic
+ * label-and-glyph one (and in place of its view rows, if it has views). An
+ * entry whose id names no surface of yours is not drawn. The component owns
+ * its open action and its reading of selected, and is handed `collapsed` and
+ * the host's `badge`. Shown only while your module is enabled, so the toggle
+ * adds/removes the row without a reload. Most doors need no nav entry: a
+ * `label` and `Icon` on the surface already give it a row.
  */
 export type SidebarNavEntryDefinition = {
+  /** The id of the global surface this row is the door of. */
   id: string
-  /** Sort key in the top-nav cluster; lower renders first. Built-in doors reserve 0–30. */
+  /** Sort key among nav entries; lower first, ties on id. */
   order: number
   Component: SidebarNavEntryComponent
 }
 
 /**
- * A waiting-count your module contributes for a drawer / nav-entry row. The
- * shell merges this with that row's unread bell news; the contribution is
- * gone with the module, so a count with no row never appears.
+ * A waiting count your module contributes for one of its doors' Extensions
+ * drawer rows. The shell merges it with that row's unread bell news; the
+ * contribution is gone with the module, so a count with no row never appears.
  */
 export type DoorBadgeContribution = {
-  /** Matches your sidebar nav entry id / the shell's drawer row id. */
+  /**
+   * The id of one of YOUR global surfaces: its Extensions drawer row wears the
+   * count (the first row, for a surface with `views`). A row id another
+   * module's surface holds counts nothing.
+   */
   rowId: string
   /** Live items on this door waiting on the operator. Not a React hook. */
   getWaitingCount(): number
   subscribe(onChange: () => void): () => void
   /**
-   * Notification source whose unnamed rows fall to this door. An emitter that
-   * knows the row still sets `extensionsRow` on the notification itself.
+   * Set it to your module id to file your untargeted `notify` rows under this
+   * door (a module with one door gets that by default; one with several says
+   * which here). A row with a `target` is filed under its target's door.
    */
   notificationSource?: string
 }
@@ -1525,8 +1587,10 @@ export type SurfaceRailPlacement = 'sidebar' | 'inline'
  */
 export type SurfaceViewDefinition = {
   /**
-   * Unique within your surface. Publish this id while the surface is showing
-   * this view, so exactly one of your rows reads selected.
+   * Unique within your surface. Publish it with
+   * `host.setSurfaceView(surfaceId, id)` while the surface is showing this
+   * view (and `null` as it unmounts), so exactly one of your rows reads
+   * selected.
    */
   id: string
   /** The row's label and accessible name. Non-empty; sentence case. */
@@ -1545,10 +1609,11 @@ export type SurfaceViewDefinition = {
 /**
  * The full-page surface behind a top-level door. A global surface is a
  * first-class extension point: it is instance-global, needs no workspace
- * type, panel, or project scope, and owns its own data and layout. Pair it
- * with a sidebar nav entry whose open action routes to the same `id` — the
- * shell mounts the surface over the workspace card region when that door
- * opens, gated on your module's live enablement. The component is zero-prop,
+ * type, panel, or project scope, and owns its own data and layout. With a
+ * `label` and `Icon` it gets a row in the Extensions drawer (and a tile on the
+ * Extensions home); the shell mounts the surface over the workspace card
+ * region when that row — or your own `openGlobalSurface(id)` — opens it,
+ * gated on your module's live enablement. The component is zero-prop,
  * eager or `React.lazy()`. While your module is uninstalled or disabled, the
  * shell renders an explicit "not installed" door in its place and keeps the
  * user's spot; re-enabling restores the surface without a reload.
@@ -1709,6 +1774,12 @@ export type ModuleFocusTabInput = {
 export type NotificationActionView = {
   workspaceId?: string
   navigationTarget?: { kind: string; ref: string }
+  /** The row's title (your `notify` title, for one of your rows). */
+  title?: string
+  /** The row's body text (your `notify` body; empty when you sent none). */
+  message?: string
+  /** The `target` your `notify` named, on one of your rows. */
+  surfaceTarget?: ModuleNotificationTarget
 }
 
 export type NotificationActionContext = {
@@ -1725,16 +1796,55 @@ export type NotificationAction = {
 }
 
 export type NotificationActionProvider = {
-  /** The notification source this provider owns — the emitter tag its module writes. */
+  /**
+   * Your module id (`host.moduleId`): your `MainHost.notify` rows are filed
+   * under it, and an installed module may register no other source.
+   */
   source: string
   resolveActions(context: NotificationActionContext): NotificationAction[]
 }
+
+// ── Toasts, links and window context (renderer) ──────────────────────────────
+
+/** A toast's tone. `good` for done, `warn`/`error` for trouble, `neutral`/`accent` for plain news. */
+export type ModuleToastTone = 'neutral' | 'accent' | 'good' | 'warn' | 'error'
+
+/**
+ * Transient feedback — the answer to "did it work?" after a command or a click
+ * in your door. Shown in the app's toast region with your module's name under
+ * your message; leaves on its own (5 s, or 10 s for warn and error, held while
+ * hovered). Anything the person must be able to find again belongs in the bell
+ * (`MainHost.notify`), not here.
+ */
+export type ModuleToastInput = {
+  tone: ModuleToastTone
+  /** One line, sentence case. Non-empty; clipped at 200 characters. */
+  message: string
+  /** An optional second line; clipped at 500 characters. */
+  detail?: string
+  /** At most one button. Pressing it dismisses the toast and runs `run`. */
+  action?: { label: string; run: () => void | Promise<void> }
+}
+
+/**
+ * `RendererHost.openExternal`'s answer: `invalid_url` for anything but an
+ * absolute http(s) URL, `unavailable` while your module is off or before the
+ * window can open links, `failed` when the system refused.
+ */
+export type ModuleOpenExternalResult =
+  { ok: true } | { ok: false; code: 'invalid_url' | 'unavailable' | 'failed'; message: string }
 
 // ── Renderer host registration contract ──────────────────────────────────────
 
 export type RendererHost = {
   /** The host API this app provides (`HOST_API_VERSION` of the SDK it was built with). */
   readonly hostApiVersion: number
+  /**
+   * Your module id, as your manifest declares it — the prefix your `invoke`
+   * channels carry and the `source` your bell rows are filed under. Absent on a
+   * host older than `supports('module-id')`.
+   */
+  readonly moduleId: string
   /**
    * Whether the running host provides `capability` now. False for names it
    * does not know, so a module may probe for capabilities newer than its SDK.
@@ -1767,23 +1877,29 @@ export type RendererHost = {
    */
   registerFileAction(action: FileAction): void
   /**
-   * Contribute Open actions for bell rows of `provider.source`. One provider
-   * per source; a duplicate is a registration error. A provider that returns
-   * no actions leaves the shell's generic workspace-reveal fallback in place.
+   * Contribute actions for your own bell rows: register with
+   * `source: host.moduleId` and the actions you return appear on every
+   * `MainHost.notify` row your module sent, beside the Open its `target`
+   * gives it. One provider per source; a duplicate, or (for an installed
+   * module) a source other than your own id, is a registration error.
    */
   registerNotificationActionProvider(provider: NotificationActionProvider): void
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
   /**
-   * Contribute a top-nav door to the workspace sidebar. Registered once at
-   * boot; the sidebar filters by your module's enablement and orders by
-   * `order`, so toggling your module shows/hides the door without a reload.
+   * Draw your own row for one of your doors: the entry whose `id` is one of
+   * your global surfaces' ids replaces that door's generic row in the
+   * Extensions drawer, and is handed `collapsed` and the host's `badge`
+   * (`supports('sidebar-nav-entries')`). Registered once at boot; shown only
+   * while your module is enabled.
    */
   registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
   /**
-   * Contribute the waiting-count a drawer / nav-entry row wears. The shell
-   * merges this with that row's unread bell news; the contribution is gone
-   * with the module. Duplicate `rowId` is a registration error.
+   * Contribute the waiting count your door's drawer row wears: `rowId` is the
+   * id of one of your global surfaces. The shell adds your unread bell rows
+   * filed under the door, and the app rail's Extensions square sums the rows
+   * (`supports('door-badges')`). Gone with the module. Duplicate `rowId` is a
+   * registration error.
    */
   registerDoorBadge(contribution: DoorBadgeContribution): void
   /**
@@ -1795,8 +1911,9 @@ export type RendererHost = {
    */
   registerTopBarItem(definition: TopBarItemDefinition): void
   /**
-   * Contribute the door-routed full-page surface behind a sidebar nav entry
-   * with the same id. Registered once at boot; the shell gates the mount on
+   * Contribute a door: the full-page surface behind an Extensions drawer row
+   * (from its `label` and `Icon`, or your own nav entry with the same id).
+   * Registered once at boot; the shell gates the mount on
    * your module's enablement, so the toggle swaps the page for the explicit
    * "not installed" door (and back) without a reload. An id already claimed
    * by another module is a registration error, reported as a module load
@@ -2024,6 +2141,41 @@ export type RendererHost = {
    */
   listChatRuntimes(): ModuleChatRuntimeOption[]
   /**
+   * Show a toast: transient feedback in the app's toast region, under your
+   * module's name. Returns its dismisser. An empty message, an unknown tone or
+   * a malformed action throws; while your module is disabled, or in a window
+   * with no toast region (`supports('toast')` is false), nothing shows and the
+   * dismisser does nothing.
+   */
+  toast(input: ModuleToastInput): () => void
+  /**
+   * The workspace this window is showing, or null — none is open. The same id
+   * a command's `ModuleCommandContext.activeWorkspaceId` carries
+   * (`supports('active-workspace')`).
+   */
+  getActiveWorkspaceId(): string | null
+  /**
+   * Observe the workspace this window is showing: `cb` fires once with the
+   * current id (null for none), then whenever it changes. Returns the
+   * unsubscriber; call it on unmount.
+   */
+  watchActiveWorkspace(cb: (workspaceId: string | null) => void): () => void
+  /**
+   * Say which of your surface's `views` it is showing, so exactly that drawer
+   * row reads selected — including after the person moved with your own rail.
+   * Pass `null` as the surface unmounts. False for a surface that is not
+   * yours, a view id it does not declare, or while your module is disabled
+   * (`supports('surface-view')`).
+   */
+  setSurfaceView(surfaceId: string, viewId: string | null): boolean
+  /**
+   * Open an http(s) URL in the system browser through the app's own link
+   * path — never in the app's window. Anything but an absolute http(s) URL
+   * (no credentials) is refused as `invalid_url` before it leaves your code.
+   * Expected failures come back as a result, never a throw.
+   */
+  openExternal(url: string): Promise<ModuleOpenExternalResult>
+  /**
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`, e.g. `host.invoke('my-module:save', data)`.
    *
@@ -2182,6 +2334,21 @@ export const THEME_TOKENS = [
   '--tone-good',
   '--tone-error',
   '--tone-merged',
+  // Categorical chart series, in ORDER: series N takes `--chart-N`, never
+  // cycled and never re-assigned by rank — the order is what keeps neighbours
+  // apart under colour-vision deficiency. A ninth series folds into the
+  // neutral `--chart-other`. They are never status: a series that means good
+  // or bad wears `--tone-good` / `--tone-warn` / `--tone-error` instead. Each
+  // clears 3:1 against `--bg-surface` on every theme.
+  '--chart-1',
+  '--chart-2',
+  '--chart-3',
+  '--chart-4',
+  '--chart-5',
+  '--chart-6',
+  '--chart-7',
+  '--chart-8',
+  '--chart-other',
   // Motion. `--motion-normal` is a duration, `--motion-ease` a timing
   // function: use them together on a transition or animation so module UI
   // moves at the app's pace instead of inventing its own.

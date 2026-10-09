@@ -291,6 +291,11 @@ import type * as appBrokers from '../../../src/shared/modules/brokers'
 import type * as appBacklogService from '../../../src/shared/modules/backlog-service'
 import type * as appActivity from '../../../src/shared/modules/activity-service'
 import type { BacklogItem as AppBacklogItem } from '../../../src/shared/backlog/scan'
+// Shell surfaces and the renderer host's feedback, link and context members:
+// read as namespaces so this block's imports stay in one place.
+import type * as appRendererHost from '../../../src/renderer/src/modules/renderer-host'
+import type * as appNotifications from '../../../src/shared/modules/notifications'
+import type { RowBadge as AppRowBadge } from '../../../src/renderer/src/components/workspace/SidebarNavButton'
 
 type Extends<A, B> = [A] extends [B] ? true : false
 // Type identity via the generic-function-identity trick: detects added/removed
@@ -517,6 +522,38 @@ expectType<IsExact<ReturnType<NonNullable<AppCapabilityModule['registerMain']>>,
 expectType<IsExact<Parameters<SdkRegisterMain>, [host: SdkMainHost]>>()
 expectType<IsExact<Parameters<SdkRegisterRenderer>, [host: SdkRendererHost]>>()
 expectType<IsExact<ReturnType<SdkRegisterRenderer>, void | Promise<void>>>()
+
+// ── Shell surfaces, notifications and renderer-host context ─────────────────
+// Each pinned exactly: the one-directional host assertion compares method
+// parameters bivariantly, so a widened parameter or a dropped optional on any
+// of these would ride through unnoticed.
+
+// A module's notify reaches the bell: the target it may name, on the input
+// and on the published notification.
+expectType<IsExact<appNotifications.ModuleNotificationTarget, sdk.ModuleNotificationTarget>>()
+expectType<IsExact<AppMainHost['notify'], SdkMainHost['notify']>>()
+// Commands hear their context; the handler's parameter is the published view.
+expectType<IsExact<Parameters<AppModuleCommandDefinition['run']>, Parameters<SdkModuleCommandDefinition['run']>>>()
+// The host-derived count a module's own row wears is the badge the shell
+// draws everywhere else.
+expectType<IsExact<AppRowBadge, sdk.SidebarNavEntryBadge>>()
+expectType<
+  IsExact<
+    NonNullable<appRendererHost.SidebarNavEntryRenderProps['badge']>,
+    NonNullable<sdk.SidebarNavEntryRenderProps['badge']>
+  >
+>()
+expectType<IsExact<appRendererHost.SidebarNavEntryRenderProps, sdk.SidebarNavEntryRenderProps>>()
+// Toasts, links, identity, the active workspace and the published surface view.
+expectType<IsExact<appRendererHost.ModuleToastTone, sdk.ModuleToastTone>>()
+expectType<IsExact<appRendererHost.ModuleToastInput, sdk.ModuleToastInput>>()
+expectType<IsExact<appRendererHost.ModuleOpenExternalResult, sdk.ModuleOpenExternalResult>>()
+expectType<IsExact<AppRendererHost['moduleId'], SdkRendererHost['moduleId']>>()
+expectType<IsExact<AppRendererHost['toast'], SdkRendererHost['toast']>>()
+expectType<IsExact<AppRendererHost['getActiveWorkspaceId'], SdkRendererHost['getActiveWorkspaceId']>>()
+expectType<IsExact<AppRendererHost['watchActiveWorkspace'], SdkRendererHost['watchActiveWorkspace']>>()
+expectType<IsExact<AppRendererHost['setSurfaceView'], SdkRendererHost['setSurfaceView']>>()
+expectType<IsExact<AppRendererHost['openExternal'], SdkRendererHost['openExternal']>>()
 
 // ── Host API version, conversations, brokered credentials ──────────────────
 // Every shape exact. The event, status and attachment types are the app's own
@@ -806,8 +843,9 @@ for (const file of ['conversation.d.ts', 'brokers.d.ts', 'host-api.d.ts', 'backl
 //     against the published types is accepted by the component the host will
 //     actually render. This is the assertion that must never be weakened.
 //   - `IsExact` where the SDK restates the app's props verbatim, which is all
-//     of them today. It catches the drift `Extends` cannot: a prop ADDED on
-//     the app side, which a module would never be able to reach.
+//     of them but the two published narrowings (PanelHeader, SidebarNavButton).
+//     It catches the drift `Extends` cannot: a prop ADDED on the app side,
+//     which a module would never be able to reach.
 //
 // The two runtime `Object.keys` checks below are the other half: a component
 // added to (or dropped from) either side without the other fails here rather
@@ -893,8 +931,47 @@ expectType<
   >
 >()
 
+expectType<
+  Extends<React.ComponentProps<typeof sdkUi.DateTimeInput>, React.ComponentProps<typeof appSdkUi.DateTimeInput>>
+>()
+expectType<
+  IsExact<React.ComponentProps<typeof sdkUi.DateTimeInput>, React.ComponentProps<typeof appSdkUi.DateTimeInput>>
+>()
+// `Toggle` is the app's `Switch` under its published name.
+expectType<Extends<React.ComponentProps<typeof sdkUi.Toggle>, React.ComponentProps<typeof appSdkUi.Toggle>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.Toggle>, React.ComponentProps<typeof appSdkUi.Toggle>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.ContextMenu>, React.ComponentProps<typeof appSdkUi.ContextMenu>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.ContextMenu>, React.ComponentProps<typeof appSdkUi.ContextMenu>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.MenuItem>, React.ComponentProps<typeof appSdkUi.MenuItem>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.MenuItem>, React.ComponentProps<typeof appSdkUi.MenuItem>>>()
+// MenuDivider takes no props; the host's must still be callable as the SDK says.
+expectType<Extends<typeof appSdkUi.MenuDivider, typeof sdkUi.MenuDivider>>()
+// `Chip` is the app's static `MicroChip` under its published name.
+expectType<Extends<React.ComponentProps<typeof sdkUi.Chip>, React.ComponentProps<typeof appSdkUi.Chip>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.Chip>, React.ComponentProps<typeof appSdkUi.Chip>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.ChipButton>, React.ComponentProps<typeof appSdkUi.ChipButton>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.ChipButton>, React.ComponentProps<typeof appSdkUi.ChipButton>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.TaskCard>, React.ComponentProps<typeof appSdkUi.TaskCard>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.TaskCard>, React.ComponentProps<typeof appSdkUi.TaskCard>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.BoardLane>, React.ComponentProps<typeof appSdkUi.BoardLane>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.BoardLane>, React.ComponentProps<typeof appSdkUi.BoardLane>>>()
+expectType<
+  Extends<React.ComponentProps<typeof sdkUi.SafeMarkdown>, React.ComponentProps<typeof appSdkUi.SafeMarkdown>>
+>()
+expectType<
+  IsExact<React.ComponentProps<typeof sdkUi.SafeMarkdown>, React.ComponentProps<typeof appSdkUi.SafeMarkdown>>
+>()
+// SidebarNavButton is a published NARROWING: the drop-target highlight and the
+// drag handlers serve the shell's tab-extract gesture and are not offered.
+expectType<
+  Extends<React.ComponentProps<typeof sdkUi.SidebarNavButton>, React.ComponentProps<typeof appSdkUi.SidebarNavButton>>
+>()
+
 // Shared vocabulary the kit's props are written in.
 expectType<IsExact<typeof sdkUi.FOCUS_RING_CLASS, string>>()
+expectType<IsExact<sdkUi.SelectSize, appSdkUi.SelectSize>>()
+expectType<IsExact<sdkUi.RowBadge, appSdkUi.RowBadge>>()
+expectType<IsExact<sdkUi.CliRuntimePickerOption, appSdkUi.CliRuntimePickerOption>>()
 expectType<IsExact<sdkUi.Tone, appSdkUi.Tone>>()
 expectType<IsExact<sdkUi.LifecycleState, appSdkUi.LifecycleState>>()
 expectType<IsExact<sdkUi.FilterMenuGroup, appSdkUi.FilterMenuGroup>>()
@@ -967,6 +1044,17 @@ const SDK_UI_EXPORT_NAMES = [
   'TruncatedText',
   'FOCUS_RING_CLASS',
   'CliModelPickerButton',
+  'DateTimeInput',
+  'Toggle',
+  'ContextMenu',
+  'MenuItem',
+  'MenuDivider',
+  'Chip',
+  'ChipButton',
+  'TaskCard',
+  'BoardLane',
+  'SafeMarkdown',
+  'SidebarNavButton',
 ] as const
 const SDK_SURFACE_EXPORT_NAMES = [
   'GlobalSurfaceShell',

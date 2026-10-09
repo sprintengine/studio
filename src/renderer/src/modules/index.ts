@@ -399,6 +399,28 @@ if (typeof window !== 'undefined') {
             state.appSettings.lastSelectedCli ?? null,
           )
         })
+        // The app's own external-link path: main opens http(s) in the system
+        // browser (window:open-external), never in this window.
+        if (typeof window.api?.openExternal === 'function') {
+          rendererHost.setExternalLinkOpener((url) => window.api.openExternal(url))
+        }
+        // The workspace this window is showing: its own window record's
+        // active workspace, the record WorkspaceManager reads, and null when
+        // that id names no open workspace.
+        rendererHost.setActiveWorkspaceSource({
+          get: () => {
+            const state = useWorkspaceStore.getState()
+            const windowState =
+              state.workspaceWindows.find((entry) => entry.id === currentWindowId) ??
+              state.workspaceWindows.find((entry) => entry.id === (state.primaryWorkspaceWindowId || 'primary'))
+            const id = windowState?.activeWorkspaceId ?? null
+            return id && state.workspaces.some((workspace) => workspace.id === id) ? id : null
+          },
+          subscribe: (onChange) =>
+            useWorkspaceStore.subscribe((state, prev) => {
+              if (state.workspaceWindows !== prev.workspaceWindows || state.workspaces !== prev.workspaces) onChange()
+            }),
+        })
         // Boot measurement: the deferred batch above is the one part of
         // boot that was moved OUT of the eager chunk to reach the first paint
         // sooner, so how long it takes to settle — and whether it lands before or

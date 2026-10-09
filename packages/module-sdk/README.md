@@ -349,8 +349,15 @@ move the request elsewhere is `invalid_route`. Declare `github`; check
 - `onStartup`, `onShutdownBegin` and `onShutdown` hooks.
 - `registerSidecar(spec)` — a declaration the host lists; it does not spawn it.
   Spawn your own process if you need one (declare `process:spawn`).
-- `notify({ severity, title, body? })` — a bell notification, stamped with your
-  module's identity and flood-bounded.
+- `notify({ severity, title, body?, target? })` — a row in the bell of every
+  open window, under your module's display name (stamped by the host).
+  `target: { surfaceId, viewId? }` names one of your own doors: the row's Open
+  lands there, and the row counts on that door's drawer row until the door is
+  opened. Flood-bounded per module (an identical repeat within 10 s, or more
+  than 20 in 10 s, is dropped — fold a burst into one row). A row sent before
+  any window is open is kept and filed when one opens; this works the same
+  when Studio's server runs in a process of its own. Check
+  `host.supports('notifications')`.
 - `emit(topic, payload?)` — a module event to your own renderer (below).
 - `registerMcpTools(tools)` — tools agents call through the always-on Studio
   MCP gateway, owned by your module id. Declare `mcp:tools`. A tool counts as
@@ -367,12 +374,34 @@ your module's enablement, so turning it off removes it without a reload; an id
 another module already holds is a registration error that fails your module's
 load.
 
+- **Who you are:** `moduleId` — your manifest id, the prefix of your
+  `invoke` channels.
 - **Where you appear:** `registerPanel`, `registerWorkspaceType`,
   `registerSidebarNavEntry`, `registerGlobalSurface`, `registerModalSurface`,
   `registerTopBarItem`, `registerSettingsSection`, `registerCommand`,
   `registerBacklogItemAction`, `registerBacklogLinkProvider`,
   `registerFileAction`, `registerNotificationActionProvider`,
   `registerDoorBadge`.
+- **Your door's row:** a global surface with a `label` and `Icon` is a row in
+  the Extensions drawer. `registerDoorBadge({ rowId: <surface id>, … })` puts
+  your waiting count on it, beside your unread bell rows that `target` the
+  door. `registerSidebarNavEntry({ id: <surface id>, … })` draws that row
+  yourself (handed `{ collapsed, badge }`) instead of the generic one; an
+  entry whose id names none of your surfaces is not drawn.
+  `setSurfaceView(surfaceId, viewId)` says which of your surface's `views` is
+  showing, so the right row reads selected.
+- **Commands:** `registerCommand({ …, run(context) })` — `run` receives the
+  `ModuleCommandContext` (`activeWorkspaceId`, `activeWorkspaceMode`) of the
+  window it ran in. A zero-argument `run` still works.
+- **Telling the person:** `toast({ tone, message, detail?, action? })` for
+  transient feedback in the app's toast region (one optional button); the
+  bell (`MainHost.notify`) for anything they must find again.
+  `registerNotificationActionProvider({ source: host.moduleId, … })` adds
+  actions to your own bell rows.
+- **Links:** `openExternal(url)` opens an http(s) URL in the system browser
+  through the app's own link path; anything else is refused.
+- **The window:** `getActiveWorkspaceId()` and `watchActiveWorkspace(cb)` —
+  the workspace this window is showing.
 - **Opening your own surfaces:** `openGlobalSurface(id)` and
   `openModalSurface(id)` open a surface **your module registered** — the page
   behind your door, or your modal over the window — from a command, a panel
@@ -652,11 +681,17 @@ esbuild src/renderer.tsx --bundle --format=esm --outfile=module/dist/renderer.mj
 
 `/ui`: `GhostButton`, `OutlineButton`, `PrimaryButton`, `Banner`,
 `PanelHeader`, `Drawer`, `EmptyState`, `Field`, `Input`, `Textarea`,
-`InlineNotice`, `KbdChord`, `LifecycleGlyph`, `LinkButton`, `RowButton`,
-`Section`, `SegmentedControl`, `Select`, `Spinner`, `StatusDot`,
-`TruncatedText`, `CliModelPickerButton`, `FOCUS_RING_CLASS`, and their props.
+`DateTimeInput`, `Toggle`, `InlineNotice`, `KbdChord`, `LifecycleGlyph`,
+`LinkButton`, `RowButton`, `Section`, `SegmentedControl`, `Select` (with a
+`size`), `Spinner`, `StatusDot`, `TruncatedText`, `Chip`, `ChipButton`,
+`ContextMenu`, `MenuItem`, `MenuDivider`, `TaskCard`, `BoardLane`,
+`SafeMarkdown`, `SidebarNavButton`, `CliModelPickerButton` (feed it
+`host.listChatRuntimes()` directly), `FOCUS_RING_CLASS`, and their props.
 `/surface`: `GlobalSurfaceShell`, `useSurfaceBackNav`, `SurfaceRail`,
 `SurfaceCanvasState`, and their props.
+
+Charts take the ordered categorical series `--chart-1` … `--chart-8` and the
+neutral `--chart-other` from `THEME_TOKENS` — never a status tone as a series.
 
 **Tailwind classes you write produce no CSS** — the app's build scans app
 source only. Write plain CSS against the theme tokens, or build a

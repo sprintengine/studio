@@ -70,7 +70,8 @@ Then in Studio: **Settings → Modules**, find the module, trust it.
 | The idea needs… | API (renderer unless noted) | Permission | Template |
 | --- | --- | --- | --- |
 | A command in the palette | `registerCommand` | — | blank |
-| A page of its own, opened from the Extensions drawer or a sidebar row | `registerGlobalSurface({ id, label, Icon, Component })` + `@sprintengine/module-sdk/surface`; a `registerSidebarNavEntry` row calls `openGlobalSurface(id)` | per data read | global-surface |
+| A page of its own, opened from the Extensions drawer | `registerGlobalSurface({ id, label, Icon, Component })` + `@sprintengine/module-sdk/surface`; its count with `registerDoorBadge({ rowId: id })` | per data read | global-surface |
+| Tell the person something happened | main: `host.notify({ severity, title, target })` (the bell; `target` opens your door); renderer: `host.toast({ tone, message })` (transient) | — | — |
 | A panel inside a workspace | `registerPanel` + a `registerWorkspaceType` whose layout places it | per data read | panel |
 | A new kind of workspace, with a setup step | `registerWorkspaceType({ creationStep, createWorkspace })` | `storage` for its state | workspace-type |
 | One control in the top bar | `registerTopBarItem` | — | top-bar-item |

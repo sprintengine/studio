@@ -20,7 +20,7 @@ entry loads only after a Studio restart.
 | `emit(topic, payload?)` | Push a signal to your renderer's `host.subscribe(topic, cb)` in every window. No replay. |
 | `registerMcpTools(tools)` | Tools on the Studio MCP gateway every agent is connected to. Needs `mcp:tools`. |
 | `registerSkills(skills)` / `ensureSkillInstalled(root, id)` | Ship skills (folders with SKILL.md) inside the module and put them in a workspace. |
-| `notify({ severity, title, body? })` | A bell notification, stamped with the module's identity. Bounded per module. |
+| `notify({ severity, title, body?, target? })` | A row in the bell of every open window, under the module's display name. `target: { surfaceId, viewId? }` (one of your own doors) gives the row an Open that lands there and counts it on that door's drawer row. Dropped: an identical repeat within 10 s, or more than 20 rows in 10 s — fold a burst into one row. Rows sent before a window opens are kept (last 50). Add actions from the renderer with `registerNotificationActionProvider({ source: host.moduleId })`. `supports('notifications')` is false where no window can show it. |
 | `onStartup(hook)` / `onShutdownBegin(hook)` / `onShutdown(hook)` | Start watchers on startup; stop loops at shutdown begin; release everything at shutdown. |
 | `requireService(token)` / `getService(token)` | Host services by token (below). `requireService` throws when absent. |
 | `provideService(token, factory)` | Offer a service to modules that depend on yours. |

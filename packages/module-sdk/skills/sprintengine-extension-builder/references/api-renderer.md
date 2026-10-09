@@ -16,15 +16,16 @@ id.
 
 | Member | Notes |
 | --- | --- |
+| `moduleId` | Your manifest id: the prefix of your `invoke` channels, the `source` your bell rows are filed under. |
 | `hostApiVersion` | The host API Studio provides. |
-| `supports(capability)` | `'conversations'`, `'chat.open'`, `'storage'`, `'secrets'`, `'github'`, `'module-assets'`, … Unknown names answer `false`. Check before relying on a newer capability. |
+| `supports(capability)` | `'conversations'`, `'chat.open'`, `'storage'`, `'secrets'`, `'github'`, `'module-assets'`, `'toast'`, `'notifications'`, `'open-external'`, … Unknown names answer `false`. Check before relying on a newer capability. |
 | `getAssetUrl(relativePath)` | A stable `studio-module:` URL for a file inside the installed module (no leading slash, no `..`). The way to reach HTML, images, WASM: the bundle itself runs from a blob URL, so relative URLs do not resolve. |
 
 ## Contributions
 
 | Method | What appears | Gone when the module is off? |
 | --- | --- | --- |
-| `registerCommand({ id, title, category, scopes, run, availability?, defaultKeybindings? })` | Command palette entry, id namespaced `<moduleId>.<id>`. `scopes: ['global']` for anywhere; `panel:<moduleId>` while a workspace of your type is active. | yes |
+| `registerCommand({ id, title, category, scopes, run, availability?, defaultKeybindings? })` | Command palette entry, id namespaced `<moduleId>.<id>`. `scopes: ['global']` for anywhere; `panel:<moduleId>` while a workspace of your type is active. `run(context)` gets `{ activeWorkspaceId, activeWorkspaceMode }` of the window it ran in — "this workspace". | yes |
 | `registerPanel(componentId, Component)` | Nothing by itself: a panel shows only where a layout tab names it (`component: componentId`). Pair with a workspace type. Props: `{ workspaceId }`. | yes |
 | `registerWorkspaceType(definition)` | A workspace kind in the creation hub. `createTemplate()` returns the layout; `openOnFirstLoad` opens a folderless one on first load; `creationStep` adds a setup page; `createWorkspace(request, create)` owns creation (mint with `create.createWorkspace()`, roll back with `create.removeWorkspace(id)`); `supervisors` mount render-nothing background components; `deriveRunGlyph` sets the sidebar status; `rowActions` add row menu items. | yes |
 | `openWorkspace(typeId)` | Create or focus the module's zero-config workspace type. Use from a command so people can reopen it. | — |
@@ -32,13 +33,25 @@ id.
 | `registerModalSurface({ id, label, Component, launcher? })` | A dialog floated over the window. `launcher: { label, letter, Glyph }` adds a row to each workspace pane's "+" menu, the one trigger the shell draws; the body gets `{ workspaceId }`. | closes |
 | `openGlobalSurface(id)` / `openModalSurface(id)` | Open one of THIS module's surfaces from your own trigger (a nav row, a panel button, a command). `false` for an id you did not register, or while the module is off. | — |
 | `registerTopBarItem({ id, order, Component })` | One compact control in the top bar. | yes |
-| `registerSidebarNavEntry({ id, order, Component })` | A row component in the sidebar's top nav; `Component` gets `{ collapsed }` (icon-only when true). Its click usually calls `openGlobalSurface(id)` — the global-surface template registers one. | yes |
-| `registerDoorBadge({ rowId, getWaitingCount, subscribe })` | A waiting count on a drawer / nav row. | yes |
+| `registerSidebarNavEntry({ id, order, Component })` | Your own drawing of a door's Extensions drawer row: `id` must be one of your global surfaces' ids, and the row replaces that door's generic row (and its view rows). `Component` gets `{ collapsed, badge }` — wear `badge` with the kit's `SidebarNavButton`. Its click calls `openGlobalSurface(id)`. An entry naming none of your surfaces is not drawn. Most doors need none. | yes |
+| `registerDoorBadge({ rowId, getWaitingCount, subscribe, notificationSource? })` | A waiting count on your door's drawer row: `rowId` is one of your surface ids (the first row of a surface with views). Your unread bell rows that `target` the door add to it; `notificationSource: host.moduleId` files your untargeted rows there too (automatic when you have one door). | yes |
 | `registerSettingsSection({ id, label, icon, Component })` | A Settings section. `Component` gets `{ values, setValue }`; values live in the module's settings namespace, which `getModuleAppState(key)` also reads. | yes |
 | `registerBacklogItemAction({ id, label, category, run, isVisible?, getState?, order? })` | A Backlog item menu action. `run(context)` gets `{ workspaceId, workspaceRoot, item, readSource, updateStatus, addLink, updateModuleMetadata }`. | yes |
 | `registerBacklogLinkProvider({ moduleId, targetKinds, resolveLinkStatus, openLink? })` | Resolves the status of links your module adds to items. | yes |
 | `registerFileAction({ id, label, run, getLabel?, isVisible?, getState? })` | A Files-tree menu action over the selection: `{ workspaceId, workspaceRoot, entries: [{ name, path, isDir }] }`. | yes |
-| `registerNotificationActionProvider({ source, resolveActions })` | "Open" actions on bell rows your module emitted. | yes |
+| `registerNotificationActionProvider({ source: host.moduleId, resolveActions })` | Extra actions on the bell rows your `entry.main` sent with `notify` (the row's Open comes from its `target`). An installed module may register no other `source`. | yes |
+
+## Feedback, links and the window
+
+| Method | Notes |
+| --- | --- |
+| `toast({ tone, message, detail?, action? })` | Transient feedback in the app's toast region, under your module's name. `tone`: `neutral`, `accent`, `good`, `warn`, `error`. One optional `action: { label, run }`; pressing it dismisses the toast. Returns a dismisser. Leaves on its own — anything the person must find again goes to the bell (`notify` in main). Throws on an empty message; shows nothing while the module is off or the window has no toast region (`supports('toast')`). |
+| `openExternal(url)` | Opens an absolute http(s) URL in the system browser through the app's own link path. Resolves `{ ok: true }` or `{ ok: false, code: 'invalid_url' \| 'unavailable' \| 'failed', message }`; never throws. Do not `window.open`. |
+| `getActiveWorkspaceId()` / `watchActiveWorkspace(cb)` | The workspace this window is showing, or `null`. `watch` fires at once, then on change; returns the unsubscriber. |
+| `setSurfaceView(surfaceId, viewId \| null)` | Say which of your surface's `views` is showing (call it when your own rail moves, and with `null` on unmount) so exactly that drawer row reads selected. `false` for a surface or view that is not yours. |
+
+From `entry.main`, `host.notify({ severity, title, body?, target? })` is the
+bell: see [api-main.md](api-main.md).
 
 ## Chats
 

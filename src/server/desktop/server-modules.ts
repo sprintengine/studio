@@ -14,6 +14,7 @@ import { defaultUserModuleRoot, discoverUserModulesSync } from '../../main/modul
 import type { ScheduledAgentsService } from '../../main/scheduled-agents/service'
 import { activeForChannel } from '../../shared/modules/dev-only'
 import { MODULE_EVENTS_CHANNEL } from '../../shared/modules/events'
+import { MODULE_NOTIFICATIONS_CHANNEL } from '../../shared/modules/notifications'
 import { LIVE_ENABLED_MODULE_IDS, type CapabilityManifest } from '../../shared/modules/manifest'
 import { resolveModuleEnablement } from '../../shared/modules/resolve'
 import type { StudioCore } from '../core/studio-core'
@@ -117,6 +118,8 @@ export function createServerModules(deps: {
         ineligible: thirdParty.ineligible,
         launchErrors: thirdParty.launchErrors,
         deliverModuleEvent: (event) => platform.clients.publish(MODULE_EVENTS_CHANNEL, event),
+        deliverModuleNotification: (notification) =>
+          platform.clients.publish(MODULE_NOTIFICATIONS_CHANNEL, notification),
         electronMain: false,
       })
       manifests = [

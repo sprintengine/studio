@@ -5,8 +5,10 @@ import { MODULE_EVENTS_CHANNEL, validateModuleEventTopic, type ModuleEventEnvelo
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import {
+  MODULE_NOTIFICATIONS_RECENT_CHANNEL,
   validateModuleNotifyInput,
   type ModuleNotification,
+  type ModuleNotificationDelivery,
   type ModuleNotifyInput,
 } from '../../shared/modules/notifications'
 import type { EnsureSkillInstalledResult, ModuleSkillRegistration } from '../../shared/modules/skills'
@@ -217,9 +219,12 @@ export type MainHost = {
    */
   registerSidecar(spec: SidecarSpec, lifecycle?: SidecarLifecycle): SidecarHandle
   /**
-   * Surface a user-visible status notification. The source module id is
+   * Surface a user-visible status notification: a row in the bell of every
+   * open window, under this module's display name. The source module id is
    * stamped from this host's scope; invalid payloads throw. Emission is
    * flood-bounded per module (identical repeats and rate overruns are dropped).
+   * `target` names one of this module's own global surfaces for the row to
+   * open. `supports('notifications')` is true where delivery is wired.
    */
   notify(input: ModuleNotifyInput): void
   /**
@@ -263,7 +268,7 @@ export type MainKernel = {
   isStarted(): boolean
   /**
    * Infrastructure-only notification entry: stamps `sourceModuleId`, applies
-   * flood bounding, and buffers. Module code never sees the kernel —
+   * flood bounding, buffers, and delivers to the clients. Module code never sees the kernel —
    * it emits through its scoped host's `notify`, which delegates here with the
    * host's own id. The kernel is also how host-level diagnostics (e.g.
    * third-party entry.main launch failures) are attributed to the failing
@@ -290,6 +295,12 @@ export type MainKernelOptions = {
   electronMain?: boolean
   /** Sends one module event to every open renderer window. Absent in tests. */
   deliverModuleEvent?: (event: ModuleEventEnvelope) => void
+  /**
+   * Sends one bell row to every attached client (shared/modules/notifications.ts).
+   * Absent, notifications are only buffered, and `supports('notifications')`
+   * answers false: a module must be able to tell that nobody will see them.
+   */
+  deliverModuleNotification?: (notification: ModuleNotificationDelivery) => void
   /** Clock override for flood-bound tests. */
   now?: () => number
   /**
@@ -366,7 +377,12 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
   const skillIdsByModule = new Map<string, Set<string>>()
   const skillRegistry = options.skillRegistry ?? defaultSkillRegistry
   const now = options.now ?? Date.now
-  const recent: ModuleNotification[] = []
+  const recent: ModuleNotificationDelivery[] = []
+  // Ids are unique per kernel: a window reading the recent backlog after a live
+  // delivery dedupes on them. The prefix keeps two runs of the app apart, since
+  // a window's bell persists across them.
+  const notificationIdPrefix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  let notificationSeq = 0
   const floodStateByModule = new Map<string, ModuleNotificationFloodState>()
   let started = false
 
@@ -427,6 +443,11 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     MODULE_HOST_SERVICE_CHANNEL,
     createModuleHostServiceDispatcher((key) => services.get(key)?.value),
   )
+  // The bell's backlog for a window that boots after a notification was sent
+  // (a launch failure, an onStartup notify). Copies, oldest first.
+  hostFor('@host').registerIpc(MODULE_NOTIFICATIONS_RECENT_CHANNEL, () =>
+    recent.map((notification) => ({ ...notification })),
+  )
 
   function emitNotification(sourceModuleId: string, input: ModuleNotifyInput): void {
     const validated = validateModuleNotifyInput(input)
@@ -434,16 +455,26 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       throw new Error(`Module "${sourceModuleId}" ${validated.message}`)
     }
     const emittedAt = now()
-    if (!passesFloodBound(sourceModuleId, validated.severity, validated.title, validated.body, emittedAt)) return
-    const notification: ModuleNotification = {
+    if (!passesFloodBound(sourceModuleId, validated, emittedAt)) return
+    const notification: ModuleNotificationDelivery = {
+      id: `${notificationIdPrefix}-${(notificationSeq += 1)}`,
       sourceModuleId,
+      sourceModuleName: options.resolveModuleManifest?.(sourceModuleId)?.displayName?.trim() || sourceModuleId,
       severity: validated.severity,
       title: validated.title,
       body: validated.body,
+      ...(validated.target ? { target: validated.target } : {}),
       emittedAt,
     }
     recent.push(notification)
     if (recent.length > NOTIFICATION_BUFFER_LIMIT) recent.splice(0, recent.length - NOTIFICATION_BUFFER_LIMIT)
+    // Best effort, like an event: a client that cannot be reached does not
+    // make the module's notify throw. The row is still in the backlog.
+    try {
+      options.deliverModuleNotification?.({ ...notification })
+    } catch (error) {
+      console.warn(`[modules] could not deliver a notification from "${sourceModuleId}":`, error)
+    }
   }
 
   function emitModuleEvent(sourceModuleId: string, topic: string, payload?: unknown): void {
@@ -478,9 +509,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
 
   function passesFloodBound(
     moduleId: string,
-    severity: string,
-    title: string,
-    body: string | undefined,
+    payload: Pick<ModuleNotification, 'severity' | 'title' | 'body' | 'target'>,
     emittedAt: number,
   ): boolean {
     const state = floodStateByModule.get(moduleId) ?? { emittedAt: [], lastKey: '', lastAt: 0, warnedDropAt: 0 }
@@ -488,7 +517,15 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     const windowStart = emittedAt - NOTIFICATION_RATE_WINDOW_MS
     state.emittedAt = state.emittedAt.filter((at) => at > windowStart)
 
-    const key = JSON.stringify([severity, title, body ?? ''])
+    // The door is part of what was said: the same words about two different
+    // targets are two rows, not a repeat.
+    const key = JSON.stringify([
+      payload.severity,
+      payload.title,
+      payload.body ?? '',
+      payload.target?.surfaceId ?? '',
+      payload.target?.viewId ?? '',
+    ])
     const isRepeat = key === state.lastKey && state.lastAt > windowStart
     const isOverRate = state.emittedAt.length >= NOTIFICATION_RATE_MAX_PER_WINDOW
     if (isRepeat || isOverRate) {
@@ -605,8 +642,12 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     return {
       moduleId,
       hostApiVersion: HOST_API_VERSION,
-      supports: (capability) =>
-        capability === 'electron-main' ? (options.electronMain ?? true) : hostSupports(capability),
+      supports: (capability) => {
+        if (capability === 'electron-main') return options.electronMain ?? true
+        // A bell row needs a client to reach: true only where delivery is wired.
+        if (capability === 'notifications') return options.deliverModuleNotification !== undefined
+        return hostSupports(capability)
+      },
       registerIpc(channel, handler) {
         const existing = channels.get(channel)
         if (existing) {

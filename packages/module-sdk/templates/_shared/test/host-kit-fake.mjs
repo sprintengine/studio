@@ -38,6 +38,17 @@ export const Drawer = Object.assign(component('Drawer'), { Body: component('Draw
 export const TruncatedText = component('TruncatedText')
 export const KbdChord = component('KbdChord')
 export const CliModelPickerButton = component('CliModelPickerButton')
+export const DateTimeInput = component('DateTimeInput')
+export const Toggle = component('Toggle')
+export const ContextMenu = component('ContextMenu')
+export const MenuItem = component('MenuItem')
+export const MenuDivider = component('MenuDivider')
+export const Chip = component('Chip')
+export const ChipButton = component('ChipButton')
+export const TaskCard = component('TaskCard')
+export const BoardLane = component('BoardLane')
+export const SafeMarkdown = component('SafeMarkdown')
+export const SidebarNavButton = component('SidebarNavButton')
 
 // @sprintengine/module-sdk/surface
 export const GlobalSurfaceShell = component('GlobalSurfaceShell')

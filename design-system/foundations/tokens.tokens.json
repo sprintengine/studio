@@ -1031,6 +1031,152 @@
           }
         }
       },
+      "chart": {
+        "1": {
+          "$type": "color",
+          "$value": "#077ef0",
+          "$description": "Categorical chart series 1 (blue). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: >= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation >= 12 and normal-vision separation >= 18 (OKLab x100).",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "data",
+              "use": "A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.",
+              "modes": {
+                "light": "#077ef0",
+                "dark": "#0c84fa"
+              }
+            }
+          }
+        },
+        "2": {
+          "$type": "color",
+          "$value": "#883601",
+          "$description": "Categorical chart series 2 (rust orange). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: >= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation >= 12 and normal-vision separation >= 18 (OKLab x100).",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "data",
+              "use": "A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.",
+              "modes": {
+                "light": "#883601",
+                "dark": "#ea630c"
+              }
+            }
+          }
+        },
+        "3": {
+          "$type": "color",
+          "$value": "#149483",
+          "$description": "Categorical chart series 3 (teal). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: >= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation >= 12 and normal-vision separation >= 18 (OKLab x100).",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "data",
+              "use": "A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.",
+              "modes": {
+                "light": "#149483",
+                "dark": "#1ba995"
+              }
+            }
+          }
+        },
+        "4": {
+          "$type": "color",
+          "$value": "#9f43c3",
+          "$description": "Categorical chart series 4 (purple). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: >= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation >= 12 and normal-vision separation >= 18 (OKLab x100).",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "data",
+              "use": "A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.",
+              "modes": {
+                "light": "#9f43c3",
+                "dark": "#b85dde"
+              }
+            }
+          }
+        },
+        "5": {
+          "$type": "color",
+          "$value": "#768b09",
+          "$description": "Categorical chart series 5 (olive). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: >= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation >= 12 and normal-vision separation >= 18 (OKLab x100).",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "data",
+              "use": "A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.",
+              "modes": {
+                "light": "#768b09",
+                "dark": "#879f07"
+              }
+            }
+          }
+        },
+        "6": {
+          "$type": "color",
+          "$value": "#bf308f",
+          "$description": "Categorical chart series 6 (magenta). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: >= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation >= 12 and normal-vision separation >= 18 (OKLab x100).",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "data",
+              "use": "A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.",
+              "modes": {
+                "light": "#bf308f",
+                "dark": "#e253ae"
+              }
+            }
+          }
+        },
+        "7": {
+          "$type": "color",
+          "$value": "#7e6cf7",
+          "$description": "Categorical chart series 7 (periwinkle). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: >= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation >= 12 and normal-vision separation >= 18 (OKLab x100).",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "data",
+              "use": "A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.",
+              "modes": {
+                "light": "#7e6cf7",
+                "dark": "#7e6cf7"
+              }
+            }
+          }
+        },
+        "8": {
+          "$type": "color",
+          "$value": "#0581a3",
+          "$description": "Categorical chart series 8 (ocean blue). The eight slots are one ordered set: the order is what keeps neighbouring series apart under protanopia and deuteranopia, so series N always takes slot N. Validated per mode: >= 3:1 against bg.surface on every theme of that mode, adjacent CVD separation >= 12 and normal-vision separation >= 18 (OKLab x100).",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "data",
+              "use": "A categorical chart series: the fill or stroke of the Nth series in a bar, line, area or pie chart, assigned in slot order and never cycled.",
+              "doNotUse": "Status (that is status.*), the accent, selection, text, borders, or any background. Never a series that MEANS good/warn/error (that series wears status.*), never re-assigned by rank, and never a ninth generated hue: a ninth series folds into chart.other.",
+              "modes": {
+                "light": "#0581a3",
+                "dark": "#0da4cf"
+              }
+            }
+          }
+        },
+        "other": {
+          "$type": "color",
+          "$value": "{ref.color.paper-500}",
+          "$description": "The neutral for a chart's \"Other\" bucket: everything past the eighth series, folded into one. Grey on purpose, so the bucket never reads as a ninth identity.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "data",
+              "use": "The fill or stroke of the folded \"Other\" series of a categorical chart, and of a series that is deliberately de-emphasised beside the ones being compared.",
+              "doNotUse": "A real series of its own, text, borders, backgrounds, or a status.",
+              "modes": {
+                "light": "{ref.color.paper-500}",
+                "dark": "{ref.color.paper-400}"
+              }
+            }
+          }
+        }
+      },
       "scaffold": {
         "ink": {
           "$type": "color",

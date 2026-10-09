@@ -6,7 +6,7 @@ import type {
   ModuleEnablementOverrides,
   ModuleResolutionErrorCode,
 } from '../../shared/modules/manifest'
-import { sanitizeNotificationText } from '../../shared/modules/notifications'
+import { sanitizeNotificationText, type ModuleNotificationDelivery } from '../../shared/modules/notifications'
 import { resolveModuleEnablement } from '../../shared/modules/resolve'
 import {
   createMainKernel,
@@ -119,6 +119,8 @@ export function loadMainModules(options: {
   launchErrors?: MainModuleLoadError[]
   /** Sends a module event to every open renderer window. */
   deliverModuleEvent?: (event: ModuleEventEnvelope) => void
+  /** Sends a module's bell row to every attached client (shared/modules/notifications.ts). */
+  deliverModuleNotification?: (notification: ModuleNotificationDelivery) => void
   /** Clock override for notification flood-bound tests. */
   now?: () => number
   /**
@@ -146,6 +148,7 @@ export function loadMainModules(options: {
   const kernel = createMainKernel(ipcMain, {
     ...(options.electronMain === undefined ? {} : { electronMain: options.electronMain }),
     deliverModuleEvent: options.deliverModuleEvent,
+    ...(options.deliverModuleNotification ? { deliverModuleNotification: options.deliverModuleNotification } : {}),
     now: options.now,
     resolveModuleManifest: (moduleId) => byId.get(moduleId)?.manifest,
     resolveModuleRoot: (moduleId) => options.moduleRoots?.[moduleId],

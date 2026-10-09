@@ -78,7 +78,12 @@ test('notificationStore', async () => {
       [],
       'junk and retired rows go',
     )
-    const current = { notifications: [], sectionSeenAt: {}, dismissedUpdates: [] as string[] }
+    const current = {
+      notifications: [],
+      sectionSeenAt: {},
+      dismissedUpdates: [] as string[],
+      filedModuleNotificationIds: [] as string[],
+    }
     assert.equal(mergePersistedNotificationState(null, current), current, 'nothing stored keeps the initial state')
     assert.deepEqual(
       mergePersistedNotificationState({ dismissedUpdates: ['app@0.7.0', 3, null] }, current).dismissedUpdates,
@@ -113,6 +118,28 @@ test('notificationStore', async () => {
     )
     assert.equal(dismissedUpdatesFromStorage('not json'), null)
     assert.equal(dismissedUpdatesFromStorage(null), null)
+
+    // --- a module's notification is filed once per delivery ---
+    useNotificationStore.setState({ notifications: [], filedModuleNotificationIds: [] })
+    const moduleEntry = { ...notification('module:k1-1', 'module'), read: undefined } as never
+    assert.equal(useNotificationStore.getState().fileModuleNotification('k1-1', moduleEntry), true)
+    assert.equal(
+      useNotificationStore.getState().fileModuleNotification('k1-1', moduleEntry),
+      false,
+      'heard live and read again from the backlog: one row',
+    )
+    useNotificationStore.getState().clearAll()
+    assert.equal(
+      useNotificationStore.getState().fileModuleNotification('k1-1', moduleEntry),
+      false,
+      'a row the person cleared does not come back',
+    )
+    assert.equal(useNotificationStore.getState().notifications.length, 0)
+    for (let index = 0; index < 120; index += 1) {
+      useNotificationStore.getState().fileModuleNotification(`k2-${index}`, moduleEntry)
+    }
+    assert.equal(useNotificationStore.getState().filedModuleNotificationIds.length, 100, 'the id list is bounded')
+    assert.equal(useNotificationStore.getState().notifications[0]?.read, false, 'a filed row is unread')
 
     console.log('notificationStore.test.ts: ok')
   }

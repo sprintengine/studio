@@ -336,6 +336,21 @@
      themes, and staying constant keeps "merged" recognisable across themes the
      way GitHub keeps it constant across light/dark. */
   --tone-merged: var(--sem-color-status-merged);
+  /* Categorical chart series, published to modules as THEME_TOKENS. Declared
+     once, here, and never per theme: the `--sem-color-chart-*` values follow
+     `data-mode`, and each mode's eight were chosen to clear 3:1 against the
+     surface of every theme in that mode (design-system/foundations/
+     principles.md, "Chart colour"). Ordered and never status: series N takes
+     slot N, and a series that MEANS good or bad wears the tones above. */
+  --chart-1: var(--sem-color-chart-1);
+  --chart-2: var(--sem-color-chart-2);
+  --chart-3: var(--sem-color-chart-3);
+  --chart-4: var(--sem-color-chart-4);
+  --chart-5: var(--sem-color-chart-5);
+  --chart-6: var(--sem-color-chart-6);
+  --chart-7: var(--sem-color-chart-7);
+  --chart-8: var(--sem-color-chart-8);
+  --chart-other: var(--sem-color-chart-other);
   /* An extension being made: the New chat door's extension-name chip, beside
      the worktree chip it is modelled on. The scaffold pair rather than a second
      accent: several themes' accent is blue, so a blue chip would read as the

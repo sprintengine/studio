@@ -1,6 +1,7 @@
 import { app, ipcMain, protocol, session, shell } from 'electron'
 import { buildStamp as mainBuildStamp } from 'virtual:sprintengine-build-stamp'
 import { MODULE_EVENTS_CHANNEL } from '../shared/modules/events'
+import { MODULE_NOTIFICATIONS_CHANNEL } from '../shared/modules/notifications'
 import { parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createAppServices } from './app-services'
@@ -191,6 +192,10 @@ const moduleLoad = loadMainModules({
   // the renderer kernel routes each envelope to its own module's subscribers.
   // Nothing is buffered for windows opened later — see shared/modules/events.ts.
   deliverModuleEvent: (event) => studioPlatform().clients.publish(MODULE_EVENTS_CHANNEL, event),
+  // A module's notify is a bell row in every window, over the same client bus;
+  // the kernel keeps the recent ones for a window that opens later.
+  deliverModuleNotification: (notification) =>
+    studioPlatform().clients.publish(MODULE_NOTIFICATIONS_CHANNEL, notification),
 })
 // The manifest universe the enablement gate resolves against — every main module
 // present on this channel, so a module and its dependencies (scheduled agents,

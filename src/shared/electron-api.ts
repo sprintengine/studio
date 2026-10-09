@@ -232,6 +232,7 @@ import type {
 } from './conversation-index'
 import type { ConversationSearchHit } from './conversation-index'
 import type { ModuleEventEnvelope } from './modules/events'
+import type { ModuleNotificationDelivery } from './modules/notifications'
 import type {
   ThirdPartyModuleInstallResult,
   ThirdPartyModuleListResult,
@@ -1683,6 +1684,10 @@ export type ElectronApi = {
   moduleHostServiceInvoke: (request: ModuleHostServiceRequest) => Promise<unknown>
   /** Every capability module's main→renderer events on one host-owned channel; the renderer kernel fans them out by `sourceModuleId`. Returns the unsubscriber. */
   onModuleEvent: (cb: (envelope: ModuleEventEnvelope) => void) => () => void
+  /** Every module's `notify` rows, as the kernel delivers them to each window's bell. Returns the unsubscriber. */
+  onModuleNotification: (cb: (notification: ModuleNotificationDelivery) => void) => () => void
+  /** The kernel's recent module notifications, oldest first: what a window that just booted has not heard. */
+  listRecentModuleNotifications: () => Promise<ModuleNotificationDelivery[]>
   terminalSpawn: (
     sessionId: string,
     cols: number,

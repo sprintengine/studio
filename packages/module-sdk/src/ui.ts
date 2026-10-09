@@ -24,6 +24,8 @@
 
 import type * as React from 'react'
 
+import type { ModuleChatRuntimeOption } from './conversation.js'
+
 const HOST_PROVIDED_MESSAGE =
   '@sprintengine/module-sdk/ui is provided by the host at runtime; mark it external in your bundler'
 
@@ -195,11 +197,21 @@ export type FieldProps = {
 
 export const Field: (props: FieldProps) => React.ReactElement = hostProvided()
 
+/**
+ * The trigger's step on the control-height ramp, under the names the buttons
+ * and `Input` use, so a select stands level with the controls in its row: `sm`
+ * (default, every labelled form field), `xs` (a dense toolbar of `xs` buttons,
+ * meta type), `md` (beside an `md` button).
+ */
+export type SelectSize = 'xs' | 'sm' | 'md'
+
 export type SelectProps<V extends string = string> = {
   ariaLabel: string
   items: SelectItem<V>[]
   value: V | null
   onChange: (value: V) => void
+  /** The trigger height step. Defaults to `sm`. */
+  size?: SelectSize
   disabled?: boolean
   placeholder?: string
   className?: string
@@ -210,7 +222,53 @@ export type SelectProps<V extends string = string> = {
   'aria-required'?: boolean
 }
 
+/** One value out of a closed list: a select-only combobox with the full
+ *  keyboard contract (arrows, Home/End, type-ahead, Escape). */
 export const Select: <V extends string = string>(props: SelectProps<V>) => React.ReactElement = hostProvided()
+
+export type DateTimeInputType = 'datetime-local' | 'date' | 'time'
+
+export type DateTimeInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size' | 'type'> & {
+  /** Which native control. Defaults to `datetime-local`. */
+  type?: DateTimeInputType
+  /** The control-ramp step, as on `Input`. Defaults to `sm`. */
+  size?: 'xs' | 'sm' | 'md'
+  /** The field ground, as on `Input`. */
+  variant?: 'default' | 'well' | 'quiet'
+  /** Fill the track (default). Pass `false` to size the field to its value. */
+  fullWidth?: boolean
+}
+
+/**
+ * A date, a time, or both: the platform's own `datetime-local` / `date` /
+ * `time` control (keyboard-complete, locale-ordered, every segment named) in
+ * the `Input` box, with tabular figures. Values are the native local-time
+ * strings — `YYYY-MM-DDTHH:mm`, `YYYY-MM-DD`, `HH:mm` — never `Date`s, so the
+ * time zone they mean stays your decision. Label it with `Field`.
+ */
+export const DateTimeInput: React.ForwardRefExoticComponent<
+  React.PropsWithoutRef<DateTimeInputProps> & React.RefAttributes<HTMLInputElement>
+> = hostProvided()
+
+export type ToggleProps = {
+  checked: boolean
+  onChange: (next: boolean) => void
+  /** Accessible name. Required unless `ariaLabelledBy` is supplied. */
+  ariaLabel?: string
+  ariaLabelledBy?: string
+  ariaDescribedBy?: string
+  /** Stable id so a sibling `<label htmlFor>` or `Field` can target the control. */
+  id?: string
+  disabled?: boolean
+  className?: string
+}
+
+/**
+ * A setting that takes effect the moment it is thrown — the app's switch
+ * (`role="switch"`; Space toggles, Enter does not). For a value submitted later
+ * with a form, use a checkbox; for three or more choices, `SegmentedControl`.
+ */
+export const Toggle: (props: ToggleProps) => React.ReactElement = hostProvided()
 
 export type SegmentedControlProps<V extends string = string> = {
   ariaLabel: string
@@ -373,6 +431,281 @@ export type KbdChordProps = {
 
 export const KbdChord: (props: KbdChordProps) => React.ReactElement = hostProvided()
 
+// ── Menus ────────────────────────────────────────────────────────────────────
+
+export type ContextMenuProps = {
+  /** Viewport x of the open point (e.g. `event.clientX` or a button corner). */
+  x: number
+  /** Viewport y of the open point. */
+  y: number
+  /** Required accessible name for the menu surface. */
+  ariaLabel: string
+  /** Called on Escape, on a pointer-down outside the menu, and is yours to call
+   *  after an item runs. Unmount the menu in it. */
+  onClose: () => void
+  /** `MenuItem`s and `MenuDivider`s. */
+  children: React.ReactNode
+  /** Extra surface classes — typically a `min-w-[…]` floor. */
+  surfaceClassName?: string
+}
+
+/**
+ * A menu opened at a point — a right-click, or the corner of an overflow
+ * button. Mount it while open and unmount it in `onClose`. It portals to the
+ * document body, clamps itself inside the viewport, and takes focus as it
+ * opens: ↑/↓ and Home/End move between items, Escape or a click outside
+ * closes it, and focus returns to whatever had it before.
+ */
+export const ContextMenu: (props: ContextMenuProps) => React.ReactElement = hostProvided()
+
+export type MenuItemProps = Omit<
+  React.ButtonHTMLAttributes<HTMLButtonElement>,
+  'onClick' | 'role' | 'aria-checked' | 'type' | 'children'
+> & {
+  children: React.ReactNode
+  /** Run the action. The menu does not close itself: call your `onClose`. */
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
+  /** E.g. open a secondary picker at the pointer; the menu stays open. */
+  onContextMenu?: (event: React.MouseEvent) => void
+  /** Leading glyph; size and color stay with the caller's node. */
+  icon?: React.ReactNode
+  /** Visible keyboard shortcut hint (e.g. `F2`). Display only. */
+  shortcut?: string
+  /** A quiet trailing annotation (how long ago, how many) — never beside a
+   *  `shortcut`; a row states one or the other. */
+  hint?: React.ReactNode
+  /** Destructive: drawn in the error ink, never a fill. */
+  variant?: 'danger'
+  disabled?: boolean
+  /** When set, the item is checkable and exposes this checked state. The
+   *  visible check mark is yours — pass it as `icon` or `trailing`. */
+  checked?: boolean
+  /** `single` (default): independent toggles. `one-of`: exactly one of a set,
+   *  announced as a radio item. */
+  selection?: 'single' | 'one-of'
+  /** Trailing node, after the shortcut. */
+  trailing?: React.ReactNode
+  /** For a host menu with its own roving focus. `ContextMenu` needs none. */
+  onKeyDown?: (event: React.KeyboardEvent<HTMLButtonElement>) => void
+  /** The row opens a sub-surface and says so. */
+  expanded?: boolean
+}
+
+/** One row of a `ContextMenu`. Not a tab stop: the menu's arrow keys reach it. */
+export const MenuItem: (props: MenuItemProps) => React.ReactElement = hostProvided()
+
+/** The hairline between groups of `MenuItem`s (`role="separator"`). */
+export const MenuDivider: () => React.ReactElement = hostProvided()
+
+// ── Chips ────────────────────────────────────────────────────────────────────
+
+export type ChipProps = {
+  /** One tone, on purpose: a toned chip would be a status. */
+  tone?: 'neutral'
+  className?: string
+  /** One or two words, sentence case. */
+  children: React.ReactNode
+}
+
+/**
+ * The static chip: a hairline rectangle holding one or two words of FACT about
+ * the thing beside it ("Default", "Pinned", "v2"). No tone, no fill, no hover,
+ * not focusable — a mark, never a control and never a status. For a chip that
+ * toggles, filters or wears an identity colour, use `ChipButton`; for a count
+ * or a state, use a badge or `LifecycleGlyph`.
+ */
+export const Chip: (props: ChipProps) => React.ReactElement = hostProvided()
+
+/** `ghost` (default, no edge), `outline` (findable on a busy surface),
+ *  `overlay` (floating over content), `raised` (a control in a toolbar row). */
+export type ChipVariant = 'ghost' | 'outline' | 'overlay' | 'raised'
+
+/** The chip's ink at rest: `subtle` (default), `neutral` (one step up), or a
+ *  standing `warn` / `error` the chip itself carries. */
+export type ChipTone = 'subtle' | 'neutral' | 'warn' | 'error'
+
+export type ChipButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ChipVariant
+  tone?: ChipTone
+  /** A toggle that is currently ON. `undefined` on a chip that is not a toggle,
+   *  `false` on one that is off. Supplies `aria-pressed`. */
+  pressed?: boolean
+  /** One of a set, and this is the one in force. Same fill as `pressed`,
+   *  announced as `aria-current`. */
+  selected?: boolean
+  /** An IDENTITY colour (a label's, a bucket's): a CSS colour of your choosing, painted as the
+   *  ink and a soft ground mixed from it — never a solid fill. Ignored while
+   *  pressed or selected. */
+  tint?: string
+}
+
+/**
+ * The interactive chip: a content-height pill that toggles, filters or names
+ * one thing, riding the line it sits in rather than setting its height.
+ */
+export const ChipButton: ButtonComponent<ChipButtonProps> = hostProvided()
+
+// ── Boards ───────────────────────────────────────────────────────────────────
+
+export type TaskCardProps = {
+  /** The tone of the default leading status mark. */
+  tone: Tone
+  /** Pulse on the leading mark — only for something running right now. */
+  pulse?: boolean
+  /** Leading status mark. `undefined` keeps the default mark (tone + pulse);
+   *  pass a node (a `LifecycleGlyph`) to replace it, or `null` for none — on a
+   *  board whose lane already states the status. */
+  leading?: React.ReactNode
+  /** The record's key, in the mono identifier face. */
+  identifier: React.ReactNode
+  title: React.ReactNode
+  /** One quiet line under the title. */
+  supporting?: React.ReactNode
+  /** Trailing slot (priority icon, role glyph). Display-only — must not hold
+   *  interactive elements; the card itself is the interactive surface. */
+  trailing?: React.ReactNode
+  selected?: boolean
+  /** `row` (default): identifier and title on one line, for a list. `card`:
+   *  identifier above a title that clamps to two lines, for a board lane. */
+  variant?: 'row' | 'card'
+  /** `card` only: clamp the title to two lines (default). `false` wraps it in
+   *  full — for thin lanes and descriptive titles. */
+  clampTitle?: boolean
+  /** Makes the card a button (Enter/Space activate, `aria-pressed` = selected). */
+  onSelect?: () => void
+  onContextMenu?: (event: React.MouseEvent<HTMLLIElement>) => void
+  /** Drag-and-drop opt-in. When true, the card is a drag source. */
+  draggable?: boolean
+  onDragStart?: (event: React.DragEvent<HTMLLIElement>) => void
+  onDragEnd?: (event: React.DragEvent<HTMLLIElement>) => void
+  /** The card's stable id, for the lane's reorder animation. */
+  flipKey?: string
+  /** The just-moved highlight: `card-just-moved` after a drag, or
+   *  `card-just-moved-gold` for a card that moved on its own. */
+  justMovedClassName?: string
+  ariaLabel?: string
+}
+
+/**
+ * A task as a list row or a board card — the app's canonical shape for one,
+ * so a module's board reads like the app's own. It renders an `<li>`: put it
+ * inside a `BoardLane` (or your own `<ul>`/`<ol>`).
+ */
+export const TaskCard: (props: TaskCardProps) => React.ReactElement = hostProvided()
+
+/** A lane's drag state: `dimmed` (not a legal drop target), `legal-drop-target`
+ *  (accent ring), `source` (the lane the card came from). */
+export type BoardLaneState = 'default' | 'dimmed' | 'legal-drop-target' | 'source'
+
+export type BoardLaneDnd = {
+  /** Receives the drop index computed from the pointer over the lane's cards. */
+  onDragOver: (dropIndex: number) => void
+  onDragLeave: () => void
+  onDrop: () => void
+}
+
+export type BoardLaneProps = {
+  /** Sentence-case lane label. */
+  label: string
+  /** Optional leading glyph (a `LifecycleGlyph`). */
+  glyph?: React.ReactNode
+  /** Item count, shown beside the label. */
+  count: number
+  /** Accessible name for the lane. Defaults to `${label} lane`. */
+  ariaLabel?: string
+  /** Reorder signature, typically `ids.join(',')`: a change animates the cards
+   *  to their new places. */
+  flipKey: string
+  /** Drag state. */
+  state?: BoardLaneState
+  /** Draw the lane as a filled, hairline-bordered panel and lift its cards one
+   *  step. Off by default (transparent lanes on the board's canvas). */
+  surface?: boolean
+  /** Minimum lane width in px before the board scrolls. Defaults to 260. */
+  minWidth?: number
+  /** Drag-and-drop plumbing. Pass it only when the lane accepts drops. */
+  dnd?: BoardLaneDnd
+  /** The lane's `TaskCard`s, and its empty placeholder when there are none. */
+  children: React.ReactNode
+}
+
+/**
+ * One column of a board: a header (glyph, label, count) over a scrolling list
+ * of `TaskCard`s that animates reorders, with optional drag-and-drop. Lanes
+ * are `flex-1`; lay them out in a horizontal flex row.
+ */
+export const BoardLane: (props: BoardLaneProps) => React.ReactElement = hostProvided()
+
+// ── Text ─────────────────────────────────────────────────────────────────────
+
+/** What a web link in `SafeMarkdown` does: `open` it in the system browser,
+ *  `copy` its address, or render it as plain text (`none`). */
+export type SafeMarkdownLinks = 'open' | 'copy' | 'none'
+
+export type SafeMarkdownProps = {
+  /** The Markdown source. GitHub-flavoured: tables, task lists, alerts. */
+  text: string
+  /** What a web link does. Defaults to `open`. */
+  links?: SafeMarkdownLinks
+  /** One type step down, for Markdown inside a card. */
+  compact?: boolean
+  className?: string
+}
+
+/**
+ * Agent-written Markdown, drawn the way the app's chat draws a reply, and
+ * never able to reach outside its box: raw HTML shows as the escaped text it
+ * is, a link keeps its address only when it is an absolute http(s) URL (every
+ * other scheme renders as its label), and images are named, never fetched.
+ * `links: 'open'` hands the URL to the system browser through the app's own
+ * external-link path; the window never navigates.
+ */
+export const SafeMarkdown: (props: SafeMarkdownProps) => React.ReactElement = hostProvided()
+
+// ── Navigation ───────────────────────────────────────────────────────────────
+
+/** A row's unread count. Null or a zero count draws nothing — a badge never says 0. */
+export type RowBadge = {
+  count: number
+  tone: Tone
+  /** The count's full accessible name ("Plugins: 1 new"). */
+  label: string
+  /** The same without the place ("1 new"); a row already names its place, so
+   *  this is what the badge announces when given. */
+  detail?: string
+}
+
+export type SidebarNavButtonProps = {
+  /** The sidebar is collapsed to its icon rail: draw the icon alone, with the
+   *  label in a tooltip. */
+  collapsed: boolean
+  /** This row's door is the one showing. */
+  active?: boolean
+  label: string
+  ariaLabel: string
+  tooltip: string
+  /** Show the tooltip while expanded too — for a hint the label omits. */
+  tooltipWhenExpanded?: boolean
+  /** A small state mark, trailing when expanded and in the corner when
+   *  collapsed. Its own accessible name carries the meaning. */
+  indicator?: React.ReactNode
+  /** The row's unread count, drawn in place of `indicator` while above 0. */
+  badge?: RowBadge | null
+  /** `dashed` marks the one add/create affordance at the head of a rail. */
+  variant?: RowButtonVariant
+  disabled?: boolean
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
+  icon: React.ReactNode
+}
+
+/**
+ * The sidebar's door row, exactly as the app's own doors draw it: a quiet
+ * row that lights to the selected fill when active, an icon with a tooltip
+ * when the sidebar is collapsed, and the unread `badge` the host derives for
+ * it. Render it from your sidebar-nav entry so your door reads as native.
+ */
+export const SidebarNavButton: (props: SidebarNavButtonProps) => React.ReactElement = hostProvided()
+
 // ── CLI / model picker ───────────────────────────────────────────────────────
 
 /** A CLI runtime's id. Open by design: runtimes are plugin-contributed. */
@@ -399,9 +732,19 @@ export type CliRuntimeOption = {
   hostedVia?: 'claude-code'
 }
 
+/** What the picker accepts: `host.listChatRuntimes()` rows as they come, or
+ *  catalog rows of the older `{ value, label, modelSelection }` shape. */
+export type CliRuntimePickerOption = CliRuntimeOption | ModuleChatRuntimeOption
+
 export type CliModelPickerButtonProps = {
   ariaLabel: string
-  options: CliRuntimeOption[]
+  /**
+   * The runtimes to offer. Pass `host.listChatRuntimes()` straight in: each
+   * runtime's `models` become its model list, and a runtime this machine lacks
+   * (`available: false`) is left out unless it is the current `cli`. Catalog
+   * rows (`CliRuntimeOption`) still work, and the two may be mixed.
+   */
+  options: ReadonlyArray<CliRuntimePickerOption>
   cli: AgentCli
   effectiveModelFor: (cli: AgentCli) => string | undefined
   effectiveReasoningFor?: (cli: AgentCli) => string | undefined
@@ -414,6 +757,21 @@ export type CliModelPickerButtonProps = {
   onSelectModel: (cli: AgentCli, model: string | null) => void
 }
 
-/** The runtime + model trigger, so a module's agent controls read as the
- *  app's own. Feed it from `RendererHost.listAgentRuntimes()`. */
+/**
+ * The runtime + model trigger, so a module's agent controls read as the app's
+ * own. Feed it `host.listChatRuntimes()` directly — no mapping — and hand the
+ * chosen `cli` and model to `openChat`:
+ *
+ * ```tsx
+ * const runtimes = host.listChatRuntimes()
+ * <CliModelPickerButton
+ *   ariaLabel="Agent"
+ *   options={runtimes}
+ *   cli={cli}
+ *   effectiveModelFor={(id) => (id === cli ? model : undefined)}
+ *   onSelectCli={setCli}
+ *   onSelectModel={(id, next) => { setCli(id); setModel(next ?? undefined) }}
+ * />
+ * ```
+ */
 export const CliModelPickerButton: (props: CliModelPickerButtonProps) => React.ReactElement | null = hostProvided()
