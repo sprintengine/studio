@@ -127,7 +127,10 @@ for (const kind of ['renderer', 'main']) {
         const [channel] = call.args
         assert.ok(String(channel).startsWith(`${raw.id}:`), `IPC channel "${channel}" must start with "${raw.id}:".`)
         if (raw.entry?.renderer) {
-          assert.ok(declared.has('ipc:invoke'), 'host.invoke from the renderer needs the "ipc:invoke" permission.')
+          assert.ok(
+            declared.has('module:bridge') || declared.has('ipc:invoke'),
+            'host.invoke from the renderer needs the "module:bridge" permission.',
+          )
         }
       }
       if (call.method === 'requireService' || call.method === 'getService') {

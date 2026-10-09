@@ -19,7 +19,8 @@ Rules:
 | Permission | The prompt says | Declare it when you use | Checked at the call |
 | --- | --- | --- | --- |
 | `storage` | Save its own data in the workspace folder and app data | `getModuleStorage`, module app state, workspace module state | — |
-| `ipc:invoke` | Call any of the app's internal APIs, including its own background code (broad scope) | `host.invoke` from the renderer to your own `registerIpc` channels | yes (bridge) |
+| `module:bridge` | Let its window code talk to its own background code | `host.invoke` from the renderer to your own `registerIpc` channels | yes (bridge) |
+| `ipc:invoke` | Call any of the app's internal APIs, including its own background code (broad scope) | Nothing new: the legacy scope still opens the bridge, but reads as "any internal API". Use `module:bridge` | yes (bridge) |
 | `ipc:workspace-read` | See workspace, window, git, and task state through the app's APIs | `getWorkspace`, `listWorkspaces`, `watchWorkspaces`, `getWorkingRoot`, `WorkspaceContextToken` | — |
 | `ipc:workspace-write` | Create and change workspaces, files, and tasks through the app's APIs | `WorkspaceServiceToken.create` | — |
 | `ipc:settings` | Read and change app settings and integrations | — (legacy scope) | — |
@@ -50,4 +51,4 @@ permission: what they can then do is what the permissions above cover.
 
 The smoke test (`test/smoke.test.mjs`) fails when a service reached during
 registration is missing its permission or dependency, and when a renderer
-module registers IPC channels without `ipc:invoke`.
+module registers IPC channels without `module:bridge`.

@@ -36,7 +36,7 @@ up there first, with the app's own validators.
 | "…is provided by the host at runtime; mark it external" | The bundle inlined `./ui` or `./surface`; fix the esbuild `--external` flags |
 | Failed to resolve module specifier "@sprintengine/module-sdk" | The SDK root was left external in the renderer build; bundle it |
 | Cannot find module '…' from entry.main | A dependency left external in the main build; bundle it |
-| `invoke` rejects `permission_missing` | Declare `ipc:invoke` |
+| `invoke` rejects `permission_missing` | Declare `module:bridge` |
 | `invoke` rejects `unknown_channel` | The main entry is not loaded (restart), or the channel name differs |
 | `invoke` rejects `not_bridgeable` | The channel does not start with `<moduleId>:` |
 | `openChat` → `permission_missing` | Declare `conversation:operate` |

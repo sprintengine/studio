@@ -22,6 +22,12 @@ test('module-bridge', async () => {
       source: 'third-party',
       permissions: ['network', 'ipc:invoke'],
     }),
+    // Declares only the bridge's own scope, not the broad one it was split out of.
+    'focus-deck': manifest({
+      id: 'focus-deck',
+      source: 'third-party',
+      permissions: ['module:bridge'],
+    }),
     'quiet-deck': manifest({
       id: 'quiet-deck',
       source: 'third-party',
@@ -46,6 +52,7 @@ test('module-bridge', async () => {
     }))
     kernel.hostFor('weather-deck').registerIpc('forecast:global', () => 'unprefixed')
     kernel.hostFor('quiet-deck').registerIpc('quiet-deck:ping', () => 'pong')
+    kernel.hostFor('focus-deck').registerIpc('focus-deck:ping', () => 'pong')
     kernel.hostFor('scheduled-agents').registerIpc('scheduled-agents:list', () => [])
     kernel.hostFor('git').registerIpc('git:status:read', () => ({ ok: true, data: null }))
     return fake
@@ -102,7 +109,13 @@ test('module-bridge', async () => {
     const outcome = await bridgeInvoke(fake, { channel: 'quiet-deck:ping' })
     assert.equal(outcome.ok, false)
     assert.equal(!outcome.ok && outcome.code, 'permission_missing')
-    assert.match(!outcome.ok ? outcome.message : '', /ipc:invoke/)
+    assert.match(!outcome.ok ? outcome.message : '', /module:bridge/, 'the refusal names the narrow scope to declare')
+  }
+
+  async function testModuleBridgeScopeOpensOwnChannels(): Promise<void> {
+    const fake = createBridgeFixture()
+    const outcome = await bridgeInvoke(fake, { channel: 'focus-deck:ping' })
+    assert.deepEqual(outcome, { ok: true, result: 'pong' }, 'module:bridge alone opens the module\'s own channels')
   }
 
   async function testDispatcherRefusesWithoutManifestResolver(): Promise<void> {
@@ -173,6 +186,7 @@ test('module-bridge', async () => {
     await testDispatcherRefusesChannelWithoutOwnerPrefix()
     await testDispatcherRefusesBundledModuleWithoutInvokePermission()
     await testDispatcherRefusesWithoutInvokePermission()
+    await testModuleBridgeScopeOpensOwnChannels()
     await testDispatcherRefusesWithoutManifestResolver()
     await testHandlerErrorsPropagateAsRejections()
     await testUnregisterModuleRemovesBridgedHandler()

@@ -164,7 +164,7 @@ checked on every call, and a module without them gets `permission_missing`:
 | `github` | `getGitHubService` |
 | `mcp:tools` | `MainHost.registerMcpTools` |
 | `agents:companion` | Attaching a companion agent |
-| `ipc:invoke` | The renderer → `entry.main` bridge (`RendererHost.invoke`) |
+| `module:bridge` | The renderer → own `entry.main` bridge (`RendererHost.invoke`). The broad `ipc:invoke` still opens it for older manifests; declare `module:bridge` instead |
 
 The full vocabulary and its consent copy is in
 [`docs/module-authors/permissions.md`](../../docs/module-authors/permissions.md)
@@ -407,7 +407,9 @@ const result = await host.invoke('my-module:save-events', { events })
 
 The channel must start with your own module id. The host routes an invoke only
 to a channel registered through `registerIpc` whose owner declares
-`ipc:invoke`. A refused invoke rejects with an Error whose `code` is a
+`module:bridge` (consent: "Let its window code talk to its own background
+code"). The broad `ipc:invoke`, which the bridge used to need, still opens it,
+so an older manifest keeps working. A refused invoke rejects with an Error whose `code` is a
 `ModuleBridgeRefusalCode` (`unknown_channel` | `not_bridgeable` |
 `permission_missing`).
 

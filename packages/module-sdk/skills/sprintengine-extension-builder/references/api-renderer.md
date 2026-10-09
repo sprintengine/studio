@@ -84,7 +84,7 @@ useEffect(() => host.subscribe('changed', () => void reload()), [])
 ```
 
 - Channels must start with `<moduleId>:`; the host refuses others. The owner
-  must declare `ipc:invoke`. A refused invoke rejects with an Error whose
+  must declare `module:bridge`. A refused invoke rejects with an Error whose
   `code` is `unknown_channel`, `not_bridgeable` or `permission_missing`.
 - Events are signals, not state: nothing is replayed, so read the current
   state through a channel and let the event say "read again".

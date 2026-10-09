@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`module:bridge`**, the permission for the renderer → own `entry.main`
+  bridge alone (`RendererHost.invoke` to the module's own `registerIpc`
+  channels). Its consent line reads "Let its window code talk to its own
+  background code", where `ipc:invoke`, which a module needed for the same
+  thing, reads "Call any of the app's internal APIs … (broad scope)". The
+  bridge accepts either, so an existing manifest keeps working; the
+  `chat-companion` template, the docs and the smoke test use `module:bridge`.
+
 ## 1.0.0-beta.1
 
 Automations became scheduled agents: a prompt and a cron schedule, each run a

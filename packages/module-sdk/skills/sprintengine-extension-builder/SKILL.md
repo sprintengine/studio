@@ -85,7 +85,7 @@ Then in Studio: **Settings → Modules**, find the module, trust it.
 | Calling an API with a key | main: `getSecretsService(host).fetchWithSecret` | `secrets` | — |
 | Calling GitHub as the user | main: `getGitHubService(host).request` | `github` | — |
 | Saving data | renderer: `get/setModuleAppState`, `get/setWorkspaceModuleState`; main: `getModuleStorage(host)` | `storage` | panel |
-| Renderer ↔ main | main `registerIpc('<id>:…')`, renderer `host.invoke`; main → renderer `host.emit` / `host.subscribe` | `ipc:invoke` | chat-companion |
+| Renderer ↔ main | main `registerIpc('<id>:…')`, renderer `host.invoke`; main → renderer `host.emit` / `host.subscribe` | `module:bridge` | chat-companion |
 | Skills agents can use | main: `host.registerSkills`, `host.ensureSkillInstalled` | — | — |
 | Files inside the module (HTML, WASM) | `host.getAssetUrl('runtime/index.html')` | — | — |
 
@@ -143,7 +143,7 @@ without it answers `false`; degrade with a message instead of throwing.
 Declare the fewest that cover what the code does, and nothing "just in case":
 they are what the person reads before trusting the module, and the host
 enforces several (`conversation:*`, `secrets`, `github`, `mcp:tools`,
-`agents:companion`, `ipc:invoke` for the bridge). Table and meaning of each:
+`agents:companion`, `module:bridge` for the bridge). Table and meaning of each:
 [permissions.md](references/permissions.md). The smoke test fails when a
 service reached at registration is missing its permission.
 
