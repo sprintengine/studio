@@ -189,11 +189,25 @@ export type ThirdPartyModuleLaunchView = {
   expectedToLoad: boolean
   message?: string
   /**
+   * Whether `entry.main` was loaded in this session. Main code loads once, at
+   * launch, so a module trusted or turned on since reads false until the next
+   * one — which is what "starts after a restart" means. Optional so older
+   * fixtures stay valid; absent reads as not loaded.
+   */
+  mainLoaded?: boolean
+  /**
    * Renderer-entry availability for this module. Always populated by the
    * main-process list IPC; optional so older fixtures stay valid.
    */
   rendererEntry?: ThirdPartyRendererEntryView
 }
+
+// Where an installed third-party module came from, read off the install
+// receipts: a folder the person picked (no receipt), the marketplace registry,
+// or a GitHub repository. `pluginId` is the receipt's id — the bundle the
+// module arrived in — which is what an update or an uninstall acts on.
+export type ThirdPartyModuleOrigin =
+  { kind: 'folder' } | { kind: 'marketplace'; pluginId: string } | { kind: 'github'; pluginId: string; repo: string }
 
 // IPC channel that serves loadable third-party renderer entries. Owned by the
 // module-host kernel ('@host'); the renderer loader invokes it at boot.
@@ -235,6 +249,15 @@ export type ThirdPartyModuleView = {
   trust: ModuleTrustStatus
   fingerprint?: string
   launch: ThirdPartyModuleLaunchView
+  /** Absent on a build that predates it; treat as unknown, not as a folder. */
+  origin?: ThirdPartyModuleOrigin
+  /**
+   * What made a trusted module trusted: its publisher's key, or the person's
+   * own grant. Only a grant is the person's to revoke.
+   */
+  trustedVia?: 'publisher' | 'grant'
+  /** Names of the MCP tools its main entry registered this session. */
+  mcpTools?: string[]
 }
 
 export type ModuleManifestIssue = { path: string; message: string }

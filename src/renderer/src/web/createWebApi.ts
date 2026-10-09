@@ -134,7 +134,8 @@ const browserEmptyStates = {
   // push: a tab's own settings start at the defaults, and its mount push would
   // overwrite a choice the person made on the desktop.
   setTextGenerationSettings: async () => undefined,
-  // A browser tab has no quit to ask about.
+  // A browser tab has no quit to ask about, and no app to relaunch.
+  restartApp: undefined,
   getQuitConfirmation: async () => null,
   setQuitConfirmation: async () => null,
   getAgentBrowserTools: async () => null,

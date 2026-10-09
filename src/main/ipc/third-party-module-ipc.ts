@@ -10,6 +10,7 @@ import type {
   ThirdPartyModuleLaunchView,
   ThirdPartyModuleInstallResult,
   ThirdPartyModuleListResult,
+  ThirdPartyModuleOrigin,
   ThirdPartyModuleTrustResult,
   ThirdPartyModuleView,
 } from '../../shared/modules/manifest'
@@ -21,6 +22,7 @@ import { manifestFingerprint, type ModuleTrustContext } from '../modules/module-
 import {
   defaultMarketplacePluginInstallStorePath,
   readMarketplacePluginInstallReceipts,
+  type MarketplacePluginInstallReceipt,
 } from '../marketplace/plugin-lifecycle'
 import { listKnownWorkspaceRoots } from '../workspace-roots'
 import { assertAppSender } from './ipc-sender'
@@ -29,7 +31,11 @@ import {
   installEnvelope,
   type MarketplacePluginIpcServices,
 } from './marketplace-plugin-ipc'
-import { readThirdPartyMainLaunchSnapshot, type ThirdPartyMainLaunchSnapshot } from '../modules/third-party-main-loader'
+import {
+  readThirdPartyMainLaunchSnapshot,
+  type ThirdPartyLaunchSession,
+  type ThirdPartyMainLaunchSnapshot,
+} from '../modules/third-party-main-loader'
 import { rendererEntryView } from '../modules/third-party-renderer-entries'
 import {
   defaultUserModuleRoot,
@@ -51,17 +57,49 @@ export function registerThirdPartyModuleIpc(
   // MCP and automation services, and the open workspaces an MCP or skill
   // removal may write into.
   services: MarketplacePluginIpcServices,
+  options: {
+    /**
+     * What this session's main halves did. In process that is this process's
+     * own launch snapshot; out of process the modules load in the server and
+     * the shell asks it. The default reads the local snapshot and knows no
+     * MCP tools.
+     */
+    readLaunchSession?: () => Promise<ThirdPartyLaunchSession>
+  } = {},
 ): void {
   const trustContext = (): ModuleTrustContext => readModuleTrustContextSync(app.getPath('userData'))
   let pipeline: ReturnType<typeof createMarketplacePluginPipeline> | null = null
   const marketplace = () => (pipeline ??= createMarketplacePluginPipeline(services))
 
+  const readLaunchSession = async (): Promise<ThirdPartyLaunchSession> => {
+    const local = { snapshot: readThirdPartyMainLaunchSnapshot(), mcpTools: new Map<string, string[]>() }
+    if (!options.readLaunchSession) return local
+    try {
+      return await options.readLaunchSession()
+    } catch {
+      // A server that is restarting answers nothing; the list still answers.
+      return local
+    }
+  }
+
   ipcMain.handle('modules:third-party:list', async (): Promise<ThirdPartyModuleListResult> => {
-    const { modules, rejected } = await discoverUserModules(defaultUserModuleRoot(), trustContext())
-    const launchSnapshot = readThirdPartyMainLaunchSnapshot()
-    const enablementOverrides = readModuleOverridesSync(app.getPath('userData'))
+    const userData = app.getPath('userData')
+    const [{ modules, rejected }, session, receipts] = await Promise.all([
+      discoverUserModules(defaultUserModuleRoot(), trustContext()),
+      readLaunchSession(),
+      readMarketplacePluginInstallReceipts(defaultMarketplacePluginInstallStorePath(userData)),
+    ])
+    const enablementOverrides = readModuleOverridesSync(userData)
+    // An unreadable receipt store leaves origins unknown rather than calling
+    // every module a folder install.
+    const origins = receipts.ok ? moduleOriginsFromReceipts(receipts.receipts) : null
     return {
-      modules: modules.map((module) => toThirdPartyModuleView(module, launchSnapshot, enablementOverrides)),
+      modules: modules.map((module) =>
+        toThirdPartyModuleView(module, session.snapshot, enablementOverrides, {
+          ...(origins ? { origin: origins.get(module.manifest.id) ?? { kind: 'folder' } } : {}),
+          mcpTools: session.mcpTools.get(module.manifest.id) ?? [],
+        }),
+      ),
       rejected,
     }
   })
@@ -224,16 +262,38 @@ async function containedModuleFolder(
   }
 }
 
+// Each module a receipt put in place, by module id, with where the receipt's
+// bundle came from. A receipt without a source predates the field and was
+// always the registry.
+export function moduleOriginsFromReceipts(
+  receipts: readonly MarketplacePluginInstallReceipt[],
+): Map<string, ThirdPartyModuleOrigin> {
+  const origins = new Map<string, ThirdPartyModuleOrigin>()
+  for (const receipt of receipts) {
+    const origin: ThirdPartyModuleOrigin =
+      receipt.source?.kind === 'github'
+        ? { kind: 'github', pluginId: receipt.id, repo: `${receipt.source.owner}/${receipt.source.repo}` }
+        : { kind: 'marketplace', pluginId: receipt.id }
+    for (const component of receipt.components) {
+      if (component.kind === 'module') origins.set(component.id, origin)
+    }
+  }
+  return origins
+}
+
 export function toThirdPartyModuleView(
   module: InstalledModule,
   launchSnapshot: ThirdPartyMainLaunchSnapshot = readThirdPartyMainLaunchSnapshot(),
   enablementOverrides: ModuleEnablementOverrides = {},
+  extras: Pick<ThirdPartyModuleView, 'origin' | 'mcpTools'> = {},
 ): ThirdPartyModuleView {
   return {
     manifest: module.manifest,
     trust: module.trust.status,
     fingerprint: module.trust.fingerprint,
     launch: launchViewFor(module, launchSnapshot, enablementOverrides),
+    ...(module.trust.status === 'trusted' && module.trust.via ? { trustedVia: module.trust.via } : {}),
+    ...extras,
   }
 }
 
@@ -244,6 +304,7 @@ function launchViewFor(
 ): ThirdPartyModuleLaunchView {
   return {
     ...mainEntryLaunchView(module, launchSnapshot, enablementOverrides),
+    mainLoaded: launchSnapshot.loaded.has(module.manifest.id),
     rendererEntry: rendererEntryView(module),
   }
 }

@@ -8,7 +8,13 @@ import { ScheduledAgentsServiceToken } from '../../main/module-host/service-toke
 import { AGENT_RUNTIME_MANIFEST, createAgentRuntimeModule } from '../../main/modules/agent-runtime-module'
 import { createBundledMainModules } from '../../main/modules'
 import { applyHostApiGate } from '../../main/modules/host-api-gate'
-import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from '../../main/modules/third-party-main-loader'
+import {
+  encodeThirdPartyLaunchSession,
+  planThirdPartyMainModules,
+  readThirdPartyMainLaunchSnapshot,
+  recordThirdPartyMainLaunchReport,
+  type ThirdPartyLaunchSessionWire,
+} from '../../main/modules/third-party-main-loader'
 import { readModuleTrustContextSync } from '../../main/modules/trust-context'
 import { defaultUserModuleRoot, discoverUserModulesSync } from '../../main/modules/user-module-registry'
 import type { ScheduledAgentsService } from '../../main/scheduled-agents/service'
@@ -37,6 +43,8 @@ export type ServerModules = {
   /** Register every enabled module. Called once the gateway exists. */
   load(registry: Pick<IpcMain, 'handle' | 'removeHandler'> | unknown, gateway: StudioGateway): void
   mcpTools(): ReadonlyArray<McpToolContribution>
+  /** Which third-party main halves loaded here, and their tools; the shell's Settings asks for it. */
+  thirdPartyLaunchSession(): ThirdPartyLaunchSessionWire
   isEnabled(moduleId: string): boolean
   scheduledAgents(): ScheduledAgentsService | null
   applyEnablement(overrides: Record<string, boolean>): Promise<{ ok: true } | { ok: false; message: string }>
@@ -145,6 +153,8 @@ export function createServerModules(deps: {
       }
     },
     mcpTools: () => load?.kernel.mcpToolRegistrations() ?? [],
+    thirdPartyLaunchSession: () =>
+      encodeThirdPartyLaunchSession(readThirdPartyMainLaunchSnapshot(), load?.kernel.mcpToolRegistrations() ?? []),
     isEnabled: (moduleId) => enabled.has(moduleId),
     scheduledAgents: () => load?.kernel.hostFor('@host').getService(ScheduledAgentsServiceToken) ?? null,
     async applyEnablement(overrides) {

@@ -57,6 +57,7 @@ import { registerSkillsIpc } from './ipc/skills-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
+import type { ThirdPartyLaunchSession } from './modules/third-party-main-loader'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVersionControlIpc } from './ipc/version-control-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
@@ -90,6 +91,8 @@ import { writeDiagnosticLog } from './diagnostics-service'
 
 export type CoreIpcOptions = {
   applyModuleEnablementLive?: ModuleEnablementLiveApplier
+  /** What this session's third-party main halves did, for Settings → Extensions. */
+  readThirdPartyLaunchSession?: () => Promise<ThirdPartyLaunchSession>
   /**
    * The Studio server in a process of its own: its domains register there, on
    * its IPC tunnel, and a chat view's protocol connection is brokered to it.
@@ -282,7 +285,9 @@ export function registerCoreIpc(
       : // The server registers them, and disposes its own command lists.
         { conversationCommands: { dispose: async () => undefined } }
   registerDesignSystemIpc(ipcMain)
-  registerThirdPartyModuleIpc(ipcMain, services)
+  registerThirdPartyModuleIpc(ipcMain, services, {
+    ...(options.readThirdPartyLaunchSession ? { readLaunchSession: options.readThirdPartyLaunchSession } : {}),
+  })
 
   // The terminal runtime (agent-runtime) is always on, so its IPC registers
   // with the core surfaces.

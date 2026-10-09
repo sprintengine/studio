@@ -118,6 +118,55 @@ export function readThirdPartyMainLaunchSnapshot(): ThirdPartyMainLaunchSnapshot
   return launchSnapshot
 }
 
+/**
+ * What this session's main halves did, in the shape that crosses the shell ↔
+ * server control channel: out of process the modules load in the server, so
+ * the shell's own snapshot is empty and Settings asks the server for its one.
+ * `mcpTools` is what each loaded module registered on the gateway.
+ */
+export type ThirdPartyLaunchSessionWire = {
+  loaded: string[]
+  errors: Array<[id: string, message: string]>
+  mcpTools: Array<{ moduleId: string; name: string }>
+}
+
+export type ThirdPartyLaunchSession = {
+  snapshot: ThirdPartyMainLaunchSnapshot
+  mcpTools: ReadonlyMap<string, string[]>
+}
+
+export function encodeThirdPartyLaunchSession(
+  snapshot: ThirdPartyMainLaunchSnapshot,
+  mcpTools: ReadonlyArray<{ moduleId: string; registration: { name: string } }>,
+): ThirdPartyLaunchSessionWire {
+  return {
+    loaded: [...snapshot.loaded],
+    errors: [...snapshot.errors],
+    mcpTools: mcpTools.map((tool) => ({ moduleId: tool.moduleId, name: tool.registration.name })),
+  }
+}
+
+export function decodeThirdPartyLaunchSession(wire: unknown): ThirdPartyLaunchSession {
+  const value = (wire ?? {}) as Partial<ThirdPartyLaunchSessionWire>
+  const strings = (list: unknown): string[] =>
+    Array.isArray(list) ? list.filter((item): item is string => typeof item === 'string') : []
+  const errors = Array.isArray(value.errors)
+    ? value.errors.filter(
+        (entry): entry is [string, string] =>
+          Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'string',
+      )
+    : []
+  const mcpTools = new Map<string, string[]>()
+  for (const tool of Array.isArray(value.mcpTools) ? value.mcpTools : []) {
+    if (!tool || typeof tool.moduleId !== 'string' || typeof tool.name !== 'string') continue
+    mcpTools.set(tool.moduleId, [...(mcpTools.get(tool.moduleId) ?? []), tool.name])
+  }
+  return {
+    snapshot: { loaded: new Set(strings(value.loaded)), manifestOnly: new Set(), errors: new Map(errors) },
+    mcpTools,
+  }
+}
+
 function rejectionToLoadError(rejection: ModuleRejection): MainModuleLoadError {
   return {
     id: rejection.path,

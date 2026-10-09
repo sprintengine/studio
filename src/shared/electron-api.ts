@@ -45,6 +45,7 @@ import type {
   AgentLaunchSettingsSnapshot,
   AgentLaunchSettingsWriteAck,
 } from './launch-settings'
+
 export type { ConversationPeek, ConversationPeekMessage, ConversationPeekSource } from './conversation-peek'
 export type { HostedSource, HostedSourceKind, HostedSourcesFeed } from './hosted-sources-feed'
 export type {
@@ -539,6 +540,9 @@ export type * from './ipc/account'
 export type * from './ipc/workspace-backup'
 export type * from './ipc/app'
 export type * from './ipc/backlog'
+
+/** `restarting: false` when the person answered Cancel to the quit question. */
+export type AppRestartResult = { restarting: boolean }
 
 export type ElectronApi = {
   /**
@@ -1250,6 +1254,11 @@ export type ElectronApi = {
   updateCheck: () => Promise<AppUpdateCheckResult>
   updateDownload: () => Promise<AppUpdateCheckResult>
   updateQuitAndInstall: () => Promise<AppUpdateCheckResult>
+  /**
+   * Relaunch the app, asked about like a quit when agents are working. Absent
+   * where there is no app to relaunch (a browser tab).
+   */
+  restartApp?: () => Promise<AppRestartResult>
   updateOpenReleaseNotes: () => Promise<{ opened: true; url: string }>
   /** The release channel the updater follows, and whether the person chose it. */
   /** The Studio server: its phase in words, the Advanced toggle, and the actions on it. */

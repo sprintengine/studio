@@ -17,7 +17,14 @@ import { LIVE_ENABLED_MODULE_IDS, type CapabilityManifest } from '../shared/modu
 import { createBundledMainModules } from './modules'
 import { isLoadEligible, type ModuleTrustContext } from './modules/module-signature'
 import { readModuleTrustContextSync } from './modules/trust-context'
-import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './modules/third-party-main-loader'
+import {
+  decodeThirdPartyLaunchSession,
+  encodeThirdPartyLaunchSession,
+  planThirdPartyMainModules,
+  readThirdPartyMainLaunchSnapshot,
+  recordThirdPartyMainLaunchReport,
+} from './modules/third-party-main-loader'
+import { registerAppRestartIpc } from './ipc/app-restart-ipc'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
 import { MODULE_ASSET_SCHEME } from '../shared/modules/assets'
@@ -118,6 +125,15 @@ const includeDevModules = !app.isPackaged
 
 const coreIpc = registerCoreIpc(ipcMain, services, DIAGNOSTICS_ENABLED, {
   applyModuleEnablementLive: (overrides) => applyModuleEnablementLive?.(overrides),
+  // Which third-party main halves this session loaded: the server's, out of
+  // process, where they run; otherwise this process's own. Read only when
+  // Settings lists the modules, long after `moduleLoad` below exists.
+  readThirdPartyLaunchSession: async () =>
+    decodeThirdPartyLaunchSession(
+      serverHost
+        ? await serverHost.supervisor.call(SERVER_METHODS.thirdPartyLaunchSession)
+        : encodeThirdPartyLaunchSession(readThirdPartyMainLaunchSnapshot(), moduleLoad.kernel.mcpToolRegistrations()),
+    ),
   ...(serverHost
     ? {
         server: {
@@ -366,6 +382,12 @@ const relaunchApp = (args: string[] = []): void => {
   services.quitConfirmation.quitWithoutAsking()
   app.quit()
 }
+// Settings → Extensions' "Restart now": a restart the person asked for, so it
+// is asked about the way their own quit is when agents are working.
+registerAppRestartIpc(ipcMain, {
+  confirm: () => services.quitConfirmation.confirm(),
+  relaunch: () => relaunchApp(),
+})
 // The SSH machines switch: answered whether or not this session has them.
 const sshPreviewStatus = (): SshPreviewStatus => ({
   enabled: sshPreview.enabled,
