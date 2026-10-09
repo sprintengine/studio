@@ -3,7 +3,10 @@ import type { ModuleWorkspaceContextService, ModuleWorkspaceService } from '../m
 import type { ModuleStorageRegistry } from './module-storage'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
 import type { ModuleGitHubRegistry, ModuleSecretsRegistry } from '../../shared/modules/brokers'
-import type { ModuleConversationRegistry } from '../../shared/modules/conversation-service'
+import type {
+  ModuleConversationRegistry,
+  ModuleTextGenerationRegistry,
+} from '../../shared/modules/conversation-service'
 import type { ScheduledAgentsModuleRegistry, ScheduledAgentsService } from '../scheduled-agents/service'
 import { createServiceToken } from './main-host'
 
@@ -76,6 +79,12 @@ export const CompanionAgentsModuleServiceToken = createServiceToken<CompanionAge
 // behind the SDK's getConversationService helper.
 export const ConversationModuleServiceToken =
   createServiceToken<ModuleConversationRegistry>('conversation.module-service')
+// Headless text generation per module (`agents:generate`): one prompt, no
+// workspace, no tools, no tab. Key mirrors the private token behind the SDK's
+// getTextGenerationService helper.
+export const TextGenerationModuleServiceToken = createServiceToken<ModuleTextGenerationRegistry>(
+  'text-generation.module-service',
+)
 // Per-module brokered secrets (`secrets` permission). Key mirrors the private
 // token behind the SDK's getSecretsService helper.
 export const ModuleSecretsServiceToken = createServiceToken<ModuleSecretsRegistry>('module-secrets.module-service')

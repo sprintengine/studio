@@ -44,6 +44,8 @@ export type HostCapability =
   // `turn_completed` carries `text` and `usage`, and the conversation service
   // has `reply(ref, turnId?)`.
   | 'conversation-replies'
+  // `getTextGenerationService(host).generate`: one prompt, no chat.
+  | 'text-generation'
   | 'scheduled-agents'
   | 'secrets'
   | 'github'

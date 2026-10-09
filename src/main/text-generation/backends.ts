@@ -84,6 +84,85 @@ export function readClaudeStructuredStdout(stdout: string): unknown {
   return envelope.result ?? null
 }
 
+export type ClaudeTextInvocationInput = {
+  binaryPath: string
+  model: string
+  /** The system prompt the call runs under instead of Claude Code's own. */
+  system?: string
+}
+
+// `claude -p` for free text: the same doors shut as for a title (no tools, so
+// nothing executes whatever the prompt says; no hooks, skills or project MCP
+// servers), with the answer in the JSON envelope's `result` rather than a
+// schema. The prompt goes on stdin; the system prompt is one argv entry, never
+// a shell word.
+export function claudeTextInvocation(input: ClaudeTextInvocationInput): ChatTitleInvocation {
+  return {
+    file: input.binaryPath,
+    args: [
+      '-p',
+      '--output-format',
+      'json',
+      '--model',
+      input.model,
+      ...(input.system ? ['--system-prompt', input.system] : []),
+      '--settings',
+      JSON.stringify({ disableAllHooks: true }),
+      '--tools',
+      '',
+      '--disable-slash-commands',
+      '--strict-mcp-config',
+    ],
+  }
+}
+
+/** What `claude -p --output-format json` says about one free-text call. */
+export type ClaudeTextAnswer = {
+  text: string
+  /** The model that answered, as the CLI names it; null when it does not say. */
+  model: string | null
+  usage: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }
+}
+
+/**
+ * The answer in a free-text call's stdout: the envelope's `result`, the model
+ * its `modelUsage` names, and its `usage` by the turn-usage contract (fresh
+ * input apart from the cache's reads and writes). Null for an error envelope
+ * or stdout that is not JSON.
+ */
+export function readClaudeTextStdout(stdout: string): ClaudeTextAnswer | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout)
+  } catch {
+    return null
+  }
+  const envelope = Array.isArray(parsed)
+    ? parsed.findLast((entry): entry is Record<string, unknown> =>
+        Boolean(entry && typeof entry === 'object' && (entry as { type?: unknown }).type === 'result'),
+      )
+    : parsed && typeof parsed === 'object'
+      ? (parsed as Record<string, unknown>)
+      : undefined
+  if (!envelope || envelope.is_error === true || typeof envelope.result !== 'string') return null
+  const usage = envelope.usage && typeof envelope.usage === 'object' ? (envelope.usage as Record<string, unknown>) : {}
+  const count = (value: unknown): number | undefined =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+  const counts = {
+    inputTokens: count(usage.input_tokens),
+    outputTokens: count(usage.output_tokens),
+    cacheReadTokens: count(usage.cache_read_input_tokens),
+    cacheWriteTokens: count(usage.cache_creation_input_tokens),
+  }
+  const modelUsage =
+    envelope.modelUsage && typeof envelope.modelUsage === 'object' ? Object.keys(envelope.modelUsage) : []
+  return {
+    text: envelope.result,
+    model: modelUsage[0] ?? null,
+    usage: Object.fromEntries(Object.entries(counts).filter(([, value]) => value !== undefined)),
+  }
+}
+
 export type CodexInvocationInput = {
   binaryPath: string
   model: string

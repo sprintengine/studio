@@ -133,6 +133,7 @@ export const THIRD_PARTY_SERVICE_KEYS: ReadonlySet<string> = new Set([
   'conversation.module-service',
   'module-secrets.module-service',
   'github.module-service',
+  'text-generation.module-service',
 ])
 
 const defaultSkillRegistry: ModuleSkillHostRegistry = {

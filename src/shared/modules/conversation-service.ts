@@ -214,3 +214,39 @@ export type ModuleChatRuntimeOption = {
   models: { id: string; label: string }[]
   lastSelected: boolean
 }
+
+// ── Headless text generation (main) ──────────────────────────────────────────
+// One prompt answered by the person's own agent CLI with no workspace, no
+// tools and no tab (main/text-generation/module-text-generation.ts).
+
+export type ModuleTextGenerationInput = {
+  prompt: string
+  system?: string
+  model?: string
+  maxOutputTokens?: number
+  json?: boolean
+  cli?: string
+}
+
+export type ModuleTextGenerationErrorCode =
+  | 'permission_missing'
+  | 'invalid_input'
+  | 'unsupported'
+  | 'unavailable'
+  | 'busy'
+  | 'timeout'
+  | 'failed'
+  | 'invalid_output'
+
+export type ModuleTextGenerationResult =
+  | { ok: true; text: string; usage: ModuleConversationTurnUsage; model: string }
+  | { ok: false; code: ModuleTextGenerationErrorCode; message: string }
+
+export type ModuleTextGenerationService = {
+  generate(input: ModuleTextGenerationInput): Promise<ModuleTextGenerationResult>
+}
+
+// What the host provides under 'text-generation.module-service'.
+export type ModuleTextGenerationRegistry = {
+  generate(moduleId: string, input: ModuleTextGenerationInput): Promise<ModuleTextGenerationResult>
+}

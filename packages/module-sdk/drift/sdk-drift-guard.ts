@@ -554,6 +554,12 @@ expectType<
 >()
 expectType<IsExact<protocol.ConversationTurnUsage, sdk.ModuleConversationTurnUsage>>()
 expectType<IsExact<protocol.ConversationTurnCompletedPayload, sdk.ModuleConversationTurnCompletedPayload>>()
+// Headless text generation: the service a module calls, and the registry the
+// host provides under 'text-generation.module-service'.
+expectType<IsExact<appConversation.ModuleTextGenerationInput, sdk.ModuleTextGenerationInput>>()
+expectType<IsExact<appConversation.ModuleTextGenerationErrorCode, sdk.ModuleTextGenerationErrorCode>>()
+expectType<IsExact<appConversation.ModuleTextGenerationResult, sdk.ModuleTextGenerationResult>>()
+expectType<IsExact<appConversation.ModuleTextGenerationService, sdk.ModuleTextGenerationService>>()
 
 // Against the protocol package directly, so a change there fails here even
 // where the app's module contract would let it through.
@@ -589,6 +595,9 @@ type SdkExpectedRegistry<S> = {
 expectType<IsExact<appConversation.ModuleConversationRegistry, SdkExpectedRegistry<sdk.ModuleConversationService>>>()
 expectType<IsExact<appBrokers.ModuleSecretsRegistry, SdkExpectedRegistry<sdk.ModuleSecretsService>>>()
 expectType<IsExact<appBrokers.ModuleGitHubRegistry, SdkExpectedRegistry<sdk.ModuleGitHubService>>>()
+expectType<
+  IsExact<appConversation.ModuleTextGenerationRegistry, SdkExpectedRegistry<sdk.ModuleTextGenerationService>>
+>()
 
 // Companion agents. The app declares these shapes inline on the registry it
 // serves under 'companion-agents.module-service', so they are read off it: the
@@ -650,6 +659,7 @@ const SDK_SERVICE_TOKEN_KEYS = [
   'conversation.module-service',
   'module-secrets.module-service',
   'github.module-service',
+  'text-generation.module-service',
 ] as const
 const sdkRuntime = ['index.js', 'conversation.js', 'brokers.js']
   .map((file) => readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', file), 'utf8'))

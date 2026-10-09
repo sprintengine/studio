@@ -499,7 +499,11 @@ export type ModuleOpenChatResult =
 
 /** One agent runtime a chat can run on, as a picker row. */
 export type ModuleChatRuntimeOption = {
-  /** Runtime id to pass as `openChat`'s `cli` (e.g. 'claude', 'codex'). */
+  /**
+   * The chat runtime id: what `openChat`'s and `create`'s `cli`, a scheduled
+   * agent's `cli` and a companion's `engine.cli` take (`claude-code`, `codex`,
+   * `cursor`, `opencode`, `grok`).
+   */
   id: string
   label: string
   /** Whether this machine has the runtime; missing ones are listed so a picker can show them disabled. */
@@ -508,4 +512,102 @@ export type ModuleChatRuntimeOption = {
   models: { id: string; label: string }[]
   /** True for the runtime the user last chose — what a picker should preselect. */
   lastSelected: boolean
+}
+
+// ── Headless text generation (main) ──────────────────────────────────────────
+
+/**
+ * One prompt for `getTextGenerationService(host).generate`.
+ *
+ * - `prompt`: the message, up to 400,000 characters.
+ * - `system`: a system prompt the call runs under, up to 40,000 characters.
+ * - `model`: a model id the runtime takes (`claude-haiku-4-5`, or an alias such
+ *   as `haiku`); absent, `claude-haiku-4-5`, a small model chosen for cost.
+ * - `maxOutputTokens`: a cap on the answer, 1 to 64,000.
+ * - `json`: the answer must be one JSON value. The model is told so, the host
+ *   reads the value out of its reply, and `text` is that value serialised;
+ *   a reply with no JSON in it answers `invalid_output`.
+ * - `cli`: the chat runtime id to answer on; absent, `claude-code`, which is
+ *   the only one today: its headless call runs with no tools at all. Another
+ *   id answers `unsupported`.
+ */
+export type ModuleTextGenerationInput = {
+  prompt: string
+  system?: string
+  model?: string
+  maxOutputTokens?: number
+  json?: boolean
+  cli?: string
+}
+
+/**
+ * Why a call has no answer. `busy`: the module already has two calls running
+ * and eight waiting, or made thirty in the last minute; `unavailable`: the
+ * runtime is not installed or could not be probed; `invalid_output`: the model
+ * answered with nothing usable (or no JSON, when `json` was asked for).
+ */
+export type ModuleTextGenerationErrorCode =
+  | 'permission_missing'
+  | 'invalid_input'
+  | 'unsupported'
+  | 'unavailable'
+  | 'busy'
+  | 'timeout'
+  | 'failed'
+  | 'invalid_output'
+
+/**
+ * The answer: its `text`, the `usage` the call spent (as a conversation turn
+ * reports it) and the `model` that answered.
+ */
+export type ModuleTextGenerationResult =
+  | { ok: true; text: string; usage: ModuleConversationTurnUsage; model: string }
+  | { ok: false; code: ModuleTextGenerationErrorCode; message: string }
+
+/**
+ * One prompt answered in the background by the person's own agent CLI, under
+ * the sign-in it already holds: no workspace, no tools, no chat tab, nothing in
+ * the person's history. For a summary, a classification, a standup digest —
+ * anything that is a question and an answer rather than work in a project.
+ *
+ * Declare `agents:generate` (checked on every call) and check
+ * `host.supports('text-generation')`. Each module has its own lane: two calls
+ * run at once and up to eight wait their turn; past that, or past thirty calls
+ * a minute, a call answers `busy` straight away. Every call is bounded in time
+ * and answers `timeout` rather than hang.
+ */
+export type ModuleTextGenerationService = {
+  generate(input: ModuleTextGenerationInput): Promise<ModuleTextGenerationResult>
+}
+
+type ModuleTextGenerationRegistry = {
+  generate(moduleId: string, input: ModuleTextGenerationInput): Promise<ModuleTextGenerationResult>
+}
+
+// A literal for the same reason as the conversation token above.
+const textGenerationModuleServiceToken: ServiceToken<ModuleTextGenerationRegistry> = {
+  key: 'text-generation.module-service',
+}
+
+/** The scoped text generation service for `host`'s module (see `ModuleTextGenerationService`). */
+export function getTextGenerationService(host: MainHost): ModuleTextGenerationService {
+  // A host from before the service refuses its key outright; that is the same
+  // answer as a host that has it switched off.
+  let registry: ModuleTextGenerationRegistry | undefined
+  try {
+    registry = host.getService(textGenerationModuleServiceToken)
+  } catch {
+    registry = undefined
+  }
+  const moduleId = host.moduleId
+  return {
+    generate: (input) =>
+      registry
+        ? registry.generate(moduleId, input)
+        : Promise.resolve({
+            ok: false,
+            code: 'unsupported',
+            message: `This version of the app cannot generate text; check host.supports('text-generation').`,
+          }),
+  }
 }

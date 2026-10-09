@@ -1,6 +1,7 @@
 // Text generation in the main process: the person's own agent CLI, headless,
-// one shot, under the login it already holds. Two jobs run on it: the chat
-// title, and the title and description the chat's "Create PR" button drafts.
+// one shot, under the login it already holds. Three jobs run on it: the chat
+// title, the title and description the chat's "Create PR" button drafts, and
+// a module's free-text prompt (module-text-generation.ts).
 //
 // What every call guarantees:
 //   - no API key is read or forwarded — the Anthropic key/base-URL variables
@@ -45,9 +46,12 @@ import { listPluginRegistryEntries } from '../plugin-registry-instance'
 import { STRIPPED_ANTHROPIC_AUTH_ENV_KEYS } from '../providers/claude-agent-provider'
 import {
   claudeChatTitleInvocation,
+  claudeTextInvocation,
   codexChatTitleInvocation,
   readClaudeStructuredStdout,
+  readClaudeTextStdout,
   type ChatTitleInvocation,
+  type ClaudeTextAnswer,
 } from './backends'
 import { runCommand, type RunCommand } from './run-command'
 
@@ -98,6 +102,74 @@ export async function generatePullRequestText(
     },
     deps,
   )
+}
+
+/** One free-text call a module asked for (`getTextGenerationService`). */
+export type HeadlessTextRequest = {
+  prompt: string
+  system?: string
+  model: string
+  maxOutputTokens?: number
+  cliRuntimes?: TextGenerationCliRuntimeOverrides
+  timeoutMs?: number
+  signal?: AbortSignal
+}
+
+export type HeadlessTextResult =
+  | { ok: true; text: string; usage: ClaudeTextAnswer['usage']; model: string; ms: number }
+  | Extract<TextGenerationResult, { ok: false }>
+
+/** The CLI free text runs on: the one whose headless call can run with its tools off. */
+export const HEADLESS_TEXT_CLI = 'claude-code'
+
+/**
+ * A prompt answered as free text by the person's own Claude Code, headless,
+ * with every guarantee a title has: no API key, a scratch directory, no tools,
+ * no hooks, no project MCP servers. `maxOutputTokens` caps the answer through
+ * the CLI's own output limit.
+ */
+export async function generateHeadlessText(
+  request: HeadlessTextRequest,
+  deps: TextGenerationServiceDeps = {},
+): Promise<HeadlessTextResult> {
+  const now = deps.now ?? Date.now
+  const startedAt = now()
+  const cli = HEADLESS_TEXT_CLI
+  const binaryPath = await resolveBinary(cli, request.cliRuntimes, deps.detect ?? cachedDetect)
+  if (!binaryPath.ok) return binaryPath
+  if (request.signal?.aborted) return { ok: false, code: 'cancelled', message: `${cli} was stopped.` }
+  const scratch = await mkdtemp(path.join(deps.scratchRoot ?? tmpdir(), SCRATCH_PREFIX))
+  try {
+    const env = engineEnv(cli, deps.env)
+    if (request.maxOutputTokens !== undefined) env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(request.maxOutputTokens)
+    const outcome = await (deps.run ?? runCommand)({
+      ...claudeTextInvocation({
+        binaryPath: binaryPath.path,
+        model: request.model,
+        ...(request.system ? { system: request.system } : {}),
+      }),
+      cwd: scratch,
+      env,
+      stdin: request.prompt,
+      timeoutMs: request.timeoutMs ?? DEFAULT_TEXT_GENERATION_TIMEOUT_MS,
+      ...(request.signal ? { signal: request.signal } : {}),
+    })
+    const failure = runFailure(cli, outcome)
+    if (failure) return failure
+    const answer = readClaudeTextStdout(outcome.stdout)
+    if (!answer) return { ok: false, code: 'guardrail', message: `${cli} returned no usable answer.` }
+    return {
+      ok: true,
+      text: answer.text,
+      usage: answer.usage,
+      model: answer.model ?? request.model,
+      ms: now() - startedAt,
+    }
+  } catch (error) {
+    return { ok: false, code: 'transport', message: describe(error) }
+  } finally {
+    await rm(scratch, { recursive: true, force: true }).catch(() => undefined)
+  }
 }
 
 /**

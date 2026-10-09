@@ -17,7 +17,8 @@ test('usages add member by member, and a member either reports is in the sum', (
     outputTokens: 3,
     cacheReadTokens: 5,
   })
+  // Neither side is changed.
   const total = { inputTokens: 1 }
   addTurnUsage(total, { inputTokens: 1 })
-  expect(total).toEqual({ inputTokens: 1 }, 'neither side is changed')
+  expect(total).toEqual({ inputTokens: 1 })
 })

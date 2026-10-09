@@ -18,6 +18,7 @@ import {
   ModuleStorageToken,
   SprintEngineAuthToken,
   TerminalRuntimeToken,
+  TextGenerationModuleServiceToken,
   WorkspaceContextToken,
   WorkspaceRegistryToken,
   WorkspaceServiceToken,
@@ -31,6 +32,8 @@ import { createModuleSecretsRegistry } from '../module-host/module-secrets'
 import { createModuleStorageRegistry } from '../module-host/module-storage'
 import { moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
+import { createModuleTextGenerationRegistry } from '../text-generation/module-text-generation'
+import { generateHeadlessText } from '../text-generation/text-generation-service'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
 
 // Resolves a module id to the capability permissions it declared in its
@@ -165,6 +168,16 @@ export function createAgentRuntimeModule(
       })
       host.provideService(ConversationModuleServiceToken, () => conversations.registry)
       host.onShutdown(() => conversations.dispose())
+      // Headless text generation behind the SDK's getTextGenerationService:
+      // one prompt answered by the person's own Claude Code with its tools
+      // off, checked per call against `agents:generate`, in a lane per module.
+      host.provideService(TextGenerationModuleServiceToken, () =>
+        createModuleTextGenerationRegistry({
+          getModulePermissions: options.getModulePermissions,
+          generate: (request) => generateHeadlessText(request),
+          getCliRuntimes: () => effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).cliRuntimes,
+        }),
+      )
       // The brokers behind the SDK's getSecretsService and getGitHubService: a
       // module stores a secret and spends it on the origins it named, or calls
       // the signed-in person's GitHub, without ever holding the value itself.

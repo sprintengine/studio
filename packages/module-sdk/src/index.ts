@@ -144,6 +144,10 @@ export type CapabilityPermission =
   // Companion Agents service. Unlike the disclosure-only scopes above, the
   // companion service checks this one explicitly at attach time.
   | 'agents:companion'
+  // Send prompts to the person's own agent CLI in the background and read the
+  // answers, with no chat, workspace or tools (`getTextGenerationService`).
+  // Checked on every call.
+  | 'agents:generate'
   // Persist the module's own data through the SDK's scoped storage service
   // (host-placed: the workspace's app-owned `.sprintengine/modules/<id>/`, or
   // per-user app data).
@@ -183,6 +187,7 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.link.open',
   'scheduled-agents.manage',
   'agents:companion',
+  'agents:generate',
   'storage',
   'conversation:read',
   'conversation:operate',
@@ -2232,8 +2237,17 @@ export {
   type ModuleOpenChatResult,
 } from './conversation.js'
 
-// Agents, conversations and scheduled agents: turn replies and usage.
-export { type ModuleConversationTurnCompletedPayload, type ModuleConversationTurnUsage } from './conversation.js'
+// Agents, conversations and scheduled agents: turn replies and usage, and
+// headless text generation.
+export {
+  getTextGenerationService,
+  type ModuleConversationTurnCompletedPayload,
+  type ModuleConversationTurnUsage,
+  type ModuleTextGenerationErrorCode,
+  type ModuleTextGenerationInput,
+  type ModuleTextGenerationResult,
+  type ModuleTextGenerationService,
+} from './conversation.js'
 
 export {
   getGitHubService,
