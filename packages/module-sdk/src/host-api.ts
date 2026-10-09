@@ -44,7 +44,27 @@ export type HostCapability =
   | 'mcp-tools'
   | 'skills'
   | 'module-assets'
+  // `MainHost.notify` reaches the bell of every open window, with `target`
+  // opening your own door. False where no client delivery is wired.
   | 'notifications'
+  // ── Shell surfaces & renderer host (all additive under host API 1) ──
+  // Your `registerSidebarNavEntry` row is drawn as your door's row in the
+  // Extensions drawer (entry id == surface id), handed the host's `badge`.
+  | 'sidebar-nav-entries'
+  // `registerDoorBadge({ rowId: <your surface id> })` counts on your door's row.
+  | 'door-badges'
+  // `RendererHost.toast(...)`; true once the window's toast region is wired.
+  | 'toast'
+  // `RendererHost.moduleId`.
+  | 'module-id'
+  // `ModuleCommandDefinition.run(context)` receives the `ModuleCommandContext`.
+  | 'command-context'
+  // `RendererHost.getActiveWorkspaceId()` and `watchActiveWorkspace(cb)`.
+  | 'active-workspace'
+  // `RendererHost.setSurfaceView(surfaceId, viewId)`.
+  | 'surface-view'
+  // `RendererHost.openExternal(url)`; true once the window's link opener is wired.
+  | 'open-external'
   // `entry.main` runs in the desktop's own main process, where `electron` can
   // be required. False wherever the main half runs in the Studio server, a
   // Node process with no Electron APIs; a module that cannot live without them

@@ -179,7 +179,7 @@ test('renderer-host', async () => {
     ['primary+alt+h'],
     'default keybindings are normalized and de-duplicated like the shell registry',
   )
-  const suiteRun1 = registeredHello.run()
+  const suiteRun1 = registeredHello.run({ activeWorkspaceId: null, activeWorkspaceMode: null })
   assert.equal(helloRuns, 1, 'the registered handler is the module-provided callback')
 
   assert.equal(

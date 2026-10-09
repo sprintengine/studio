@@ -15,12 +15,13 @@ import type { Tone } from '../components/ui/tokens'
 // Auto-dismiss stays the PRIMITIVE's policy (polite tones 5s, warn/error 10s)
 // — the store only holds what is showing and removes what was dismissed.
 
-// A button on a toast. THREE toasts carry these: the CLI-update toast (owner
+// A button on a toast. FOUR producers carry these: the CLI-update toast (owner
 // ruling 2026-09-04 — "Update available: Codex 0.153.3" with Settings and
 // Update), the app-update toast (owner ruling 2026-09-23 — Later and Restart
-// to update), and "Started in the background" after ⌘⏎ in New chat (Open).
-// Every other toast stays button-free; the design-system toast spec names all
-// three consumers.
+// to update), "Started in the background" after ⌘⏎ in New chat (Open), and a
+// capability module's `RendererHost.toast` with its one optional action
+// (components/workspace/moduleToasts.ts). Every other toast stays
+// button-free; the design-system toast spec names all four consumers.
 type ToastAction = {
   id: string
   label: string

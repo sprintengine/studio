@@ -567,6 +567,8 @@ export default function WorkspaceManager() {
         ),
         revealWorkspace: (id) => setActiveWorkspaceForWindow(workspaceWindowId, id),
         workspaceExists: (id) => workspaces.some((workspace) => workspace.id === id),
+        // A module row opens its own door and nothing else (renderer-host).
+        openModuleSurface: (moduleId, target) => getRendererHost().moduleSurfaceTargetOpener(moduleId, target),
       }),
     [moduleEnablement, setActiveWorkspaceForWindow, workspaceWindowId, workspaces],
   )
@@ -4206,7 +4208,9 @@ export default function WorkspaceManager() {
       const moduleCommand = getRendererHost().getModuleCommand(commandId)
       if (moduleCommand) {
         if (!selectModuleEnabled(moduleEnablement, moduleCommand.moduleId)) return false
-        void moduleCommand.run()
+        // The handler hears the context its availability was judged on: which
+        // workspace "this" is, in this window.
+        void moduleCommand.run(moduleCommandContext)
         return true
       }
       // Registry-backed panel-event commands: the registry names the event, so
@@ -4235,6 +4239,7 @@ export default function WorkspaceManager() {
       workspaceWindowId,
       terminalSessions,
       moduleEnablement,
+      moduleCommandContext,
       dispatchPanelCommand,
       extensionsDrawerRows,
       activityByWorkspaceId,
