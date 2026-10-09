@@ -127,8 +127,6 @@ if (typeof window !== 'undefined') {
     import('./color-scheme-watch'),
     import('../hooks/useAppTheme'),
     import('./workspace-opener'),
-    import('../store/notificationStore'),
-    import('./module-notifications'),
   ])
     .then(
       ([
@@ -144,8 +142,6 @@ if (typeof window !== 'undefined') {
         { createColorSchemeWatcher },
         appTheme,
         { createWorkspaceOpener },
-        { useNotificationStore },
-        { startModuleNotificationIngest },
       ]) => {
         rendererHost.setModuleEnablementResolver((moduleId) =>
           selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId),
@@ -403,20 +399,6 @@ if (typeof window !== 'undefined') {
             state.appSettings.lastSelectedCli ?? null,
           )
         })
-        // A module's `MainHost.notify`, filed into this window's bell: live on
-        // the kernel's push channel, plus the backlog it kept from before this
-        // window listened (shared/modules/notifications.ts). Filed once per
-        // delivery id, so a row heard live and read again, or cleared since,
-        // is not filed twice.
-        if (typeof window.api?.onModuleNotification === 'function') {
-          const listRecent = window.api.listRecentModuleNotifications
-          startModuleNotificationIngest({
-            subscribe: (cb) => window.api.onModuleNotification(cb),
-            ...(typeof listRecent === 'function' ? { listRecent: () => listRecent() } : {}),
-            file: (deliveryId, entry) => useNotificationStore.getState().fileModuleNotification(deliveryId, entry),
-          })
-          rendererHost.setModuleNotificationsWired(true)
-        }
         // The app's own external-link path: main opens http(s) in the system
         // browser (window:open-external), never in this window.
         if (typeof window.api?.openExternal === 'function') {
