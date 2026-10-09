@@ -641,6 +641,8 @@ export function toolHasBody(tool: TranscriptToolEntry, kind: ToolPresentation['i
   if (tool.outputStatus === 'declined' || tool.outputStatus === 'stopped') return true
   if (kind === 'file_read' || kind === 'file_edit' || kind === 'file_write') return true
   if (tool.name === 'GenerateImage') return true
+  // A step whose answer was only pictures (a screenshot) shows them.
+  if (tool.images?.length) return true
   // A command with no input still prints the provider's one-line summary.
   if (kind === 'command' && tool.summary?.trim()) return true
   return !isEmptyValue(tool.input) || !isEmptyValue(tool.output)

@@ -5,6 +5,7 @@ import {
   forwardRowGroundClick,
   isPreviewableImagePath,
   previewsAsImage,
+  toolHasBody,
   ToolBody,
   ToolRow,
 } from './ToolRow'
@@ -933,4 +934,10 @@ test('a step called with nothing that answered only with a picture draws the pic
   )
   expect(html).toContain('data-tool-images')
   expect(html).not.toContain('{}')
+})
+
+test('a step that answered only with pictures still opens, to show them', () => {
+  const shot = tool({ name: 'mcp__studio__browser_screenshot', input: {}, output: '', images: ['/Users/dev/a.png'] })
+  expect(toolHasBody(shot, 'other')).toBe(true)
+  expect(toolHasBody({ ...shot, images: undefined }, 'other')).toBe(false)
 })
