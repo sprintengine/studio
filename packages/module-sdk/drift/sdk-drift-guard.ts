@@ -134,7 +134,13 @@ import type {
   CommandScope as AppCommandScope,
   ModuleCommandContext as AppModuleCommandContext,
 } from '../../../src/renderer/src/commands/types'
-import type { ModuleWorkspaceView as AppModuleWorkspaceView } from '../../../src/shared/modules/workspace-view'
+import type {
+  ModuleWorkspaceGitInfoResult as AppModuleWorkspaceGitInfoResult,
+  ModuleWorkspaceGitRemote as AppModuleWorkspaceGitRemote,
+  ModuleWorkspaceListEntry as AppModuleWorkspaceListEntry,
+  ModuleWorkspaceListOptions as AppModuleWorkspaceListOptions,
+  ModuleWorkspaceView as AppModuleWorkspaceView,
+} from '../../../src/shared/modules/workspace-view'
 import type { WorkspaceFileWatchEvent as AppWorkspaceFileWatchEvent } from '../../../src/renderer/src/modules/workspace-file-watch'
 import type { ModuleColorScheme as AppModuleColorScheme } from '../../../src/renderer/src/modules/color-scheme-watch'
 import type {
@@ -214,6 +220,10 @@ import type {
   ModuleStorageResult as SdkModuleStorageResult,
   ModuleStorageService as SdkModuleStorageService,
   ModuleTrustStatus as SdkModuleTrustStatus,
+  ModuleWorkspaceGitInfoResult as SdkModuleWorkspaceGitInfoResult,
+  ModuleWorkspaceGitRemote as SdkModuleWorkspaceGitRemote,
+  ModuleWorkspaceListEntry as SdkModuleWorkspaceListEntry,
+  ModuleWorkspaceListOptions as SdkModuleWorkspaceListOptions,
   ModuleWorkspaceView as SdkModuleWorkspaceView,
   WorkspaceContextService as SdkWorkspaceContextService,
   PreviewSlot as SdkPreviewSlot,
@@ -399,6 +409,13 @@ expectType<IsExact<AppMainHost['getSkillStatus'], SdkMainHost['getSkillStatus']>
 expectType<IsExact<AppModuleStorageChange, SdkModuleStorageChange>>()
 expectType<IsExact<AppMainHost['getModuleDataDir'], SdkMainHost['getModuleDataDir']>>()
 expectType<IsExact<AppMainHost['getAssetPath'], SdkMainHost['getAssetPath']>>()
+// Workspaces: closed history on the main-side list, and the git read on both hosts.
+expectType<IsExact<AppModuleWorkspaceListEntry, SdkModuleWorkspaceListEntry>>()
+expectType<IsExact<AppModuleWorkspaceListOptions, SdkModuleWorkspaceListOptions>>()
+expectType<IsExact<AppModuleWorkspaceGitRemote, SdkModuleWorkspaceGitRemote>>()
+expectType<IsExact<AppModuleWorkspaceGitInfoResult, SdkModuleWorkspaceGitInfoResult>>()
+expectType<IsExact<AppMainHost['getWorkspaceGitInfo'], SdkMainHost['getWorkspaceGitInfo']>>()
+expectType<IsExact<AppRendererHost['getWorkspaceGitInfo'], SdkRendererHost['getWorkspaceGitInfo']>>()
 
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()

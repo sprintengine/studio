@@ -1,11 +1,12 @@
 import type { AppServices } from '../app-services'
 import type { ModuleWorkspaceContextService, ModuleWorkspaceService } from '../modules/module-workspace-service'
 import type { ModuleStorageRegistry } from './module-storage'
+import type { ModuleWorkspaceGitInfoResult } from '../../shared/modules/workspace-view'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
 import type { ModuleGitHubRegistry, ModuleSecretsRegistry } from '../../shared/modules/brokers'
 import type { ModuleConversationRegistry } from '../../shared/modules/conversation-service'
 import type { ScheduledAgentsModuleRegistry, ScheduledAgentsService } from '../scheduled-agents/service'
-import { createServiceToken } from './main-host'
+import { createServiceToken, WORKSPACE_GIT_INFO_SERVICE_KEY } from './main-host'
 
 // Tokens for the shared services that capability modules consume across module
 // boundaries (instead of importing the concrete instances). index.ts seeds the
@@ -82,3 +83,10 @@ export const ModuleSecretsServiceToken = createServiceToken<ModuleSecretsRegistr
 // The signed-in user's GitHub, brokered per module (`github` permission). Key
 // mirrors the private token behind the SDK's getGitHubService helper.
 export const GitHubModuleServiceToken = createServiceToken<ModuleGitHubRegistry>('github.module-service')
+// A workspace's branch and remotes, read for the module host's own
+// `getWorkspaceGitInfo` (which checks the calling module's permission first).
+// First-party only: not on the third-party service list, and not resolved by
+// any SDK helper — a module asks its host.
+export const WorkspaceGitInfoToken = createServiceToken<{
+  read(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
+}>(WORKSPACE_GIT_INFO_SERVICE_KEY)

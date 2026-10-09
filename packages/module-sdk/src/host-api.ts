@@ -71,6 +71,10 @@ export type HostCapability =
   | 'module-data-dir'
   // `MainHost.getAssetPath(relative)`: a verified file's path, for workers and the like.
   | 'main-asset-path'
+  // `getWorkspaceGitInfo(workspaceId)` on both hosts.
+  | 'workspace-git-info'
+  // `WorkspaceContextService.list({ includeClosed })` and `open` on each entry.
+  | 'workspace-history'
   | (string & {})
 
 export type HostApiCompatibility =

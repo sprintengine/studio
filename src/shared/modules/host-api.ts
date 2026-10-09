@@ -44,6 +44,8 @@ const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   'storage-watch',
   'module-data-dir',
   'main-asset-path',
+  'workspace-git-info',
+  'workspace-history',
 ])
 
 export function hostSupports(capability: HostCapability): boolean {

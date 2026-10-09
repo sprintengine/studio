@@ -19,6 +19,7 @@ import {
   SprintEngineAuthToken,
   TerminalRuntimeToken,
   WorkspaceContextToken,
+  WorkspaceGitInfoToken,
   WorkspaceRegistryToken,
   WorkspaceServiceToken,
   WorkspaceSyncServiceToken,
@@ -32,6 +33,10 @@ import { createModuleStorageRegistry } from '../module-host/module-storage'
 import { moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
+import { CLOSED_WORKSPACE_HISTORY_FILE, createClosedWorkspaceHistory } from './closed-workspace-history'
+import { readFolderGitInfo } from '../workspace-git-info'
+import { toModuleWorkspaceView, type ModuleWorkspaceView } from '../../shared/modules/workspace-view'
+import { join } from 'node:path'
 
 // Resolves a module id to the capability permissions it declared in its
 // manifest (disclosure list). The companion registry uses it to gate `attach`
@@ -111,12 +116,42 @@ export function createAgentRuntimeModule(
         createModuleWorkspaceService({ workspaceSync: services.workspaceSyncService }),
       )
       // Read-only workspace context (id → root/name/mode), read from the same
-      // registry the create flow writes.
+      // registry the create flow writes. Closing a workspace deletes its
+      // record, so the history of closed ones is kept beside it, fed by every
+      // registry change, for `list({ includeClosed: true })`.
+      const workspaceViews = (): ModuleWorkspaceView[] =>
+        services.workspaceSyncService
+          .getSnapshot()
+          .state.workspaces.map((workspace) => toModuleWorkspaceView(workspace))
+          .filter((view): view is ModuleWorkspaceView => view !== null)
+      const closedWorkspaces = createClosedWorkspaceHistory({
+        filePath: join(paths.dataDir(), CLOSED_WORKSPACE_HISTORY_FILE),
+      })
+      closedWorkspaces.observe(workspaceViews())
+      const stopObservingWorkspaces = services.workspaceSyncService.subscribeEvents(() =>
+        closedWorkspaces.observe(workspaceViews()),
+      )
+      host.onShutdown(() => stopObservingWorkspaces())
       host.provideService(WorkspaceContextToken, () =>
         createModuleWorkspaceContextService({
           getWorkspaceSyncSnapshot: () => services.workspaceSyncService.getSnapshot(),
+          listClosedWorkspaces: () => closedWorkspaces.list(),
         }),
       )
+      // A workspace's branch and remotes, for the module host's
+      // getWorkspaceGitInfo: git asked from the workspace's own folder (the
+      // worktree, for a worktree-backed one).
+      host.provideService(WorkspaceGitInfoToken, () => ({
+        read: async (workspaceId: string) => {
+          const workspace = services.workspaceSyncService
+            .getSnapshot()
+            .state.workspaces.find((entry) => entry.id === workspaceId)
+          if (!workspace) {
+            return { ok: false, code: 'unknown_workspace', message: `No open workspace "${workspaceId}".` } as const
+          }
+          return readFolderGitInfo(workspace.folderPath ?? null)
+        },
+      }))
       // Per-module, per-workspace JSON storage (SDK getModuleStorage): the
       // host owns file placement so modules stop inventing locations.
       host.provideService(ModuleStorageToken, () => createModuleStorageRegistry({ userDataDir: () => paths.dataDir() }))

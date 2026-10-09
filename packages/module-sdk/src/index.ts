@@ -537,6 +537,16 @@ export type MainHost = {
    * it is signed with the rest. Check `host.supports('main-asset-path')`.
    */
   getAssetPath(relativePath: string): string
+  /**
+   * A workspace's checked-out branch and remotes, each remote with
+   * `owner/repo` when it is on GitHub — so a VCS-aware module stops parsing
+   * `.git` → gitdir → commondir → config itself, and needs no
+   * `filesystem:read-workspace` to do it. Declare `ipc:workspace-read`
+   * (checked: `permission_missing` without it). Never throws. The renderer
+   * twin is `RendererHost.getWorkspaceGitInfo`. Check
+   * `host.supports('workspace-git-info')` first.
+   */
+  getWorkspaceGitInfo(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T
@@ -647,6 +657,57 @@ export type ModuleWorkspaceView = {
 }
 
 /**
+ * One workspace as `WorkspaceContextService.list` reports it: the view, plus
+ * whether it is open now. With `includeClosed`, workspaces closed on this
+ * machine are listed after the open ones, newest first, as they were when
+ * they closed; their folders may since have moved or gone.
+ */
+export type ModuleWorkspaceListEntry = ModuleWorkspaceView & {
+  open: boolean
+  /** When a closed workspace was closed (epoch ms); absent while it is open. */
+  closedAt?: number
+}
+
+export type ModuleWorkspaceListOptions = {
+  /**
+   * Also list the workspaces closed on this machine (the most recent 500),
+   * so a module can tie what it kept — a transcript under the project's
+   * `.sprintengine/`, its own storage — back to a project no longer open.
+   * Check `host.supports('workspace-history')` first.
+   */
+  includeClosed?: boolean
+}
+
+/** A git remote of a workspace's repository, as `git remote -v` names it (fetch URL). */
+export type ModuleWorkspaceGitRemote = {
+  name: string
+  /** The fetch URL, with credentials (a token in the userinfo) removed. */
+  url: string
+  /** `owner/repo` when the remote is a GitHub repository, SSH host aliases resolved. */
+  github?: string
+}
+
+export type ModuleWorkspaceGitInfoErrorCode =
+  | 'permission_missing'
+  | 'unknown_workspace'
+  | 'no_folder'
+  | 'not_a_repository'
+  // The folder is on another machine, or the host has no git reader wired yet.
+  | 'unavailable'
+  | 'git_failed'
+
+/**
+ * A workspace's checked-out branch (null on a detached HEAD) and its remotes,
+ * read by git from the workspace's own folder — so a worktree reports its own
+ * branch and a submodule its own repository, and a remote whose SSH host is an
+ * alias for github.com in ~/.ssh/config still carries `github`. (`Match`
+ * blocks and `Include`d files are not followed when resolving an alias.)
+ */
+export type ModuleWorkspaceGitInfoResult =
+  | { ok: true; branch: string | null; remotes: ModuleWorkspaceGitRemote[] }
+  | { ok: false; code: ModuleWorkspaceGitInfoErrorCode; message: string }
+
+/**
  * Resolve a workspace id to its read-only view from `entry.main`. A null
  * resolution means "not currently resolvable" — an unknown id, or workspace
  * state that has not re-hydrated yet (e.g. right after app launch). Never a
@@ -660,9 +721,11 @@ export type WorkspaceContextService = {
    * Every workspace currently open, in registry order. The main-side twin of
    * `RendererHost.listWorkspaces`, and the only way `entry.main` can answer
    * "which project roots are open" — an MCP tool your module contributes runs
-   * with no window and no renderer to ask.
+   * with no window and no renderer to ask. Each entry says `open: true`;
+   * with `includeClosed`, the workspaces closed on this machine follow, newest
+   * first, with `open: false` and `closedAt`.
    */
-  list(): Promise<ModuleWorkspaceView[]>
+  list(options?: ModuleWorkspaceListOptions): Promise<ModuleWorkspaceListEntry[]>
 }
 
 /**
@@ -1967,6 +2030,16 @@ export type RendererHost = {
    * disclosure).
    */
   listWorkspaces(): Promise<ModuleWorkspaceView[]>
+  /**
+   * A workspace's checked-out branch (null when detached) and its remotes,
+   * each with `owner/repo` when it is on GitHub — SSH host aliases from
+   * ~/.ssh/config resolved. Read by git from the workspace's working root, so
+   * a worktree reports its own branch. The `entry.main` twin is
+   * `MainHost.getWorkspaceGitInfo`. Declare `ipc:workspace-read` (checked:
+   * `permission_missing` without it). Never throws. Check
+   * `host.supports('workspace-git-info')` first.
+   */
+  getWorkspaceGitInfo(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
   /**
    * Observe the open workspaces: `cb` fires once with the current list, then
    * on every change (deduped by value, so an unrelated store write does not

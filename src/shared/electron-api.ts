@@ -141,6 +141,7 @@ import type {
 import type { TailnetPeerScan } from './tailnet-peers'
 import type { TailnetShareResult, TailnetShareStatus } from './tailnet-share'
 import type { RepositoryIdentityRead } from './repository-identity'
+import type { ModuleWorkspaceGitInfoResult } from './modules/workspace-view'
 import type {
   MeshBrowse,
   MeshConnection,
@@ -1448,6 +1449,8 @@ export type ElectronApi = {
    * must not be written down as one. See `RepositoryIdentityRead`.
    */
   getGitRepositoryIdentity: (folderPath: string) => Promise<RepositoryIdentityRead>
+  /** A folder's branch and remotes, for a capability module's `getWorkspaceGitInfo`. */
+  getModuleWorkspaceGitInfo: (folderPath: string) => Promise<ModuleWorkspaceGitInfoResult>
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions) => Promise<GitGraphSnapshot>
   getGitConflictFile: (repoRoot: string, filePath: string) => Promise<GitConflictFileContent | null>
   resolveGitConflict: (repoRoot: string, filePath: string, content: string) => Promise<GitCommandResult>

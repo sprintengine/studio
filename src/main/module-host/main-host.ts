@@ -7,6 +7,7 @@ import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import { MODULE_BRIDGE_INVOKE_CHANNEL, type ModuleBridgeInvokeResult } from '../../shared/modules/bridge'
 import { MODULE_EVENTS_CHANNEL, validateModuleEventTopic, type ModuleEventEnvelope } from '../../shared/modules/events'
 import type { CapabilityManifest, ModuleFileDigests } from '../../shared/modules/manifest'
+import type { ModuleWorkspaceGitInfoResult } from '../../shared/modules/workspace-view'
 import { coreMcpToolConflict, mcpToolWireName, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import {
   validateModuleNotifyInput,
@@ -215,6 +216,12 @@ export type MainHost = {
    * anything else.
    */
   getAssetPath(relativePath: string): string
+  /**
+   * A workspace's checked-out branch and remotes (with `owner/repo` for a
+   * GitHub one), read by git from the workspace's folder. A third-party
+   * module must declare `ipc:workspace-read`. Never throws.
+   */
+  getWorkspaceGitInfo(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   /**
    * A third-party module resolves only the services the SDK publishes a token
@@ -389,6 +396,8 @@ type ServiceEntry = {
 // ModuleStorageToken, and the SDK's private token behind getModuleStorage).
 // Spelled out here because service-tokens.ts imports this file.
 const MODULE_STORAGE_SERVICE_KEY = 'core.module-storage'
+// The first-party service behind `getWorkspaceGitInfo` (WorkspaceGitInfoToken).
+export const WORKSPACE_GIT_INFO_SERVICE_KEY = 'core.workspace-git-info'
 
 // One record per registered channel: ownership for collision reports and
 // teardown, plus the handler itself — ipcMain cannot be invoked in-process,
@@ -766,6 +775,26 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       },
       getAssetPath(relativePath) {
         return resolveAssetPath(moduleId, relativePath)
+      },
+      async getWorkspaceGitInfo(workspaceId) {
+        const permissions = options.resolveModuleManifest?.(moduleId)?.permissions
+        if (isThirdParty(moduleId) && !permissions?.includes('ipc:workspace-read')) {
+          return {
+            ok: false,
+            code: 'permission_missing',
+            message: `Module "${moduleId}" must declare the "ipc:workspace-read" permission to read a workspace's git information.`,
+          }
+        }
+        const reader = services.get(WORKSPACE_GIT_INFO_SERVICE_KEY)?.value as
+          { read?: (workspaceId: string) => Promise<ModuleWorkspaceGitInfoResult> } | undefined
+        if (typeof reader?.read !== 'function') {
+          return { ok: false, code: 'unavailable', message: 'Workspace git information is not available here.' }
+        }
+        try {
+          return await reader.read(workspaceId)
+        } catch {
+          return { ok: false, code: 'git_failed', message: "The workspace's git information could not be read." }
+        }
       },
       provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T {
         if (services.has(token.key)) {

@@ -39,6 +39,42 @@ test('getSkillStatus reads through the skill registry and writes nothing', async
   assert.deepEqual(calls, ['status:/Users/dev/acme:decision-log'])
 })
 
+test('getWorkspaceGitInfo needs ipc:workspace-read from a third-party module', async () => {
+  const permissions: Record<string, string[]> = { 'pr-radar': ['ipc:workspace-read'], sloppy: [] }
+  const kernel = kernelWith({
+    resolveModuleManifest: (id) =>
+      id in permissions
+        ? {
+            id,
+            displayName: id,
+            version: 1,
+            defaultEnabled: true,
+            source: 'third-party',
+            permissions: permissions[id],
+            engines: { hostApi: 1 },
+          }
+        : undefined,
+  })
+  const before = await kernel.hostFor('pr-radar').getWorkspaceGitInfo('ws-1')
+  assert.equal(before.ok === false && before.code, 'unavailable', 'no reader is provided yet')
+
+  const asked: string[] = []
+  kernel.hostFor('agent-runtime').provideService({ key: 'core.workspace-git-info' }, () => ({
+    read: async (workspaceId: string) => {
+      asked.push(workspaceId)
+      return { ok: true as const, branch: 'main', remotes: [] }
+    },
+  }))
+  assert.deepEqual(await kernel.hostFor('pr-radar').getWorkspaceGitInfo('ws-1'), {
+    ok: true,
+    branch: 'main',
+    remotes: [],
+  })
+  const refused = await kernel.hostFor('sloppy').getWorkspaceGitInfo('ws-1')
+  assert.equal(refused.ok === false && refused.code, 'permission_missing')
+  assert.deepEqual(asked, ['ws-1'], 'a refused module never reaches the reader')
+})
+
 test('getModuleDataDir is the storage service directory for this module', () => {
   const kernel = kernelWith()
   assert.throws(() => kernel.hostFor('insights').getModuleDataDir(), /no storage service/)

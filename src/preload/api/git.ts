@@ -1,6 +1,7 @@
 import type { IpcRendererEvent } from 'electron'
 import { ipc as ipcRenderer } from '../ipc-router'
 import type { RepositoryIdentityRead } from '../../shared/repository-identity'
+import type { ModuleWorkspaceGitInfoResult } from '../../shared/modules/workspace-view'
 import type { GitFileHunksResult, GitHunkRef, GitHunkScope } from '../../shared/git/hunks'
 import type { Changelist } from '../../shared/git/changelists'
 import type {
@@ -112,6 +113,8 @@ export const gitApi = {
   getGitBranches: (repoRoot: string): Promise<GitBranchSnapshot> => ipcRenderer.invoke('git:get-branches', repoRoot),
   getGitRepositoryIdentity: (folderPath: string): Promise<RepositoryIdentityRead> =>
     ipcRenderer.invoke('git:get-repository-identity', folderPath),
+  getModuleWorkspaceGitInfo: (folderPath: string): Promise<ModuleWorkspaceGitInfoResult> =>
+    ipcRenderer.invoke('git:get-module-workspace-info', folderPath),
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions): Promise<GitGraphSnapshot> =>
     ipcRenderer.invoke('git:get-commit-graph', repoRoot, options),
   getGitConflictFile: (repoRoot: string, filePath: string): Promise<GitConflictFileContent | null> =>
@@ -238,6 +241,7 @@ export const gitApi = {
   | 'getGitFileAtStage'
   | 'getGitBranches'
   | 'getGitRepositoryIdentity'
+  | 'getModuleWorkspaceGitInfo'
   | 'getGitCommitGraph'
   | 'getGitConflictFile'
   | 'resolveGitConflict'

@@ -19,6 +19,49 @@ export type ModuleWorkspaceView = {
   mode: string
 }
 
+/**
+ * One workspace as `WorkspaceContextService.list` reports it: the view, plus
+ * whether it is open now. With `includeClosed`, workspaces closed on this
+ * machine are listed after the open ones, newest first, as they were when
+ * they closed; their folders may since have moved or gone.
+ */
+export type ModuleWorkspaceListEntry = ModuleWorkspaceView & {
+  open: boolean
+  /** When a closed workspace was closed (epoch ms); absent while it is open. */
+  closedAt?: number
+}
+
+export type ModuleWorkspaceListOptions = {
+  /** Also list the workspaces closed on this machine (the most recent 500). */
+  includeClosed?: boolean
+}
+
+/** A git remote of a workspace's repository, as `git remote -v` names it (fetch URL). */
+export type ModuleWorkspaceGitRemote = {
+  name: string
+  /** The fetch URL, with any credentials in it removed. */
+  url: string
+  /** `owner/repo` when the remote is a GitHub repository, SSH host aliases resolved. */
+  github?: string
+}
+
+export type ModuleWorkspaceGitInfoErrorCode =
+  | 'permission_missing'
+  | 'unknown_workspace'
+  | 'no_folder'
+  | 'not_a_repository'
+  | 'unavailable'
+  | 'git_failed'
+
+/**
+ * A workspace's checked-out branch (null on a detached HEAD) and its remotes,
+ * read by git from the workspace's own folder — so a worktree reports its own
+ * branch and a submodule its own repository.
+ */
+export type ModuleWorkspaceGitInfoResult =
+  | { ok: true; branch: string | null; remotes: ModuleWorkspaceGitRemote[] }
+  | { ok: false; code: ModuleWorkspaceGitInfoErrorCode; message: string }
+
 export type ModuleWorkspaceViewSource = Pick<Workspace, 'id' | 'name' | 'folderPath' | 'mode' | 'templateId'>
 
 // Every record main holds is a real workspace now. The
