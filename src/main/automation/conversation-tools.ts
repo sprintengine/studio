@@ -242,8 +242,11 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         "Settle a chat on this machine, as its row menu's Settle does: it leaves the chat list, its agents' " +
         'processes end, and the next message to it resumes it. With settled: false it is brought back, and ' +
         'held out of the automatic settle until it sees new activity. Refused with "working" while an agent ' +
-        'in the chat is working. Settling a chat already settled, or bringing back one that is not, changes ' +
-        'nothing.',
+        'in the chat is working, with one exception: an agent settling its own chat, while its own turn is ' +
+        'the only work there, is answered settlesWhenTurnEnds: true, and the chat settles once that turn ' +
+        'completes. It stays as it is if the turn fails or is stopped, if a message reaches the chat first, ' +
+        'or if another agent there is working by then. Settling a chat already settled, or bringing back one ' +
+        'that is not, changes nothing.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -260,8 +263,18 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         if (args.settled !== undefined && typeof args.settled !== 'boolean') {
           return toolError('invalid_arguments', '"settled" must be a boolean when provided.')
         }
-        const settled = deps.lifecycle.settle(args.workspaceId.trim(), args.settled !== false, lifecycleActor(context))
+        const settled = deps.lifecycle.settle(
+          args.workspaceId.trim(),
+          args.settled !== false,
+          lifecycleActor(context),
+          launchingAgentOf(context),
+        )
         if (!settled.ok) return toolError(settled.code, settled.message)
+        if ('settlesWhenTurnEnds' in settled)
+          return toolSuccess({
+            ...settled,
+            note: 'This chat settles once your current turn completes. Finish your reply as usual; it stays as it is if the turn fails or is stopped, or if a message reaches the chat first.',
+          })
         return toolSuccess(settled)
       },
     },

@@ -13,6 +13,7 @@ import { publishDiagnosticSync } from '../../../utils/diagnostics'
 import { useToastStore, showToast } from '../../../store/toastStore'
 import { cliRuntimeOnMachine } from '../newWorkspace/cliRuntimeOptions'
 import { hostPlatform } from '../../../clientCapabilities'
+import { createCliOutputLatestLineReader, withLastOutputLine } from './cliUpdateProgress'
 
 // The CLI-update toast (owner ruling 2026-09-04): the CLI's glyph,
 // "Update available: Codex 0.153.3", and two buttons — Settings, and Update,
@@ -30,6 +31,11 @@ import { hostPlatform } from '../../../clientCapabilities'
 // stay until the update is installed or the person presses the toast's
 // Dismiss, which is them saying "not now" to this version on this machine.
 export const CLI_UPDATE_TOAST_MS = 60_000
+
+// How often, at most, the running update's toast takes a new output line:
+// four a second reads as live without the toast flickering through every
+// frame of a progress bar.
+export const CLI_UPDATE_PROGRESS_INTERVAL_MS = 250
 
 function toastId(advisory: Pick<CliVersionAdvisory, 'cli' | 'hostId'>): string {
   return advisory.hostId === LOCAL_HOST_ID
@@ -159,7 +165,44 @@ export async function runCliUpdateFromToast(
   const store = useWorkspaceStore.getState()
   const runtime = cliRuntimeOnMachine(cli, hostId, store.appSettings)
   const before = (hostId === LOCAL_HOST_ID ? store.cliAvailability[cli]?.version : advisory.currentVersion) ?? null
-  showToast({ id, tone: 'neutral', cli, title: `Updating ${name}…`, autoDismissMs: false })
+  const showUpdating = (description?: string): void => {
+    showToast({ id, tone: 'neutral', cli, title: `Updating ${name}…`, description, autoDismissMs: false })
+  }
+  showUpdating()
+  // The updater's newest line rides under the title while it runs: an npm
+  // install can take a minute, and a bare "Updating…" for all of it reads as
+  // stuck. Main streams the output on the channel installs use, the one the
+  // Settings row's log reads too. Throttled, because an updater redrawing a
+  // progress bar sends far more chunks than a toast can usefully show.
+  const output = createCliOutputLatestLineReader()
+  let shownLine = ''
+  let lastShownAt = 0
+  let progressTimer: ReturnType<typeof setTimeout> | null = null
+  const showProgress = (): void => {
+    progressTimer = null
+    const line = output.latest()
+    if (line === shownLine) return
+    // A toast the person dismissed stays dismissed: re-showing the id would
+    // put it back. The result still reports when the update settles.
+    if (!useToastStore.getState().toasts.some((toast) => toast.id === id)) return
+    shownLine = line
+    lastShownAt = Date.now()
+    showUpdating(line)
+  }
+  const unsubscribe =
+    typeof api.onCliInstallOutput === 'function'
+      ? api.onCliInstallOutput(cli, (chunk) => {
+          output.push(chunk)
+          if (progressTimer !== null) return
+          progressTimer = setTimeout(
+            showProgress,
+            Math.max(0, lastShownAt + CLI_UPDATE_PROGRESS_INTERVAL_MS - Date.now()),
+          )
+        })
+      : () => undefined
+  // A failure keeps the updater's last line, so the toast that says it did not
+  // update also says where it stopped.
+  const failure = (description: string): string => withLastOutputLine(description, output.latest())
   try {
     const result = await api.cliUpdate(cli, runtime)
     if (result.ok && result.version && result.version.trim() !== (before ?? '').trim()) {
@@ -170,7 +213,9 @@ export async function runCliUpdateFromToast(
         tone: 'warn',
         cli,
         title: `${name} did not update`,
-        description: `The update finished but the version is still ${before ?? 'the same'}. Settings › Agents has the command to run by hand.`,
+        description: failure(
+          `The update finished but the version is still ${before ?? 'the same'}. Settings › Agents has the command to run by hand.`,
+        ),
       })
     } else {
       showToast({
@@ -178,7 +223,7 @@ export async function runCliUpdateFromToast(
         tone: 'warn',
         cli,
         title: `${name} did not update`,
-        description: result.error ?? 'The update did not finish.',
+        description: failure(result.error ?? 'The update did not finish.'),
       })
     }
   } catch (error) {
@@ -187,8 +232,11 @@ export async function runCliUpdateFromToast(
       tone: 'warn',
       cli,
       title: `${name} did not update`,
-      description: error instanceof Error ? error.message : String(error),
+      description: failure(error instanceof Error ? error.message : String(error)),
     })
+  } finally {
+    if (progressTimer !== null) clearTimeout(progressTimer)
+    unsubscribe()
   }
   // Main detected the CLI again when the update finished and recorded it, for
   // this CLI on this machine only, so these reads pick up the new version
