@@ -2977,6 +2977,14 @@ samp,
  * `aria-hidden` is not a condition: glyphs and working-mark cells carry it
  * themselves while on screen.
  *
+ * The loops do not run at the display's rate even on screen: the motion clock
+ * (utils/motionClock.ts) holds each one paused and steps it a few times a
+ * second. Once it holds a loop, this rule no longer reaches it directly (a
+ * loop paused from script ignores its play state from then on); the clock
+ * reads the play state this rule computes and leaves a loop it says is paused
+ * where it stands, and it watches the attributes above to hear when one is let
+ * go.
+ *
  * Nothing may write `animation-play-state` inline to resume these: an inline
  * `running` beats this rule, so it is the rule alone that decides. The
  * skeleton's sweep and the shimmer's counter-moving text are pseudo-elements,

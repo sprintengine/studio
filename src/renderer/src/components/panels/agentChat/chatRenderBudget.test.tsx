@@ -281,7 +281,12 @@ async function mountChat(events: ConversationEvent[]) {
     process.stderr.write(
       `\nMOUNT events=${events.length} ms=${(performance.now() - mountStarted).toFixed(0)} nodes=${host.getElementsByTagName('*').length}\n`,
     )
+  const { flushPendingTokensForTests } = await import('./useConversationSession')
+  // A frame here also renders whatever tokens arrived since the last one: the
+  // session renders streamed tokens on its own interval, which this bench
+  // stands in for so each token is measured on its own.
   const runFrames = () => {
+    flushPendingTokensForTests()
     const due = [...frameQueue.values()]
     frameQueue.clear()
     for (const callback of due) callback(performance.now())
