@@ -14,6 +14,7 @@ import {
   ConversationRuntimeToken,
   GitHubModuleServiceToken,
   GitHubTokenStoreToken,
+  ModuleAppStateToken,
   ModuleSecretsServiceToken,
   ModuleStorageToken,
   SprintEngineAuthToken,
@@ -30,6 +31,7 @@ import { ConversationSessionApi } from '../conversation-session-api'
 import { createModuleGitHubRegistry } from '../module-host/module-github'
 import { createModuleSecretsRegistry } from '../module-host/module-secrets'
 import { createModuleStorageRegistry } from '../module-host/module-storage'
+import { moduleAppStateMirrorFor } from '../module-host/module-app-state-mirror'
 import { moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
@@ -155,6 +157,10 @@ export function createAgentRuntimeModule(
       // Per-module, per-workspace JSON storage (SDK getModuleStorage): the
       // host owns file placement so modules stop inventing locations.
       host.provideService(ModuleStorageToken, () => createModuleStorageRegistry({ userDataDir: () => paths.dataDir() }))
+      // Every module's app-level state (its Settings section's values), as the
+      // windows last pushed it: what `MainHost.getModuleAppState` reads, so
+      // `entry.main` sees the person's settings with no window open.
+      host.provideService(ModuleAppStateToken, () => moduleAppStateMirrorFor(paths.dataDir()))
       // Companion agents: workspace-bound background agents driven through the
       // shared conversation runtime. The core service is app-internal
       // (first-party consumers require it directly); the moduleId-scoped

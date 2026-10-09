@@ -547,6 +547,25 @@ export type MainHost = {
    * `host.supports('workspace-git-info')` first.
    */
   getWorkspaceGitInfo(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
+  /**
+   * Read one key of your module's APP-level state from `entry.main` — the
+   * same namespace your Settings section's `setValue` and
+   * `RendererHost.setModuleAppState` write, as the windows last pushed it.
+   * Persisted, so it reads with no window open: a scheduler in `entry.main`
+   * sees the run time the person chose without a second store and an IPC
+   * sync. Read-only (main never writes it back); a value set while no window
+   * was open arrives with the next window. `undefined` when the key has never
+   * been set. Never put a secret here — use the secrets service.
+   * Check `host.supports('main-app-state')` first.
+   */
+  getModuleAppState<T = unknown>(key: string): T | undefined
+  /**
+   * Hear your module's whole app-state namespace whenever it changes — a
+   * Settings change in whichever window — not on subscribe (read the current value
+   * with `getModuleAppState`). Returns the unsubscriber; unloading your module
+   * drops it too. The `entry.main` twin of `RendererHost.watchModuleAppState`.
+   */
+  watchModuleAppState(cb: (values: Readonly<Record<string, unknown>>) => void): () => void
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T

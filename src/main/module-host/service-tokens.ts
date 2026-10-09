@@ -6,7 +6,8 @@ import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../co
 import type { ModuleGitHubRegistry, ModuleSecretsRegistry } from '../../shared/modules/brokers'
 import type { ModuleConversationRegistry } from '../../shared/modules/conversation-service'
 import type { ScheduledAgentsModuleRegistry, ScheduledAgentsService } from '../scheduled-agents/service'
-import { createServiceToken, WORKSPACE_GIT_INFO_SERVICE_KEY } from './main-host'
+import { createServiceToken, MODULE_APP_STATE_SERVICE_KEY, WORKSPACE_GIT_INFO_SERVICE_KEY } from './main-host'
+import type { ModuleAppStateMirror } from './module-app-state-mirror'
 
 // Tokens for the shared services that capability modules consume across module
 // boundaries (instead of importing the concrete instances). index.ts seeds the
@@ -90,3 +91,7 @@ export const GitHubModuleServiceToken = createServiceToken<ModuleGitHubRegistry>
 export const WorkspaceGitInfoToken = createServiceToken<{
   read(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
 }>(WORKSPACE_GIT_INFO_SERVICE_KEY)
+// Main's mirror of every module's app-level state (the renderer pushes it),
+// read by the module host's `getModuleAppState` / `watchModuleAppState`, each
+// scoped to the calling module. First-party only, like the git read above.
+export const ModuleAppStateToken = createServiceToken<ModuleAppStateMirror>(MODULE_APP_STATE_SERVICE_KEY)

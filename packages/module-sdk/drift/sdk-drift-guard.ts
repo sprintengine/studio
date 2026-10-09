@@ -416,6 +416,11 @@ expectType<IsExact<AppModuleWorkspaceGitRemote, SdkModuleWorkspaceGitRemote>>()
 expectType<IsExact<AppModuleWorkspaceGitInfoResult, SdkModuleWorkspaceGitInfoResult>>()
 expectType<IsExact<AppMainHost['getWorkspaceGitInfo'], SdkMainHost['getWorkspaceGitInfo']>>()
 expectType<IsExact<AppRendererHost['getWorkspaceGitInfo'], SdkRendererHost['getWorkspaceGitInfo']>>()
+// Settings in main: the app-state pair on MainHost reads exactly like the renderer's.
+expectType<IsExact<AppMainHost['getModuleAppState'], SdkMainHost['getModuleAppState']>>()
+expectType<IsExact<AppMainHost['watchModuleAppState'], SdkMainHost['watchModuleAppState']>>()
+expectType<IsExact<AppMainHost['getModuleAppState'], AppRendererHost['getModuleAppState']>>()
+expectType<IsExact<AppMainHost['watchModuleAppState'], AppRendererHost['watchModuleAppState']>>()
 
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()

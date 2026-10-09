@@ -49,6 +49,7 @@ import { registerHostedCardFeedIpc } from './ipc/card-feed-ipc'
 import { registerCardsIpc } from './ipc/cards-ipc'
 import { registerCliVersionIpc } from './ipc/cli-version-ipc'
 import { registerModuleEnablementIpc, type ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
+import { registerModuleAppStateIpc } from './ipc/module-app-state-ipc'
 import { registerModuleRegistryIpc } from './ipc/module-registry-ipc'
 import { registerPluginIpc } from './ipc/plugins-ipc'
 import { registerPullRequestIpc } from './ipc/pull-request-ipc'
@@ -244,6 +245,8 @@ export function registerCoreIpc(
   registerVersionControlIpc(machineIpc)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain, { applyLive: options.applyModuleEnablementLive })
+  // Module app state (Settings section values), mirrored for `entry.main`.
+  registerModuleAppStateIpc(ipcMain)
   registerModuleRegistryIpc(ipcMain, services.moduleRegistryMirror)
   registerAppearanceIpc(ipcMain)
   registerBackgroundModeIpc(ipcMain, services.backgroundModeStore)

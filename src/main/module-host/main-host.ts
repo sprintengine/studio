@@ -222,6 +222,18 @@ export type MainHost = {
    * module must declare `ipc:workspace-read`. Never throws.
    */
   getWorkspaceGitInfo(workspaceId: string): Promise<ModuleWorkspaceGitInfoResult>
+  /**
+   * One key of the module's app-level state — the namespace its Settings
+   * section and `RendererHost.setModuleAppState` write — as main's mirror last
+   * heard it from a window, persisted, so it reads with no window open.
+   * Read-only: main never writes it back. `undefined` when never set.
+   */
+  getModuleAppState<T = unknown>(key: string): T | undefined
+  /**
+   * Hear the module's whole app-state namespace whenever it changes (not on
+   * subscribe). Returns the unsubscriber; unloading the module drops it too.
+   */
+  watchModuleAppState(cb: (values: Readonly<Record<string, unknown>>) => void): () => void
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   /**
    * A third-party module resolves only the services the SDK publishes a token
@@ -398,6 +410,13 @@ type ServiceEntry = {
 const MODULE_STORAGE_SERVICE_KEY = 'core.module-storage'
 // The first-party service behind `getWorkspaceGitInfo` (WorkspaceGitInfoToken).
 export const WORKSPACE_GIT_INFO_SERVICE_KEY = 'core.workspace-git-info'
+// The first-party mirror of the renderer's module app state (ModuleAppStateToken).
+export const MODULE_APP_STATE_SERVICE_KEY = 'core.module-app-state'
+
+type ModuleAppStateReader = {
+  get(moduleId: string): Readonly<Record<string, unknown>>
+  subscribe(moduleId: string, listener: (values: Readonly<Record<string, unknown>>) => void): () => void
+}
 
 // One record per registered channel: ownership for collision reports and
 // teardown, plus the handler itself — ipcMain cannot be invoked in-process,
@@ -415,6 +434,14 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
   let shutdownBeginHooks: HookEntry<ShutdownBeginHook>[] = []
   let shutdownHooks: HookEntry<ShutdownHook>[] = []
   const sidecarEntries = new Map<string, SidecarEntry>()
+  // App-state watches per module, so unloading a module stops its callbacks.
+  const appStateWatches = new Map<string, Set<() => void>>()
+  const appStateReader = (): ModuleAppStateReader | undefined => {
+    const reader = services.get(MODULE_APP_STATE_SERVICE_KEY)?.value as Partial<ModuleAppStateReader> | undefined
+    return typeof reader?.get === 'function' && typeof reader.subscribe === 'function'
+      ? (reader as ModuleAppStateReader)
+      : undefined
+  }
   // Skill ids per module, so unregisterModule can drop them without asking the
   // registry to scan. The registry is the truth; this is the kernel's receipt.
   const skillIdsByModule = new Map<string, Set<string>>()
@@ -776,6 +803,22 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       getAssetPath(relativePath) {
         return resolveAssetPath(moduleId, relativePath)
       },
+      getModuleAppState<T = unknown>(key: string): T | undefined {
+        if (typeof key !== 'string' || key.trim().length === 0) return undefined
+        return appStateReader()?.get(moduleId)[key] as T | undefined
+      },
+      watchModuleAppState(cb) {
+        const reader = appStateReader()
+        if (!reader) return () => {}
+        const stop = reader.subscribe(moduleId, cb)
+        const owned = appStateWatches.get(moduleId) ?? new Set<() => void>()
+        owned.add(stop)
+        appStateWatches.set(moduleId, owned)
+        return () => {
+          if (!owned.delete(stop)) return
+          stop()
+        }
+      },
       async getWorkspaceGitInfo(workspaceId) {
         const permissions = options.resolveModuleManifest?.(moduleId)?.permissions
         if (isThirdParty(moduleId) && !permissions?.includes('ipc:workspace-read')) {
@@ -898,6 +941,8 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       if (entry.moduleId === moduleId) services.delete(serviceKey)
     }
     if (skillIdsByModule.delete(moduleId)) skillRegistry.unregister(moduleId)
+    for (const stop of appStateWatches.get(moduleId) ?? []) stop()
+    appStateWatches.delete(moduleId)
   }
 
   return {

@@ -1774,6 +1774,9 @@ export type ElectronApi = {
   workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<WorkspaceBackupWriteResult>
   workspaceBackupRead: () => Promise<WorkspaceBackupReadResult>
   setModuleEnablement: (overrides: ModuleEnablementOverrides) => Promise<ModuleEnablementWriteResult>
+  // Renderer → main mirror of every module's app-level state (`module:<id>`
+  // namespaces), so a module's entry.main reads its settings with no window.
+  setModuleAppState: (bag: Record<string, Record<string, unknown>>) => Promise<void>
   // Renderer → main mirror of the module registry the user sees; main
   // caches the last push in memory for its own read surfaces.
   setModuleRegistrySnapshot: (snapshot: ModuleRegistrySnapshot) => Promise<ModuleRegistrySnapshotWriteResult>
